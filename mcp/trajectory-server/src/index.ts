@@ -5,16 +5,21 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { toolDefinitions, toolHandlers } from './tools/index.js';
+import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
+import { TrajectoryDB } from './db.js';
 
 const dbPath =
   process.env.TRAJECTORY_DB_PATH ??
   path.join(process.cwd(), '.trajectory.db');
 
+const db = new TrajectoryDB(dbPath);
+
 const server = new Server(
   { name: 'trajectory-server', version: '0.2.0' },
   { capabilities: { tools: {} } },
 );
+
+registerTools(server, db);
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: toolDefinitions,
@@ -27,6 +32,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     throw new Error(`Unknown tool: ${name}`);
   }
   return handler(args ?? {});
+});
+
+process.on('SIGINT', () => {
+  db.close();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  db.close();
+  process.exit(0);
 });
 
 const transport = new StdioServerTransport();
