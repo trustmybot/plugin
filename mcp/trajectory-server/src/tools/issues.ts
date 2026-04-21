@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { genId, nowISO } from '../db.js';
 import type { Issue, Task } from '../types.js';
+import { normalizeAgent, redactIssue } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -105,7 +106,7 @@ export function issueTools(db: TrajectoryDB): {
 
   const handlers: Record<string, Fn> = {
     issue_create: wrapHandler(async (args) => {
-      requireArg(args, 'agent');
+      const agent = normalizeAgent(args['agent'] as string | undefined);
       requireArg(args, 'objective');
 
       const objective = args['objective'] as string;
@@ -129,11 +130,12 @@ export function issueTools(db: TrajectoryDB): {
       }
 
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [rowId.id]);
-      return ok({ ...issue, issue_string_id: issueId });
+      const redacted = redactIssue(issue!, agent, { include_goals: true });
+      return ok({ ...redacted, issue_string_id: issueId });
     }),
 
     issue_get: wrapHandler(async (args) => {
-      requireArg(args, 'agent');
+      const agent = normalizeAgent(args['agent'] as string | undefined);
       const issueId = requireArg(args, 'issue_id') as string;
       const includeGoals = (args['include_goals'] as boolean | undefined) ?? false;
 
@@ -142,16 +144,11 @@ export function issueTools(db: TrajectoryDB): {
         throw new Error(`Not found: ${issueId}`);
       }
 
-      if (!includeGoals) {
-        const { goals_md: _, ...rest } = issue;
-        void _;
-        return ok(rest);
-      }
-      return ok(issue);
+      return ok(redactIssue(issue, agent, { include_goals: includeGoals }));
     }),
 
     issue_resume: wrapHandler(async (args) => {
-      requireArg(args, 'agent');
+      const agent = normalizeAgent(args['agent'] as string | undefined);
       const issueId = requireArg(args, 'issue_id') as string;
 
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
@@ -167,7 +164,7 @@ export function issueTools(db: TrajectoryDB): {
         [issueId],
       );
 
-      return ok({ issue, next_task: task ?? null });
+      return ok({ issue: redactIssue(issue, agent), next_task: task ?? null });
     }),
 
     issue_close: wrapHandler(async (args) => {

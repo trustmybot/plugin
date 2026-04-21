@@ -8,9 +8,18 @@ import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
 import { reportTools } from './reports.js';
+import { withAgentScope } from '../middleware/agent-scope.js';
 
 export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
+
+function wrapAll(
+  handlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>>,
+): Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> {
+  return Object.fromEntries(
+    Object.entries(handlers).map(([name, handler]) => [name, withAgentScope(name, handler)]),
+  );
+}
 
 export function registerTools(server: Server, db: TrajectoryDB): void {
   const issues = issueTools(db);
@@ -32,12 +41,12 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
   ];
 
   toolHandlers = {
-    ...issues.handlers,
-    ...tasks.handlers,
-    ...ledger.handlers,
-    ...audit.handlers,
-    ...validation.handlers,
-    ...skills.handlers,
-    ...reports.handlers,
+    ...wrapAll(issues.handlers),
+    ...wrapAll(tasks.handlers),
+    ...wrapAll(ledger.handlers),
+    ...wrapAll(audit.handlers),
+    ...wrapAll(validation.handlers),
+    ...wrapAll(skills.handlers),
+    ...wrapAll(reports.handlers),
   };
 }

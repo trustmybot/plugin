@@ -25,7 +25,7 @@ describe('issueTools', () => {
     const tools = issueTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
-      agent: 'swe',
+      agent: 'architect',
       objective: 'Build feature X',
       goals_md: '# Goals\n- Do X',
     });
@@ -35,7 +35,7 @@ describe('issueTools', () => {
     assert.equal(created.status, 'open');
 
     const getResult = await call(tools.handlers, 'issue_get', {
-      agent: 'swe',
+      agent: 'architect',
       issue_id: String(created.id),
       include_goals: true,
     });

@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
+import { normalizeAgent, redactValidationRow } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -74,6 +75,7 @@ export function validationTools(db: TrajectoryDB): {
         properties: {
           agent: { type: 'string' },
           task_id: { type: 'string' },
+          own_task_id: { type: 'string', description: 'The calling agent\'s own task ID (used to gate feedback_md access for swe)' },
         },
         required: ['agent', 'task_id'],
       },
@@ -121,15 +123,16 @@ export function validationTools(db: TrajectoryDB): {
     }),
 
     validation_history: wrapHandler(async (args) => {
-      requireArg(args, 'agent');
+      const agent = normalizeAgent(args['agent'] as string | undefined);
       const taskId = requireArg(args, 'task_id') as string;
+      const ownTaskId = args['own_task_id'] as string | undefined;
 
       const rows = db.all<ValidationAttempt>(
         `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
         [taskId],
       );
 
-      return ok(rows);
+      return ok(rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })));
     }),
   };
 
