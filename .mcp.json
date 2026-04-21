@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "trajectory-server": {
+      "command": "node",
+      "args": ["mcp/trajectory-server/dist/index.js"],
+      "env": {
+        "TRAJECTORY_DB_PATH": "${CLAUDE_PLUGIN_DATA}/trajectory.db"
+      }
+    }
+  }
+}
