@@ -40,11 +40,26 @@ The **Architect** reads your goals, discusses with you until aligned, writes a b
 
 ## What you get
 
-- **4 specialized agents** — architect, swe, pr-reviewer (+ optional workspace-level "chat")
-- **Workflow contract** — `bro/GOALS.md` → `bro/DISCUSSION.md` → `bro/BLUEPRINT.md` → `bro/tasks/*.xml`
-- **Task XML format** — structured contracts with `<authorized-by>`, `<scope>`, `<verification>`, `<reviewed-by>`
-- **Hook enforcement** — SWE can't spawn without a task file; push blocked without review sign-off; source code write-lockout outside worktrees
-- **Worktree isolation** — SWE agents work on isolated git branches, you merge when ready
+**10 specialized agents in a company structure:**
+
+- **Secretary** — gatekeeper, the ONLY agent you talk to; routes everything
+- **CEO** — product vision, priorities, strategic calls
+- **CTO** — technical architecture, BLUEPRINT approval
+- **PM** — product strategy, user research, viability
+- **GTM** — positioning, messaging, launch, conversion
+- **Designer** — UX, visual identity, design system
+- **Architect** — breaks BLUEPRINTs into task files, validates SWE
+- **SWE** — implements one task at a time in isolated worktrees
+- **PR Reviewer** — pre-commit and pre-push review gate
+- **Prompt Engineer** — rewrites prompts, docs, agent files for clarity
+
+**Workflow contract:** `bro/GOALS.md` → `bro/DISCUSSION.md` → `bro/BLUEPRINT.md` → `bro/tasks/*.xml`
+
+**Task XML format:** structured contracts with `<authorized-by>`, `<scope>`, `<verification>`, `<reviewed-by>`
+
+**Hook enforcement:** SWE can't spawn without a task file; push blocked without review sign-off; source code write-lockout outside worktrees
+
+**Worktree isolation:** SWE agents work on isolated git branches, you merge when ready
 
 ## Why multi-agent
 
