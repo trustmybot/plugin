@@ -31,7 +31,6 @@ Inconsistent naming triggers code review findings.
 | Variables, functions | `camelCase` | `dropExisting`, `scoreHistory` |
 | Classes, types, interfaces | `PascalCase` | `UserService`, `UserDto` |
 | Constants | `UPPER_SNAKE_CASE` | `MAX_RETRIES` |
-| React hooks | `useCamelCase` | `useAuth`, `useCurrentUser` |
 
 ## SQL / DB
 

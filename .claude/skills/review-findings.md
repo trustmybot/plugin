@@ -39,8 +39,8 @@ Every agent reads this before doing their job.
 
 ## Language-Specific Patterns
 
-Add sections as relevant to your stack (e.g., "Python Patterns", "React Patterns",
-"SQL Patterns", "Go Patterns"). Each finding includes:
+Add sections as relevant to your stack (e.g., "Python Patterns", "SQL Patterns",
+"[Your-stack] Patterns"). Each finding includes:
 
 ```markdown
 ### <Pattern name>

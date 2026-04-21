@@ -1,0 +1,29 @@
+{
+  "name": "tmb",
+  "version": "0.2.0",
+  "description": "TMB multi-agent Claude Code plugin with SQLite trajectory MCP.",
+  "author": {
+    "name": "trustmybot",
+    "url": "https://github.com/trustmybot"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trustmybot/plugin"
+  },
+  "dependencies": {
+    "anthropic/commit-commands": "^1.0",
+    "anthropic/pr-review-toolkit": "^1.0"
+  },
+  "provides": {
+    "agents": [
+      "secretary",
+      "architect",
+      "swe",
+      "pr-reviewer",
+      "prompt-engineer"
+    ],
+    "skills": [],
+    "workflow": "bro/"
+  }
+}

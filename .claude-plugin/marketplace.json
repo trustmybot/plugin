@@ -1,0 +1,12 @@
+{
+  "name": "trustmybot",
+  "description": "Public marketplace for trustmybot plugins.",
+  "plugins": [
+    {
+      "name": "tmb",
+      "source": ".",
+      "version": "0.2.0",
+      "description": "TMB multi-agent Claude Code plugin with SQLite trajectory MCP."
+    }
+  ]
+}
