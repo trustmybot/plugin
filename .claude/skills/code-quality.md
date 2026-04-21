@@ -1,6 +1,6 @@
 ---
 name: code-quality
-description: Shared quality criteria for design, implementation, and review. Used by Architect (design-time), SWE (implementation-time), and PR Reviewer (review-time). Covers error handling, edge cases, PostgreSQL safety, Python patterns, test isolation, and the self-review checklist.
+description: Shared quality criteria for design, implementation, and review. Used by Architect (design-time), SWE (implementation-time), and PR Reviewer (review-time). Covers error handling, edge cases, database safety, Python patterns, test isolation, and the self-review checklist.
 ---
 
 # Code Quality Criteria
@@ -67,33 +67,32 @@ Shared reference for all agents. Each agent uses these criteria at their stage:
 
 ---
 
-## PostgreSQL Safety
+## Database Safety
 
 ### Design-time questions (Architect)
-- Are all queries parameterized (`%s` placeholders)?
-- Is the connection pool sized correctly? Is cleanup happening?
+- Are all queries parameterized?
+- Is connection cleanup handled (context managers)?
 - Are multi-statement operations wrapped in transactions?
 - Are there indexes for new query patterns?
-- Are upserts using `ON CONFLICT`?
+- Are upserts using `ON CONFLICT` or equivalent?
 - Is test code isolated from production data?
 
 ### Implementation rules (SWE)
-- **ALWAYS use parameterized queries** — `%s` placeholders with psycopg, never f-strings or string concatenation.
-- **Use `with pool.connection() as conn:`** for automatic cleanup.
+- **ALWAYS use parameterized queries** — use the driver's placeholder syntax, never f-strings or string concatenation.
+- **Use context managers** for all connections — ensures cleanup even on error.
 - **Upsert via `ON CONFLICT ... DO UPDATE`** — never check-then-insert (TOCTOU race).
 - **Add indexes** for frequently queried columns and FK columns.
-- **Use transactions** for multi-statement operations: `with conn.transaction():`.
+- **Use transactions** for multi-statement operations.
 - **Best-effort writes** — DB failures in the pipeline should log warnings, not crash. The pipeline's primary output is files, not DB records.
 
 ### Review-time patterns (all agents)
 - SQL via f-strings or string concatenation (injection risk) — **always Critical**
 - Missing `ON CONFLICT` for unique-constrained inserts
-- Cursor/connection not properly closed (must use `with` context manager)
+- Connection not properly closed (must use `with` context manager)
 - Missing transaction boundaries for multi-statement operations
 - `SELECT *` when only specific columns needed
 - Missing indexes on FK columns or common WHERE clauses
 - **Test code connecting to production database** — tests MUST use isolated test DB
-- Missing `RETURNING` when the inserted/updated row data is needed
 
 ---
 
@@ -101,7 +100,7 @@ Shared reference for all agents. Each agent uses these criteria at their stage:
 
 ### Rules
 - Tests **must never** read from or write to the production database.
-- Test database is a separate PostgreSQL database (configured in `conftest.py` or env var override).
+- Test database is a separate database (configured in `conftest.py` or env var override — never the default production URL).
 - Test fixtures must clean up after themselves — no leftover data between test runs.
 - If a test needs seed data, it creates it in setup and removes it in teardown.
 - Tests must not depend on external services (Claude API, JobSpy, HTTP fetches) — use mocks or fixtures.
@@ -138,7 +137,6 @@ Shared reference for all agents. Each agent uses these criteria at their stage:
 - No bare `except:` or `except Exception` — catch specific exceptions
 - No mutable default arguments (`def f(items=[])`) — use `None` + conditional
 - `datetime.utcnow()` is naive — use `datetime.now(timezone.utc)` for aware datetimes
-- Flag any `pip install` — must use `uv`
 - No `as Any` type ignoring
 - Use `from __future__ import annotations` for modern type hints in new files
 - Use `with` for all file/connection/cursor handling
@@ -181,12 +179,13 @@ Run before reporting COMPLETED. If any item fails, fix it.
 - [ ] No sensitive data in logs or error messages
 
 ### Verification (MANDATORY — must actually run, not skip)
-- [ ] `uv run ruff check src/ tests/` passes
-- [ ] `uv run pytest tests/ -v` passes (for Python changes)
-- [ ] `cd web/api && bun run lint && bun run build && bun test` passes (for API changes)
-- [ ] `cd web/app && bun run lint && bun run build` passes (for frontend changes)
-- [ ] **Manual smoke test**: if the change affects a runtime behavior (e.g., pipeline spawning, API endpoints, SSE streaming), run the actual command in the container and verify it works end-to-end. Do NOT report COMPLETED based on lint/build alone.
+- [ ] Run the project's lint command (e.g., `uv run ruff check src/ tests/` for Python)
+- [ ] Run the relevant test suite (e.g., `uv run pytest tests/ -v` for Python changes)
+- [ ] Build if applicable (check the project's build command)
+- [ ] **Manual smoke test**: if the change affects runtime behavior, run the actual command and verify end-to-end. Do NOT report COMPLETED based on lint/build alone.
 - [ ] Success criteria commands from the task file all pass
+
+> Stack-specific verification commands live in per-stack skills (e.g., `python-dev.md`). Check those for your language.
 
 **CRITICAL: Every code change must be tested before reporting COMPLETED.** Untested code is rejected. Lint/build passing is necessary but NOT sufficient — you must run the corresponding unit tests and, for behavioral changes, verify the actual runtime behavior. If tests don't exist for the changed code, note that in your report.
 

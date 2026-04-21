@@ -1,89 +1,91 @@
 ---
 name: sql-dev
-description: PostgreSQL and migration development rules for SWE agents working with database code.
+description: SQLite development rules for SWE agents working with database code.
 ---
 
-# SQL and PostgreSQL Development
+# SQL and SQLite Development
 
-## Database
+## Connection Setup
 
-PostgreSQL 18 runs locally via Homebrew (NOT Docker). All databases on port **5432**.
+Always configure SQLite with these pragmas on every new connection:
 
-| Database | Purpose |
-|----------|---------|
-| `gan_cv` | Primary (production-ready) |
-| `gan_cv_dev` | Dev experiments |
-| `gan_cv_test` | pytest only -- `conftest.py` configures this |
+```python
+import sqlite3
 
-Test code must NEVER connect to `gan_cv` (production data).
+def get_connection(db_path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.row_factory = sqlite3.Row
+    return conn
+```
 
-## Connection (Python -- psycopg3)
+- `journal_mode=WAL`: allows concurrent reads during writes.
+- `foreign_keys=ON`: SQLite does NOT enforce FK constraints by default — always set this.
+- `busy_timeout=5000`: wait up to 5 s before raising `OperationalError: database is locked`.
 
-- Always use the connection pool: `with pool.connection() as conn:`
-- Transactions for multi-statement ops: `with conn.transaction():`
-- DATABASE_URL env var is the only way to configure the database. No hardcoded strings.
+Always use a context manager so connections are closed even on error:
+
+```python
+with get_connection(db_path) as conn:
+    conn.execute("INSERT INTO items (name) VALUES (?)", (name,))
+```
 
 ## Parameterized Queries (CRITICAL)
 
 ```python
 # CORRECT
-cursor.execute("SELECT * FROM jobs WHERE role_id = %s", (role_id,))
+conn.execute("SELECT * FROM items WHERE id = ?", (item_id,))
 
-# WRONG -- SQL injection risk
-cursor.execute(f"SELECT * FROM jobs WHERE role_id = {role_id}")
+# WRONG — SQL injection risk
+conn.execute(f"SELECT * FROM items WHERE id = {item_id}")
 ```
 
-- Python (psycopg): `%s` placeholders, pass tuple of values
-- TypeScript (Drizzle): query builder only, never raw SQL strings
-- f-strings or string concatenation in SQL is always a Critical finding
-
-## JSONB
-
-Wrap Python dicts in `psycopg.types.json.Jsonb()` when passing to `%s` placeholders:
-```python
-cursor.execute("INSERT INTO logs (data) VALUES (%s)", (Jsonb({"key": "val"}),))
-```
+- Use `?` placeholders. Pass values as a tuple.
+- f-strings or string concatenation in SQL is always a Critical finding.
 
 ## Migrations
 
-- Location: `src/pipelines/gan_cv/db/migrations/`
-- Naming: `NNN_description.sql` (sequential: `001_initial.sql`, `002_add_rankings.sql`)
-- Run: `uv run python -m gan_cv.db.migrate`
-- After migration: sync Drizzle schema with `cd web/api && bunx drizzle-kit pull`
+- Write migrations as plain `.sql` files: `NNN_description.sql` (e.g., `001_initial.sql`).
+- Every migration must be idempotent: use `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`.
+- Never drop or rename columns without an explicit review — SQLite's `ALTER TABLE` support is limited.
+- Run migrations in order; track applied migrations in a `schema_migrations` table.
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
 
 ## Schema Conventions
 
-- Table names: `snake_case`, plural (`jobs`, `pipeline_runs`, `prompt_modules`)
-- Column names: `snake_case` (`run_id`, `posted_at`, `weighted_rank`)
-- Indexes: `idx_<table>_<columns>` (`idx_job_rankings_role_weighted`)
-- Constraints: `<table>_<columns>_<type>` (`jobs_role_id_url_key`)
-- Timestamps: always `timestamptz`, never `timestamp` or `date` without timezone
+- Table names: `snake_case`, plural (`items`, `pipeline_runs`)
+- Column names: `snake_case` (`run_id`, `created_at`)
+- Primary keys: `id INTEGER PRIMARY KEY` (SQLite auto-assigns rowid alias)
+- Foreign keys: `<table>_id` (`user_id REFERENCES users(id)`)
+- Indexes: `idx_<table>_<cols>` (`idx_items_status`)
+- Timestamps: ISO-8601 text (`datetime('now')`) or Unix integer — pick one per project and be consistent.
 
 ## Query Patterns
 
-- Upsert: `ON CONFLICT ... DO UPDATE` -- never check-then-insert (TOCTOU race)
-- Use `RETURNING` when inserted/updated row data is needed
-- No `SELECT *` -- select specific columns
-- Add indexes on FK columns and common WHERE clauses
-- Bound queries with `LIMIT` to prevent resource exhaustion
+- Upsert: `INSERT OR REPLACE` or `INSERT ... ON CONFLICT ... DO UPDATE` — never check-then-insert (TOCTOU race).
+- No `SELECT *` — select specific columns.
+- Add indexes on FK columns and common `WHERE` / `ORDER BY` columns.
+- Bound queries with `LIMIT` to prevent resource exhaustion.
+- Use `BEGIN` / `COMMIT` explicitly for multi-statement operations, or rely on the context manager's implicit transaction.
 
 ## Test Isolation
 
-- Tests create their own data in setup, clean up in teardown
-- No leftover data between test runs
-- Test fixtures in `tests/conftest.py` handle connection setup to port 5434
-- Never depend on dev data existing
-
-## Drizzle (TypeScript side)
-
-- Schema is read-only and introspected: `bunx drizzle-kit pull`
-- Migrations are Python-owned -- TS never writes migrations
-- Use Drizzle query builder for all queries
-- Check `rows[0] === undefined` for empty results
+- Tests use an in-memory database (`sqlite3.connect(":memory:")`) or a temp file via `tmp_path`.
+- Never connect to the project's real database file in tests.
+- Each test creates its own schema and cleans up on teardown.
 
 ## Prohibited
 
-- No hardcoded connection strings anywhere
-- No `timestamp` without timezone -- always `timestamptz`
-- No raw SQL in TypeScript -- use Drizzle query builder
-- No Docker-managed named volumes -- bind-mount to `.pgdata/`
+- No hardcoded file paths for the database — use an env var or config.
+- No `SELECT *` in production queries.
+- No raw SQL built from f-strings or string concatenation.
+- No missing `foreign_keys=ON` pragma — omitting it silently disables FK enforcement.
+- No destructive migrations (`DROP TABLE`, `DROP COLUMN`) without explicit architect review.
