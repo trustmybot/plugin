@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/hooks/enforce-task-naming.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/hooks/require-review-sign.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/hooks/require-task-xml.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
