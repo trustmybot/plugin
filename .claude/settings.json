@@ -3,10 +3,27 @@
     "allow": []
   },
   "hooks": {
+    "WorktreeCreate": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/hooks/create-worktree.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
         "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; case \"$PWD\" in */.claude/worktrees/*) exit 0 ;; esac; case \"$f\" in */.claude/worktrees/*) exit 0 ;; esac; case \"$f\" in */src/*|*/lib/*|*/app/*|*/tests/*|*/__tests__/*|*/spec/*|*.sql) echo '{\"decision\":\"block\",\"reason\":\"BLOCKED: Source code edits must go through SWE agents. Route this fix through the Architect → SWE chain.\"}'; exit 0 ;; esac; }",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "scripts/hooks/enforce-task-naming.sh",
@@ -19,7 +36,22 @@
         "hooks": [
           {
             "type": "command",
+            "command": "scripts/hooks/block-source-bash.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "scripts/hooks/require-review-sign.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "scripts/hooks/git-guards.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "scripts/hooks/block-wrong-pkg-mgr.sh",
             "timeout": 5
           }
         ]
