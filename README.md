@@ -1,80 +1,107 @@
 # TMB Plugin
 
-**Multi-agent engineering workflow for Claude Code. Free forever.**
+**Multi-agent engineering workflow for Claude Code. MIT, free forever.**
 
-Stop single-agent chaos. TMB runs your project like a real engineering team:
-a Planner who scopes, an Architect who designs, an Executor who builds, and
-a Reviewer who catches what you'd miss.
+Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch Claude pick the wrong one) or ship 10 canned agents you didn't ask for. TMB does neither. It gives you **two agents globally**, **five editable placeholders per project**, and **an agent factory** so your roster matches your actual domain — not a company org chart someone imagined.
 
 ---
 
 ## Install
 
 ```bash
-curl -sSL https://trustmybot.dev/install-plugin | sh
+# Once Claude Code's plugin marketplace is live:
+/plugin marketplace add trustmybot/plugin
+/plugin install tmb@trustmybot
 ```
 
-Or manually:
+First time you activate TMB in a project, it seeds the project's `.claude/agents/` with five editable placeholders (see below).
 
-```bash
-cd your-project/
-git clone --depth 1 https://github.com/trustmybot/plugin.git .tmb-plugin
-./.tmb-plugin/install.sh
+---
+
+## How the roster works
+
+### Global (ships with the plugin)
+
+| Agent | What it does |
+|---|---|
+| `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a deterministic project scan before any LLM-driven agent touches your code, handles direct ops (reads, greps, status). Ask it anything; it will either answer or route. |
+| `prompt-engineer` | Keeps your agent prompts, skills, and workflow docs coherent as the project evolves. Rewrites drift, strips jargon, preserves intent. Never touches source code. |
+
+These two are enough to start. You install the plugin and you have them.
+
+### Project-level placeholders (seeded on first activation per project)
+
+When TMB activates in a project for the first time, it writes five editable agent files into your project's `.claude/agents/`:
+
+| Agent | Starter role |
+|---|---|
+| `ceo` | Product direction and scope calls |
+| `cto` | Technical architecture and feasibility |
+| `architect` | Breaks plans into task XML files, spawns SWE, validates output |
+| `swe` | Implements one task at a time in an isolated git worktree |
+| `pr-reviewer` | Pre-commit and pre-push review gate |
+
+**These are placeholders.** TMB ships sane defaults, but you're expected to edit them to match your project's domain. If your project is a medical device, your "pr-reviewer" might gain knowledge of HIPAA checklists. If it's a fintech, your "cto" might load compliance skills. The plugin doesn't pretend to know your domain.
+
+### On-demand domain agents
+
+When you hit a scenario the default 5+2 don't cover — "I need a `legal-reviewer` for this merger PR" — gatekeeper proposes a tailored agent prompt, shows it to you, asks your permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony.
+
+---
+
+## Workflow contract
+
+Your project's `bro/` directory becomes the workflow state:
+
+```
+bro/
+├── GOALS.md           ← you write what to build
+├── DISCUSSION.md      ← architect asks clarifying questions, you answer below them
+├── BLUEPRINT.md       ← architect (or cto) drafts phased design; you approve
+└── tasks/*.xml        ← architect breaks blueprint into executable tasks
+                        (one SWE spawn per task file)
 ```
 
-Drops `.claude/` and `bro/` template into your project. Commit them or keep them local — your call.
+The loop: **goals → alignment → blueprint → tasks → review → ship**. Each phase is a file, each file has a designated writer and reader, each transition is auditable.
 
-## Usage
+---
 
-Once installed, Claude Code picks up the agents automatically. Workflow:
+## Persistent trajectory (bundled MCP)
 
-```bash
-# Write what you want in bro/GOALS.md, then:
-claude
+TMB ships a tiny local MCP server with a SQLite-backed trajectory database. Every issue, task, validation attempt, skill usage, and review verdict is recorded. Kill Claude mid-task, come back tomorrow, gatekeeper reads the trajectory and resumes where you left off. The database lives in `${CLAUDE_PLUGIN_DATA}/trajectory.db` and survives plugin updates.
 
-# Or for simple tasks, skip the workflow:
-claude "fix the login bug"
-```
+Inspired by — and compatible with the lessons of — [claude-mem](https://github.com/thedotmack/claude-mem) and [claude-brain](https://github.com/mikeadolan/claude-brain). Different architecture: TMB's DB is a **workflow state machine**, not a memory bank.
 
-The **Architect** reads your goals, discusses with you until aligned, writes a blueprint, then breaks it into task files. The **SWE** implements one task at a time in isolated worktrees. The **PR Reviewer** gates every commit and push.
+---
 
-## What you get
+## What makes TMB different
 
-**10 specialized agents in a company structure:**
+| Concern | TMB's take |
+|---|---|
+| Routing | Explicit — gatekeeper is the single door. No skill auto-invocation roulette. |
+| State | Bundled SQLite via MCP. Queryable across sessions. |
+| Info isolation | SWE literally cannot read your `GOALS.md` while writing code. No context pollution. |
+| Verification | Hard hook gates — no push until pr-reviewer has signed off on every task. |
+| Roster | 2 global + 5 editable placeholders. Not a canned company. |
+| Agent creation | User-approved only. No silent role sprawl. |
 
-- **Secretary** — gatekeeper, the ONLY agent you talk to; routes everything
-- **CEO** — product vision, priorities, strategic calls
-- **CTO** — technical architecture, BLUEPRINT approval
-- **PM** — product strategy, user research, viability
-- **GTM** — positioning, messaging, launch, conversion
-- **Designer** — UX, visual identity, design system
-- **Architect** — breaks BLUEPRINTs into task files, validates SWE
-- **SWE** — implements one task at a time in isolated worktrees
-- **PR Reviewer** — pre-commit and pre-push review gate
-- **Prompt Engineer** — rewrites prompts, docs, agent files for clarity
+---
 
-**Workflow contract:** `bro/GOALS.md` → `bro/DISCUSSION.md` → `bro/BLUEPRINT.md` → `bro/tasks/*.xml`
+## Compared to adjacent tools
 
-**Task XML format:** structured contracts with `<authorized-by>`, `<scope>`, `<verification>`, `<reviewed-by>`
+- **claude-mem** — passive memory layer, observational. TMB is active, opinionated workflow.
+- **superpowers** — skill library with auto-invocation. TMB has explicit routing via gatekeeper to avoid wrong-skill pickup.
+- **claude-brain** — SQLite + MCP for memory recall. TMB's SQLite is for trajectory/validation/retry state, not fact recall.
 
-**Hook enforcement:** SWE can't spawn without a task file; push blocked without review sign-off; source code write-lockout outside worktrees
-
-**Worktree isolation:** SWE agents work on isolated git branches, you merge when ready
-
-## Why multi-agent
-
-Single-agent Claude is fast but sloppy at scale. Role separation forces rigor:
-- Architect can't write code (must write a task first)
-- SWE can't read strategy docs (must stay in the task)
-- PR Reviewer can't be bypassed (hook blocks the push)
-
-Each agent has distinct system prompts, tool scopes, and file access — enforced structurally, not by politeness.
+---
 
 ## Upgrade to Enterprise
 
-Need memory, audit trail, cross-provider LLM, hard structural permissions, team dashboard?
-→ [TMB Enterprise](https://github.com/trustmybot)
+Need team dashboards, multi-project trajectories, hardened sandbox permissions, multi-provider LLM?
+→ [TMB Enterprise](https://github.com/trustmybot) (commercial, not MIT).
+
+---
 
 ## License
 
-MIT. Fork it, ship it, sell it. We only ask for a link back.
+MIT. Fork it, ship it, sell it. Credit nice but not required.
