@@ -62,13 +62,15 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 
 CREATE TABLE IF NOT EXISTS validation_attempts (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id     INTEGER NOT NULL REFERENCES issues(id),
-    branch_id    TEXT,
-    validator    TEXT    NOT NULL,
-    verdict      TEXT    NOT NULL,
-    notes        TEXT    NOT NULL DEFAULT '',
-    created_at   TEXT    NOT NULL
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id         TEXT    NOT NULL,
+    attempt_n       INTEGER NOT NULL,
+    agent           TEXT    NOT NULL DEFAULT '',
+    verdict         TEXT    NOT NULL,
+    feedback_md     TEXT    NOT NULL DEFAULT '',
+    reviewer_verdict TEXT,
+    created_at      TEXT    NOT NULL,
+    UNIQUE(task_id, attempt_n)
 );
 
 CREATE TABLE IF NOT EXISTS skills (
