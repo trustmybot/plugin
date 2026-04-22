@@ -11,29 +11,41 @@ case "$CMD" in
   *) exit 0 ;;
 esac
 
-# Must have a bro/tasks dir for the check to apply
-[ -d "bro/tasks" ] || exit 0
+# Must have a docs/trustmybot/tasks dir for the check to apply
+[ -d "docs/trustmybot/tasks" ] || exit 0
 
-# Find all task XML files missing <reviewed-by> (excluding deferred)
+# Find all task files missing sign-off (excluding deferred/open)
 UNSIGNED=""
-for f in bro/tasks/*.xml; do
+for f in docs/trustmybot/tasks/*.xml docs/trustmybot/tasks/*.md; do
   [ -f "$f" ] || continue
-  # Skip deferred tasks
-  if grep -q 'status="deferred"' "$f" 2>/dev/null; then
-    continue
-  fi
-  # Skip open tasks (not yet completed)
-  if grep -q 'status="open"' "$f" 2>/dev/null; then
-    continue
-  fi
-  # Check: has authorized-by but missing reviewed-by
-  if grep -q '<authorized-by' "$f" 2>/dev/null && ! grep -q '<reviewed-by\|<closed-by' "$f" 2>/dev/null; then
-    UNSIGNED="$UNSIGNED $f"
-  fi
+  case "$f" in
+    *.xml)
+      if grep -q 'status="deferred"' "$f" 2>/dev/null; then
+        continue
+      fi
+      if grep -q 'status="open"' "$f" 2>/dev/null; then
+        continue
+      fi
+      if grep -q '<authorized-by' "$f" 2>/dev/null && ! grep -q '<reviewed-by\|<closed-by' "$f" 2>/dev/null; then
+        UNSIGNED="$UNSIGNED $f"
+      fi
+      ;;
+    *.md)
+      if grep -qE '^status:\s*deferred' "$f" 2>/dev/null; then
+        continue
+      fi
+      if grep -qE '^status:\s*(pending|open)' "$f" 2>/dev/null; then
+        continue
+      fi
+      if grep -q '^authorized_by:' "$f" 2>/dev/null && ! grep -q '^reviewed_by:\|^closed_by:' "$f" 2>/dev/null; then
+        UNSIGNED="$UNSIGNED $f"
+      fi
+      ;;
+  esac
 done
 
 if [ -n "$UNSIGNED" ]; then
-  echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Push/merge requires PR Reviewer sign-off. These task files are missing <reviewed-by> or <closed-by>:$UNSIGNED. Spawn PR Reviewer to sign them.\"}"
+  echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Push/merge requires PR Reviewer sign-off. These task files are missing reviewed-by or closed-by:$UNSIGNED. Spawn PR Reviewer to sign them.\"}"
   exit 0
 fi
 
