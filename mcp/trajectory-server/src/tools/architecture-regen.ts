@@ -3,6 +3,7 @@ import { resolve, isAbsolute, normalize } from 'node:path';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 import { renderCodebaseTree } from '../renderers/codebase-tree.js';
 import { renderErd } from '../renderers/erd.js';
 import { renderModuleGraph } from '../renderers/module-graph.js';
@@ -271,7 +272,7 @@ export function architectureRegenTools(
   ];
 
   const handlers: Record<string, Fn> = {
-    architecture_regen: async (args) => {
+    architecture_regen: requireRoles('architecture_regen', ['architect', 'gatekeeper', 'pr-reviewer'], async (args) => {
       const startMs = Date.now();
 
       const rawScope = args['scope'] ?? 'incremental';
@@ -416,7 +417,7 @@ export function architectureRegenTools(
         head_sha: headSha,
         duration_ms: Date.now() - startMs,
       });
-    },
+    }),
   };
 
   return { definitions, handlers };
