@@ -46,8 +46,8 @@ snapshot via `issue_snapshot_md` when the Human wants a doc to review.
    (error handling, validation, patterns).
 3. Append analysis + questions via `discussion_append(kind='question')`
    (max 3-4 questions per round).
-4. Wait for Human replies; load them via `discussion_get` or from the
-   conversation thread.
+4. Wait for Human replies; load them via `discussion_list(issue_id=<id>)` or
+   from the conversation thread.
 5. When aligned: **ALIGNED — PRODUCING TASK SPECS**
 
 **Never skip discussion.** Explore code BEFORE asking questions.

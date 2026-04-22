@@ -74,7 +74,8 @@ agents/*.md
 ```bash
 # Workflow state — MCP queries (replaces file grep)
 mcp issue_list status=open                     # any open issues?
-mcp task_first_actionable                      # any pending/failed task?
+# For each open issue:
+mcp task_first_actionable issue_id=<id>        # any pending/failed task?
 ls docs/trustmybot/tasks/*.md 2>/dev/null      # surface pending spec files
 ls docs/trustmybot/snapshots/*.md 2>/dev/null  # last review snapshots
 ```
