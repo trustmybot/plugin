@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-1-gatekeeper-branch-id-proposal" status="open">
+<task id="phase-1-gatekeeper-branch-id-proposal" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 1 change #F: teach gatekeeper to propose a git-convention branch_id from intent, surface for Human confirmation, pass to architect. Prompt-only change."/>
   <title>Teach gatekeeper to propose git-convention branch_id from intent and surface for Human confirmation</title>
   <branch-id>feat/phase-1-gatekeeper-branch-id-proposal</branch-id>
@@ -89,4 +89,10 @@
     validation already lives in the MCP server (dependency:
     feat/phase-1-branch-id-git-convention).
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Added Section C.1 "Branch ID Proposal" to agents/gatekeeper.md with the verbatim MCP validation regex, an intent-to-type-prefix mapping table, and a protocol requiring explicit Human confirmation before routing to architect. Updated routing table row and inventory block footer as specified.</summary>
+    <files>agents/gatekeeper.md, docs/trustmybot/tasks/phase-1-gatekeeper-branch-id-proposal.xml</files>
+    <verification>PASS — grep -c "branch_id" returned 9 (≥3); grep -n "C.1 Branch ID Proposal" returned 1 hit at line 127; regex type list present confirmed with "OK: regex type list present"</verification>
+  </results>
 </task>
