@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-1-rename-paths-skills" status="open">
+<task id="phase-1-rename-paths-skills" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 1 path-only refactor: rewrite bro/ → docs/trustmybot/ inside skill files; update seed-project-agents to copy from new template dir."/>
   <title>Rewrite bro/ → docs/trustmybot/ in skill files; update seed-project-agents source/dest paths</title>
   <branch-id>refactor/phase-1-rename-paths-skills</branch-id>
@@ -75,4 +75,10 @@
     &lt;project&gt;/docs/trustmybot/ on first activation. XML extension stays for
     task specs — Phase 2 will switch to markdown.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>All bro/ path references in skills/ replaced with docs/trustmybot/; seed-project-agents updated with new copy recipe for templates/docs-trustmybot/ → docs/trustmybot/.</summary>
+    <files>skills/agent-creator.md, skills/swe-spawn-workflow/SKILL.md, skills/git-conventions/SKILL.md, skills/create-hook/SKILL.md, skills/architect-workflow/SKILL.md, skills/roundtable-cleanup/SKILL.md, skills/seed-project-agents/SKILL.md, docs/trustmybot/tasks/phase-1-rename-paths-skills.xml</files>
+    <verification>PASS — no stale bro/ in skills (OK), no stale bro-template (OK), docs/trustmybot/ count=22 (≥10), seed skill points at templates/docs-trustmybot (OK)</verification>
+  </results>
 </task>

@@ -26,7 +26,7 @@ branching behavior (branch from HEAD instead).
 
 Each task file is SWE's **sole source of truth**.
 
-**Naming:** `bro/tasks/<YYYYMMDD-HHMM>_<descriptive_name>.xml` (timestamp + name)
+**Naming:** `docs/trustmybot/tasks/<YYYYMMDD-HHMM>_<descriptive_name>.xml` (timestamp + name)
 
 **Size limit: 200 lines maximum.** If a task exceeds 200 lines, split it into
 multiple task files. A 700-line task file exhausts SWE's context before
