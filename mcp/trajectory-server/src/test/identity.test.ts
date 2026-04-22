@@ -50,7 +50,7 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const setResult = await call(tools.handlers, 'identity_set', { gatekeeper_name: 'mybot' });
+    const setResult = await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', gatekeeper_name: 'mybot' });
     assert.ok(!setResult.isError);
     const set = parseResult(setResult);
     assert.equal(set.gatekeeper_name, 'mybot');
@@ -68,8 +68,8 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    await call(tools.handlers, 'identity_set', { gatekeeper_name: 'mybot' });
-    await call(tools.handlers, 'identity_set', { human_name: 'Alice' });
+    await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', gatekeeper_name: 'mybot' });
+    await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', human_name: 'Alice' });
 
     const result = await call(tools.handlers, 'identity_get', {});
     const data = parseResult(result);
@@ -83,7 +83,7 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const result = await call(tools.handlers, 'identity_set', { gatekeeper_name: '' });
+    const result = await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', gatekeeper_name: '' });
     assert.ok(result.isError, 'Expected error for empty gatekeeper_name');
     assert.match(parseResult(result).error, /Invalid gatekeeper_name/);
 
@@ -95,7 +95,7 @@ describe('identityTools', () => {
     const tools = identityTools(db);
 
     const longName = 'a'.repeat(33);
-    const result = await call(tools.handlers, 'identity_set', { gatekeeper_name: longName });
+    const result = await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', gatekeeper_name: longName });
     assert.ok(result.isError, 'Expected error for 33-char name');
     assert.match(parseResult(result).error, /Invalid gatekeeper_name/);
 
@@ -106,7 +106,7 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const result = await call(tools.handlers, 'identity_set', { gatekeeper_name: 'bad\x01name' });
+    const result = await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', gatekeeper_name: 'bad\x01name' });
     assert.ok(result.isError, 'Expected error for control char in name');
     assert.match(parseResult(result).error, /Invalid gatekeeper_name/);
 
@@ -117,7 +117,7 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const result = await call(tools.handlers, 'identity_set', { human_name: '' });
+    const result = await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', human_name: '' });
     assert.ok(result.isError, 'Expected error for empty human_name');
     assert.match(parseResult(result).error, /Invalid human_name/);
 
@@ -128,9 +128,9 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    await call(tools.handlers, 'identity_set', { gatekeeper_name: 'mybot', human_name: 'Alice' });
+    await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', gatekeeper_name: 'mybot', human_name: 'Alice' });
 
-    const resetResult = await call(tools.handlers, 'identity_reset', {});
+    const resetResult = await call(tools.handlers, 'identity_reset', { agent: 'gatekeeper' });
     assert.ok(!resetResult.isError);
     assert.deepEqual(parseResult(resetResult), { ok: true });
 
@@ -148,7 +148,7 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const result = await call(tools.handlers, 'identity_reset', {});
+    const result = await call(tools.handlers, 'identity_reset', { agent: 'gatekeeper' });
     assert.ok(!result.isError);
     assert.deepEqual(parseResult(result), { ok: true });
 
@@ -159,11 +159,38 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    await call(tools.handlers, 'identity_set', { gatekeeper_name: 'mybot' });
-    const result = await call(tools.handlers, 'identity_set', {});
+    await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', gatekeeper_name: 'mybot' });
+    const result = await call(tools.handlers, 'identity_set', { agent: 'gatekeeper' });
     assert.ok(!result.isError);
     const data = parseResult(result);
     assert.equal(data.gatekeeper_name, 'mybot');
+
+    db.close();
+  });
+
+  it('identity_set called with agent=swe returns forbidden; row unchanged', async () => {
+    const db = tempDB();
+    const tools = identityTools(db);
+
+    const result = await call(tools.handlers, 'identity_set', { agent: 'swe', gatekeeper_name: 'hacked' });
+    assert.ok(result.isError, 'Expected forbidden error');
+    const payload = parseResult(result);
+    assert.equal(payload.error, 'forbidden');
+    assert.equal(payload.caller_role, 'swe');
+
+    const row = db.get('SELECT * FROM identity LIMIT 1');
+    assert.equal(row, undefined, 'Row must not be created when forbidden');
+
+    db.close();
+  });
+
+  it('identity_set called with agent=gatekeeper succeeds', async () => {
+    const db = tempDB();
+    const tools = identityTools(db);
+
+    const result = await call(tools.handlers, 'identity_set', { agent: 'gatekeeper', gatekeeper_name: 'mybot' });
+    assert.ok(!result.isError, 'Expected success for gatekeeper');
+    assert.equal(parseResult(result).gatekeeper_name, 'mybot');
 
     db.close();
   });
