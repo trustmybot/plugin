@@ -304,4 +304,85 @@ describe('taskTools', () => {
 
     db.close();
   });
+
+  it('task_create_batch stores spec_body_md and task_get returns it verbatim', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const specBody = '# Description\nThis is a test spec body.';
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      agent: 'architect',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/spec-body-test',
+          description: 'Test spec body storage',
+          success_criteria: 'spec_body_md is stored',
+          spec_body_md: specBody,
+        },
+      ],
+    });
+    const inserted = parseResult(batchResult);
+    assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+
+    const getResult = await call(tools.handlers, 'task_get', {
+      agent: 'swe',
+      task_id: String(inserted[0].id),
+    });
+    const task = parseResult(getResult);
+    assert.ok(!getResult.isError);
+    assert.equal(task.spec_body_md, specBody);
+
+    db.close();
+  });
+
+  it('task_create_batch without spec_body_md defaults to empty string', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      agent: 'architect',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/no-spec-body',
+          description: 'No spec body',
+          success_criteria: 'defaults to empty',
+        },
+      ],
+    });
+    const inserted = parseResult(batchResult);
+    assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].spec_body_md, '');
+
+    db.close();
+  });
+
+  it('task_create_batch rejects spec_body_md longer than 64000 chars', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const oversizeBody = 'x'.repeat(64001);
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'architect',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/oversize-spec',
+          description: 'Oversize spec body',
+          success_criteria: 'should be rejected',
+          spec_body_md: oversizeBody,
+        },
+      ],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /64000/);
+    assert.match(data.error, /64001/);
+
+    db.close();
+  });
 });

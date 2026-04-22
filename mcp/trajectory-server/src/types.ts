@@ -86,6 +86,7 @@ export interface TaskInput {
   skills_required?: string[];
   success_criteria: string;
   execution_plan_md?: string;
+  spec_body_md?: string;
 }
 
 export interface FileRegistryRow {
