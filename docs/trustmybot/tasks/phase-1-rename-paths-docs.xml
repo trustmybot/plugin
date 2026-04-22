@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-1-rename-paths-docs" status="open">
+<task id="phase-1-rename-paths-docs" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 1 path-only refactor: update CLAUDE.md and README.md so user-facing docs reflect bro/ → docs/trustmybot/ rename."/>
   <title>Update CLAUDE.md and README.md to reflect bro/ → docs/trustmybot/ rename</title>
   <branch-id>refactor/phase-1-rename-paths-docs</branch-id>
@@ -73,4 +73,10 @@
     BLUEPRINT.md, tasks/*.xml) stay as today; XML→MD migration is Phase 2.
     docs/v0.3-blueprint.md intentionally untouched (historical context).
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Replaced all bro/ path references in CLAUDE.md (6 occurrences) and README.md (2 occurrences) with docs/trustmybot/. No content was added or removed beyond path-string substitutions. docs/v0.3-blueprint.md untouched.</summary>
+    <files>CLAUDE.md, README.md</files>
+    <verification>PASS — CLAUDE.md clean (0 bro/ matches), README.md clean (0 bro/ matches), CLAUDE.md has 6 docs/trustmybot/ occurrences, README.md has 2 docs/trustmybot/ occurrences, blueprint preserved.</verification>
+  </results>
 </task>
