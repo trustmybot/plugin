@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-template-and-claude-md-update" status="open">
+<task id="phase-2-template-and-claude-md-update" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #E: the seed template at templates/docs-trustmybot/ ships GOALS.md to every new project on first activation. With Phase 2 dropping GOALS/DISCUSSION/BLUEPRINT, the template must drop them too OR the seeding skill creates files that immediately confuse downstream users. Project root CLAUDE.md must also stop calling these files 'required workflow files'. One task to clean both."/>
   <title>Drop GOALS.md from templates/docs-trustmybot/; rewrite Workflow Files section in plugin CLAUDE.md</title>
   <branch-id>chore/phase-2-template-cleanup</branch-id>
@@ -160,6 +160,12 @@
 
     All checks must print OK.
   </verification>
+
+  <results status="COMPLETED">
+    <summary>Dropped GOALS.md from templates/docs-trustmybot/; added SPEC-FORMAT.md and snapshots/.gitkeep; plugin CLAUDE.md Workflow Files table rewritten for SQLite-canonical Phase 2 model, Mode Rules updated to cite issue_resume, snapshots/ added to architect allow-list.</summary>
+    <files>templates/docs-trustmybot/GOALS.md (deleted), templates/docs-trustmybot/SPEC-FORMAT.md, templates/docs-trustmybot/tasks/.gitkeep, templates/docs-trustmybot/snapshots/.gitkeep, CLAUDE.md, docs/trustmybot/tasks/phase-2-template-and-claude-md-update.xml</files>
+    <verification>PASS — all checks passed (see commit)</verification>
+  </results>
 
   <commit>
     🧹 chore(template,docs): drop GOALS.md from template; rewrite plugin CLAUDE.md Workflow Files for Phase 2
