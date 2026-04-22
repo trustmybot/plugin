@@ -1,5 +1,5 @@
 ---
-description: Fork an Explore subagent to verify a completed SWE task against its XML contract and return a verdict.
+description: Fork an Explore subagent to verify a completed SWE task against its markdown spec and MCP state, then return a verdict.
 context: fork
 agent: Explore
 allowed-tools: Read, Grep, Glob, Bash
@@ -10,140 +10,145 @@ invoked-by: architect
 
 ## A. Purpose
 
-Verify a completed SWE task in a forked context window. Re-run the task's
-verification commands, diff the actual changes against the declared scope, and
-return a structured verdict XML block to the calling Architect. The forked
-context means no side effects can leak back to the Architect's workspace.
+Verify a completed SWE task in a forked context window. Confirm MCP task status,
+re-run the spec's `## Verification` commands, diff actual changes against the
+declared `## Files` list, and return a structured verdict block to the calling
+Architect. The forked context means no side effects can leak back to the
+Architect's workspace.
 
 This skill replaces the Architect's inline validation work. The Architect
 invokes it, the forked Explore agent runs all checks independently, and only
-the verdict XML crosses back. Saves roughly 30K tokens per validation cycle.
+the verdict crosses back. Saves roughly 30K tokens per validation cycle.
+
+Canonical task spec format: `docs/trustmybot/SPEC-FORMAT.md`.
 
 ## B. Inputs (provided by the Architect in the invocation message)
 
-- `task_xml_path` — absolute path to the task XML file for the completed task
+- `task_spec_path` — absolute path to the markdown spec file for the completed task
+- `task_id` — MCP task ID (integer) to query via `task_get`
 - `commit_range` — SHA range of the SWE commit(s), e.g. `HEAD~1..HEAD`
 - `changed_files` — space-separated list of files SWE reported modifying
 
 ## C. Execution Steps
 
-### Step 1 — Read the task XML
+### Step 1 — Check MCP task status
 
-Read the full task XML at `task_xml_path`.
+Call `task_get(task_id)` to retrieve the task row from SQLite.
+
+If the task does not exist or `task_get` returns an error:
+```
+verdict: escalate
+findings: task_get({task_id}) returned no row. Cannot validate without MCP state.
+```
+Stop immediately.
+
+If `status` is not `'completed'`:
+```
+verdict: escalate
+findings: task_get({task_id}) shows status='{status}', expected 'completed'.
+          SWE may not have finished or called task_update_status correctly.
+```
+Stop immediately.
+
+### Step 2 — Read the task spec
+
+Read the markdown spec at `task_spec_path`. Locate the `## Verification` section.
 
 If the file does not exist:
-```xml
-<validation>
-  <verdict>escalate</verdict>
-  <commands-run>Read task XML at {task_xml_path}</commands-run>
-  <findings>Task XML not found at the provided path: {task_xml_path}. Cannot validate without the contract.</findings>
-</validation>
+```
+verdict: escalate
+findings: Spec not found at {task_spec_path}. Cannot validate without the contract.
 ```
 Stop immediately.
 
-If the task XML has no `<verification>` block:
-```xml
-<validation>
-  <verdict>escalate</verdict>
-  <commands-run>Read task XML at {task_xml_path}</commands-run>
-  <findings>Task XML has no &lt;verification&gt; block. Task is underspecified — escalate to Architect.</findings>
-</validation>
+If the spec has no `## Verification` section:
+```
+verdict: escalate
+findings: Spec has no ## Verification section. Task is underspecified — escalate to Architect.
 ```
 Stop immediately.
 
-### Step 2 — Run verification commands
+### Step 3 — Run verification commands
 
-Extract every command from the task's `<verification>` block and run each one.
-Run from the directory specified in the block (default: repository root).
+Extract every command from the spec's `## Verification` section and run each one.
+Run from the directory specified in the section (default: repository root).
 
 Collect stdout and exit code for each command.
 
 If any command fails due to an environmental reason (tool not found, missing
 deps, timeout):
-```xml
-<validation>
-  <verdict>escalate</verdict>
-  <commands-run>{list commands attempted}</commands-run>
-  <findings>Verification command failed for environmental reason: {command} — {error text}</findings>
-</validation>
+```
+verdict: escalate
+findings: Verification command failed for environmental reason: {command} — {error text}
 ```
 Stop immediately.
 
 If any verification command produces FAIL markers or a non-zero exit code:
 Record it as a failure. Continue running remaining commands to collect the full
-picture, then return `verdict=fail` (see Step 5).
+picture, then return `verdict: fail` (see Step 6).
 
-### Step 3 — Diff actual changes against declared scope
+### Step 4 — Diff actual changes against declared files
 
 Run:
 ```bash
 git diff {commit_range} -- {changed_files}
 ```
 
-Compare the diff against the `<scope>` block in the task XML:
-- Every file listed in `<scope>` as CREATE or MODIFY must appear in the diff.
-- No file outside the `<scope>` paths should appear in the diff (scope creep).
+Compare the diff against the `## Files` section in the spec:
+- Every file listed in `## Files` as create or modify must appear in the diff.
+- No file outside the listed paths should appear in the diff (scope creep).
 
-If changed files do not match the declared `<scope>` paths:
-```xml
-<validation>
-  <verdict>fail</verdict>
-  <commands-run>git diff {commit_range} -- {changed_files}</commands-run>
-  <findings>Changed files do not match &lt;scope&gt;. Offending paths: {list paths not in scope or missing from diff}.</findings>
-</validation>
+If changed files do not match the declared `## Files` list:
+```
+verdict: fail
+findings: Changed files do not match ## Files. Offending paths: {list paths not in spec or missing from diff}.
 ```
 
-### Step 4 — Check error-handling and edge-cases coverage
+### Step 5 — Check error-handling and edge-cases coverage
 
-For each entry in the task XML's `<error-handling>` and `<edge-cases>` blocks:
-- Use Grep or a Read pass to confirm the trigger/input condition has a
-  corresponding branch in the changed code.
-- Count the entries. If the task lists N cases, the code must handle N cases.
+For each error-handling and edge-case item described in the spec's
+`## Description` or `## Success Criteria`:
+- Use Grep or a Read pass to confirm the condition has a corresponding branch
+  in the changed code.
+- Count the items. If the spec lists N cases, the code must handle N cases.
 
 Record which cases are covered and which are missing.
 
-### Step 5 — Compose and return verdict XML
+### Step 6 — Record verdict via MCP and return summary
 
-Collect all results from Steps 2–4 and return one of the following verdicts.
+Call `validation_record(task_id=task_id, verdict='pass'|'fail'|'escalate', notes=...)`.
 
-**Pass** — all verification commands succeeded, diff matches scope, all
-error/edge cases are covered:
-```xml
-<validation>
-  <verdict>pass</verdict>
-  <commands-run>
-    {each command run, one per line}
-  </commands-run>
-  <findings>All verification commands passed. Diff matches declared scope. All {N} error-handling and edge-case entries confirmed covered.</findings>
-</validation>
+Then return one of the following verdicts to the Architect.
+
+**Pass** — MCP status is `completed`, all verification commands succeeded,
+diff matches spec files, all error/edge cases are covered:
+```
+verdict: pass
+commands-run:
+  {each command run, one per line}
+findings: MCP task_get confirmed status=completed. All verification commands passed.
+          Diff matches declared ## Files. All {N} error-handling and edge-case entries confirmed covered.
+          validation_record(pass) appended.
 ```
 
-**Fail** — any verification command failed, scope mismatch, or missing
-error/edge-case coverage. Include first 10 and last 10 lines of failing output:
-```xml
-<validation>
-  <verdict>fail</verdict>
-  <commands-run>
-    {each command run, one per line}
-  </commands-run>
-  <findings>
-    {For each failure: which check failed, what was expected, what was observed.
-     If SWE's &lt;results&gt; reports FAILED, copy SWE's summary here.
-     For long output: include first 10 lines and last 10 lines only.}
-  </findings>
-</validation>
+**Fail** — any check failed. Include first 10 and last 10 lines of failing output:
+```
+verdict: fail
+commands-run:
+  {each command run, one per line}
+findings:
+  {For each failure: which check failed, what was expected, what was observed.
+   For long output: include first 10 lines and last 10 lines only.}
+  validation_record(fail) appended.
 ```
 
 **Escalate** — environmental failure (tool missing, dependency absent, timeout,
-task underspecified, XML not found):
-```xml
-<validation>
-  <verdict>escalate</verdict>
-  <commands-run>
-    {commands attempted before failure}
-  </commands-run>
-  <findings>{exact error text from the failing tool or command}</findings>
-</validation>
+spec missing, MCP error):
+```
+verdict: escalate
+commands-run:
+  {commands attempted before failure}
+findings: {exact error text from the failing tool or command}
 ```
 
 ## D. Constraints
@@ -153,8 +158,9 @@ task underspecified, XML not found):
   test runners in read-only mode, `cat`, `ls`, `wc`, `grep`, `sqlite3`
   read-only queries. Never run `git add`, `git commit`, `git push`, Write,
   or Edit.
+- MCP calls are allowed: `task_get` (read) and `validation_record` (write) only.
 - The forked context window means side effects cannot leak back to the calling
   Architect's workspace state, but this constraint still applies as defense in
   depth.
-- Return the verdict XML block and nothing else as the final output. The
-  Architect reads only that block.
+- Return the verdict block and nothing else as the final output. The Architect
+  reads only that block.
