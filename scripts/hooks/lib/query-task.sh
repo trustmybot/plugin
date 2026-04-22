@@ -83,3 +83,21 @@ tmb_config_array() {
   [ -z "$raw" ] && return 0
   echo "$raw" | jq -r '.[]' 2>/dev/null || true
 }
+
+# tmb_task_spec_status <task_id>
+# Prints two lines: <status>\n<body_len> for the given tasks row.
+# Prints nothing when the row does not exist, DB is absent, or sqlite3 is unavailable.
+# Callers must check tmb_db_path / tmb_have_sqlite before calling if they need
+# to distinguish "DB missing" from "row missing".
+tmb_task_spec_status() {
+  local task_id="$1"
+  local db
+  db=$(tmb_db_path) || true
+  [ -z "$db" ] && return 0
+  tmb_have_sqlite || return 0
+  sqlite3 "$db" "
+    SELECT status, LENGTH(COALESCE(spec_body_md, ''))
+      FROM tasks
+     WHERE id = ${task_id};
+  " 2>/dev/null | tr '|' '\n' || true
+}
