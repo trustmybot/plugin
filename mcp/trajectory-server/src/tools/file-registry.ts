@@ -1,0 +1,320 @@
+import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { TrajectoryDB } from '../db.js';
+import { nowISO } from '../db.js';
+
+type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
+
+function ok(data: unknown): CallToolResult {
+  return { content: [{ type: 'text', text: JSON.stringify(data) }] };
+}
+
+function err(message: string): CallToolResult {
+  return {
+    content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
+    isError: true,
+  };
+}
+
+function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResult>): Fn {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      const msg = (e as Error & { code?: string }).message;
+      const code = (e as Error & { code?: string }).code;
+      if (code === 'SQLITE_CONSTRAINT_CHECK' || code === 'SQLITE_CONSTRAINT') {
+        return err(`DB constraint violation: ${msg}`);
+      }
+      return err(msg);
+    }
+  };
+}
+
+const VALID_TYPES = new Set(['source', 'test', 'config', 'doc', 'unknown']);
+const VALID_CHANGE_TYPES = new Set(['added', 'modified', 'deleted', 'renamed']);
+
+const DEFAULT_LIMIT = 1000;
+const MAX_LIMIT = 5000;
+
+function validatePath(path: unknown): string | null {
+  if (typeof path !== 'string' || path.length === 0) {
+    return 'path is required and must be a non-empty string';
+  }
+  if (path.length > 1024) {
+    return 'path must be 1024 characters or fewer';
+  }
+  const segments = path.split('/');
+  if (segments.includes('..')) {
+    return 'path must not contain ".." path-traversal segments';
+  }
+  return null;
+}
+
+type FileRegistryRow = {
+  path: string;
+  type: string;
+  language: string | null;
+  size_bytes: number | null;
+  last_commit_sha: string | null;
+  last_change_type: string | null;
+  last_change_at: string | null;
+  imports_json: string;
+  exports_json: string;
+  metadata_json: string;
+};
+
+function decodeRow(row: FileRegistryRow): Record<string, unknown> {
+  return {
+    path: row.path,
+    type: row.type,
+    language: row.language,
+    size_bytes: row.size_bytes,
+    last_commit_sha: row.last_commit_sha,
+    last_change_type: row.last_change_type,
+    last_change_at: row.last_change_at,
+    imports: JSON.parse(row.imports_json),
+    exports: JSON.parse(row.exports_json),
+    metadata: JSON.parse(row.metadata_json),
+  };
+}
+
+export function fileRegistryTools(db: TrajectoryDB): {
+  definitions: Tool[];
+  handlers: Record<string, Fn>;
+} {
+  const definitions: Tool[] = [
+    {
+      name: 'file_registry_upsert',
+      description:
+        'INSERT OR REPLACE a file record in file_registry. Idempotent — calling twice with the same path replaces the row.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'File path (primary key). Max 1024 chars. No ".." segments.',
+          },
+          type: {
+            type: 'string',
+            description: 'One of: source | test | config | doc | unknown',
+          },
+          language: { type: 'string', description: 'Programming language, e.g. "typescript"' },
+          size_bytes: { type: 'number', description: 'File size in bytes' },
+          last_commit_sha: { type: 'string', description: 'SHA of the last commit touching this file' },
+          last_change_type: {
+            type: 'string',
+            description: 'One of: added | modified | deleted | renamed (or omit for null)',
+          },
+          last_change_at: { type: 'string', description: 'ISO timestamp of last change' },
+          imports: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of imported module paths (stored as JSON)',
+          },
+          exports: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of exported symbol names (stored as JSON)',
+          },
+          metadata: {
+            type: 'object',
+            description: 'Arbitrary key-value metadata (stored as JSON)',
+          },
+        },
+        required: ['path', 'type'],
+      },
+    },
+    {
+      name: 'file_registry_list',
+      description:
+        'SELECT from file_registry with optional filters. Returns { rows, count, total }. imports/exports/metadata are decoded back to arrays/objects.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            description: 'Filter by file type (source | test | config | doc | unknown)',
+          },
+          language: { type: 'string', description: 'Filter by language' },
+          limit: {
+            type: 'number',
+            description: `Max rows to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT})`,
+          },
+          offset: { type: 'number', description: 'Row offset for pagination (default 0)' },
+        },
+      },
+    },
+    {
+      name: 'file_registry_delete',
+      description:
+        'DELETE a file record by path. Returns { deleted: 0 } if not found, { deleted: 1 } on success.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path to delete' },
+        },
+        required: ['path'],
+      },
+    },
+  ];
+
+  const handlers: Record<string, Fn> = {
+    file_registry_upsert: wrapHandler(async (args) => {
+      const pathErr = validatePath(args['path']);
+      if (pathErr) return err(pathErr);
+      const path = args['path'] as string;
+
+      const type = args['type'];
+      if (typeof type !== 'string' || !VALID_TYPES.has(type)) {
+        return err(
+          `Invalid type ${JSON.stringify(type)}: must be one of source | test | config | doc | unknown`,
+        );
+      }
+
+      const rawChangeType = args['last_change_type'];
+      if (rawChangeType !== undefined && rawChangeType !== null) {
+        if (typeof rawChangeType !== 'string' || !VALID_CHANGE_TYPES.has(rawChangeType)) {
+          return err(
+            `Invalid last_change_type ${JSON.stringify(rawChangeType)}: must be one of added | modified | deleted | renamed`,
+          );
+        }
+      }
+
+      const rawImports = args['imports'] ?? [];
+      if (!Array.isArray(rawImports) || rawImports.some((v) => typeof v !== 'string')) {
+        return err('imports must be an array of strings');
+      }
+
+      const rawExports = args['exports'] ?? [];
+      if (!Array.isArray(rawExports) || rawExports.some((v) => typeof v !== 'string')) {
+        return err('exports must be an array of strings');
+      }
+
+      const rawMetadata = args['metadata'] ?? {};
+      if (
+        typeof rawMetadata !== 'object' ||
+        rawMetadata === null ||
+        Array.isArray(rawMetadata)
+      ) {
+        return err('metadata must be a plain object');
+      }
+
+      const language = args['language'] !== undefined ? (args['language'] as string | null) : null;
+      const sizeBytes =
+        args['size_bytes'] !== undefined ? (args['size_bytes'] as number | null) : null;
+      const lastCommitSha =
+        args['last_commit_sha'] !== undefined ? (args['last_commit_sha'] as string | null) : null;
+      const lastChangeType =
+        rawChangeType !== undefined && rawChangeType !== null ? (rawChangeType as string) : null;
+      const lastChangeAt =
+        args['last_change_at'] !== undefined ? (args['last_change_at'] as string | null) : null;
+
+      const importsJson = JSON.stringify(rawImports);
+      const exportsJson = JSON.stringify(rawExports);
+      const metadataJson = JSON.stringify(rawMetadata);
+
+      db.run(
+        `INSERT OR REPLACE INTO file_registry
+           (path, type, language, size_bytes, last_commit_sha, last_change_type, last_change_at, imports_json, exports_json, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          path,
+          type,
+          language,
+          sizeBytes,
+          lastCommitSha,
+          lastChangeType,
+          lastChangeAt,
+          importsJson,
+          exportsJson,
+          metadataJson,
+        ],
+      );
+
+      const row = db.get<FileRegistryRow>(
+        `SELECT * FROM file_registry WHERE path = ?`,
+        [path],
+      );
+
+      return ok(decodeRow(row!));
+    }),
+
+    file_registry_list: wrapHandler(async (args) => {
+      const filterType = args['type'];
+      if (filterType !== undefined && filterType !== null) {
+        if (typeof filterType !== 'string' || !VALID_TYPES.has(filterType)) {
+          return err(
+            `Invalid type filter ${JSON.stringify(filterType)}: must be one of source | test | config | doc | unknown`,
+          );
+        }
+      }
+
+      const filterLanguage = args['language'];
+      if (filterLanguage !== undefined && filterLanguage !== null) {
+        if (typeof filterLanguage !== 'string') {
+          return err('language filter must be a string');
+        }
+      }
+
+      let limit = DEFAULT_LIMIT;
+      if (args['limit'] !== undefined && args['limit'] !== null) {
+        const rawLimit = args['limit'];
+        if (typeof rawLimit !== 'number' || !Number.isInteger(rawLimit) || rawLimit < 0) {
+          return err('limit must be a non-negative integer');
+        }
+        limit = Math.min(rawLimit, MAX_LIMIT);
+      }
+
+      let offset = 0;
+      if (args['offset'] !== undefined && args['offset'] !== null) {
+        const rawOffset = args['offset'];
+        if (typeof rawOffset !== 'number' || !Number.isInteger(rawOffset) || rawOffset < 0) {
+          return err('offset must be a non-negative integer');
+        }
+        offset = rawOffset;
+      }
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+
+      if (filterType) {
+        conditions.push('type = ?');
+        params.push(filterType);
+      }
+      if (filterLanguage) {
+        conditions.push('language = ?');
+        params.push(filterLanguage);
+      }
+
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const totalRow = db.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM file_registry ${where}`,
+        params,
+      );
+      const total = totalRow?.n ?? 0;
+
+      const rows = db.all<FileRegistryRow>(
+        `SELECT * FROM file_registry ${where} ORDER BY path LIMIT ? OFFSET ?`,
+        [...params, limit, offset],
+      );
+
+      return ok({
+        rows: rows.map(decodeRow),
+        count: rows.length,
+        total,
+      });
+    }),
+
+    file_registry_delete: wrapHandler(async (args) => {
+      const pathErr = validatePath(args['path']);
+      if (pathErr) return err(pathErr);
+      const path = args['path'] as string;
+
+      const result = db.run(`DELETE FROM file_registry WHERE path = ?`, [path]);
+      return ok({ deleted: result.changes > 0 ? 1 : 0 });
+    }),
+  };
+
+  return { definitions, handlers };
+}

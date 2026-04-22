@@ -11,6 +11,8 @@ import { skillTools } from './skills.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
 import { identityTools } from './identity.js';
+import { regenStateTools } from './regen-state.js';
+import { fileRegistryTools } from './file-registry.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 
 export let toolDefinitions: Tool[] = [];
@@ -35,6 +37,8 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
   const reports = reportTools(db);
   const config = configTools(db);
   const identity = identityTools(db);
+  const regenState = regenStateTools(db);
+  const fileRegistry = fileRegistryTools(db);
 
   toolDefinitions = [
     ...discussions.definitions,
@@ -47,6 +51,8 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...reports.definitions,
     ...config.definitions,
     ...identity.definitions,
+    ...regenState.definitions,
+    ...fileRegistry.definitions,
   ];
 
   toolHandlers = {
@@ -60,5 +66,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...wrapAll(reports.handlers),
     ...wrapAll(config.handlers),
     ...wrapAll(identity.handlers),
+    ...wrapAll(regenState.handlers),
+    ...wrapAll(fileRegistry.handlers),
   };
 }
