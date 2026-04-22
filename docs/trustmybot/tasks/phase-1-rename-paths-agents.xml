@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-1-rename-paths-agents" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 1 path-only refactor: rewrite bro/ → docs/trustmybot/ in all agent prompts (global + project-level templates). Also fix latent bro/.claude/ skill-loader bug."/>
+  <title>Rewrite bro/ → docs/trustmybot/ in all agent prompts (global + templates); fix latent bro/.claude/ skill-loader bug</title>
+  <branch-id>refactor/phase-1-rename-paths-agents</branch-id>
+  <depends-on/>
+
+  <description>
+    Rewrite every `bro/` path reference inside the global agent prompts (`agents/gatekeeper.md`,
+    `agents/prompt-engineer.md`) and the project-level agent templates
+    (`templates/agents/architect.md`, `templates/agents/swe.md`, `templates/agents/pr-reviewer.md`,
+    plus `ceo.md` and `cto.md` if they contain references) to use `docs/trustmybot/`.
+
+    This is a path-string change only. Do NOT rewrite agent workflow logic — that is Phase 3 work
+    (changes #G and #I, two-path workflow).
+
+    The agent prompts also reference `bro/tasks/*.xml`. Per Phase 1 scope, the location moves but the
+    extension stays XML this phase (XML→MD migration is Phase 2). So `bro/tasks/*.xml` becomes
+    `docs/trustmybot/tasks/*.xml`.
+
+    LATENT BUG to fix in this task: `templates/agents/architect.md` references skill loader paths as
+    `bro/.claude/skills/...` which is wrong — the prefix `bro/` was never valid. Fix to plain
+    `.claude/skills/architect-workflow.md`, `.claude/skills/swe-spawn-workflow.md`,
+    `.claude/skills/validate-swe-output.md` (and any other `bro/.claude/` references).
+  </description>
+
+  <files>
+    <file path="agents/gatekeeper.md" action="modify">
+      - Line ~69: glob `bro/*.md` → `docs/trustmybot/*.md`
+      - Line ~76: `bro/GOALS.md` → `docs/trustmybot/GOALS.md`
+      - Line ~77: `bro/BLUEPRINT.md` → `docs/trustmybot/BLUEPRINT.md`
+      - Line ~78: `bro/tasks/*.xml` → `docs/trustmybot/tasks/*.xml`
+      - Line ~91: `bro/ files:` inventory label → `docs/trustmybot/ files:`
+    </file>
+    <file path="agents/prompt-engineer.md" action="modify">
+      - Line ~20: `bro/*.md` and `bro/tasks/` references in narrative → `docs/trustmybot/...`
+      - Line ~40: table cell `bro/*.md` and `bro/tasks/` → `docs/trustmybot/*.md` and `docs/trustmybot/tasks/`
+    </file>
+    <file path="templates/agents/architect.md" action="modify">
+      - Line ~38-40: skill loader paths `bro/.claude/skills/...` → `.claude/skills/...` (latent-bug fix; the `bro/` prefix was always wrong).
+      - Line ~48: `What you CAN write/edit:` list — `bro/` → `docs/trustmybot/`
+      - Line ~71: `bro/GOALS.md has unclosed goals` → `docs/trustmybot/GOALS.md has unclosed goals`
+      - Line ~86: `See bro/.claude/skills/architect-workflow.md` → `See .claude/skills/architect-workflow.md`
+      - Line ~95: `Document in bro/BLUEPRINT.md` → `Document in docs/trustmybot/BLUEPRINT.md`
+    </file>
+    <file path="templates/agents/swe.md" action="modify">
+      - Line ~3: description string `bro/tasks/*.xml` → `docs/trustmybot/tasks/*.xml`
+      - Line ~23: instruction text `bro/tasks/*.xml` → `docs/trustmybot/tasks/*.xml`
+      - Lines ~42-46: NEVER-read list (`bro/GOALS.md`, `bro/BLUEPRINT.md`, `bro/DISCUSSION.md`, `bro/PRODUCT.md`, `bro/MARKETING.md`, `bro/DESIGN.md`, `bro/tasks/*.xml`) — every entry gets the prefix swap.
+      - Lines ~71-73: MUST NOT read block — same swap.
+    </file>
+    <file path="templates/agents/pr-reviewer.md" action="modify">
+      - Line ~112: `Edit is permitted ONLY on bro/tasks/*.xml` → `docs/trustmybot/tasks/*.xml`
+      - Line ~118: `Any markdown file outside bro/tasks/` → `docs/trustmybot/tasks/`
+      - Line ~154: `Diff touches only bro/tasks/*.xml` → `docs/trustmybot/tasks/*.xml`
+    </file>
+    <file path="templates/agents/ceo.md" action="modify-if-present">
+      Grep first; if any `bro/` references appear, swap them. If none, no change.
+    </file>
+    <file path="templates/agents/cto.md" action="modify-if-present">
+      Grep first; if any `bro/` references appear, swap them. If none, no change.
+    </file>
+  </files>
+
+  <success-criteria>
+    - Zero occurrences of `bro/` in any of: `agents/*.md`, `templates/agents/*.md`.
+    - Zero occurrences of `bro/.claude/` anywhere in the repo (latent-bug fix).
+    - All `docs/trustmybot/` substitutions preserve the suffix correctly (e.g. `bro/tasks/*.xml` → `docs/trustmybot/tasks/*.xml`, NOT malformed).
+    - No semantic change to agent workflow — only paths. SWE must NOT rewrite descriptions, role statements, or routing tables.
+  </success-criteria>
+
+  <out-of-scope>
+    - Two-path workflow rewrite (gatekeeper triage logic) — Phase 3.
+    - Identity/onboarding flow — Phase 4.
+    - Format change from XML to markdown for task specs — Phase 2.
+    - Editing files under `skills/` (handled by `phase-1-rename-paths-skills`).
+    - Editing CLAUDE.md or README.md (handled by `phase-1-rename-paths-docs`).
+  </out-of-scope>
+
+  <verification>
+    ```bash
+    cd /Users/Zax/Git/GitHub/TMB/plugin
+    ! grep -rn "bro/" agents/ templates/agents/ &amp;&amp; echo "OK: no stale bro/ in agents"
+    ! grep -rn "bro/\.claude" agents/ templates/agents/ &amp;&amp; echo "OK: no bro/.claude latent bug"
+    grep -c "docs/trustmybot/" agents/gatekeeper.md  # expect ≥4
+    grep -c "docs/trustmybot/" templates/agents/swe.md  # expect ≥7
+    grep -c "docs/trustmybot/" templates/agents/architect.md  # expect ≥3
+    grep -c "docs/trustmybot/" templates/agents/pr-reviewer.md  # expect ≥3
+    ```
+
+    All grep-not-matched checks must print OK; the `grep -c` counts must meet or exceed the listed numbers.
+  </verification>
+
+  <commit>
+    🔧 refactor(agents): rewrite bro/ → docs/trustmybot/ in agent prompts; fix latent bro/.claude/ skill-loader bug
+
+    Path-string-only change across global agents (gatekeeper, prompt-engineer)
+    and project-level templates (architect, swe, pr-reviewer, ceo, cto). Also
+    fixes a latent bug in templates/agents/architect.md where skill loader paths
+    were prefixed with bro/.claude/ (never a valid path). XML extension stays
+    on task specs — XML→MD migration is Phase 2. No workflow logic changes.
+  </commit>
+</task>
