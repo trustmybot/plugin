@@ -14,7 +14,7 @@ Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch C
 /plugin install tmb@trustmybot
 ```
 
-First time you activate TMB in a project, it seeds the project's `.claude/agents/` with five editable placeholders (see below).
+On first activation, the gatekeeper introduces itself and asks 2–3 short questions: your branching model (trunk-based, gitflow, etc.) and your identity preference for commits and agent comments. Takes ~30 seconds. Answers are written to `bro/config.yml` and configure the workflow guards for your repo. After that, it seeds the project's `.claude/agents/` with five editable placeholders (see below).
 
 ---
 
