@@ -16,6 +16,7 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
     goals_md: 'SECRET GOALS',
     goals_md_hash: 'abc',
     pre_commit_hash: 'sha123',
+    post_commit_hash: null,
     status: 'open',
     current_task_id: null,
     created_at: '2026-01-01T00:00:00Z',
