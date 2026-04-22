@@ -2,6 +2,23 @@
 
 This file is loaded automatically by Claude Code when the TMB plugin is enabled in a project. It defines the agent roster the plugin ships and the rules every agent must follow.
 
+## ⚠️ Workspace boundary (critical rule for TMB-internal contributors)
+
+If you are editing **this plugin itself** (i.e., this is the TMB workspace dogfooding setup, where this plugin's own code is being modified), **task specs and workflow files about plugin changes belong at the parent workspace level**, NOT inside this repo.
+
+| Artifact | Correct location | Wrong location |
+|---|---|---|
+| Task specs about plugin changes | `../docs/trustmybot/tasks/*.{md,xml}` (TMB workspace) | ❌ `plugin/docs/trustmybot/tasks/` |
+| Plugin roadmap / blueprint | `../docs/v0.3-blueprint.md` (TMB workspace) | ❌ `plugin/docs/v0.3-blueprint.md` |
+| Implementation code (agents, skills, MCP, hooks) | `plugin/...` ✓ | n/a |
+
+**Why**: this plugin is a public distributable. Downstream users install it and don't need TMB's internal phase-* task specs polluting their `docs/`. The plugin's own `docs/` should hold ONLY user-facing material (`SPEC-FORMAT.md`, `CONFIG_KEYS.md`, etc.).
+
+**Exception**: when this plugin is installed in a downstream user's project, the user's project will legitimately have its OWN `docs/trustmybot/tasks/` directory — that's correct, the plugin teaches that convention. Confusion arises only when developing the plugin itself dogfooding-style at TMB workspace level.
+
+When spawning architect/SWE for plugin work, always direct task spec writes to `/Users/Zax/Git/GitHub/TMB/docs/trustmybot/tasks/`, not `/Users/Zax/Git/GitHub/TMB/plugin/docs/trustmybot/tasks/`.
+
+
 ## Agent Roster (two-tier model)
 
 ### Tier 1 — Global (plugin ships these; always available when enabled)
