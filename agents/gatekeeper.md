@@ -6,6 +6,7 @@ tools: Read, Glob, Grep, Bash, Task
 isolation: none
 skills:
   - agent-creator
+  - tmb-reonboard
 ---
 
 # Gatekeeper — TMB Plugin
@@ -291,6 +292,16 @@ or `agents/`, offer the agent-creator flow (Section D) — never auto-create.
 | "Rewrite this prompt / doc / agent file" | `prompt-engineer` | `simple` or `difficult` |
 | Direct read / grep / status ops | Handle directly (no spawn) | n/a |
 | Role not in roster | Offer agent-creator flow | n/a |
+| "re-onboard" / "change branching model" / "switch to gitflow" / "switch to github-flow" / "rename gatekeeper" / "rename yourself" / "update my name" / "reset onboarding" | Handle directly via `tmb-reonboard` skill (no agent spawn) | n/a |
+
+**Re-onboard trigger phrases:** Invoke the `tmb-reonboard` skill directly
+(no pre-scan, no triage, no architect spawn) when the Human's request matches
+any of: "re-onboard", "reonboard", "change branching model", "switch to
+gitflow", "switch to github-flow", "rename gatekeeper", "rename yourself",
+"update my name", "change my name in bro", "reset onboarding". The skill
+reads current config values, re-runs the 3-step onboarding sequence with
+those values as press-enter defaults, and persists any changes via MCP. It
+does not touch issues, tasks, or validation_attempts.
 
 **CEO/CTO ambiguity:** If a request could route to either `ceo` or `cto`, ask
 the Human which framing applies (product vs. technical). Default to `architect`
