@@ -144,7 +144,7 @@ export function taskTools(db: TrajectoryDB): {
     },
         {
       name: 'task_set_spec_path',
-      description: 'Bind a task to its on-disk markdown spec file. Validates that the path matches docs/trustmybot/tasks/<type>-<slug>.md convention and that the filename stem contains the sanitized branch_id.',
+      description: '[DEPRECATED] Bind a task to its on-disk markdown spec file. Validates that the path matches docs/trustmybot/tasks/<type>-<slug>.md convention and that the filename stem contains the sanitized branch_id.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -298,40 +298,26 @@ export function taskTools(db: TrajectoryDB): {
       return ok(task ?? null);
     }),
 
-    task_set_spec_path: requireRoles('task_set_spec_path', ['architect'], wrapHandler(async (args) => {
+    task_set_spec_path: wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
       const branchId = requireArg(args, 'branch_id') as string;
-      const specPath = requireArg(args, 'spec_path') as string;
 
-      const SPEC_PATH_RE = /^docs\/trustmybot\/tasks\/[a-z0-9-]+\.md$/;
-      if (!SPEC_PATH_RE.test(specPath)) {
-        throw new Error(
-          `Invalid spec_path: "${specPath}". Must match docs/trustmybot/tasks/<slug>.md where slug is lowercase alphanumeric and hyphens only.`,
-        );
-      }
-
-      const sanitizedBranchId = branchId.replace('/', '-');
-      const stem = specPath.replace(/^docs\/trustmybot\/tasks\//, '').replace(/\.md$/, '');
-      if (!stem.includes(sanitizedBranchId)) {
-        throw new Error(
-          `spec_path filename stem mismatch: expected stem to contain "${sanitizedBranchId}" (from branch_id "${branchId}"), got stem "${stem}".`,
-        );
-      }
-
-      const now = nowISO();
-      const result = db.run(
-        `UPDATE tasks SET task_spec_path = ?, updated_at = ? WHERE issue_id = ? AND branch_id = ?`,
-        [specPath, now, issueId, branchId],
+      const task = db.get<Task>(
+        'SELECT * FROM tasks WHERE issue_id = ? AND branch_id = ?',
+        [issueId, branchId],
       );
-
-      if (result.changes === 0) {
+      if (!task) {
         throw new Error(`Not found: task with issue_id=${issueId} and branch_id="${branchId}"`);
       }
 
-      const updated = db.get<Task>('SELECT * FROM tasks WHERE issue_id = ? AND branch_id = ?', [issueId, branchId]);
-      return ok(updated);
-    })),
+      return ok({
+        deprecated: true,
+        message:
+          'task_set_spec_path is deprecated in v0.3 Phase 6.5; task specs now live in tasks.spec_body_md. This call was a no-op.',
+        task,
+      });
+    }),
 
   };
 
