@@ -78,5 +78,6 @@
     <summary>Replaced all bro/ path references in CLAUDE.md (6 occurrences) and README.md (2 occurrences) with docs/trustmybot/. No content was added or removed beyond path-string substitutions. docs/v0.3-blueprint.md untouched.</summary>
     <files>CLAUDE.md, README.md</files>
     <verification>PASS — CLAUDE.md clean (0 bro/ matches), README.md clean (0 bro/ matches), CLAUDE.md has 6 docs/trustmybot/ occurrences, README.md has 2 docs/trustmybot/ occurrences, blueprint preserved.</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>

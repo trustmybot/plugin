@@ -80,5 +80,6 @@
     <summary>All bro/ path references in skills/ replaced with docs/trustmybot/; seed-project-agents updated with new copy recipe for templates/docs-trustmybot/ → docs/trustmybot/.</summary>
     <files>skills/agent-creator.md, skills/swe-spawn-workflow/SKILL.md, skills/git-conventions/SKILL.md, skills/create-hook/SKILL.md, skills/architect-workflow/SKILL.md, skills/roundtable-cleanup/SKILL.md, skills/seed-project-agents/SKILL.md, docs/trustmybot/tasks/phase-1-rename-paths-skills.xml</files>
     <verification>PASS — no stale bro/ in skills (OK), no stale bro-template (OK), docs/trustmybot/ count=22 (≥10), seed skill points at templates/docs-trustmybot (OK)</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>

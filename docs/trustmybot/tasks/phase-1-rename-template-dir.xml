@@ -80,5 +80,6 @@
     <summary>Renamed bro-template/ to templates/docs-trustmybot/ using git mv, updated GOALS.md and tasks/README.md to replace bro/ references with docs/trustmybot/, and flipped plugin.json provides.workflow to "docs/trustmybot/".</summary>
     <files>templates/docs-trustmybot/GOALS.md, templates/docs-trustmybot/tasks/README.md, .claude-plugin/plugin.json, docs/trustmybot/tasks/phase-1-rename-template-dir.xml</files>
     <verification>PASS — all 5 OK checks printed: bro-template removed, new dir present, GOALS.md present, tasks README present, no stale refs in template, plugin.json updated.</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>

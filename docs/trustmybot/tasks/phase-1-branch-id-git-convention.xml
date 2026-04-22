@@ -167,5 +167,6 @@
     <summary>Added BRANCH_ID_RE and validateBranchId() to tasks.ts; task_create_batch now validates branch_id and parent_branch_id. All 103 tests pass including 8 new positive/negative branch_id cases. Build clean, regex spot-check exits 0.</summary>
     <files>mcp/trajectory-server/src/tools/tasks.ts, mcp/trajectory-server/src/test/tasks.test.ts, mcp/trajectory-server/src/test/issues.test.ts, mcp/trajectory-server/src/test/remaining_tools.test.ts, mcp/trajectory-server/src/types.ts, mcp/trajectory-server/README.md, docs/trustmybot/tasks/phase-1-branch-id-git-convention.xml</files>
     <verification>PASS — bun run build: clean. node --test dist/test/*.test.js: 103 pass, 0 fail. Regex spot-check: exit 0.</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>

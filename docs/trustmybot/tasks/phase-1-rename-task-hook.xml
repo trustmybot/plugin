@@ -164,5 +164,6 @@
     <summary>Renamed require-task-xml.sh to require-task-spec.sh via git mv, rewrote with canonical body dropping all legacy bro/tasks support. Updated require-review-sign.sh to scan docs/trustmybot/tasks/*.{xml,md} with per-extension dispatch. Updated hooks/hooks.json to reference the renamed script.</summary>
     <files>scripts/hooks/require-task-spec.sh, scripts/hooks/require-review-sign.sh, hooks/hooks.json, docs/trustmybot/tasks/phase-1-rename-task-hook.xml</files>
     <verification>PASS — all 12 checks printed OK; smoke test 1 blocked bro/tasks path; smoke test 2 accepted docs/trustmybot/tasks path with empty stdout exit 0</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>
