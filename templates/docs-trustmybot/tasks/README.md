@@ -1,4 +1,4 @@
-# bro/tasks/
+# docs/trustmybot/tasks/
 
 Task XML files live here. Written by the Architect, executed by the SWE.
 
