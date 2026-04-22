@@ -38,9 +38,9 @@ describe('taskTools', () => {
       agent: 'swe',
       issue_id: String(issueId),
       tasks: [
-        { branch_id: '1.1', description: 'Task one', success_criteria: 'works' },
-        { branch_id: '1.2', description: 'Task two', success_criteria: 'passes' },
-        { branch_id: '1.3', description: 'Task three', success_criteria: 'done' },
+        { branch_id: 'feat/task-one', description: 'Task one', success_criteria: 'works' },
+        { branch_id: 'feat/task-two', description: 'Task two', success_criteria: 'passes' },
+        { branch_id: 'feat/task-three', description: 'Task three', success_criteria: 'done' },
       ],
     });
 
@@ -48,9 +48,9 @@ describe('taskTools', () => {
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
     assert.ok(Array.isArray(inserted));
     assert.equal(inserted.length, 3);
-    assert.equal(inserted[0].branch_id, '1.1');
-    assert.equal(inserted[1].branch_id, '1.2');
-    assert.equal(inserted[2].branch_id, '1.3');
+    assert.equal(inserted[0].branch_id, 'feat/task-one');
+    assert.equal(inserted[1].branch_id, 'feat/task-two');
+    assert.equal(inserted[2].branch_id, 'feat/task-three');
     assert.ok(inserted.every((t: { status: string }) => t.status === 'pending'));
 
     db.close();
@@ -64,7 +64,7 @@ describe('taskTools', () => {
     const batchResult = await call(tools.handlers, 'task_create_batch', {
       agent: 'swe',
       issue_id: String(issueId),
-      tasks: [{ branch_id: '1.1', description: 'A task', success_criteria: 'ok' }],
+      tasks: [{ branch_id: 'feat/a-task', description: 'A task', success_criteria: 'ok' }],
     });
     const tasks = parseResult(batchResult);
 
@@ -90,9 +90,9 @@ describe('taskTools', () => {
       agent: 'swe',
       issue_id: String(issueId),
       tasks: [
-        { branch_id: '1.1', description: 'First', success_criteria: 'ok' },
-        { branch_id: '1.2', description: 'Second', success_criteria: 'ok' },
-        { branch_id: '1.3', description: 'Third', success_criteria: 'ok' },
+        { branch_id: 'feat/first', description: 'First', success_criteria: 'ok' },
+        { branch_id: 'feat/second', description: 'Second', success_criteria: 'ok' },
+        { branch_id: 'feat/third', description: 'Third', success_criteria: 'ok' },
       ],
     });
 
@@ -119,7 +119,7 @@ describe('taskTools', () => {
     const task = parseResult(result);
     assert.ok(!result.isError);
     assert.ok(task !== null);
-    assert.equal(task.branch_id, '1.2');
+    assert.equal(task.branch_id, 'feat/second');
 
     db.close();
   });
@@ -130,12 +130,22 @@ describe('taskTools', () => {
     const tools = taskTools(db);
 
     const validStatuses = ['pending', 'running', 'needs_validation', 'completed', 'failed', 'escalated'];
+    const branchNames = [
+      'feat/status-pending',
+      'feat/status-running',
+      'feat/status-needs-validation',
+      'feat/status-completed',
+      'feat/status-failed',
+      'feat/status-escalated',
+    ];
 
-    for (const status of validStatuses) {
+    for (let i = 0; i < validStatuses.length; i++) {
+      const status = validStatuses[i]!;
+      const branchId = branchNames[i]!;
       const batchResult = await call(tools.handlers, 'task_create_batch', {
         agent: 'swe',
         issue_id: String(issueId),
-        tasks: [{ branch_id: `status-${status}`, description: `Task for ${status}`, success_criteria: 'ok' }],
+        tasks: [{ branch_id: branchId, description: `Task for ${status}`, success_criteria: 'ok' }],
       });
       const tasks = parseResult(batchResult);
 
@@ -148,6 +158,149 @@ describe('taskTools', () => {
       assert.ok(!result.isError, `Expected no error for status "${status}": ${JSON.stringify(updated)}`);
       assert.equal(updated.status, status);
     }
+
+    db.close();
+  });
+
+  it('task_create_batch accepts valid git-convention branch_id: feat/user-login', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/user-login', description: 'login feature', success_criteria: 'works' }],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].branch_id, 'feat/user-login');
+
+    db.close();
+  });
+
+  it('task_create_batch accepts valid git-convention branch_id: refactor/extract-helper', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'refactor/extract-helper', description: 'extract helper', success_criteria: 'clean' }],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].branch_id, 'refactor/extract-helper');
+
+    db.close();
+  });
+
+  it('task_create_batch rejects branch_id with uppercase type: Foo/Bar', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'Foo/Bar', description: 'bad', success_criteria: 'n/a' }],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid branch_id/);
+
+    db.close();
+  });
+
+  it('task_create_batch rejects branch_id with uppercase slug: feat/UPPERCASE', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/UPPERCASE', description: 'bad', success_criteria: 'n/a' }],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid branch_id/);
+
+    db.close();
+  });
+
+  it('task_create_batch rejects branch_id with leading hyphen: feat/-leading-hyphen', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/-leading-hyphen', description: 'bad', success_criteria: 'n/a' }],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid branch_id/);
+
+    db.close();
+  });
+
+  it('task_create_batch rejects empty branch_id', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: '', description: 'bad', success_criteria: 'n/a' }],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /branch_id/);
+
+    db.close();
+  });
+
+  it('task_create_batch rejects branch_id with double slash: feat/double//slash', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/double//slash', description: 'bad', success_criteria: 'n/a' }],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid branch_id/);
+
+    db.close();
+  });
+
+  it('task_create_batch rejects invalid parent_branch_id', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/foo',
+          parent_branch_id: 'bad value',
+          description: 'bad parent',
+          success_criteria: 'n/a',
+        },
+      ],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid branch_id/);
 
     db.close();
   });

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-1-branch-id-git-convention" status="open">
+<task id="phase-1-branch-id-git-convention" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 1 change #F: lock branch_id to git-convention format via runtime validation in MCP task_create_batch. Semantic change only — no schema migration."/>
   <title>Adopt git-convention branch_id format with runtime validation in MCP task_create_batch</title>
   <branch-id>feat/phase-1-branch-id-git-convention</branch-id>
@@ -162,4 +162,10 @@
     added. No schema migration — column stays TEXT. Tool descriptions updated
     to reflect format and lex-order behavior of task_first_actionable.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Added BRANCH_ID_RE and validateBranchId() to tasks.ts; task_create_batch now validates branch_id and parent_branch_id. All 103 tests pass including 8 new positive/negative branch_id cases. Build clean, regex spot-check exits 0.</summary>
+    <files>mcp/trajectory-server/src/tools/tasks.ts, mcp/trajectory-server/src/test/tasks.test.ts, mcp/trajectory-server/src/test/issues.test.ts, mcp/trajectory-server/src/test/remaining_tools.test.ts, mcp/trajectory-server/src/types.ts, mcp/trajectory-server/README.md, docs/trustmybot/tasks/phase-1-branch-id-git-convention.xml</files>
+    <verification>PASS — bun run build: clean. node --test dist/test/*.test.js: 103 pass, 0 fail. Regex spot-check: exit 0.</verification>
+  </results>
 </task>

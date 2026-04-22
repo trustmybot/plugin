@@ -85,8 +85,8 @@ describe('issueTools', () => {
       agent: 'swe',
       issue_id: String(issue.id),
       tasks: [
-        { branch_id: '1.1', description: 'First task', success_criteria: 'done' },
-        { branch_id: '1.2', description: 'Second task', success_criteria: 'done' },
+        { branch_id: 'feat/first-task', description: 'First task', success_criteria: 'done' },
+        { branch_id: 'feat/second-task', description: 'Second task', success_criteria: 'done' },
       ],
     });
 
@@ -98,7 +98,7 @@ describe('issueTools', () => {
     assert.ok(!resumeResult.isError);
     assert.equal(resumed.issue.id, issue.id);
     assert.ok(resumed.next_task !== null);
-    assert.equal(resumed.next_task.branch_id, '1.1');
+    assert.equal(resumed.next_task.branch_id, 'feat/first-task');
 
     db.close();
   });
@@ -142,8 +142,8 @@ describe('issueTools', () => {
       agent: 'swe',
       issue_id: String(issue.id),
       tasks: [
-        { branch_id: '1.1', description: 'Task 1', success_criteria: 'done' },
-        { branch_id: '1.2', description: 'Task 2', success_criteria: 'done' },
+        { branch_id: 'feat/task-1', description: 'Task 1', success_criteria: 'done' },
+        { branch_id: 'feat/task-2', description: 'Task 2', success_criteria: 'done' },
       ],
     });
 
