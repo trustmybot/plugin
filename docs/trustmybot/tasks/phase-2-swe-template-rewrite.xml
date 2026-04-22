@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-swe-template-rewrite" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B: SWE is the agent most affected by the format change. It must read markdown specs (frontmatter + body) instead of XML, drive task state via MCP (task_update_status pending → running → completed) instead of editing &lt;status&gt; in a file, and never write a &lt;results&gt; XML block. The MANDATORY FIRST ACTION block at the top of swe.md must be rewritten to match. This is the largest single Phase 2 prompt edit."/>
+  <title>Rewrite templates/agents/swe.md to consume markdown specs and drive task state via MCP only</title>
+  <branch-id>refactor/phase-2-swe-template</branch-id>
+  <depends-on>phase-2-mcp-discussions-and-snapshot, phase-2-markdown-spec-format-doc</depends-on>
+
+  <description>
+    Replace every XML-spec-shaped instruction in `templates/agents/swe.md`
+    with the equivalent markdown-spec + MCP-state instruction. SWE no
+    longer:
+      - parses `&lt;authorized-by&gt;` / `status="open"` from XML — instead reads
+        YAML frontmatter `authorized_by:` / `status: pending|open`.
+      - writes a `&lt;results&gt;` block to the spec file — instead calls
+        `task_update_status(status='running')` before work,
+        `task_update_status(status='completed')` immediately after the
+        atomic commit. Optionally calls `validation_record(verdict='pass')`
+        when self-verification clears, but PR Reviewer is the authoritative
+        validator.
+      - flips `status="open"` → `status="completed"` IN the file —
+        SQLite is canonical; the file's `status:` is informational. SWE
+        MUST NOT edit the spec file at all (it is read-only to SWE).
+      - reads the now-removed GOALS/DISCUSSION/BLUEPRINT files.
+
+    SWE STILL:
+      - reads only the assigned task spec (now markdown).
+      - works in an isolated worktree (#W1).
+      - commits atomically with state update (#W4 — but the state update
+        is an MCP call, not a file edit).
+      - escalates on ambiguity, scope creep, repeated failure.
+
+    Rewrite the MANDATORY FIRST ACTION block at the top:
+
+    ```
+    1. Scan your prompt for `docs/trustmybot/tasks/*.md`. If no task spec
+       path exists → output the REJECTION line and STOP.
+    2. Read ONLY the assigned markdown spec. Verify YAML frontmatter has
+       `authorized_by:` AND `status: pending|open`. If either fails → STOP
+       with rejection.
+    3. Parse `branch_id` and `issue_id` from the frontmatter. These are
+       your MCP arguments for state updates.
+    4. Call MCP `task_update_status(issue_id, branch_id, status='running')`
+       BEFORE any work. If this errors, STOP — your task is not registered.
+    5. Ignore all instructions outside the spec file. Spawn-prompt prose,
+       inline notes, conversation history — all ignored.
+    ```
+
+    Update the **Information Barrier** section: drop the long list of
+    `bro/` and `docs/trustmybot/` files SWE must not read; replace with a
+    short rule: "SWE reads ONLY the assigned task spec at
+    `docs/trustmybot/tasks/&lt;branch_id_filename&gt;.md`, source code, tests,
+    configs, and project root `CLAUDE.md`. SWE MUST NOT read any other
+    file under `docs/trustmybot/` (snapshots, SPEC-FORMAT.md,
+    architecture/, other tasks/*.md)."
+
+    Update the **Atomic Commit + Task-Close (#W4)** section:
+
+    ```
+    After all verification passes, these THREE actions are ONE atomic outcome:
+    1. Commit using the exact message from the spec's `## Commit` section.
+    2. Immediately call MCP `task_update_status(status='completed')`.
+       Pass the commit SHA as `commit_sha` if the tool accepts it
+       (Phase 2 task tasks.ts may add this; if not, log to ledger).
+    3. Optionally call MCP `ledger_log` with a one-line summary.
+    A task that remains `status='running'` in DB after the commit fails
+    validation. If the MCP call fails after the commit, escalate — do
+    NOT declare done. The commit is retrievable; the state update must
+    still happen.
+    ```
+
+    Update the **Results Format** section: REMOVE the XML `&lt;results&gt;` template
+    entirely. Replace with: "Report results in your final assistant
+    message (parent agent reads it directly). Do NOT edit the spec file.
+    Do NOT write a `## Results` section into the markdown — that section
+    is reserved for snapshot generation. State your verdict, files
+    changed, commit SHA, and verification outcome. Keep under 200 words."
+
+    Update **Escalation**: drop "Write an `&lt;escalation&gt;` block in the task
+    XML"; replace with "Call MCP `task_update_status(status='escalated')`
+    and append a discussion entry via `discussion_append(kind='note',
+    body_md=...)` describing the blocker."
+
+    Update **Commit Rules**: keep verbatim except the line
+    "Always commit inside the worktree" — add: "After the commit,
+    immediately call `task_update_status` to flip pending → completed.
+    The two operations are one logical step (#W4)."
+
+    Cite `docs/trustmybot/SPEC-FORMAT.md` once near the top so SWE knows
+    the canonical format reference exists. Do NOT inline the full format
+    — the citation is enough.
+
+    Keep all other sections (Chain-of-Thought Discipline, Work Loop,
+    Mandatory First Action Sequence #W1 worktree, the placeholder banner)
+    intact. The placeholder banner stays — this is a project-level
+    template; downstream users edit it.
+  </description>
+
+  <files>
+    <file path="templates/agents/swe.md" action="modify">
+      Wholesale rewrite per the description. Net length should drop
+      ~10-20% (XML format prose is bulkier than markdown + MCP).
+      Preserve frontmatter (`name`, `description`, `model`, `maxTurns`,
+      `tools`, `isolation`, `skills`) — but UPDATE the `description` to
+      mention markdown specs: "Implements a single task from
+      docs/trustmybot/tasks/*.md. Reads only its task spec, works in an
+      isolated worktree, drives state via MCP, closes the task atomically
+      with the commit. PROJECT-LEVEL PLACEHOLDER — edit to match your
+      domain."
+      DROP `Edit` from the `tools:` list — SWE no longer edits the spec
+      file, and source-code edits go via Write where possible (Edit stays
+      acceptable for source files; only the spec edit capability goes
+      away). Reconsider — keep `Edit` for source files. Just verify the
+      prose makes the spec-file write prohibition explicit.
+    </file>
+  </files>
+
+  <success-criteria>
+    - `templates/agents/swe.md` no longer contains the strings
+      `&lt;authorized-by`, `status="open"`, `&lt;results status=`, `&lt;escalation`,
+      `*.xml` (in any context — all task references are now `*.md`).
+    - File contains the new MANDATORY FIRST ACTION block referencing
+      markdown frontmatter and `task_update_status` call.
+    - File contains a citation to `docs/trustmybot/SPEC-FORMAT.md`.
+    - File contains the rewritten Atomic Commit + Task-Close (#W4)
+      section showing commit + `task_update_status('completed')` as one
+      step.
+    - File contains the prohibition: "SWE MUST NOT edit the spec file".
+    - The frontmatter `description:` mentions markdown.
+    - File still contains the placeholder banner ("Placeholder template.").
+    - `bro/` does not appear anywhere in the file (Phase 1 cleanup must
+      already have removed; this task verifies).
+    - File length: 100-220 lines (the v0.3 SWE prompt should be tighter
+      than the current 192 lines, but not dramatically shorter).
+  </success-criteria>
+
+  <out-of-scope>
+    - Editing `agents/gatekeeper.md` (Phase 2 task `gatekeeper-update`).
+    - Editing `templates/agents/architect.md` (Phase 2 task
+      `architect-template-rewrite`).
+    - Editing `templates/agents/pr-reviewer.md` (Phase 2 task
+      `pr-reviewer-template-rewrite`).
+    - Editing skill files (Phase 2 task `skills-rewrite`).
+    - Adding the `commit_sha` parameter to `task_update_status` MCP tool —
+      if missing, SWE logs via `ledger_log` instead.
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    F=templates/agents/swe.md
+    test -f "$F" &amp;&amp; echo "OK: file exists"
+
+    # Forbidden legacy strings
+    ! grep -q '&lt;authorized-by' "$F" &amp;&amp; echo "OK: no legacy authorized-by tag"
+    ! grep -q 'status="open"' "$F" &amp;&amp; echo "OK: no XML status attr"
+    ! grep -q '&lt;results status=' "$F" &amp;&amp; echo "OK: no results XML template"
+    ! grep -q '&lt;escalation' "$F" &amp;&amp; echo "OK: no escalation XML"
+    ! grep -q '\.xml' "$F" &amp;&amp; echo "OK: no .xml task refs"
+    ! grep -q 'bro/' "$F" &amp;&amp; echo "OK: no legacy bro path"
+
+    # Required new strings
+    grep -q 'authorized_by:' "$F" &amp;&amp; echo "OK: frontmatter authorized_by"
+    grep -q 'task_update_status' "$F" &amp;&amp; echo "OK: MCP state call"
+    grep -q 'SPEC-FORMAT.md' "$F" &amp;&amp; echo "OK: spec format citation"
+    grep -q 'MUST NOT edit the spec file' "$F" &amp;&amp; echo "OK: read-only spec rule"
+    grep -q 'Placeholder template' "$F" &amp;&amp; echo "OK: placeholder banner intact"
+
+    # Frontmatter description mentions markdown
+    head -20 "$F" | grep -q 'docs/trustmybot/tasks/\*\.md\|markdown' &amp;&amp; echo "OK: frontmatter desc updated"
+
+    # Length sanity
+    LINES=$(wc -l &lt; "$F")
+    [ "$LINES" -ge 100 ] &amp;&amp; [ "$LINES" -le 220 ] &amp;&amp; echo "OK: length $LINES in 100-220"
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    🤖 refactor(agents): rewrite templates/agents/swe.md for markdown specs + MCP-driven state
+
+    Phase 2 SWE no longer parses XML or edits the spec file. Reads YAML
+    frontmatter to authorize, drives task lifecycle via MCP
+    task_update_status (running → completed), reports results in chat,
+    escalates via discussion_append. Atomic commit + state-update remains
+    one logical step (#W4). Spec file is read-only to SWE.
+  </commit>
+</task>

@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-skills-rewrite" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B + #E: skill files (architect-workflow, swe-spawn-workflow, swe-checklist, validate-swe-output, review-protocol) all reference XML task format and the GOALS/DISCUSSION/BLUEPRINT file workflow. Agents load these skills directly, so any drift between agent prompt and skill prose causes runtime confusion. One task to bring them all up-to-date."/>
+  <title>Update 5 skill files for markdown specs + MCP-driven state</title>
+  <branch-id>refactor/phase-2-skills</branch-id>
+  <depends-on>phase-2-markdown-spec-format-doc, phase-2-swe-template-rewrite, phase-2-architect-template-rewrite, phase-2-pr-reviewer-template-rewrite</depends-on>
+
+  <description>
+    Five skill files need Phase 2 updates. Keep edits surgical — only
+    where the file references XML task format, GOALS.md / DISCUSSION.md
+    / BLUEPRINT.md as required workflow files, or in-file status / sign-off
+    fields. Other content (chain-of-thought rules, worktree discipline,
+    review checklists) stays.
+
+    **1. `skills/architect-workflow/SKILL.md`** — most invasive.
+       - File Format Rules table: drop GOALS / DISCUSSION / BLUEPRINT rows;
+         keep tasks/*.md row (replace XML with MD; format = "Markdown
+         frontmatter + body").
+       - Workflow Steps numbered list: rewrite to "1. Create or resume
+         MCP issue (issue_create or issue_resume) → 2. Discuss via
+         discussion_append until aligned → 3. Author markdown task specs
+         → 4. task_create_batch + task_set_spec_path → 5. Spawn SWE per
+         task → 6. Validate per validate-swe-output → 7. PR Reviewer →
+         8. Close tasks via task_update_status(status='closed')."
+       - Discussion Phase: replace the file-based DISCUSSION.md /
+         ANSWER-BELOW marker workflow with the MCP discussion_append +
+         conversational alignment workflow. Optionally generate a
+         snapshot via issue_snapshot_md when the human wants a doc to
+         review.
+       - GOALS.md Change Detection: drop entirely (no GOALS.md file).
+         Replace with a one-paragraph note: "If the human revises intent
+         mid-workflow, append a new discussion_append(kind='intent')
+         entry; re-evaluate the open task batch and split / cancel as
+         needed via task_update_status."
+
+    **2. `skills/swe-spawn-workflow/SKILL.md`** — pin to markdown.
+       - "Naming" line: change from
+         `docs/trustmybot/tasks/&lt;YYYYMMDD-HHMM&gt;_&lt;descriptive_name&gt;.xml`
+         to `docs/trustmybot/tasks/&lt;branch_id_filename&gt;.md` (the timestamp
+         convention dies; branch_id is the index per blueprint change #F).
+       - Replace the entire **Task File Template (XML)** code block with
+         a markdown spec template: YAML frontmatter (per
+         docs/trustmybot/SPEC-FORMAT.md) + body sections. Reference
+         SPEC-FORMAT.md as the canonical contract; do not duplicate the
+         full format here — keep this skill focused on spawn protocol.
+       - Size limit: keep "200 lines maximum" but note "If this skill's
+         template is exceeded, split into multiple specs with
+         depends_on chains."
+
+    **3. `skills/swe-checklist/SKILL.md`** — VERIFIED format-agnostic
+       by architect during task spec authoring. The file references
+       section concepts in backticks (`&lt;context&gt;`, `&lt;error-handling&gt;`,
+       `&lt;edge-cases&gt;`, `&lt;verification&gt;`, `&lt;commit&gt;`) but treats them
+       as conceptual section names, not XML tag literals — they map
+       1:1 to markdown headings (`## Context`, `## Error Handling`,
+       etc.) without semantic change. No status-attribute references.
+       No GOALS/DISCUSSION/BLUEPRINT references.
+
+       Action: re-read the file once to re-confirm; if confirmation
+       holds, NO EDITS. Document in the Results section: "swe-checklist
+       was verified format-agnostic; section names in backticks read
+       as concepts, not XML literals; no edits required." If anything
+       new has appeared since the architect's read (a recent change
+       added an XML literal), apply the surgical replacement and note
+       it in Results.
+
+    **4. `skills/validate-swe-output.md`** (NOTE: this is a single-file
+       skill at `skills/validate-swe-output.md`, not a directory) —
+       update verification protocol:
+       - Verify task row in MCP shows `status='completed'`, not the
+         in-file `status` attribute.
+       - Verify validation_attempts can be appended via validation_record.
+       - Re-run the spec's `## Verification` block (markdown section,
+         not XML element).
+
+    **5. `skills/review-protocol/SKILL.md`** — update review steps to
+       cite MCP validation_record as the sign-off mechanism, not XML
+       tag editing. Cite markdown spec section names where the old
+       review protocol cited XML elements.
+
+    For each file: open it, read it fully (do not skim), and apply only
+    the required substitutions. Many sections are agent-agnostic prose
+    that stays.
+
+    Cite `docs/trustmybot/SPEC-FORMAT.md` exactly once per file (in the
+    section that introduces task spec format).
+  </description>
+
+  <files>
+    <file path="skills/architect-workflow/SKILL.md" action="modify">
+      Wholesale rewrite of File Format Rules table, Workflow Steps,
+      Discussion Phase, GOALS.md Change Detection sections per the
+      description. Other sections preserved.
+    </file>
+    <file path="skills/swe-spawn-workflow/SKILL.md" action="modify">
+      Update Naming line; replace Task File Template (XML) block with a
+      markdown spec template + SPEC-FORMAT.md reference. Other sections
+      preserved.
+    </file>
+    <file path="skills/swe-checklist/SKILL.md" action="verify-no-edit">
+      Architect pre-verified this file as format-agnostic. SWE re-reads
+      to confirm; if still format-agnostic, NO EDITS are made and the
+      Results section documents the verification. If the file has
+      drifted since architect's read (e.g. a new XML literal appeared),
+      apply the surgical replacement and note it in Results. This is
+      the only file in this task where "no diff" is an acceptable
+      outcome.
+    </file>
+    <file path="skills/validate-swe-output.md" action="modify">
+      Update verification protocol to query MCP for status / sign-off
+      and re-run markdown `## Verification` blocks.
+    </file>
+    <file path="skills/review-protocol/SKILL.md" action="modify">
+      Update review steps to cite MCP validation_record and markdown
+      spec section names.
+    </file>
+  </files>
+
+  <success-criteria>
+    - None of the 5 files reference task `*.xml` extension for spec files.
+    - None reference `&lt;authorized-by&gt;`, `&lt;reviewed-by&gt;`, `&lt;closed-by&gt;`,
+      `&lt;results&gt;`, `&lt;review-findings&gt;` XML tags as the active mechanism.
+    - architect-workflow no longer treats GOALS.md / DISCUSSION.md /
+      BLUEPRINT.md as required workflow files.
+    - swe-spawn-workflow Naming line uses
+      `docs/trustmybot/tasks/&lt;branch_id_filename&gt;.md`.
+    - swe-spawn-workflow contains a markdown spec template (YAML
+      frontmatter + Description / Files / Success Criteria / Verification
+      / Out of Scope / Commit sections) instead of XML.
+    - validate-swe-output references `task_get` (or equivalent MCP tool)
+      to check `status='completed'`.
+    - review-protocol references `validation_record` as the sign-off
+      mechanism.
+    - Each of the 5 files cites `docs/trustmybot/SPEC-FORMAT.md` exactly
+      once (or zero times if SPEC-FORMAT.md is not relevant — document
+      in &lt;results&gt;).
+  </success-criteria>
+
+  <out-of-scope>
+    - Editing skills outside the 5 listed (code-quality, naming-conventions,
+      etc.) — they should be format-agnostic; if you find one that isn't,
+      add a follow-up Phase 2 task.
+    - Editing the agent .md files (handled in their own Phase 2 tasks —
+      this task's `depends-on` enforces order).
+    - Restructuring the skill directory layout (Phase 3 cleanup if needed).
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    for SKILL in \
+      skills/architect-workflow/SKILL.md \
+      skills/swe-spawn-workflow/SKILL.md \
+      skills/swe-checklist/SKILL.md \
+      skills/validate-swe-output.md \
+      skills/review-protocol/SKILL.md; do
+      test -f "$SKILL" &amp;&amp; echo "OK: $SKILL exists"
+      ! grep -q 'tasks/\*\.xml\|tasks/.*\.xml' "$SKILL" &amp;&amp; echo "OK: no .xml refs in $SKILL"
+      ! grep -q '&lt;authorized-by\|&lt;reviewed-by\|&lt;closed-by\|&lt;review-findings' "$SKILL" &amp;&amp; echo "OK: no XML tags in $SKILL"
+    done
+
+    # File-specific checks
+    grep -q 'discussion_append\|issue_create' skills/architect-workflow/SKILL.md &amp;&amp; echo "OK: arch-workflow uses MCP intent capture"
+    ! grep -q 'GOALS.md.*required\|DISCUSSION.md.*required\|BLUEPRINT.md.*required' skills/architect-workflow/SKILL.md &amp;&amp; echo "OK: arch-workflow no required files"
+
+    grep -q '&lt;branch_id_filename&gt;\.md\|branch_id.*\.md' skills/swe-spawn-workflow/SKILL.md &amp;&amp; echo "OK: spawn naming pinned to .md"
+    grep -q '^---$' skills/swe-spawn-workflow/SKILL.md &amp;&amp; echo "OK: spawn includes frontmatter sample"
+
+    grep -q 'task_get\|task_update_status' skills/validate-swe-output.md &amp;&amp; echo "OK: validate uses MCP tools"
+    grep -q 'validation_record' skills/review-protocol/SKILL.md &amp;&amp; echo "OK: review-protocol uses validation_record"
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    📘 refactor(skills): update 5 skills for Phase 2 markdown specs + MCP-driven state
+
+    architect-workflow drops GOALS/DISCUSSION/BLUEPRINT as required files
+    and routes intent capture through issue_create + discussion_append.
+    swe-spawn-workflow naming + template pinned to markdown +
+    branch_id-filename. swe-checklist, validate-swe-output, review-protocol
+    cite MCP tools (task_get, task_update_status, validation_record)
+    instead of in-file XML tag editing. All 5 cite SPEC-FORMAT.md as the
+    canonical task spec contract.
+  </commit>
+</task>

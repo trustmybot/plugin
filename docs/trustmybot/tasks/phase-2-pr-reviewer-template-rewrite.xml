@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-pr-reviewer-template-rewrite" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B + #E: pr-reviewer currently edits XML task files to add &lt;reviewed-by&gt; / &lt;closed-by&gt; tags. With markdown specs, sign-off lives entirely in MCP validation_attempts (signed via validation_record). The Edit-tool-discipline rule changes too — pr-reviewer no longer needs Edit at all if all sign-off is via MCP. Decision: REMOVE Edit from tools and route all sign-off through MCP."/>
+  <title>Rewrite templates/agents/pr-reviewer.md to sign tasks via MCP validation_record only; drop Edit tool</title>
+  <branch-id>refactor/phase-2-pr-reviewer-template</branch-id>
+  <depends-on>phase-2-mcp-discussions-and-snapshot, phase-2-markdown-spec-format-doc</depends-on>
+
+  <description>
+    Rewrite `templates/agents/pr-reviewer.md` so that sign-off is entirely
+    MCP-driven and the spec file stays read-only.
+
+    **Frontmatter changes:**
+      - `tools:` — remove `Edit`. New list: `Read, Glob, Grep, Bash, Task`.
+        (Justification: there is no longer ANY file pr-reviewer should
+        edit. Sign-off is `validation_record`. Status flips to 'closed'
+        are an architect responsibility per the new flow — pr-reviewer
+        only records pass/fail.)
+      - `description:` — drop "closes tasks by editing their XML". Update
+        to: "Pre-commit and pre-push review gate. Delegates mechanical
+        review to pr-review-toolkit:review-pr, overlays TMB task-alignment
+        checks, records pass/fail via MCP validation_record. PROJECT-LEVEL
+        PLACEHOLDER — edit to match your domain."
+
+    **Section A. Role:** Update one line.
+      Old: "Your verdict determines whether a task moves from
+            `status="completed"` to `status="closed"`."
+      New: "Your verdict (recorded via MCP `validation_record`) determines
+            whether the architect can flip the task to `status='closed'`."
+
+    **Section C. TMB Overlay — Task-Alignment Checks:**
+      - Item 1 Scope alignment: cite the markdown spec's `## Files`
+        section instead of `&lt;scope&gt;`.
+      - Item 2 Success criteria met: cite the markdown spec's
+        `## Success Criteria` and `## Verification` sections instead of
+        `&lt;success-criteria&gt;` and `&lt;verification&gt;`. If either section is
+        missing or empty → FAIL the review.
+      - Item 3 Atomic-close discipline (#W4): the check is now "MCP
+        `tasks` row for this branch_id has `status='completed'` (set by
+        SWE)". If still `status='running'` → FAIL the review with #W4
+        violation.
+      - Item 4 Already closed: query MCP `task_get`. If `status='closed'`
+        → report and return.
+
+    **Section D. Sign-Off — On PASS:**
+      Old (XML edit + status flip + validation_record):
+      New (MCP only):
+      ```
+      1. Generate a snapshot for the human review trail:
+         issue_snapshot_md(issue_id, output_path='docs/trustmybot/snapshots/&lt;issue_id&gt;.md')
+      2. Call MCP validation_record(task_id=&lt;tasks.id&gt;, attempt_n=N+1,
+         agent='pr-reviewer', verdict='pass', feedback_md='LGTM').
+      3. Return control to architect with the verdict. Architect calls
+         task_update_status(status='closed').
+      Do NOT edit the spec file. Do NOT flip task status yourself.
+      ```
+
+    **Section D. Sign-Off — On FAIL:**
+      Old (write &lt;review-findings&gt; XML block):
+      New:
+      ```
+      1. Call MCP validation_record(verdict='fail',
+         feedback_md=&lt;structured findings&gt;).
+      2. Optionally append a discussion entry via discussion_append(
+         issue_id, author='pr-reviewer', kind='note', body_md=findings).
+      3. Return control to architect for the retry loop. State clearly
+         what SWE must fix.
+      Do NOT edit the spec file.
+      ```
+
+    **Section E. Edit-Tool Discipline (#W2):** REPLACE the section title
+    and body. New title: "**E. No-Edit Discipline (#W2)**". Body:
+
+    ```
+    pr-reviewer has NO Edit tool. All sign-off is via MCP validation_record.
+    Spec files at docs/trustmybot/tasks/*.md are read-only to pr-reviewer.
+    Snapshot files at docs/trustmybot/snapshots/*.md are written via MCP
+    issue_snapshot_md, never via Edit/Write.
+
+    If you find yourself wanting to edit any file, stop — that is outside
+    your authority. Escalate to architect instead.
+    ```
+
+    **Error Handling table:** update to drop XML-specific rows; add MCP rows.
+      - "validation_record MCP call fails" → retry once, then escalate
+        to architect (no filesystem fallback — DB is authoritative now).
+      - "MCP tasks row not found for branch_id" → escalate to architect
+        (spec exists but not registered; #W4 violation).
+      - "Spec markdown missing `## Success Criteria` or `## Verification`"
+        → FAIL the review; spec was underspecified.
+
+    Cite `docs/trustmybot/SPEC-FORMAT.md` once.
+
+    Keep the placeholder banner intact.
+  </description>
+
+  <files>
+    <file path="templates/agents/pr-reviewer.md" action="modify">
+      Per-section rewrite per description. Update frontmatter (drop
+      `Edit` from tools, update description). Replace Section D
+      sign-off bodies. Replace Section E header + body. Update Error
+      Handling table. Net length should hold roughly steady.
+    </file>
+  </files>
+
+  <success-criteria>
+    - Frontmatter `tools:` no longer contains `Edit`.
+    - Frontmatter `description:` no longer mentions "editing their XML".
+    - File no longer contains `&lt;reviewed-by&gt;`, `&lt;closed-by&gt;`,
+      `&lt;review-findings&gt;`, or `*.xml` references for task specs.
+    - File contains `validation_record` as the canonical sign-off mechanism.
+    - File contains `issue_snapshot_md` for the snapshot generation step.
+    - File contains "spec files at docs/trustmybot/tasks/*.md are
+      read-only" or equivalent prohibition.
+    - Section E renamed to "No-Edit Discipline" or similar.
+    - File still contains the placeholder banner.
+    - File cites `docs/trustmybot/SPEC-FORMAT.md`.
+    - Length: 110-180 lines.
+  </success-criteria>
+
+  <out-of-scope>
+    - Modifying the `validation_record` MCP tool itself (already exists
+      — Phase 0).
+    - Modifying `pr-review-toolkit` plugin (external dependency).
+    - Editing review-protocol or review-findings skills (Phase 2 task
+      `skills-rewrite`).
+    - Changing how architect calls task_update_status to close a task
+      after pr-reviewer passes (architect template task handles this).
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    F=templates/agents/pr-reviewer.md
+    test -f "$F" &amp;&amp; echo "OK: file exists"
+
+    # Frontmatter checks
+    head -15 "$F" | grep -q '^tools:' &amp;&amp; echo "OK: tools key present"
+    head -15 "$F" | grep '^tools:' | grep -qv 'Edit' &amp;&amp; echo "OK: Edit removed from tools"
+    head -15 "$F" | grep '^description:' | grep -qv 'editing their XML' &amp;&amp; echo "OK: description updated"
+
+    # Forbidden legacy strings (in body)
+    ! grep -q '&lt;reviewed-by' "$F" &amp;&amp; echo "OK: no reviewed-by XML"
+    ! grep -q '&lt;closed-by' "$F" &amp;&amp; echo "OK: no closed-by XML"
+    ! grep -q '&lt;review-findings' "$F" &amp;&amp; echo "OK: no review-findings XML"
+    ! grep -q 'tasks/.*\.xml' "$F" &amp;&amp; echo "OK: no .xml task refs"
+
+    # Required new strings
+    grep -q 'validation_record' "$F" &amp;&amp; echo "OK: validation_record cited"
+    grep -q 'issue_snapshot_md' "$F" &amp;&amp; echo "OK: snapshot tool cited"
+    grep -q 'No-Edit Discipline\|no Edit tool\|read-only to pr-reviewer' "$F" &amp;&amp; echo "OK: no-edit rule"
+    grep -q 'SPEC-FORMAT.md' "$F" &amp;&amp; echo "OK: spec format citation"
+    grep -q 'Placeholder template' "$F" &amp;&amp; echo "OK: placeholder banner"
+
+    # Length
+    LINES=$(wc -l &lt; "$F")
+    [ "$LINES" -ge 110 ] &amp;&amp; [ "$LINES" -le 180 ] &amp;&amp; echo "OK: length $LINES in 110-180"
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    🛡️ refactor(agents): rewrite templates/agents/pr-reviewer.md for MCP-only sign-off; drop Edit tool
+
+    Phase 2 pr-reviewer signs tasks exclusively via MCP validation_record
+    (verdict pass/fail) instead of editing XML task files. Generates
+    review-time snapshots via issue_snapshot_md. Edit tool removed from
+    frontmatter — pr-reviewer has no file-write authority. Spec files at
+    docs/trustmybot/tasks/*.md are read-only.
+  </commit>
+</task>

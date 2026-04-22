@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-template-and-claude-md-update" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #E: the seed template at templates/docs-trustmybot/ ships GOALS.md to every new project on first activation. With Phase 2 dropping GOALS/DISCUSSION/BLUEPRINT, the template must drop them too OR the seeding skill creates files that immediately confuse downstream users. Project root CLAUDE.md must also stop calling these files 'required workflow files'. One task to clean both."/>
+  <title>Drop GOALS.md from templates/docs-trustmybot/; rewrite Workflow Files section in plugin CLAUDE.md</title>
+  <branch-id>chore/phase-2-template-cleanup</branch-id>
+  <depends-on>phase-2-gatekeeper-update, phase-2-skills-rewrite</depends-on>
+
+  <description>
+    Two tightly-coupled cleanups.
+
+    **1. `templates/docs-trustmybot/`** — currently contains:
+      - `GOALS.md`
+      - `tasks/`
+
+    Phase 2 actions:
+      - DELETE `templates/docs-trustmybot/GOALS.md` via `git rm`. This
+        file is no longer relevant; new projects do not need it.
+      - KEEP `templates/docs-trustmybot/tasks/` (with a `.gitkeep` if
+        empty).
+      - ADD a copy of `docs/trustmybot/SPEC-FORMAT.md` at
+        `templates/docs-trustmybot/SPEC-FORMAT.md` (so downstream
+        projects ship with the contract). This file should be a
+        verbatim copy at template-time; if SPEC-FORMAT.md is updated
+        later, the seed-project-agents skill will not retroactively
+        update existing projects (deliberate — projects own their
+        copy).
+      - ADD `templates/docs-trustmybot/snapshots/.gitkeep` so the
+        snapshot dir exists out-of-the-box.
+
+    **2. `CLAUDE.md`** (plugin root, NOT TMB workspace root) — Workflow
+    Files section currently lists:
+
+    ```
+    | File | Writers | Purpose |
+    |---|---|---|
+    | `docs/trustmybot/GOALS.md` | Human | Intent, priorities, constraints |
+    | `docs/trustmybot/DISCUSSION.md` | architect, Human | Alignment before BLUEPRINT |
+    | `docs/trustmybot/BLUEPRINT.md` | architect (Human approves) | Phased plan |
+    | `docs/trustmybot/tasks/*.xml` | architect | Per-task execution specs for SWE |
+    ```
+
+    Replace with:
+
+    ```
+    | Artifact | Storage | Writers | Purpose |
+    |---|---|---|---|
+    | Issue intent + objective | SQLite `issues` table | gatekeeper, architect | Captured via MCP issue_create at routing time |
+    | Architect ↔ Human alignment | SQLite `discussions` table | gatekeeper, architect, human-via-relay | Captured via MCP discussion_append |
+    | Architecture decisions (ADRs) | `docs/trustmybot/architecture/manual/decisions/N-*.md` | architect | Hand-curated; consumer of Phase 5 |
+    | Per-task execution spec | `docs/trustmybot/tasks/<branch_id_filename>.md` | architect | Markdown frontmatter + body — see `docs/trustmybot/SPEC-FORMAT.md` |
+    | Read-only review snapshot | `docs/trustmybot/snapshots/<issue_id>.md` | MCP `issue_snapshot_md` (called by architect / pr-reviewer) | Generated for human review handoff |
+    | Task lifecycle state | SQLite `tasks` + `validation_attempts` | swe (status), pr-reviewer (validation_record), architect (close) | Authoritative. Files are snapshots. |
+    ```
+
+    Update **Mode Rules** in the same file (lines ~76-82). The current
+    text references "GOALS.md has unclosed goals". Replace with:
+      "1. MCP issue_resume returns an open issue with pending tasks → Workflow Mode
+       2. Human explicitly says 'direct mode' / 'just do it' → Direct Mode
+       3. Multi-file coordinated changes → Workflow Mode
+       4. Simple read-only question → gatekeeper handles directly, no agent spawn"
+
+    Also update **Source Code Access Control** "What the architect CAN
+    edit" to add `docs/trustmybot/snapshots/` (architect generates
+    snapshots via MCP, but the directory should be in the allow-list
+    for any direct write needs).
+
+    No other CLAUDE.md sections change.
+
+    **3. The TMB workspace root `CLAUDE.md`** at
+    `/Users/Zax/Git/GitHub/TMB/CLAUDE.md` is OUT OF SCOPE for this task
+    — it's a workspace doc, not a plugin doc, and lives in a different
+    repo (TMB workspace, not the plugin git repo). Do NOT touch it.
+  </description>
+
+  <files>
+    <file path="templates/docs-trustmybot/GOALS.md" action="delete">
+      `git rm templates/docs-trustmybot/GOALS.md`. Phase 2 removes the
+      file-based goals workflow.
+    </file>
+    <file path="templates/docs-trustmybot/SPEC-FORMAT.md" action="create">
+      Copy of `docs/trustmybot/SPEC-FORMAT.md` (verbatim contents at
+      task execution time). Implementer SHOULD read the source file
+      and write its current contents — do NOT create a stub or
+      placeholder.
+    </file>
+    <file path="templates/docs-trustmybot/tasks/.gitkeep" action="create-if-missing">
+      Empty file to keep the directory in git. Skip if already present.
+    </file>
+    <file path="templates/docs-trustmybot/snapshots/.gitkeep" action="create">
+      Empty file. New directory.
+    </file>
+    <file path="CLAUDE.md" action="modify">
+      Replace the Workflow Files table per description. Update the Mode
+      Rules section. Add `docs/trustmybot/snapshots/` to the architect
+      allow-list under Source Code Access Control.
+    </file>
+  </files>
+
+  <success-criteria>
+    - `templates/docs-trustmybot/GOALS.md` no longer exists; `git log
+      --diff-filter=D --follow` shows the deletion.
+    - `templates/docs-trustmybot/SPEC-FORMAT.md` exists and contains
+      the same heading and required sections as
+      `docs/trustmybot/SPEC-FORMAT.md`.
+    - `templates/docs-trustmybot/tasks/.gitkeep` exists.
+    - `templates/docs-trustmybot/snapshots/.gitkeep` exists.
+    - `CLAUDE.md` Workflow Files table contains rows for SQLite
+      `issues`, SQLite `discussions`, `tasks/<branch_id_filename>.md`,
+      `snapshots/<issue_id>.md`, and SQLite `tasks` +
+      `validation_attempts`.
+    - `CLAUDE.md` no longer lists GOALS.md, DISCUSSION.md, or
+      BLUEPRINT.md as required workflow files.
+    - `CLAUDE.md` no longer references `tasks/*.xml`.
+    - `CLAUDE.md` Mode Rules cite MCP `issue_resume` instead of GOALS.md.
+    - `CLAUDE.md` Source Code Access Control includes
+      `docs/trustmybot/snapshots/` under "What the architect CAN edit".
+    - `/Users/Zax/Git/GitHub/TMB/CLAUDE.md` (workspace) is unchanged.
+  </success-criteria>
+
+  <out-of-scope>
+    - Editing the TMB workspace root CLAUDE.md (different repo).
+    - Updating `seed-project-agents` skill to copy SPEC-FORMAT.md (skill
+      iterates the templates/docs-trustmybot/ tree and copies everything;
+      adding the new file there auto-includes it. Verify by reading the
+      skill — if it has an explicit allowlist of file names, add the
+      file to the allowlist as a follow-up).
+    - Updating bro-template/ if it still exists (Phase 1 should have
+      renamed/removed it; verify and surface as a follow-up if not).
+    - Migrating any existing project's docs/trustmybot/ on `claude
+      --update plugin` (deferred — Phase 6 release notes will document
+      a manual cleanup step).
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    # Template dir state
+    test ! -f templates/docs-trustmybot/GOALS.md &amp;&amp; echo "OK: GOALS.md removed"
+    test -f templates/docs-trustmybot/SPEC-FORMAT.md &amp;&amp; echo "OK: SPEC-FORMAT.md present"
+    diff &lt;(grep '^## ' docs/trustmybot/SPEC-FORMAT.md) &lt;(grep '^## ' templates/docs-trustmybot/SPEC-FORMAT.md) &amp;&amp; echo "OK: section parity"
+    test -f templates/docs-trustmybot/tasks/.gitkeep && echo "OK: tasks/.gitkeep"
+    test -f templates/docs-trustmybot/snapshots/.gitkeep && echo "OK: snapshots/.gitkeep"
+
+    # CLAUDE.md
+    F=CLAUDE.md
+    ! grep -q 'GOALS.md.*Human.*Intent' "$F" &amp;&amp; echo "OK: no GOALS.md row"
+    ! grep -q 'DISCUSSION.md.*architect.*Human' "$F" &amp;&amp; echo "OK: no DISCUSSION.md row"
+    ! grep -q 'BLUEPRINT.md.*architect' "$F" &amp;&amp; echo "OK: no BLUEPRINT.md row"
+    ! grep -q 'tasks/\*\.xml' "$F" &amp;&amp; echo "OK: no .xml task refs"
+    grep -q 'SQLite.*issues\|issues.*SQLite\|issues table' "$F" &amp;&amp; echo "OK: cites issues table"
+    grep -q 'SQLite.*discussions\|discussions table' "$F" &amp;&amp; echo "OK: cites discussions table"
+    grep -q 'snapshots/&lt;issue_id&gt;\.md\|snapshots/.*\.md' "$F" &amp;&amp; echo "OK: cites snapshots"
+    grep -q 'issue_resume' "$F" &amp;&amp; echo "OK: Mode Rules cite issue_resume"
+    grep -q 'docs/trustmybot/snapshots/' "$F" &amp;&amp; echo "OK: snapshots in architect allow-list"
+
+    # Workspace CLAUDE.md untouched
+    git diff /Users/Zax/Git/GitHub/TMB/CLAUDE.md 2&gt;/dev/null | head -1 | grep -qv 'diff' &amp;&amp; echo "OK: workspace CLAUDE.md untouched"
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    🧹 chore(template,docs): drop GOALS.md from template; rewrite plugin CLAUDE.md Workflow Files for Phase 2
+
+    Removes GOALS.md from templates/docs-trustmybot/ (no longer used).
+    Adds SPEC-FORMAT.md and snapshots/ to the seed template so new
+    projects ship with the Phase 2 contract. Plugin CLAUDE.md Workflow
+    Files table rewritten to reflect SQLite-canonical state: issues +
+    discussions + tasks tables, files-as-snapshots model. Mode Rules
+    cite MCP issue_resume, no longer GOALS.md.
+  </commit>
+</task>

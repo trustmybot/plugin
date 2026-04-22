@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-architect-template-rewrite" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B + #E: architect must (1) write markdown task specs at docs/trustmybot/tasks/&lt;branch_id_filename&gt;.md instead of XML, (2) capture intent into MCP issues + discussions tables instead of writing GOALS.md / DISCUSSION.md / BLUEPRINT.md, (3) call task_set_spec_path to bind each spec file to its task row. The architect template is the spec-writer-of-record, so changes here cascade to every spec produced after the cutover."/>
+  <title>Rewrite templates/agents/architect.md for markdown specs + SQLite-backed intent capture</title>
+  <branch-id>refactor/phase-2-architect-template</branch-id>
+  <depends-on>phase-2-mcp-discussions-and-snapshot, phase-2-markdown-spec-format-doc, phase-2-swe-template-rewrite</depends-on>
+
+  <description>
+    The architect template still cites the file-based GOALS → DISCUSSION
+    → BLUEPRINT workflow and "task XML" everywhere. Rewrite for the new
+    flow.
+
+    Replace **Mode Selection**:
+
+    Old:
+    ```
+    1. `docs/trustmybot/GOALS.md` has unclosed goals → Workflow Mode
+    ```
+    New:
+    ```
+    1. MCP `issue_resume` returns an open issue with pending tasks → Workflow Mode
+    2. Human says "direct mode" / "just do it" / "skip workflow" → Direct Mode
+    3. Multi-file changes or architectural decisions → Workflow Mode
+    4. Everything else → Direct Mode
+    ```
+
+    Replace the **Workflow Mode** body:
+    ```
+    Follow: issue (MCP) → discussion (MCP) → tasks (markdown specs + MCP)
+    → SWE → validate. See `.claude/skills/architect-workflow.md`.
+    ```
+
+    Replace **Source Code Prohibition** clause about the task XML:
+
+    Old:
+    ```
+    Task files MUST have `status="open"` and `<authorized-by>` set or
+    the hook blocks SWE spawn.
+    ```
+    New:
+    ```
+    Markdown task specs MUST have YAML frontmatter `authorized_by:` and
+    `status: pending|open` or `require-task-spec.sh` blocks the SWE spawn.
+    The matching `tasks` row in SQLite (created via `task_create_batch`)
+    holds the canonical state; the file is the SWE-readable handoff.
+    ```
+
+    Add a new section **Intent Capture (replaces GOALS / DISCUSSION /
+    BLUEPRINT files)**:
+
+    ```
+    The Human's intent and the architect-Human alignment dialogue live
+    in MCP, not in markdown files.
+
+    | Old artifact         | New mechanism                                          |
+    |----------------------|--------------------------------------------------------|
+    | GOALS.md             | issue_create(objective=..., goals_md=...) once per ask |
+    | DISCUSSION.md Q+A    | discussion_append(kind='question'|'answer', ...)       |
+    | BLUEPRINT.md (simple)| discussion_append(kind='decision', body_md=plan)       |
+    | BLUEPRINT.md (diff.) | docs/trustmybot/architecture/manual/decisions/N-...md  |
+
+    For human review handoff, generate a snapshot:
+      issue_snapshot_md(issue_id) → docs/trustmybot/snapshots/<id>.md
+
+    The snapshot is read-only; never edit it. To revise, append a new
+    discussion_append and regenerate.
+    ```
+
+    Replace **Spec Authoring** (this section may not exist yet — add it):
+
+    ```
+    For each task in a planned batch:
+      1. Compute the branch_id (git-convention; gatekeeper proposes).
+      2. Compute the spec filename:
+           docs/trustmybot/tasks/&lt;branch_id with / replaced by -&gt;.md
+      3. Author the spec following docs/trustmybot/SPEC-FORMAT.md:
+         frontmatter (issue_id, branch_id, title, status: pending,
+         authorized_by: architect, authorized_at, depends_on) + body
+         sections (Description, Files, Success Criteria, Verification,
+         Out of Scope, Commit, Results: empty).
+      4. Call MCP task_create_batch(...) to register the task row(s).
+      5. Call MCP task_set_spec_path(issue_id, branch_id, spec_path)
+         to bind the file to the row.
+      6. Spawn SWE with the spec_path in the prompt.
+    ```
+
+    Replace **Validation Pipeline** so it cites MCP, not XML editing:
+
+    ```
+    After every SWE task:
+    1. Re-run the spec's Verification commands yourself.
+    2. Read every changed file; check design compliance.
+    3. Spawn PR Reviewer with the spec path. PR Reviewer calls
+       validation_record(verdict='pass'|'fail').
+    4. On pass: call task_update_status(status='closed').
+       On fail: re-spawn SWE with feedback. Max 3 retries, then escalate.
+    See `validate-swe-output` skill.
+    ```
+
+    Drop **Technical Architecture Duties → BLUEPRINT.md** reference.
+    Replace with:
+    ```
+    Document architecturally significant decisions in
+    docs/trustmybot/architecture/manual/decisions/ as numbered ADRs.
+    Document data model + system boundaries in
+    docs/trustmybot/architecture/manual/. The auto/ subdir is regenerated
+    — do not hand-edit those files. (This is consumer of Phase 5 work;
+    until then, hand-curate manual/ only.)
+    ```
+
+    Update **Source Code Prohibition** "What you CAN write/edit" — add
+    `docs/trustmybot/snapshots/` (architect generates snapshots via MCP
+    tool, so the dir is implicitly architect-writable through that path
+    — no direct edits).
+
+    Keep all other sections (Chain-of-Thought Discipline, Agent-Creator
+    Flow, Chain of Command, Core Principles, the placeholder banner)
+    intact.
+
+    Cite `docs/trustmybot/SPEC-FORMAT.md` once.
+  </description>
+
+  <files>
+    <file path="templates/agents/architect.md" action="modify">
+      Per-section rewrite as described. Preserve the YAML frontmatter
+      (`name`, `description`, `model`, `tools`, `isolation`, `skills`)
+      but UPDATE `description` to drop "BLUEPRINT" and add "captures
+      intent into MCP issues + discussions; writes markdown task specs":
+      "Implementation architect. Captures intent and decisions into MCP
+      (issues + discussions); writes markdown task specs at
+      docs/trustmybot/tasks/&lt;branch_id&gt;.md; spawns and validates SWE; never
+      edits source code. PROJECT-LEVEL PLACEHOLDER — edit to match your
+      domain."
+      Net length should hold roughly steady (~150 lines).
+    </file>
+  </files>
+
+  <success-criteria>
+    - File no longer references GOALS.md, DISCUSSION.md, or BLUEPRINT.md
+      as required workflow files.
+    - File no longer references task XML format (`*.xml`,
+      `&lt;authorized-by&gt;`, `status="open"` attribute).
+    - File contains "Intent Capture" section citing `issue_create`,
+      `discussion_append`, `issue_snapshot_md`.
+    - File contains "Spec Authoring" steps that culminate in
+      `task_create_batch` + `task_set_spec_path`.
+    - File contains the filename-mapping reminder (`/` → `-`).
+    - File cites `docs/trustmybot/SPEC-FORMAT.md`.
+    - File still contains the placeholder banner.
+    - Frontmatter `description:` no longer mentions BLUEPRINT; mentions
+      MCP issues + discussions OR markdown task specs.
+    - Length: 130-200 lines.
+  </success-criteria>
+
+  <out-of-scope>
+    - Editing the architect-workflow skill (Phase 2 task `skills-rewrite`).
+    - Rewriting `agents/gatekeeper.md` (Phase 2 task `gatekeeper-update`).
+    - Rewriting `pr-reviewer.md` (Phase 2 task
+      `pr-reviewer-template-rewrite`).
+    - Implementing the "trivial spec" vs "standard spec" two-template
+      distinction (Phase 3, change #G/#I — workflow shape).
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    F=templates/agents/architect.md
+    test -f "$F" &amp;&amp; echo "OK: file exists"
+
+    # Forbidden legacy strings
+    ! grep -q 'GOALS.md' "$F" &amp;&amp; echo "OK: no GOALS.md ref"
+    ! grep -q 'DISCUSSION.md' "$F" &amp;&amp; echo "OK: no DISCUSSION.md ref"
+    ! grep -q 'BLUEPRINT.md' "$F" &amp;&amp; echo "OK: no BLUEPRINT.md ref"
+    ! grep -q '\.xml' "$F" &amp;&amp; echo "OK: no XML refs"
+    ! grep -q 'status="open"' "$F" &amp;&amp; echo "OK: no XML status attr"
+
+    # Required new strings
+    grep -q 'issue_create' "$F" &amp;&amp; echo "OK: cites issue_create"
+    grep -q 'discussion_append' "$F" &amp;&amp; echo "OK: cites discussion_append"
+    grep -q 'issue_snapshot_md' "$F" &amp;&amp; echo "OK: cites snapshot tool"
+    grep -q 'task_create_batch' "$F" &amp;&amp; echo "OK: cites task_create_batch"
+    grep -q 'task_set_spec_path' "$F" &amp;&amp; echo "OK: cites task_set_spec_path"
+    grep -q 'SPEC-FORMAT.md' "$F" &amp;&amp; echo "OK: spec format citation"
+    grep -q 'Placeholder template' "$F" &amp;&amp; echo "OK: placeholder banner"
+
+    # Length
+    LINES=$(wc -l &lt; "$F")
+    [ "$LINES" -ge 130 ] &amp;&amp; [ "$LINES" -le 200 ] &amp;&amp; echo "OK: length $LINES in 130-200"
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    🏛️ refactor(agents): rewrite templates/agents/architect.md for markdown specs + MCP intent capture
+
+    Phase 2 architect captures intent via MCP issues + discussions tables
+    instead of writing GOALS.md / DISCUSSION.md / BLUEPRINT.md. Writes
+    markdown task specs at docs/trustmybot/tasks/&lt;branch_id&gt;.md, binds
+    them via task_set_spec_path, drives validation via MCP
+    validation_record. Hand-curated architecture decisions land in
+    docs/trustmybot/architecture/manual/decisions/ (consumer of Phase 5).
+  </commit>
+</task>

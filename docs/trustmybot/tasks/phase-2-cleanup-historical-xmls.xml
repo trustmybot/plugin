@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-cleanup-historical-xmls" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 hygiene: Phase 1 left 7 XML specs and Phase 2 itself produces ~9 more XML specs. After Phase 2 ships, all new specs are markdown. Decision (per blueprint): leave the historical XMLs as a read-only audit trail (do NOT migrate to markdown — wasted effort), but update require-review-sign.sh ignore behavior so completed historical XMLs do not block future pushes, and add a one-time README in docs/trustmybot/tasks/ explaining the cutover."/>
+  <title>Add docs/trustmybot/tasks/README.md cutover note; verify hooks treat completed historical XMLs as ignored</title>
+  <branch-id>chore/phase-2-historical-xml-cutover</branch-id>
+  <depends-on>phase-2-hook-sqlite-migration</depends-on>
+
+  <description>
+    Phase 1 produced 7 XML specs. Phase 2 produces ~9 XML specs (this
+    one included). After Phase 2 lands on `dev`, all new specs are
+    markdown per docs/trustmybot/SPEC-FORMAT.md. The historical XMLs
+    must stay in tree (audit trail; PR review provenance) but should
+    not gate any future workflow.
+
+    Two actions:
+
+    **1. Author `docs/trustmybot/tasks/README.md`:**
+
+    ```markdown
+    # Task Specs
+
+    All NEW task specs are markdown — see `docs/trustmybot/SPEC-FORMAT.md`.
+
+    Filenames map from `branch_id` with `/` → `-`:
+
+      feat/user-login → docs/trustmybot/tasks/feat-user-login.md
+
+    ## Historical XML specs
+
+    Files matching `phase-1-*.xml` and `phase-2-*.xml` are HISTORICAL.
+    They were the format used during the v0.3 Phase 1 + Phase 2
+    transition. They are kept in tree as an audit trail and are
+    NOT regenerated. Their `&lt;reviewed-by&gt;` / `&lt;closed-by&gt;` tags are
+    the canonical sign-off record for those tasks; SQLite
+    `validation_attempts` is empty for them (the rows pre-date Phase 2
+    schema migration).
+
+    `scripts/hooks/require-review-sign.sh` skips any XML spec with
+    `status="completed"` AND a `&lt;reviewed-by&gt;` tag — historical XMLs
+    pass through automatically.
+    ```
+
+    **2. Verify hook behavior — NO code change unless the hook does
+    NOT already pass through historical XMLs:**
+
+    Read `scripts/hooks/require-review-sign.sh` (post-Phase 2 task
+    `phase-2-hook-sqlite-migration` has rewritten it). Confirm:
+      - On a system WITH a populated DB: the hook queries
+        `validation_attempts` for SQLite-backed tasks; XML files are
+        ignored (not iterated). Historical XMLs pass.
+      - On the legacy fallback path (no DB): the hook iterates
+        `*.xml` only and skips files with `&lt;reviewed-by&gt;` AND
+        `status="completed"`. Verify this skip exists in the legacy
+        loop. If it does NOT, add it.
+
+    The hook check semantics SHOULD already be correct after
+    `phase-2-hook-sqlite-migration` (legacy XMLs grep continues to
+    use the existing skip-on-`&lt;reviewed-by&gt;` logic). This task
+    verifies and documents.
+
+    DO NOT delete or migrate any historical `phase-1-*.xml` or
+    `phase-2-*.xml` file. They stay verbatim.
+  </description>
+
+  <files>
+    <file path="docs/trustmybot/tasks/README.md" action="create">
+      Verbatim per the description above. Replace the
+      `&lt;reviewed-by&gt;` / `&lt;closed-by&gt;` and `status="completed"` examples
+      with literal angle brackets in the markdown (escape with
+      backticks).
+    </file>
+    <file path="scripts/hooks/require-review-sign.sh" action="modify-conditional">
+      ONLY edit if verification step 2 above shows the legacy-fallback
+      grep loop does NOT skip XMLs that have both
+      `&lt;reviewed-by&gt;` AND `status="completed"`. If it already skips:
+      no change. Document the verification result either way in the
+      `&lt;results&gt;` block.
+    </file>
+  </files>
+
+  <success-criteria>
+    - `docs/trustmybot/tasks/README.md` exists and explains the
+      cutover.
+    - `docs/trustmybot/tasks/README.md` cites `SPEC-FORMAT.md`.
+    - `docs/trustmybot/tasks/README.md` documents that historical XMLs
+      are kept as audit trail and not regenerated.
+    - All 7 Phase 1 XMLs and all 9 Phase 2 XMLs (this one included)
+      remain in tree, byte-identical to their pre-task state.
+    - `require-review-sign.sh` legacy-fallback path skips XMLs with
+      both `&lt;reviewed-by&gt;` AND `status="completed"` (verified or fixed).
+    - Smoke test: with an in-tree historical XML
+      (`docs/trustmybot/tasks/phase-1-rename-task-hook.xml`, which has
+      `status="completed"` and `&lt;reviewed-by&gt;`), hook does NOT block
+      a `git push` simulation.
+  </success-criteria>
+
+  <out-of-scope>
+    - Migrating any XML to markdown (deliberate non-action).
+    - Deleting any XML file.
+    - Changing how the new SQLite path treats markdown specs.
+    - Changing the require-task-spec.sh hook (file-based, not affected).
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    # README content
+    F=docs/trustmybot/tasks/README.md
+    test -f "$F" &amp;&amp; echo "OK: README exists"
+    grep -q 'SPEC-FORMAT.md' "$F" &amp;&amp; echo "OK: README cites SPEC-FORMAT"
+    grep -q 'audit trail' "$F" &amp;&amp; echo "OK: README cites audit trail"
+    grep -q 'Historical' "$F" &amp;&amp; echo "OK: README has Historical section"
+
+    # Historical XMLs untouched
+    PHASE1_COUNT=$(ls docs/trustmybot/tasks/phase-1-*.xml | wc -l)
+    [ "$PHASE1_COUNT" -ge 7 ] &amp;&amp; echo "OK: Phase 1 XMLs preserved ($PHASE1_COUNT)"
+    PHASE2_COUNT=$(ls docs/trustmybot/tasks/phase-2-*.xml | wc -l)
+    [ "$PHASE2_COUNT" -ge 8 ] &amp;&amp; echo "OK: Phase 2 XMLs in tree ($PHASE2_COUNT)"
+
+    # Hook smoke: a completed+reviewed historical XML should not block
+    # (only meaningful on legacy-fallback path, since SQLite path ignores XMLs)
+    OUTPUT=$(echo '{"tool_input":{"command":"git push origin dev"}}' | bash scripts/hooks/require-review-sign.sh)
+    if [ -n "$OUTPUT" ]; then
+      # If output exists, must NOT cite a phase-1-* historical XML
+      ! echo "$OUTPUT" | grep -q 'phase-1-' &amp;&amp; echo "OK: hook does not block on historical XML"
+    else
+      echo "OK: hook silent (DB path or all-clean)"
+    fi
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    📜 chore(tasks): add docs/trustmybot/tasks/README.md cutover note; verify historical XMLs do not gate pushes
+
+    Documents that all NEW task specs are markdown per SPEC-FORMAT.md
+    and that the 16 historical phase-1-*.xml + phase-2-*.xml specs
+    stay in tree as audit trail. Confirms require-review-sign.sh
+    legacy-fallback path skips completed-and-reviewed XMLs so they
+    cannot inadvertently block future pushes.
+  </commit>
+</task>

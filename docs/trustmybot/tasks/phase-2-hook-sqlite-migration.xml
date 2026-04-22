@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-hook-sqlite-migration" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B + #E: migrate require-review-sign.sh from grepping task XMLs to querying SQLite. Necessary because the new markdown specs do NOT carry status/sign-off in the file (state lives in DB). Hooks must read DB directly via a small bash→sqlite3 helper to avoid spawning the Node MCP server on every git push."/>
+  <title>Migrate require-review-sign.sh to SQLite via scripts/hooks/lib/query-task.sh helper</title>
+  <branch-id>refactor/phase-2-hook-sqlite</branch-id>
+  <depends-on>phase-2-mcp-discussions-and-snapshot</depends-on>
+
+  <description>
+    The current `require-review-sign.sh` greps every `*.xml` and `*.md` task
+    file for `&lt;reviewed-by&gt;` / `reviewed_by:` markers. After Phase 2,
+    markdown specs do NOT carry sign-off in-file — the
+    `validation_attempts` and `tasks` rows in SQLite are the source of
+    truth. Greppping a markdown file for sign-off will give a false
+    negative and block every push.
+
+    Replace the grep loop with a SQLite query against
+    `${CLAUDE_PLUGIN_DATA}/trajectory.db`.
+
+    Decision: query SQLite from bash via `sqlite3` CLI (universally
+    available on macOS and most Linux distros, ships with Python and is
+    the same dependency the integration test in
+    `phase-2-schema-discussions-and-spec-path` already uses). Do NOT
+    invoke the Node MCP server from the hook — startup latency would be
+    too high on every git push and would create a dependency loop
+    (`require-review-sign.sh` runs as a git hook even when MCP is offline).
+
+    Create `scripts/hooks/lib/query-task.sh`:
+
+    ```bash
+    #!/usr/bin/env bash
+    # Library: SQLite query helpers for TMB hooks.
+    # Sourced (not exec'd) by other hook scripts.
+    set -euo pipefail
+
+    tmb_db_path() {
+      # CLAUDE_PLUGIN_DATA may be unset (early init). Fall back to the
+      # documented default. If neither path exists, callers must handle
+      # the empty result.
+      local p="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/tmb}/trajectory.db"
+      [ -f "$p" ] &amp;&amp; echo "$p"
+    }
+
+    tmb_have_sqlite() {
+      command -v sqlite3 &gt;/dev/null 2&gt;&amp;1
+    }
+
+    # Print branch_ids of tasks that are completed in DB but missing
+    # validation_attempts row with verdict=pass.
+    tmb_unsigned_tasks() {
+      local db
+      db=$(tmb_db_path) || true
+      [ -z "$db" ] &amp;&amp; return 0
+      tmb_have_sqlite || return 0
+      sqlite3 "$db" "
+        SELECT t.branch_id
+          FROM tasks t
+         WHERE t.status = 'completed'
+           AND NOT EXISTS (
+             SELECT 1 FROM validation_attempts v
+              WHERE v.task_id = CAST(t.id AS TEXT)
+                AND v.verdict = 'pass'
+           );
+      "
+    }
+    ```
+
+    Rewrite `scripts/hooks/require-review-sign.sh` to:
+      1. Source `scripts/hooks/lib/query-task.sh`.
+      2. Skip gracefully if DB or sqlite3 not present (back-compat with
+         fresh installs that never ran MCP).
+      3. Call `tmb_unsigned_tasks`. If non-empty, block with a list of
+         branch_ids missing sign-off.
+      4. Drop the entire `for f in docs/trustmybot/tasks/*.xml *.md` grep
+         loop.
+
+    LEGACY XML FALLBACK: keep a degraded grep-pass behind a guard. If the
+    DB is absent (sqlite3 query returns empty AND the DB file does not
+    exist), fall back to the v0.2 XML grep ONLY for `*.xml` files —
+    explicitly do not grep `*.md` files since markdown specs by design
+    have no in-file sign-off. This is the bridge for fresh clones that
+    have not yet populated the DB. Print a one-line warning to stderr
+    when this fallback fires so the user knows.
+
+    The hook MUST stay fast (sub-100ms). Single sqlite3 query is fine.
+    Do not iterate files unless on the legacy fallback path.
+  </description>
+
+  <files>
+    <file path="scripts/hooks/lib/query-task.sh" action="create">
+      New helper library exactly as in the description. `chmod +x` is
+      not strictly necessary (sourced, not exec'd), but a leading
+      shebang remains for editor highlighting.
+    </file>
+    <file path="scripts/hooks/require-review-sign.sh" action="modify">
+      Wholesale rewrite the body (after the existing `set -euo pipefail`
+      and the push/merge command gate). Source the new lib. Use
+      `tmb_unsigned_tasks`. On non-empty result, emit a JSON
+      `{"decision":"block","reason":"BLOCKED: ..."}` listing the
+      branch_ids and pointing the user at PR Reviewer to sign them.
+      On legacy fallback, retain the current XML grep loop (XML only;
+      drop the .md branch).
+    </file>
+  </files>
+
+  <success-criteria>
+    - `scripts/hooks/lib/query-task.sh` exists with `tmb_db_path`,
+      `tmb_have_sqlite`, `tmb_unsigned_tasks` functions.
+    - `scripts/hooks/require-review-sign.sh` sources the new lib, calls
+      `tmb_unsigned_tasks`, and uses its output to decide block vs allow.
+    - On a system WITH a populated DB: hook blocks when there is at
+      least one task with `status='completed'` and no `validation_attempts`
+      row with `verdict='pass'`.
+    - On a system WITH a populated DB and all completed tasks signed: hook
+      exits 0 silently.
+    - On a system WITHOUT sqlite3 or WITHOUT a DB file: hook falls back
+      to the legacy XML grep, prints a single-line stderr warning, and
+      does not block on `.md` files.
+    - Both scripts pass `bash -n` syntax check.
+    - Both scripts execute under 100ms wall time (`time bash …` with
+      a populated DB and 10 task rows).
+  </success-criteria>
+
+  <out-of-scope>
+    - Removing legacy XML grep entirely (keep it as fallback until v0.4).
+    - Migrating `require-task-spec.sh` to SQLite — that hook gates on
+      the FILE existence (Architect-authored spec) and properly stays
+      file-based.
+    - Adding new MCP tools (Phase 2 task `mcp-discussions-and-snapshot`).
+    - Changing `git-guards.sh` or `create-worktree.sh`.
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    # File presence + syntax
+    test -f scripts/hooks/lib/query-task.sh &amp;&amp; echo "OK: lib exists"
+    bash -n scripts/hooks/lib/query-task.sh &amp;&amp; echo "OK: lib syntax"
+    bash -n scripts/hooks/require-review-sign.sh &amp;&amp; echo "OK: hook syntax"
+    grep -q 'tmb_unsigned_tasks' scripts/hooks/require-review-sign.sh &amp;&amp; echo "OK: hook calls helper"
+    grep -q 'source.*query-task.sh\|\. .*query-task.sh' scripts/hooks/require-review-sign.sh &amp;&amp; echo "OK: hook sources lib"
+
+    # Smoke test: temp DB with one unsigned completed task
+    TMP_DB=$(mktemp /tmp/trajXXXXXX.db)
+    sqlite3 "$TMP_DB" &lt; mcp/trajectory-server/src/schema.sql
+    sqlite3 "$TMP_DB" "INSERT INTO issues (objective, created_at, updated_at) VALUES ('t', datetime('now'), datetime('now'));"
+    sqlite3 "$TMP_DB" "INSERT INTO tasks (issue_id, branch_id, description, success_criteria, status, created_at, updated_at) VALUES (1, 'feat/test-x', 'd', 'sc', 'completed', datetime('now'), datetime('now'));"
+    OUTPUT=$(CLAUDE_PLUGIN_DATA=$(dirname "$TMP_DB") bash -c "
+      mv '$TMP_DB' \$CLAUDE_PLUGIN_DATA/trajectory.db
+      echo '{\"tool_input\":{\"command\":\"git push origin main\"}}' | bash scripts/hooks/require-review-sign.sh
+    ")
+    echo "$OUTPUT" | grep -q '"decision":"block"' &amp;&amp; echo "OK: blocks unsigned"
+    echo "$OUTPUT" | grep -q 'feat/test-x' &amp;&amp; echo "OK: cites the task"
+
+    # Smoke test 2: same DB but with a passing validation_attempts row
+    sqlite3 $(dirname "$TMP_DB")/trajectory.db "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, created_at) VALUES ('1', 1, 'pr-reviewer', 'pass', datetime('now'));"
+    OUTPUT2=$(CLAUDE_PLUGIN_DATA=$(dirname "$TMP_DB") bash -c "
+      echo '{\"tool_input\":{\"command\":\"git push origin main\"}}' | bash scripts/hooks/require-review-sign.sh
+    ")
+    [ -z "$OUTPUT2" ] &amp;&amp; echo "OK: signed task does not block"
+
+    rm -f $(dirname "$TMP_DB")/trajectory.db
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    🔧 refactor(hooks): require-review-sign.sh queries SQLite via lib/query-task.sh helper
+
+    Phase 2 markdown specs hold no in-file sign-off; canonical state is in
+    the validation_attempts table. Hook now queries that table directly
+    via sqlite3 CLI, with a graceful fallback to the legacy XML grep when
+    no DB is present (fresh-clone bridge).
+  </commit>
+</task>

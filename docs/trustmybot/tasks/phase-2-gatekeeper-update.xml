@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-gatekeeper-update" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #E: gatekeeper currently greps GOALS.md / BLUEPRINT.md / tasks/*.xml in the deterministic pre-scan. After Phase 2 those files no longer exist. Pre-scan must instead query MCP for open issues + pending tasks. Gatekeeper also needs to capture the Human's intent into discussions when routing to architect (so the architect-to-Human alignment dialogue lives in DB)."/>
+  <title>Update agents/gatekeeper.md pre-scan + intent capture for SQLite-backed workflow</title>
+  <branch-id>refactor/phase-2-gatekeeper</branch-id>
+  <depends-on>phase-2-mcp-discussions-and-snapshot</depends-on>
+
+  <description>
+    Two surgical changes to `agents/gatekeeper.md`:
+
+    **1. Pre-Scan procedure (Section B):**
+
+    The current `Pre-Scan procedure` block tells gatekeeper to grep:
+      - `docs/trustmybot/GOALS.md → grep for open goals`
+      - `docs/trustmybot/BLUEPRINT.md → grep for phase markers`
+      - `docs/trustmybot/tasks/*.xml → count open tasks`
+
+    These files no longer exist after Phase 2 (GOALS/DISCUSSION/BLUEPRINT
+    are gone; specs are .md). Replace the markers block with MCP queries:
+
+    ```
+    # Workflow state — MCP queries (replaces file grep)
+    mcp issue_list status=open                     # any open issues?
+    mcp task_first_actionable                      # any pending/failed task?
+    ls docs/trustmybot/tasks/*.md 2&gt;/dev/null      # surface pending spec files
+    ls docs/trustmybot/snapshots/*.md 2&gt;/dev/null  # last review snapshots
+    ```
+
+    Note: `issue_list` does NOT exist in current MCP tools (verify by
+    grepping `mcp/trajectory-server/src/tools/`). If it does not exist,
+    the prompt should call `issue_get_with_discussions` for any
+    known-open issue ID, or fall back to `task_first_actionable` (which
+    DOES exist) and reverse-lookup the issue. Architect will add a
+    proper `issue_list` MCP tool in Phase 3 if friction warrants. For
+    now, document the temporary workaround in the prose: "If
+    `issue_list` is unavailable, scan `docs/trustmybot/snapshots/` for
+    recent issue IDs and call `issue_get` per ID."
+
+    Update the **Inventory block format** lines:
+      - Remove: `Open goals: <count or "none">`
+      - Replace `Open tasks: <count or "none">` with:
+        `Open issues:    <count from MCP, or "none">`
+        `Pending tasks:  <count from MCP, or "none">`
+        `Spec files:     <count of docs/trustmybot/tasks/*.md, or "none">`
+
+    **2. Section C.1 Branch ID Proposal — append a Step 5:**
+
+    After "4. Pass the confirmed branch_id in the Task tool prompt", add:
+
+    ```
+    5. Open or resume the MCP issue for this work and record the human's
+       intent as a discussion entry:
+         - If no open issue exists: call issue_create(objective=&lt;short
+           summary of the request&gt;).
+         - In either case: call discussion_append(issue_id, author='human',
+           kind='intent', body_md=&lt;the verbatim Human request&gt;) AND
+           discussion_append(issue_id, author='gatekeeper', kind='note',
+           body_md='Routed to architect on branch_id &lt;the branch_id&gt;').
+       Pass the issue_id in the architect spawn prompt:
+         "architect, plan and execute on branch_id 'feat/foo-bar' for
+         issue &lt;issue_id&gt;"
+       This guarantees architect can append further discussion entries
+       and create the tasks under a real issue row.
+    ```
+
+    **3. Section G. Workflow vs. Direct Mode:**
+
+    Update the Workflow Mode trigger:
+      Old: "default when GOALS.md has unclosed goals and the request
+            relates to them"
+      New: "default when MCP issue_resume returns an open issue OR the
+            request implies multi-file coordinated work"
+
+    Keep all other sections (A Role Statement, C Routing Table, C.1
+    Branch ID Proposal Steps 1-4, D Agent-Creator Flow, E No
+    Auto-Action Discipline, F Direct Operations, Communication Style,
+    Chain-of-Thought Discipline) intact. Phase 1 already added the
+    branch_id proposal block (C.1) — leave it alone except for the new
+    Step 5.
+
+    Cite `docs/trustmybot/SPEC-FORMAT.md` once near the top of Section B
+    (so gatekeeper can answer "where do task specs live now?" without a
+    grep).
+  </description>
+
+  <files>
+    <file path="agents/gatekeeper.md" action="modify">
+      Surgical edits per description: pre-scan markers block, inventory
+      block format, Section C.1 step 5, Section G workflow trigger,
+      single SPEC-FORMAT.md citation. Do not rewrite untouched sections.
+    </file>
+  </files>
+
+  <success-criteria>
+    - File no longer references GOALS.md or BLUEPRINT.md as files to grep.
+    - File no longer references `docs/trustmybot/tasks/*.xml`; references
+      `*.md` instead where task specs are mentioned.
+    - File contains MCP calls in the pre-scan: `issue_resume` or
+      `task_first_actionable` or `issue_get_with_discussions`.
+    - Inventory block format includes `Open issues:` and `Pending tasks:`
+      lines; no longer includes `Open goals:`.
+    - Section C.1 has a Step 5 covering `issue_create` +
+      `discussion_append` for intent capture.
+    - Section G Workflow Mode trigger references MCP `issue_resume` (or
+      equivalent), not GOALS.md.
+    - File cites `docs/trustmybot/SPEC-FORMAT.md`.
+    - All other Phase 1 content (C.1 Steps 1-4, validation regex, type
+      prefix mapping table) preserved verbatim.
+    - Length: 220-280 lines (current is 240, expect modest growth).
+  </success-criteria>
+
+  <out-of-scope>
+    - Adding a new MCP `issue_list` tool (deferred — Phase 3 if needed).
+    - Editing the `seed-project-agents` skill (unrelated to Phase 2 state).
+    - Changing routing tables in Section C (Phase 3 workflow shape work).
+    - First-run onboarding flow / identity persistence (Phase 4).
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    F=agents/gatekeeper.md
+    test -f "$F" &amp;&amp; echo "OK: file exists"
+
+    # Forbidden legacy strings
+    ! grep -q 'GOALS.md.*grep\|grep.*GOALS.md' "$F" &amp;&amp; echo "OK: no GOALS.md grep"
+    ! grep -q 'BLUEPRINT.md.*grep\|grep.*BLUEPRINT.md' "$F" &amp;&amp; echo "OK: no BLUEPRINT grep"
+    ! grep -q 'tasks/\*\.xml' "$F" &amp;&amp; echo "OK: no .xml task refs"
+    ! grep -q '^Open goals:' "$F" &amp;&amp; echo "OK: no Open goals row"
+
+    # Required new strings
+    grep -q 'issue_resume\|task_first_actionable\|issue_get_with_discussions' "$F" &amp;&amp; echo "OK: MCP query in pre-scan"
+    grep -q 'Open issues:' "$F" &amp;&amp; echo "OK: Open issues inventory row"
+    grep -q 'Pending tasks:' "$F" &amp;&amp; echo "OK: Pending tasks inventory row"
+    grep -q 'discussion_append' "$F" &amp;&amp; echo "OK: discussion_append for intent"
+    grep -q 'issue_create' "$F" &amp;&amp; echo "OK: issue_create for intent"
+    grep -q 'SPEC-FORMAT.md' "$F" &amp;&amp; echo "OK: spec format citation"
+
+    # Phase 1 content preserved
+    grep -q 'Branch ID Proposal' "$F" &amp;&amp; echo "OK: Section C.1 still present"
+    grep -q '^\s*\^(feat|fix|refactor|chore' "$F" &amp;&amp; echo "OK: branch regex preserved"
+
+    # Length
+    LINES=$(wc -l &lt; "$F")
+    [ "$LINES" -ge 220 ] &amp;&amp; [ "$LINES" -le 280 ] &amp;&amp; echo "OK: length $LINES in 220-280"
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    🚪 refactor(gatekeeper): pre-scan + intent capture via MCP for Phase 2 SQLite-backed workflow
+
+    Pre-scan no longer greps GOALS.md / BLUEPRINT.md / tasks/*.xml — those
+    files are gone after Phase 2. Now queries MCP issue_resume +
+    task_first_actionable; surfaces .md spec files and snapshots. C.1 Step 5
+    captures the human's request as discussion_append(kind='intent') under
+    a (created or resumed) issue, so architect inherits a real issue_id
+    when routed.
+  </commit>
+</task>

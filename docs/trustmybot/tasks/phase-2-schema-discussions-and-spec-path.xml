@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-schema-discussions-and-spec-path" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #E foundation: introduce discussions table for gatekeeper+architect intent capture; add task_spec_path column on tasks so SQLite knows where the on-disk markdown spec lives. All later Phase 2 tasks depend on this schema being in place."/>
+  <title>Add discussions table and task_spec_path column; bump schema_version 3 → 4</title>
+  <branch-id>feat/phase-2-schema-discussions</branch-id>
+  <depends-on/>
+
+  <description>
+    Phase 2 makes SQLite the canonical state and degrades the file system to a
+    snapshot layer. Two schema gaps block that:
+
+    1. `issues` exists but `discussions` does NOT. We need it to capture the
+       conversational alignment that GOALS.md + DISCUSSION.md used to hold.
+    2. `tasks` has no pointer to the on-disk markdown spec. The new flow has
+       SWE read `docs/trustmybot/tasks/&lt;branch_id&gt;.md` AND mutate the matching
+       `tasks` row by `branch_id`. Storing the resolved path in the row makes
+       reverse lookups (DB → file) cheap and eliminates path-derivation drift.
+
+    Add the `discussions` table:
+
+    ```sql
+    CREATE TABLE IF NOT EXISTS discussions (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id    INTEGER NOT NULL REFERENCES issues(id),
+        author      TEXT    NOT NULL,           -- 'human' | 'gatekeeper' | 'architect' | etc.
+        kind        TEXT    NOT NULL DEFAULT 'note',
+                                                 -- 'intent' | 'question' | 'answer' | 'decision' | 'note'
+        body_md     TEXT    NOT NULL,
+        created_at  TEXT    NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
+        ON discussions(issue_id, created_at);
+    ```
+
+    Add column to `tasks`:
+
+    ```sql
+    ALTER TABLE tasks ADD COLUMN task_spec_path TEXT NOT NULL DEFAULT '';
+    ```
+
+    Bump `plugin_meta.schema_version` from 3 → 4 and update the `INSERT OR
+    IGNORE` seed at the bottom of schema.sql to `(4, '0.3.0-alpha')`.
+
+    Apply the same changes via the migration runner so existing databases
+    pick them up. Inspect `mcp/trajectory-server/src/db.ts` (or whichever
+    file owns `applyMigrations` / schema bootstrap) to find the migration
+    pattern v0.2 → v0.3 used for `file_registry`, `plugin_config`,
+    `identity`, `regen_state`. Mirror it: detect `schema_version &lt; 4`,
+    run the new CREATE/ALTER, write the new version row.
+
+    Add a TypeScript type for `Discussion` in `mcp/trajectory-server/src/types.ts`
+    matching the new columns.
+
+    NO new MCP tools in this task — those land in
+    `phase-2-mcp-discussions-and-snapshot.xml`. This task is schema-only so
+    it can be tested in isolation.
+  </description>
+
+  <files>
+    <file path="mcp/trajectory-server/src/schema.sql" action="modify">
+      Append the `discussions` CREATE TABLE + index near the existing
+      `roundtables` block (logical neighbour). Add the `tasks.task_spec_path`
+      column on the `tasks` CREATE TABLE statement (so a fresh-init DB has it
+      from the start). Bump the seed `INSERT OR IGNORE INTO plugin_meta`
+      values from `(3, '0.3.0-alpha')` to `(4, '0.3.0-alpha')`.
+    </file>
+    <file path="mcp/trajectory-server/src/db.ts" action="modify">
+      Locate the migration / version-bump block (the same one that introduced
+      `file_registry`, `plugin_config`, `identity`, `regen_state` for v3).
+      Add a v3 → v4 step that runs:
+        - `CREATE TABLE IF NOT EXISTS discussions (...)` (verbatim from above)
+        - `CREATE INDEX IF NOT EXISTS idx_discussions_issue_created ON discussions(issue_id, created_at)`
+        - `ALTER TABLE tasks ADD COLUMN task_spec_path TEXT NOT NULL DEFAULT ''` —
+          guarded by `PRAGMA table_info(tasks)` check so re-runs do not throw
+          "duplicate column" on an already-migrated DB.
+        - Insert/update `plugin_meta` to schema_version=4.
+      If `db.ts` does not own migrations directly, follow the import chain to
+      the file that does and edit there.
+    </file>
+    <file path="mcp/trajectory-server/src/types.ts" action="modify">
+      Add `Discussion` interface with fields:
+        id: number; issue_id: number; author: string; kind: string;
+        body_md: string; created_at: string.
+      Add `task_spec_path: string` to the existing `Task` interface so callers
+      compile against the new column. Default-empty handling stays in the SQL
+      column DEFAULT.
+    </file>
+  </files>
+
+  <success-criteria>
+    - `schema.sql` contains a `CREATE TABLE IF NOT EXISTS discussions` block
+      with the exact 6 columns above plus the index.
+    - `schema.sql` `tasks` CREATE TABLE includes `task_spec_path TEXT NOT NULL DEFAULT ''`.
+    - `schema.sql` seed row reads `(4, '0.3.0-alpha')`.
+    - The migration runner upgrades a v3 DB to v4 idempotently — running
+      twice does not error on duplicate column / duplicate table.
+    - `types.ts` exports `Discussion` and `Task` types matching the new schema.
+    - `npm --prefix mcp/trajectory-server run build` succeeds with no TS errors.
+    - Test DB freshly initialized from `schema.sql` reports
+      `schema_version = 4` and contains the `discussions` table and the
+      `tasks.task_spec_path` column.
+  </success-criteria>
+
+  <out-of-scope>
+    - Writing MCP tools that read/write the new table (Phase 2 task
+      `mcp-discussions-and-snapshot`).
+    - Removing `goals_md` / `goals_md_hash` columns from `issues` (deferred —
+      keep the columns even though we no longer write GOALS.md as a file;
+      `goals_md` becomes the catch-all `objective` summary).
+    - Hook updates that query the new tables (Phase 2 task `hook-sqlite-migration`).
+    - Backfilling `task_spec_path` for any existing rows — fresh tasks only.
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    # Schema text checks
+    grep -q 'CREATE TABLE IF NOT EXISTS discussions' mcp/trajectory-server/src/schema.sql && echo "OK: discussions block"
+    grep -q 'idx_discussions_issue_created' mcp/trajectory-server/src/schema.sql && echo "OK: index"
+    grep -q 'task_spec_path' mcp/trajectory-server/src/schema.sql && echo "OK: column on tasks"
+    grep -q "(4, '0.3.0-alpha')" mcp/trajectory-server/src/schema.sql && echo "OK: schema_version bump"
+
+    # TS build
+    npm --prefix mcp/trajectory-server run build && echo "OK: build clean"
+
+    # Fresh-init DB integrity
+    TMP_DB=$(mktemp /tmp/trajXXXXXX.db)
+    sqlite3 "$TMP_DB" &lt; mcp/trajectory-server/src/schema.sql
+    sqlite3 "$TMP_DB" "SELECT schema_version FROM plugin_meta;" | grep -q '^4$' && echo "OK: schema_version=4"
+    sqlite3 "$TMP_DB" ".schema discussions" | grep -q 'body_md' && echo "OK: discussions table created"
+    sqlite3 "$TMP_DB" "PRAGMA table_info(tasks);" | grep -q 'task_spec_path' && echo "OK: tasks.task_spec_path"
+    rm -f "$TMP_DB"
+
+    # Idempotent migration: spin a v3-style DB then run migration twice
+    # (Implementation detail per db.ts pattern; verify no error on second run.)
+    ```
+
+    All checks must print OK. The migration idempotency check is the
+    load-bearing one — re-running on an already-migrated DB MUST NOT throw.
+  </verification>
+
+  <commit>
+    🗄️ feat(schema): add discussions table + tasks.task_spec_path; bump schema_version to 4
+
+    Phase 2 prerequisite: SQLite becomes canonical state for the conversational
+    intent that GOALS.md / DISCUSSION.md used to hold (discussions table), and
+    each task row knows where its on-disk markdown spec lives (task_spec_path).
+    Migration is guarded for idempotency on existing v3 databases.
+  </commit>
+</task>

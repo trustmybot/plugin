@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-2-markdown-spec-format-doc" status="open">
+  <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B foundation: pin down the markdown spec format and filename convention in a single canonical doc that all later tasks (SWE rewrite, architect rewrite, PR reviewer rewrite, hooks) cite by reference. Without this, every prompt rewrite re-invents the format and they will drift."/>
+  <title>Author docs/trustmybot/SPEC-FORMAT.md defining markdown task spec frontmatter, body, and filename convention</title>
+  <branch-id>docs/phase-2-spec-format</branch-id>
+  <depends-on/>
+
+  <description>
+    Phase 2 replaces XML task specs with markdown. The spec format and
+    filename convention need exactly ONE canonical home. Create
+    `docs/trustmybot/SPEC-FORMAT.md`.
+
+    Required content (verbatim or near-verbatim):
+
+    ```markdown
+    # TMB Task Spec Format
+
+    Phase 2+ task specs live at:
+
+      docs/trustmybot/tasks/&lt;branch_id_filename&gt;.md
+
+    where `&lt;branch_id_filename&gt;` is the git branch name with `/` replaced
+    by `-`. Examples:
+
+    | branch_id          | filename                                   |
+    |--------------------|--------------------------------------------|
+    | feat/user-login    | docs/trustmybot/tasks/feat-user-login.md   |
+    | fix/auth-crash     | docs/trustmybot/tasks/fix-auth-crash.md    |
+    | refactor/db-schema | docs/trustmybot/tasks/refactor-db-schema.md|
+
+    `/` is invalid in POSIX filenames; `-` is the only universally-safe
+    replacement and visually preserves the type/slug split.
+
+    ## Frontmatter (YAML, required)
+
+    Every spec MUST start with a YAML frontmatter block:
+
+    ```yaml
+    ---
+    issue_id: &lt;integer from MCP issue_create&gt;
+    branch_id: &lt;type&gt;/&lt;slug&gt;            # e.g. feat/user-login
+    title: Short descriptive title
+    status: pending                       # pending | open | running | completed | failed
+    authorized_by: architect              # the agent that wrote this spec
+    authorized_at: 2026-04-21T15:00:00Z   # ISO-8601 UTC
+    depends_on: []                        # list of branch_ids this depends on
+    ---
+    ```
+
+    Field semantics:
+
+    - `status`: starts as `pending` when architect writes the spec.
+      Allowed values match the existing MCP `tasks.status` enum
+      (pending | running | needs_validation | completed | failed | escalated).
+      `open` is accepted as a synonym for `pending` to keep parity with the
+      legacy XML hook regex.
+    - `authorized_by`: the require-task-spec.sh hook checks for this key.
+      Without it, SWE spawn is blocked.
+    - `depends_on`: branch_ids (NOT filenames) of tasks that must complete
+      before this one is actionable.
+
+    ## Body (markdown, free-form within sections)
+
+    The body uses markdown headings as section anchors. Required sections,
+    in order:
+
+    ## Description
+    Prose explaining what the task does and why. Cite file paths with
+    line references. Quote actual code where it pins down behaviour.
+
+    ## Files
+    A bullet list, one per file the SWE will create / modify / rename /
+    delete. Each line: `- path/to/file — action: brief note`.
+
+    ## Success Criteria
+    Bullet list of testable assertions. Each must be true after SWE finishes.
+
+    ## Verification
+    Fenced bash block (or several) listing the exact commands SWE runs to
+    confirm Success Criteria. Output must be inspectable.
+
+    ## Out of Scope
+    Bullet list of nearby work that this task explicitly does NOT do.
+
+    ## Commit
+    Fenced block containing the exact commit message SWE uses, including
+    the emoji prefix (Conventional Commits style per project CLAUDE.md).
+
+    ## Results
+    Initially empty. After SWE finishes, SWE does NOT edit this section
+    (state lives in SQLite). PR Reviewer may regenerate a snapshot via
+    `issue_snapshot_md` for human review handoff.
+
+    ---
+
+    ## State model (SQLite, not file)
+
+    The file is the SWE-readable spec. The DB is the canonical state.
+
+    | Action                         | Where it happens                        |
+    |--------------------------------|------------------------------------------|
+    | Create spec                    | architect writes file + calls task_create_batch + task_set_spec_path |
+    | Begin execution                | swe calls task_update_status(running)    |
+    | Finish execution               | swe calls task_update_status(completed) atomically with the commit |
+    | Validation pass / fail         | pr-reviewer calls validation_record(verdict=pass\|fail) |
+    | Final close                    | architect calls task_update_status(closed) once review passes |
+
+    The file's `status:` frontmatter is informational only after the spec
+    is written; SQLite is authoritative. Hooks read SQLite (see
+    `scripts/hooks/lib/query-task.sh`).
+
+    ## Hook compatibility
+
+    `scripts/hooks/require-task-spec.sh` continues to accept this format:
+    looks for `^authorized_by:` in frontmatter and `^status:\s*(pending|open)`
+    to gate SWE spawn. Phase 2 does not change this; the SQLite-driven
+    enforcement lives in `require-review-sign.sh`.
+    ```
+
+    Tone: terse and prescriptive. This is a contract document, not a tutorial.
+
+    Cross-link from:
+      - `templates/docs-trustmybot/` README (if present), and
+      - the project root `CLAUDE.md` "Workflow Files" section
+        (this happens in a later Phase 2 task — out of scope here, but
+        leave the file at a stable path so the citation works).
+  </description>
+
+  <files>
+    <file path="docs/trustmybot/SPEC-FORMAT.md" action="create">
+      Author the canonical spec-format doc per the description above. Use
+      the example tables, the exact YAML frontmatter sample, and the
+      section names verbatim — later tasks parse-by-section-name.
+    </file>
+  </files>
+
+  <success-criteria>
+    - `docs/trustmybot/SPEC-FORMAT.md` exists.
+    - Contains the heading `# TMB Task Spec Format`.
+    - Contains the filename mapping table (`branch_id` → filename).
+    - Contains a YAML frontmatter sample with these keys: `issue_id`,
+      `branch_id`, `title`, `status`, `authorized_by`, `authorized_at`,
+      `depends_on`.
+    - Contains the required-section list (Description, Files, Success
+      Criteria, Verification, Out of Scope, Commit, Results).
+    - Contains a "State model (SQLite, not file)" section.
+    - Word count: between 400 and 1000 (terse-but-complete; flag if outside
+      this range — likely missing or padded).
+  </success-criteria>
+
+  <out-of-scope>
+    - Migrating any existing XML spec to markdown (handled in
+      `phase-2-cleanup-historical-xmls`).
+    - Updating SWE / architect / pr-reviewer prompts to cite this doc
+      (handled in their respective Phase 2 rewrite tasks).
+    - Updating `templates/docs-trustmybot/` to ship this file in the
+      template (handled in `phase-2-template-and-claude-md-update`).
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    test -f docs/trustmybot/SPEC-FORMAT.md &amp;&amp; echo "OK: file exists"
+    grep -q '^# TMB Task Spec Format' docs/trustmybot/SPEC-FORMAT.md &amp;&amp; echo "OK: heading"
+    grep -q 'feat/user-login' docs/trustmybot/SPEC-FORMAT.md &amp;&amp; echo "OK: example branch_id"
+    grep -q '^authorized_by:' docs/trustmybot/SPEC-FORMAT.md &amp;&amp; echo "OK: frontmatter sample"
+    grep -q 'State model' docs/trustmybot/SPEC-FORMAT.md &amp;&amp; echo "OK: state model section"
+    for s in Description Files 'Success Criteria' Verification 'Out of Scope' Commit Results; do
+      grep -q "^## $s" docs/trustmybot/SPEC-FORMAT.md &amp;&amp; echo "OK: section $s"
+    done
+    WC=$(wc -w &lt; docs/trustmybot/SPEC-FORMAT.md)
+    [ "$WC" -ge 400 ] &amp;&amp; [ "$WC" -le 1000 ] &amp;&amp; echo "OK: word count $WC in 400-1000"
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    📚 docs(trustmybot): add SPEC-FORMAT.md canonical task-spec markdown contract
+
+    Pins down filename convention (branch_id with / → -), required YAML
+    frontmatter keys, required body sections, and the SQLite-is-authoritative
+    state model. Cited by all later Phase 2 prompt rewrites so the format
+    cannot drift across agents.
+  </commit>
+</task>
