@@ -274,6 +274,25 @@ export function reportTools(db: TrajectoryDB): {
           const sha = t.commit_sha || '—';
           lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${specPath} | ${sha} |`);
         }
+        lines.push('');
+        lines.push('## Per-task snapshot');
+        lines.push('');
+        for (const t of tasks) {
+          const title = t.title || t.branch_id;
+          lines.push(`### ${t.branch_id}: ${title}`);
+          lines.push('');
+          if (t.spec_body_md) {
+            const truncated = t.spec_body_md.length > 400;
+            const preview = truncated ? t.spec_body_md.slice(0, 400) + ' …' : t.spec_body_md;
+            lines.push('**Spec body:**');
+            lines.push('');
+            lines.push(preview);
+          } else {
+            const specPath = t.task_spec_path || '—';
+            lines.push(`**Spec path:** ${specPath}`);
+          }
+          lines.push('');
+        }
       }
 
       const markdown = lines.join('\n');

@@ -199,7 +199,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
     assert.equal(data.discussions.length, 0);
   });
 
-  it('step 4: create a task and set its spec_path', async () => {
+  it('step 4: create a task and call deprecated task_set_spec_path', async () => {
     const tasks = taskTools(db);
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
@@ -212,6 +212,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
           title: 'Phase 2 discussions task',
           description: 'Implement discussion tools',
           success_criteria: 'All tools work',
+          spec_body_md: 'This is the spec body for the phase 2 discussions task.',
         },
       ],
     });
@@ -228,12 +229,22 @@ describe('Phase 2 discussions + snapshot integration', () => {
       branch_id: 'feat/phase-2-discussions',
       spec_path: 'docs/trustmybot/tasks/feat-phase-2-discussions.md',
     });
-    const updated = parseResult(specResult);
-    assert.ok(!specResult.isError, `Expected no error: ${JSON.stringify(updated)}`);
-    assert.equal(updated.task_spec_path, 'docs/trustmybot/tasks/feat-phase-2-discussions.md');
+    const payload = parseResult(specResult);
+    assert.ok(!specResult.isError, `Expected no error: ${JSON.stringify(payload)}`);
+    assert.equal(payload.deprecated, true, 'Payload must have deprecated: true');
+    assert.ok(
+      payload.message.includes('task_set_spec_path is deprecated'),
+      'Payload must include deprecation message',
+    );
+    assert.ok(payload.task, 'Payload must include task row');
+    assert.equal(
+      payload.task.task_spec_path,
+      task.task_spec_path,
+      'task_spec_path must be unchanged (no-op)',
+    );
   });
 
-  it('step 4b: task_set_spec_path rejects path with wrong stem', async () => {
+  it('step 4b: task_set_spec_path with invalid path still returns deprecated no-op payload', async () => {
     const tasks = taskTools(db);
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
@@ -243,9 +254,18 @@ describe('Phase 2 discussions + snapshot integration', () => {
       branch_id: 'feat/phase-2-discussions',
       spec_path: 'docs/trustmybot/tasks/some-other-task.md',
     });
-    assert.ok(result.isError, 'Should reject path whose stem does not contain sanitized branch_id');
-    const data = parseResult(result);
-    assert.ok(data.error.includes('feat-phase-2-discussions'), 'Error should show expected stem');
+    assert.ok(!result.isError, 'Deprecated no-op must not return isError');
+    const payload = parseResult(result);
+    assert.equal(payload.deprecated, true, 'Payload must have deprecated: true');
+    assert.ok(
+      payload.message.includes('task_set_spec_path is deprecated'),
+      'Payload must include deprecation message',
+    );
+    assert.equal(
+      payload.task.task_spec_path,
+      '',
+      'task_spec_path must still be empty (validation bypassed)',
+    );
   });
 
   it('step 5: task_update_status with commit_sha persists both atomically', async () => {
@@ -367,7 +387,10 @@ describe('Phase 2 discussions + snapshot integration', () => {
     assert.ok(content.includes('Approved. SWE will implement.'), 'Must include all discussion entries');
     assert.ok(content.includes('feat/phase-2-discussions'), 'Must include task branch_id');
     assert.ok(content.includes(sha), 'Must include commit_sha from the task row');
-    assert.ok(content.includes('docs/trustmybot/tasks/feat-phase-2-discussions.md'), 'Must include task_spec_path');
+    assert.ok(
+      content.includes('This is the spec body for the phase 2 discussions task.'),
+      'Must include spec_body_md content in per-task snapshot',
+    );
   });
 
   it('step 8b: issue_snapshot_md rejects output_path outside docs/trustmybot/', async () => {

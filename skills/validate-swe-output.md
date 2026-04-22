@@ -20,12 +20,9 @@ This skill replaces the Architect's inline validation work. The Architect
 invokes it, the forked Explore agent runs all checks independently, and only
 the verdict crosses back. Saves roughly 30K tokens per validation cycle.
 
-Canonical task spec format: `docs/trustmybot/SPEC-FORMAT.md`.
-
 ## B. Inputs (provided by the Architect in the invocation message)
 
-- `task_spec_path` — absolute path to the markdown spec file for the completed task
-- `task_id` — MCP task ID (integer) to query via `task_get`
+- `task_id` — MCP task ID (integer); the primary input; used to fetch the spec via `task_get`
 - `commit_range` — SHA range of the SWE commit(s), e.g. `HEAD~1..HEAD`
 - `changed_files` — space-separated list of files SWE reported modifying
 
@@ -52,16 +49,17 @@ Stop immediately.
 
 ### Step 2 — Read the task spec
 
-Read the markdown spec at `task_spec_path`. Locate the `## Verification` section.
+Call `task_get(task_id)` and read `spec_body_md`. Locate the `## Verification`
+section within the returned body.
 
-If the file does not exist:
+If the row is missing or `spec_body_md` is empty:
 ```
 verdict: escalate
-findings: Spec not found at {task_spec_path}. Cannot validate without the contract.
+findings: task_get({task_id}) returned no row or empty spec_body_md. Cannot validate without the contract.
 ```
 Stop immediately.
 
-If the spec has no `## Verification` section:
+If the spec body has no `## Verification` section:
 ```
 verdict: escalate
 findings: Spec has no ## Verification section. Task is underspecified — escalate to Architect.
