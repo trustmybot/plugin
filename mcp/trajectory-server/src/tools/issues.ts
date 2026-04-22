@@ -87,7 +87,7 @@ export function issueTools(db: TrajectoryDB): {
           issue_id: { type: 'string' },
           post_git_sha: { type: 'string', description: 'Git SHA after issue work is done' },
         },
-        required: ['agent', 'issue_id', 'post_git_sha'],
+        required: ['agent', 'issue_id'],
       },
     },
     {
@@ -170,9 +170,8 @@ export function issueTools(db: TrajectoryDB): {
     issue_close: wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
-      requireArg(args, 'post_git_sha');
 
-      const postGitSha = args['post_git_sha'] as string;
+      const postGitSha = (args['post_git_sha'] as string | undefined) ?? null;
       const now = nowISO();
 
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
@@ -180,12 +179,21 @@ export function issueTools(db: TrajectoryDB): {
         throw new Error(`Not found: ${issueId}`);
       }
 
-      db.run(
-        `UPDATE issues
-         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?), pre_commit_hash = ?
-         WHERE id = ?`,
-        [now, now, postGitSha, issueId],
-      );
+      if (postGitSha !== null) {
+        db.run(
+          `UPDATE issues
+           SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?), post_commit_hash = ?
+           WHERE id = ?`,
+          [now, now, postGitSha, issueId],
+        );
+      } else {
+        db.run(
+          `UPDATE issues
+           SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
+           WHERE id = ?`,
+          [now, now, issueId],
+        );
+      }
 
       const updated = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
       return ok(updated);

@@ -97,6 +97,66 @@ describe('ledgerTools', () => {
     db.close();
   });
 
+  it('ledger_log with oversized content persists is_truncated = 1', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = ledgerTools(db);
+
+    const bigContent = JSON.stringify({ data: 'x'.repeat(1_100_000) });
+
+    const result = await call(tools.handlers, 'ledger_log', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      from_node: 'swe',
+      event_type: 'large_event',
+      summary: 'Oversized content',
+      content_json: bigContent,
+    });
+    const entry = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(entry)}`);
+    assert.equal(entry.is_truncated, 1, 'is_truncated should be 1 for oversized content');
+    assert.ok(entry.content.length < bigContent.length, 'content should be truncated');
+
+    db.close();
+  });
+
+  it('ledger_list returns is_truncated flag from persisted row', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = ledgerTools(db);
+
+    const bigContent = JSON.stringify({ data: 'y'.repeat(1_100_000) });
+
+    await call(tools.handlers, 'ledger_log', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      from_node: 'swe',
+      event_type: 'large_event',
+      summary: 'Truncated row',
+      content_json: bigContent,
+    });
+
+    await call(tools.handlers, 'ledger_log', {
+      agent: 'swe',
+      issue_id: String(issueId),
+      from_node: 'swe',
+      event_type: 'small_event',
+      summary: 'Normal row',
+    });
+
+    const listResult = await call(tools.handlers, 'ledger_list', {
+      agent: 'swe',
+      issue_id: String(issueId),
+    });
+    const entries = parseResult(listResult);
+    assert.ok(!listResult.isError);
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].is_truncated, 1, 'first row is_truncated should be 1');
+    assert.equal(entries[1].is_truncated, 0, 'second row is_truncated should be 0');
+
+    db.close();
+  });
+
   it('ledger_list filtered by branch_id returns only matching rows', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
