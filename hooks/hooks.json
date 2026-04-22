@@ -1,0 +1,41 @@
+{
+  "WorktreeCreate": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "scripts/hooks/create-worktree.sh",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "scripts/hooks/git-guards.sh",
+          "timeout": 10
+        },
+        {
+          "type": "command",
+          "command": "scripts/hooks/require-review-sign.sh",
+          "timeout": 5
+        }
+      ]
+    },
+    {
+      "matcher": "Agent",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "scripts/hooks/require-task-xml.sh",
+          "timeout": 5
+        }
+      ]
+    }
+  ]
+}
