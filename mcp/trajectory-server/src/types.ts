@@ -30,6 +30,7 @@ export interface Task {
   execution_plan_md: string;
   qa_results: string;
   task_spec_path: string;
+  commit_sha: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;

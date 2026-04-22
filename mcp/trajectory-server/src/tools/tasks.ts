@@ -104,7 +104,7 @@ export function taskTools(db: TrajectoryDB): {
     },
     {
       name: 'task_update_status',
-      description: 'Update the status of a task.',
+      description: 'Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -115,6 +115,10 @@ export function taskTools(db: TrajectoryDB): {
             enum: ['pending', 'running', 'needs_validation', 'completed', 'failed', 'escalated'],
           },
           attempts: { type: 'number' },
+          commit_sha: {
+            type: 'string',
+            description: 'Optional git commit SHA (full 40-char or short 7+ char hex). Persisted atomically with the status update.',
+          },
         },
         required: ['agent', 'task_id', 'status'],
       },
@@ -130,6 +134,20 @@ export function taskTools(db: TrajectoryDB): {
           issue_id: { type: 'string' },
         },
         required: ['agent', 'issue_id'],
+      },
+    },
+        {
+      name: 'task_set_spec_path',
+      description: 'Bind a task to its on-disk markdown spec file. Validates that the path matches docs/trustmybot/tasks/<type>-<slug>.md convention and that the filename stem contains the sanitized branch_id.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          issue_id: { type: 'string' },
+          branch_id: { type: 'string', description: 'Git-convention branch name (e.g. feat/my-task)' },
+          spec_path: { type: 'string', description: 'Relative path like docs/trustmybot/tasks/feat-my-task.md' },
+        },
+        required: ['agent', 'issue_id', 'branch_id', 'spec_path'],
       },
     },
   ];
@@ -207,11 +225,20 @@ export function taskTools(db: TrajectoryDB): {
       requireArg(args, 'agent');
       const taskId = requireArg(args, 'task_id') as string;
       const status = requireArg(args, 'status') as string;
+      const rawCommitSha = args['commit_sha'] as string | undefined;
 
       if (!VALID_STATUSES.has(status)) {
         throw new Error(
           `Invalid status: ${status}. Valid values: ${[...VALID_STATUSES].join(', ')}`,
         );
+      }
+
+      if (rawCommitSha !== undefined) {
+        if (rawCommitSha.length < 7 || !/^[0-9a-fA-F]+$/.test(rawCommitSha)) {
+          throw new Error(
+            `Invalid commit_sha: "${rawCommitSha}". Must be a hex string of at least 7 characters (short SHA) or 40 characters (full SHA).`,
+          );
+        }
       }
 
       const task = db.get<Task>('SELECT * FROM tasks WHERE id = ?', [taskId]);
@@ -223,10 +250,17 @@ export function taskTools(db: TrajectoryDB): {
       const attempts = args['attempts'] !== undefined ? (args['attempts'] as number) : task.attempts;
       const completedAt = status === 'completed' ? now : task.completed_at;
 
-      db.run(
-        `UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
-        [status, attempts, now, completedAt, taskId],
-      );
+      if (rawCommitSha !== undefined) {
+        db.run(
+          `UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
+          [status, attempts, now, completedAt, rawCommitSha, taskId],
+        );
+      } else {
+        db.run(
+          `UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+          [status, attempts, now, completedAt, taskId],
+        );
+      }
 
       const updated = db.get<Task>('SELECT * FROM tasks WHERE id = ?', [taskId]);
       return ok(updated);
@@ -246,6 +280,42 @@ export function taskTools(db: TrajectoryDB): {
 
       return ok(task ?? null);
     }),
+
+    task_set_spec_path: wrapHandler(async (args) => {
+      requireArg(args, 'agent');
+      const issueId = requireArg(args, 'issue_id') as string;
+      const branchId = requireArg(args, 'branch_id') as string;
+      const specPath = requireArg(args, 'spec_path') as string;
+
+      const SPEC_PATH_RE = /^docs\/trustmybot\/tasks\/[a-z0-9-]+\.md$/;
+      if (!SPEC_PATH_RE.test(specPath)) {
+        throw new Error(
+          `Invalid spec_path: "${specPath}". Must match docs/trustmybot/tasks/<slug>.md where slug is lowercase alphanumeric and hyphens only.`,
+        );
+      }
+
+      const sanitizedBranchId = branchId.replace('/', '-');
+      const stem = specPath.replace(/^docs\/trustmybot\/tasks\//, '').replace(/\.md$/, '');
+      if (!stem.includes(sanitizedBranchId)) {
+        throw new Error(
+          `spec_path filename stem mismatch: expected stem to contain "${sanitizedBranchId}" (from branch_id "${branchId}"), got stem "${stem}".`,
+        );
+      }
+
+      const now = nowISO();
+      const result = db.run(
+        `UPDATE tasks SET task_spec_path = ?, updated_at = ? WHERE issue_id = ? AND branch_id = ?`,
+        [specPath, now, issueId, branchId],
+      );
+
+      if (result.changes === 0) {
+        throw new Error(`Not found: task with issue_id=${issueId} and branch_id="${branchId}"`);
+      }
+
+      const updated = db.get<Task>('SELECT * FROM tasks WHERE issue_id = ? AND branch_id = ?', [issueId, branchId]);
+      return ok(updated);
+    }),
+
   };
 
   return { definitions, handlers };

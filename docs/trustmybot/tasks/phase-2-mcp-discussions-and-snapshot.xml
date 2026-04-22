@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-mcp-discussions-and-snapshot" status="open">
+<task id="phase-2-mcp-discussions-and-snapshot" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #E: expose new MCP tools so gatekeeper, architect, swe, pr-reviewer can capture intent (discussion_*), enumerate open issues at session start (issue_list), bind tasks to spec files (task_set_spec_path), log commit SHAs atomically with status flips (task_update_status commit_sha extension), and generate read-only snapshots of issue state for PR review (issue_snapshot_md). All Phase 2 agent prompt rewrites depend on these tools existing."/>
   <title>Add MCP tools: discussion_append, discussion_list, issue_get_with_discussions, issue_list, task_set_spec_path, issue_snapshot_md + extend task_update_status with commit_sha</title>
   <branch-id>feat/phase-2-mcp-tools</branch-id>
@@ -268,3 +268,20 @@
     canonical state path.
   </commit>
 </task>
+  <results status="COMPLETED">
+    <summary>Six new MCP tools (discussion_append, discussion_list, issue_get_with_discussions, issue_list, task_set_spec_path, issue_snapshot_md) and task_update_status commit_sha extension implemented. Schema also extended with tasks.commit_sha column (missed by depends-on task; added to V3→V4 migration in db.ts and schema.sql).</summary>
+    <files>
+      mcp/trajectory-server/src/tools/discussions.ts,
+      mcp/trajectory-server/src/tools/issues.ts,
+      mcp/trajectory-server/src/tools/tasks.ts,
+      mcp/trajectory-server/src/tools/reports.ts,
+      mcp/trajectory-server/src/tools/index.ts,
+      mcp/trajectory-server/src/test/phase-2-discussions.test.ts,
+      mcp/trajectory-server/src/schema.sql,
+      mcp/trajectory-server/src/db.ts,
+      mcp/trajectory-server/src/types.ts,
+      docs/trustmybot/tasks/phase-2-mcp-discussions-and-snapshot.xml
+    </files>
+    <verification>PASS — 122/122 tests pass (17 new in phase-2-discussions.test.ts, 105 existing). All 6 tool names registered in compiled output. All module structure checks green.</verification>
+  </results>
+
