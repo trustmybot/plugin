@@ -5,7 +5,7 @@ description: Review phases 1-7 for PR Reviewer. Progression from staged diff sca
 
 # Review Protocol
 
-Canonical task spec format: `docs/trustmybot/SPEC-FORMAT.md`.
+Task spec sections live in `tasks.spec_body_md`; fetch via `task_get(task_id)`.
 
 ## Phase 1 — Staged Diff Scan (Pre-Commit)
 
@@ -32,9 +32,11 @@ Cite exact line numbers. Show the input, the code path, the expected output, the
 
 ---
 
-## Phase 3 — Design Compliance (if task spec provided)
+## Phase 3 — Design Compliance (if task_id provided)
 
-Check implementation against the markdown task spec:
+Fetch the spec body via `task_get(task_id)` and check implementation against it.
+The body contains H2 anchors (`## Files`, `## Success Criteria`, etc.) that
+are parsed inline — no separate file needed:
 - `## Files` — are all specified files and functions changed?
 - `## Success Criteria` — each criterion satisfied?
 - `## Description` error-handling items — each has a code path?
