@@ -12,7 +12,8 @@ async function call(
 ): Promise<RawResult> {
   const handler = handlers[name];
   assert.ok(handler, `Handler not found: ${name}`);
-  return handler(args) as unknown as RawResult;
+  const argsWithAgent = 'agent' in args ? args : { agent: 'architect', ...args };
+  return handler(argsWithAgent) as unknown as RawResult;
 }
 
 function parseResult(result: RawResult) {

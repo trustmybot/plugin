@@ -231,7 +231,7 @@ asks, and it does NOT run while Onboarding Mode is active.
    trigger it explicitly via "refresh architecture docs" or the
    `refresh-architecture` skill. Do not emit any output.
 3. Otherwise, take the SHA from whichever `regen_state` row has the more
-   recent `updated_at` timestamp and run:
+   recent `last_regen_at` timestamp and run:
    ```bash
    git log --oneline <last_seen_sha>..HEAD | wc -l
    ```

@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -159,7 +160,7 @@ export function fileRegistryTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    file_registry_upsert: wrapHandler(async (args) => {
+    file_registry_upsert: requireRoles('file_registry_upsert', ['architect', 'gatekeeper'], wrapHandler(async (args) => {
       const pathErr = validatePath(args['path']);
       if (pathErr) return err(pathErr);
       const path = args['path'] as string;
@@ -237,7 +238,7 @@ export function fileRegistryTools(db: TrajectoryDB): {
       );
 
       return ok(decodeRow(row!));
-    }),
+    })),
 
     file_registry_list: wrapHandler(async (args) => {
       const filterType = args['type'];
@@ -306,14 +307,14 @@ export function fileRegistryTools(db: TrajectoryDB): {
       });
     }),
 
-    file_registry_delete: wrapHandler(async (args) => {
+    file_registry_delete: requireRoles('file_registry_delete', ['architect', 'gatekeeper'], wrapHandler(async (args) => {
       const pathErr = validatePath(args['path']);
       if (pathErr) return err(pathErr);
       const path = args['path'] as string;
 
       const result = db.run(`DELETE FROM file_registry WHERE path = ?`, [path]);
       return ok({ deleted: result.changes > 0 ? 1 : 0 });
-    }),
+    })),
   };
 
   return { definitions, handlers };

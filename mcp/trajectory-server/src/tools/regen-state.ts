@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -125,7 +126,7 @@ export function regenStateTools(db: TrajectoryDB): {
       });
     }),
 
-    regen_state_set: wrapHandler(async (args) => {
+    regen_state_set: requireRoles('regen_state_set', ['architect', 'gatekeeper', 'pr-reviewer'], wrapHandler(async (args) => {
       const target = validateTarget(args['target']);
       if (target === null) {
         return err(
@@ -191,7 +192,7 @@ export function regenStateTools(db: TrajectoryDB): {
         last_seen_sha: row!.last_seen_sha,
         notes: row!.notes,
       });
-    }),
+    })),
   };
 
   return { definitions, handlers };
