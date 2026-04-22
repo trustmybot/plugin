@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hook: Block git push/merge unless all task files have PR Reviewer sign-off.
+# Hook: Block git push/merge unless all completed tasks have PR Reviewer sign-off.
 set -euo pipefail
 
 INPUT=$(cat)
@@ -11,42 +11,43 @@ case "$CMD" in
   *) exit 0 ;;
 esac
 
-# Must have a docs/trustmybot/tasks dir for the check to apply
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+
+DB_PATH=$(tmb_db_path) || true
+
+if [ -n "$DB_PATH" ] && tmb_have_sqlite; then
+  UNSIGNED=$(tmb_unsigned_tasks)
+  if [ -n "$UNSIGNED" ]; then
+    BRANCH_LIST=$(echo "$UNSIGNED" | tr '\n' ' ' | sed 's/ $//')
+    echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Push/merge requires PR Reviewer sign-off. These tasks are missing a passing validation_attempts row: $BRANCH_LIST. Spawn PR Reviewer to sign them.\"}"
+  fi
+  exit 0
+fi
+
+# Legacy fallback: DB absent or sqlite3 unavailable. Grep XML task files only.
+# Markdown specs carry no in-file sign-off by design; never grep them.
+echo "tmb-hook: trajectory.db not found or sqlite3 unavailable — falling back to legacy XML sign-off check." >&2
+
 [ -d "docs/trustmybot/tasks" ] || exit 0
 
-# Find all task files missing sign-off (excluding deferred/open)
 UNSIGNED=""
-for f in docs/trustmybot/tasks/*.xml docs/trustmybot/tasks/*.md; do
+for f in docs/trustmybot/tasks/*.xml; do
   [ -f "$f" ] || continue
-  case "$f" in
-    *.xml)
-      if grep -q 'status="deferred"' "$f" 2>/dev/null; then
-        continue
-      fi
-      if grep -q 'status="open"' "$f" 2>/dev/null; then
-        continue
-      fi
-      if grep -q '<authorized-by' "$f" 2>/dev/null && ! grep -q '<reviewed-by\|<closed-by' "$f" 2>/dev/null; then
-        UNSIGNED="$UNSIGNED $f"
-      fi
-      ;;
-    *.md)
-      if grep -qE '^status:\s*deferred' "$f" 2>/dev/null; then
-        continue
-      fi
-      if grep -qE '^status:\s*(pending|open)' "$f" 2>/dev/null; then
-        continue
-      fi
-      if grep -q '^authorized_by:' "$f" 2>/dev/null && ! grep -q '^reviewed_by:\|^closed_by:' "$f" 2>/dev/null; then
-        UNSIGNED="$UNSIGNED $f"
-      fi
-      ;;
-  esac
+  if grep -q 'status="deferred"' "$f" 2>/dev/null; then
+    continue
+  fi
+  if grep -q 'status="open"' "$f" 2>/dev/null; then
+    continue
+  fi
+  if grep -q '<authorized-by' "$f" 2>/dev/null && ! grep -q '<reviewed-by\|<closed-by' "$f" 2>/dev/null; then
+    UNSIGNED="$UNSIGNED $f"
+  fi
 done
 
 if [ -n "$UNSIGNED" ]; then
   echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Push/merge requires PR Reviewer sign-off. These task files are missing reviewed-by or closed-by:$UNSIGNED. Spawn PR Reviewer to sign them.\"}"
-  exit 0
 fi
 
 exit 0

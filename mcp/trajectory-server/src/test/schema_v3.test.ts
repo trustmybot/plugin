@@ -2,8 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 
-describe('schema v3 — new foundation tables', () => {
-  it('fresh DB contains all 13 tables', () => {
+describe('schema v4 — discussions table and task_spec_path column', () => {
+  it('fresh DB contains all 14 tables', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -15,6 +15,7 @@ describe('schema v3 — new foundation tables', () => {
       'skills',
       'roundtables',
       'roundtable_votes',
+      'discussions',
       'plugin_meta',
       'file_registry',
       'plugin_config',
@@ -31,14 +32,14 @@ describe('schema v3 — new foundation tables', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 3 in plugin_meta', () => {
+  it('fresh DB has schema_version = 4 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 3);
+    assert.equal(meta.schema_version, 4);
 
     db.close();
   });

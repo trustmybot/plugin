@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     attempts          INTEGER NOT NULL DEFAULT 0,
     execution_plan_md TEXT    NOT NULL DEFAULT '',
     qa_results        TEXT    NOT NULL DEFAULT '',
+    task_spec_path    TEXT    NOT NULL DEFAULT '',
+    commit_sha        TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     completed_at      TEXT
@@ -113,6 +115,18 @@ CREATE TABLE IF NOT EXISTS roundtable_votes (
     created_at     TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS discussions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id    INTEGER NOT NULL REFERENCES issues(id),
+    author      TEXT    NOT NULL,
+    kind        TEXT    NOT NULL DEFAULT 'note',
+    body_md     TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
+    ON discussions(issue_id, created_at);
+
 CREATE TABLE IF NOT EXISTS plugin_meta (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     schema_version INTEGER NOT NULL,
@@ -120,7 +134,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (3, '0.3.0-alpha');
+INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (4, '0.3.0-alpha');
 
 CREATE TABLE IF NOT EXISTS file_registry (
     path             TEXT PRIMARY KEY,

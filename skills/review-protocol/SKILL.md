@@ -5,6 +5,8 @@ description: Review phases 1-7 for PR Reviewer. Progression from staged diff sca
 
 # Review Protocol
 
+Canonical task spec format: `docs/trustmybot/SPEC-FORMAT.md`.
+
 ## Phase 1 — Staged Diff Scan (Pre-Commit)
 
 Check the diff for obvious issues:
@@ -30,13 +32,13 @@ Cite exact line numbers. Show the input, the code path, the expected output, the
 
 ---
 
-## Phase 3 — Design Compliance (if task file provided)
+## Phase 3 — Design Compliance (if task spec provided)
 
-Check implementation against task XML:
-- `<scope>` — are all specified files and functions changed?
-- `<error-handling>` — each `<case>` has a code path?
-- `<edge-cases>` — each scenario handled as specified?
-- `<constraints>` — nothing forbidden was done?
+Check implementation against the markdown task spec:
+- `## Files` — are all specified files and functions changed?
+- `## Success Criteria` — each criterion satisfied?
+- `## Description` error-handling items — each has a code path?
+- `## Out of Scope` — nothing forbidden was done?
 
 Report gaps as Design Compliance findings (separate from severity).
 
@@ -70,7 +72,7 @@ Deviations should be flagged unless the task explicitly said to deviate.
 - N+1 query patterns
 - Unnecessary allocations in hot paths
 
-Only flag if the task's acceptance criteria mention performance.
+Only flag if the task's `## Success Criteria` mention performance.
 
 ---
 
@@ -79,6 +81,20 @@ Only flag if the task's acceptance criteria mention performance.
 - Public API changes reflected in docs/types?
 - Breaking changes flagged in CHANGELOG if one exists?
 - Examples still compile/run?
+
+---
+
+## Sign-Off
+
+After all phases pass, record the verdict via MCP:
+```
+validation_record(task_id=<id>, verdict='pass', notes='<summary>')
+```
+
+Then call `task_update_status(task_id=<id>, status='closed')`.
+
+These MCP calls are the canonical sign-off mechanism — not file edits. The
+SQLite row is the audit trail.
 
 ---
 

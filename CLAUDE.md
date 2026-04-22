@@ -21,9 +21,9 @@ Plugin ships starter prompts at `plugin/templates/agents/`. The `seed-project-ag
 |---|---|
 | `ceo` | Product direction, scope calls |
 | `cto` | Technical architecture, feasibility |
-| `architect` | Breaks BLUEPRINTs into task XML files; spawns and validates SWE; drives agent-creator flow |
-| `swe` | Implements one task per XML spec; runs in isolated git worktree; closes its own task XML atomically with commit |
-| `pr-reviewer` | Pre-commit and pre-push gate; signs `<reviewed-by>` and `<closed-by>` tags on task XML |
+| `architect` | Breaks issues into task specs; spawns and validates SWE; drives agent-creator flow |
+| `swe` | Implements one task per markdown spec; runs in isolated git worktree; closes its own task atomically with commit |
+| `pr-reviewer` | Pre-commit and pre-push gate; calls MCP validation_record on pass/fail |
 
 ### Tier 3 — On-demand domain agents (created via `agent-creator` skill)
 
@@ -48,12 +48,14 @@ gatekeeper also invokes: ceo, cto, or any user-edited / on-demand agent
 
 ## Workflow Files
 
-| File | Writers | Purpose |
-|---|---|---|
-| `docs/trustmybot/GOALS.md` | Human | Intent, priorities, constraints |
-| `docs/trustmybot/DISCUSSION.md` | architect, Human | Alignment before BLUEPRINT |
-| `docs/trustmybot/BLUEPRINT.md` | architect (Human approves) | Phased plan |
-| `docs/trustmybot/tasks/*.xml` | architect | Per-task execution specs for SWE |
+| Artifact | Storage | Writers | Purpose |
+|---|---|---|---|
+| Issue intent + objective | SQLite `issues` table | gatekeeper, architect | Captured via MCP issue_create at routing time |
+| Architect ↔ Human alignment | SQLite `discussions` table | gatekeeper, architect, human-via-relay | Captured via MCP discussion_append |
+| Architecture decisions (ADRs) | `docs/trustmybot/architecture/manual/decisions/N-*.md` | architect | Hand-curated; consumer of Phase 5 |
+| Per-task execution spec | `docs/trustmybot/tasks/<branch_id_filename>.md` | architect | Markdown frontmatter + body — see `docs/trustmybot/SPEC-FORMAT.md` |
+| Read-only review snapshot | `docs/trustmybot/snapshots/<issue_id>.md` | MCP `issue_snapshot_md` (called by architect / pr-reviewer) | Generated for human review handoff |
+| Task lifecycle state | SQLite `tasks` + `validation_attempts` | swe (status), pr-reviewer (validation_record), architect (close) | Authoritative. Files are snapshots. |
 
 ## Persistence (bundled MCP)
 
@@ -68,7 +70,7 @@ source code files.** This applies to:
 - Test directories (`tests/`, `__tests__/`, `spec/`)
 - Configuration files used by the runtime
 
-**What the architect CAN edit:** files in `docs/trustmybot/`, `docs/`, `README.md`, `CLAUDE.md`, `.gitignore`.
+**What the architect CAN edit:** files in `docs/trustmybot/`, `docs/trustmybot/snapshots/`, `docs/`, `README.md`, `CLAUDE.md`, `.gitignore`.
 
 **Enforcement:** `hooks/hooks.json` PreToolUse hooks block source edits outside worktrees. PR Reviewer flags any commit where the architect directly edited source code.
 
@@ -76,7 +78,7 @@ source code files.** This applies to:
 
 gatekeeper picks the mode based on the Human's ask:
 
-1. `docs/trustmybot/GOALS.md` has unclosed goals and the ask relates to them → **Workflow Mode** (full GOALS → DISCUSSION → BLUEPRINT → tasks loop)
+1. MCP `issue_resume` returns an open issue with pending tasks → **Workflow Mode**
 2. Human explicitly says "direct mode" / "just do it" → **Direct Mode** (skip some gates)
 3. Multi-file coordinated changes → **Workflow Mode**
 4. Simple read-only question → gatekeeper handles directly, no agent spawn

@@ -22,96 +22,95 @@ branching behavior (branch from HEAD instead).
 4. **NEVER copy a worktree's file to the main repo without `git diff` first.**
 5. After copying worktree output, verify with lint + tests before committing.
 
-## Task File Template (XML)
+## Task Spec Template (Markdown)
 
-Each task file is SWE's **sole source of truth**.
+Each task spec is SWE's **sole source of truth**. Canonical format:
+`docs/trustmybot/SPEC-FORMAT.md`.
 
-**Naming:** `docs/trustmybot/tasks/<YYYYMMDD-HHMM>_<descriptive_name>.xml` (timestamp + name)
+**Naming:** `docs/trustmybot/tasks/<branch_id_filename>.md` where
+`<branch_id_filename>` is the branch `type/slug` with `/` replaced by `-`
+(e.g. `feat/user-login` → `feat-user-login.md`).
 
 **Size limit: 200 lines maximum.** If a task exceeds 200 lines, split it into
-multiple task files. A 700-line task file exhausts SWE's context before
-implementation begins. Each task file should cover 3-8 file edits maximum. Do
-NOT create a task file that references another task file for its full spec —
-the task must be self-contained.
+multiple specs with `depends_on` chains. Each spec should cover 3-8 file edits
+maximum. Do NOT create a spec that references another spec for its full content —
+the spec must be self-contained.
 
-**If SWE has to make a judgment call, the task is underspecified.**
+**If SWE has to make a judgment call, the spec is underspecified.**
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<task phase="N" step="M" status="open">
-  <authorized-by agent="architect" context="BLUEPRINT phase N" />
-  <title>Short descriptive title</title>
-  <depends>none | phase_N_step_M</depends>
+```markdown
+---
+issue_id: <integer from MCP issue_create>
+branch_id: <type>/<slug>
+title: Short descriptive title
+status: pending
+authorized_by: architect
+authorized_at: <ISO-8601 UTC>
+depends_on: []
+---
 
-  <context>
-    File paths with line refs, existing patterns to follow.
-    Cite actual code. Include verification commands.
-  </context>
+## Description
 
-  <scope>
-    Exact file paths, function signatures, input/output types, error responses.
-  </scope>
+Prose explaining what the task does and why. Cite file paths with line
+references. Quote actual code where it pins down behaviour.
 
-  <error-handling>
-    <case trigger="X" response="Y" />
-  </error-handling>
+## Files
 
-  <edge-cases>
-    <case input="X" behavior="Y" />
-  </edge-cases>
+- path/to/file — action: brief note
 
-  <verification>
-    Exact commands to run. Example:
-    npm test
-    npm run lint
-  </verification>
+## Success Criteria
 
-  <constraints>
-    What NOT to do. Pattern references with file:line citations.
-  </constraints>
+- Bullet list of testable assertions.
 
-  <commit>
-    Commit message to use.
-  </commit>
+## Verification
 
-  <rollback>
-    How to undo if validation fails.
-  </rollback>
-</task>
+```bash
+# Exact commands SWE runs to confirm Success Criteria.
 ```
 
-One task per file. Self-contained. Verifiable.
+## Out of Scope
+
+- Nearby work this task explicitly does NOT do.
+
+## Commit
+
+```
+emoji type(scope): message
+```
+```
+
+One spec per file. Self-contained. Verifiable.
 
 ## Task Lifecycle
 
 ```
-open → in_progress → completed → closed
-                  ↘ failed → (reopen as new task or abandon)
+pending → running → completed → closed
+               ↘ failed → (reopen as new task or abandon)
 ```
 
-| Status | Set By | Meaning |
-|--------|--------|---------|
-| `open` | Architect | Task created, ready for SWE |
-| `in_progress` | SWE | SWE is executing |
-| `completed` | SWE | SWE finished, results appended |
-| `closed` | PR Reviewer ONLY | Reviewed and approved |
-| `failed` | SWE | SWE could not complete |
+| Status | Set By | How |
+|--------|--------|-----|
+| `pending` | Architect | Spec written; `task_create_batch` + `task_set_spec_path` called |
+| `running` | SWE | `task_update_status(running)` at start |
+| `completed` | SWE | `task_update_status(completed)` atomic with commit |
+| `closed` | PR Reviewer ONLY | `task_update_status(closed)` after `validation_record(verdict=pass)` |
+| `failed` | SWE | `task_update_status(failed)` — escalate to Architect |
 
-**SWE MUST check `status="open"` before starting.** If status is anything else,
-STOP with:
+**SWE MUST call `task_get` to confirm `status='pending'` or `'open'` before
+starting.** If status is anything else, STOP with:
 ```
-REJECTED: Task status is "[status]", not "open". Only open tasks can be executed.
+REJECTED: Task status is "[status]", not pending/open. Only pending tasks can be executed.
 ```
 
-**PR Reviewer closes tasks** by changing `status="completed"` to
-`status="closed"` after successful review. This is the final audit stamp.
+**PR Reviewer closes tasks** via `task_update_status(closed)` after a passing
+`validation_record`. This is the final audit stamp in SQLite — not a file edit.
 
 ## Parallel Execution
 
 When tasks have no dependencies, spawn SWE agents concurrently in a single
 message.
 
-- Annotate: `depends="none"` or `depends="phase_1_step_2"` in the task XML
+- Annotate: `depends_on: []` or `depends_on: [feat/other-task]` in the spec frontmatter
 - Each SWE runs in `isolation: worktree`
 - **Do NOT parallelize when:** tasks share files, migrations pending, output
   dependencies exist
