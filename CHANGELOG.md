@@ -26,12 +26,12 @@ Workflow redesign: SQLite is canonical state; files are generated snapshots; git
 - **PR Reviewer auto-dir check**: flags manual edits to `architecture/auto/*.md` files.
 - **`git-guards.sh` config-driven**: reads `branching_model` / `pr_target` / `protected_branches` from `plugin_config` SQLite; supports trunk-based / gitflow / custom models.
 - **Branch-id format validation**: `task_create_batch` enforces `^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)/[a-z0-9][a-z0-9-]{0,62}$`.
-- **Template seeding** (`templates/docs-trustmybot/`): replaces `bro-template/`; includes `architecture/` subtree + `tasks/` + `snapshots/` + `SPEC-FORMAT.md`.
+- **Template seeding** (`templates/docs-trustmybot/`): replaces `bro-template/`; includes `architecture/` subtree + `snapshots/`.
 - **Role-gated MCP writes**: `discussion_append`, `task_set_spec_path`, `issue_snapshot_md`, `file_registry_upsert`, `file_registry_delete`, `regen_state_set`, `architecture_regen` require appropriate agent roles.
 
 ### Changed
 
-- **Task spec format**: XML envelope dropped. New specs are markdown at `docs/trustmybot/tasks/<branch_id_filename>.md` (canonical format in `docs/trustmybot/SPEC-FORMAT.md`).
+- **Task spec format**: XML envelope dropped. New specs are markdown at `docs/trustmybot/tasks/<branch_id_filename>.md` (markdown frontmatter + body).
 - **Workflow directory**: `bro/` → `docs/trustmybot/` everywhere (agents, skills, hooks, README, CLAUDE.md).
 - **Branch-id semantics**: accepts git-convention strings (`feat/user-login`, `fix/auth-crash`), not synthetic `1.2.3` numbering. Gatekeeper proposes branch names from intent.
 - **SWE agent prompt**: reads markdown specs (not XML); closes via `task_update_status(commit_sha=<sha>)`; never hand-edits spec files.

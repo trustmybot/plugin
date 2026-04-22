@@ -12,7 +12,7 @@ If you are editing **this plugin itself** (i.e., this is the TMB workspace dogfo
 | Plugin roadmap / blueprint | `../docs/v0.3-blueprint.md` (TMB workspace) | ❌ `plugin/docs/v0.3-blueprint.md` |
 | Implementation code (agents, skills, MCP, hooks) | `plugin/...` ✓ | n/a |
 
-**Why**: this plugin is a public distributable. Downstream users install it and don't need TMB's internal phase-* task specs polluting their `docs/`. The plugin's own `docs/` should hold ONLY user-facing material (`SPEC-FORMAT.md`, `CONFIG_KEYS.md`, etc.).
+**Why**: this plugin is a public distributable. Downstream users install it and don't need TMB's internal phase-* task specs polluting their `docs/`. The plugin's own `docs/` should hold ONLY user-facing material (`CONFIG_KEYS.md`, etc.).
 
 **Exception**: when this plugin is installed in a downstream user's project, the user's project will legitimately have its OWN `docs/trustmybot/tasks/` directory — that's correct, the plugin teaches that convention. Confusion arises only when developing the plugin itself dogfooding-style at TMB workspace level.
 
@@ -83,7 +83,7 @@ Takes ~30 seconds. The answers are stored in the plugin's trajectory DB via MCP 
 | Issue intent + objective | SQLite `issues` table | gatekeeper, architect | Captured via MCP issue_create at routing time |
 | Architect ↔ Human alignment | SQLite `discussions` table | gatekeeper, architect, human-via-relay | Captured via MCP discussion_append |
 | Architecture decisions (ADRs) | `docs/trustmybot/architecture/manual/decisions/N-*.md` | architect | Hand-curated; consumer of Phase 5 |
-| Per-task execution spec | `docs/trustmybot/tasks/<branch_id_filename>.md` | architect | Markdown frontmatter + body — see `docs/trustmybot/SPEC-FORMAT.md` |
+| Per-task execution spec | `docs/trustmybot/tasks/<branch_id_filename>.md` | architect | Markdown frontmatter + body |
 | Read-only review snapshot | `docs/trustmybot/snapshots/<issue_id>.md` | MCP `issue_snapshot_md` (called by architect / pr-reviewer) | Generated for human review handoff |
 | Task lifecycle state | SQLite `tasks` + `validation_attempts` | swe (status), pr-reviewer (validation_record), architect (close) | Authoritative. Files are snapshots. |
 
