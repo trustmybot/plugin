@@ -17,11 +17,15 @@
   },
   "provides": {
     "agents": [
-      "secretary",
+      "gatekeeper",
+      "prompt-engineer"
+    ],
+    "project-agent-templates": [
+      "ceo",
+      "cto",
       "architect",
       "swe",
-      "pr-reviewer",
-      "prompt-engineer"
+      "pr-reviewer"
     ],
     "skills": [],
     "workflow": "bro/"

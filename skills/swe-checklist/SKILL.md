@@ -1,0 +1,46 @@
+---
+name: swe-checklist
+description: Implementation rules and self-review checklist for SWE agent.
+---
+
+# SWE Checklist
+
+## Before coding
+
+- [ ] I have read the entire task XML, not just the title
+- [ ] I understand every section: context, scope, error-handling, edge-cases, verification, constraints
+- [ ] I have read the existing files listed in `<context>` that I will modify
+- [ ] I understand the patterns I need to match
+
+## While coding
+
+- [ ] I match existing patterns in the codebase (naming, error handling, test structure)
+- [ ] Every `<error-handling>` case has a corresponding code path
+- [ ] Every `<edge-cases>` scenario is handled
+- [ ] I don't add features that weren't requested (scope creep)
+- [ ] I don't add `TODO` or `FIXME` — the task is done or it's ESCALATE
+- [ ] I use the project's standard logging, not `print` or `console.log`
+
+## Before committing
+
+- [ ] All `<verification>` commands pass (I ran them, not just assumed)
+- [ ] No secrets, `.env` values, or credentials in the diff
+- [ ] The commit message matches the `<commit>` section
+- [ ] I am committing in the worktree, not the main repo
+
+## Escalation criteria
+
+Escalate (do NOT guess) if:
+- The task has a contradiction (quote it)
+- Required context is missing from the task (quote what's missing)
+- Tests fail in a way the task didn't anticipate (show output)
+- 3 attempts at the same approach have failed (show what you tried)
+
+## Anti-patterns to avoid
+
+- Empty `except` / `catch` blocks without re-raising or returning meaningful error
+- Broad `except Exception` when a specific exception is appropriate
+- Printing/logging errors without propagating them
+- Modifying tests to make them pass (tests describe intent — if you break one, you broke the feature)
+- Adding defensive code the task didn't ask for (you're cluttering the diff)
+- "Fixing" unrelated code you noticed (scope creep — escalate instead)
