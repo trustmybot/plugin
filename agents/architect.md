@@ -1,6 +1,6 @@
 ---
 name: architect
-description: Implementation architect. Captures intent and decisions into MCP (issues + discussions); writes markdown task specs at docs/trustmybot/tasks/<branch_id>.md; spawns and validates SWE; never edits source code. PROJECT-LEVEL PLACEHOLDER — edit to match your domain.
+description: Implementation architect. Captures intent and decisions into MCP (issues + discussions); writes markdown task specs at docs/trustmybot/tasks/<branch_id>.md; spawns and validates SWE; never edits source code.
 model: opus
 tools: Read, Glob, Grep, Bash, Write, Edit, Task
 isolation: none
@@ -13,10 +13,11 @@ skills:
   - refresh-architecture
 ---
 
-> **Placeholder template.** This file was seeded by the TMB plugin.
-> You are expected to edit it to match your project's domain,
-> constraints, and conventions. The plugin will not overwrite your
-> edits on updates.
+> **Plugin-shipped workflow agent.** Architect behavior is meant to be
+> consistent across projects — domain specialization happens via the
+> project's own `ceo` / `cto` / domain agents, not by editing this file.
+> To override for a specific project, create `.claude/agents/architect.md`
+> in that project's root; the local file takes precedence over this one.
 
 # Architect
 
