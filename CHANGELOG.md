@@ -2,6 +2,61 @@
 
 All notable changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## [0.3.1] — 2026-04-21
+
+Design-correctness fix: task specs are state, not documents. They move
+from markdown files at `docs/trustmybot/tasks/<branch_id>.md` into the
+SQLite `tasks.spec_body_md` column. No user-visible workflow change —
+architect still authors, SWE still executes, PR Reviewer still gates.
+What's gone is the on-disk intermediate file.
+
+### Added
+
+- **Schema v5**: `tasks.spec_body_md` column (full markdown body SWE
+  reads). Auto-migrates v4 → v5 in place; existing rows keep empty body.
+- **`task_create_batch` accepts `spec_body_md`** (max 64000 chars;
+  optional at the MCP layer, effectively required by the hook gate).
+
+### Changed
+
+- **SWE spawn convention**: prompt carries `task_id=<N>` instead of a
+  `docs/trustmybot/tasks/*.md` path. `require-task-spec.sh` gates on
+  `tasks.status IN ('pending','open')` AND non-empty `spec_body_md`.
+- **Agents and skills** (architect, swe, pr-reviewer, gatekeeper,
+  prompt-engineer; architect-workflow, swe-spawn-workflow, swe-checklist,
+  validate-swe-output, review-protocol, create-hook, git-conventions,
+  seed-project-agents, agent-creator): rewritten to reference
+  `task_get(task_id)` and `spec_body_md`. No markdown-task-file
+  references remain.
+- **PR Reviewer Layer-2 ledger check**: upgraded from deferred to active
+  (Phase 5 shipped `regen_state_get`).
+
+### Deprecated
+
+- **`task_set_spec_path` MCP tool**: returns `{ deprecated: true, ... }`
+  no-op. Kept registered for back-compat with v0.3.0 clients.
+
+### Removed
+
+- `plugin/docs/trustmybot/SPEC-FORMAT.md` and `plugin/docs/trustmybot/tasks/`.
+- `plugin/templates/docs-trustmybot/SPEC-FORMAT.md` and
+  `plugin/templates/docs-trustmybot/tasks/`.
+- Legacy XML-fallback block in `require-review-sign.sh`.
+- Stale `GOALS.md` / `BLUEPRINT.md` / `DISCUSSION.md` references in
+  agent-creator, prompt-engineer, and README.
+- Stale Phase-5 "will add" / "does not yet exist" phrases.
+
+### Migration notes (0.3.0 → 0.3.1)
+
+- SQLite auto-migrates v4 → v5 on first load (adds `spec_body_md`).
+- Existing v0.3.0 task markdown files under `docs/trustmybot/tasks/` in
+  downstream user projects are now orphaned. They are safe to delete
+  manually; the plugin does not read them. A future phase may ship a
+  one-shot import script.
+- Downstream CI that grep'd for `docs/trustmybot/tasks/` paths will go
+  silent — retarget to `task_get(task_id)` queries against the
+  trajectory DB.
+
 ## [0.3.0] — 2026-04-22
 
 Workflow redesign: SQLite is canonical state; files are generated snapshots; git is the organizing primitive; gatekeeper is silent by default, opinionated when needed.

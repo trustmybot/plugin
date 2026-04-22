@@ -8,15 +8,15 @@ If you are editing **this plugin itself** (i.e., this is the TMB workspace dogfo
 
 | Artifact | Correct location | Wrong location |
 |---|---|---|
-| Task specs about plugin changes | `../docs/trustmybot/tasks/*.{md,xml}` (TMB workspace) | ❌ `plugin/docs/trustmybot/tasks/` |
+| Task specs about plugin changes | `tasks.spec_body_md` in the TMB-workspace-shared trajectory DB | ❌ Any on-disk `tasks/` directory under `docs/trustmybot/` |
 | Plugin roadmap / blueprint | `../docs/v0.3-blueprint.md` (TMB workspace) | ❌ `plugin/docs/v0.3-blueprint.md` |
 | Implementation code (agents, skills, MCP, hooks) | `plugin/...` ✓ | n/a |
 
-**Why**: this plugin is a public distributable. Downstream users install it and don't need TMB's internal phase-* task specs polluting their `docs/`. The plugin's own `docs/` should hold ONLY user-facing material (`CONFIG_KEYS.md`, etc.).
+**Why**: this plugin is a public distributable. Downstream users install it and don't need TMB's internal phase-* task specs polluting their `docs/`. The plugin's own `docs/` should hold ONLY user-facing material (`CONFIG_KEYS.md`, architecture narrative, etc.).
 
-**Exception**: when this plugin is installed in a downstream user's project, the user's project will legitimately have its OWN `docs/trustmybot/tasks/` directory — that's correct, the plugin teaches that convention. Confusion arises only when developing the plugin itself dogfooding-style at TMB workspace level.
+**Exception**: downstream user projects never have a `tasks/` subdirectory under `docs/trustmybot/`; all task specs live in their project's local trajectory DB. `docs/trustmybot/` is reserved for architecture narrative and generated snapshots.
 
-When spawning architect/SWE for plugin work, always direct task spec writes to `/Users/Zax/Git/GitHub/TMB/docs/trustmybot/tasks/`, not `/Users/Zax/Git/GitHub/TMB/plugin/docs/trustmybot/tasks/`.
+When spawning architect/SWE for plugin work, task specs are written into the TMB-workspace trajectory DB via `task_create_batch` (with `spec_body_md`). SWE fetches them via `task_get(task_id)`. No on-disk spec files.
 
 
 ## Agent Roster (two-tier model)
@@ -29,7 +29,7 @@ Workflow agents whose behavior is meant to be consistent across projects. They l
 |---|---|---|
 | `gatekeeper` | Opus | Single Human entry point. Routes to specialists, runs a conditional pre-scan, handles direct read-only ops, drives the onboarding flow + agent-creator. |
 | `prompt-engineer` | Sonnet | Maintains coherence of agent prompts, skill files, and workflow docs. Markdown-only edits; never touches source. |
-| `architect` | Sonnet | Captures intent into MCP (issues + discussions); writes markdown task specs at `docs/trustmybot/tasks/<branch_id>.md`; spawns + validates SWE. |
+| `architect` | Sonnet | Captures intent into MCP (issues + discussions); writes task specs into `tasks.spec_body_md` via `task_create_batch`; spawns + validates SWE. |
 | `swe` | Sonnet | Implements one task per markdown spec; runs in isolated git worktree; drives state via MCP; closes atomically with commit. |
 | `pr-reviewer` | Sonnet | Pre-commit/pre-push review gate. Records verdicts via MCP `validation_record`; no Edit tool (strict read-only). |
 
@@ -83,7 +83,7 @@ Takes ~30 seconds. The answers are stored in the plugin's trajectory DB via MCP 
 | Issue intent + objective | SQLite `issues` table | gatekeeper, architect | Captured via MCP issue_create at routing time |
 | Architect ↔ Human alignment | SQLite `discussions` table | gatekeeper, architect, human-via-relay | Captured via MCP discussion_append |
 | Architecture decisions (ADRs) | `docs/trustmybot/architecture/manual/decisions/N-*.md` | architect | Hand-curated; consumer of Phase 5 |
-| Per-task execution spec | `docs/trustmybot/tasks/<branch_id_filename>.md` | architect | Markdown frontmatter + body |
+| Per-task execution spec | SQLite `tasks.spec_body_md` | architect | Markdown body stored inline on the tasks row; fetched via `task_get(task_id)` |
 | Read-only review snapshot | `docs/trustmybot/snapshots/<issue_id>.md` | MCP `issue_snapshot_md` (called by architect / pr-reviewer) | Generated for human review handoff |
 | Task lifecycle state | SQLite `tasks` + `validation_attempts` | swe (status), pr-reviewer (validation_record), architect (close) | Authoritative. Files are snapshots. |
 

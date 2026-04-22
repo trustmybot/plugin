@@ -28,7 +28,7 @@ Workflow agents whose behavior is meant to be consistent across projects. Instal
 |---|---|
 | `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a conditional project scan on the first code-touching ask, handles direct ops. Ask it anything — it will either answer or route. |
 | `prompt-engineer` | Keeps agent prompts, skills, and workflow docs coherent as the project evolves. Rewrites drift, strips jargon, preserves intent. Never touches source. |
-| `architect` | Captures intent into the trajectory DB (issues + discussions), writes markdown task specs, spawns + validates SWE. Double-checks every gatekeeper triage. |
+| `architect` | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body_md` via MCP, spawns + validates SWE. Double-checks every gatekeeper triage. |
 | `swe` | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
 | `pr-reviewer` | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
 
@@ -59,8 +59,6 @@ State is SQLite-canonical; files are generated snapshots. Your project's `docs/t
 
 ```
 docs/trustmybot/
-├── SPEC-FORMAT.md           ← how to read a task spec (for humans)
-├── tasks/<branch_id>.md     ← per-task execution spec (architect writes, SWE reads)
 ├── snapshots/<issue>.md     ← on-demand human-readable snapshot of issue state
 └── architecture/
     ├── auto/                ← regenerated via /tmb refresh-architecture
@@ -74,6 +72,11 @@ docs/trustmybot/
         ├── infrastructure.md
         └── security-model.md
 ```
+
+Per-task execution specs live in the trajectory DB (`tasks.spec_body_md`),
+not on disk — architect writes them via MCP, SWE reads via
+`task_get(task_id)`. Only architecture narrative and snapshots are on
+the filesystem.
 
 Everything else — goals, discussions, validation attempts, task status, skill effectiveness, identity, branching-model config — lives in the plugin's trajectory DB (see below). The loop: **intent captured → alignment via discussion → tasks → SWE in worktree → pr-reviewer → ship**. Every transition auditable; kill Claude mid-loop, gatekeeper resumes on session start.
 
