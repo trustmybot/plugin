@@ -1,41 +1,49 @@
 # TMB Plugin
 
-This file is loaded automatically by Claude Code. It defines the 5 core agents
-shipped with the plugin and the rules every agent must follow.
+This file is loaded automatically by Claude Code when the TMB plugin is enabled in a project. It defines the agent roster the plugin ships and the rules every agent must follow.
 
-## Agent Roster
+## Agent Roster (two-tier model)
+
+### Tier 1 — Global (plugin ships these; always available when enabled)
 
 | Agent | Model | Role |
 |---|---|---|
-| `secretary` (gatekeeper) | Opus | Human's sole entry point. Routes requests, relays results, handles direct ops. |
-| `architect` | Opus | Breaks approved BLUEPRINTs into task XML files. Spawns and validates SWE. |
-| `swe` | Sonnet | Implements one task per XML spec. Executor, not decision-maker. |
-| `pr-reviewer` | Opus | Pre-commit and pre-push code review gate. Blocks bad commits. |
-| `prompt-engineer` | Sonnet | Rewrites agent files, skills, and docs on demand. |
+| `gatekeeper` | Opus | Single Human entry point. Routes requests to specialists, runs a deterministic project pre-scan before any LLM-driven agent touches code, handles direct ops (reads, greps, status). Drives the agent-creator flow when a needed role doesn't exist yet. |
+| `prompt-engineer` | Sonnet | Maintains coherence of agent prompts, skill files, and workflow docs as the project evolves. Markdown-only edits; never touches source. |
 
-`secretary` and `prompt-engineer` are plugin-owned (live in `plugin/agents/`).
-`architect`, `swe`, and `pr-reviewer` are seeded per project via `plugin/templates/agents/`
-when the plugin is installed or activated.
+These two are the plugin's rigid contract with the user. They live at `plugin/agents/`.
 
-## Domain Agents
+### Tier 2 — Project-level placeholders (seeded into `./.claude/agents/` on first activation per project)
 
-The `agent-creator` skill generates domain agents (product, engineering, marketing,
-design, etc.) on demand at the project level. Each generation requires explicit
-Human approval. Domain agents are never bundled in the plugin itself — they are
-project-specific and created via `plugin/skills/agent-creator/`.
+Plugin ships starter prompts at `plugin/templates/agents/`. The `seed-project-agents` skill copies them into the project's `.claude/agents/` on first run. **Users are expected to edit these to match their project's domain.**
+
+| Agent | Starter role |
+|---|---|
+| `ceo` | Product direction, scope calls |
+| `cto` | Technical architecture, feasibility |
+| `architect` | Breaks BLUEPRINTs into task XML files; spawns and validates SWE; drives agent-creator flow |
+| `swe` | Implements one task per XML spec; runs in isolated git worktree; closes its own task XML atomically with commit |
+| `pr-reviewer` | Pre-commit and pre-push gate; signs `<reviewed-by>` and `<closed-by>` tags on task XML |
+
+### Tier 3 — On-demand domain agents (created via `agent-creator` skill)
+
+When the default 2+5 don't cover a need, gatekeeper invokes the `agent-creator` skill to: understand the need → propose a tailored agent prompt → ask user explicit permission → write to `.claude/agents/<name>.md` on approval. **Every new agent requires explicit Human yes.** No silent ceremony.
+
+`pm`, `gtm`, `designer` are NOT in the plugin — those are the TMB team's own product-work roles, kept TMB-workspace-local.
 
 ## Decision Flow
 
 ```
 Human
   ↓
-Secretary (gatekeeper, relay, direct ops)
+gatekeeper (route + pre-scan + direct ops + agent-creator driver)
   ↓
-Architect (task files, SWE coordination, validation)
+architect (task files, SWE coordination, validation)
   ↓
-SWE (executor)
+swe (executor, in worktree)
 
-Architect also spawns: PR Reviewer (review gate) / Prompt Engineer (doc fixes)
+architect also invokes: pr-reviewer (review gate) / prompt-engineer (doc fixes)
+gatekeeper also invokes: ceo, cto, or any user-edited / on-demand agent
 ```
 
 ## Workflow Files
@@ -43,9 +51,13 @@ Architect also spawns: PR Reviewer (review gate) / Prompt Engineer (doc fixes)
 | File | Writers | Purpose |
 |---|---|---|
 | `bro/GOALS.md` | Human | Intent, priorities, constraints |
-| `bro/DISCUSSION.md` | Architect, Human | Alignment before BLUEPRINT |
-| `bro/BLUEPRINT.md` | Architect (Human approves) | Phased plan |
-| `bro/tasks/*.xml` | Architect | Per-task execution specs for SWE |
+| `bro/DISCUSSION.md` | architect, Human | Alignment before BLUEPRINT |
+| `bro/BLUEPRINT.md` | architect (Human approves) | Phased plan |
+| `bro/tasks/*.xml` | architect | Per-task execution specs for SWE |
+
+## Persistence (bundled MCP)
+
+The plugin ships a Node MCP server at `plugin/mcp/trajectory-server/` registered via `plugin/.mcp.json`. It owns a SQLite database at `${CLAUDE_PLUGIN_DATA}/trajectory.db` (persistent across plugin updates). Agents call MCP tools (`issue_create`, `task_update_status`, `validation_record`, etc.) instead of writing raw state. `gatekeeper` calls `issue_resume()` on session start to detect and pick up unfinished work.
 
 ## Source Code Access Control
 
@@ -56,20 +68,18 @@ source code files.** This applies to:
 - Test directories (`tests/`, `__tests__/`, `spec/`)
 - Configuration files used by the runtime
 
-**What the Architect CAN edit:** Files in `bro/`, `.claude/`, `docs/`,
-`README.md`, `CLAUDE.md`, `.gitignore`.
+**What the architect CAN edit:** files in `bro/`, `docs/`, `README.md`, `CLAUDE.md`, `.gitignore`.
 
-**Enforcement:** Pre-commit hooks block source edits outside worktrees. PR
-Reviewer flags any commit where the Architect directly edited source code.
+**Enforcement:** `hooks/hooks.json` PreToolUse hooks block source edits outside worktrees. PR Reviewer flags any commit where the architect directly edited source code.
 
 ## Mode Rules
 
-Secretary decides the mode based on the Human's ask:
+gatekeeper picks the mode based on the Human's ask:
 
-1. `bro/GOALS.md` has unclosed goals and the ask relates to them → **Workflow Mode**
+1. `bro/GOALS.md` has unclosed goals and the ask relates to them → **Workflow Mode** (full GOALS → DISCUSSION → BLUEPRINT → tasks loop)
 2. Human explicitly says "direct mode" / "just do it" → **Direct Mode** (skip some gates)
 3. Multi-file coordinated changes → **Workflow Mode**
-4. Simple read-only question → Secretary handles it directly, no agent spawn
+4. Simple read-only question → gatekeeper handles directly, no agent spawn
 
 ## Code Style
 
