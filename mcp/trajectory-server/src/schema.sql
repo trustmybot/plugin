@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     execution_plan_md TEXT    NOT NULL DEFAULT '',
     qa_results        TEXT    NOT NULL DEFAULT '',
     task_spec_path    TEXT    NOT NULL DEFAULT '',
+    commit_sha        TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     completed_at      TEXT

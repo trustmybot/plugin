@@ -1,6 +1,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
 import { taskTools } from './tasks.js';
 import { ledgerTools } from './ledger.js';
@@ -24,6 +25,7 @@ function wrapAll(
 }
 
 export function registerTools(server: Server, db: TrajectoryDB): void {
+  const discussions = discussionTools(db);
   const issues = issueTools(db);
   const tasks = taskTools(db);
   const ledger = ledgerTools(db);
@@ -35,6 +37,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
   const identity = identityTools(db);
 
   toolDefinitions = [
+    ...discussions.definitions,
     ...issues.definitions,
     ...tasks.definitions,
     ...ledger.definitions,
@@ -47,6 +50,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
   ];
 
   toolHandlers = {
+    ...wrapAll(discussions.handlers),
     ...wrapAll(issues.handlers),
     ...wrapAll(tasks.handlers),
     ...wrapAll(ledger.handlers),

@@ -85,6 +85,10 @@ export class TrajectoryDB {
         "ALTER TABLE tasks ADD COLUMN task_spec_path TEXT NOT NULL DEFAULT ''",
       );
     }
+    const hasCommitSha = columns.some((c) => c.name === 'commit_sha');
+    if (!hasCommitSha) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN commit_sha TEXT');
+    }
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS discussions (
@@ -139,7 +143,9 @@ export class TrajectoryDB {
     const taskCols = this.db
       .prepare('PRAGMA table_info(tasks)')
       .all() as Array<{ name: string }>;
-    const needsV4 = !taskCols.some((c) => c.name === 'task_spec_path');
+    const needsV4 =
+      !taskCols.some((c) => c.name === 'task_spec_path') ||
+      !taskCols.some((c) => c.name === 'commit_sha');
     if (needsV4) {
       this.applyV3ToV4();
     }

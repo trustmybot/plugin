@@ -102,6 +102,24 @@ export function issueTools(db: TrajectoryDB): {
         required: ['agent', 'issue_id'],
       },
     },
+        {
+      name: 'issue_list',
+      description: 'Enumerate issues for the gatekeeper pre-scan. Returns a thin index (id, objective, status, created_at, updated_at) ordered by updated_at DESC. Used at session start to decide whether to resume an in-flight issue or start fresh.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          status: {
+            type: 'string',
+            enum: ['open', 'in_progress', 'closed'],
+            description: 'Optional status filter. Omit to return all issues.',
+          },
+          limit: { type: 'number', description: 'Max rows. Default 50, max 200.' },
+          offset: { type: 'number', description: 'Row offset. Default 0.' },
+        },
+        required: ['agent'],
+      },
+    },
   ];
 
   const handlers: Record<string, Fn> = {
@@ -234,6 +252,37 @@ export function issueTools(db: TrajectoryDB): {
 
       return ok({ phase, counts });
     }),
+
+    issue_list: wrapHandler(async (args) => {
+      normalizeAgent(args['agent'] as string | undefined);
+      const rawStatus = args['status'] as string | undefined;
+      const rawLimit = (args['limit'] as number | undefined) ?? 50;
+      const rawOffset = (args['offset'] as number | undefined) ?? 0;
+      const limit = Math.min(Math.max(1, rawLimit), 200);
+      const offset = Math.max(0, rawOffset);
+
+      const VALID_ISSUE_STATUSES = new Set(['open', 'in_progress', 'closed']);
+      if (rawStatus !== undefined && !VALID_ISSUE_STATUSES.has(rawStatus)) {
+        return err(
+          `Invalid status: "${rawStatus}". Allowed values: ${[...VALID_ISSUE_STATUSES].join(', ')}`,
+        );
+      }
+
+      let rows: Array<{ id: number; objective: string; status: string; created_at: string; updated_at: string }>;
+      if (rawStatus !== undefined) {
+        rows = db.all(
+          `SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+          [rawStatus, limit, offset],
+        );
+      } else {
+        rows = db.all(
+          `SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+          [limit, offset],
+        );
+      }
+      return ok(rows);
+    }),
+
   };
 
   return { definitions, handlers };
