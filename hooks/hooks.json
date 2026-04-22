@@ -32,7 +32,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "scripts/hooks/require-task-xml.sh",
+          "command": "scripts/hooks/require-task-spec.sh",
           "timeout": 5
         }
       ]

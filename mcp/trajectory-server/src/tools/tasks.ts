@@ -5,6 +5,19 @@ import type { Task, TaskInput } from '../types.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
+export const BRANCH_ID_RE =
+  /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
+
+function validateBranchId(branchId: string): void {
+  if (!BRANCH_ID_RE.test(branchId)) {
+    throw new Error(
+      `Invalid branch_id "${branchId}". Must match git-convention format: <type>/<slug> ` +
+        `where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
+        `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`,
+    );
+  }
+}
+
 const VALID_STATUSES = new Set([
   'pending',
   'running',
@@ -49,7 +62,8 @@ export function taskTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'task_create_batch',
-      description: 'Insert multiple tasks for an issue in a single transaction.',
+      description:
+        'Insert multiple tasks for an issue in a single transaction. branch_id MUST be a git-convention name (feat/foo, fix/bar, refactor/baz, etc.); it doubles as the working git branch.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -107,7 +121,8 @@ export function taskTools(db: TrajectoryDB): {
     },
     {
       name: 'task_first_actionable',
-      description: 'Return the lowest branch_id task with status pending or failed for an issue.',
+      description:
+        'Returns the lex-lowest pending/failed task for an issue (groups by type prefix: chore<ci<docs<feat<...). branch_id ordering is lexicographic over git-convention names.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -137,6 +152,8 @@ export function taskTools(db: TrajectoryDB): {
 
         for (const t of taskInputs) {
           if (!t.branch_id) throw new Error('Missing required arg: branch_id');
+          validateBranchId(t.branch_id);
+          if (t.parent_branch_id != null) validateBranchId(t.parent_branch_id);
           if (!t.description) throw new Error('Missing required arg: description');
           if (!t.success_criteria) throw new Error('Missing required arg: success_criteria');
 

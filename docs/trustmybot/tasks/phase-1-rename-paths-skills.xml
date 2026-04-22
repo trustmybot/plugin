@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-1-rename-paths-skills" status="completed">
+  <authorized-by agent="architect" reason="v0.3 Phase 1 path-only refactor: rewrite bro/ → docs/trustmybot/ inside skill files; update seed-project-agents to copy from new template dir."/>
+  <title>Rewrite bro/ → docs/trustmybot/ in skill files; update seed-project-agents source/dest paths</title>
+  <branch-id>refactor/phase-1-rename-paths-skills</branch-id>
+  <depends-on/>
+
+  <description>
+    Rewrite every `bro/` path reference inside skill files (`skills/**/*.md`) to use
+    `docs/trustmybot/`. Update the `seed-project-agents` skill so it copies the relocated template
+    directory to the new project-level path on first activation:
+    1. Copy `templates/agents/*.md` into `&lt;target&gt;/.claude/agents/` (unchanged behavior).
+    2. Copy `templates/docs-trustmybot/` into `&lt;target&gt;/docs/trustmybot/` (renamed source dir + renamed destination dir).
+
+    Path-string change only. Skill workflow logic stays the same.
+  </description>
+
+  <files>
+    <file path="skills/agent-creator.md" action="modify">
+      Line ~165 disallowedTools list with `bro/GOALS.md, bro/BLUEPRINT.md, bro/DISCUSSION.md`. Swap each path.
+    </file>
+    <file path="skills/swe-spawn-workflow/SKILL.md" action="modify">
+      Line ~29 naming convention `bro/tasks/&lt;...&gt;.xml`. Swap path. (XML extension stays — Phase 2 changes that.)
+    </file>
+    <file path="skills/git-conventions/SKILL.md" action="modify">
+      Line ~48 `bro/tasks/*.xml`. Swap path.
+    </file>
+    <file path="skills/create-hook/SKILL.md" action="modify">
+      Line ~18 `bro/tasks/`. Swap path.
+    </file>
+    <file path="skills/architect-workflow/SKILL.md" action="modify">
+      Lines ~8, 14-17, 23-27, 50. Whole "workflow files live in bro/" table block. Swap every path. Format/extension columns stay as-is for Phase 1.
+    </file>
+    <file path="skills/roundtable-cleanup/SKILL.md" action="modify">
+      Line ~11 `bro/roundtable/`. Swap path.
+    </file>
+    <file path="skills/seed-project-agents/SKILL.md" action="modify">
+      Read full file; replace any `bro-template` references with `templates/docs-trustmybot`, and any `bro/` destination paths in the target project with `docs/trustmybot/`.
+    </file>
+  </files>
+
+  <success-criteria>
+    - `grep -rn "bro/" skills/` returns zero matches.
+    - `grep -rn "bro-template" skills/` returns zero matches.
+    - The seed-project-agents skill, when read end-to-end, produces a valid copy recipe: source `templates/docs-trustmybot/` → destination `&lt;project&gt;/docs/trustmybot/`.
+    - Every skill's `description` frontmatter (used for skill auto-invocation matching) stays semantically intact — paths in descriptions get swapped but intent does not change.
+  </success-criteria>
+
+  <out-of-scope>
+    - Editing agent prompts (handled by `phase-1-rename-paths-agents`).
+    - Editing CLAUDE.md / README.md / docs (handled by `phase-1-rename-paths-docs`).
+    - Renaming the `bro-template/` directory itself (handled by `phase-1-rename-template-dir`).
+    - Hook script changes (handled by `phase-1-rename-task-hook`).
+  </out-of-scope>
+
+  <verification>
+    ```bash
+    cd /Users/Zax/Git/GitHub/TMB/plugin
+    ! grep -rn "bro/" skills/ &amp;&amp; echo "OK: no stale bro/ in skills"
+    ! grep -rn "bro-template" skills/ &amp;&amp; echo "OK: no stale bro-template ref in skills"
+    grep -rn "docs/trustmybot/" skills/ | wc -l  # expect ≥10
+    grep -n "templates/docs-trustmybot" skills/seed-project-agents/SKILL.md &amp;&amp; echo "OK: seed skill points at new template"
+    ```
+
+    All not-matched checks must print OK; the count must be ≥10.
+  </verification>
+
+  <commit>
+    🔧 refactor(skills): rewrite bro/ → docs/trustmybot/ in skill files; update seed-project-agents source/dest
+
+    Path-string-only update across agent-creator, swe-spawn-workflow,
+    git-conventions, create-hook, architect-workflow, roundtable-cleanup, and
+    seed-project-agents. The seed-project-agents recipe now points at the
+    relocated template dir (templates/docs-trustmybot/) and writes to
+    &lt;project&gt;/docs/trustmybot/ on first activation. XML extension stays for
+    task specs — Phase 2 will switch to markdown.
+  </commit>
+
+  <results status="COMPLETED">
+    <summary>All bro/ path references in skills/ replaced with docs/trustmybot/; seed-project-agents updated with new copy recipe for templates/docs-trustmybot/ → docs/trustmybot/.</summary>
+    <files>skills/agent-creator.md, skills/swe-spawn-workflow/SKILL.md, skills/git-conventions/SKILL.md, skills/create-hook/SKILL.md, skills/architect-workflow/SKILL.md, skills/roundtable-cleanup/SKILL.md, skills/seed-project-agents/SKILL.md, docs/trustmybot/tasks/phase-1-rename-paths-skills.xml</files>
+    <verification>PASS — no stale bro/ in skills (OK), no stale bro-template (OK), docs/trustmybot/ count=22 (≥10), seed skill points at templates/docs-trustmybot (OK)</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
+  </results>
+</task>

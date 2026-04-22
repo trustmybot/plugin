@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-1-branch-id-git-convention" status="completed">
+  <authorized-by agent="architect" reason="v0.3 Phase 1 change #F: lock branch_id to git-convention format via runtime validation in MCP task_create_batch. Semantic change only — no schema migration."/>
+  <title>Adopt git-convention branch_id format with runtime validation in MCP task_create_batch</title>
+  <branch-id>feat/phase-1-branch-id-git-convention</branch-id>
+  <depends-on/>
+
+  <description>
+    Adopt git-convention strings (`feat/user-login`, `fix/auth-crash`, `refactor/extract-helper`,
+    etc.) as the canonical form for `branch_id` in the SQLite `tasks` table. Add format validation in
+    the MCP server so any future caller is forced into the convention. Update test fixtures and tool
+    docstrings to reflect the new shape.
+
+    The column is already `TEXT` and accepts any string today, so this is a SEMANTIC change, not a
+    schema migration. There is no production data to migrate (Phase 0 already locked hard-break).
+
+    Per `docs/v0.3-blueprint.md` change #F, gatekeeper auto-proposes git-convention branch names
+    from intent and uses them as `branch_id`. The intent: `branch_id` IS the working git branch
+    name for that task's worktree. This unifies the workflow with git's own naming and removes the
+    need for a separate `1.2.3` numeric task index.
+
+    Today's free-form behavior risks SWEs and other agents inserting `task-001`, `T1`, `step-3`,
+    etc. in parallel — defeating the point. Runtime validation locks the format.
+
+    Allowed format (regex, anchored):
+    `^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$`
+
+    Notes on the regex:
+    - Type prefix: standard Conventional Commits set, plus `refactor` (very common in this codebase).
+    - Slash separator (single).
+    - Slug: lowercase, digits, hyphens; must start with alnum; max 63 chars (git refspec limit safety).
+    - No nested slashes — single-level namespace keeps `task_first_actionable`'s `ORDER BY branch_id ASC` predictable.
+
+    ARCHITECT NOTE on ordering: `task_first_actionable` orders by `branch_id ASC` to pick the next
+    task. With git-convention names, lex order groups by type prefix (chore &lt; ci &lt; docs &lt; feat &lt; ...).
+    Acceptable for Phase 1 — humans queue tasks in order, and the existing UNIQUE index
+    `idx_tasks_issue_branch` (on `issue_id, branch_id`) prevents duplicates. Phase 2/3 may revisit if
+    explicit ordering becomes a need. Document this implicit lex-order behavior in the tool description.
+
+    NO SQL migration is needed. The column type is unchanged. Schema version in `plugin_meta` does
+    NOT need bumping (Phase 0 already set version 3; Phase 1 is non-schema). If SWE thinks a bump is
+    warranted, escalate to architect rather than deciding unilaterally.
+
+    IMPORTANT — REGEX PARITY: This exact regex literal must also appear in the gatekeeper agent
+    prompt as part of the dependent task `phase-1-gatekeeper-branch-id-proposal`. Do NOT alter the
+    regex without updating that task's spec; if a divergence is needed, escalate to architect.
+  </description>
+
+  <files>
+    <file path="mcp/trajectory-server/src/tools/tasks.ts" action="modify">
+      1. At top of file (or in a small helper), add:
+         ```ts
+         const BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
+         function validateBranchId(branchId: string): void {
+           if (!BRANCH_ID_RE.test(branchId)) {
+             throw new Error(
+               `Invalid branch_id "${branchId}". Must match git-convention format: &lt;type&gt;/&lt;slug&gt; ` +
+               `where &lt;type&gt; is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
+               `and &lt;slug&gt; is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`
+             );
+           }
+         }
+         ```
+      2. Inside `task_create_batch` handler (around the existing `if (!t.branch_id)` check at line ~139), call `validateBranchId(t.branch_id)` immediately after the existence check. Also validate `t.parent_branch_id` if present (same regex; allowed to be null/undefined).
+      3. Update the `task_create_batch` tool description (line ~52) to read approximately:
+         "Insert multiple tasks for an issue in a single transaction. branch_id MUST be a git-convention name (feat/foo, fix/bar, refactor/baz, etc.); it doubles as the working git branch."
+      4. Update the `task_first_actionable` tool description (line ~110) to clarify lex-ordering:
+         "Returns the lex-lowest pending/failed task (groups by type prefix: chore&lt;ci&lt;docs&lt;feat&lt;...)."
+    </file>
+    <file path="mcp/trajectory-server/src/test/tasks.test.ts" action="modify">
+      - Update existing fixtures using legacy values like `"1.1"`, `"task-001"`, `"T1"` to git-convention names like `"feat/login"`, `"fix/crash"`.
+      - Add new test cases:
+        * Accept: `feat/user-login` → success.
+        * Accept: `refactor/extract-helper` → success.
+        * Reject: `Foo/Bar` → throws containing "Invalid branch_id".
+        * Reject: `feat/UPPERCASE` → throws.
+        * Reject: `feat/-leading-hyphen` → throws.
+        * Reject: empty string → throws (existing missing-arg behavior is fine; verify error message).
+        * Reject: `feat/double//slash` → throws.
+        * Reject (parent_branch_id): `feat/foo` task with parent `bad value` → throws.
+      - Run the test suite. All tests must pass.
+    </file>
+    <file path="mcp/trajectory-server/src/test/migration.test.ts" action="modify-if-present">
+      Grep for legacy branch_id literals; update to git-convention strings so the suite still passes after validation lands.
+    </file>
+    <file path="mcp/trajectory-server/src/test/ledger.test.ts" action="modify-if-present">
+      Same grep + replace for legacy branch_id literals.
+    </file>
+    <file path="mcp/trajectory-server/src/test/issues.test.ts" action="modify-if-present">
+      Same grep + replace for legacy branch_id literals.
+    </file>
+    <file path="mcp/trajectory-server/src/test/remaining_tools.test.ts" action="modify-if-present">
+      Same grep + replace for legacy branch_id literals.
+    </file>
+    <file path="mcp/trajectory-server/src/types.ts" action="modify-if-present">
+      If `TaskInput` or `Task` has a comment near `branch_id`, update the comment to mention the git-convention format. No type change required (still `string`).
+    </file>
+    <file path="mcp/trajectory-server/README.md" action="modify-if-present">
+      If it documents `branch_id`, update with the format convention and one example. If no mention, add a one-paragraph "branch_id format" subsection.
+    </file>
+  </files>
+
+  <success-criteria>
+    - `BRANCH_ID_RE` is exported or used in the MCP server tasks tool with the exact regex above.
+    - `task_create_batch` rejects any branch_id that does not match the regex, with a clear error message that includes the offending string and shows valid examples.
+    - `parent_branch_id`, when supplied, gets the same validation (and is allowed to be null/undefined to skip).
+    - All existing tests pass after fixture updates.
+    - New test cases (positive + negative listed above) all pass.
+    - Tool descriptions in the MCP definitions reflect the format expectation.
+    - No edits to `src/schema.sql` (this is not a schema change).
+    - The MCP server builds cleanly (`bun run build` or whatever the project's build command is — check `package.json`).
+  </success-criteria>
+
+  <out-of-scope>
+    - Schema migration script — none needed.
+    - Changing the gatekeeper agent prompt to actually propose branch IDs from intent. That is `phase-1-gatekeeper-branch-id-proposal`, which depends on this task.
+    - Wiring the worktree creation hook to use branch_id as the actual git branch name — Phase 2.
+    - Reformatting existing task XML files in this repo — Phase 1 keeps any legacy task XML untouched.
+  </out-of-scope>
+
+  <verification>
+    ```bash
+    cd /Users/Zax/Git/GitHub/TMB/plugin/mcp/trajectory-server
+    bun install &amp;&amp; bun run build
+    bun test
+    # Spot-check the regex
+    node -e '
+    const re = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
+    const cases = [
+      ["feat/user-login", true],
+      ["fix/auth-crash", true],
+      ["refactor/extract-helper", true],
+      ["docs/readme", true],
+      ["Foo/Bar", false],
+      ["feat/UPPER", false],
+      ["feat/-bad", false],
+      ["feat//double", false],
+      ["feat/", false],
+      ["random-string", false],
+    ];
+    let bad = 0;
+    for (const [s, expect] of cases) {
+      const got = re.test(s);
+      if (got !== expect) { console.error("MISMATCH", s, "got", got, "expected", expect); bad++; }
+    }
+    process.exit(bad);
+    '
+    ```
+
+    Build and tests must pass; the regex spot-check must exit 0.
+  </verification>
+
+  <commit>
+    ✨ feat(mcp): adopt git-convention branch_id format with runtime validation in task_create_batch
+
+    Adds BRANCH_ID_RE regex
+    (^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)/[a-z0-9][a-z0-9-]{0,62}$)
+    and validateBranchId() helper. task_create_batch now rejects any branch_id
+    (or parent_branch_id) that doesn't match. branch_id IS the working git
+    branch name for the task's worktree, unifying workflow naming with git.
+    Test fixtures updated to git-convention strings; positive + negative cases
+    added. No schema migration — column stays TEXT. Tool descriptions updated
+    to reflect format and lex-order behavior of task_first_actionable.
+  </commit>
+
+  <results status="COMPLETED">
+    <summary>Added BRANCH_ID_RE and validateBranchId() to tasks.ts; task_create_batch now validates branch_id and parent_branch_id. All 103 tests pass including 8 new positive/negative branch_id cases. Build clean, regex spot-check exits 0.</summary>
+    <files>mcp/trajectory-server/src/tools/tasks.ts, mcp/trajectory-server/src/test/tasks.test.ts, mcp/trajectory-server/src/test/issues.test.ts, mcp/trajectory-server/src/test/remaining_tools.test.ts, mcp/trajectory-server/src/types.ts, mcp/trajectory-server/README.md, docs/trustmybot/tasks/phase-1-branch-id-git-convention.xml</files>
+    <verification>PASS — bun run build: clean. node --test dist/test/*.test.js: 103 pass, 0 fail. Regex spot-check: exit 0.</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
+  </results>
+</task>

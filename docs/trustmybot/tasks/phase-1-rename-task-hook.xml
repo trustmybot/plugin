@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<task id="phase-1-rename-task-hook" status="completed">
+  <authorized-by agent="architect" reason="v0.3 Phase 1 path-only refactor: finalize SWE-spawn gating hook to canonical name + new path regex (xml|md), drop legacy bro/tasks support."/>
+  <title>Rename SWE-spawn gating hook to require-task-spec.sh; finalize regex for docs/trustmybot/tasks/*.{xml,md}</title>
+  <branch-id>refactor/phase-1-rename-task-hook</branch-id>
+  <depends-on/>
+
+  <description>
+    Rename `scripts/hooks/require-task-xml.sh` to `scripts/hooks/require-task-spec.sh`. Inside the renamed
+    hook, canonicalize the regex to match `docs/trustmybot/tasks/*.{xml,md}` only — drop legacy
+    `bro/tasks/*.xml` support entirely. Add format-dispatched authorization checks: `.xml` files require
+    `&lt;authorized-by` + `status="open"`; `.md` files require frontmatter `authorized_by:` +
+    `status: pending|open`.
+
+    Update `scripts/hooks/require-review-sign.sh` to scan the new directory for both extensions, and
+    dispatch the unsigned check by extension (`&lt;reviewed-by&gt;`/`&lt;closed-by&gt;` for XML; frontmatter
+    `reviewed_by:`/`closed_by:` for MD).
+
+    Update `hooks/hooks.json` line 35 to reference the renamed file.
+
+    BOOTSTRAP NOTE: The current `require-task-xml.sh` was patched in place to also accept the new
+    `docs/trustmybot/tasks/*.md` path (frontmatter `authorized_by:` + `status: pending`) so this Phase 1
+    batch could be spawned. This task FINALIZES the hook by renaming the file, canonicalizing the regex,
+    and removing the legacy `bro/tasks/*.xml` path support.
+
+    Use `git mv` to preserve history. Format dispatch logic (canonical body of the renamed hook):
+
+    ```bash
+    #!/usr/bin/env bash
+    # Hook: Block SWE agent spawn unless prompt references a valid
+    # docs/trustmybot/tasks/*.{xml,md} task spec.
+    set -euo pipefail
+
+    INPUT=$(cat)
+
+    AGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty')
+    PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty')
+
+    [ "$AGENT_TYPE" != "swe" ] &amp;&amp; exit 0
+
+    TASK_FILE=$(echo "$PROMPT" \
+      | grep -oE 'docs/trustmybot/tasks/[a-zA-Z0-9_.-]+\.(xml|md)' \
+      | head -1 || true)
+
+    if [ -z "$TASK_FILE" ]; then
+      echo '{"decision":"block","reason":"BLOCKED: SWE requires a task spec at docs/trustmybot/tasks/*.{xml,md}. None found in prompt. Route through Architect to create a spec first."}'
+      exit 0
+    fi
+
+    if [ ! -f "$TASK_FILE" ]; then
+      echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Task spec $TASK_FILE does not exist. Architect must create it first.\"}"
+      exit 0
+    fi
+
+    case "$TASK_FILE" in
+      *.xml)
+        if ! grep -q '&lt;authorized-by' "$TASK_FILE" 2&gt;/dev/null; then
+          echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: $TASK_FILE missing &lt;authorized-by&gt; tag.\"}"
+          exit 0
+        fi
+        if ! grep -q 'status="open"' "$TASK_FILE" 2&gt;/dev/null; then
+          echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: $TASK_FILE status is not open.\"}"
+          exit 0
+        fi
+        ;;
+      *.md)
+        if ! grep -q '^authorized_by:' "$TASK_FILE" 2&gt;/dev/null; then
+          echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: $TASK_FILE frontmatter missing authorized_by.\"}"
+          exit 0
+        fi
+        if ! grep -qE '^status:\s*(pending|open)' "$TASK_FILE" 2&gt;/dev/null; then
+          echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: $TASK_FILE status is not pending or open.\"}"
+          exit 0
+        fi
+        ;;
+    esac
+
+    exit 0
+    ```
+  </description>
+
+  <files>
+    <file path="scripts/hooks/require-task-xml.sh" action="rename-to" target="scripts/hooks/require-task-spec.sh">
+      Use `git mv` to preserve history. Then rewrite contents to the canonical body shown above.
+      Drop ALL legacy `bro/tasks/*.xml` support. Keep file executable (`chmod +x`).
+    </file>
+    <file path="scripts/hooks/require-review-sign.sh" action="modify">
+      Change `[ -d "bro/tasks" ]` (line ~15) to `[ -d "docs/trustmybot/tasks" ]`.
+      Change `for f in bro/tasks/*.xml` (line ~19) to `for f in docs/trustmybot/tasks/*.xml docs/trustmybot/tasks/*.md`.
+      Inside the loop, dispatch the unsigned check by extension:
+        - `.xml`: existing logic — has `&lt;authorized-by&gt;` but missing `&lt;reviewed-by&gt;`/`&lt;closed-by&gt;`.
+        - `.md`: has frontmatter `authorized_by:` but missing `reviewed_by:` and missing `closed_by:`.
+      Drop legacy `bro/tasks` path entirely.
+    </file>
+    <file path="hooks/hooks.json" action="modify">
+      Line 35: `"command": "scripts/hooks/require-task-xml.sh"` → `"command": "scripts/hooks/require-task-spec.sh"`.
+      Must remain valid JSON.
+    </file>
+  </files>
+
+  <success-criteria>
+    - File `scripts/hooks/require-task-xml.sh` no longer exists.
+    - File `scripts/hooks/require-task-spec.sh` exists, is executable, and `git log --follow` shows it inheriting from the renamed file.
+    - New file's grep regex matches `docs/trustmybot/tasks/[NAME].xml` AND `docs/trustmybot/tasks/[NAME].md`, and rejects `bro/tasks/*.xml`.
+    - `hooks/hooks.json` references `scripts/hooks/require-task-spec.sh` and is valid JSON.
+    - `require-review-sign.sh` iterates BOTH `docs/trustmybot/tasks/*.xml` AND `docs/trustmybot/tasks/*.md`, with per-extension dispatch.
+    - Both hook scripts pass `bash -n` syntax check.
+    - Both hook scripts remain executable (`-rwxr-xr-x`).
+  </success-criteria>
+
+  <out-of-scope>
+    - Removing `.xml` support entirely (Phase 2 — once all in-flight XML specs are drained).
+    - Migrating `require-review-sign.sh` to read from SQLite instead of grepping files (Phase 2).
+    - Touching `git-guards.sh` or `create-worktree.sh` (no path strings to change).
+  </out-of-scope>
+
+  <verification>
+    From `/Users/Zax/Git/GitHub/TMB/plugin/` (inside the worktree):
+
+    ```bash
+    test ! -f scripts/hooks/require-task-xml.sh &amp;&amp; echo "OK: old hook removed"
+    test -x scripts/hooks/require-task-spec.sh &amp;&amp; echo "OK: new hook present + executable"
+    bash -n scripts/hooks/require-task-spec.sh &amp;&amp; echo "OK: syntax"
+    bash -n scripts/hooks/require-review-sign.sh &amp;&amp; echo "OK: syntax"
+    grep -q "docs/trustmybot/tasks/" scripts/hooks/require-task-spec.sh &amp;&amp; echo "OK: regex updated"
+    grep -q '\\.(xml|md)' scripts/hooks/require-task-spec.sh &amp;&amp; echo "OK: both formats matched"
+    ! grep -q "bro/tasks/" scripts/hooks/require-task-spec.sh &amp;&amp; echo "OK: no stale bro path"
+    grep -q "docs/trustmybot/tasks" scripts/hooks/require-review-sign.sh &amp;&amp; echo "OK: review-sign updated"
+    ! grep -q "bro/tasks" scripts/hooks/require-review-sign.sh &amp;&amp; echo "OK: no stale bro path in review-sign"
+    grep -q "require-task-spec.sh" hooks/hooks.json &amp;&amp; echo "OK: hooks.json updated"
+    ! grep -q "require-task-xml.sh" hooks/hooks.json &amp;&amp; echo "OK: hooks.json no stale ref"
+    python3 -c "import json; json.load(open('hooks/hooks.json'))" &amp;&amp; echo "OK: hooks.json valid"
+    ```
+
+    Smoke-tests:
+
+    ```bash
+    # Old path should be REJECTED
+    echo '{"tool_input":{"subagent_type":"swe","prompt":"go work on bro/tasks/old.xml"}}' \
+      | bash scripts/hooks/require-task-spec.sh
+    # Expect: {"decision":"block",...}
+
+    # New path with .md should be ACCEPTED (uses an in-tree md spec as the test fixture)
+    echo '{"tool_input":{"subagent_type":"swe","prompt":"work on docs/trustmybot/tasks/phase-1-rename-task-hook.xml"}}' \
+      | bash scripts/hooks/require-task-spec.sh
+    # Expect: empty stdout, exit 0
+    ```
+
+    All checks must print OK.
+  </verification>
+
+  <commit>
+    🔧 refactor(hooks): rename require-task-xml.sh → require-task-spec.sh, finalize docs/trustmybot/tasks/*.{xml,md} regex
+
+    Drops legacy bro/tasks/*.xml support entirely. Adds format-dispatched
+    authorization checks: .xml requires &lt;authorized-by&gt; + status="open";
+    .md requires frontmatter authorized_by: + status: pending|open.
+    Updates require-review-sign.sh to iterate both extensions with per-extension
+    dispatch (XML &lt;reviewed-by&gt;/&lt;closed-by&gt; vs MD frontmatter reviewed_by:/closed_by:).
+    Updates hooks/hooks.json to point at the renamed script.
+  </commit>
+
+  <results status="COMPLETED">
+    <summary>Renamed require-task-xml.sh to require-task-spec.sh via git mv, rewrote with canonical body dropping all legacy bro/tasks support. Updated require-review-sign.sh to scan docs/trustmybot/tasks/*.{xml,md} with per-extension dispatch. Updated hooks/hooks.json to reference the renamed script.</summary>
+    <files>scripts/hooks/require-task-spec.sh, scripts/hooks/require-review-sign.sh, hooks/hooks.json, docs/trustmybot/tasks/phase-1-rename-task-hook.xml</files>
+    <verification>PASS — all 12 checks printed OK; smoke test 1 blocked bro/tasks path; smoke test 2 accepted docs/trustmybot/tasks path with empty stdout exit 0</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
+  </results>
+</task>
