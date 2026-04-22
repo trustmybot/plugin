@@ -4,7 +4,7 @@ import { tempDB } from './helpers.js';
 import { nowISO, genId } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all 9 tables exist with schema_version=2', () => {
+  it('opens an in-memory DB and verifies all 13 tables exist with schema_version=3', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -17,6 +17,10 @@ describe('TrajectoryDB', () => {
       'roundtables',
       'roundtable_votes',
       'plugin_meta',
+      'file_registry',
+      'plugin_config',
+      'identity',
+      'regen_state',
     ];
 
     const rows = db.all<{ name: string }>(
@@ -31,7 +35,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 2);
+    assert.equal(meta.schema_version, 3);
 
     db.close();
   });
