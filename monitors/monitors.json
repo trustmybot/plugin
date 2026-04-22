@@ -1,0 +1,8 @@
+[
+  {
+    "name": "tmb-trajectory-events",
+    "description": "Emits notifications when a trajectory task fails, escalates, or exhausts its retry budget.",
+    "command": "${CLAUDE_PLUGIN_ROOT}/monitors/tmb-trajectory-events.js",
+    "when": "always"
+  }
+]
