@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-1-rename-paths-agents" status="open">
+<task id="phase-1-rename-paths-agents" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 1 path-only refactor: rewrite bro/ → docs/trustmybot/ in all agent prompts (global + project-level templates). Also fix latent bro/.claude/ skill-loader bug."/>
   <title>Rewrite bro/ → docs/trustmybot/ in all agent prompts (global + templates); fix latent bro/.claude/ skill-loader bug</title>
   <branch-id>refactor/phase-1-rename-paths-agents</branch-id>
@@ -100,4 +100,11 @@
     were prefixed with bro/.claude/ (never a valid path). XML extension stays
     on task specs — XML→MD migration is Phase 2. No workflow logic changes.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>All bro/ path references replaced with docs/trustmybot/ across 5 agent files. Latent bro/.claude/ skill-loader bug fixed in templates/agents/architect.md.</summary>
+    <files>agents/gatekeeper.md, agents/prompt-engineer.md, templates/agents/architect.md, templates/agents/swe.md, templates/agents/pr-reviewer.md</files>
+    <verification>PASS — no stale bro/ in agents; no bro/.claude latent bug; counts: gatekeeper=5, swe=8, architect=3, pr-reviewer=3 (all meet minimums)</verification>
+    <commit-sha>9148f66</commit-sha>
+  </results>
 </task>
