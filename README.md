@@ -51,10 +51,10 @@ When you hit a scenario the default 5+2 don't cover — "I need a `legal-reviewe
 
 ## Workflow contract
 
-Your project's `bro/` directory becomes the workflow state:
+Your project's `docs/trustmybot/` directory becomes the workflow state:
 
 ```
-bro/
+docs/trustmybot/
 ├── GOALS.md           ← you write what to build
 ├── DISCUSSION.md      ← architect asks clarifying questions, you answer below them
 ├── BLUEPRINT.md       ← architect (or cto) drafts phased design; you approve
