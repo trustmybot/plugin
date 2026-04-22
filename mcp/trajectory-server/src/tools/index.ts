@@ -13,6 +13,7 @@ import { configTools } from './config.js';
 import { identityTools } from './identity.js';
 import { regenStateTools } from './regen-state.js';
 import { fileRegistryTools } from './file-registry.js';
+import { architectureRegenTools } from './architecture-regen.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 
 export let toolDefinitions: Tool[] = [];
@@ -39,6 +40,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
   const identity = identityTools(db);
   const regenState = regenStateTools(db);
   const fileRegistry = fileRegistryTools(db);
+  const architectureRegen = architectureRegenTools(db);
 
   toolDefinitions = [
     ...discussions.definitions,
@@ -53,6 +55,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...identity.definitions,
     ...regenState.definitions,
     ...fileRegistry.definitions,
+    ...architectureRegen.definitions,
   ];
 
   toolHandlers = {
@@ -68,5 +71,6 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...wrapAll(identity.handlers),
     ...wrapAll(regenState.handlers),
     ...wrapAll(fileRegistry.handlers),
+    ...wrapAll(architectureRegen.handlers),
   };
 }
