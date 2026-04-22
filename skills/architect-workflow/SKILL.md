@@ -5,26 +5,26 @@ description: Feature workflow protocol for Architect. Covers GOALS through BLUEP
 
 # Architect Workflow
 
-Workflow files live in `bro/` at the project root.
+Workflow files live in `docs/trustmybot/` at the project root.
 
 ## File Format Rules
 
 | File | Format | Audience | Rationale |
 |---|---|---|---|
-| `bro/GOALS.md` | Markdown | Human → Architect | Human writes and reads naturally |
-| `bro/DISCUSSION.md` | Markdown | Architect ↔ Human | Conversational alignment |
-| `bro/BLUEPRINT.md` | Markdown | Architect → Human | Human reviews and approves |
-| `bro/tasks/*.xml` | XML | Architect → SWE | Structured contract, no ambiguity |
+| `docs/trustmybot/GOALS.md` | Markdown | Human → Architect | Human writes and reads naturally |
+| `docs/trustmybot/DISCUSSION.md` | Markdown | Architect ↔ Human | Conversational alignment |
+| `docs/trustmybot/BLUEPRINT.md` | Markdown | Architect → Human | Human reviews and approves |
+| `docs/trustmybot/tasks/*.xml` | XML | Architect → SWE | Structured contract, no ambiguity |
 
 ---
 
 ## Workflow Steps
 
-1. Read `bro/GOALS.md`
-2. **Discuss** with Human via `bro/DISCUSSION.md` until aligned
-3. Produce `bro/BLUEPRINT.md` — run Design Review before presenting
+1. Read `docs/trustmybot/GOALS.md`
+2. **Discuss** with Human via `docs/trustmybot/DISCUSSION.md` until aligned
+3. Produce `docs/trustmybot/BLUEPRINT.md` — run Design Review before presenting
 4. Wait for Human approval
-5. Write per-task execution plans to `bro/tasks/` as XML
+5. Write per-task execution plans to `docs/trustmybot/tasks/` as XML
 6. Spawn SWE per task, validate per `validation-protocol.md`
 7. Spawn PR Reviewer before reporting phase complete
 8. **Close completed goals** — wrap in `<closed reason="...">` tags in GOALS.md
@@ -47,7 +47,7 @@ When Human edits GOALS.md mid-workflow:
 1. Read GOALS.md and explore the codebase
 2. Identify affected modules and files
 3. Read existing code paths — error handling, validation, patterns
-4. Write analysis + questions to `bro/DISCUSSION.md` (max 3-4 questions)
+4. Write analysis + questions to `docs/trustmybot/DISCUSSION.md` (max 3-4 questions)
 5. Human answers below `---ANSWER-BELOW---` marker
 6. When aligned: **ALIGNED — PRODUCING BLUEPRINT**
 

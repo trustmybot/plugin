@@ -45,7 +45,7 @@ Why: surfaced 2026-04-16 on PR #47 where pr-reviewer rationalized a missing fix 
 The PR Reviewer MUST verify at Gate 1:
 
 - **Every source code change** (`src/`, `tests/`, `config/settings.toml`, `*.sql`) was made by a SWE agent, not the Architect or any other agent
-- Check: the commit should reference a task file (`bro/tasks/*.xml`) or be attributed to a SWE worktree
+- Check: the commit should reference a task file (`docs/trustmybot/tasks/*.xml`) or be attributed to a SWE worktree
 - If the Architect directly edited source code: **BLOCK** with finding "architect_direct_edit_violation"
 - This is a CRITICAL finding — the Architect must revert and re-do via SWE
 
