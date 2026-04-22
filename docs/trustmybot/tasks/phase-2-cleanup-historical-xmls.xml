@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-cleanup-historical-xmls" status="open">
+<task id="phase-2-cleanup-historical-xmls" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 hygiene: Phase 1 left 7 XML specs and Phase 2 itself produces ~9 more XML specs. After Phase 2 ships, all new specs are markdown. Decision (per blueprint): leave the historical XMLs as a read-only audit trail (do NOT migrate to markdown — wasted effort), but update require-review-sign.sh ignore behavior so completed historical XMLs do not block future pushes, and add a one-time README in docs/trustmybot/tasks/ explaining the cutover."/>
   <title>Add docs/trustmybot/tasks/README.md cutover note; verify hooks treat completed historical XMLs as ignored</title>
   <branch-id>chore/phase-2-historical-xml-cutover</branch-id>
@@ -141,4 +141,21 @@
     legacy-fallback path skips completed-and-reviewed XMLs so they
     cannot inadvertently block future pushes.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Authored docs/trustmybot/tasks/README.md documenting the XML→markdown cutover. Verified require-review-sign.sh legacy-fallback already correctly skips completed+reviewed XMLs — no hook code change needed.</summary>
+    <files>docs/trustmybot/tasks/README.md, docs/trustmybot/tasks/phase-2-cleanup-historical-xmls.xml</files>
+    <verification>
+      PASS — all 5 checks printed OK:
+        OK: README exists
+        OK: README cites SPEC-FORMAT
+        OK: README cites audit trail
+        OK: README has Historical section
+        OK: Phase 1 XMLs preserved (7)
+        OK: Phase 2 XMLs in tree (11)
+        OK: hook does not block on historical XML
+
+      Hook verification: legacy-fallback loop (lines 36-47 of require-review-sign.sh) only adds a file to UNSIGNED if it has &lt;authorized-by&gt; but lacks &lt;reviewed-by&gt;/&lt;closed-by&gt;. Completed historical XMLs with &lt;reviewed-by&gt; are not added — no code change required.
+    </verification>
+  </results>
 </task>
