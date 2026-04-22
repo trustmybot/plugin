@@ -189,5 +189,6 @@
     <summary>Created docs/trustmybot/SPEC-FORMAT.md (511 words) with all required sections, YAML frontmatter sample, filename mapping table, and SQLite state model. All 13 verification checks pass.</summary>
     <files>docs/trustmybot/SPEC-FORMAT.md, docs/trustmybot/tasks/phase-2-markdown-spec-format-doc.xml</files>
     <verification>PASS — all 13 OK lines printed; word count 511 in range 400-1000</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>

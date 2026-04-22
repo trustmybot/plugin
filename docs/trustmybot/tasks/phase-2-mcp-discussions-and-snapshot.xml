@@ -283,5 +283,6 @@
       docs/trustmybot/tasks/phase-2-mcp-discussions-and-snapshot.xml
     </files>
     <verification>PASS — 122/122 tests pass (17 new in phase-2-discussions.test.ts, 105 existing). All 6 tool names registered in compiled output. All module structure checks green.</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 

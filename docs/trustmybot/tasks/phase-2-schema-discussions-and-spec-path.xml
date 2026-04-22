@@ -154,5 +154,6 @@
     <summary>Added discussions table + idx_discussions_issue_created index, task_spec_path column to tasks, bumped schema_version seed to 4 in schema.sql; added applyV3ToV4 in-place migration (idempotency guarded by PRAGMA table_info column check); bumped TARGET_VERSION to 4 in db.ts; added Discussion interface and task_spec_path to Task in types.ts. Updated 4 test files to reflect new table count (14), version (4), and added 2 new migration tests (g + h) covering v3→v4 in-place and idempotency.</summary>
     <files>mcp/trajectory-server/src/schema.sql, mcp/trajectory-server/src/db.ts, mcp/trajectory-server/src/types.ts, mcp/trajectory-server/src/test/db.test.ts, mcp/trajectory-server/src/test/schema_v3.test.ts, mcp/trajectory-server/src/test/migration.test.ts, docs/trustmybot/tasks/phase-2-schema-discussions-and-spec-path.xml</files>
     <verification>PASS — all 105 tests pass; all 7 spec grep/sqlite checks print OK; bun run build clean</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>

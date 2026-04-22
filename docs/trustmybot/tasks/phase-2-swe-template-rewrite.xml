@@ -191,5 +191,6 @@
     <summary>Rewrote templates/agents/swe.md for Phase 2: replaces XML spec parsing with YAML frontmatter, drives task lifecycle via MCP task_update_status, and makes spec file read-only to SWE.</summary>
     <files>templates/agents/swe.md</files>
     <verification>PASS — all 14 checks passed (file exists, no legacy XML strings, required new strings present, length 190 in 100-220)</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>

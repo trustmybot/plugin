@@ -165,6 +165,7 @@
     <summary>Dropped GOALS.md from templates/docs-trustmybot/; added SPEC-FORMAT.md and snapshots/.gitkeep; plugin CLAUDE.md Workflow Files table rewritten for SQLite-canonical Phase 2 model, Mode Rules updated to cite issue_resume, snapshots/ added to architect allow-list.</summary>
     <files>templates/docs-trustmybot/GOALS.md (deleted), templates/docs-trustmybot/SPEC-FORMAT.md, templates/docs-trustmybot/tasks/.gitkeep, templates/docs-trustmybot/snapshots/.gitkeep, CLAUDE.md, docs/trustmybot/tasks/phase-2-template-and-claude-md-update.xml</files>
     <verification>PASS — all checks passed (see commit)</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 
   <commit>

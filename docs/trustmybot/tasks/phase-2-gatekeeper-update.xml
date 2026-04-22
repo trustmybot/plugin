@@ -164,5 +164,6 @@
     <summary>Four surgical edits applied: pre-scan grep block replaced with MCP queries + SPEC-FORMAT.md citation; inventory block updated (Open goals removed, Open issues / Pending tasks / Spec files added); C.1 Step 5 added for issue_create + discussion_append intent capture; Section G Workflow Mode trigger updated to reference MCP issue_resume. Note: issue_list confirmed present in MCP tools (no workaround needed).</summary>
     <files>agents/gatekeeper.md, docs/trustmybot/tasks/phase-2-gatekeeper-update.xml</files>
     <verification>PASS — all 14 checks printed OK; file length 259 lines (within 220-280)</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>

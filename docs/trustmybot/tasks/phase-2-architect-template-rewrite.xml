@@ -207,5 +207,6 @@
     <summary>Rewrote templates/agents/architect.md to use MCP intent capture (issue_create, discussion_append, issue_snapshot_md), markdown task specs via task_create_batch + task_set_spec_path, and MCP-driven validation pipeline. Dropped all GOALS/DISCUSSION/BLUEPRINT file references and XML spec authoring. All 14 verification checks pass (199 lines).</summary>
     <files>templates/agents/architect.md</files>
     <verification>PASS — all 14 OK checks printed</verification>
+    <reviewed-by agent="pr-reviewer" verdict="PASS" date="2026-04-21"/>
   </results>
 </task>
