@@ -5,14 +5,13 @@ description: Feature workflow protocol for Architect. Covers issue/discussion/ta
 
 # Architect Workflow
 
-Workflow files live in `docs/trustmybot/` at the project root.
-Canonical task spec format: `docs/trustmybot/SPEC-FORMAT.md`.
+Workflow artifacts live in MCP (SQLite) and `docs/trustmybot/` at the project root.
 
 ## File Format Rules
 
-| File | Format | Audience | Rationale |
+| Artifact | Format | Audience | Rationale |
 |---|---|---|---|
-| `docs/trustmybot/tasks/<branch_id_filename>.md` | Markdown frontmatter + body | Architect → SWE | Structured contract readable by both agents and humans |
+| `tasks.spec_body_md` (SQLite row) | Markdown H2 sections stored as a string | Architect → SWE | Structured contract in DB; retrieved via `task_get(task_id)` |
 
 ---
 
@@ -48,10 +47,15 @@ discussion_append(
      body_md=<architectural plan: what changes, why, trade-offs, risks>
    )
    ```
-4. Author markdown task specs per `docs/trustmybot/SPEC-FORMAT.md` using the
-   template size matched to the triage result (see "Template Selection" below).
-5. Call `task_create_batch` + `task_set_spec_path` to register specs in SQLite.
-6. Spawn SWE per task (one worktree per task).
+4. Author the spec body markdown (`spec_body_md`) using the template size
+   matched to the triage result (see "Template Selection" below). Required H2
+   sections: Description, Files, Success Criteria, Verification, Out of Scope,
+   Commit.
+5. Call `task_create_batch` passing `spec_body_md` to insert rows in SQLite.
+   Row columns (`issue_id`, `branch_id`, `title`, `status`, `created_at`)
+   replace the old frontmatter YAML.
+6. Spawn SWE per task (one worktree per task) using `task_id=<N>` in the
+   Task-tool prompt.
 7. Validate per `skills/validate-swe-output.md`.
 8. Spawn PR Reviewer before reporting phase complete.
 9. Close tasks via `task_update_status(status='closed')` once review passes.
@@ -85,7 +89,9 @@ snapshot via `issue_snapshot_md` when the Human wants a doc to review.
 
 ## Template Selection
 
-Both templates use the same `SPEC-FORMAT.md` schema. Choose based on triage result.
+Both templates produce the same required H2 sections inside `spec_body_md`.
+Choose based on triage result — the template size sets the depth of content
+within those sections.
 
 **simple triage → trivial template**
 - Description: ≤ 3 sentences.
@@ -105,8 +111,8 @@ Both templates use the same `SPEC-FORMAT.md` schema. Choose based on triage resu
 - Commit: one-line message.
 - Results: empty placeholder (SWE fills on completion).
 
-SWE must never guess. The template size sets the depth of specification
-required — choose accordingly.
+SWE must never guess. The required H2 headings are identical for both sizes;
+only the content depth differs.
 
 ---
 

@@ -22,33 +22,33 @@ branching behavior (branch from HEAD instead).
 4. **NEVER copy a worktree's file to the main repo without `git diff` first.**
 5. After copying worktree output, verify with lint + tests before committing.
 
-## Task Spec Template (Markdown)
+## Task Spec Body Template (Markdown stored in `tasks.spec_body_md`)
 
-Each task spec is SWE's **sole source of truth**. Canonical format:
-`docs/trustmybot/SPEC-FORMAT.md`.
-
-**Naming:** `docs/trustmybot/tasks/<branch_id_filename>.md` where
-`<branch_id_filename>` is the branch `type/slug` with `/` replaced by `-`
-(e.g. `feat/user-login` → `feat-user-login.md`).
+Each task spec body is SWE's **sole source of truth**. SWE retrieves it via
+`task_get(task_id)`.
 
 **Size limit: 200 lines maximum.** If a task exceeds 200 lines, split it into
-multiple specs with `depends_on` chains. Each spec should cover 3-8 file edits
+multiple tasks with `depends_on` chains. Each task should cover 3-8 file edits
 maximum. Do NOT create a spec that references another spec for its full content —
 the spec must be self-contained.
 
 **If SWE has to make a judgment call, the spec is underspecified.**
 
-```markdown
----
-issue_id: <integer from MCP issue_create>
-branch_id: <type>/<slug>
-title: Short descriptive title
-status: pending
-authorized_by: architect
-authorized_at: <ISO-8601 UTC>
-depends_on: []
----
+The old YAML frontmatter fields are now DB columns. Mapping for reference:
 
+| Old frontmatter key | New DB column |
+|---------------------|---------------|
+| `issue_id`          | `tasks.issue_id` |
+| `branch_id`         | `tasks.branch_id` |
+| `title`             | `tasks.title` |
+| `status`            | `tasks.status` |
+| `authorized_by`     | (implicit: only architect inserts rows) |
+| `authorized_at`     | `tasks.created_at` |
+| `depends_on`        | `tasks.parent_branch_id` (single parent) or task-author convention |
+
+The `spec_body_md` string contains only the body sections — no frontmatter:
+
+```markdown
 ## Description
 
 Prose explaining what the task does and why. Cite file paths with line
@@ -79,7 +79,7 @@ emoji type(scope): message
 ```
 ```
 
-One spec per file. Self-contained. Verifiable.
+One spec per task row. Self-contained. Verifiable.
 
 ## Task Lifecycle
 
@@ -90,7 +90,7 @@ pending → running → completed → closed
 
 | Status | Set By | How |
 |--------|--------|-----|
-| `pending` | Architect | Spec written; `task_create_batch` + `task_set_spec_path` called |
+| `pending` | Architect | Row inserted with non-empty `spec_body_md` via `task_create_batch` |
 | `running` | SWE | `task_update_status(running)` at start |
 | `completed` | SWE | `task_update_status(completed)` atomic with commit |
 | `closed` | PR Reviewer ONLY | `task_update_status(closed)` after `validation_record(verdict=pass)` |
@@ -108,9 +108,10 @@ REJECTED: Task status is "[status]", not pending/open. Only pending tasks can be
 ## Parallel Execution
 
 When tasks have no dependencies, spawn SWE agents concurrently in a single
-message.
+message. Use `task_id=<N>` in each Task-tool prompt (decimal integer primary
+key of the tasks row). Example: `swe, execute task_id=42 for issue 7`.
 
-- Annotate: `depends_on: []` or `depends_on: [feat/other-task]` in the spec frontmatter
+- Annotate: `depends_on: []` or `depends_on: [feat/other-task]` in the task row (`tasks.parent_branch_id`)
 - Each SWE runs in `isolation: worktree`
 - **Do NOT parallelize when:** tasks share files, migrations pending, output
   dependencies exist
