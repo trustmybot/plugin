@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-markdown-spec-format-doc" status="open">
+<task id="phase-2-markdown-spec-format-doc" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B foundation: pin down the markdown spec format and filename convention in a single canonical doc that all later tasks (SWE rewrite, architect rewrite, PR reviewer rewrite, hooks) cite by reference. Without this, every prompt rewrite re-invents the format and they will drift."/>
   <title>Author docs/trustmybot/SPEC-FORMAT.md defining markdown task spec frontmatter, body, and filename convention</title>
   <branch-id>docs/phase-2-spec-format</branch-id>
@@ -184,4 +184,10 @@
     state model. Cited by all later Phase 2 prompt rewrites so the format
     cannot drift across agents.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Created docs/trustmybot/SPEC-FORMAT.md (511 words) with all required sections, YAML frontmatter sample, filename mapping table, and SQLite state model. All 13 verification checks pass.</summary>
+    <files>docs/trustmybot/SPEC-FORMAT.md, docs/trustmybot/tasks/phase-2-markdown-spec-format-doc.xml</files>
+    <verification>PASS — all 13 OK lines printed; word count 511 in range 400-1000</verification>
+  </results>
 </task>
