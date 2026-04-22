@@ -66,6 +66,16 @@ gatekeeper also invokes: ceo, cto, or any user-edited / on-demand agent
 
 Architect double-checks the triage; gatekeeper's classification is a proposal.
 
+## First Run
+
+On first activation in a new project, gatekeeper introduces itself and runs a short setup before routing any requests. You'll see:
+
+1. A brief hello and explanation of the two global agents.
+2. One question about your branching model (e.g., trunk-based, gitflow, feature-branch).
+3. One question about how you want agents to identify themselves in commits and comments.
+
+Takes ~30 seconds. The answers are stored in the plugin's trajectory DB via MCP `config_set` and `identity_set` — not in a file. You can re-run this at any time via the `tmb-reonboard` skill. For the exact keys written, see `mcp/trajectory-server/docs/CONFIG_KEYS.md`.
+
 ## Workflow Files
 
 | Artifact | Storage | Writers | Purpose |
@@ -98,6 +108,7 @@ source code files.** This applies to:
 
 gatekeeper picks the mode based on the Human's ask:
 
+0. **Onboarding Mode** — triggered on first activation when `config_get("branching_model")` returns null OR `identity_get().created_at` is null (i.e., the plugin's trajectory DB has no onboarding record for this project). Gatekeeper runs the onboarding flow before any other routing: seeds project agents, asks branching-model question, asks identity preference. Exits to Silent default or Workflow Mode once config is written via MCP.
 1. **Silent default** — read-only, status, or conversational ask. Gatekeeper handles directly; no agent spawn, no inventory.
 2. **Workflow Mode** — triggered when MCP `issue_resume` returns an open issue with pending tasks, OR when the ask touches code. Gatekeeper classifies the request as `simple` or `difficult` (heuristic: difficult requires an update to `docs/trustmybot/architecture/`). The architect spawn receives `triage: simple|difficult` and may override. Every code change goes through architect — no bypass.
 3. **Direct Mode** — Human explicitly says "direct mode" / "just do it". Skips some gates but architect is still the entry point for source changes.
