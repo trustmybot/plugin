@@ -1,74 +1,51 @@
-# CLAUDE — TMB Plugin Project
+# TMB Plugin
 
-This file is picked up automatically by Claude Code. It tells every agent how
-this project is organized and which agent owns what.
+This file is loaded automatically by Claude Code. It defines the 5 core agents
+shipped with the plugin and the rules every agent must follow.
 
 ## Agent Roster
 
-### Entry Point
-
-| Agent | Role | Model |
+| Agent | Model | Role |
 |---|---|---|
-| `secretary` | Human's gatekeeper. The ONLY agent the Human talks to directly. Routes requests, relays results, handles direct ops (git, file reads). | Opus |
+| `secretary` (gatekeeper) | Opus | Human's sole entry point. Routes requests, relays results, handles direct ops. |
+| `architect` | Opus | Breaks approved BLUEPRINTs into task XML files. Spawns and validates SWE. |
+| `swe` | Sonnet | Implements one task per XML spec. Executor, not decision-maker. |
+| `pr-reviewer` | Opus | Pre-commit and pre-push code review gate. Blocks bad commits. |
+| `prompt-engineer` | Sonnet | Rewrites agent files, skills, and docs on demand. |
 
-### Leadership
+`secretary` and `prompt-engineer` are plugin-owned (live in `plugin/agents/`).
+`architect`, `swe`, and `pr-reviewer` are seeded per project via `plugin/templates/agents/`
+when the plugin is installed or activated.
 
-| Agent | Role | Model | Authority |
-|---|---|---|---|
-| `ceo` | Product vision, priorities, roundtable facilitation | Opus | Highest — overridden only by Human |
-| `cto` | Technical architecture, system design, BLUEPRINT approval | Opus | Technical authority — challenges CEO on feasibility |
+## Domain Agents
 
-### Domain Experts (spawned by CEO)
+The `agent-creator` skill generates domain agents (product, engineering, marketing,
+design, etc.) on demand at the project level. Each generation requires explicit
+Human approval. Domain agents are never bundled in the plugin itself — they are
+project-specific and created via `plugin/skills/agent-creator/`.
 
-| Agent | Role | Model | Writes To |
-|---|---|---|---|
-| `pm` | Product strategy, user research, market viability | Opus | `bro/PRODUCT.md` |
-| `gtm` | Positioning, messaging, conversion, launch | Opus | `bro/MARKETING.md` |
-| `designer` | UX, visual identity, design system | Opus | `bro/DESIGN.md` |
-
-### Execution
-
-| Agent | Role | Model | Reports To |
-|---|---|---|---|
-| `architect` | Breaks BLUEPRINTs into task files, spawns SWE, validates | Opus | CTO |
-| `swe` | Implements one task per XML spec — executor, not decision-maker | Sonnet | Architect |
-| `pr-reviewer` | Pre-commit and pre-push code review gates | Opus | CTO |
-| `prompt-engineer` | Rewrites prompts, agent files, skills, docs | Sonnet | CTO |
-
-### Decision Flow
+## Decision Flow
 
 ```
 Human
   ↓
 Secretary (gatekeeper, relay, direct ops)
   ↓
-CEO (product vision, priorities)
-  ↓
-CTO (technical architecture)
-  ↓
 Architect (task files, SWE coordination, validation)
   ↓
 SWE (executor)
 
-CEO also spawns: PM / GTM / Designer (advisory, via roundtable or direct)
 Architect also spawns: PR Reviewer (review gate) / Prompt Engineer (doc fixes)
 ```
 
 ## Workflow Files
 
-| File | Writers | Readers | Purpose |
-|---|---|---|---|
-| `bro/GOALS.md` | Human (with CEO input) | All | Intent, priorities, constraints |
-| `bro/DISCUSSION.md` | Architect, CEO, CTO, Human | All | Q&A alignment before BLUEPRINT |
-| `bro/BLUEPRINT.md` | CTO (or Architect, CTO approves) | All | STAR-structured phases, Human approves |
-| `bro/tasks/*.xml` | Architect | SWE only | Per-task execution plans |
-| `bro/PRODUCT.md` | PM | CEO, CTO | Product strategy record |
-| `bro/MARKETING.md` | GTM | CEO | Positioning and launch plans |
-| `bro/DESIGN.md` | Designer | CTO, Architect | Design system and UX decisions |
-
-**Loop:** Human writes GOALS → CEO scopes → CTO designs BLUEPRINT → Human
-approves → Architect writes tasks → SWE implements → PR Reviewer gates →
-Architect validates → repeat.
+| File | Writers | Purpose |
+|---|---|---|
+| `bro/GOALS.md` | Human | Intent, priorities, constraints |
+| `bro/DISCUSSION.md` | Architect, Human | Alignment before BLUEPRINT |
+| `bro/BLUEPRINT.md` | Architect (Human approves) | Phased plan |
+| `bro/tasks/*.xml` | Architect | Per-task execution specs for SWE |
 
 ## Source Code Access Control
 
