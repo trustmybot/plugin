@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-pr-reviewer-template-rewrite" status="open">
+<task id="phase-2-pr-reviewer-template-rewrite" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B + #E: pr-reviewer currently edits XML task files to add &lt;reviewed-by&gt; / &lt;closed-by&gt; tags. With markdown specs, sign-off lives entirely in MCP validation_attempts (signed via validation_record). The Edit-tool-discipline rule changes too — pr-reviewer no longer needs Edit at all if all sign-off is via MCP. Decision: REMOVE Edit from tools and route all sign-off through MCP."/>
   <title>Rewrite templates/agents/pr-reviewer.md to sign tasks via MCP validation_record only; drop Edit tool</title>
   <branch-id>refactor/phase-2-pr-reviewer-template</branch-id>
@@ -169,4 +169,10 @@
     frontmatter — pr-reviewer has no file-write authority. Spec files at
     docs/trustmybot/tasks/*.md are read-only.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Rewrote templates/agents/pr-reviewer.md: Edit tool removed from frontmatter, all sign-off routed through MCP validation_record, Section E renamed to No-Edit Discipline, Error Handling table updated to drop XML fallback rows and add MCP-specific rows.</summary>
+    <files>templates/agents/pr-reviewer.md, docs/trustmybot/tasks/phase-2-pr-reviewer-template-rewrite.xml</files>
+    <verification>PASS — all 14 checks print OK: file exists, tools key present, Edit removed, description updated, no reviewed-by/closed-by/review-findings XML, no .xml task refs, validation_record cited, issue_snapshot_md cited, no-edit rule present, SPEC-FORMAT.md cited, placeholder banner intact, length 150 (in 110-180).</verification>
+  </results>
 </task>
