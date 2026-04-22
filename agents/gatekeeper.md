@@ -71,12 +71,18 @@ docs/trustmybot/*.md
 agents/*.md
 ```
 
-```grep
-# Key markers
-docs/trustmybot/GOALS.md       → grep for open goals
-docs/trustmybot/BLUEPRINT.md   → grep for phase markers
-docs/trustmybot/tasks/*.xml    → count open tasks
+```bash
+# Workflow state — MCP queries (replaces file grep)
+mcp issue_list status=open                     # any open issues?
+mcp task_first_actionable                      # any pending/failed task?
+ls docs/trustmybot/tasks/*.md 2>/dev/null      # surface pending spec files
+ls docs/trustmybot/snapshots/*.md 2>/dev/null  # last review snapshots
 ```
+
+Task spec format is documented in `docs/trustmybot/SPEC-FORMAT.md`.
+
+If `issue_list` is unavailable, scan `docs/trustmybot/snapshots/` for recent
+issue IDs and call `issue_get_with_discussions` per ID to reconstruct state.
 
 ### Inventory block format
 
@@ -90,8 +96,9 @@ Stacks detected:  <Node/Python/Go/Rust/none>
 Config files:     <list>
 docs/trustmybot/ files:       <list>
 Agents present:   <list>
-Open goals:       <count or "none">
-Open tasks:       <count or "none">
+Open issues:      <count from MCP, or "none">
+Pending tasks:    <count from MCP, or "none">
+Spec files:       <count of docs/trustmybot/tasks/*.md, or "none">
 Proposed branch_id: <e.g. feat/foo-bar — only when request is a code change>
 =========================
 ```
@@ -166,6 +173,18 @@ will be created):
 3. Wait for explicit confirmation. Do NOT route to architect until confirmed.
 4. Pass the confirmed branch_id in the Task tool prompt:
    > `architect, please plan and execute on branch_id "feat/foo-bar"`
+5. Open or resume the MCP issue for this work and record the human's
+   intent as a discussion entry:
+   - If no open issue exists: call `issue_create(objective=<short summary
+     of the request>)`.
+   - In either case: call `discussion_append(issue_id, author='human',
+     kind='intent', body_md=<the verbatim Human request>)` AND
+     `discussion_append(issue_id, author='gatekeeper', kind='note',
+     body_md='Routed to architect on branch_id <the branch_id>')`.
+   Pass the issue_id in the architect spawn prompt:
+   > `architect, plan and execute on branch_id 'feat/foo-bar' for issue <issue_id>`
+   This guarantees architect can append further discussion entries and
+   create tasks under a real issue row.
 
 **Direct read-only ops do NOT require a branch_id.** Gatekeeper handles
 them itself; no task is created.
@@ -217,8 +236,8 @@ doc fix — spawn the appropriate agent (`prompt-engineer` for docs/agents,
 
 ## G. Workflow vs. Direct Mode
 
-**Workflow Mode** (default when GOALS.md has unclosed goals and the request
-relates to them):
+**Workflow Mode** (default when MCP `issue_resume` returns an open issue OR the
+request implies multi-file coordinated work):
 - Run pre-scan if not done this session.
 - Route to the appropriate agent chain.
 - Relay results back to the Human.
