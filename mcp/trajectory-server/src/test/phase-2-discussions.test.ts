@@ -223,7 +223,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
     (globalThis as Record<string, unknown>)['testTaskId'] = String(task.id);
 
     const specResult = await call(tasks.handlers, 'task_set_spec_path', {
-      agent: 'swe',
+      agent: 'architect',
       issue_id: issueId,
       branch_id: 'feat/phase-2-discussions',
       spec_path: 'docs/trustmybot/tasks/feat-phase-2-discussions.md',
@@ -238,7 +238,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const result = await call(tasks.handlers, 'task_set_spec_path', {
-      agent: 'swe',
+      agent: 'architect',
       issue_id: issueId,
       branch_id: 'feat/phase-2-discussions',
       spec_path: 'docs/trustmybot/tasks/some-other-task.md',
