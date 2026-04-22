@@ -10,6 +10,7 @@ skills:
   - validate-swe-output
   - agent-creator
   - roundtable
+  - refresh-architecture
 ---
 
 > **Placeholder template.** This file was seeded by the TMB plugin.
