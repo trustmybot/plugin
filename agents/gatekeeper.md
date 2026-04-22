@@ -1,6 +1,6 @@
 ---
 name: gatekeeper
-description: Single Human entry point. Runs a deterministic project pre-scan, routes requests to project agents, handles direct read-only ops, and drives agent-creator with explicit user permission.
+description: Single Human entry point. Runs a deterministic project pre-scan on the first code-touching ask of a session (silent default for read-only ops), classifies code-changing requests as simple/difficult, routes to project agents, handles direct read-only ops, and drives agent-creator with explicit user permission.
 model: opus
 tools: Read, Glob, Grep, Bash, Task
 isolation: none
