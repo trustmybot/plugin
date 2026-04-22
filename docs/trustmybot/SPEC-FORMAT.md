@@ -85,6 +85,23 @@ Initially empty. After SWE finishes, SWE does NOT edit this section
 
 ---
 
+## Template intensity (trivial vs standard)
+
+The same headings above apply to both intensity levels. Intensity
+controls how fully each section is populated, not the schema itself.
+
+- `trivial`: used for simple-path tasks (see `tmb_workflow_two_paths.md`
+  heuristic). Description ≤ 3 sentences. Success Criteria 2–5 bullets.
+  Out of Scope and Results may be left empty.
+- `standard`: used for difficult-path tasks. Every section must be
+  populated. Success Criteria must cover error states, edge cases, and
+  a validation matrix.
+
+`trivial` is a SUBSET of `standard` — not a different schema. A trivial
+spec is always valid as a standard spec with some sections omitted.
+
+---
+
 ## State model (SQLite, not file)
 
 The file is the SWE-readable spec. The DB is the canonical state.
