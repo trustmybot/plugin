@@ -30,3 +30,56 @@ tmb_unsigned_tasks() {
        );
   "
 }
+
+# tmb_config_get <key>
+# Prints the scalar value stored in plugin_config for <key>, unquoted.
+# Prints empty string when: key missing, DB absent, sqlite3 unavailable.
+# Never fails the caller.
+tmb_config_get() {
+  local key="$1"
+  local db
+  db=$(tmb_db_path) || true
+  [ -z "$db" ] && return 0
+  tmb_have_sqlite || return 0
+  sqlite3 "$db" "
+    SELECT json_extract(value_json, '$')
+      FROM plugin_config
+     WHERE key = '${key}';
+  " 2>/dev/null || true
+}
+
+# tmb_config_raw <key>
+# Prints the raw value_json column for <key> without JSON extraction.
+# Prints empty string when: key missing, DB absent, sqlite3 unavailable.
+# Never fails the caller.
+tmb_config_raw() {
+  local key="$1"
+  local db
+  db=$(tmb_db_path) || true
+  [ -z "$db" ] && return 0
+  tmb_have_sqlite || return 0
+  sqlite3 "$db" "
+    SELECT value_json
+      FROM plugin_config
+     WHERE key = '${key}';
+  " 2>/dev/null || true
+}
+
+# tmb_config_array <key>
+# Prints one element per line from a JSON-array-valued plugin_config key.
+# Prints nothing when: key missing, DB absent, sqlite3 unavailable.
+# Never fails the caller.
+tmb_config_array() {
+  local key="$1"
+  local db raw
+  db=$(tmb_db_path) || true
+  [ -z "$db" ] && return 0
+  tmb_have_sqlite || return 0
+  raw=$(sqlite3 "$db" "
+    SELECT value_json
+      FROM plugin_config
+     WHERE key = '${key}';
+  " 2>/dev/null || true)
+  [ -z "$raw" ] && return 0
+  echo "$raw" | jq -r '.[]' 2>/dev/null || true
+}
