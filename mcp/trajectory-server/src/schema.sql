@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     execution_plan_md TEXT    NOT NULL DEFAULT '',
     qa_results        TEXT    NOT NULL DEFAULT '',
     task_spec_path    TEXT    NOT NULL DEFAULT '',
+    spec_body_md      TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
@@ -134,7 +135,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (4, '0.3.0-alpha');
+INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (5, '0.3.0-alpha');
 
 CREATE TABLE IF NOT EXISTS file_registry (
     path             TEXT PRIMARY KEY,

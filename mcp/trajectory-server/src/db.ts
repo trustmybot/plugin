@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 
 export class TrajectoryDB {
-  static readonly TARGET_VERSION = 4;
+  static readonly TARGET_VERSION = 5;
 
   private db: Database.Database;
 
@@ -50,7 +50,7 @@ export class TrajectoryDB {
       );
     }
 
-    if (existingVersion === 3) {
+    if (existingVersion === 3 || existingVersion === 4) {
       return;
     }
 
@@ -113,6 +113,27 @@ export class TrajectoryDB {
       .run();
   }
 
+  private applyV4ToV5(): void {
+    const columns = this.db
+      .prepare('PRAGMA table_info(tasks)')
+      .all() as Array<{ name: string }>;
+    const hasSpecBody = columns.some((c) => c.name === 'spec_body_md');
+    if (!hasSpecBody) {
+      this.db.exec(
+        "ALTER TABLE tasks ADD COLUMN spec_body_md TEXT NOT NULL DEFAULT ''",
+      );
+    }
+
+    this.db.exec(
+      "DELETE FROM plugin_meta WHERE id > (SELECT MIN(id) FROM plugin_meta)",
+    );
+    this.db
+      .prepare(
+        "UPDATE plugin_meta SET schema_version = 5, plugin_version = '0.3.0-alpha', updated_at = datetime('now')",
+      )
+      .run();
+  }
+
   migrate(): void {
     const schemaPath = join(
       dirname(fileURLToPath(import.meta.url)),
@@ -148,6 +169,14 @@ export class TrajectoryDB {
       !taskCols.some((c) => c.name === 'commit_sha');
     if (needsV4) {
       this.applyV3ToV4();
+    }
+
+    const taskColsAfterV4 = this.db
+      .prepare('PRAGMA table_info(tasks)')
+      .all() as Array<{ name: string }>;
+    const needsV5 = !taskColsAfterV4.some((c) => c.name === 'spec_body_md');
+    if (needsV5) {
+      this.applyV4ToV5();
     }
   }
 

@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 
-describe('schema v4 — discussions table and task_spec_path column', () => {
+describe('schema v5 — spec_body_md, discussions, task_spec_path', () => {
   it('fresh DB contains all 14 tables', () => {
     const db = tempDB();
 
@@ -32,14 +32,25 @@ describe('schema v4 — discussions table and task_spec_path column', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 4 in plugin_meta', () => {
+  it('fresh DB has schema_version = 5 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 4);
+    assert.equal(meta.schema_version, 5);
+
+    db.close();
+  });
+
+  it('tasks table has spec_body_md column with default empty string', () => {
+    const db = tempDB();
+
+    const cols = db.all<{ name: string; dflt_value: string | null }>('PRAGMA table_info(tasks)');
+    const col = cols.find((c) => c.name === 'spec_body_md');
+    assert.ok(col !== undefined, 'spec_body_md column must exist in tasks');
+    assert.equal(col.dflt_value, "''", "spec_body_md default must be empty string");
 
     db.close();
   });
