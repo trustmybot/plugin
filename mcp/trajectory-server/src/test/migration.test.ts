@@ -158,7 +158,7 @@ afterEach(() => {
 });
 
 describe('migration runner', () => {
-  it('a. fresh DB at non-existent path: no backup, schema_version=3, no error', () => {
+  it('a. fresh DB at non-existent path: no backup, schema_version=4, no error', () => {
     const dir = makeTmpDir();
     const dbPath = join(dir, 'fresh.db');
 
@@ -177,7 +177,7 @@ describe('migration runner', () => {
     assert.equal(backups.length, 0, 'no backup should be created for fresh DB');
   });
 
-  it('b. existing v2 DB: backup created, fresh schema_version=3 at original path, backup has v2 data', () => {
+  it('b. existing v2 DB: backup created, fresh schema_version=4 at original path, backup has v2 data', () => {
     const dir = makeTmpDir();
     const dbPath = join(dir, 'v2.db');
     makeV2DB(dbPath);
@@ -208,7 +208,7 @@ describe('migration runner', () => {
     assert.equal(backupMeta.schema_version, 2, 'backup should contain original v2 data');
   });
 
-  it('c. existing v3 DB: no backup on re-open', () => {
+  it('c. existing v4 DB: no backup on re-open', () => {
     const dir = makeTmpDir();
     const dbPath = join(dir, 'current.db');
 
@@ -226,7 +226,7 @@ describe('migration runner', () => {
     assert.equal(beforeFiles.length, afterFiles.length, 'no new files created on re-open');
   });
 
-  it('d. DB with schema_version > 3 (v=99): constructor throws with clear error', () => {
+  it('d. DB with schema_version > 4 (v=99): constructor throws with clear error', () => {
     const dir = makeTmpDir();
     const dbPath = join(dir, 'future.db');
     makeSyntheticDB(dbPath, 99);
@@ -239,15 +239,15 @@ describe('migration runner', () => {
           `message should mention schema_version=99: ${err.message}`,
         );
         assert.ok(
-          err.message.includes('supports up to 3'),
-          `message should mention 'supports up to 3': ${err.message}`,
+          err.message.includes('supports up to 4'),
+          `message should mention 'supports up to 4': ${err.message}`,
         );
         return true;
       },
     );
   });
 
-  it('e. in-memory DB: no fs side effects, schema_version=3', () => {
+  it('e. in-memory DB: no fs side effects, schema_version=4', () => {
     const db = new TrajectoryDB(':memory:');
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
@@ -256,6 +256,76 @@ describe('migration runner', () => {
 
     assert.ok(meta !== undefined);
     assert.equal(meta.schema_version, TrajectoryDB.TARGET_VERSION);
+  });
+
+  it('g. v3-to-v4 in-place migration: task_spec_path column added, discussions table created, no backup', () => {
+    const dir = makeTmpDir();
+    const dbPath = join(dir, 'v3.db');
+
+    const raw = new Database(dbPath);
+    raw.pragma('journal_mode = WAL');
+    raw.pragma('foreign_keys = ON');
+    raw.prepare(
+      `CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY AUTOINCREMENT, schema_version INTEGER NOT NULL, plugin_version TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    ).run();
+    raw.prepare(
+      `CREATE TABLE issues (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_issue_id INTEGER REFERENCES issues(id), objective TEXT NOT NULL, goals_md TEXT NOT NULL DEFAULT '', goals_md_hash TEXT NOT NULL DEFAULT '', pre_commit_hash TEXT NOT NULL DEFAULT '', post_commit_hash TEXT, status TEXT NOT NULL DEFAULT 'open', current_task_id INTEGER REFERENCES tasks(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT)`,
+    ).run();
+    raw.prepare(
+      `CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER NOT NULL REFERENCES issues(id), branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL, tools_required TEXT NOT NULL DEFAULT '[]', skills_required TEXT NOT NULL DEFAULT '[]', success_criteria TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, execution_plan_md TEXT NOT NULL DEFAULT '', qa_results TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT)`,
+    ).run();
+    raw.prepare(
+      `INSERT INTO plugin_meta (schema_version, plugin_version) VALUES (3, '0.3.0-alpha')`,
+    ).run();
+    raw.close();
+
+    const db = new TrajectoryDB(dbPath);
+    const meta = db.get<{ schema_version: number }>('SELECT schema_version FROM plugin_meta LIMIT 1');
+    assert.ok(meta !== undefined);
+    assert.equal(meta.schema_version, 4, 'should be upgraded to v4 in-place');
+
+    const taskCols = db.all<{ name: string }>('PRAGMA table_info(tasks)');
+    assert.ok(taskCols.some((c) => c.name === 'task_spec_path'), 'task_spec_path must exist after migration');
+
+    const tables = db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name='discussions'");
+    assert.equal(tables.length, 1, 'discussions table must exist');
+    db.close();
+
+    const backups = readdirSync(dir).filter((f) => f.includes('.bak.'));
+    assert.equal(backups.length, 0, 'v3 → v4 in-place migration must not create backup');
+  });
+
+  it('h. v3-to-v4 migration is idempotent: second open does not throw', () => {
+    const dir = makeTmpDir();
+    const dbPath = join(dir, 'v3-idem.db');
+
+    const raw = new Database(dbPath);
+    raw.pragma('journal_mode = WAL');
+    raw.pragma('foreign_keys = ON');
+    raw.prepare(
+      `CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY AUTOINCREMENT, schema_version INTEGER NOT NULL, plugin_version TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    ).run();
+    raw.prepare(
+      `CREATE TABLE issues (id INTEGER PRIMARY KEY AUTOINCREMENT, parent_issue_id INTEGER REFERENCES issues(id), objective TEXT NOT NULL, goals_md TEXT NOT NULL DEFAULT '', goals_md_hash TEXT NOT NULL DEFAULT '', pre_commit_hash TEXT NOT NULL DEFAULT '', post_commit_hash TEXT, status TEXT NOT NULL DEFAULT 'open', current_task_id INTEGER REFERENCES tasks(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT)`,
+    ).run();
+    raw.prepare(
+      `CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER NOT NULL REFERENCES issues(id), branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL, tools_required TEXT NOT NULL DEFAULT '[]', skills_required TEXT NOT NULL DEFAULT '[]', success_criteria TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, execution_plan_md TEXT NOT NULL DEFAULT '', qa_results TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT)`,
+    ).run();
+    raw.prepare(
+      `INSERT INTO plugin_meta (schema_version, plugin_version) VALUES (3, '0.3.0-alpha')`,
+    ).run();
+    raw.close();
+
+    const db1 = new TrajectoryDB(dbPath);
+    db1.close();
+
+    assert.doesNotThrow(
+      () => {
+        const db2 = new TrajectoryDB(dbPath);
+        db2.close();
+      },
+      'second open of migrated v4 DB must not throw',
+    );
   });
 
   it('f. WAL + SHM sidecars: renamed alongside backup when v2 DB is backed up', () => {

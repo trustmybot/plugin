@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-schema-discussions-and-spec-path" status="open">
+<task id="phase-2-schema-discussions-and-spec-path" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #E foundation: introduce discussions table for gatekeeper+architect intent capture; add task_spec_path column on tasks so SQLite knows where the on-disk markdown spec lives. All later Phase 2 tasks depend on this schema being in place."/>
   <title>Add discussions table and task_spec_path column; bump schema_version 3 → 4</title>
   <branch-id>feat/phase-2-schema-discussions</branch-id>
@@ -149,4 +149,10 @@
     each task row knows where its on-disk markdown spec lives (task_spec_path).
     Migration is guarded for idempotency on existing v3 databases.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Added discussions table + idx_discussions_issue_created index, task_spec_path column to tasks, bumped schema_version seed to 4 in schema.sql; added applyV3ToV4 in-place migration (idempotency guarded by PRAGMA table_info column check); bumped TARGET_VERSION to 4 in db.ts; added Discussion interface and task_spec_path to Task in types.ts. Updated 4 test files to reflect new table count (14), version (4), and added 2 new migration tests (g + h) covering v3→v4 in-place and idempotency.</summary>
+    <files>mcp/trajectory-server/src/schema.sql, mcp/trajectory-server/src/db.ts, mcp/trajectory-server/src/types.ts, mcp/trajectory-server/src/test/db.test.ts, mcp/trajectory-server/src/test/schema_v3.test.ts, mcp/trajectory-server/src/test/migration.test.ts, docs/trustmybot/tasks/phase-2-schema-discussions-and-spec-path.xml</files>
+    <verification>PASS — all 105 tests pass; all 7 spec grep/sqlite checks print OK; bun run build clean</verification>
+  </results>
 </task>
