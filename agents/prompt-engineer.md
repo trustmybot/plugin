@@ -37,7 +37,7 @@ Edits to one or more of:
 | `skills/*.md` | Skill reference files |
 | `CLAUDE.md` | Project-level configuration prose |
 | `README.md` | Public documentation |
-| `docs/trustmybot/*.md` | SPEC-FORMAT (if still present), README, misc workflow prose |
+| `docs/trustmybot/*.md` | README and misc workflow prose (not task specs — those live in SQLite) |
 | `docs/trustmybot/architecture/manual/` | ADRs and narrative architecture docs |
 
 ## Chain-of-Thought Discipline
