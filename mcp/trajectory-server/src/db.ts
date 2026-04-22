@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 
 export class TrajectoryDB {
-  static readonly TARGET_VERSION = 3;
+  static readonly TARGET_VERSION = 4;
 
   private db: Database.Database;
 
@@ -50,6 +50,10 @@ export class TrajectoryDB {
       );
     }
 
+    if (existingVersion === 3) {
+      return;
+    }
+
     if (existingVersion > 0) {
       const backupPath = `${dbPath}.v${existingVersion}.bak.${Date.now()}`;
       renameSync(dbPath, backupPath);
@@ -69,6 +73,40 @@ export class TrajectoryDB {
         `[TrajectoryDB] HARD-BREAK MIGRATION: schema_version=${existingVersion} backed up to ${backupPath}; initializing fresh at v${TrajectoryDB.TARGET_VERSION}`,
       );
     }
+  }
+
+  private applyV3ToV4(): void {
+    const columns = this.db
+      .prepare('PRAGMA table_info(tasks)')
+      .all() as Array<{ name: string }>;
+    const hasSpecPath = columns.some((c) => c.name === 'task_spec_path');
+    if (!hasSpecPath) {
+      this.db.exec(
+        "ALTER TABLE tasks ADD COLUMN task_spec_path TEXT NOT NULL DEFAULT ''",
+      );
+    }
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS discussions (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id    INTEGER NOT NULL REFERENCES issues(id),
+        author      TEXT    NOT NULL,
+        kind        TEXT    NOT NULL DEFAULT 'note',
+        body_md     TEXT    NOT NULL,
+        created_at  TEXT    NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
+        ON discussions(issue_id, created_at);
+    `);
+
+    this.db.exec(
+      "DELETE FROM plugin_meta WHERE id > (SELECT MIN(id) FROM plugin_meta)",
+    );
+    this.db
+      .prepare(
+        "UPDATE plugin_meta SET schema_version = 4, plugin_version = '0.3.0-alpha', updated_at = datetime('now')",
+      )
+      .run();
   }
 
   migrate(): void {
@@ -96,6 +134,14 @@ export class TrajectoryDB {
       throw new Error(
         'TrajectoryDB: migration applied but plugin_meta has no rows — verify schema.sql includes the seed INSERT.',
       );
+    }
+
+    const taskCols = this.db
+      .prepare('PRAGMA table_info(tasks)')
+      .all() as Array<{ name: string }>;
+    const needsV4 = !taskCols.some((c) => c.name === 'task_spec_path');
+    if (needsV4) {
+      this.applyV3ToV4();
     }
   }
 

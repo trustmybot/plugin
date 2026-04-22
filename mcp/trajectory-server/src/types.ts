@@ -29,9 +29,19 @@ export interface Task {
   attempts: number;
   execution_plan_md: string;
   qa_results: string;
+  task_spec_path: string;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+}
+
+export interface Discussion {
+  id: number;
+  issue_id: number;
+  author: string;
+  kind: string;
+  body_md: string;
+  created_at: string;
 }
 
 export interface LedgerEntry {
