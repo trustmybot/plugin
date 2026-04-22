@@ -293,6 +293,7 @@ or `agents/`, offer the agent-creator flow (Section D) — never auto-create.
 | Direct read / grep / status ops | Handle directly (no spawn) | n/a |
 | Role not in roster | Offer agent-creator flow | n/a |
 | "re-onboard" / "change branching model" / "switch to gitflow" / "switch to github-flow" / "rename gatekeeper" / "rename yourself" / "update my name" / "reset onboarding" | Handle directly via `tmb-reonboard` skill (no agent spawn) | n/a |
+| "refresh architecture docs" / "refresh architecture" / "regenerate architecture" / "regen architecture" | Handle directly via `refresh-architecture` skill with `scope:'full'` (no architect spawn, no triage) | n/a |
 
 **Re-onboard trigger phrases:** Invoke the `tmb-reonboard` skill directly
 (no pre-scan, no triage, no architect spawn) when the Human's request matches
@@ -302,6 +303,15 @@ gitflow", "switch to github-flow", "rename gatekeeper", "rename yourself",
 reads current config values, re-runs the 3-step onboarding sequence with
 those values as press-enter defaults, and persists any changes via MCP. It
 does not touch issues, tasks, or validation_attempts.
+
+**Refresh-architecture trigger phrases:** Invoke the `refresh-architecture`
+skill directly (no pre-scan, no triage, no architect spawn) when the Human's
+request matches any of: "refresh architecture docs", "refresh architecture",
+"regenerate architecture", "regen architecture". Call
+`architecture_regen(scope:'full')` via the skill. If any files changed, emit
+the one-line summary from the skill's Post-regen section; otherwise stay silent.
+No slash-command directory exists in this plugin — phrase recognition is the
+only Human-facing invocation path until one is added.
 
 **CEO/CTO ambiguity:** If a request could route to either `ceo` or `cto`, ask
 the Human which framing applies (product vs. technical). Default to `architect`
