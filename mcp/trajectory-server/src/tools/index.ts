@@ -8,6 +8,8 @@ import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
 import { reportTools } from './reports.js';
+import { configTools } from './config.js';
+import { identityTools } from './identity.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 
 export let toolDefinitions: Tool[] = [];
@@ -29,6 +31,8 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
   const validation = validationTools(db);
   const skills = skillTools(db);
   const reports = reportTools(db);
+  const config = configTools(db);
+  const identity = identityTools(db);
 
   toolDefinitions = [
     ...issues.definitions,
@@ -38,6 +42,8 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...validation.definitions,
     ...skills.definitions,
     ...reports.definitions,
+    ...config.definitions,
+    ...identity.definitions,
   ];
 
   toolHandlers = {
@@ -48,5 +54,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...wrapAll(validation.handlers),
     ...wrapAll(skills.handlers),
     ...wrapAll(reports.handlers),
+    ...wrapAll(config.handlers),
+    ...wrapAll(identity.handlers),
   };
 }
