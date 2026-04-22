@@ -49,6 +49,13 @@ logic that `pr-review-toolkit` already covers.
 After the mechanical pass, apply these TMB-specific gates. Task specs follow
 the markdown format defined in `docs/trustmybot/SPEC-FORMAT.md`.
 
+Checklist (every item must pass before PASS verdict):
+
+- [ ] Scope: changed files match `## Files` in task spec
+- [ ] Success criteria met (verified against diff, not just claimed)
+- [ ] Atomic-close discipline (#W4): task status is `completed`
+- [ ] No manual edits to `docs/trustmybot/architecture/auto/` (see §Auto/Architecture-Dir Check)
+
 1. **Scope alignment** — Verify that the changed files and logic match the
    `## Files` section of the task spec. Changes outside scope are a block.
 
@@ -66,6 +73,41 @@ the markdown format defined in `docs/trustmybot/SPEC-FORMAT.md`.
 
 4. **Already closed** — Call MCP `task_get`. If `status='closed'`, report and
    return without re-reviewing.
+
+---
+
+## Auto/Architecture-Dir Check (Phase 5)
+
+Any staged change under `docs/trustmybot/architecture/auto/` must:
+
+1. Preserve the generated-header comment on line 1, matching exactly:
+   `<!-- Generated YYYY-MM-DD via /tmb refresh-architecture. Do not edit; regenerate. -->`
+2. Be produced by a regen run — the commit subject should mention
+   "refresh-architecture" OR the commit is followed by a matching
+   regen_state update in the MCP ledger.
+
+If check (1) fails, emit verdict FAIL with feedback:
+"Manual edit detected on generated file `<path>`. Run
+`/tmb refresh-architecture` instead of hand-editing."
+
+If check (1) passes but (2) is unclear, emit verdict PASS-WITH-NOTE:
+"Auto-dir edit looks like a regen output; confirm with
+`regen_state_get('<target>')`." Do not block.
+
+### Deferred: Layer-2 Ledger Verification
+
+Layer (2) above — cross-checking the commit against a `regen_state` row in
+the MCP ledger — is deferred beyond Phase 5. The MCP `regen_state_get` tool
+does not yet exist. When it does, upgrade this section to treat a missing
+`regen_state` update as a FAIL rather than a PASS-WITH-NOTE.
+
+### Pre-commit Hook Note
+
+A git pre-commit hook scanning staged `auto/` files for the generated header
+was evaluated and deferred. The plugin's hook infrastructure (`hooks/hooks.json`)
+uses Claude Code `PreToolUse` interception on `Bash`/`Agent` tool calls — it
+does not intercept raw `git commit` invocations made outside Claude Code. The
+pr-reviewer check above is the authoritative enforcement point for Phase 5.
 
 ---
 
