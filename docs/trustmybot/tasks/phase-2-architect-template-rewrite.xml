@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-architect-template-rewrite" status="open">
+<task id="phase-2-architect-template-rewrite" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B + #E: architect must (1) write markdown task specs at docs/trustmybot/tasks/&lt;branch_id_filename&gt;.md instead of XML, (2) capture intent into MCP issues + discussions tables instead of writing GOALS.md / DISCUSSION.md / BLUEPRINT.md, (3) call task_set_spec_path to bind each spec file to its task row. The architect template is the spec-writer-of-record, so changes here cascade to every spec produced after the cutover."/>
   <title>Rewrite templates/agents/architect.md for markdown specs + SQLite-backed intent capture</title>
   <branch-id>refactor/phase-2-architect-template</branch-id>
@@ -202,4 +202,10 @@
     validation_record. Hand-curated architecture decisions land in
     docs/trustmybot/architecture/manual/decisions/ (consumer of Phase 5).
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Rewrote templates/agents/architect.md to use MCP intent capture (issue_create, discussion_append, issue_snapshot_md), markdown task specs via task_create_batch + task_set_spec_path, and MCP-driven validation pipeline. Dropped all GOALS/DISCUSSION/BLUEPRINT file references and XML spec authoring. All 14 verification checks pass (199 lines).</summary>
+    <files>templates/agents/architect.md</files>
+    <verification>PASS — all 14 OK checks printed</verification>
+  </results>
 </task>
