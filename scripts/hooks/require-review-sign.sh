@@ -11,6 +11,26 @@ case "$CMD" in
   *) exit 0 ;;
 esac
 
+# Issue #13: feature/* pushes are always allowed (work-in-progress backups
+# don't require signoff). Enforcement applies only to pushes/merges targeting
+# protected branches (dev, main, master, or anything the user's branching
+# model declared as protected).
+if echo "$CMD" | grep -qE '\bgit push[[:space:]]+[^[:space:]]+[[:space:]]+(HEAD:)?feature/'; then
+  exit 0
+fi
+if echo "$CMD" | grep -qE '\bgit push[[:space:]]+[^[:space:]]+[[:space:]]+(HEAD:)?(fix|feat|refactor|chore|docs|test|perf|build|ci|style|revert)/'; then
+  exit 0
+fi
+# Bare `git push` with current branch being a feature/* shape — also allow.
+if ! echo "$CMD" | grep -qE '\bgit push[[:space:]]+[^[:space:]]+[[:space:]]+'; then
+  CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
+  case "$CURRENT_BRANCH" in
+    feature/*|fix/*|feat/*|refactor/*|chore/*|docs/*|test/*|perf/*|build/*|ci/*|style/*|revert/*)
+      exit 0
+      ;;
+  esac
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"

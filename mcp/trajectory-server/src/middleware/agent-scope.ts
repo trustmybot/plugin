@@ -39,8 +39,6 @@ export interface ValidationAttempt {
   created_at: string;
 }
 
-export type Redactor<T> = (value: T, agent: AgentRole, args: Record<string, unknown>) => T;
-
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 export function requireRoles(toolName: string, allowedRoles: AgentRole[], handler: Fn): Fn {
@@ -105,24 +103,14 @@ export function redactValidationRow(
   return row;
 }
 
-export function withAgentScope<T>(
-  toolName: string,
-  handler: Fn,
-  redactor?: Redactor<T>,
-): Fn {
-  return async (args) => {
-    const agent = normalizeAgent(args['agent'] as string | undefined);
-    const result = await handler(args);
-
-    if (!redactor || result.isError) return result;
-
-    const first = result.content[0];
-    if (!first || first.type !== 'text') return result;
-
-    const parsed = JSON.parse(first.text) as T;
-    if (parsed === null) return result;
-
-    const redacted = redactor(parsed, agent, args);
-    return { ...result, content: [{ type: 'text' as const, text: JSON.stringify(redacted) }] };
-  };
+/**
+ * Pass-through wrapper around a handler. Kept as a seam for future
+ * cross-cutting concerns (tracing, metrics, etc.) that need to see every
+ * MCP tool call. Redaction is done INSIDE individual handlers against
+ * `redactIssue` / `redactValidationRow`; role enforcement is done via
+ * `requireRoles`. This function deliberately does not carry a redactor
+ * argument — callers that need redaction should apply it in-handler.
+ */
+export function withAgentScope(_toolName: string, handler: Fn): Fn {
+  return handler;
 }
