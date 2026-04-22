@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-hook-sqlite-migration" status="open">
+<task id="phase-2-hook-sqlite-migration" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B + #E: migrate require-review-sign.sh from grepping task XMLs to querying SQLite. Necessary because the new markdown specs do NOT carry status/sign-off in the file (state lives in DB). Hooks must read DB directly via a small bash→sqlite3 helper to avoid spawning the Node MCP server on every git push."/>
   <title>Migrate require-review-sign.sh to SQLite via scripts/hooks/lib/query-task.sh helper</title>
   <branch-id>refactor/phase-2-hook-sqlite</branch-id>
@@ -173,4 +173,10 @@
     via sqlite3 CLI, with a graceful fallback to the legacy XML grep when
     no DB is present (fresh-clone bridge).
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Created scripts/hooks/lib/query-task.sh with tmb_db_path/tmb_have_sqlite/tmb_unsigned_tasks helpers. Rewrote require-review-sign.sh to query SQLite for unsigned completed tasks, with legacy XML fallback when DB is absent.</summary>
+    <files>scripts/hooks/lib/query-task.sh, scripts/hooks/require-review-sign.sh, docs/trustmybot/tasks/phase-2-hook-sqlite-migration.xml</files>
+    <verification>PASS — all 7 OK checks passed: lib exists, lib syntax, hook syntax, hook calls helper, hook sources lib, smoke test blocks unsigned task (feat/test-x cited), smoke test allows signed task.</verification>
+  </results>
 </task>
