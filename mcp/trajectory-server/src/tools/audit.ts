@@ -94,7 +94,14 @@ export function auditTools(db: TrajectoryDB): {
       let round: number;
       if (args['round'] !== undefined && args['round'] !== null) {
         round = args['round'] as number;
+      } else if (branchId !== null) {
+        const maxRow = db.get<{ max_round: number | null }>(
+          `SELECT MAX(round) as max_round FROM audit WHERE issue_id = ? AND branch_id = ?`,
+          [issueId, branchId],
+        );
+        round = (maxRow?.max_round ?? -1) + 1;
       } else {
+        // branch_id not provided: fall back to issue-only scope (ambiguous across tasks)
         const maxRow = db.get<{ max_round: number | null }>(
           `SELECT MAX(round) as max_round FROM audit WHERE issue_id = ?`,
           [issueId],

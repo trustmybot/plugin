@@ -103,6 +103,35 @@ describe('auditTools', () => {
 
     db.close();
   });
+
+  it('audit_log round is scoped per (issue_id, branch_id) not per issue_id', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = auditTools(db);
+
+    const logEntry = (branchId: string) =>
+      call(tools.handlers, 'audit_log', {
+        agent: 'swe',
+        issue_id: String(issueId),
+        branch_id: branchId,
+        from_node: 'executor',
+        tool_name: 'bash',
+        tool_args: {},
+        output: 'ok',
+      });
+
+    const r1a = parseResult(await logEntry('task-1'));
+    const r1b = parseResult(await logEntry('task-1'));
+    const r2a = parseResult(await logEntry('task-2'));
+    const r2b = parseResult(await logEntry('task-2'));
+
+    assert.equal(r1a.round, 0, 'task-1 first entry should be round 0');
+    assert.equal(r1b.round, 1, 'task-1 second entry should be round 1');
+    assert.equal(r2a.round, 0, 'task-2 first entry should be round 0 (independent)');
+    assert.equal(r2b.round, 1, 'task-2 second entry should be round 1 (independent)');
+
+    db.close();
+  });
 });
 
 describe('validationTools', () => {

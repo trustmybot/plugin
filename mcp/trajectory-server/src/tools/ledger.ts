@@ -98,16 +98,16 @@ export function ledgerTools(db: TrajectoryDB): {
       }
 
       db.run(
-        `INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, content, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [issueId, branchId, fromNode, eventType, summary, contentJson, now],
+        `INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, content, is_truncated, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [issueId, branchId, fromNode, eventType, summary, contentJson, isTruncated, now],
       );
 
-      const row = db.get<LedgerEntry & { is_truncated?: number }>(
+      const row = db.get<LedgerEntry>(
         'SELECT * FROM ledger WHERE rowid = last_insert_rowid()',
       );
 
-      return ok({ ...row, is_truncated: isTruncated });
+      return ok(row);
     }),
 
     ledger_list: wrapHandler(async (args) => {

@@ -5,6 +5,7 @@ export interface Issue {
   goals_md: string;
   goals_md_hash: string;
   pre_commit_hash: string;
+  post_commit_hash: string | null;
   status: string;
   current_task_id: number | null;
   created_at: string;
@@ -39,6 +40,7 @@ export interface LedgerEntry {
   event_type: string;
   summary: string;
   content: string;
+  is_truncated: number;
   created_at: string;
 }
 
