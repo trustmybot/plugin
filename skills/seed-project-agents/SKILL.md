@@ -70,7 +70,6 @@ The plugin install directory is read-only from this skill's perspective. Never m
       - Log with prefix `docs/trustmybot/` instead of `.claude/agents/`.
    c. When not in `--dry-run` mode, ensure destination directories exist before writing:
       ```bash
-      mkdir -p docs/trustmybot/tasks/
       mkdir -p docs/trustmybot/architecture/auto/
       mkdir -p docs/trustmybot/architecture/manual/decisions/
       ```
@@ -103,7 +102,7 @@ When both `--dry-run` and `--overwrite` are passed simultaneously, `--dry-run` t
 Before reporting success, confirm all of the following are true in the seeded project:
 
 - [ ] `.claude/agents/` contains `ceo.md` and `cto.md` (domain-role templates).
-- [ ] `docs/trustmybot/` root files were seeded (e.g. `SPEC-FORMAT.md`, `bro/` scaffold).
+- [ ] `docs/trustmybot/` contains `architecture/` and `snapshots/` only; no `tasks/` subdir, no SPEC-FORMAT.md (retired in v0.3 Phase 6.5).
 - [ ] `docs/trustmybot/architecture/README.md` exists.
 - [ ] `docs/trustmybot/architecture/auto/` contains `codebase-tree.md`, `erd.md`, `module-graph.md`, `changelog.md`.
 - [ ] `docs/trustmybot/architecture/manual/` contains `data-flow.md`, `infrastructure.md`, `security-model.md`.

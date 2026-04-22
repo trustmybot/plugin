@@ -162,14 +162,13 @@ Propose with these additional fields in the frontmatter:
 
 ```
 isolation: worktree
-disallowedTools: docs/trustmybot/GOALS.md, docs/trustmybot/BLUEPRINT.md, docs/trustmybot/DISCUSSION.md
 ```
 
 Explain to the user: "This agent will write source code, so it needs worktree
-isolation (same as the core SWE agent) and the workflow-docs barrier. I've
-added those fields to the proposal." Require explicit approval as normal.
+isolation (same as the core SWE agent). I've added the `isolation: worktree`
+field." Require explicit approval as normal.
 
-**User wants an agent that reads `GOALS.md` / strategic docs**
+**User wants an agent with broader cross-session context**
 
 Propose with `memory: true`. Warn the user: "Setting `memory: true` gives this
 agent broader context than SWE-level agents. It will be able to read and
