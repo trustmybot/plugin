@@ -93,7 +93,7 @@ Inspired by — and compatible with the lessons of — [claude-mem](https://gith
 |---|---|
 | Routing | Explicit — gatekeeper is the single door. No skill auto-invocation roulette. |
 | State | Bundled SQLite via MCP. Queryable across sessions. |
-| Info isolation | SWE literally cannot read your `GOALS.md` while writing code. No context pollution. |
+| Info isolation | SWE literally cannot read your strategic context (issue body, discussion entries) while writing code. No context pollution. |
 | Verification | Hard hook gates — no push until pr-reviewer has signed off on every task. |
 | Roster | 2 global + 5 editable placeholders. Not a canned company. |
 | Agent creation | User-approved only. No silent role sprawl. |

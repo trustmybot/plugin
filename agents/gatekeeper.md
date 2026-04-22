@@ -311,11 +311,8 @@ agents/*.md
 mcp issue_list status=open                     # any open issues?
 # For each open issue:
 mcp task_first_actionable issue_id=<id>        # any pending/failed task?
-ls docs/trustmybot/tasks/*.md 2>/dev/null      # surface pending spec files
 ls docs/trustmybot/snapshots/*.md 2>/dev/null  # last review snapshots
 ```
-
-Task spec format is documented in `docs/trustmybot/SPEC-FORMAT.md`.
 
 If `issue_list` is unavailable, scan `docs/trustmybot/snapshots/` for recent
 issue IDs and call `issue_get_with_discussions` per ID to reconstruct state.
@@ -334,7 +331,6 @@ docs/trustmybot/ files:       <list>
 Agents present:   <list>
 Open issues:      <count from MCP, or "none">
 Pending tasks:    <count from MCP, or "none">
-Spec files:       <count of docs/trustmybot/tasks/*.md, or "none">
 Proposed branch_id: <e.g. feat/foo-bar — only when request is a code change>
 =========================
 ```

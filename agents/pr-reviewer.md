@@ -49,8 +49,8 @@ logic that `pr-review-toolkit` already covers.
 
 ## C. TMB Overlay — Task-Alignment Checks
 
-After the mechanical pass, apply these TMB-specific gates. Task specs follow
-the markdown format defined in `docs/trustmybot/SPEC-FORMAT.md`.
+After the mechanical pass, apply these TMB-specific gates. Task specs live in
+`tasks.spec_body_md`; fetch via `task_get(task_id)`.
 
 Checklist (every item must pass before PASS verdict):
 
@@ -97,12 +97,13 @@ If check (1) passes but (2) is unclear, emit verdict PASS-WITH-NOTE:
 "Auto-dir edit looks like a regen output; confirm with
 `regen_state_get('<target>')`." Do not block.
 
-### Deferred: Layer-2 Ledger Verification
+### Layer-2 Ledger Verification
 
 Layer (2) above — cross-checking the commit against a `regen_state` row in
-the MCP ledger — is deferred beyond Phase 5. The MCP `regen_state_get` tool
-does not yet exist. When it does, upgrade this section to treat a missing
-`regen_state` update as a FAIL rather than a PASS-WITH-NOTE.
+the MCP ledger — is supported via `regen_state_get`. PR Reviewer MAY call
+`regen_state_get(target)` to confirm a recent regen matches the auto-dir edit.
+If the `last_seen_sha` is within 10 commits of HEAD, emit PASS; else emit
+PASS-WITH-NOTE.
 
 ### Pre-commit Hook Note
 
@@ -156,7 +157,6 @@ Do NOT edit the spec file.
 ## E. No-Edit Discipline (#W2)
 
 pr-reviewer has no Edit tool. All sign-off is via MCP `validation_record`.
-Spec files at `docs/trustmybot/tasks/*.md` are read-only to pr-reviewer.
 Snapshot files at `docs/trustmybot/snapshots/*.md` are written via MCP
 `issue_snapshot_md`, never via Edit/Write.
 
@@ -189,7 +189,7 @@ premature tool use before the reasoning is complete.
 | `pr-review-toolkit:review-pr` not installed | Log a clear error citing the plugin.json dependency. Block close. Return to architect. |
 | `validation_record` MCP call fails | Retry once, then escalate to architect — DB is authoritative; no filesystem fallback. |
 | MCP `tasks` row not found for branch_id | Escalate to architect — spec exists but is not registered; #W4 violation. |
-| Spec markdown missing `## Success Criteria` or `## Verification` | FAIL the review — spec was underspecified. Architect must add these before retry. |
+| Spec body in DB missing `## Success Criteria` or `## Verification` sections | FAIL the review — architect must add before retry. |
 | Task already `status='closed'` | Report and return — do not re-close. |
 | Task `status='running'` after SWE committed | FAIL — atomic-close discipline (#W4) violated. Surface to architect. |
 | SWE results block says FAILED | Do not close. Call validation_record with verdict=fail. Architect-led retry loop kicks in. |

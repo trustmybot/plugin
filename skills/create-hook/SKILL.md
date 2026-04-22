@@ -15,7 +15,7 @@ Use this when you identify a rule that needs deterministic enforcement — somet
 
 ## Process
 
-1. Write a task file in `docs/trustmybot/tasks/` describing the hook
+1. Have architect create a `tasks` row (via `task_create_batch` with `spec_body_md`) describing the hook
 2. Specify: what to check, what error message to show, where the hook lives
 3. Spawn SWE to implement it
 4. Hook scripts go in `hooks/` directory (not `.git/hooks/` directly)
@@ -31,15 +31,40 @@ hooks/
 
 ## Example Task Spec
 
-```xml
-<work>
-  Create hooks/pre-commit that checks:
-  1. No __pycache__ or .pyc files staged
-  2. No .claude/settings.local.json staged
-  3. Source files in src/ tests/ config/ must be from worktree branch
+```markdown
+## Description
 
-  Create hooks/install.sh that:
-  1. Symlinks hooks/pre-commit to .git/hooks/pre-commit
-  2. Makes it executable
-</work>
+Create hooks/pre-commit that checks:
+1. No __pycache__ or .pyc files staged
+2. No .claude/settings.local.json staged
+3. Source files in src/ tests/ config/ must be from worktree branch
+
+Create hooks/install.sh that:
+1. Symlinks hooks/pre-commit to .git/hooks/pre-commit
+2. Makes it executable
+
+## Files
+
+- `hooks/pre-commit`
+- `hooks/install.sh`
+
+## Success Criteria
+
+- Running `hooks/install.sh` creates `.git/hooks/pre-commit` symlink.
+- Staging a `.pyc` file and running `git commit` is blocked with a clear error.
+
+## Verification
+
+```bash
+bash hooks/install.sh
+ls -la .git/hooks/pre-commit
+```
+
+## Out of Scope
+
+- Modifying existing hooks.
+
+## Commit
+
+`feat(hooks): add pre-commit enforcement hook`
 ```
