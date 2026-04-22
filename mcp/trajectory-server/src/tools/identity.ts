@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -103,7 +104,7 @@ export function identityTools(db: TrajectoryDB): {
       });
     }),
 
-    identity_set: wrapHandler(async (args) => {
+    identity_set: requireRoles('identity_set', ['gatekeeper'], wrapHandler(async (args) => {
       const rawGatekeeper = args['gatekeeper_name'];
       const rawHuman = args['human_name'];
 
@@ -164,12 +165,12 @@ export function identityTools(db: TrajectoryDB): {
         created_at: row!.created_at,
         updated_at: row!.updated_at,
       });
-    }),
+    })),
 
-    identity_reset: wrapHandler(async () => {
+    identity_reset: requireRoles('identity_reset', ['gatekeeper'], wrapHandler(async () => {
       db.run(`DELETE FROM identity`);
       return ok({ ok: true });
-    }),
+    })),
   };
 
   return { definitions, handlers };

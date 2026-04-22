@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -66,7 +67,7 @@ export function configTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    config_set: wrapHandler(async (args) => {
+    config_set: requireRoles('config_set', ['gatekeeper', 'architect'], wrapHandler(async (args) => {
       const key = args['key'];
       if (typeof key !== 'string' || !KEY_REGEX.test(key)) {
         return err(
@@ -92,7 +93,7 @@ export function configTools(db: TrajectoryDB): {
       );
 
       return ok({ key, updated_at: now });
-    }),
+    })),
 
     config_get: wrapHandler(async (args) => {
       const key = args['key'] as string;
