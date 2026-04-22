@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-swe-template-rewrite" status="open">
+<task id="phase-2-swe-template-rewrite" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B: SWE is the agent most affected by the format change. It must read markdown specs (frontmatter + body) instead of XML, drive task state via MCP (task_update_status pending → running → completed) instead of editing &lt;status&gt; in a file, and never write a &lt;results&gt; XML block. The MANDATORY FIRST ACTION block at the top of swe.md must be rewritten to match. This is the largest single Phase 2 prompt edit."/>
   <title>Rewrite templates/agents/swe.md to consume markdown specs and drive task state via MCP only</title>
   <branch-id>refactor/phase-2-swe-template</branch-id>
@@ -186,4 +186,10 @@
     escalates via discussion_append. Atomic commit + state-update remains
     one logical step (#W4). Spec file is read-only to SWE.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Rewrote templates/agents/swe.md for Phase 2: replaces XML spec parsing with YAML frontmatter, drives task lifecycle via MCP task_update_status, and makes spec file read-only to SWE.</summary>
+    <files>templates/agents/swe.md</files>
+    <verification>PASS — all 14 checks passed (file exists, no legacy XML strings, required new strings present, length 190 in 100-220)</verification>
+  </results>
 </task>
