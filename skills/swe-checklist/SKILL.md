@@ -7,7 +7,7 @@ description: Implementation rules and self-review checklist for SWE agent.
 
 ## Before coding
 
-- [ ] I have read the entire task XML, not just the title
+- [ ] I have read the entire task spec, not just the title
 - [ ] I understand every section: context, scope, error-handling, edge-cases, verification, constraints
 - [ ] I have read the existing files listed in `<context>` that I will modify
 - [ ] I understand the patterns I need to match

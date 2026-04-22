@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-skills-rewrite" status="open">
+<task id="phase-2-skills-rewrite" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #B + #E: skill files (architect-workflow, swe-spawn-workflow, swe-checklist, validate-swe-output, review-protocol) all reference XML task format and the GOALS/DISCUSSION/BLUEPRINT file workflow. Agents load these skills directly, so any drift between agent prompt and skill prose causes runtime confusion. One task to bring them all up-to-date."/>
   <title>Update 5 skill files for markdown specs + MCP-driven state</title>
   <branch-id>refactor/phase-2-skills</branch-id>
@@ -185,4 +185,21 @@
     instead of in-file XML tag editing. All 5 cite SPEC-FORMAT.md as the
     canonical task spec contract.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>All 5 skill files updated for Phase 2. architect-workflow, swe-spawn-workflow, validate-swe-output, and review-protocol received substantive rewrites; swe-checklist received one surgical fix (line 10: "task XML" → "task spec" — the only non-format-agnostic literal found during re-read).</summary>
+    <files>
+      skills/architect-workflow/SKILL.md,
+      skills/swe-spawn-workflow/SKILL.md,
+      skills/swe-checklist/SKILL.md,
+      skills/validate-swe-output.md,
+      skills/review-protocol/SKILL.md,
+      docs/trustmybot/tasks/phase-2-skills-rewrite.xml
+    </files>
+    <verification>PASS — all 21 checks printed OK (15 generic + 6 file-specific)</verification>
+    <notes>
+      swe-checklist: architect pre-verified as format-agnostic. Re-read confirmed all backtick section names (`&lt;context&gt;`, `&lt;error-handling&gt;`, etc.) remain conceptual. One literal XML noun found on line 10 ("task XML") — surgical replacement to "task spec" applied per task spec instructions.
+      SPEC-FORMAT.md cited exactly once per modified file (architect-workflow frontmatter note, swe-spawn-workflow template section, validate-swe-output purpose section, review-protocol frontmatter note). swe-checklist does not reference SPEC-FORMAT.md as it has no task-format-specific content.
+    </notes>
+  </results>
 </task>
