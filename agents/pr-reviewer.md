@@ -1,6 +1,6 @@
 ---
 name: pr-reviewer
-description: Pre-commit and pre-push review gate. Delegates mechanical review to pr-review-toolkit:review-pr, overlays TMB task-alignment checks, records pass/fail via MCP validation_record. PROJECT-LEVEL PLACEHOLDER — edit to match your domain.
+description: Pre-commit and pre-push review gate. Delegates mechanical review to pr-review-toolkit:review-pr, overlays TMB task-alignment checks, records pass/fail via MCP validation_record.
 model: opus
 tools: Read, Glob, Grep, Bash, Task
 isolation: none
@@ -10,10 +10,13 @@ skills:
   - code-quality
 ---
 
-> **Placeholder template.** This file was seeded by the TMB plugin.
-> You are expected to edit it to match your project's review
-> conventions (domain gates, compliance, coding standards).
-> The plugin will not overwrite your edits on updates.
+> **Plugin-shipped workflow agent.** Core review discipline (atomic
+> commit + task-alignment + MCP validation_record) is consistent across
+> projects. Domain-specific review conventions (HIPAA, SOC2, style
+> guides) should come from project-level agents or explicit review
+> criteria in each task spec's `## Verification` section.
+> To override for a specific project, create `.claude/agents/pr-reviewer.md`
+> in that project's root; the local file takes precedence over this one.
 
 ---
 
