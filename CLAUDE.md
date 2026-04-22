@@ -53,7 +53,8 @@ When the default 2+5 don't cover a need, gatekeeper invokes the `agent-creator` 
 ```
 Human
   ↓
-gatekeeper (route + pre-scan + direct ops + agent-creator driver)
+gatekeeper (route + pre-scan + direct ops + agent-creator driver
+            + simple/difficult triage)
   ↓
 architect (task files, SWE coordination, validation)
   ↓
@@ -62,6 +63,8 @@ swe (executor, in worktree)
 architect also invokes: pr-reviewer (review gate) / prompt-engineer (doc fixes)
 gatekeeper also invokes: ceo, cto, or any user-edited / on-demand agent
 ```
+
+Architect double-checks the triage; gatekeeper's classification is a proposal.
 
 ## Workflow Files
 
@@ -95,10 +98,9 @@ source code files.** This applies to:
 
 gatekeeper picks the mode based on the Human's ask:
 
-1. MCP `issue_resume` returns an open issue with pending tasks → **Workflow Mode**
-2. Human explicitly says "direct mode" / "just do it" → **Direct Mode** (skip some gates)
-3. Multi-file coordinated changes → **Workflow Mode**
-4. Simple read-only question → gatekeeper handles directly, no agent spawn
+1. **Silent default** — read-only, status, or conversational ask. Gatekeeper handles directly; no agent spawn, no inventory.
+2. **Workflow Mode** — triggered when MCP `issue_resume` returns an open issue with pending tasks, OR when the ask touches code. Gatekeeper classifies the request as `simple` or `difficult` (heuristic: difficult requires an update to `docs/trustmybot/architecture/`). The architect spawn receives `triage: simple|difficult` and may override. Every code change goes through architect — no bypass.
+3. **Direct Mode** — Human explicitly says "direct mode" / "just do it". Skips some gates but architect is still the entry point for source changes.
 
 ## Code Style
 
