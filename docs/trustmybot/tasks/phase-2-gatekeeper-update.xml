@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<task id="phase-2-gatekeeper-update" status="open">
+<task id="phase-2-gatekeeper-update" status="completed">
   <authorized-by agent="architect" reason="v0.3 Phase 2 / change #E: gatekeeper currently greps GOALS.md / BLUEPRINT.md / tasks/*.xml in the deterministic pre-scan. After Phase 2 those files no longer exist. Pre-scan must instead query MCP for open issues + pending tasks. Gatekeeper also needs to capture the Human's intent into discussions when routing to architect (so the architect-to-Human alignment dialogue lives in DB)."/>
   <title>Update agents/gatekeeper.md pre-scan + intent capture for SQLite-backed workflow</title>
   <branch-id>refactor/phase-2-gatekeeper</branch-id>
@@ -159,4 +159,10 @@
     a (created or resumed) issue, so architect inherits a real issue_id
     when routed.
   </commit>
+
+  <results status="COMPLETED">
+    <summary>Four surgical edits applied: pre-scan grep block replaced with MCP queries + SPEC-FORMAT.md citation; inventory block updated (Open goals removed, Open issues / Pending tasks / Spec files added); C.1 Step 5 added for issue_create + discussion_append intent capture; Section G Workflow Mode trigger updated to reference MCP issue_resume. Note: issue_list confirmed present in MCP tools (no workaround needed).</summary>
+    <files>agents/gatekeeper.md, docs/trustmybot/tasks/phase-2-gatekeeper-update.xml</files>
+    <verification>PASS — all 14 checks printed OK; file length 259 lines (within 220-280)</verification>
+  </results>
 </task>
