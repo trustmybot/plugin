@@ -159,6 +159,52 @@ describe('issueTools', () => {
     db.close();
   });
 
+  it('issue_close sets post_commit_hash and preserves pre_commit_hash', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'architect',
+      objective: 'SHA preservation test',
+    });
+    const issue = parseResult(createResult);
+    const originalPreHash = issue.pre_commit_hash;
+
+    const closeResult = await call(tools.handlers, 'issue_close', {
+      agent: 'architect',
+      issue_id: String(issue.id),
+      post_git_sha: 'deadbeef',
+    });
+    const closed = parseResult(closeResult);
+    assert.ok(!closeResult.isError);
+    assert.equal(closed.post_commit_hash, 'deadbeef', 'post_commit_hash should be set');
+    assert.equal(closed.pre_commit_hash, originalPreHash, 'pre_commit_hash must not be overwritten');
+
+    db.close();
+  });
+
+  it('issue_close without post_git_sha leaves post_commit_hash as null', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'swe',
+      objective: 'Optional SHA test',
+    });
+    const issue = parseResult(createResult);
+
+    const closeResult = await call(tools.handlers, 'issue_close', {
+      agent: 'swe',
+      issue_id: String(issue.id),
+    });
+    const closed = parseResult(closeResult);
+    assert.ok(!closeResult.isError);
+    assert.equal(closed.status, 'closed');
+    assert.equal(closed.post_commit_hash, null, 'post_commit_hash should remain null');
+
+    db.close();
+  });
+
   it('unknown issue_id returns a JSON-RPC error', async () => {
     const db = tempDB();
     const tools = issueTools(db);

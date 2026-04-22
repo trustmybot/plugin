@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS issues (
     goals_md          TEXT    NOT NULL DEFAULT '',
     goals_md_hash     TEXT    NOT NULL DEFAULT '',
     pre_commit_hash   TEXT    NOT NULL DEFAULT '',
+    post_commit_hash  TEXT,
     status            TEXT    NOT NULL DEFAULT 'open',
     current_task_id   INTEGER REFERENCES tasks(id),
     created_at        TEXT    NOT NULL,
@@ -37,14 +38,15 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
 
 CREATE TABLE IF NOT EXISTS ledger (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id    INTEGER NOT NULL REFERENCES issues(id),
-    branch_id   TEXT,
-    from_node   TEXT    NOT NULL,
-    event_type  TEXT    NOT NULL,
-    summary     TEXT    NOT NULL DEFAULT '',
-    content     TEXT    NOT NULL DEFAULT '{}',
-    created_at  TEXT    NOT NULL
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id     INTEGER NOT NULL REFERENCES issues(id),
+    branch_id    TEXT,
+    from_node    TEXT    NOT NULL,
+    event_type   TEXT    NOT NULL,
+    summary      TEXT    NOT NULL DEFAULT '',
+    content      TEXT    NOT NULL DEFAULT '{}',
+    is_truncated INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT    NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS audit (
@@ -118,4 +120,4 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (1, '0.2.0');
+INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (2, '0.2.0');
