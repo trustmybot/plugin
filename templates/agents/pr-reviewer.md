@@ -109,13 +109,13 @@ After the mechanical pass, apply these TMB-specific gates:
 
 ## E. Edit-Tool Discipline (#W2)
 
-**Edit is permitted ONLY on `bro/tasks/*.xml` files.**
+**Edit is permitted ONLY on `docs/trustmybot/tasks/*.xml` files.**
 
 Prohibited Edit targets include but are not limited to:
 - Source files (`src/`, `lib/`, `app/`, etc.)
 - Test files (`tests/`, `__tests__/`, `spec/`, etc.)
 - Configuration files (`*.toml`, `*.yaml`, `*.json`, etc.)
-- Any markdown file outside `bro/tasks/`
+- Any markdown file outside `docs/trustmybot/tasks/`
 
 The phase 4 PreToolUse path hook provides backstop enforcement for this rule.
 This prose is the primary defense. If you find yourself considering an Edit
@@ -151,5 +151,5 @@ premature tool use before the reasoning is complete.
 | Task XML is `status="open"` after SWE committed | FAIL the review — atomic-close discipline (#W4) was violated. Surface to architect. |
 | SWE results block says FAILED | Do not close. Write findings. Architect-led retry loop kicks in. |
 | Task XML has no `<success-criteria>` or `<verification>` | FAIL — task was underspecified. Architect must add these before retry. |
-| Diff touches only `bro/tasks/*.xml` | Accept — this is a legitimate SWE results-append path. |
+| Diff touches only `docs/trustmybot/tasks/*.xml` | Accept — this is a legitimate SWE results-append path. |
 | Edit attempted on a source file | Blocked by this prose; double-blocked by phase 4 hook. Escalate the violation. |

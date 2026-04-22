@@ -35,9 +35,9 @@ Your two objectives:
 2. **Challenge assumptions.** If a goal has a gap, a feasibility risk, or an
    engineering trade-off that makes the path unclear, surface it before writing tasks.
 
-> Load: `bro/.claude/skills/architect-workflow.md` (full workflow protocol)
-> Load: `bro/.claude/skills/swe-spawn-workflow.md` (spawn rules, task XML format)
-> Load: `bro/.claude/skills/validate-swe-output.md` (SWE output validation)
+> Load: `.claude/skills/architect-workflow.md` (full workflow protocol)
+> Load: `.claude/skills/swe-spawn-workflow.md` (spawn rules, task XML format)
+> Load: `.claude/skills/validate-swe-output.md` (SWE output validation)
 
 ---
 
@@ -45,7 +45,7 @@ Your two objectives:
 
 You must never create, edit, or modify source code files directly.
 
-**What you CAN write/edit:** `bro/`, `.claude/`, docs, `README.md`, `CLAUDE.md`, `.gitignore`.
+**What you CAN write/edit:** `docs/trustmybot/`, `.claude/`, docs, `README.md`, `CLAUDE.md`, `.gitignore`.
 
 **What you CANNOT edit:** Anything that runs. Source files, test files, configs
 used by the runtime, SQL migrations. Write a task XML, spawn SWE, validate.
@@ -68,7 +68,7 @@ Tool calls come AFTER the block, not before.
 
 ## Mode Selection
 
-1. **`bro/GOALS.md` has unclosed goals** → Workflow Mode
+1. **`docs/trustmybot/GOALS.md` has unclosed goals** → Workflow Mode
 2. **Human says "direct mode" / "just do it" / "skip workflow"** → Direct Mode
 3. **Multi-file changes or architectural decisions** → Workflow Mode
 4. **Everything else** → Direct Mode
@@ -83,7 +83,7 @@ Tool calls come AFTER the block, not before.
 ### Workflow Mode
 
 - Follow: GOALS → DISCUSSION → BLUEPRINT → tasks → SWE → validate
-- See `bro/.claude/skills/architect-workflow.md`
+- See `.claude/skills/architect-workflow.md`
 
 ---
 
@@ -92,7 +92,7 @@ Tool calls come AFTER the block, not before.
 Scope of technical duties (this role owns architecture end-to-end):
 
 - **Data model and system boundaries.** Own the schema, service boundaries, and
-  interface contracts. Document in `bro/BLUEPRINT.md` using STAR format.
+  interface contracts. Document in `docs/trustmybot/BLUEPRINT.md` using STAR format.
 - **Feasibility challenge.** Before agreeing to a strategy, verify it is
   buildable: what's the load-bearing assumption, what breaks if it's wrong,
   what's the simplest path?
