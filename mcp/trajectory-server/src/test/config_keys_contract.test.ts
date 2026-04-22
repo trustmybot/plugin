@@ -46,7 +46,7 @@ describe('config_keys_contract', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { key: 'branching_model', value: 'github-flow' });
+    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'branching_model', value: 'github-flow' });
     const result = await call(tools.handlers, 'config_get', { key: 'branching_model' });
     assert.ok(!result.isError);
     const value = parseResult(result);
@@ -60,7 +60,7 @@ describe('config_keys_contract', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { key: 'pr_target', value: 'main' });
+    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'pr_target', value: 'main' });
     const result = await call(tools.handlers, 'config_get', { key: 'pr_target' });
     assert.ok(!result.isError);
     const value = parseResult(result);
@@ -74,7 +74,7 @@ describe('config_keys_contract', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { key: 'protected_branches', value: ['main'] });
+    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'protected_branches', value: ['main'] });
     const result = await call(tools.handlers, 'config_get', { key: 'protected_branches' });
     assert.ok(!result.isError);
     const value = parseResult(result);
