@@ -35,7 +35,7 @@ async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
 async function createTask(
   db: ReturnType<typeof tempDB>,
   issueId: number,
-  branchId = '1.1',
+  branchId = 'feat/test-task',
 ): Promise<number> {
   const tools = taskTools(db);
   const result = await call(tools.handlers, 'task_create_batch', {
