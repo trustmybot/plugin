@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { genId, nowISO } from '../db.js';
 import type { Task, TaskInput } from '../types.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -281,7 +282,7 @@ export function taskTools(db: TrajectoryDB): {
       return ok(task ?? null);
     }),
 
-    task_set_spec_path: wrapHandler(async (args) => {
+    task_set_spec_path: requireRoles('task_set_spec_path', ['architect'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
       const branchId = requireArg(args, 'branch_id') as string;
@@ -314,7 +315,7 @@ export function taskTools(db: TrajectoryDB): {
 
       const updated = db.get<Task>('SELECT * FROM tasks WHERE issue_id = ? AND branch_id = ?', [issueId, branchId]);
       return ok(updated);
-    }),
+    })),
 
   };
 

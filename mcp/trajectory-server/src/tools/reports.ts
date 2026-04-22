@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import type { Discussion, Issue, Task, LedgerEntry } from '../types.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -192,7 +193,7 @@ export function reportTools(db: TrajectoryDB): {
       return ok({ markdown: lines.join('\n') });
     }),
 
-    issue_snapshot_md: wrapHandler(async (args) => {
+    issue_snapshot_md: requireRoles('issue_snapshot_md', ['architect', 'pr-reviewer'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
       const rawOutputPath = args['output_path'] as string | undefined;
@@ -281,7 +282,7 @@ export function reportTools(db: TrajectoryDB): {
       writeFileSync(absPath, markdown, 'utf8');
 
       return ok({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, 'utf8') });
-    }),
+    })),
 
   };
 

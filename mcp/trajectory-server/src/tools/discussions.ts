@@ -2,7 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import type { Discussion, Issue, Task } from '../types.js';
-import { normalizeAgent } from '../middleware/agent-scope.js';
+import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -92,40 +92,44 @@ export function discussionTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    discussion_append: wrapHandler(async (args) => {
-      normalizeAgent(args['agent'] as string | undefined);
-      const issueId = requireArg(args, 'issue_id') as string;
-      const author = requireArg(args, 'author') as string;
-      const body_md = requireArg(args, 'body_md') as string;
-      const kind = (args['kind'] as string | undefined) ?? 'note';
+    discussion_append: requireRoles(
+      'discussion_append',
+      ['gatekeeper', 'architect', 'pr-reviewer'],
+      wrapHandler(async (args) => {
+        normalizeAgent(args['agent'] as string | undefined);
+        const issueId = requireArg(args, 'issue_id') as string;
+        const author = requireArg(args, 'author') as string;
+        const body_md = requireArg(args, 'body_md') as string;
+        const kind = (args['kind'] as string | undefined) ?? 'note';
 
-      if (!ALLOWED_KINDS.has(kind)) {
-        return err(
-          `Invalid kind: "${kind}". Allowed values: ${[...ALLOWED_KINDS].join(', ')}`,
+        if (!ALLOWED_KINDS.has(kind)) {
+          return err(
+            `Invalid kind: "${kind}". Allowed values: ${[...ALLOWED_KINDS].join(', ')}`,
+          );
+        }
+
+        if (!author.trim()) {
+          throw new Error('author must be a non-empty string');
+        }
+
+        const issue = db.get<Issue>('SELECT id FROM issues WHERE id = ?', [issueId]);
+        if (!issue) {
+          throw new Error(`Not found: issue ${issueId}`);
+        }
+
+        const now = nowISO();
+        db.run(
+          `INSERT INTO discussions (issue_id, author, kind, body_md, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [issueId, author, kind, body_md, now],
         );
-      }
 
-      if (!author.trim()) {
-        throw new Error('author must be a non-empty string');
-      }
-
-      const issue = db.get<Issue>('SELECT id FROM issues WHERE id = ?', [issueId]);
-      if (!issue) {
-        throw new Error(`Not found: issue ${issueId}`);
-      }
-
-      const now = nowISO();
-      db.run(
-        `INSERT INTO discussions (issue_id, author, kind, body_md, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        [issueId, author, kind, body_md, now],
-      );
-
-      const row = db.get<Discussion>(
-        'SELECT * FROM discussions WHERE rowid = last_insert_rowid()',
-      );
-      return ok(row);
-    }),
+        const row = db.get<Discussion>(
+          'SELECT * FROM discussions WHERE rowid = last_insert_rowid()',
+        );
+        return ok(row);
+      }),
+    ),
 
     discussion_list: wrapHandler(async (args) => {
       normalizeAgent(args['agent'] as string | undefined);
