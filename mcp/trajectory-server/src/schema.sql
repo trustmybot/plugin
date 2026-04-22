@@ -120,4 +120,38 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (2, '0.2.0');
+INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (3, '0.3.0-alpha');
+
+CREATE TABLE IF NOT EXISTS file_registry (
+    path             TEXT PRIMARY KEY,
+    type             TEXT NOT NULL DEFAULT 'unknown',
+    language         TEXT,
+    size_bytes       INTEGER,
+    last_commit_sha  TEXT,
+    last_change_type TEXT,
+    last_change_at   TEXT,
+    imports_json     TEXT NOT NULL DEFAULT '[]',
+    exports_json     TEXT NOT NULL DEFAULT '[]',
+    metadata_json    TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS plugin_config (
+    key        TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS identity (
+    id               INTEGER PRIMARY KEY CHECK (id = 1),
+    gatekeeper_name  TEXT NOT NULL DEFAULT 'bro',
+    human_name       TEXT,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS regen_state (
+    target        TEXT PRIMARY KEY,
+    last_regen_at TEXT,
+    last_seen_sha TEXT,
+    notes         TEXT NOT NULL DEFAULT ''
+);

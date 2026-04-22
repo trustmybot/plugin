@@ -2,7 +2,9 @@ import type { Issue } from '../types.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export type AgentRole =
-  | 'secretary'
+  | 'gatekeeper'
+  | /** @deprecated v0.3 — use 'gatekeeper'; aliased in normalizeAgent */
+  'secretary'
   | 'architect'
   | 'swe'
   | 'pr-reviewer'
@@ -10,6 +12,7 @@ export type AgentRole =
   | 'unknown';
 
 const KNOWN_ROLES = new Set<AgentRole>([
+  'gatekeeper',
   'secretary',
   'architect',
   'swe',
@@ -20,6 +23,8 @@ const KNOWN_ROLES = new Set<AgentRole>([
 export function normalizeAgent(name?: string): AgentRole {
   if (!name) return 'unknown';
   const lower = name.toLowerCase() as AgentRole;
+  // Back-compat: v0.2 callers may still pass 'secretary'.
+  if (lower === 'secretary') return 'gatekeeper';
   return KNOWN_ROLES.has(lower) ? lower : 'unknown';
 }
 
@@ -38,6 +43,30 @@ export type Redactor<T> = (value: T, agent: AgentRole, args: Record<string, unkn
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
+export function requireRoles(toolName: string, allowedRoles: AgentRole[], handler: Fn): Fn {
+  const allowed = new Set(allowedRoles);
+  return async (args) => {
+    const agent = normalizeAgent(args['agent'] as string | undefined);
+    if (!allowed.has(agent)) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              error: 'forbidden',
+              tool: toolName,
+              caller_role: agent,
+              allowed_roles: [...allowedRoles],
+            }),
+          },
+        ],
+      };
+    }
+    return handler(args);
+  };
+}
+
 export function redactIssue(
   issue: Issue,
   agent: AgentRole,
@@ -52,6 +81,8 @@ export function redactIssue(
     return { ...rest, objective: truncated };
   }
 
+  // gatekeeper is full-trust: same treatment as architect — no objective truncation,
+  // goals_md gated only on opts.include_goals.
   if (!opts?.include_goals) {
     const { goals_md: _, ...rest } = issue;
     void _;

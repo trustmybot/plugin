@@ -45,3 +45,30 @@ Set by Claude Code as `${CLAUDE_PLUGIN_DATA}/trajectory.db`. Falls back to
 - `skill_list` — list active skills
 - `skill_record_outcome` — record success/failure for effectiveness tracking
 - `meta_get` — read plugin_meta (schema_version, plugin_version)
+
+## Schema versions
+
+| Version | Release | Changes |
+|---|---|---|
+| 1 | v0.2 initial | 9 tables: issues, tasks, ledger, audit, validation_attempts, skills, roundtables, roundtable_votes, plugin_meta |
+| 2 | v0.2 B1/B2/B3 fixes | Added `post_commit_hash` on issues, `is_truncated` on ledger, audit `round` scoped per (issue_id, branch_id) |
+| 3 | v0.3 Phase 0 | Adds file_registry, plugin_config, identity, regen_state tables |
+
+### Hard-break migration policy
+
+On startup, `TrajectoryDB` reads `plugin_meta.schema_version` from the existing
+database file before running `schema.sql`.
+
+- **Lower version (`< 3`)**: the existing file is renamed to
+  `<path>.v<N>.bak.<epoch>` (along with `-wal` and `-shm` sidecars when
+  present), a warning is logged to stderr, and a fresh schema_version=3
+  database is initialized at the original path.
+- **Same version (`=== 3`)**: no-op, startup continues normally.
+- **Higher version (`> 3`)**: the constructor throws — the database was written
+  by a newer binary; upgrade the plugin or restore from backup.
+- **`:memory:` or non-existent path**: migration check is skipped entirely.
+
+Backup files are user's responsibility to inspect or discard. No
+data-preserving migration script exists in v0.3 by design: later phases
+introduce destructive schema changes that would invalidate any migration
+written now. Hard-break + backup preserves data without burning effort.
