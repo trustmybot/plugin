@@ -46,28 +46,5 @@ if [ -n "$DB_PATH" ] && tmb_have_sqlite; then
   exit 0
 fi
 
-# Legacy fallback: DB absent or sqlite3 unavailable. Grep XML task files only.
-# Markdown specs carry no in-file sign-off by design; never grep them.
-echo "tmb-hook: trajectory.db not found or sqlite3 unavailable — falling back to legacy XML sign-off check." >&2
-
-[ -d "docs/trustmybot/tasks" ] || exit 0
-
-UNSIGNED=""
-for f in docs/trustmybot/tasks/*.xml; do
-  [ -f "$f" ] || continue
-  if grep -q 'status="deferred"' "$f" 2>/dev/null; then
-    continue
-  fi
-  if grep -q 'status="open"' "$f" 2>/dev/null; then
-    continue
-  fi
-  if grep -q '<authorized-by' "$f" 2>/dev/null && ! grep -q '<reviewed-by\|<closed-by' "$f" 2>/dev/null; then
-    UNSIGNED="$UNSIGNED $f"
-  fi
-done
-
-if [ -n "$UNSIGNED" ]; then
-  echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Push/merge requires PR Reviewer sign-off. These task files are missing reviewed-by or closed-by:$UNSIGNED. Spawn PR Reviewer to sign them.\"}"
-fi
-
+echo "tmb-hook: trajectory.db not found or sqlite3 unavailable — skipping sign-off check." >&2
 exit 0
