@@ -92,6 +92,34 @@ Follow: issue (MCP) → discussion (MCP) → tasks (markdown specs + MCP)
 
 ---
 
+## Triage Double-Check
+
+Gatekeeper passes a `triage:` field in the spawn prompt (`simple` or
+`difficult`). Before any other workflow step, architect re-evaluates the
+classification using the same heuristic:
+
+> **Does this request require updates to `docs/trustmybot/architecture/`?**
+> If yes → `difficult`. If no → `simple`.
+
+**Authority:** Gatekeeper's classification is a proposal. Architect's is
+binding. If architect's evaluation differs from gatekeeper's, architect's
+wins — no veto from gatekeeper.
+
+**Recording the final classification** (always, even when confirming):
+
+```
+discussion_append(
+  kind='note',
+  body_md='Triage: <simple|difficult> (gatekeeper proposed <x>, architect <confirmed|overrode>)'
+)
+```
+
+This note is the audit trail for the override mechanism and the escalation
+path described in blueprint change #G ("complexity escalation always through
+architect").
+
+---
+
 ## Intent Capture (replaces GOALS / DISCUSSION / BLUEPRINT files)
 
 The Human's intent and the architect-Human alignment dialogue live
@@ -118,15 +146,63 @@ Spec format reference: `docs/trustmybot/SPEC-FORMAT.md`. For each task in a plan
 1. Compute the `branch_id` (git-convention; gatekeeper proposes).
 2. Compute the spec filename:
      `docs/trustmybot/tasks/<branch_id with / replaced by ->.md`
-3. Author the spec following `docs/trustmybot/SPEC-FORMAT.md`:
+3. Choose the template size (see "Template choice" below).
+4. Author the spec following `docs/trustmybot/SPEC-FORMAT.md`:
    frontmatter (`issue_id`, `branch_id`, `title`, `status: pending`,
    `authorized_by: architect`, `authorized_at`, `depends_on`) + body
-   sections (Description, Files, Success Criteria, Verification,
-   Out of Scope, Commit, Results: empty).
-4. Call MCP `task_create_batch(...)` to register the task row(s).
-5. Call MCP `task_set_spec_path(issue_id, branch_id, spec_path)`
+   sections per the chosen template.
+5. Call MCP `task_create_batch(...)` to register the task row(s).
+6. Call MCP `task_set_spec_path(issue_id, branch_id, spec_path)`
    to bind the file to the row.
-6. Spawn SWE with the `spec_path` in the prompt.
+7. Spawn SWE with the `spec_path` in the prompt.
+
+### Template choice
+
+Both templates use the same `SPEC-FORMAT.md` schema. Trivial is a subset of
+standard — same headers, but shorter content and empty sections are allowed.
+
+**simple triage → trivial template**
+- Description: ≤ 3 sentences.
+- Files: list affected paths.
+- Success Criteria: 2–5 bullets; no validation matrix required.
+- Verification: minimal commands sufficient to confirm the change.
+- Commit: one-line message.
+- Out of Scope and Results: may be empty placeholders.
+
+**difficult triage → standard template**
+- Description: full context, motivation, and constraints.
+- Files: list with per-file description of what changes.
+- Success Criteria: detailed, covering every error state, edge case, and
+  input validation requirement; include a validation matrix where applicable.
+- Verification: comprehensive commands covering happy path and failure modes.
+- Out of Scope: explicit list of excluded concerns.
+- Commit: one-line message.
+- Results: empty placeholder (SWE fills on completion).
+
+SWE must never guess. The template size sets the depth of specification
+required — choose accordingly.
+
+---
+
+## Difficult-Path Blueprint Update
+
+When triage = `difficult`, architect MUST capture the architectural plan
+in the discussions table **before** any `task_create_batch` call:
+
+```
+discussion_append(
+  kind='decision',
+  body_md=<architectural plan: what changes, why, trade-offs, risks>
+)
+```
+
+This is the functional equivalent of the old BLUEPRINT file for the current
+phase. Phase 5 will add a parallel write to
+`docs/trustmybot/architecture/manual/` — until then this `discussion_append`
+is the only required artifact.
+
+Skipping this step on a difficult-path task is an error: the decision is not
+auditable and the architecture docs drift.
 
 ---
 
