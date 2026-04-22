@@ -71,3 +71,37 @@ export interface TaskInput {
   success_criteria: string;
   execution_plan_md?: string;
 }
+
+export interface FileRegistryRow {
+  path: string;
+  type: string;
+  language: string | null;
+  size_bytes: number | null;
+  last_commit_sha: string | null;
+  last_change_type: string | null;
+  last_change_at: string | null;
+  imports_json: string;
+  exports_json: string;
+  metadata_json: string;
+}
+
+export interface PluginConfigRow {
+  key: string;
+  value_json: string;
+  updated_at: string;
+}
+
+export interface IdentityRow {
+  id: number;
+  gatekeeper_name: string;
+  human_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RegenStateRow {
+  target: string;
+  last_regen_at: string | null;
+  last_seen_sha: string | null;
+  notes: string;
+}
