@@ -1,107 +1,115 @@
-# TMB Plugin
+# trustmybot/plugin
 
-**Multi-agent engineering workflow for Claude Code. MIT, free forever.**
+Multi-agent engineering workflow for Claude Code. MIT, free forever.
 
-Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch Claude pick the wrong one) or ship 10 canned agents you didn't ask for. TMB does neither. It gives you **two agents globally**, **five editable placeholders per project**, and **an agent factory** so your roster matches your actual domain — not a company org chart someone imagined.
+---
+
+## What it is
+
+TMB is a Claude Code plugin that wires up a 5-agent multi-role workflow
+(secretary, architect, swe, pr-reviewer, prompt-engineer) with SQLite
+run-state persistence via a bundled MCP server. Every task, validation
+attempt, and review verdict is recorded across sessions.
 
 ---
 
 ## Install
 
-```bash
-# Once Claude Code's plugin marketplace is live:
+Requires Claude Code with native plugin support.
+
+```
 /plugin marketplace add trustmybot/plugin
 /plugin install tmb@trustmybot
 ```
 
-First time you activate TMB in a project, it seeds the project's `.claude/agents/` with five editable placeholders (see below).
+---
+
+## Agents
+
+| Agent | Model | Role |
+|---|---|---|
+| `secretary` | Opus | Human's single entry point. Routes requests, relays results, handles direct ops. |
+| `architect` | Opus | Breaks BLUEPRINTs into task XML files, spawns SWE, validates output. |
+| `swe` | Sonnet | Implements one task at a time in an isolated git worktree. Executor only. |
+| `pr-reviewer` | Opus | Pre-commit and pre-push review gate. Blocks bad diffs before they land. |
+| `prompt-engineer` | Sonnet | Rewrites prompts, agent files, and skills. Never touches source code. |
 
 ---
 
-## How the roster works
+## Agent builder
 
-### Global (ships with the plugin)
+Need a `legal-reviewer` for a compliance PR, or a `data-engineer` for a
+migration task? The secretary proposes a tailored agent prompt, shows it to
+you, waits for your explicit approval, and writes it to `.claude/agents/`.
+Every new agent requires a yes. No silent role sprawl.
 
-| Agent | What it does |
-|---|---|
-| `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a deterministic project scan before any LLM-driven agent touches your code, handles direct ops (reads, greps, status). Ask it anything; it will either answer or route. |
-| `prompt-engineer` | Keeps your agent prompts, skills, and workflow docs coherent as the project evolves. Rewrites drift, strips jargon, preserves intent. Never touches source code. |
-
-These two are enough to start. You install the plugin and you have them.
-
-### Project-level placeholders (seeded on first activation per project)
-
-When TMB activates in a project for the first time, it writes five editable agent files into your project's `.claude/agents/`:
-
-| Agent | Starter role |
-|---|---|
-| `ceo` | Product direction and scope calls |
-| `cto` | Technical architecture and feasibility |
-| `architect` | Breaks plans into task XML files, spawns SWE, validates output |
-| `swe` | Implements one task at a time in an isolated git worktree |
-| `pr-reviewer` | Pre-commit and pre-push review gate |
-
-**These are placeholders.** TMB ships sane defaults, but you're expected to edit them to match your project's domain. If your project is a medical device, your "pr-reviewer" might gain knowledge of HIPAA checklists. If it's a fintech, your "cto" might load compliance skills. The plugin doesn't pretend to know your domain.
-
-### On-demand domain agents
-
-When you hit a scenario the default 5+2 don't cover — "I need a `legal-reviewer` for this merger PR" — gatekeeper proposes a tailored agent prompt, shows it to you, asks your permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony.
+See the `agent-creator` skill in `.claude/skills/agent-creator.md`.
 
 ---
 
-## Workflow contract
+## Workflow files
 
-Your project's `bro/` directory becomes the workflow state:
+Your project's `bro/` folder holds the workflow state:
+
+| File | Purpose |
+|---|---|
+| `bro/GOALS.md` | You write what to build. Architect reads this first. |
+| `bro/DISCUSSION.md` | Architect asks clarifying questions; you answer below them. |
+| `bro/BLUEPRINT.md` | Phased design plan. Architect drafts, Human approves. |
+| `bro/tasks/*.xml` | One XML per task. Architect writes, SWE executes exactly one at a time. |
+
+The loop: goals -> alignment -> blueprint -> tasks -> review -> ship.
+
+---
+
+## Persistence
+
+TMB ships a local MCP server backed by SQLite. The run-state database lives at
+`${CLAUDE_PLUGIN_DATA}/trajectory.db` and survives plugin updates. It exposes
+17 tools covering task lifecycle, validation retries, skill usage, and review
+verdicts. Kill Claude mid-task, come back tomorrow, and the secretary resumes
+from recorded state.
+
+---
+
+## Dependencies
+
+TMB depends on two other plugins from the Claude Code marketplace:
+
+- `anthropic/commit-commands` — provides `/commit` and related git helpers
+- `anthropic/pr-review-toolkit` — provides the review primitives pr-reviewer builds on
+
+Install them before or alongside TMB:
 
 ```
-bro/
-├── GOALS.md           ← you write what to build
-├── DISCUSSION.md      ← architect asks clarifying questions, you answer below them
-├── BLUEPRINT.md       ← architect (or cto) drafts phased design; you approve
-└── tasks/*.xml        ← architect breaks blueprint into executable tasks
-                        (one SWE spawn per task file)
+/plugin marketplace add anthropic/commit-commands
+/plugin marketplace add anthropic/pr-review-toolkit
+/plugin marketplace add trustmybot/plugin
+/plugin install tmb@trustmybot
 ```
 
-The loop: **goals → alignment → blueprint → tasks → review → ship**. Each phase is a file, each file has a designated writer and reader, each transition is auditable.
+---
+
+## Dogfooding / local dev
+
+To develop TMB against itself using a local checkout:
+
+```
+/plugin marketplace add --local ./plugin
+/plugin install tmb@local
+```
+
+Changes to `plugin/.claude/` are live immediately — no reinstall needed.
 
 ---
 
-## Persistent trajectory (bundled MCP)
+## Legacy
 
-TMB ships a tiny local MCP server with a SQLite-backed trajectory database. Every issue, task, validation attempt, skill usage, and review verdict is recorded. Kill Claude mid-task, come back tomorrow, gatekeeper reads the trajectory and resumes where you left off. The database lives in `${CLAUDE_PLUGIN_DATA}/trajectory.db` and survives plugin updates.
-
-Inspired by — and compatible with the lessons of — [claude-mem](https://github.com/thedotmack/claude-mem) and [claude-brain](https://github.com/mikeadolan/claude-brain). Different architecture: TMB's DB is a **workflow state machine**, not a memory bank.
-
----
-
-## What makes TMB different
-
-| Concern | TMB's take |
-|---|---|
-| Routing | Explicit — gatekeeper is the single door. No skill auto-invocation roulette. |
-| State | Bundled SQLite via MCP. Queryable across sessions. |
-| Info isolation | SWE literally cannot read your `GOALS.md` while writing code. No context pollution. |
-| Verification | Hard hook gates — no push until pr-reviewer has signed off on every task. |
-| Roster | 2 global + 5 editable placeholders. Not a canned company. |
-| Agent creation | User-approved only. No silent role sprawl. |
-
----
-
-## Compared to adjacent tools
-
-- **claude-mem** — passive memory layer, observational. TMB is active, opinionated workflow.
-- **superpowers** — skill library with auto-invocation. TMB has explicit routing via gatekeeper to avoid wrong-skill pickup.
-- **claude-brain** — SQLite + MCP for memory recall. TMB's SQLite is for trajectory/validation/retry state, not fact recall.
-
----
-
-## Upgrade to Enterprise
-
-Need team dashboards, multi-project trajectories, hardened sandbox permissions, multi-provider LLM?
-→ [TMB Enterprise](https://github.com/trustmybot) (commercial, not MIT).
+`install.sh` is deprecated as of v0.2 and will be removed in v0.3. Use the
+native plugin install flow above.
 
 ---
 
 ## License
 
-MIT. Fork it, ship it, sell it. Credit nice but not required.
+[MIT](LICENSE). Fork it, ship it, sell it. Credit nice but not required.
