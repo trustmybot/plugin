@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Hook: Block SWE agent spawn unless prompt references a valid
 # docs/trustmybot/tasks/*.{xml,md} task spec.
+#
+# Accepts both relative paths (e.g. docs/trustmybot/tasks/foo.md inside a
+# project's own tree) AND absolute paths (e.g. when the spec lives at a
+# parent workspace, like TMB workspace dogfooding the plugin).
 set -euo pipefail
 
 INPUT=$(cat)
@@ -10,9 +14,16 @@ PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty')
 
 [ "$AGENT_TYPE" != "swe" ] && exit 0
 
+# Try absolute path first (workspace-level specs), then relative
 TASK_FILE=$(echo "$PROMPT" \
-  | grep -oE 'docs/trustmybot/tasks/[a-zA-Z0-9_.-]+\.(xml|md)' \
+  | grep -oE '/[a-zA-Z0-9_./-]+/docs/trustmybot/tasks/[a-zA-Z0-9_.-]+\.(xml|md)' \
   | head -1 || true)
+
+if [ -z "$TASK_FILE" ]; then
+  TASK_FILE=$(echo "$PROMPT" \
+    | grep -oE 'docs/trustmybot/tasks/[a-zA-Z0-9_.-]+\.(xml|md)' \
+    | head -1 || true)
+fi
 
 if [ -z "$TASK_FILE" ]; then
   echo '{"decision":"block","reason":"BLOCKED: SWE requires a task spec at docs/trustmybot/tasks/*.{xml,md}. None found in prompt. Route through Architect to create a spec first."}'
