@@ -66,16 +66,16 @@ ls -1
 **/go.mod
 **/Cargo.toml
 **/*.config.*
-bro/*.md
+docs/trustmybot/*.md
 .claude/agents/*.md
 agents/*.md
 ```
 
 ```grep
 # Key markers
-bro/GOALS.md       → grep for open goals
-bro/BLUEPRINT.md   → grep for phase markers
-bro/tasks/*.xml    → count open tasks
+docs/trustmybot/GOALS.md       → grep for open goals
+docs/trustmybot/BLUEPRINT.md   → grep for phase markers
+docs/trustmybot/tasks/*.xml    → count open tasks
 ```
 
 ### Inventory block format
@@ -88,7 +88,7 @@ Last 5 commits:   <oneliner list>
 Top-level dirs:   <list>
 Stacks detected:  <Node/Python/Go/Rust/none>
 Config files:     <list>
-bro/ files:       <list>
+docs/trustmybot/ files:       <list>
 Agents present:   <list>
 Open goals:       <count or "none">
 Open tasks:       <count or "none">
