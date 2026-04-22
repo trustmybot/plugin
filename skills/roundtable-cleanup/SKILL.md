@@ -8,7 +8,7 @@ agent: architect, secretary
 After every roundtable meeting completes:
 
 1. **Summarize** — Write a concise summary (max 1 page) capturing decisions, key arguments, and action items
-2. **Save summary** — Replace the raw discussion file in `bro/roundtable/` with the summary
+2. **Save summary** — Replace the raw discussion file in `docs/trustmybot/roundtable/` with the summary
 3. **Delete raw content** — The full meeting transcript must NOT be kept. Other agents should never have to read a full roundtable discussion — it's too long and wastes context.
 
 ## Why

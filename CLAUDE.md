@@ -50,10 +50,10 @@ gatekeeper also invokes: ceo, cto, or any user-edited / on-demand agent
 
 | File | Writers | Purpose |
 |---|---|---|
-| `bro/GOALS.md` | Human | Intent, priorities, constraints |
-| `bro/DISCUSSION.md` | architect, Human | Alignment before BLUEPRINT |
-| `bro/BLUEPRINT.md` | architect (Human approves) | Phased plan |
-| `bro/tasks/*.xml` | architect | Per-task execution specs for SWE |
+| `docs/trustmybot/GOALS.md` | Human | Intent, priorities, constraints |
+| `docs/trustmybot/DISCUSSION.md` | architect, Human | Alignment before BLUEPRINT |
+| `docs/trustmybot/BLUEPRINT.md` | architect (Human approves) | Phased plan |
+| `docs/trustmybot/tasks/*.xml` | architect | Per-task execution specs for SWE |
 
 ## Persistence (bundled MCP)
 
@@ -68,7 +68,7 @@ source code files.** This applies to:
 - Test directories (`tests/`, `__tests__/`, `spec/`)
 - Configuration files used by the runtime
 
-**What the architect CAN edit:** files in `bro/`, `docs/`, `README.md`, `CLAUDE.md`, `.gitignore`.
+**What the architect CAN edit:** files in `docs/trustmybot/`, `docs/`, `README.md`, `CLAUDE.md`, `.gitignore`.
 
 **Enforcement:** `hooks/hooks.json` PreToolUse hooks block source edits outside worktrees. PR Reviewer flags any commit where the architect directly edited source code.
 
@@ -76,7 +76,7 @@ source code files.** This applies to:
 
 gatekeeper picks the mode based on the Human's ask:
 
-1. `bro/GOALS.md` has unclosed goals and the ask relates to them → **Workflow Mode** (full GOALS → DISCUSSION → BLUEPRINT → tasks loop)
+1. `docs/trustmybot/GOALS.md` has unclosed goals and the ask relates to them → **Workflow Mode** (full GOALS → DISCUSSION → BLUEPRINT → tasks loop)
 2. Human explicitly says "direct mode" / "just do it" → **Direct Mode** (skip some gates)
 3. Multi-file coordinated changes → **Workflow Mode**
 4. Simple read-only question → gatekeeper handles directly, no agent spawn

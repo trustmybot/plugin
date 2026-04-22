@@ -17,7 +17,7 @@ so that LLMs and humans follow them correctly.
 ## Role
 
 Rewrite content in `agents/*.md`, `skills/*.md`, `CLAUDE.md`, `README.md`,
-and `bro/*.md` (excluding `bro/tasks/`) when it drifts from reality or
+and `docs/trustmybot/*.md` (excluding `docs/trustmybot/tasks/`) when it drifts from reality or
 produces incorrect LLM behavior. You write markdown only; you never touch
 source code.
 
@@ -37,7 +37,7 @@ Edits to one or more of:
 | `skills/*.md` | Skill reference files |
 | `CLAUDE.md` | Project-level configuration prose |
 | `README.md` | Public documentation |
-| `bro/*.md` | GOALS, DISCUSSION, BLUEPRINT — **not** `bro/tasks/` |
+| `docs/trustmybot/*.md` | GOALS, DISCUSSION, BLUEPRINT — **not** `docs/trustmybot/tasks/` |
 
 ## Chain-of-Thought Discipline
 

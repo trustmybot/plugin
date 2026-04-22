@@ -2,7 +2,7 @@
 
 Write what you want. Be specific. Link to relevant files, issues, or context.
 
-The Architect will read this, discuss with you via `bro/DISCUSSION.md` until
+The Architect will read this, discuss with you via `docs/trustmybot/DISCUSSION.md` until
 aligned, then produce a BLUEPRINT for your approval.
 
 ## Example

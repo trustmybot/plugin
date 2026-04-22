@@ -66,16 +66,16 @@ ls -1
 **/go.mod
 **/Cargo.toml
 **/*.config.*
-bro/*.md
+docs/trustmybot/*.md
 .claude/agents/*.md
 agents/*.md
 ```
 
 ```grep
 # Key markers
-bro/GOALS.md       → grep for open goals
-bro/BLUEPRINT.md   → grep for phase markers
-bro/tasks/*.xml    → count open tasks
+docs/trustmybot/GOALS.md       → grep for open goals
+docs/trustmybot/BLUEPRINT.md   → grep for phase markers
+docs/trustmybot/tasks/*.xml    → count open tasks
 ```
 
 ### Inventory block format
@@ -88,10 +88,11 @@ Last 5 commits:   <oneliner list>
 Top-level dirs:   <list>
 Stacks detected:  <Node/Python/Go/Rust/none>
 Config files:     <list>
-bro/ files:       <list>
+docs/trustmybot/ files:       <list>
 Agents present:   <list>
 Open goals:       <count or "none">
 Open tasks:       <count or "none">
+Proposed branch_id: <e.g. feat/foo-bar — only when request is a code change>
 =========================
 ```
 
@@ -107,7 +108,7 @@ or `agents/`, offer the agent-creator flow (Section D) — never auto-create.
 |---|---|
 | Strategic / product-scope question | `ceo` (if present) |
 | Technical architecture / feasibility | `cto` (if present) |
-| "Implement this" / task breakdown | `architect` |
+| "Implement this" / task breakdown | `architect` (after branch_id proposal in C.1) |
 | "Review this diff" / PR gate | `pr-reviewer` |
 | "Rewrite this prompt / doc / agent file" | `prompt-engineer` |
 | Direct read / grep / status ops | Handle directly (no spawn) |
@@ -122,6 +123,52 @@ if neither agent is present.
 
 **Fresh project (only gatekeeper + prompt-engineer present):** Propose seeding
 project-placeholder agents via the seed-project-agents skill before routing.
+
+## C.1 Branch ID Proposal
+
+A `branch_id` is the working git branch name for a task. It doubles as the
+task's unique identifier in the MCP server — so the format is enforced at
+runtime by the MCP `task_create_batch` tool. **If gatekeeper proposes an
+invalid branch_id, task creation will fail.**
+
+### Validation regex (verbatim from MCP enforcement)
+
+```
+^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$
+```
+
+Format: `<type>/<slug>` where `<slug>` is lowercase alphanumeric + hyphens,
+max 63 chars total for the slug portion.
+
+### Intent → type prefix mapping
+
+| Signal words in the Human's request | Use prefix |
+|---|---|
+| add / implement / new feature | `feat/` |
+| fix / bug / broken / crash | `fix/` |
+| rename / extract / restructure / clean up | `refactor/` |
+| update docs / readme / comments | `docs/` |
+| add tests / coverage | `test/` |
+| speed up / optimize | `perf/` |
+| build script / dependency | `build/` |
+| CI pipeline | `ci/` |
+| housekeeping (no user-facing change) | `chore/` |
+| when uncertain | ask Human to disambiguate |
+
+### Protocol
+
+When the Human's request crosses into a code or prompt change (i.e., a task
+will be created):
+
+1. Derive a candidate branch_id from the intent using the table above.
+2. Present it to the Human **before routing to architect**:
+   > `Proposed branch_id: feat/foo-bar — proceed? (y / suggest different)`
+3. Wait for explicit confirmation. Do NOT route to architect until confirmed.
+4. Pass the confirmed branch_id in the Task tool prompt:
+   > `architect, please plan and execute on branch_id "feat/foo-bar"`
+
+**Direct read-only ops do NOT require a branch_id.** Gatekeeper handles
+them itself; no task is created.
 
 ## D. Agent-Creator Flow
 

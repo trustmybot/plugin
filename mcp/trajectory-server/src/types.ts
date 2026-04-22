@@ -16,7 +16,9 @@ export interface Issue {
 export interface Task {
   id: number;
   issue_id: number;
+  /** Git-convention name: <type>/<slug> (e.g. feat/user-login). Doubles as the working git branch. */
   branch_id: string;
+  /** Parent task's git-convention branch_id, or null for root tasks. */
   parent_branch_id: string | null;
   title: string;
   description: string;
@@ -62,7 +64,9 @@ export interface ToolResult {
 }
 
 export interface TaskInput {
+  /** Git-convention name: <type>/<slug> (e.g. feat/user-login). Validated by BRANCH_ID_RE at runtime. */
   branch_id: string;
+  /** Optional parent task branch_id; same git-convention format if supplied. */
   parent_branch_id?: string;
   title?: string;
   description: string;

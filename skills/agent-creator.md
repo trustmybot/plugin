@@ -162,7 +162,7 @@ Propose with these additional fields in the frontmatter:
 
 ```
 isolation: worktree
-disallowedTools: bro/GOALS.md, bro/BLUEPRINT.md, bro/DISCUSSION.md
+disallowedTools: docs/trustmybot/GOALS.md, docs/trustmybot/BLUEPRINT.md, docs/trustmybot/DISCUSSION.md
 ```
 
 Explain to the user: "This agent will write source code, so it needs worktree

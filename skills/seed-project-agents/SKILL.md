@@ -1,6 +1,6 @@
 ---
 name: seed-project-agents
-description: Copy the plugin's project-placeholder agent templates (ceo, cto, architect, swe, pr-reviewer) into the current project's .claude/agents/ directory. Run once per project.
+description: Copy the plugin's project-placeholder agent templates (ceo, cto, architect, swe, pr-reviewer) into the current project's .claude/agents/ directory, and copy the docs/trustmybot/ workflow scaffold into docs/trustmybot/. Run once per project.
 disable-model-invocation: true
 allowed-tools: Read, Glob, Write, Bash
 argument-hint: "[--overwrite] [--dry-run]"
@@ -20,8 +20,13 @@ Seed placeholder agent templates into the current project on first activation. R
 
 ## C. Source and Destination
 
-- **Sources:** `${CLAUDE_PLUGIN_ROOT}/templates/agents/{ceo,cto,architect,swe,pr-reviewer}.md`
+**Agent templates:**
+- **Source:** `${CLAUDE_PLUGIN_ROOT}/templates/agents/{ceo,cto,architect,swe,pr-reviewer}.md`
 - **Destination:** `<cwd>/.claude/agents/<name>.md`
+
+**Workflow scaffold:**
+- **Source:** `${CLAUDE_PLUGIN_ROOT}/templates/docs-trustmybot/` (entire directory tree)
+- **Destination:** `<cwd>/docs/trustmybot/`
 
 The plugin install directory is read-only from this skill's perspective. Never modify any file under `$CLAUDE_PLUGIN_ROOT`.
 
@@ -56,7 +61,19 @@ The plugin install directory is read-only from this skill's perspective. Never m
       - Destination **does not exist** + `--dry-run` flag: log `would create: .claude/agents/<basename>` (no write).
       - Destination **does not exist**, no dry-run: Write the file, log `created: .claude/agents/<basename>`.
 
-6. **Print summary.**
+6. **Copy workflow scaffold.**
+   a. Glob `${CLAUDE_PLUGIN_ROOT}/templates/docs-trustmybot/**`. If no files are found, report and abort:
+      "Source directory `${CLAUDE_PLUGIN_ROOT}/templates/docs-trustmybot/` is missing or empty."
+   b. For each file found:
+      - Compute destination by replacing the source prefix with `<cwd>/docs/trustmybot/`.
+      - Apply the same `--overwrite` / `--dry-run` / skip logic as step 5.
+      - Log with prefix `docs/trustmybot/` instead of `.claude/agents/`.
+   c. When not in `--dry-run` mode, ensure destination directories exist before writing:
+      ```bash
+      mkdir -p docs/trustmybot/tasks/
+      ```
+
+7. **Print summary.**
    ```
    seed-project-agents summary:
      created:    N files
@@ -73,10 +90,11 @@ When both `--dry-run` and `--overwrite` are passed simultaneously, `--dry-run` t
 
 ## F. Safety Rules
 
-- Never write outside `<cwd>/.claude/agents/`. All Write calls must resolve to a path within that directory.
+- All Write calls must resolve to a path within `<cwd>/.claude/agents/` or `<cwd>/docs/trustmybot/`. Never write outside these two directories.
 - Never modify any file under `$CLAUDE_PLUGIN_ROOT`. The plugin is read-only at runtime.
 - If CWD is inside `$CLAUDE_PLUGIN_ROOT`, refuse immediately and escalate (see Preconditions).
-- Destination paths are always computed as `<basename>` only — never allow path traversal (reject any template filename containing `/` or `..`).
+- Agent destination paths are always computed as `<basename>` only — never allow path traversal (reject any template filename containing `/` or `..`).
+- Workflow scaffold destination paths preserve subdirectory structure relative to `templates/docs-trustmybot/` but must not escape `<cwd>/docs/trustmybot/`.
 
 ## G. Post-Seed Advice
 

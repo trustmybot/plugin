@@ -46,6 +46,18 @@ Set by Claude Code as `${CLAUDE_PLUGIN_DATA}/trajectory.db`. Falls back to
 - `skill_record_outcome` — record success/failure for effectiveness tracking
 - `meta_get` — read plugin_meta (schema_version, plugin_version)
 
+## branch_id format
+
+Every task's `branch_id` must follow the git-convention format:
+
+```
+<type>/<slug>
+```
+
+where `<type>` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`, `build`, `ci`, `style`, or `revert`, and `<slug>` is lowercase alphanumeric with hyphens (max 63 chars, must start with an alnum character). Examples: `feat/user-login`, `fix/auth-crash`, `refactor/extract-helper`.
+
+`branch_id` doubles as the working git branch name for the task's worktree. The `task_first_actionable` tool returns tasks in lexicographic order of `branch_id`, which groups them by type prefix (`chore < ci < docs < feat < fix < ...`).
+
 ## Schema versions
 
 | Version | Release | Changes |
