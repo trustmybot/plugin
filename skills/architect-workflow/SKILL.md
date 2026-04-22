@@ -18,16 +18,45 @@ Canonical task spec format: `docs/trustmybot/SPEC-FORMAT.md`.
 
 ## Workflow Steps
 
+### 0. Triage Double-Check
+
+Gatekeeper passes a `triage:` field in the spawn prompt (`simple` or
+`difficult`). Before any other workflow step, re-evaluate the classification
+using the heuristic:
+
+> **Does this request require updates to `docs/trustmybot/architecture/`?**
+> If yes → `difficult`. If no → `simple`.
+
+Gatekeeper's classification is a proposal; architect's is binding. Record the
+final classification (even when confirming gatekeeper's):
+
+```
+discussion_append(
+  kind='note',
+  body_md='Triage: <simple|difficult> (gatekeeper proposed <x>, architect <confirmed|overrode>)'
+)
+```
+
+### 1–8. Main Sequence
+
 1. Create or resume MCP issue (`issue_create` or `issue_resume`) to anchor the work item.
 2. Discuss via `discussion_append` until aligned with the Human — append `kind='question'` entries, read replies, iterate.
-3. Author markdown task specs per `docs/trustmybot/SPEC-FORMAT.md`.
-4. Call `task_create_batch` + `task_set_spec_path` to register specs in SQLite.
-5. Spawn SWE per task (one worktree per task).
-6. Validate per `skills/validate-swe-output.md`.
-7. Spawn PR Reviewer before reporting phase complete.
-8. Close tasks via `task_update_status(status='closed')` once review passes.
+3. **Difficult path only:** capture the architectural plan before writing any specs:
+   ```
+   discussion_append(
+     kind='decision',
+     body_md=<architectural plan: what changes, why, trade-offs, risks>
+   )
+   ```
+4. Author markdown task specs per `docs/trustmybot/SPEC-FORMAT.md` using the
+   template size matched to the triage result (see "Template Selection" below).
+5. Call `task_create_batch` + `task_set_spec_path` to register specs in SQLite.
+6. Spawn SWE per task (one worktree per task).
+7. Validate per `skills/validate-swe-output.md`.
+8. Spawn PR Reviewer before reporting phase complete.
+9. Close tasks via `task_update_status(status='closed')` once review passes.
 
-**Loops until all tasks are closed.** After step 7, check for remaining open
+**Loops until all tasks are closed.** After step 8, check for remaining open
 tasks → return to step 2.
 
 ### Intent Change Mid-Workflow
@@ -51,6 +80,33 @@ snapshot via `issue_snapshot_md` when the Human wants a doc to review.
 5. When aligned: **ALIGNED — PRODUCING TASK SPECS**
 
 **Never skip discussion.** Explore code BEFORE asking questions.
+
+---
+
+## Template Selection
+
+Both templates use the same `SPEC-FORMAT.md` schema. Choose based on triage result.
+
+**simple triage → trivial template**
+- Description: ≤ 3 sentences.
+- Files: list affected paths.
+- Success Criteria: 2–5 bullets; no validation matrix required.
+- Verification: minimal commands sufficient to confirm the change.
+- Commit: one-line message.
+- Out of Scope and Results: may be empty placeholders.
+
+**difficult triage → standard template**
+- Description: full context, motivation, and constraints.
+- Files: list with per-file description of what changes.
+- Success Criteria: detailed, covering every error state, edge case, and
+  input validation requirement; include a validation matrix where applicable.
+- Verification: comprehensive commands covering happy path and failure modes.
+- Out of Scope: explicit list of excluded concerns.
+- Commit: one-line message.
+- Results: empty placeholder (SWE fills on completion).
+
+SWE must never guess. The template size sets the depth of specification
+required — choose accordingly.
 
 ---
 
