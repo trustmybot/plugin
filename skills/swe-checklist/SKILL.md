@@ -8,24 +8,24 @@ description: Implementation rules and self-review checklist for SWE agent.
 ## Before coding
 
 - [ ] I have read the entire task spec, not just the title
-- [ ] I understand every section: context, scope, error-handling, edge-cases, verification, constraints
-- [ ] I have read the existing files listed in `<context>` that I will modify
+- [ ] I understand every section: `## Description`, `## Files`, `## Success Criteria`, `## Verification`, `## Out of Scope`, `## Commit`
+- [ ] I have read the existing files listed in `## Files` that I will modify
 - [ ] I understand the patterns I need to match
 
 ## While coding
 
 - [ ] I match existing patterns in the codebase (naming, error handling, test structure)
-- [ ] Every `<error-handling>` case has a corresponding code path
-- [ ] Every `<edge-cases>` scenario is handled
+- [ ] Every error case mentioned in `## Description` has a corresponding code path
+- [ ] Every edge case mentioned in `## Description` is handled
 - [ ] I don't add features that weren't requested (scope creep)
 - [ ] I don't add `TODO` or `FIXME` — the task is done or it's ESCALATE
 - [ ] I use the project's standard logging, not `print` or `console.log`
 
 ## Before committing
 
-- [ ] All `<verification>` commands pass (I ran them, not just assumed)
+- [ ] All `## Verification` commands pass (I ran them, not just assumed)
 - [ ] No secrets, `.env` values, or credentials in the diff
-- [ ] The commit message matches the `<commit>` section
+- [ ] The commit message matches the `## Commit` section
 - [ ] I am committing in the worktree, not the main repo
 
 ## Escalation criteria
