@@ -14,55 +14,68 @@ Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch C
 /plugin install tmb@trustmybot
 ```
 
-On first activation, the gatekeeper introduces itself and asks 2–3 short questions: your branching model (trunk-based, gitflow, etc.) and your identity preference for commits and agent comments. Takes ~30 seconds. Answers are stored in the plugin's trajectory DB via MCP (see `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the exact keys) and configure the workflow guards for your repo. After that, it seeds the project's `.claude/agents/` with five editable placeholders (see below).
+On first activation, the gatekeeper introduces itself and asks 2–3 short questions: your branching model (trunk-based, gitflow, etc.) and your identity preference for commits and agent comments. Takes ~30 seconds. Answers are stored in the plugin's trajectory DB via MCP (see `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the exact keys) and configure the workflow guards for your repo. After that, it seeds the project's `.claude/agents/` with two editable domain-role placeholders (`ceo`, `cto`).
 
 ---
 
 ## How the roster works
 
-### Global (ships with the plugin)
+### Global workflow agents (ship with the plugin)
+
+Workflow agents whose behavior is meant to be consistent across projects. Install the plugin and you have them.
 
 | Agent | What it does |
 |---|---|
-| `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a deterministic project scan before any LLM-driven agent touches your code, handles direct ops (reads, greps, status). Ask it anything; it will either answer or route. |
-| `prompt-engineer` | Keeps your agent prompts, skills, and workflow docs coherent as the project evolves. Rewrites drift, strips jargon, preserves intent. Never touches source code. |
+| `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a conditional project scan on the first code-touching ask, handles direct ops. Ask it anything — it will either answer or route. |
+| `prompt-engineer` | Keeps agent prompts, skills, and workflow docs coherent as the project evolves. Rewrites drift, strips jargon, preserves intent. Never touches source. |
+| `architect` | Captures intent into the trajectory DB (issues + discussions), writes markdown task specs, spawns + validates SWE. Double-checks every gatekeeper triage. |
+| `swe` | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
+| `pr-reviewer` | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
 
-These two are enough to start. You install the plugin and you have them.
+**Override any of these per-project** by creating a same-named file in the project's `.claude/agents/`. The local file wins.
 
-### Project-level placeholders (seeded on first activation per project)
+### Domain-role templates (seeded on first activation per project)
 
-When TMB activates in a project for the first time, it writes five editable agent files into your project's `.claude/agents/`:
+When TMB activates in a project for the first time, it writes two editable agent files into your project's `.claude/agents/`:
 
 | Agent | Starter role |
 |---|---|
 | `ceo` | Product direction and scope calls |
 | `cto` | Technical architecture and feasibility |
-| `architect` | Breaks plans into task XML files, spawns SWE, validates output |
-| `swe` | Implements one task at a time in an isolated git worktree |
-| `pr-reviewer` | Pre-commit and pre-push review gate |
 
-**These are placeholders.** TMB ships sane defaults, but you're expected to edit them to match your project's domain. If your project is a medical device, your "pr-reviewer" might gain knowledge of HIPAA checklists. If it's a fintech, your "cto" might load compliance skills. The plugin doesn't pretend to know your domain.
+**These are placeholders.** Every project has different product direction and tech stack — if your project is a medical device, your `cto` should know IEC 62304; if it's fintech, your `ceo` should know SOC 2 deadlines. The plugin doesn't pretend to know your domain; you edit these.
+
+Delete either that doesn't apply (e.g., solo project → delete `ceo.md`).
 
 ### On-demand domain agents
 
-When you hit a scenario the default 5+2 don't cover — "I need a `legal-reviewer` for this merger PR" — gatekeeper proposes a tailored agent prompt, shows it to you, asks your permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony.
+When you hit a scenario the default roster doesn't cover — "I need a `legal-reviewer` for this merger PR" — gatekeeper proposes a tailored agent prompt, shows it to you, asks your permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony.
 
 ---
 
 ## Workflow contract
 
-Your project's `docs/trustmybot/` directory becomes the workflow state:
+State is SQLite-canonical; files are generated snapshots. Your project's `docs/trustmybot/` directory hosts human-facing artifacts:
 
 ```
 docs/trustmybot/
-├── GOALS.md           ← you write what to build
-├── DISCUSSION.md      ← architect asks clarifying questions, you answer below them
-├── BLUEPRINT.md       ← architect (or cto) drafts phased design; you approve
-└── tasks/*.xml        ← architect breaks blueprint into executable tasks
-                        (one SWE spawn per task file)
+├── SPEC-FORMAT.md           ← how to read a task spec (for humans)
+├── tasks/<branch_id>.md     ← per-task execution spec (architect writes, SWE reads)
+├── snapshots/<issue>.md     ← on-demand human-readable snapshot of issue state
+└── architecture/
+    ├── auto/                ← regenerated via /tmb refresh-architecture
+    │   ├── codebase-tree.md
+    │   ├── erd.md
+    │   ├── module-graph.md
+    │   └── changelog.md
+    └── manual/              ← human-curated ADRs + narrative
+        ├── decisions/
+        ├── data-flow.md
+        ├── infrastructure.md
+        └── security-model.md
 ```
 
-The loop: **goals → alignment → blueprint → tasks → review → ship**. Each phase is a file, each file has a designated writer and reader, each transition is auditable.
+Everything else — goals, discussions, validation attempts, task status, skill effectiveness, identity, branching-model config — lives in the plugin's trajectory DB (see below). The loop: **intent captured → alignment via discussion → tasks → SWE in worktree → pr-reviewer → ship**. Every transition auditable; kill Claude mid-loop, gatekeeper resumes on session start.
 
 ---
 

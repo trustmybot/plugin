@@ -21,26 +21,26 @@ When spawning architect/SWE for plugin work, always direct task spec writes to `
 
 ## Agent Roster (two-tier model)
 
-### Tier 1 — Global (plugin ships these; always available when enabled)
+### Tier 1 — Global workflow agents (plugin ships these; always available when enabled)
+
+Workflow agents whose behavior is meant to be consistent across projects. They live at `plugin/agents/`. Users can override any of them for a specific project by creating a same-named file in the project's local `.claude/agents/` — the local file takes precedence over the plugin-shipped one.
 
 | Agent | Model | Role |
 |---|---|---|
-| `gatekeeper` | Opus | Single Human entry point. Routes requests to specialists, runs a deterministic project pre-scan before any LLM-driven agent touches code, handles direct ops (reads, greps, status). Drives the agent-creator flow when a needed role doesn't exist yet. |
-| `prompt-engineer` | Sonnet | Maintains coherence of agent prompts, skill files, and workflow docs as the project evolves. Markdown-only edits; never touches source. |
+| `gatekeeper` | Opus | Single Human entry point. Routes to specialists, runs a conditional pre-scan, handles direct read-only ops, drives the onboarding flow + agent-creator. |
+| `prompt-engineer` | Sonnet | Maintains coherence of agent prompts, skill files, and workflow docs. Markdown-only edits; never touches source. |
+| `architect` | Sonnet | Captures intent into MCP (issues + discussions); writes markdown task specs at `docs/trustmybot/tasks/<branch_id>.md`; spawns + validates SWE. |
+| `swe` | Sonnet | Implements one task per markdown spec; runs in isolated git worktree; drives state via MCP; closes atomically with commit. |
+| `pr-reviewer` | Sonnet | Pre-commit/pre-push review gate. Records verdicts via MCP `validation_record`; no Edit tool (strict read-only). |
 
-These two are the plugin's rigid contract with the user. They live at `plugin/agents/`.
+### Tier 2 — Domain-role templates (seeded into `./.claude/agents/` on first activation per project)
 
-### Tier 2 — Project-level placeholders (seeded into `./.claude/agents/` on first activation per project)
-
-Plugin ships starter prompts at `plugin/templates/agents/`. The `seed-project-agents` skill copies them into the project's `.claude/agents/` on first run. **Users are expected to edit these to match their project's domain.**
+Plugin ships starter prompts at `plugin/templates/agents/`. The `seed-project-agents` skill copies them into the project's `.claude/agents/` on first run. **Users are expected to edit these to match their project's domain** — every project has different product direction and tech stack, so these files are starting points, not shipped defaults.
 
 | Agent | Starter role |
 |---|---|
 | `ceo` | Product direction, scope calls |
 | `cto` | Technical architecture, feasibility |
-| `architect` | Breaks issues into task specs; spawns and validates SWE; drives agent-creator flow |
-| `swe` | Implements one task per markdown spec; runs in isolated git worktree; closes its own task atomically with commit |
-| `pr-reviewer` | Pre-commit and pre-push gate; calls MCP validation_record on pass/fail |
 
 ### Tier 3 — On-demand domain agents (created via `agent-creator` skill)
 
