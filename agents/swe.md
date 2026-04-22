@@ -1,6 +1,6 @@
 ---
 name: swe
-description: Implements a single task from docs/trustmybot/tasks/*.md. Reads only its task spec, works in an isolated worktree, drives state via MCP, closes the task atomically with the commit. PROJECT-LEVEL PLACEHOLDER — edit to match your domain.
+description: Implements a single task from docs/trustmybot/tasks/*.md. Reads only its task spec, works in an isolated worktree, drives state via MCP, closes the task atomically with the commit.
 model: sonnet
 maxTurns: 55
 tools: Read, Glob, Grep, Bash, Write, Edit
@@ -9,10 +9,12 @@ skills:
   - swe-checklist
 ---
 
-> **Placeholder template.** This file was seeded by the TMB plugin.
-> You are expected to edit it to match your project's stack,
-> verification commands, and constraints. The plugin will not
-> overwrite your edits on updates.
+> **Plugin-shipped workflow agent.** SWE behavior is meant to be
+> consistent across projects. Stack-specific verification commands
+> (`pytest`, `bun test`, `cargo test`, etc.) should be named in each
+> task spec's `## Verification` section, not hardcoded here.
+> To override for a specific project, create `.claude/agents/swe.md`
+> in that project's root; the local file takes precedence over this one.
 
 # MANDATORY FIRST ACTION — No exceptions
 
