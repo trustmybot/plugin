@@ -294,7 +294,7 @@ describe('discussions + snapshot integration', () => {
     assert.equal(row.status, 'completed', 'Status must NOT have changed');
   });
 
-  it('step 6c: task_update_status without commit_sha is backward-compatible', async () => {
+  it('step 6c: task_update_status leaves commit_sha null when the caller omits it', async () => {
     const tasks = taskTools(db);
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
@@ -303,9 +303,9 @@ describe('discussions + snapshot integration', () => {
       issue_id: issueId,
       tasks: [
         {
-          branch_id: 'feat/back-compat-test',
-          description: 'Back-compat task',
-          success_criteria: 'passes without commit_sha',
+          branch_id: 'feat/commit-sha-optional',
+          description: 'Task that finishes without a commit_sha',
+          success_criteria: 'completes without commit_sha argument',
         },
       ],
     });
@@ -318,7 +318,7 @@ describe('discussions + snapshot integration', () => {
       status: 'completed',
     });
     const updated = parseResult(result);
-    assert.ok(!result.isError, 'Back-compat call without commit_sha should succeed');
+    assert.ok(!result.isError, 'Call without commit_sha should succeed');
     assert.equal(updated.status, 'completed');
     assert.equal(updated.commit_sha, null, 'commit_sha should remain null when not provided');
   });

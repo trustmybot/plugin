@@ -123,17 +123,16 @@ architect").
 
 ---
 
-## Intent Capture (replaces GOALS / DISCUSSION / BLUEPRINT files)
+## Intent Capture
 
-The Human's intent and the architect-Human alignment dialogue live
-in MCP, not in markdown files.
+The Human's intent and the architect-Human alignment dialogue live in MCP:
 
-| Old artifact               | New mechanism                                            |
-|----------------------------|----------------------------------------------------------|
-| GOALS (intent file)        | `issue_create(objective=..., description=...)` once per ask |
-| DISCUSSION (Q+A file)      | `discussion_append(kind='question'|'answer', ...)`       |
-| BLUEPRINT (simple plan)    | `discussion_append(kind='decision', body=plan)`       |
-| BLUEPRINT (arch. decision) | `docs/trustmybot/architecture/manual/decisions/N-...md`  |
+| Concern | How to capture |
+|---|---|
+| Issue objective + full description | `issue_create(objective=..., description=...)` once per ask |
+| Q+A with the Human | `discussion_append(kind='question'\|'answer', body=...)` |
+| Small plan | `discussion_append(kind='decision', body=plan)` |
+| Architectural decision (ADR) | `docs/trustmybot/architecture/manual/decisions/N-...md` |
 
 For human review handoff, generate a snapshot:
   `issue_snapshot_md(issue_id)` → `docs/trustmybot/snapshots/<id>.md`
@@ -152,8 +151,9 @@ For each task in a planned batch:
    sections: Description, Files, Success Criteria, Verification, Out of Scope,
    Commit. This is the `spec_body` string.
 4. Call MCP `task_create_batch(...)` passing `spec_body` with the full spec
-   body. Row columns (`issue_id`, `branch_id`, `title`, `status`, `created_at`)
-   replace the old frontmatter YAML.
+   body. The row columns (`issue_id`, `branch_id`, `title`, `status`,
+   `created_at`) hold the structured fields; the body is the unstructured
+   contract SWE reads.
 5. Spawn SWE with `task_id=<N>` in the Task-tool prompt (decimal integer
    primary key of the tasks row). Example: `swe, execute task_id=42 for issue 7`.
 

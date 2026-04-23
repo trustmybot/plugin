@@ -52,8 +52,8 @@ discussion_append(
    sections: Description, Files, Success Criteria, Verification, Out of Scope,
    Commit.
 5. Call `task_create_batch` passing `spec_body` to insert rows in SQLite.
-   Row columns (`issue_id`, `branch_id`, `title`, `status`, `created_at`)
-   replace the old frontmatter YAML.
+   The row columns (`issue_id`, `branch_id`, `title`, `status`, `created_at`)
+   hold the structured fields; the body is the free-form contract SWE reads.
 6. Spawn SWE per task (one worktree per task) using `task_id=<N>` in the
    Task-tool prompt.
 7. Validate per `skills/validate-swe-output/SKILL.md`.

@@ -309,7 +309,7 @@ agents/*.md
 ```
 
 ```bash
-# Workflow state — MCP queries (replaces file grep)
+# Workflow state — MCP queries
 mcp issue_list status=open                     # any open issues?
 # For each open issue:
 mcp task_first_actionable issue_id=<id>        # any pending/failed task?
