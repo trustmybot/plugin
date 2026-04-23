@@ -48,7 +48,6 @@ describe('agent-scope middleware', () => {
     assert.equal(normalizeAgent('architect'), 'architect');
     assert.equal(normalizeAgent('swe'), 'swe');
     assert.equal(normalizeAgent('pr-reviewer'), 'pr-reviewer');
-    assert.equal(normalizeAgent('prompt-engineer'), 'prompt-engineer');
   });
 
   it('normalizeAgent falls back to unknown for unknown input', () => {

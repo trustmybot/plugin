@@ -8,7 +8,6 @@ export type AgentRole =
   | 'architect'
   | 'swe'
   | 'pr-reviewer'
-  | 'prompt-engineer'
   | 'unknown';
 
 const KNOWN_ROLES = new Set<AgentRole>([
@@ -17,7 +16,6 @@ const KNOWN_ROLES = new Set<AgentRole>([
   'architect',
   'swe',
   'pr-reviewer',
-  'prompt-engineer',
 ]);
 
 export function normalizeAgent(name?: string): AgentRole {

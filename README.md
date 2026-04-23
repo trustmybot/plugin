@@ -14,42 +14,30 @@ Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch C
 /plugin install tmb@trustmybot
 ```
 
-On first activation, the gatekeeper introduces itself and asks 2–3 short questions: your branching model (trunk-based, gitflow, etc.) and your identity preference for commits and agent comments. Takes ~30 seconds. Answers are stored in the plugin's trajectory DB via MCP (see `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the exact keys) and configure the workflow guards for your repo. After that, it seeds the project's `.claude/agents/` with two editable domain-role placeholders (`ceo`, `cto`).
+On first activation, the gatekeeper introduces itself and asks 2–3 short questions: your branching model (trunk-based, gitflow, etc.) and your identity preference for commits and agent comments. Takes ~30 seconds. Answers are stored in the plugin's trajectory DB via MCP (see `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the exact keys) and configure the workflow guards for your repo. No files are seeded into your project — domain agents come on-demand (see below).
 
 ---
 
 ## How the roster works
 
-### Global workflow agents (ship with the plugin)
+### Four global workflow agents (ship with the plugin)
 
-Workflow agents whose behavior is meant to be consistent across projects. Install the plugin and you have them.
+Everything a coding workflow needs, nothing else. Install the plugin and you have them in every project where it's enabled.
 
 | Agent | What it does |
 |---|---|
-| `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a conditional project scan on the first code-touching ask, handles direct ops. Ask it anything — it will either answer or route. |
-| `prompt-engineer` | Keeps agent prompts, skills, and workflow docs coherent as the project evolves. Rewrites drift, strips jargon, preserves intent. Never touches source. |
-| `architect` | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body_md` via MCP, spawns + validates SWE. Double-checks every gatekeeper triage. |
+| `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a conditional project scan on the first code-touching ask, handles direct read-only ops. Ask it anything — it will either answer or route. |
+| `architect` | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body_md` via MCP, spawns + validates SWE. Also edits agent prompts, skill files, and workflow markdown when they drift. Double-checks every gatekeeper triage. |
 | `swe` | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
 | `pr-reviewer` | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
 
 **Override any of these per-project** by creating a same-named file in the project's `.claude/agents/`. The local file wins.
 
-### Domain-role templates (seeded on first activation per project)
+### Domain agents arrive on-demand
 
-When TMB activates in a project for the first time, it writes two editable agent files into your project's `.claude/agents/`:
+When you hit a scenario the four-agent backbone doesn't cover — "I need a `legal-reviewer` for this merger PR", "this project needs a `ceo` to make scope calls", "we need a `cto` for IEC 62304 compliance" — gatekeeper invokes the `agent-creator` skill: drafts a tailored prompt for your project's context, shows it to you, asks your explicit permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony, no canned company-org-chart pretending to know your domain.
 
-| Agent | Starter role |
-|---|---|
-| `ceo` | Product direction and scope calls |
-| `cto` | Technical architecture and feasibility |
-
-**These are placeholders.** Every project has different product direction and tech stack — if your project is a medical device, your `cto` should know IEC 62304; if it's fintech, your `ceo` should know SOC 2 deadlines. The plugin doesn't pretend to know your domain; you edit these.
-
-Delete either that doesn't apply (e.g., solo project → delete `ceo.md`).
-
-### On-demand domain agents
-
-When you hit a scenario the default roster doesn't cover — "I need a `legal-reviewer` for this merger PR" — gatekeeper proposes a tailored agent prompt, shows it to you, asks your permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony.
+Once created, the agent lives in your project forever (until you delete it). Next session, gatekeeper routes to it by name.
 
 ---
 
@@ -98,7 +86,7 @@ Inspired by — and compatible with the lessons of — [claude-mem](https://gith
 | State | Bundled SQLite via MCP. Queryable across sessions. |
 | Info isolation | SWE literally cannot read your strategic context (issue body, discussion entries) while writing code. No context pollution. |
 | Verification | Hard hook gates — no push until pr-reviewer has signed off on every task. |
-| Roster | 2 global + 5 editable placeholders. Not a canned company. |
+| Roster | 4 global workflow agents; domain agents on-demand. Not a canned company. |
 | Agent creation | User-approved only. No silent role sprawl. |
 
 ---

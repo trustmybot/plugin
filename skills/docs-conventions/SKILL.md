@@ -1,6 +1,6 @@
 ---
-description: When and how to update docs alongside code changes.
-agent: swe, architect, pr-reviewer, prompt-engineer
+description: When and how to update docs alongside code changes, plus the discipline for editing agent prompts and skill files.
+agent: swe, architect, pr-reviewer
 ---
 
 # Docs Conventions
@@ -48,7 +48,7 @@ architecture, the PR MUST update the corresponding architecture doc in the
 same commit.
 
 **If you discover a discrepancy between architecture docs and the actual
-codebase, STOP and report it to the Secretary.** Do not silently follow
+codebase, STOP and report it to the Gatekeeper.** Do not silently follow
 stale docs or silently follow code that contradicts docs. The discrepancy
 must be resolved — either the doc is updated or the code is wrong.
 
@@ -74,3 +74,38 @@ This is normal for new projects. For projects without architecture docs:
 
 PR Reviewer flags architectural changes that don't update docs. The Architect
 escalates systemic discrepancies back to Human.
+
+## Editing Agent Prompts and Skill Files
+
+When modifying `agents/*.md`, `skills/**/SKILL.md`, `CLAUDE.md`, or any
+workflow markdown, follow the discipline below. Any agent touching prompt
+files — usually architect — applies these rules.
+
+### Scope
+
+Markdown only. `src/`, `tests/`, or runtime-consumed config files are
+off-limits for prompt-style edits. If a fix touches those paths, route via
+architect → SWE instead.
+
+### Rules
+
+1. **Delete before you add.** A shorter prompt is usually clearer. Prefer
+   removal over addition when both achieve the goal.
+2. **Preserve operational meaning.** Constraints, prohibitions, and examples
+   with operational or legal weight are copied verbatim unless the request
+   explicitly changes them.
+3. **Match tone and structure.** Edits blend into the target file; they do
+   not impose a different style.
+4. **Don't expand scope.** Correct what was asked; don't opportunistically
+   rewrite adjacent content.
+5. **Update referenced paths.** If you rename or move a file the prompt
+   cites, grep for every reference and update it in the same commit.
+6. **Diff, don't rewrite.** Produce edits as a focused diff unless a full
+   rewrite was explicitly requested.
+
+### Escalation
+
+- Ambiguous rewrite request → return specific questions, don't guess.
+- Target file has internal contradictions → quote them, flag to the caller.
+- Change would break files that reference this one → flag the ripple before
+  proceeding.
