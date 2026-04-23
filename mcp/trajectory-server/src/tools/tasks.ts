@@ -82,8 +82,7 @@ export function taskTools(db: TrajectoryDB): {
                 tools_required: { type: 'array', items: { type: 'string' } },
                 skills_required: { type: 'array', items: { type: 'string' } },
                 success_criteria: { type: 'string' },
-                execution_plan_md: { type: 'string' },
-                spec_body_md: {
+                spec_body: {
                   type: 'string',
                   description:
                     'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 64000 chars.',
@@ -166,13 +165,13 @@ export function taskTools(db: TrajectoryDB): {
           if (t.parent_branch_id != null) validateBranchId(t.parent_branch_id);
           if (!t.description) throw new Error('Missing required arg: description');
           if (!t.success_criteria) throw new Error('Missing required arg: success_criteria');
-          if (t.spec_body_md !== undefined) {
-            if (typeof t.spec_body_md !== 'string') {
-              throw new Error(`spec_body_md must be a string, got ${typeof t.spec_body_md}`);
+          if (t.spec_body !== undefined) {
+            if (typeof t.spec_body !== 'string') {
+              throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
             }
-            if (t.spec_body_md.length > 64000) {
+            if (t.spec_body.length > 64000) {
               throw new Error(
-                `spec_body_md exceeds 64000 char limit (actual: ${t.spec_body_md.length}). Split into multiple tasks via depends_on.`,
+                `spec_body exceeds 64000 char limit (actual: ${t.spec_body.length}). Split into multiple tasks via depends_on.`,
               );
             }
           }
@@ -183,8 +182,8 @@ export function taskTools(db: TrajectoryDB): {
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
                 tools_required, skills_required, success_criteria,
-                status, attempts, execution_plan_md, qa_results, spec_body_md, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, '', ?, ?, ?)`,
+                status, attempts, spec_body, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
@@ -194,8 +193,7 @@ export function taskTools(db: TrajectoryDB): {
               JSON.stringify(t.tools_required ?? []),
               JSON.stringify(t.skills_required ?? []),
               t.success_criteria,
-              t.execution_plan_md ?? '',
-              t.spec_body_md ?? '',
+              t.spec_body ?? '',
               now,
               now,
             ],

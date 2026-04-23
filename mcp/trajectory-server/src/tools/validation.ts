@@ -41,8 +41,7 @@ interface ValidationAttempt {
   attempt_n: number;
   agent: string;
   verdict: string;
-  feedback_md: string;
-  reviewer_verdict: string | null;
+  feedback: string;
   created_at: string;
 }
 
@@ -71,10 +70,9 @@ export function validationTools(db: TrajectoryDB): {
           task_id: { type: 'string' },
           attempt_n: { type: 'number' },
           verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
-          feedback_md: { type: 'string' },
-          reviewer_verdict: { type: 'string' },
+          feedback: { type: 'string' },
         },
-        required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback_md'],
+        required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
       },
     },
     {
@@ -85,7 +83,7 @@ export function validationTools(db: TrajectoryDB): {
         properties: {
           agent: { type: 'string' },
           task_id: { type: 'string' },
-          own_task_id: { type: 'string', description: 'The calling agent\'s own task ID (used to gate feedback_md access for swe)' },
+          own_task_id: { type: 'string', description: 'The calling agent\'s own task ID (used to gate feedback access for swe)' },
         },
         required: ['agent', 'task_id'],
       },
@@ -98,7 +96,7 @@ export function validationTools(db: TrajectoryDB): {
       const taskId = coerceTaskId(requireArg(args, 'task_id'));
       requireArg(args, 'attempt_n');
       const verdict = requireArg(args, 'verdict') as string;
-      requireArg(args, 'feedback_md');
+      requireArg(args, 'feedback');
 
       if (!VALID_VERDICTS.has(verdict)) {
         throw new Error(
@@ -115,21 +113,19 @@ export function validationTools(db: TrajectoryDB): {
       }
 
       const attemptN = args['attempt_n'] as number;
-      const feedbackMd = args['feedback_md'] as string;
-      const reviewerVerdict = (args['reviewer_verdict'] as string | undefined) ?? null;
+      const feedback = args['feedback'] as string;
       const now = nowISO();
 
       db.run(
         `INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback_md, reviewer_verdict, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+           (task_id, attempt_n, agent, verdict, feedback, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_id, attempt_n) DO UPDATE SET
            agent = excluded.agent,
            verdict = excluded.verdict,
-           feedback_md = excluded.feedback_md,
-           reviewer_verdict = excluded.reviewer_verdict,
+           feedback = excluded.feedback,
            created_at = excluded.created_at`,
-        [taskId, attemptN, agent, verdict, feedbackMd, reviewerVerdict, now],
+        [taskId, attemptN, agent, verdict, feedback, now],
       );
 
       const row = db.get<ValidationAttempt>(

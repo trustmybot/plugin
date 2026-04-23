@@ -44,13 +44,13 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('tasks table has spec_body_md column with default empty string', () => {
+  it('tasks table has spec_body column with default empty string', () => {
     const db = tempDB();
 
     const cols = db.all<{ name: string; dflt_value: string | null }>('PRAGMA table_info(tasks)');
-    const specBody = cols.find((c) => c.name === 'spec_body_md');
-    assert.ok(specBody !== undefined, 'spec_body_md column must exist in tasks');
-    assert.equal(specBody.dflt_value, "''", "spec_body_md default must be empty string");
+    const specBody = cols.find((c) => c.name === 'spec_body');
+    assert.ok(specBody !== undefined, 'spec_body column must exist in tasks');
+    assert.equal(specBody.dflt_value, "''", "spec_body default must be empty string");
 
     db.close();
   });

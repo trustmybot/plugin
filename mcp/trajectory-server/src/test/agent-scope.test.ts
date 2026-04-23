@@ -15,8 +15,7 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
     id: 1,
     parent_issue_id: null,
     objective: 'A'.repeat(200),
-    goals_md: 'SECRET GOALS',
-    goals_md_hash: 'abc',
+    description: 'SECRET DESCRIPTION',
     pre_commit_hash: 'sha123',
     post_commit_hash: null,
     status: 'open',
@@ -35,8 +34,7 @@ function makeValidationRow(overrides: Partial<ValidationAttempt> = {}): Validati
     attempt_n: 1,
     agent: 'architect',
     verdict: 'pass',
-    feedback_md: 'SENSITIVE FEEDBACK',
-    reviewer_verdict: null,
+    feedback: 'SENSITIVE FEEDBACK',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
@@ -57,10 +55,10 @@ describe('agent-scope middleware', () => {
     assert.equal(normalizeAgent('SWE'), 'swe');
   });
 
-  it('redactIssue drops goals_md for swe', () => {
+  it('redactIssue drops description for swe', () => {
     const issue = makeIssue();
     const result = redactIssue(issue, 'swe');
-    assert.ok(!('goals_md' in result), 'goals_md should be absent for swe');
+    assert.ok(!('description' in result), 'description should be absent for swe');
   });
 
   it('redactIssue truncates objective to 120 chars for swe', () => {
@@ -72,21 +70,21 @@ describe('agent-scope middleware', () => {
 
   it('redactIssue returns full record for architect', () => {
     const issue = makeIssue();
-    const result = redactIssue(issue, 'architect', { include_goals: true });
-    assert.equal(result.goals_md, 'SECRET GOALS');
+    const result = redactIssue(issue, 'architect', { include_description: true });
+    assert.equal(result.description, 'SECRET DESCRIPTION');
     assert.equal(result.objective, issue.objective);
   });
 
-  it('redactValidationRow drops feedback_md for swe on another task', () => {
+  it('redactValidationRow drops feedback for swe on another task', () => {
     const row = makeValidationRow({ task_id: 999 });
     const result = redactValidationRow(row, 'swe', { own_task_id: 42 });
-    assert.ok(!('feedback_md' in result), 'feedback_md should be dropped');
+    assert.ok(!('feedback' in result), 'feedback should be dropped');
   });
 
-  it('redactValidationRow keeps feedback_md for swe on own task', () => {
+  it('redactValidationRow keeps feedback for swe on own task', () => {
     const row = makeValidationRow({ task_id: 42 });
     const result = redactValidationRow(row, 'swe', { own_task_id: 42 });
-    assert.equal(result.feedback_md, 'SENSITIVE FEEDBACK');
+    assert.equal(result.feedback, 'SENSITIVE FEEDBACK');
   });
 
   it('normalizeAgent gatekeeper returns gatekeeper', () => {

@@ -478,9 +478,9 @@ will be created):
    - If no open issue exists: call `issue_create(objective=<short summary
      of the request>)`.
    - In either case: call `discussion_append(issue_id, author='human',
-     kind='intent', body_md=<the verbatim Human request>)` AND
+     kind='intent', body=<the verbatim Human request>)` AND
      `discussion_append(issue_id, author='gatekeeper', kind='note',
-     body_md='Routed to architect on branch_id <the branch_id>, triage: <simple|difficult>')`.
+     body='Routed to architect on branch_id <the branch_id>, triage: <simple|difficult>')`.
    Pass the issue_id in the architect spawn prompt as shown in step 5.
    This guarantees architect can append further discussion entries and
    create tasks under a real issue row.

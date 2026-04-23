@@ -73,7 +73,7 @@ erDiagram
         INT  id PK
         INT  parent_issue_id FK
         TEXT objective
-        TEXT goals_md
+        TEXT description
         TEXT status
         INT  current_task_id FK
         TEXT pre_commit_hash
@@ -86,7 +86,7 @@ erDiagram
         TEXT branch_id
         TEXT parent_branch_id
         TEXT status
-        TEXT spec_body_md
+        TEXT spec_body
         INT  attempts
         TEXT commit_sha
     }
@@ -120,7 +120,7 @@ erDiagram
         INT  issue_id FK
         TEXT author
         TEXT kind
-        TEXT body_md
+        TEXT body
     }
 
     roundtables {
@@ -180,7 +180,7 @@ erDiagram
 ## How agents use this
 
 - **gatekeeper** — reads `plugin_config`, `identity`, `issues(status='open')` on session start. Writes `discussions` when relaying human intent.
-- **architect** — `issue_create` → `discussion_append` → `task_create_batch(spec_body_md)` → `task_update_status` → `validation_record`. Also edits agent prompts, skill files, and workflow markdown when they drift (see `skills/docs-conventions` prompt-editing rules).
+- **architect** — `issue_create` → `discussion_append` → `task_create_batch(spec_body)` → `task_update_status` → `validation_record`. Also edits agent prompts, skill files, and workflow markdown when they drift (see `skills/docs-conventions` prompt-editing rules).
 - **swe** — `task_get(id)` for spec → `ledger_log` / `audit_log` during work → `task_update_status('completed')` on success.
 - **pr-reviewer** — `task_list(issue_id, status='completed')` → `validation_record(verdict)` per task.
 - **monitors/tmb-trajectory-events.js** — read-only tail of `ledger` for status-line output.

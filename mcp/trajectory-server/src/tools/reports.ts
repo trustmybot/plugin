@@ -41,8 +41,7 @@ interface ValidationAttempt {
   attempt_n: number;
   agent: string;
   verdict: string;
-  feedback_md: string;
-  reviewer_verdict: string | null;
+  feedback: string;
   created_at: string;
 }
 
@@ -157,11 +156,10 @@ export function reportTools(db: TrajectoryDB): {
       if (validationAttempts.length === 0) {
         lines.push('_No validation attempts._');
       } else {
-        lines.push('| Task ID | Attempt | Verdict | Reviewer Verdict |');
-        lines.push('|---------|---------|---------|-----------------|');
+        lines.push('| Task ID | Attempt | Verdict |');
+        lines.push('|---------|---------|---------|');
         for (const v of validationAttempts) {
-          const rv = v.reviewer_verdict ?? '—';
-          lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.verdict} | ${rv} |`);
+          lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.verdict} |`);
         }
       }
       lines.push('');
@@ -256,7 +254,7 @@ export function reportTools(db: TrajectoryDB): {
         for (const d of discussions) {
           lines.push(`### [${d.created_at}] ${d.author} (${d.kind})`);
           lines.push('');
-          lines.push(d.body_md);
+          lines.push(d.body);
           lines.push('');
         }
       }
@@ -280,9 +278,9 @@ export function reportTools(db: TrajectoryDB): {
           const title = t.title || t.branch_id;
           lines.push(`### ${t.branch_id}: ${title}`);
           lines.push('');
-          if (t.spec_body_md) {
-            const truncated = t.spec_body_md.length > 400;
-            const preview = truncated ? t.spec_body_md.slice(0, 400) + ' …' : t.spec_body_md;
+          if (t.spec_body) {
+            const truncated = t.spec_body.length > 400;
+            const preview = truncated ? t.spec_body.slice(0, 400) + ' …' : t.spec_body;
             lines.push('**Spec body:**');
             lines.push('');
             lines.push(preview);

@@ -120,7 +120,7 @@ Manual checks before shipping. Tick each after a change:
 |---|---|---|
 | 1 | Fresh install in empty project | Gatekeeper introduces itself; onboarding triggers |
 | 2 | Read-only question ("list files in src/") | Gatekeeper answers inline; no agent spawn |
-| 3 | Simple code change | Gatekeeper triages `simple` → architect double-checks → task row created via `task_create_batch(spec_body_md=...)` → SWE in worktree reads via `task_get` |
+| 3 | Simple code change | Gatekeeper triages `simple` → architect double-checks → task row created via `task_create_batch(spec_body=...)` → SWE in worktree reads via `task_get` |
 | 4 | Architecture-affecting change | Gatekeeper triages `difficult` → architect updates `architecture/manual/` ADR → task row (standard template) |
 | 5 | `/tmb reonboard` phrase | Skill re-prompts branching + identity |
 | 6 | Identity rename ("call yourself alex") | `identity_set` persists; subsequent responses use new name |

@@ -27,7 +27,7 @@ describe('issueTools', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'architect',
       objective: 'Build feature X',
-      goals_md: '# Goals\n- Do X',
+      description: '# Requirements\n- Do X',
     });
     const created = parseResult(createResult);
     assert.ok(!createResult.isError, `Expected no error, got: ${created.error}`);
@@ -37,34 +37,34 @@ describe('issueTools', () => {
     const getResult = await call(tools.handlers, 'issue_get', {
       agent: 'architect',
       issue_id: String(created.id),
-      include_goals: true,
+      include_description: true,
     });
     const fetched = parseResult(getResult);
     assert.ok(!getResult.isError);
     assert.equal(fetched.id, created.id);
-    assert.equal(fetched.goals_md, '# Goals\n- Do X');
+    assert.equal(fetched.description, '# Requirements\n- Do X');
 
     db.close();
   });
 
-  it('issue_get with include_goals=false omits goals_md', async () => {
+  it('issue_get with include_description=false omits description', async () => {
     const db = tempDB();
     const tools = issueTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'swe',
       objective: 'Test redaction',
-      goals_md: 'secret goals',
+      description: 'secret description',
     });
     const created = parseResult(createResult);
 
     const getResult = await call(tools.handlers, 'issue_get', {
       agent: 'swe',
       issue_id: String(created.id),
-      include_goals: false,
+      include_description: false,
     });
     const fetched = parseResult(getResult);
-    assert.ok(!('goals_md' in fetched), 'goals_md should be omitted when include_goals=false');
+    assert.ok(!('description' in fetched), 'description should be omitted when include_description=false');
 
     db.close();
   });

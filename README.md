@@ -27,7 +27,7 @@ Everything a coding workflow needs, nothing else. Install the plugin and you hav
 | Agent | What it does |
 |---|---|
 | `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a conditional project scan on the first code-touching ask, handles direct read-only ops. Ask it anything — it will either answer or route. |
-| `architect` | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body_md` via MCP, spawns + validates SWE. Also edits agent prompts, skill files, and workflow markdown when they drift. Double-checks every gatekeeper triage. |
+| `architect` | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body` via MCP, spawns + validates SWE. Also edits agent prompts, skill files, and workflow markdown when they drift. Double-checks every gatekeeper triage. |
 | `swe` | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
 | `pr-reviewer` | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
 
@@ -61,7 +61,7 @@ docs/trustmybot/
         └── security-model.md
 ```
 
-Per-task execution specs live in the trajectory DB (`tasks.spec_body_md`),
+Per-task execution specs live in the trajectory DB (`tasks.spec_body`),
 not on disk — architect writes them via MCP, SWE reads via
 `task_get(task_id)`. Only architecture narrative and snapshots are on
 the filesystem.
