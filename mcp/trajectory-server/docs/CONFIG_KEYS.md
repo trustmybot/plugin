@@ -4,9 +4,9 @@
 
 | Key | Type | Allowed values | Default | Read by | Written by |
 |-----|------|----------------|---------|---------|------------|
-| `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | (none — first-run prompt sets it) | git-guards.sh (Phase 4), gatekeeper routing (Phase 4) | gatekeeper onboarding (Phase 4) |
-| `pr_target` | string | any valid branch name | derived from `branching_model` when first-run sets it | git-guards.sh PR rule (Phase 4) | gatekeeper onboarding (Phase 4) |
-| `protected_branches` | string[] (JSON) | array of branch names | derived from `branching_model` | git-guards.sh commit rule (Phase 4) | gatekeeper onboarding (Phase 4) |
+| `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | (none — first-run prompt sets it) | `git-guards.sh`, gatekeeper routing | gatekeeper onboarding |
+| `pr_target` | string | any valid branch name | derived from `branching_model` when first-run sets it | `git-guards.sh` PR rule | gatekeeper onboarding |
+| `protected_branches` | string[] (JSON) | array of branch names | derived from `branching_model` | `git-guards.sh` commit rule | gatekeeper onboarding |
 
 ## 2. Default Derivation
 
@@ -20,7 +20,7 @@
 
 ## 3. Forward Compatibility
 
-Additional keys can be added to `plugin_config` without schema migration; the table is generic. Any new key that consumers depend on MUST be reflected in this file before Phase 4 or later phases consume it.
+Additional keys can be added to `plugin_config` without schema migration; the table is generic. Any new key that consumers depend on MUST be reflected in this file before code starts reading it.
 
 ## 4. Reading-the-Config Policy
 

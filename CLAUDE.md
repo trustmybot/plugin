@@ -68,7 +68,7 @@ Takes ~30 seconds. The answers are stored in the plugin's trajectory DB via MCP 
 |---|---|---|---|
 | Issue intent + objective | SQLite `issues` table | gatekeeper, architect | Captured via MCP issue_create at routing time |
 | Architect ↔ Human alignment | SQLite `discussions` table | gatekeeper, architect, human-via-relay | Captured via MCP discussion_append |
-| Architecture decisions (ADRs) | `docs/trustmybot/architecture/manual/decisions/N-*.md` | architect | Hand-curated; consumer of Phase 5 |
+| Architecture decisions (ADRs) | `docs/trustmybot/architecture/manual/decisions/N-*.md` | architect | Hand-curated; referenced by the architecture-regen flow |
 | Per-task execution spec | SQLite `tasks.spec_body_md` | architect | Markdown body stored inline on the tasks row; fetched via `task_get(task_id)` |
 | Read-only review snapshot | `docs/trustmybot/snapshots/<issue_id>.md` | MCP `issue_snapshot_md` (called by architect / pr-reviewer) | Generated for human review handoff |
 | Task lifecycle state | SQLite `tasks` + `validation_attempts` | swe (status), pr-reviewer (validation_record), architect (close) | Authoritative. Files are snapshots. |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/require-task-spec.sh (DB-only form, Phase 6.5)
+# Tests for scripts/hooks/require-task-spec.sh (DB-backed form)
 # Hook contract: block SWE spawns unless the prompt cites a valid
 # task_id=<N> whose row in tasks table has status IN (pending, open)
 # AND a non-empty spec_body_md. See plugin CHANGELOG for history.

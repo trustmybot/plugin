@@ -402,7 +402,7 @@ module boundaries, public API surface, data model, and dependency graph. Any
 change that would alter that record is difficult; anything that leaves it
 unchanged is simple.
 
-### Categories that will trigger `difficult` once Phase 5 ships
+### Categories that trigger `difficult`
 
 - New module or package boundary (architecture doc gains a node)
 - Public API change (API surface section changes)

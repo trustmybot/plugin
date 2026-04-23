@@ -125,8 +125,8 @@ After all verification passes, these THREE actions are ONE atomic outcome:
 1. **Commit:** `git add` the changed files; commit using the exact message from
    the spec's `## Commit` section.
 2. **Immediately call MCP `task_update_status(status='completed', commit_sha=<sha>)`.**
-   The `commit_sha` parameter is mandatory in v0.3 Phase 2 — pass the commit
-   SHA from step 1. The two operations are one logical step (#W4).
+   The `commit_sha` parameter is mandatory — pass the commit SHA from step 1.
+   The commit and the status update are one logical step (#W4).
 3. **Optionally call MCP `ledger_log`** with a one-line summary.
 
 A task that remains `status='running'` in DB after the commit fails

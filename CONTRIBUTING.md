@@ -36,7 +36,7 @@ Every code change should add or update tests.
 ## Pre-PR checklist
 
 - [ ] `bash tests/run-all.sh` passes locally.
-- [ ] No new on-disk references for workflow state — `docs/trustmybot/tasks/`, `GOALS.md`, `DISCUSSION.md`, `BLUEPRINT.md` are SQLite tables now, not files.
+- [ ] Workflow state (issues, tasks, discussions, validation attempts) goes through MCP tools into SQLite — never onto disk.
 - [ ] `CHANGELOG.md` updated for user-visible changes.
 - [ ] If the edit affects a workflow contract, update every agent prompt that cites it — not just one.
 - [ ] PR description names the issue (`Closes #N`).
