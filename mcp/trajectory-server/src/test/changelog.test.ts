@@ -18,7 +18,7 @@ const OPTS_NO_SINCE = {
 function makeCommit(overrides: Partial<CommitEntry> = {}): CommitEntry {
   return {
     sha: 'aabbccdd1234567',
-    author: 'Zax Shen',
+    author: 'Test Author',
     date: '2026-04-21T10:00:00Z',
     subject: 'feat(mcp): something',
     body: '',
@@ -47,20 +47,20 @@ describe('renderChangelog', () => {
   });
 
   it('single commit produces one date section', () => {
-    const c = makeCommit({ sha: 'd34fa890000', date: '2026-04-21T09:00:00Z', subject: 'feat(mcp): module-graph renderer', author: 'Zax Shen', files_changed: ['src/renderers/module-graph.ts'] });
+    const c = makeCommit({ sha: 'd34fa890000', date: '2026-04-21T09:00:00Z', subject: 'feat(mcp): module-graph renderer', author: 'Test Author', files_changed: ['src/renderers/module-graph.ts'] });
     const out = renderChangelog([c], OPTS_WITH_SINCE);
     assert.ok(out.includes('## 2026-04-21'), `Expected date section:\n${out}`);
     assert.ok(out.includes('`d34fa89`'), `Expected sha:\n${out}`);
     assert.ok(out.includes('feat(mcp): module-graph renderer'), `Expected subject:\n${out}`);
-    assert.ok(out.includes('Zax Shen'), `Expected author:\n${out}`);
+    assert.ok(out.includes('Test Author'), `Expected author:\n${out}`);
     assert.ok(out.includes('`src/renderers/module-graph.ts`'), `Expected file:\n${out}`);
     const sections = out.match(/^## /gm);
     assert.equal(sections?.length ?? 0, 1, 'Expected exactly one date section');
   });
 
   it('multi-commit multi-day input grouped by date descending', () => {
-    const c1 = makeCommit({ sha: 'aaaaaaa0001', date: '2026-04-21T10:00:00Z', subject: 'feat(mcp): newer', author: 'Zax Shen' });
-    const c2 = makeCommit({ sha: 'bbbbbbb0002', date: '2026-04-20T10:00:00Z', subject: 'fix(db): older', author: 'Zax Shen' });
+    const c1 = makeCommit({ sha: 'aaaaaaa0001', date: '2026-04-21T10:00:00Z', subject: 'feat(mcp): newer', author: 'Test Author' });
+    const c2 = makeCommit({ sha: 'bbbbbbb0002', date: '2026-04-20T10:00:00Z', subject: 'fix(db): older', author: 'Test Author' });
     const out = renderChangelog([c1, c2], OPTS_WITH_SINCE);
     const idx21 = out.indexOf('2026-04-21');
     const idx20 = out.indexOf('2026-04-20');
@@ -69,9 +69,9 @@ describe('renderChangelog', () => {
   });
 
   it('commits on same day grouped by conventional scope', () => {
-    const c1 = makeCommit({ sha: 'ccccccc0001', date: '2026-04-21T10:00:00Z', subject: 'feat(mcp): renderer A', author: 'Zax Shen' });
-    const c2 = makeCommit({ sha: 'ddddddd0002', date: '2026-04-21T11:00:00Z', subject: 'feat(mcp): renderer B', author: 'Zax Shen' });
-    const c3 = makeCommit({ sha: 'eeeeeee0003', date: '2026-04-21T12:00:00Z', subject: 'fix(db): unrelated fix', author: 'Zax Shen' });
+    const c1 = makeCommit({ sha: 'ccccccc0001', date: '2026-04-21T10:00:00Z', subject: 'feat(mcp): renderer A', author: 'Test Author' });
+    const c2 = makeCommit({ sha: 'ddddddd0002', date: '2026-04-21T11:00:00Z', subject: 'feat(mcp): renderer B', author: 'Test Author' });
+    const c3 = makeCommit({ sha: 'eeeeeee0003', date: '2026-04-21T12:00:00Z', subject: 'fix(db): unrelated fix', author: 'Test Author' });
     const out = renderChangelog([c1, c2, c3], OPTS_WITH_SINCE);
     const mcpSection = out.includes('— mcp (2 commits)') || out.includes('— mcp (2 commit');
     assert.ok(mcpSection, `Expected mcp group with 2 commits in:\n${out}`);

@@ -30,11 +30,14 @@ Pick one. Mode A is tighter for iteration; Mode B matches the release path end u
 Launch Claude Code against the plugin source directly:
 
 ```bash
-mkdir -p /Users/Zax/Git/GitHub/TMB/test_plugin  # or anywhere disposable
-cd /Users/Zax/Git/GitHub/TMB/test_plugin
+# Set PLUGIN_PATH to wherever you cloned this repo.
+export PLUGIN_PATH=/absolute/path/to/trustmybot-plugin
+
+# Use any disposable directory for the scratch project.
+mkdir -p /tmp/tmb-scratch && cd /tmp/tmb-scratch
 git init && git commit --allow-empty -m "init"
 
-claude --plugin-dir /Users/Zax/Git/GitHub/TMB/plugin
+claude --plugin-dir "$PLUGIN_PATH"
 ```
 
 Edits to agent prompts, skills, or hook scripts are picked up after `/reload-plugins` inside the session. TypeScript edits under `mcp/trajectory-server/src/` require a rebuild (`bun run build`) then `/reload-plugins`.
@@ -53,7 +56,7 @@ claude                                   # launch CC
 Inside the session:
 
 ```
-/plugin marketplace add /Users/Zax/Git/GitHub/TMB/plugin
+/plugin marketplace add $PLUGIN_PATH
 /plugin install tmb@trustmybot
 ```
 
