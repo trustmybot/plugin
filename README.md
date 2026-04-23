@@ -118,6 +118,20 @@ Need team dashboards, multi-project trajectories, hardened sandbox permissions, 
 
 ---
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch workflow, test expectations, and design principles.
+
+Run the full test suite before opening a PR:
+
+```bash
+bash tests/run-all.sh
+```
+
+Full testing guide — including manual dogfood walkthrough and how to write new hook/MCP tests — at [tests/README.md](tests/README.md).
+
+---
+
 ## License
 
 MIT. Fork it, ship it, sell it. Credit nice but not required.
