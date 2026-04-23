@@ -15,7 +15,7 @@ Use this when you identify a rule that needs deterministic enforcement — somet
 
 ## Process
 
-1. Have architect create a `tasks` row (via `task_create_batch` with `spec_body_md`) describing the hook
+1. Have architect create a `tasks` row (via `task_create_batch` with `spec_body`) describing the hook
 2. Specify: what to check, what error message to show, where the hook lives
 3. Spawn SWE to implement it
 4. Hook scripts go in `hooks/` directory (not `.git/hooks/` directly)

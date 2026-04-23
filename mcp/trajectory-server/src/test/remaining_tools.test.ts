@@ -144,7 +144,7 @@ describe('validationTools', () => {
       task_id: 1,
       attempt_n: 1,
       verdict: 'maybe',
-      feedback_md: '# Notes',
+      feedback: '# Notes',
     });
 
     assert.ok(result.isError, 'Expected error result');
@@ -163,7 +163,7 @@ describe('validationTools', () => {
       task_id: 'task_abc',
       attempt_n: 1,
       verdict: 'fail',
-      feedback_md: '# Notes',
+      feedback: '# Notes',
     });
 
     assert.ok(result.isError, 'Expected error result');
@@ -185,7 +185,7 @@ describe('validationTools', () => {
       task_id: 9999,
       attempt_n: 1,
       verdict: 'pass',
-      feedback_md: '# Notes',
+      feedback: '# Notes',
     });
 
     assert.ok(result.isError);
@@ -209,7 +209,7 @@ describe('validationTools', () => {
       task_id: taskId,
       attempt_n: 3,
       verdict: 'fail',
-      feedback_md: '# Third attempt',
+      feedback: '# Third attempt',
     });
 
     await call(tools.handlers, 'validation_record', {
@@ -217,7 +217,7 @@ describe('validationTools', () => {
       task_id: taskId,
       attempt_n: 1,
       verdict: 'fail',
-      feedback_md: '# First attempt',
+      feedback: '# First attempt',
     });
 
     await call(tools.handlers, 'validation_record', {
@@ -225,7 +225,7 @@ describe('validationTools', () => {
       task_id: taskId,
       attempt_n: 2,
       verdict: 'pass',
-      feedback_md: '# Second attempt',
+      feedback: '# Second attempt',
     });
 
     const result = await call(tools.handlers, 'validation_history', {

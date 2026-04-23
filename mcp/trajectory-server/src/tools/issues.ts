@@ -41,13 +41,13 @@ export function issueTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'issue_create',
-      description: 'Create a new issue with an objective and optional goals markdown.',
+      description: 'Create a new issue with an objective and an optional full markdown description.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string', description: 'Caller agent name' },
-          objective: { type: 'string', description: 'The objective of the issue' },
-          goals_md: { type: 'string', description: 'Goals in markdown format' },
+          objective: { type: 'string', description: 'Short one-liner summary' },
+          description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
         },
         required: ['agent', 'objective'],
       },
@@ -60,7 +60,7 @@ export function issueTools(db: TrajectoryDB): {
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string', description: 'The issue string ID' },
-          include_goals: { type: 'boolean', description: 'Whether to include goals_md (default false)' },
+          include_description: { type: 'boolean', description: 'Whether to include the full description (default false). Architect + gatekeeper only.' },
         },
         required: ['agent', 'issue_id'],
       },
@@ -128,15 +128,15 @@ export function issueTools(db: TrajectoryDB): {
       requireArg(args, 'objective');
 
       const objective = args['objective'] as string;
-      const goals_md = (args['goals_md'] as string | undefined) ?? '';
+      const description = (args['description'] as string | undefined) ?? '';
       const now = nowISO();
       const issueId = genId('iss');
       const preGitSha = process.env['PRE_GIT_SHA'] ?? '';
 
       db.run(
-        `INSERT INTO issues (objective, goals_md, goals_md_hash, pre_commit_hash, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'open', ?, ?)`,
-        [objective, goals_md, '', preGitSha, now, now],
+        `INSERT INTO issues (objective, description, pre_commit_hash, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'open', ?, ?)`,
+        [objective, description, preGitSha, now, now],
       );
 
       const rowId = db.get<{ id: number }>(
@@ -148,21 +148,21 @@ export function issueTools(db: TrajectoryDB): {
       }
 
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [rowId.id]);
-      const redacted = redactIssue(issue!, agent, { include_goals: true });
+      const redacted = redactIssue(issue!, agent, { include_description: true });
       return ok({ ...redacted, issue_string_id: issueId });
     }),
 
     issue_get: wrapHandler(async (args) => {
       const agent = normalizeAgent(args['agent'] as string | undefined);
       const issueId = requireArg(args, 'issue_id') as string;
-      const includeGoals = (args['include_goals'] as boolean | undefined) ?? false;
+      const includeDescription = (args['include_description'] as boolean | undefined) ?? false;
 
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
       if (!issue) {
         throw new Error(`Not found: ${issueId}`);
       }
 
-      return ok(redactIssue(issue, agent, { include_goals: includeGoals }));
+      return ok(redactIssue(issue, agent, { include_description: includeDescription }));
     }),
 
     issue_resume: wrapHandler(async (args) => {

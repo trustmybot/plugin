@@ -49,13 +49,13 @@ Stop immediately.
 
 ### Step 2 — Read the task spec
 
-Call `task_get(task_id)` and read `spec_body_md`. Locate the `## Verification`
+Call `task_get(task_id)` and read `spec_body`. Locate the `## Verification`
 section within the returned body.
 
-If the row is missing or `spec_body_md` is empty:
+If the row is missing or `spec_body` is empty:
 ```
 verdict: escalate
-findings: task_get({task_id}) returned no row or empty spec_body_md. Cannot validate without the contract.
+findings: task_get({task_id}) returned no row or empty spec_body. Cannot validate without the contract.
 ```
 Stop immediately.
 

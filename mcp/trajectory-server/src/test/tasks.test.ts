@@ -305,7 +305,7 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_create_batch stores spec_body_md and task_get returns it verbatim', async () => {
+  it('task_create_batch stores spec_body and task_get returns it verbatim', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -318,8 +318,8 @@ describe('taskTools', () => {
         {
           branch_id: 'feat/spec-body-test',
           description: 'Test spec body storage',
-          success_criteria: 'spec_body_md is stored',
-          spec_body_md: specBody,
+          success_criteria: 'spec_body is stored',
+          spec_body: specBody,
         },
       ],
     });
@@ -332,12 +332,12 @@ describe('taskTools', () => {
     });
     const task = parseResult(getResult);
     assert.ok(!getResult.isError);
-    assert.equal(task.spec_body_md, specBody);
+    assert.equal(task.spec_body, specBody);
 
     db.close();
   });
 
-  it('task_create_batch without spec_body_md defaults to empty string', async () => {
+  it('task_create_batch without spec_body defaults to empty string', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -355,12 +355,12 @@ describe('taskTools', () => {
     });
     const inserted = parseResult(batchResult);
     assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-    assert.equal(inserted[0].spec_body_md, '');
+    assert.equal(inserted[0].spec_body, '');
 
     db.close();
   });
 
-  it('task_create_batch rejects spec_body_md longer than 64000 chars', async () => {
+  it('task_create_batch rejects spec_body longer than 64000 chars', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -374,7 +374,7 @@ describe('taskTools', () => {
           branch_id: 'feat/oversize-spec',
           description: 'Oversize spec body',
           success_criteria: 'should be rejected',
-          spec_body_md: oversizeBody,
+          spec_body: oversizeBody,
         },
       ],
     });

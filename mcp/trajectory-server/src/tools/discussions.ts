@@ -56,9 +56,9 @@ export function discussionTools(db: TrajectoryDB): {
             enum: ['intent', 'question', 'answer', 'decision', 'note'],
             description: 'Entry kind. Default: note',
           },
-          body_md: { type: 'string', description: 'Markdown body of the discussion entry' },
+          body: { type: 'string', description: 'Markdown body of the discussion entry' },
         },
-        required: ['agent', 'issue_id', 'author', 'body_md'],
+        required: ['agent', 'issue_id', 'author', 'body'],
       },
     },
     {
@@ -99,7 +99,7 @@ export function discussionTools(db: TrajectoryDB): {
         normalizeAgent(args['agent'] as string | undefined);
         const issueId = requireArg(args, 'issue_id') as string;
         const author = requireArg(args, 'author') as string;
-        const body_md = requireArg(args, 'body_md') as string;
+        const body = requireArg(args, 'body') as string;
         const kind = (args['kind'] as string | undefined) ?? 'note';
 
         if (!ALLOWED_KINDS.has(kind)) {
@@ -119,9 +119,9 @@ export function discussionTools(db: TrajectoryDB): {
 
         const now = nowISO();
         db.run(
-          `INSERT INTO discussions (issue_id, author, kind, body_md, created_at)
+          `INSERT INTO discussions (issue_id, author, kind, body, created_at)
            VALUES (?, ?, ?, ?, ?)`,
-          [issueId, author, kind, body_md, now],
+          [issueId, author, kind, body, now],
         );
 
         const row = db.get<Discussion>(

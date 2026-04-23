@@ -11,7 +11,7 @@ Workflow artifacts live in MCP (SQLite) and `docs/trustmybot/` at the project ro
 
 | Artifact | Format | Audience | Rationale |
 |---|---|---|---|
-| `tasks.spec_body_md` (SQLite row) | Markdown H2 sections stored as a string | Architect → SWE | Structured contract in DB; retrieved via `task_get(task_id)` |
+| `tasks.spec_body` (SQLite row) | Markdown H2 sections stored as a string | Architect → SWE | Structured contract in DB; retrieved via `task_get(task_id)` |
 
 ---
 
@@ -32,7 +32,7 @@ final classification (even when confirming gatekeeper's):
 ```
 discussion_append(
   kind='note',
-  body_md='Triage: <simple|difficult> (gatekeeper proposed <x>, architect <confirmed|overrode>)'
+  body='Triage: <simple|difficult> (gatekeeper proposed <x>, architect <confirmed|overrode>)'
 )
 ```
 
@@ -44,14 +44,14 @@ discussion_append(
    ```
    discussion_append(
      kind='decision',
-     body_md=<architectural plan: what changes, why, trade-offs, risks>
+     body=<architectural plan: what changes, why, trade-offs, risks>
    )
    ```
-4. Author the spec body markdown (`spec_body_md`) using the template size
+4. Author the spec body markdown (`spec_body`) using the template size
    matched to the triage result (see "Template Selection" below). Required H2
    sections: Description, Files, Success Criteria, Verification, Out of Scope,
    Commit.
-5. Call `task_create_batch` passing `spec_body_md` to insert rows in SQLite.
+5. Call `task_create_batch` passing `spec_body` to insert rows in SQLite.
    Row columns (`issue_id`, `branch_id`, `title`, `status`, `created_at`)
    replace the old frontmatter YAML.
 6. Spawn SWE per task (one worktree per task) using `task_id=<N>` in the
@@ -89,7 +89,7 @@ snapshot via `issue_snapshot_md` when the Human wants a doc to review.
 
 ## Template Selection
 
-Both templates produce the same required H2 sections inside `spec_body_md`.
+Both templates produce the same required H2 sections inside `spec_body`.
 Choose based on triage result — the template size sets the depth of content
 within those sections.
 

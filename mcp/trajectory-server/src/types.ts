@@ -2,8 +2,7 @@ export interface Issue {
   id: number;
   parent_issue_id: number | null;
   objective: string;
-  goals_md: string;
-  goals_md_hash: string;
+  description: string;
   pre_commit_hash: string;
   post_commit_hash: string | null;
   status: string;
@@ -27,9 +26,7 @@ export interface Task {
   success_criteria: string;
   status: string;
   attempts: number;
-  execution_plan_md: string;
-  qa_results: string;
-  spec_body_md: string;
+  spec_body: string;
   commit_sha: string | null;
   created_at: string;
   updated_at: string;
@@ -41,7 +38,7 @@ export interface Discussion {
   issue_id: number;
   author: string;
   kind: string;
-  body_md: string;
+  body: string;
   created_at: string;
 }
 
@@ -84,8 +81,7 @@ export interface TaskInput {
   tools_required?: string[];
   skills_required?: string[];
   success_criteria: string;
-  execution_plan_md?: string;
-  spec_body_md?: string;
+  spec_body?: string;
 }
 
 export interface FileRegistryRow {

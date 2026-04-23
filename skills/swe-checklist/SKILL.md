@@ -7,8 +7,8 @@ description: Implementation rules and self-review checklist for SWE agent.
 
 ## Before coding
 
-- [ ] I have called `task_get(task_id)` and read the entire `spec_body_md`, not just the `description`/`title`
-- [ ] The `spec_body_md` still has markdown H2 headings (Description, Files, Success Criteria, Verification, Out of Scope, Commit); I have parsed them as sections and acted on each
+- [ ] I have called `task_get(task_id)` and read the entire `spec_body`, not just the `description`/`title`
+- [ ] The `spec_body` still has markdown H2 headings (Description, Files, Success Criteria, Verification, Out of Scope, Commit); I have parsed them as sections and acted on each
 - [ ] I have read the existing files listed in `## Files` that I will modify
 - [ ] I understand the patterns I need to match
 
@@ -31,8 +31,8 @@ description: Implementation rules and self-review checklist for SWE agent.
 ## Escalation criteria
 
 Escalate (do NOT guess) if:
-- The `spec_body_md` has a contradiction (quote it)
-- Required context is missing from `spec_body_md` (quote what's missing)
+- The `spec_body` has a contradiction (quote it)
+- Required context is missing from `spec_body` (quote what's missing)
 - Tests fail in a way the task didn't anticipate (show output)
 - 3 attempts at the same approach have failed (show what you tried)
 

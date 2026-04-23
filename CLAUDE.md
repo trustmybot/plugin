@@ -8,7 +8,7 @@ If you are editing **this plugin itself** (i.e., this is the TMB workspace dogfo
 
 | Artifact | Correct location | Wrong location |
 |---|---|---|
-| Task specs about plugin changes | `tasks.spec_body_md` in the TMB-workspace-shared trajectory DB | ❌ Any on-disk `tasks/` directory under `docs/trustmybot/` |
+| Task specs about plugin changes | `tasks.spec_body` in the TMB-workspace-shared trajectory DB | ❌ Any on-disk `tasks/` directory under `docs/trustmybot/` |
 | Plugin roadmap / blueprint | `../docs/v0.3-blueprint.md` (TMB workspace) | ❌ `plugin/docs/v0.3-blueprint.md` |
 | Implementation code (agents, skills, MCP, hooks) | `plugin/...` ✓ | n/a |
 
@@ -16,7 +16,7 @@ If you are editing **this plugin itself** (i.e., this is the TMB workspace dogfo
 
 **Exception**: downstream user projects never have a `tasks/` subdirectory under `docs/trustmybot/`; all task specs live in their project's local trajectory DB. `docs/trustmybot/` is reserved for architecture narrative and generated snapshots.
 
-When spawning architect/SWE for plugin work, task specs are written into the TMB-workspace trajectory DB via `task_create_batch` (with `spec_body_md`). SWE fetches them via `task_get(task_id)`. No on-disk spec files.
+When spawning architect/SWE for plugin work, task specs are written into the TMB-workspace trajectory DB via `task_create_batch` (with `spec_body`). SWE fetches them via `task_get(task_id)`. No on-disk spec files.
 
 
 ## Agent Roster
@@ -26,7 +26,7 @@ The plugin ships **four global workflow agents** — the minimum needed for any 
 | Agent | Model | Role |
 |---|---|---|
 | `gatekeeper` | Opus | Single Human entry point. Routes to specialists, runs a conditional pre-scan, handles direct read-only ops, drives the onboarding flow + `agent-creator`. |
-| `architect` | Sonnet | Captures intent into MCP (issues + discussions); writes task specs into `tasks.spec_body_md` via `task_create_batch`; spawns + validates SWE; **also edits agent prompts, skill files, and workflow markdown when they drift** (see `skills/docs-conventions` prompt-editing rules). |
+| `architect` | Sonnet | Captures intent into MCP (issues + discussions); writes task specs into `tasks.spec_body` via `task_create_batch`; spawns + validates SWE; **also edits agent prompts, skill files, and workflow markdown when they drift** (see `skills/docs-conventions` prompt-editing rules). |
 | `swe` | Sonnet | Implements one task per spec; runs in isolated git worktree; drives state via MCP; closes atomically with commit. |
 | `pr-reviewer` | Sonnet | Pre-commit/pre-push review gate. Records verdicts via MCP `validation_record`; no Edit tool (strict read-only). |
 
@@ -69,7 +69,7 @@ Takes ~30 seconds. The answers are stored in the plugin's trajectory DB via MCP 
 | Issue intent + objective | SQLite `issues` table | gatekeeper, architect | Captured via MCP issue_create at routing time |
 | Architect ↔ Human alignment | SQLite `discussions` table | gatekeeper, architect, human-via-relay | Captured via MCP discussion_append |
 | Architecture decisions (ADRs) | `docs/trustmybot/architecture/manual/decisions/N-*.md` | architect | Hand-curated; referenced by the architecture-regen flow |
-| Per-task execution spec | SQLite `tasks.spec_body_md` | architect | Markdown body stored inline on the tasks row; fetched via `task_get(task_id)` |
+| Per-task execution spec | SQLite `tasks.spec_body` | architect | Markdown body stored inline on the tasks row; fetched via `task_get(task_id)` |
 | Read-only review snapshot | `docs/trustmybot/snapshots/<issue_id>.md` | MCP `issue_snapshot_md` (called by architect / pr-reviewer) | Generated for human review handoff |
 | Task lifecycle state | SQLite `tasks` + `validation_attempts` | swe (status), pr-reviewer (validation_record), architect (close) | Authoritative. Files are snapshots. |
 
