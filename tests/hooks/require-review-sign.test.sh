@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/require-review-sign.sh (DB-only, Phase 6.5)
+# Tests for scripts/hooks/require-review-sign.sh (DB-backed)
 # Hook contract: block push/merge to protected branches if any completed
-# task lacks PR Reviewer sign-off. feature/*/fix/*/refactor/* etc. allowed
-# unconditionally (issue #13, PR #18). No more XML fallback (dropped in
-# Phase 6.5 commit f745001).
+# task lacks PR Reviewer sign-off. feature/* / fix/* / refactor/* etc. are
+# allowed unconditionally (issue #13, PR #18).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -135,6 +135,7 @@ positions and keep the workspace tidy.
 
 ---
 
-**v0.3 note:** Agent-teams mode (parallel team execution via Claude Code's
-native teams config) is planned for v0.3 once the user-facing team config
-schema stabilizes. The sequential flow above is the production path for v0.2.
+**Agent-teams mode** (parallel team execution via Claude Code's native
+teams config) is a future option, gated on the user-facing team-config
+schema stabilizing upstream. The sequential flow above is the current
+production path.

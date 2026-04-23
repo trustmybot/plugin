@@ -19,14 +19,14 @@ Use this when you identify a rule that needs deterministic enforcement — somet
 2. Specify: what to check, what error message to show, where the hook lives
 3. Spawn SWE to implement it
 4. Hook scripts go in `hooks/` directory (not `.git/hooks/` directly)
-5. Installation is via `hooks/install.sh` which symlinks into `.git/hooks/`
+5. Installation is via `hooks/setup.sh` which symlinks into `.git/hooks/`
 
 ## Hook Location
 
 ```
 hooks/
   pre-commit        # runs before every commit
-  install.sh        # symlinks hooks into .git/hooks/
+  setup.sh        # symlinks hooks into .git/hooks/
 ```
 
 ## Example Task Spec
@@ -39,24 +39,24 @@ Create hooks/pre-commit that checks:
 2. No .claude/settings.local.json staged
 3. Source files in src/ tests/ config/ must be from worktree branch
 
-Create hooks/install.sh that:
+Create hooks/setup.sh that:
 1. Symlinks hooks/pre-commit to .git/hooks/pre-commit
 2. Makes it executable
 
 ## Files
 
 - `hooks/pre-commit`
-- `hooks/install.sh`
+- `hooks/setup.sh`
 
 ## Success Criteria
 
-- Running `hooks/install.sh` creates `.git/hooks/pre-commit` symlink.
+- Running `hooks/setup.sh` creates `.git/hooks/pre-commit` symlink.
 - Staging a `.pyc` file and running `git commit` is blocked with a clear error.
 
 ## Verification
 
 ```bash
-bash hooks/install.sh
+bash hooks/setup.sh
 ls -la .git/hooks/pre-commit
 ```
 

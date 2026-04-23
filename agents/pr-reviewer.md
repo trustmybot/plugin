@@ -79,7 +79,7 @@ Checklist (every item must pass before PASS verdict):
 
 ---
 
-## Auto/Architecture-Dir Check (Phase 5)
+## Auto/Architecture-Dir Check
 
 Any staged change under `docs/trustmybot/architecture/auto/` must:
 
@@ -111,7 +111,8 @@ A git pre-commit hook scanning staged `auto/` files for the generated header
 was evaluated and deferred. The plugin's hook infrastructure (`hooks/hooks.json`)
 uses Claude Code `PreToolUse` interception on `Bash`/`Agent` tool calls — it
 does not intercept raw `git commit` invocations made outside Claude Code. The
-pr-reviewer check above is the authoritative enforcement point for Phase 5.
+pr-reviewer check above is the authoritative enforcement point for the
+auto-regen generated files.
 
 ---
 
