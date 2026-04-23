@@ -179,13 +179,13 @@ Run before reporting COMPLETED. If any item fails, fix it.
 - [ ] No sensitive data in logs or error messages
 
 ### Verification (MANDATORY — must actually run, not skip)
-- [ ] Run the project's lint command (e.g., `uv run ruff check src/ tests/` for Python)
-- [ ] Run the relevant test suite (e.g., `uv run pytest tests/ -v` for Python changes)
+- [ ] Run the project's lint / format command
+- [ ] Run the relevant test suite
 - [ ] Build if applicable (check the project's build command)
 - [ ] **Manual smoke test**: if the change affects runtime behavior, run the actual command and verify end-to-end. Do NOT report COMPLETED based on lint/build alone.
 - [ ] Success criteria commands from the task file all pass
 
-> Stack-specific verification commands live in per-stack skills (e.g., `python-dev/SKILL.md`). Check those for your language.
+> The plugin is stack-agnostic — it ships no per-language skills. Verification commands come from the project itself (package.json scripts, Makefile, pyproject.toml, etc.) or a user-authored stack skill in the project's `.claude/skills/`.
 
 **CRITICAL: Every code change must be tested before reporting COMPLETED.** Untested code is rejected. Lint/build passing is necessary but NOT sufficient — you must run the corresponding unit tests and, for behavioral changes, verify the actual runtime behavior. If tests don't exist for the changed code, note that in your report.
 
