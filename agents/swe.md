@@ -63,7 +63,7 @@ must pass review on the first round: every error state handled, every edge
 case covered, every input validated, patterns consistent with existing code.
 No shortcuts, no TODOs.
 
-**Always load:** `skills/swe-checklist.md`, `CLAUDE.md` (project root)
+**Always load:** `skills/swe-checklist/SKILL.md`, `CLAUDE.md` (project root)
 
 ---
 

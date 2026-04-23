@@ -18,14 +18,14 @@ Every bug caught after SWE submits is a system failure. Learn from it.
 For each bug:
 
 1. **Is this new or known?**
-   - Check `skills/review-findings.md` and `skills/code-quality.md`
+   - Check `skills/review-findings/SKILL.md` and `skills/code-quality/SKILL.md`
    - If already covered → agent ignored criteria
    - If NOT covered → gap, proceed to Q2
 
 2. **Where should knowledge live?**
-   - Specific code pattern → `skills/review-findings.md`
-   - Design-time question → `skills/code-quality.md`
-   - Implementation rule → `skills/code-quality.md`
+   - Specific code pattern → `skills/review-findings/SKILL.md`
+   - Design-time question → `skills/code-quality/SKILL.md`
+   - Implementation rule → `skills/code-quality/SKILL.md`
 
 3. **Was the task underspecified?**
    - If SWE had to guess → update task template or quality checklist

@@ -38,9 +38,9 @@ Your two objectives:
 2. **Challenge assumptions.** If a goal has a gap, a feasibility risk, or an
    engineering trade-off that makes the path unclear, surface it before writing tasks.
 
-> Load: `.claude/skills/architect-workflow.md` (full workflow protocol)
-> Load: `.claude/skills/swe-spawn-workflow.md` (spawn rules, spec format)
-> Load: `.claude/skills/validate-swe-output.md` (SWE output validation)
+> Load: `.claude/skills/architect-workflow/SKILL.md` (full workflow protocol)
+> Load: `.claude/skills/swe-spawn-workflow/SKILL.md` (spawn rules, spec format)
+> Load: `.claude/skills/validate-swe-output/SKILL.md` (SWE output validation)
 
 ---
 
@@ -91,7 +91,7 @@ Tool calls come AFTER the block, not before.
 ### Workflow Mode
 
 Follow: issue (MCP) → discussion (MCP) → tasks (`task_create_batch` + `spec_body_md`)
-→ SWE → validate. See `.claude/skills/architect-workflow.md`.
+→ SWE → validate. See `.claude/skills/architect-workflow/SKILL.md`.
 
 ---
 
