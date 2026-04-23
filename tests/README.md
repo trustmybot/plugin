@@ -64,70 +64,7 @@ Assertion helpers in `tests/lib/assert.sh`:
 
 ## Local dogfood testing (end-to-end)
 
-The real correctness check is running the plugin against a project and watching for workflow friction. Every bug hit here is a bug downstream users will hit identically.
-
-### Fastest smoke test (~5 min, disposable scratch dir)
-
-```bash
-mkdir -p /tmp/tmb-test && cd /tmp/tmb-test
-git init && git commit --allow-empty -m "init"
-
-claude                                # launch Claude Code here
-```
-
-Inside the session:
-
-```
-/plugin marketplace add $PLUGIN_PATH
-/plugin install tmb@trustmybot
-```
-
-**Expected:** gatekeeper greets you, first-run onboarding asks branching model + PR target + identity. Verify answers persisted:
-
-```bash
-sqlite3 ~/.config/claude-code/plugin-data/tmb/trajectory.db \
-  "SELECT * FROM plugin_config; SELECT * FROM identity;"
-```
-
-### Hot-reload during a session
-
-```
-/reload-plugins
-```
-
-Or for tight dev iteration, launch with `--plugin-dir` (skips install/caching):
-
-```bash
-claude --plugin-dir $PLUGIN_PATH
-```
-
-Edits picked up by `/reload-plugins`.
-
-### Reset between tests
-
-```bash
-# Inside Claude Code:
-/plugin marketplace remove trustmybot
-# Outside:
-rm ~/.config/claude-code/plugin-data/tmb/trajectory.db
-```
-
-## End-to-end dogfood checklist
-
-Manual checks before shipping. Tick each after a change:
-
-| # | Scenario | Expected |
-|---|---|---|
-| 1 | Fresh install in empty project | Gatekeeper introduces itself; onboarding triggers |
-| 2 | Read-only question ("list files in src/") | Gatekeeper answers inline; no agent spawn |
-| 3 | Simple code change | Gatekeeper triages `simple` → architect double-checks → task row created via `task_create_batch(spec_body_md=...)` → SWE in worktree reads via `task_get` |
-| 4 | Architecture-affecting change | Gatekeeper triages `difficult` → architect updates `architecture/manual/` ADR → task row (standard template) |
-| 5 | `/tmb reonboard` phrase | Skill re-prompts branching + identity |
-| 6 | Identity rename ("call yourself alex") | `identity_set` persists; subsequent responses use new name |
-| 7 | Architecture regen ("refresh architecture docs") | 4 files regenerated at `docs/trustmybot/architecture/auto/` with generated-header |
-| 8 | Commit on protected branch | `git-guards.sh` blocks |
-| 9 | Push to `feature/*` branch | Always allowed (issue #13) |
-| 10 | Push to dev/main with unsigned completed tasks | `require-review-sign.sh` blocks until pr-reviewer records `validation_record(verdict='pass')` |
+For setting up a scratch project and exercising the plugin end-to-end — install modes, first-run expectations, DB verification, hot reload, reset, the 10-scenario dogfood checklist, and common pitfalls — see [`docs/local-testing.md`](../docs/local-testing.md).
 
 ## Gaps not covered by this suite (worth filing)
 
