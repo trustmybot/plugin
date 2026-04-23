@@ -31,7 +31,7 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
 function makeValidationRow(overrides: Partial<ValidationAttempt> = {}): ValidationAttempt {
   return {
     id: 1,
-    task_id: 'task-123',
+    task_id: 123,
     attempt_n: 1,
     agent: 'architect',
     verdict: 'pass',
@@ -79,14 +79,14 @@ describe('agent-scope middleware', () => {
   });
 
   it('redactValidationRow drops feedback_md for swe on another task', () => {
-    const row = makeValidationRow({ task_id: 'task-other' });
-    const result = redactValidationRow(row, 'swe', { own_task_id: 'task-mine' });
+    const row = makeValidationRow({ task_id: 999 });
+    const result = redactValidationRow(row, 'swe', { own_task_id: 42 });
     assert.ok(!('feedback_md' in result), 'feedback_md should be dropped');
   });
 
   it('redactValidationRow keeps feedback_md for swe on own task', () => {
-    const row = makeValidationRow({ task_id: 'task-mine' });
-    const result = redactValidationRow(row, 'swe', { own_task_id: 'task-mine' });
+    const row = makeValidationRow({ task_id: 42 });
+    const result = redactValidationRow(row, 'swe', { own_task_id: 42 });
     assert.equal(result.feedback_md, 'SENSITIVE FEEDBACK');
   });
 

@@ -142,20 +142,6 @@ export function taskTools(db: TrajectoryDB): {
         required: ['agent', 'issue_id'],
       },
     },
-        {
-      name: 'task_set_spec_path',
-      description: '[DEPRECATED] Bind a task to its on-disk markdown spec file. Validates that the path matches docs/trustmybot/tasks/<type>-<slug>.md convention and that the filename stem contains the sanitized branch_id.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          agent: { type: 'string' },
-          issue_id: { type: 'string' },
-          branch_id: { type: 'string', description: 'Git-convention branch name (e.g. feat/my-task)' },
-          spec_path: { type: 'string', description: 'Relative path like docs/trustmybot/tasks/feat-my-task.md' },
-        },
-        required: ['agent', 'issue_id', 'branch_id', 'spec_path'],
-      },
-    },
   ];
 
   const handlers: Record<string, Fn> = {
@@ -296,27 +282,6 @@ export function taskTools(db: TrajectoryDB): {
       );
 
       return ok(task ?? null);
-    }),
-
-    task_set_spec_path: wrapHandler(async (args) => {
-      requireArg(args, 'agent');
-      const issueId = requireArg(args, 'issue_id') as string;
-      const branchId = requireArg(args, 'branch_id') as string;
-
-      const task = db.get<Task>(
-        'SELECT * FROM tasks WHERE issue_id = ? AND branch_id = ?',
-        [issueId, branchId],
-      );
-      if (!task) {
-        throw new Error(`Not found: task with issue_id=${issueId} and branch_id="${branchId}"`);
-      }
-
-      return ok({
-        deprecated: true,
-        message:
-          'task_set_spec_path is deprecated in v0.3 Phase 6.5; task specs now live in tasks.spec_body_md. This call was a no-op.',
-        task,
-      });
     }),
 
   };

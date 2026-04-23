@@ -37,7 +37,7 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 
 interface ValidationAttempt {
   id: number;
-  task_id: string;
+  task_id: number;
   attempt_n: number;
   agent: string;
   verdict: string;
@@ -266,13 +266,12 @@ export function reportTools(db: TrajectoryDB): {
       if (tasks.length === 0) {
         lines.push('_No tasks._');
       } else {
-        lines.push('| Branch | Title | Status | Spec Path | Commit SHA |');
-        lines.push('|--------|-------|--------|-----------|------------|');
+        lines.push('| Branch | Title | Status | Commit SHA |');
+        lines.push('|--------|-------|--------|------------|');
         for (const t of tasks) {
           const title = t.title || t.description.slice(0, 60);
-          const specPath = t.task_spec_path || '—';
           const sha = t.commit_sha || '—';
-          lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${specPath} | ${sha} |`);
+          lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${sha} |`);
         }
         lines.push('');
         lines.push('## Per-task snapshot');
@@ -288,8 +287,7 @@ export function reportTools(db: TrajectoryDB): {
             lines.push('');
             lines.push(preview);
           } else {
-            const specPath = t.task_spec_path || '—';
-            lines.push(`**Spec path:** ${specPath}`);
+            lines.push('_No spec body recorded._');
           }
           lines.push('');
         }
