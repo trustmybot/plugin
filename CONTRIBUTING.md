@@ -53,7 +53,7 @@ If you're proposing a big change, check these first:
 
 1. **SQLite is canonical state.** Files are either SE convention (README, CHANGELOG, ADRs) or agent context (prompts, skills). Workflow state (tasks, discussions, goals) lives in DB, never files.
 2. **No bypass in the workflow.** Every code change routes through architect → SWE → pr-reviewer. The "fast path" is a lighter task spec, not skipping a role.
-3. **Plugin is an agent factory.** Workflow agents ship (gatekeeper, prompt-engineer, architect, swe, pr-reviewer). Domain agents (ceo, cto, etc.) seed into the user's project and are theirs to own.
+3. **Plugin is an agent factory.** Four workflow agents ship (gatekeeper, architect, swe, pr-reviewer). Domain agents (ceo, cto, pm, legal-reviewer, etc.) are user-created on-demand via the `agent-creator` skill — always with explicit Human approval.
 4. **Two-tier with override.** Plugin-shipped agents at `plugin/agents/` are overrideable per-project via `.claude/agents/<name>.md`. Local wins.
 
 ## Code of conduct

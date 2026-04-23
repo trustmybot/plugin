@@ -18,14 +18,9 @@
   "provides": {
     "agents": [
       "gatekeeper",
-      "prompt-engineer",
       "architect",
       "swe",
       "pr-reviewer"
-    ],
-    "project-agent-templates": [
-      "ceo",
-      "cto"
     ],
     "skills": [],
     "workflow": "docs/trustmybot/"
