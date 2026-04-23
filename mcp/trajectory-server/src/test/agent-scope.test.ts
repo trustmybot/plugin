@@ -95,10 +95,6 @@ describe('agent-scope middleware', () => {
     assert.equal(normalizeAgent('Gatekeeper'), 'gatekeeper');
   });
 
-  it('normalizeAgent secretary returns gatekeeper (back-compat alias)', () => {
-    assert.equal(normalizeAgent('secretary'), 'gatekeeper');
-  });
-
   it('normalizeAgent undefined returns unknown', () => {
     assert.equal(normalizeAgent(undefined), 'unknown');
   });
@@ -132,17 +128,4 @@ describe('agent-scope middleware', () => {
     assert.ok(called, 'Expected underlying handler to be invoked');
   });
 
-  it('requireRoles allows secretary (aliased to gatekeeper) on gatekeeper-only tool', async () => {
-    let called = false;
-    const passthrough = async (_args: Record<string, unknown>): Promise<CallToolResult> => {
-      called = true;
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
-    };
-
-    const wrapped = requireRoles('identity_set', ['gatekeeper'], passthrough);
-    const result = await wrapped({ agent: 'secretary' });
-
-    assert.ok(!result.isError, 'Expected no error — secretary aliased to gatekeeper');
-    assert.ok(called, 'Expected underlying handler to be invoked');
-  });
 });

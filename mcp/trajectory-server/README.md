@@ -46,7 +46,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | File registry | `tools/file-registry.ts` | `file_registry_scan_commits`, `file_registry_list` |
 | Architecture regen | `tools/architecture-regen.ts` | `architecture_regen` |
 
-Role-gating is enforced per-tool via `requireRoles()` in `middleware/agent-scope.ts`. Valid roles: `gatekeeper`, `architect`, `swe`, `pr-reviewer`, plus the back-compat alias `secretary` → `gatekeeper`.
+Role-gating is enforced per-tool via `requireRoles()` in `middleware/agent-scope.ts`. Valid roles: `gatekeeper`, `architect`, `swe`, `pr-reviewer`.
 
 ## `branch_id` format
 

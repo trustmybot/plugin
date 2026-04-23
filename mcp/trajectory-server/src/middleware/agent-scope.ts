@@ -3,8 +3,6 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export type AgentRole =
   | 'gatekeeper'
-  | /** @deprecated v0.3 — use 'gatekeeper'; aliased in normalizeAgent */
-  'secretary'
   | 'architect'
   | 'swe'
   | 'pr-reviewer'
@@ -12,7 +10,6 @@ export type AgentRole =
 
 const KNOWN_ROLES = new Set<AgentRole>([
   'gatekeeper',
-  'secretary',
   'architect',
   'swe',
   'pr-reviewer',
@@ -21,8 +18,6 @@ const KNOWN_ROLES = new Set<AgentRole>([
 export function normalizeAgent(name?: string): AgentRole {
   if (!name) return 'unknown';
   const lower = name.toLowerCase() as AgentRole;
-  // Back-compat: v0.2 callers may still pass 'secretary'.
-  if (lower === 'secretary') return 'gatekeeper';
   return KNOWN_ROLES.has(lower) ? lower : 'unknown';
 }
 

@@ -34,19 +34,9 @@ the spec must be self-contained.
 
 **If SWE has to make a judgment call, the spec is underspecified.**
 
-The old YAML frontmatter fields are now DB columns. Mapping for reference:
-
-| Old frontmatter key | New DB column |
-|---------------------|---------------|
-| `issue_id`          | `tasks.issue_id` |
-| `branch_id`         | `tasks.branch_id` |
-| `title`             | `tasks.title` |
-| `status`            | `tasks.status` |
-| `authorized_by`     | (implicit: only architect inserts rows) |
-| `authorized_at`     | `tasks.created_at` |
-| `depends_on`        | `tasks.parent_branch_id` (single parent) or task-author convention |
-
-The `spec_body` string contains only the body sections — no frontmatter:
+Structured fields (issue_id, branch_id, title, status, created_at, parent_branch_id)
+live as columns on the `tasks` row. The `spec_body` string holds only the body
+sections — no frontmatter, no metadata:
 
 ```markdown
 ## Description
