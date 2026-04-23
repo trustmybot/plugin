@@ -2,6 +2,79 @@
 
 All notable changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## [0.3.2] — 2026-04-23
+
+Stale-cleanup pass. Reduces the shipped surface to the minimum
+needed for a technical-user coding workflow. Schema v6 drops a dead
+column and gives `validation_attempts` a real foreign key.
+
+### Added
+
+- **Plugin-root `.gitignore`** — covers `.claude/` (CC runtime), `*.db`
+  variants, `node_modules/`, `dist/`, editor cruft. (#23)
+- **Schema v6 migration** (`applyV5ToV6` in `mcp/trajectory-server/src/db.ts`)
+  — auto-upgrades v3, v4, v5 databases in place on plugin open. (#24)
+- **`skills/docs-conventions/SKILL.md` "Editing Agent Prompts and Skill
+  Files"** section — discipline for modifying markdown prompts (delete-
+  before-add, preserve operational meaning, match tone, don't expand
+  scope). Absorbs the role the removed `prompt-engineer` agent held.
+
+### Changed
+
+- **Schema v6**: `tasks.task_spec_path` column dropped (was dead after
+  Phase 6.5 replaced it with `spec_body_md`); `validation_attempts.task_id`
+  changed from `TEXT NOT NULL` (no FK) to `INTEGER NOT NULL REFERENCES
+  tasks(id)`. Existing rows preserved via `CAST(task_id AS INTEGER)`;
+  orphan rows whose task_id didn't match any `tasks.id` are dropped. (#24)
+- **Agent roster reduced to four**: `gatekeeper`, `architect`, `swe`,
+  `pr-reviewer`. Architect now owns prompt/skill/doc edits in addition
+  to task authoring.
+- **`validation_record` MCP tool** now coerces `task_id` to a positive
+  integer and verifies the task exists before insert; clearer errors
+  than raw FK failures. `ValidationAttempt.task_id` typed `number`.
+- **Skills normalized to `<name>/SKILL.md`** directory convention — the
+  three flat-file skills (`agent-creator.md`, `tmb-reonboard.md`,
+  `validate-swe-output.md`) moved into directories. Path references in
+  `agents/architect.md`, `agents/swe.md`, `skills/architect-workflow/`,
+  and `skills/feedback-loop/` updated.
+- **Tests**: `phase-2-discussions.test.ts` → `discussions.test.ts`;
+  `schema_v3.test.ts` → `schema.test.ts` (with v6 contract assertions);
+  new migration test `j. v5-to-v6 in-place migration`.
+
+### Removed
+
+- `agents/prompt-engineer.md` — cold-context rewriter replaced by
+  architect + `docs-conventions` prompt-editing rules.
+- `templates/agents/ceo.md`, `templates/agents/cto.md`,
+  `skills/seed-project-agents/` — no more auto-seeding of project-level
+  agents on first activation. Domain agents (ceo, cto, pm, …) come
+  on-demand via `agent-creator` with explicit user approval.
+- `skills/python-dev/`, `skills/sql-dev/`, `skills-gallery/` — plugin is
+  stack-agnostic; Python/SQLite skills imposed a stack on downstream
+  users. (#25)
+- `teams/` — agent-teams `roundtable.json` was never written;
+  `skills/roundtable/` remains the execution path.
+- `install.sh` — deprecation stub from v0.1, purpose served.
+- Stray `.gitkeep` files in `agents/`, `skills/`, `mcp/trajectory-server/`,
+  `monitors/`.
+- `task_set_spec_path` MCP tool (the Phase-6.5 no-op stub) — the column
+  it referenced is gone.
+- `AgentRole` variant `prompt-engineer` in `middleware/agent-scope.ts`.
+
+### Migration notes (0.3.1 → 0.3.2)
+
+- SQLite auto-migrates v5 → v6 on first load. Drops `task_spec_path`;
+  rebuilds `validation_attempts` with INTEGER FK.
+- If you override `prompt-engineer` in a project's `.claude/agents/`,
+  the override still works (local file wins) but the plugin no longer
+  auto-spawns it from gatekeeper routing. Update your routing prompts
+  or delete the override.
+- If you edited the seeded `ceo.md` / `cto.md` in a project, they stay
+  where they are — the plugin just no longer auto-seeds new projects
+  with them. Existing files are user-owned.
+- Deprecated `task_set_spec_path` MCP call will now fail; any call sites
+  should have migrated to `task_create_batch(spec_body_md=...)` in v0.3.1.
+
 ## [0.3.1] — 2026-04-21
 
 Design-correctness fix: task specs are state, not documents. They move
