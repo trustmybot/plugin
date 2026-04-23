@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema v6 (`mcp/trajectory-server/src/schema.sql`). Persistent at `${CLAUDE_PLUGIN_DATA}/trajectory.db` (see issue #29 for pending per-project scoping), owned by the bundled MCP server.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` baseline). Persistent at `${CLAUDE_PLUGIN_DATA}/trajectory.db` (see issue #29 for pending per-project scoping), owned by the bundled MCP server.
 
 ## Overview
 
@@ -150,7 +150,7 @@ erDiagram
 | `discussions` | `issue_id` | `issues.id` | architect ↔ human notes per issue |
 | `roundtables` | `issue_id` | `issues.id` | a multi-agent debate belongs to an issue |
 | `roundtable_votes` | `roundtable_id` | `roundtables.id` | one vote row per agent per roundtable |
-| `validation_attempts` | `task_id` | `tasks.id` | every validation attempt belongs to one task (v6 — was TEXT-without-FK pre-v6) |
+| `validation_attempts` | `task_id` | `tasks.id` | every validation attempt belongs to one task |
 
 ## Soft references (no FK, by convention)
 
@@ -169,7 +169,7 @@ erDiagram
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, etc.). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
 | `identity` | Single-row table (`CHECK id=1`) holding gatekeeper name + human name. |
 | `regen_state` | Per-target cursor (`last_seen_sha`) for the lazy architecture regen. |
-| `plugin_meta` | Schema + plugin version for migrations. Current row: `schema_version=6, plugin_version='0.3.2'`. |
+| `plugin_meta` | Schema + plugin version (for future migrations). Current row: `schema_version=1, plugin_version='0.3.2'`. |
 
 ## Indexes
 
@@ -187,12 +187,6 @@ erDiagram
 
 External writers are blocked by role-gating inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles` + `AgentRole` type).
 
-## Migration history
+## Migrations
 
-| Version | Change | Done by |
-|---|---|---|
-| → v4 | add `tasks.task_spec_path`, `tasks.commit_sha`, `discussions` table | `applyV3ToV4()` |
-| → v5 | add `tasks.spec_body_md` | `applyV4ToV5()` |
-| → v6 | drop `tasks.task_spec_path`; rebuild `validation_attempts` with INTEGER FK `task_id → tasks(id)` | `applyV5ToV6()` |
-
-Any DB with `schema_version` in {3, 4, 5} is migrated in-place on plugin open. Older (v2) DBs are hard-broken and backed up to a sidecar file before a fresh v6 is initialized.
+None yet. The plugin is pre-release — every install is a fresh DB. `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE` into `plugin_meta`. Future breaking schema changes will add a `v1 → v2` path in the same release.

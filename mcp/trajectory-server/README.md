@@ -60,25 +60,8 @@ where `<type>` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `pe
 
 `branch_id` doubles as the working git branch name for the task's worktree. `task_first_actionable` returns tasks in lexicographic order of `branch_id`, which groups them by type prefix.
 
-## Schema versions
+## Schema
 
-| Version | Highlights |
-|---|---|
-| 2 | Initial shipped schema (9 tables + base columns) |
-| 3 | `file_registry`, `plugin_config`, `identity`, `regen_state` tables added |
-| 4 | `tasks.task_spec_path`, `tasks.commit_sha`, `discussions` table added |
-| 5 | `tasks.spec_body_md` added (task specs inline, not on disk) |
-| 6 | `tasks.task_spec_path` dropped; `validation_attempts.task_id` upgraded to `INTEGER NOT NULL REFERENCES tasks(id)` |
+Single baseline — `schema_version = 1`. The plugin has no users in the wild, so there is no migration machinery; `schema.sql` is applied on every open with `CREATE TABLE IF NOT EXISTS` semantics. When a future change warrants a breaking upgrade, a `v1 → v2` migration path will land in the same release that ships the new schema.
 
-Current target: **v6**.
-
-### Migration policy
-
-On startup, `TrajectoryDB` reads `plugin_meta.schema_version` and applies the right path:
-
-- **`>= 3`** (i.e., 3, 4, or 5): **in-place migration** via `applyV3ToV4` → `applyV4ToV5` → `applyV5ToV6` as needed. No backup; rows preserved.
-- **`2`** or lower: **hard-break backup**. The existing file (plus `-wal`/`-shm` sidecars) is renamed to `<path>.v<N>.bak.<epoch>` and a fresh `v6` database is initialized. Data is NOT migrated — the backup is the user's responsibility to inspect.
-- **`> 6`**: constructor throws with a clear error. The DB was written by a newer binary; upgrade or restore from backup.
-- **`:memory:` or non-existent path**: migration check skipped; fresh `v6` DB.
-
-The in-place path covers every supported upgrade from a v0.3 release. Hard-break only fires for pre-v0.3 (v2) databases.
+`plugin_meta` tracks `schema_version` + `plugin_version` so the migration path, when it arrives, has somewhere to look.

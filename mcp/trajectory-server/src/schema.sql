@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (6, '0.3.2');
+INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (1, '0.3.2');
 
 CREATE TABLE IF NOT EXISTS file_registry (
     path             TEXT PRIMARY KEY,

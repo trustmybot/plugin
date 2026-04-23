@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 
-describe('schema v6 — current table set, default values, constraints', () => {
+describe('schema — current table set, default values, constraints', () => {
   it('fresh DB contains all 14 tables', () => {
     const db = tempDB();
 
@@ -32,28 +32,25 @@ describe('schema v6 — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 6 in plugin_meta', () => {
+  it('fresh DB has schema_version = 1 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 6);
+    assert.equal(meta.schema_version, 1);
 
     db.close();
   });
 
-  it('tasks table has spec_body_md column with default empty string and no task_spec_path', () => {
+  it('tasks table has spec_body_md column with default empty string', () => {
     const db = tempDB();
 
     const cols = db.all<{ name: string; dflt_value: string | null }>('PRAGMA table_info(tasks)');
     const specBody = cols.find((c) => c.name === 'spec_body_md');
     assert.ok(specBody !== undefined, 'spec_body_md column must exist in tasks');
     assert.equal(specBody.dflt_value, "''", "spec_body_md default must be empty string");
-
-    const specPath = cols.find((c) => c.name === 'task_spec_path');
-    assert.equal(specPath, undefined, 'task_spec_path column must be absent after v6 migration');
 
     db.close();
   });
@@ -66,7 +63,7 @@ describe('schema v6 — current table set, default values, constraints', () => {
     );
     const taskId = cols.find((c) => c.name === 'task_id');
     assert.ok(taskId !== undefined, 'task_id column must exist');
-    assert.equal(taskId.type.toUpperCase(), 'INTEGER', 'task_id must be INTEGER in v6');
+    assert.equal(taskId.type.toUpperCase(), 'INTEGER', 'task_id must be INTEGER');
     assert.equal(taskId.notnull, 1, 'task_id must be NOT NULL');
 
     const fks = db.all<{ table: string; from: string; to: string }>(

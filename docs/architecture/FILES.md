@@ -43,9 +43,9 @@ plugin/
 │       │   └── CONFIG_KEYS.md        # canonical list of plugin_config keys
 │       │
 │       └── src/
-│           ├── db.ts                 # opens DB, runs migrations v3 → v4 → v5 → v6
+│           ├── db.ts                 # opens DB, applies schema.sql
 │           ├── index.ts              # MCP server entrypoint (stdio transport)
-│           ├── schema.sql            # authoritative schema DDL (14 tables, schema_version=6)
+│           ├── schema.sql            # authoritative schema DDL (14 tables, schema_version=1 baseline)
 │           ├── types.ts              # shared TS types (Issue, Task, Discussion, …)
 │           │
 │           ├── middleware/
@@ -77,11 +77,10 @@ plugin/
 │           │   ├── identity.test.ts
 │           │   ├── issues.test.ts
 │           │   ├── ledger.test.ts
-│           │   ├── migration.test.ts         # v2 → v6 upgrade paths
 │           │   ├── module-graph.test.ts
 │           │   ├── regen-state.test.ts
 │           │   ├── remaining_tools.test.ts   # audit, validation, skills, reports
-│           │   ├── schema.test.ts            # current-schema contract (v6)
+│           │   ├── schema.test.ts            # current-schema contract
 │           │   └── tasks.test.ts
 │           │
 │           └── tools/                # MCP tool families (one file per domain)

@@ -99,13 +99,6 @@ Inspired by — and compatible with the lessons of — [claude-mem](https://gith
 
 ---
 
-## Upgrade to Enterprise
-
-Need team dashboards, multi-project trajectories, hardened sandbox permissions, multi-provider LLM?
-→ [TMB Enterprise](https://github.com/trustmybot) (commercial, not MIT).
-
----
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branch workflow, test expectations, and design principles.
