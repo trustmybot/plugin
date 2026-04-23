@@ -1,0 +1,19 @@
+# Claude Code runtime artifacts (worktrees, session state)
+.claude/
+
+# Ephemeral local SQLite DBs (developer-only)
+*.trajectory.db
+*.db-shm
+*.db-wal
+
+# Node / build
+node_modules/
+dist/
+
+# OS
+.DS_Store
+
+# Editor
+*.swp
+.idea/
+.vscode/
