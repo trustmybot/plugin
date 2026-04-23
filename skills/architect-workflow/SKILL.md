@@ -56,7 +56,7 @@ discussion_append(
    replace the old frontmatter YAML.
 6. Spawn SWE per task (one worktree per task) using `task_id=<N>` in the
    Task-tool prompt.
-7. Validate per `skills/validate-swe-output.md`.
+7. Validate per `skills/validate-swe-output/SKILL.md`.
 8. Spawn PR Reviewer before reporting phase complete.
 9. Close tasks via `task_update_status(status='closed')` once review passes.
 
