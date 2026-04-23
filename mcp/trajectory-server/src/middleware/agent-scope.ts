@@ -3,39 +3,31 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export type AgentRole =
   | 'gatekeeper'
-  | /** @deprecated v0.3 — use 'gatekeeper'; aliased in normalizeAgent */
-  'secretary'
   | 'architect'
   | 'swe'
   | 'pr-reviewer'
-  | 'prompt-engineer'
   | 'unknown';
 
 const KNOWN_ROLES = new Set<AgentRole>([
   'gatekeeper',
-  'secretary',
   'architect',
   'swe',
   'pr-reviewer',
-  'prompt-engineer',
 ]);
 
 export function normalizeAgent(name?: string): AgentRole {
   if (!name) return 'unknown';
   const lower = name.toLowerCase() as AgentRole;
-  // Back-compat: v0.2 callers may still pass 'secretary'.
-  if (lower === 'secretary') return 'gatekeeper';
   return KNOWN_ROLES.has(lower) ? lower : 'unknown';
 }
 
 export interface ValidationAttempt {
   id: number;
-  task_id: string;
+  task_id: number;
   attempt_n: number;
   agent: string;
   verdict: string;
-  feedback_md: string;
-  reviewer_verdict: string | null;
+  feedback: string;
   created_at: string;
 }
 
@@ -68,10 +60,10 @@ export function requireRoles(toolName: string, allowedRoles: AgentRole[], handle
 export function redactIssue(
   issue: Issue,
   agent: AgentRole,
-  opts?: { include_goals?: boolean },
+  opts?: { include_description?: boolean },
 ): Partial<Issue> {
   if (agent === 'swe' || agent === 'unknown') {
-    const { goals_md: _, pre_commit_hash: __, ...rest } = issue;
+    const { description: _, pre_commit_hash: __, ...rest } = issue;
     void _;
     void __;
     const truncated =
@@ -79,10 +71,9 @@ export function redactIssue(
     return { ...rest, objective: truncated };
   }
 
-  // gatekeeper is full-trust: same treatment as architect — no objective truncation,
-  // goals_md gated only on opts.include_goals.
-  if (!opts?.include_goals) {
-    const { goals_md: _, ...rest } = issue;
+  // Architect and gatekeeper are full-trust; description gated only on opts.include_description.
+  if (!opts?.include_description) {
+    const { description: _, ...rest } = issue;
     void _;
     return rest;
   }
@@ -93,10 +84,10 @@ export function redactIssue(
 export function redactValidationRow(
   row: ValidationAttempt,
   agent: AgentRole,
-  scope: { own_task_id?: string },
+  scope: { own_task_id?: number },
 ): Partial<ValidationAttempt> {
   if (agent === 'swe' && row.task_id !== scope.own_task_id) {
-    const { feedback_md: _, ...rest } = row;
+    const { feedback: _, ...rest } = row;
     void _;
     return rest;
   }

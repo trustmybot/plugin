@@ -141,10 +141,10 @@ describe('validationTools', () => {
 
     const result = await call(tools.handlers, 'validation_record', {
       agent: 'swe',
-      task_id: 'task_abc',
+      task_id: 1,
       attempt_n: 1,
       verdict: 'maybe',
-      feedback_md: '# Notes',
+      feedback: '# Notes',
     });
 
     assert.ok(result.isError, 'Expected error result');
@@ -154,37 +154,83 @@ describe('validationTools', () => {
     db.close();
   });
 
-  it('validation_history returns attempts in ascending order', async () => {
+  it('validation_record rejects non-integer task_id', async () => {
     const db = tempDB();
     const tools = validationTools(db);
 
-    await call(tools.handlers, 'validation_record', {
-      agent: 'swe',
-      task_id: 'task_abc',
-      attempt_n: 3,
-      verdict: 'fail',
-      feedback_md: '# Third attempt',
-    });
-
-    await call(tools.handlers, 'validation_record', {
+    const result = await call(tools.handlers, 'validation_record', {
       agent: 'swe',
       task_id: 'task_abc',
       attempt_n: 1,
       verdict: 'fail',
-      feedback_md: '# First attempt',
+      feedback: '# Notes',
+    });
+
+    assert.ok(result.isError, 'Expected error result');
+    const data = parseResult(result);
+    assert.ok(
+      data.error.includes('task_id must be a positive integer'),
+      `Error should mention task_id validation: ${data.error}`,
+    );
+
+    db.close();
+  });
+
+  it('validation_record rejects task_id that does not exist', async () => {
+    const db = tempDB();
+    const tools = validationTools(db);
+
+    const result = await call(tools.handlers, 'validation_record', {
+      agent: 'swe',
+      task_id: 9999,
+      attempt_n: 1,
+      verdict: 'pass',
+      feedback: '# Notes',
+    });
+
+    assert.ok(result.isError);
+    const data = parseResult(result);
+    assert.ok(
+      data.error.includes('not found in tasks table'),
+      `Error should cite missing task row: ${data.error}`,
+    );
+
+    db.close();
+  });
+
+  it('validation_history returns attempts in ascending order', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const taskId = await createTask(db, issueId);
+    const tools = validationTools(db);
+
+    await call(tools.handlers, 'validation_record', {
+      agent: 'swe',
+      task_id: taskId,
+      attempt_n: 3,
+      verdict: 'fail',
+      feedback: '# Third attempt',
     });
 
     await call(tools.handlers, 'validation_record', {
       agent: 'swe',
-      task_id: 'task_abc',
+      task_id: taskId,
+      attempt_n: 1,
+      verdict: 'fail',
+      feedback: '# First attempt',
+    });
+
+    await call(tools.handlers, 'validation_record', {
+      agent: 'swe',
+      task_id: taskId,
       attempt_n: 2,
       verdict: 'pass',
-      feedback_md: '# Second attempt',
+      feedback: '# Second attempt',
     });
 
     const result = await call(tools.handlers, 'validation_history', {
       agent: 'swe',
-      task_id: 'task_abc',
+      task_id: taskId,
     });
 
     const rows = parseResult(result);

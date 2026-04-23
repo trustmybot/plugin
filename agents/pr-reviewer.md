@@ -50,7 +50,7 @@ logic that `pr-review-toolkit` already covers.
 ## C. TMB Overlay — Task-Alignment Checks
 
 After the mechanical pass, apply these TMB-specific gates. Task specs live in
-`tasks.spec_body_md`; fetch via `task_get(task_id)`.
+`tasks.spec_body`; fetch via `task_get(task_id)`.
 
 Checklist (every item must pass before PASS verdict):
 
@@ -79,7 +79,7 @@ Checklist (every item must pass before PASS verdict):
 
 ---
 
-## Auto/Architecture-Dir Check (Phase 5)
+## Auto/Architecture-Dir Check
 
 Any staged change under `docs/trustmybot/architecture/auto/` must:
 
@@ -111,7 +111,8 @@ A git pre-commit hook scanning staged `auto/` files for the generated header
 was evaluated and deferred. The plugin's hook infrastructure (`hooks/hooks.json`)
 uses Claude Code `PreToolUse` interception on `Bash`/`Agent` tool calls — it
 does not intercept raw `git commit` invocations made outside Claude Code. The
-pr-reviewer check above is the authoritative enforcement point for Phase 5.
+pr-reviewer check above is the authoritative enforcement point for the
+auto-regen generated files.
 
 ---
 
@@ -126,7 +127,7 @@ pr-reviewer check above is the authoritative enforcement point for Phase 5.
 
 2. Call MCP validation_record:
    mcp__validation_record(task_id=<tasks.id>, attempt_n=N+1,
-     agent='pr-reviewer', verdict='pass', feedback_md='LGTM')
+     agent='pr-reviewer', verdict='pass', feedback='LGTM')
 
 3. Return control to architect with the verdict. Architect calls
    task_update_status(status='closed').
@@ -140,11 +141,11 @@ Do NOT edit the spec file. Do NOT flip task status yourself.
 1. Call MCP validation_record:
    mcp__validation_record(task_id=<tasks.id>, attempt_n=N+1,
      agent='pr-reviewer', verdict='fail',
-     feedback_md=<structured findings>)
+     feedback=<structured findings>)
 
 2. Optionally append a discussion entry:
    mcp__discussion_append(issue_id=<issue_id>, author='pr-reviewer',
-     kind='note', body_md=<findings>)
+     kind='note', body=<findings>)
 
 3. Return control to architect for the retry loop. State clearly what
    SWE must fix.

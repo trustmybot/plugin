@@ -96,7 +96,7 @@ tmb_task_spec_status() {
   [ -z "$db" ] && return 0
   tmb_have_sqlite || return 0
   sqlite3 "$db" "
-    SELECT status, LENGTH(COALESCE(spec_body_md, ''))
+    SELECT status, LENGTH(COALESCE(spec_body, ''))
       FROM tasks
      WHERE id = ${task_id};
   " 2>/dev/null | tr '|' '\n' || true

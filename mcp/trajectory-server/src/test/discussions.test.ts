@@ -25,7 +25,7 @@ async function call(
   return handler(args) as unknown as RawResult;
 }
 
-describe('Phase 2 discussions + snapshot integration', () => {
+describe('discussions + snapshot integration', () => {
   let db: TrajectoryDB;
   let snapshotDir: string;
   let originalCwd: string;
@@ -55,12 +55,12 @@ describe('Phase 2 discussions + snapshot integration', () => {
     const issues = issueTools(db);
     const result = await call(issues.handlers, 'issue_create', {
       agent: 'architect',
-      objective: 'Phase 2 integration test issue',
-      goals_md: '# Goals\n- Prove the tools work',
+      objective: 'discussion integration test issue',
+      description: '# Goals\n- Prove the tools work',
     });
     const created = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(created)}`);
-    assert.equal(created.objective, 'Phase 2 integration test issue');
+    assert.equal(created.objective, 'discussion integration test issue');
     assert.equal(created.status, 'open');
 
     (globalThis as Record<string, unknown>)['testIssueId'] = String(created.id);
@@ -85,7 +85,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
     assert.ok('status' in row, 'Row must have status');
     assert.ok('created_at' in row, 'Row must have created_at');
     assert.ok('updated_at' in row, 'Row must have updated_at');
-    assert.ok(!('goals_md' in row), 'Row must NOT have goals_md');
+    assert.ok(!('description' in row), 'Row must NOT have description');
     assert.ok(!('discussions' in row), 'Row must NOT have discussions');
   });
 
@@ -130,7 +130,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
       issue_id: issueId,
       author: 'architect',
       kind: 'intent',
-      body_md: 'We want to build the discussion tools for Phase 2.',
+      body: 'We want to build the discussion tools.',
     });
     assert.ok(!r1.isError, `Expected no error: ${JSON.stringify(parseResult(r1))}`);
     const d1 = parseResult(r1);
@@ -142,7 +142,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
       issue_id: issueId,
       author: 'gatekeeper',
       kind: 'decision',
-      body_md: 'Approved. SWE will implement.',
+      body: 'Approved. SWE will implement.',
     });
     assert.ok(!r2.isError);
     const d2 = parseResult(r2);
@@ -160,7 +160,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
       issue_id: issueId,
       author: 'architect',
       kind: 'invalid_kind',
-      body_md: 'This should fail',
+      body: 'This should fail',
     });
     assert.ok(result.isError, 'Should be error for invalid kind');
     const data = parseResult(result);
@@ -199,7 +199,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
     assert.equal(data.discussions.length, 0);
   });
 
-  it('step 4: create a task and call deprecated task_set_spec_path', async () => {
+  it('step 4: create a task with spec_body inline', async () => {
     const tasks = taskTools(db);
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
@@ -208,11 +208,11 @@ describe('Phase 2 discussions + snapshot integration', () => {
       issue_id: issueId,
       tasks: [
         {
-          branch_id: 'feat/phase-2-discussions',
-          title: 'Phase 2 discussions task',
+          branch_id: 'feat/discussions-integration',
+          title: 'discussions task',
           description: 'Implement discussion tools',
           success_criteria: 'All tools work',
-          spec_body_md: 'This is the spec body for the phase 2 discussions task.',
+          spec_body: 'This is the spec body for the discussions task.',
         },
       ],
     });
@@ -222,49 +222,10 @@ describe('Phase 2 discussions + snapshot integration', () => {
 
     const task = created[0];
     (globalThis as Record<string, unknown>)['testTaskId'] = String(task.id);
-
-    const specResult = await call(tasks.handlers, 'task_set_spec_path', {
-      agent: 'architect',
-      issue_id: issueId,
-      branch_id: 'feat/phase-2-discussions',
-      spec_path: 'docs/trustmybot/tasks/feat-phase-2-discussions.md',
-    });
-    const payload = parseResult(specResult);
-    assert.ok(!specResult.isError, `Expected no error: ${JSON.stringify(payload)}`);
-    assert.equal(payload.deprecated, true, 'Payload must have deprecated: true');
-    assert.ok(
-      payload.message.includes('task_set_spec_path is deprecated'),
-      'Payload must include deprecation message',
-    );
-    assert.ok(payload.task, 'Payload must include task row');
     assert.equal(
-      payload.task.task_spec_path,
-      task.task_spec_path,
-      'task_spec_path must be unchanged (no-op)',
-    );
-  });
-
-  it('step 4b: task_set_spec_path with invalid path still returns deprecated no-op payload', async () => {
-    const tasks = taskTools(db);
-    const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
-
-    const result = await call(tasks.handlers, 'task_set_spec_path', {
-      agent: 'architect',
-      issue_id: issueId,
-      branch_id: 'feat/phase-2-discussions',
-      spec_path: 'docs/trustmybot/tasks/some-other-task.md',
-    });
-    assert.ok(!result.isError, 'Deprecated no-op must not return isError');
-    const payload = parseResult(result);
-    assert.equal(payload.deprecated, true, 'Payload must have deprecated: true');
-    assert.ok(
-      payload.message.includes('task_set_spec_path is deprecated'),
-      'Payload must include deprecation message',
-    );
-    assert.equal(
-      payload.task.task_spec_path,
-      '',
-      'task_spec_path must still be empty (validation bypassed)',
+      task.spec_body,
+      'This is the spec body for the discussions task.',
+      'spec_body must persist as written',
     );
   });
 
@@ -333,7 +294,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
     assert.equal(row.status, 'completed', 'Status must NOT have changed');
   });
 
-  it('step 6c: task_update_status without commit_sha is backward-compatible', async () => {
+  it('step 6c: task_update_status leaves commit_sha null when the caller omits it', async () => {
     const tasks = taskTools(db);
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
@@ -342,9 +303,9 @@ describe('Phase 2 discussions + snapshot integration', () => {
       issue_id: issueId,
       tasks: [
         {
-          branch_id: 'feat/back-compat-test',
-          description: 'Back-compat task',
-          success_criteria: 'passes without commit_sha',
+          branch_id: 'feat/commit-sha-optional',
+          description: 'Task that finishes without a commit_sha',
+          success_criteria: 'completes without commit_sha argument',
         },
       ],
     });
@@ -357,7 +318,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
       status: 'completed',
     });
     const updated = parseResult(result);
-    assert.ok(!result.isError, 'Back-compat call without commit_sha should succeed');
+    assert.ok(!result.isError, 'Call without commit_sha should succeed');
     assert.equal(updated.status, 'completed');
     assert.equal(updated.commit_sha, null, 'commit_sha should remain null when not provided');
   });
@@ -382,14 +343,14 @@ describe('Phase 2 discussions + snapshot integration', () => {
 
     const content = readFileSync(absPath, 'utf8');
     assert.ok(content.includes('Generated by issue_snapshot_md'), 'Must have GENERATED header');
-    assert.ok(content.includes('Phase 2 integration test issue'), 'Must have issue objective');
+    assert.ok(content.includes('discussion integration test issue'), 'Must have issue objective');
     assert.ok(content.includes('We want to build the discussion tools'), 'Must include discussion body');
     assert.ok(content.includes('Approved. SWE will implement.'), 'Must include all discussion entries');
-    assert.ok(content.includes('feat/phase-2-discussions'), 'Must include task branch_id');
+    assert.ok(content.includes('feat/discussions-integration'), 'Must include task branch_id');
     assert.ok(content.includes(sha), 'Must include commit_sha from the task row');
     assert.ok(
-      content.includes('This is the spec body for the phase 2 discussions task.'),
-      'Must include spec_body_md content in per-task snapshot',
+      content.includes('This is the spec body for the discussions task.'),
+      'Must include spec_body content in per-task snapshot',
     );
   });
 

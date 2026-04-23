@@ -1,6 +1,6 @@
 {
   "name": "tmb",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "TMB multi-agent Claude Code plugin with SQLite trajectory MCP.",
   "author": {
     "name": "trustmybot",
@@ -18,14 +18,9 @@
   "provides": {
     "agents": [
       "gatekeeper",
-      "prompt-engineer",
       "architect",
       "swe",
       "pr-reviewer"
-    ],
-    "project-agent-templates": [
-      "ceo",
-      "cto"
     ],
     "skills": [],
     "workflow": "docs/trustmybot/"

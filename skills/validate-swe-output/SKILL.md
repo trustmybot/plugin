@@ -16,9 +16,10 @@ declared `## Files` list, and return a structured verdict block to the calling
 Architect. The forked context means no side effects can leak back to the
 Architect's workspace.
 
-This skill replaces the Architect's inline validation work. The Architect
-invokes it, the forked Explore agent runs all checks independently, and only
-the verdict crosses back. Saves roughly 30K tokens per validation cycle.
+The Architect invokes this skill; the forked Explore agent runs all checks
+independently, and only the verdict crosses back. Saves roughly 30K tokens
+per validation cycle by keeping pytest/diff output out of the Architect's
+context window.
 
 ## B. Inputs (provided by the Architect in the invocation message)
 
@@ -49,13 +50,13 @@ Stop immediately.
 
 ### Step 2 — Read the task spec
 
-Call `task_get(task_id)` and read `spec_body_md`. Locate the `## Verification`
+Call `task_get(task_id)` and read `spec_body`. Locate the `## Verification`
 section within the returned body.
 
-If the row is missing or `spec_body_md` is empty:
+If the row is missing or `spec_body` is empty:
 ```
 verdict: escalate
-findings: task_get({task_id}) returned no row or empty spec_body_md. Cannot validate without the contract.
+findings: task_get({task_id}) returned no row or empty spec_body. Cannot validate without the contract.
 ```
 Stop immediately.
 

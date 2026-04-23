@@ -22,7 +22,7 @@ branching behavior (branch from HEAD instead).
 4. **NEVER copy a worktree's file to the main repo without `git diff` first.**
 5. After copying worktree output, verify with lint + tests before committing.
 
-## Task Spec Body Template (Markdown stored in `tasks.spec_body_md`)
+## Task Spec Body Template (Markdown stored in `tasks.spec_body`)
 
 Each task spec body is SWE's **sole source of truth**. SWE retrieves it via
 `task_get(task_id)`.
@@ -34,19 +34,9 @@ the spec must be self-contained.
 
 **If SWE has to make a judgment call, the spec is underspecified.**
 
-The old YAML frontmatter fields are now DB columns. Mapping for reference:
-
-| Old frontmatter key | New DB column |
-|---------------------|---------------|
-| `issue_id`          | `tasks.issue_id` |
-| `branch_id`         | `tasks.branch_id` |
-| `title`             | `tasks.title` |
-| `status`            | `tasks.status` |
-| `authorized_by`     | (implicit: only architect inserts rows) |
-| `authorized_at`     | `tasks.created_at` |
-| `depends_on`        | `tasks.parent_branch_id` (single parent) or task-author convention |
-
-The `spec_body_md` string contains only the body sections — no frontmatter:
+Structured fields (issue_id, branch_id, title, status, created_at, parent_branch_id)
+live as columns on the `tasks` row. The `spec_body` string holds only the body
+sections — no frontmatter, no metadata:
 
 ```markdown
 ## Description
@@ -90,7 +80,7 @@ pending → running → completed → closed
 
 | Status | Set By | How |
 |--------|--------|-----|
-| `pending` | Architect | Row inserted with non-empty `spec_body_md` via `task_create_batch` |
+| `pending` | Architect | Row inserted with non-empty `spec_body` via `task_create_batch` |
 | `running` | SWE | `task_update_status(running)` at start |
 | `completed` | SWE | `task_update_status(completed)` atomic with commit |
 | `closed` | PR Reviewer ONLY | `task_update_status(closed)` after `validation_record(verdict=pass)` |

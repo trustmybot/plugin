@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/require-task-spec.sh (DB-only form, Phase 6.5)
+# Tests for scripts/hooks/require-task-spec.sh (DB-backed form)
 # Hook contract: block SWE spawns unless the prompt cites a valid
 # task_id=<N> whose row in tasks table has status IN (pending, open)
-# AND a non-empty spec_body_md. See plugin CHANGELOG for history.
+# AND a non-empty spec_body. See plugin CHANGELOG for history.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +20,7 @@ sqlite3 "$DB" "
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
     status TEXT NOT NULL,
-    spec_body_md TEXT
+    spec_body TEXT
   );
   INSERT INTO tasks VALUES (1, 'pending',     'Do the thing.');
   INSERT INTO tasks VALUES (2, 'pending',     '');
@@ -70,10 +70,10 @@ out=$(run_hook "$(swe_input 'task_id=5 please do the thing')")
 assert_contains "$out" '"decision":"block"' "block decision"
 assert_contains "$out" "has status='in_progress'" "reason cites wrong status"
 
-test_case "SWE with pending task that has empty spec_body_md is blocked"
+test_case "SWE with pending task that has empty spec_body is blocked"
 out=$(run_hook "$(swe_input 'task_id=2 please do the thing')")
 assert_contains "$out" '"decision":"block"' "block decision"
-assert_contains "$out" "has empty spec_body_md" "reason cites missing body"
+assert_contains "$out" "has empty spec_body" "reason cites missing body"
 
 test_case "SWE with pending task and non-empty body passes silently"
 out=$(run_hook "$(swe_input 'task_id=1 please do the thing')")

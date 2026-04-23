@@ -15,8 +15,7 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
     id: 1,
     parent_issue_id: null,
     objective: 'A'.repeat(200),
-    goals_md: 'SECRET GOALS',
-    goals_md_hash: 'abc',
+    description: 'SECRET DESCRIPTION',
     pre_commit_hash: 'sha123',
     post_commit_hash: null,
     status: 'open',
@@ -31,12 +30,11 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
 function makeValidationRow(overrides: Partial<ValidationAttempt> = {}): ValidationAttempt {
   return {
     id: 1,
-    task_id: 'task-123',
+    task_id: 123,
     attempt_n: 1,
     agent: 'architect',
     verdict: 'pass',
-    feedback_md: 'SENSITIVE FEEDBACK',
-    reviewer_verdict: null,
+    feedback: 'SENSITIVE FEEDBACK',
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
@@ -48,7 +46,6 @@ describe('agent-scope middleware', () => {
     assert.equal(normalizeAgent('architect'), 'architect');
     assert.equal(normalizeAgent('swe'), 'swe');
     assert.equal(normalizeAgent('pr-reviewer'), 'pr-reviewer');
-    assert.equal(normalizeAgent('prompt-engineer'), 'prompt-engineer');
   });
 
   it('normalizeAgent falls back to unknown for unknown input', () => {
@@ -58,10 +55,10 @@ describe('agent-scope middleware', () => {
     assert.equal(normalizeAgent('SWE'), 'swe');
   });
 
-  it('redactIssue drops goals_md for swe', () => {
+  it('redactIssue drops description for swe', () => {
     const issue = makeIssue();
     const result = redactIssue(issue, 'swe');
-    assert.ok(!('goals_md' in result), 'goals_md should be absent for swe');
+    assert.ok(!('description' in result), 'description should be absent for swe');
   });
 
   it('redactIssue truncates objective to 120 chars for swe', () => {
@@ -73,21 +70,21 @@ describe('agent-scope middleware', () => {
 
   it('redactIssue returns full record for architect', () => {
     const issue = makeIssue();
-    const result = redactIssue(issue, 'architect', { include_goals: true });
-    assert.equal(result.goals_md, 'SECRET GOALS');
+    const result = redactIssue(issue, 'architect', { include_description: true });
+    assert.equal(result.description, 'SECRET DESCRIPTION');
     assert.equal(result.objective, issue.objective);
   });
 
-  it('redactValidationRow drops feedback_md for swe on another task', () => {
-    const row = makeValidationRow({ task_id: 'task-other' });
-    const result = redactValidationRow(row, 'swe', { own_task_id: 'task-mine' });
-    assert.ok(!('feedback_md' in result), 'feedback_md should be dropped');
+  it('redactValidationRow drops feedback for swe on another task', () => {
+    const row = makeValidationRow({ task_id: 999 });
+    const result = redactValidationRow(row, 'swe', { own_task_id: 42 });
+    assert.ok(!('feedback' in result), 'feedback should be dropped');
   });
 
-  it('redactValidationRow keeps feedback_md for swe on own task', () => {
-    const row = makeValidationRow({ task_id: 'task-mine' });
-    const result = redactValidationRow(row, 'swe', { own_task_id: 'task-mine' });
-    assert.equal(result.feedback_md, 'SENSITIVE FEEDBACK');
+  it('redactValidationRow keeps feedback for swe on own task', () => {
+    const row = makeValidationRow({ task_id: 42 });
+    const result = redactValidationRow(row, 'swe', { own_task_id: 42 });
+    assert.equal(result.feedback, 'SENSITIVE FEEDBACK');
   });
 
   it('normalizeAgent gatekeeper returns gatekeeper', () => {
@@ -96,10 +93,6 @@ describe('agent-scope middleware', () => {
 
   it('normalizeAgent Gatekeeper (mixed-case) returns gatekeeper', () => {
     assert.equal(normalizeAgent('Gatekeeper'), 'gatekeeper');
-  });
-
-  it('normalizeAgent secretary returns gatekeeper (back-compat alias)', () => {
-    assert.equal(normalizeAgent('secretary'), 'gatekeeper');
   });
 
   it('normalizeAgent undefined returns unknown', () => {
@@ -135,17 +128,4 @@ describe('agent-scope middleware', () => {
     assert.ok(called, 'Expected underlying handler to be invoked');
   });
 
-  it('requireRoles allows secretary (aliased to gatekeeper) on gatekeeper-only tool', async () => {
-    let called = false;
-    const passthrough = async (_args: Record<string, unknown>): Promise<CallToolResult> => {
-      called = true;
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
-    };
-
-    const wrapped = requireRoles('identity_set', ['gatekeeper'], passthrough);
-    const result = await wrapped({ agent: 'secretary' });
-
-    assert.ok(!result.isError, 'Expected no error — secretary aliased to gatekeeper');
-    assert.ok(called, 'Expected underlying handler to be invoked');
-  });
 });

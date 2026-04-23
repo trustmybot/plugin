@@ -43,7 +43,7 @@ if [ "$STATUS" != "pending" ] && [ "$STATUS" != "open" ]; then
 fi
 
 if [ "${BODY_LEN:-0}" -eq 0 ]; then
-  echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: task_id=${TASK_ID} has empty spec_body_md. Architect must set spec body before SWE can execute.\"}"
+  echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: task_id=${TASK_ID} has empty spec_body. Architect must set spec body before SWE can execute.\"}"
   exit 0
 fi
 

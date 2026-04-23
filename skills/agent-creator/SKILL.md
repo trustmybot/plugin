@@ -19,9 +19,9 @@ auto-creation is never permitted.
 Gatekeeper (routing-time) or architect (task-breakdown-time) invokes this
 skill when ALL of the following hold:
 
-1. The user's request cannot be served by any of the 2 global agents
-   (secretary, prompt-engineer) or the 5 project-placeholder agents
-   (ceo, cto, architect, swe, pr-reviewer).
+1. The user's request cannot be served by the 4 global workflow agents
+   (gatekeeper, architect, swe, pr-reviewer) or any user-created agent
+   already present in the project's `.claude/agents/`.
 2. The user explicitly wants a **named, persistent role** — not an ad-hoc
    Task spawn.
 3. The role does not already exist in `.claude/agents/`.
@@ -35,13 +35,9 @@ used for new domain agents. If the user requests one of these names, refuse
 immediately and ask for a different name:
 
 - `gatekeeper`
-- `secretary`
-- `prompt-engineer`
 - `architect`
 - `swe`
 - `pr-reviewer`
-- `ceo`
-- `cto`
 
 ## D. Execution Steps
 

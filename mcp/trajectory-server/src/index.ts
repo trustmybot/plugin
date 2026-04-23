@@ -15,7 +15,7 @@ const dbPath =
 const db = new TrajectoryDB(dbPath);
 
 const server = new Server(
-  { name: 'trajectory-server', version: '0.2.0' },
+  { name: 'trajectory-server', version: '0.3.2' },
   { capabilities: { tools: {} } },
 );
 

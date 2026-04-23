@@ -5,7 +5,7 @@ description: Review phases 1-7 for PR Reviewer. Progression from staged diff sca
 
 # Review Protocol
 
-Task spec sections live in `tasks.spec_body_md`; fetch via `task_get(task_id)`.
+Task spec sections live in `tasks.spec_body`; fetch via `task_get(task_id)`.
 
 ## Phase 1 — Staged Diff Scan (Pre-Commit)
 

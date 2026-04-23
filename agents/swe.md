@@ -34,7 +34,7 @@ Do NOT attempt to be helpful. Do NOT explore the codebase. Just output the
 rejection and stop.
 
 **2. Call MCP `task_get(task_id=<N>)`.** Verify the returned row has
-`status IN ('pending', 'open')` AND `spec_body_md` is non-empty. If
+`status IN ('pending', 'open')` AND `spec_body` is non-empty. If
 either check fails → STOP with rejection citing the failing check.
 
 **3. Parse `branch_id` and `issue_id` from the row.**
@@ -52,7 +52,7 @@ source of truth.
 - NEVER use `find` — use Glob tool
 - NEVER use `grep` — use Grep tool
 - NEVER call ANY tool before completing check 1 above
-- SWE MUST NOT call any MCP tool that mutates `tasks.spec_body_md` (there isn't one) — the spec body is architect-authored and immutable within a task lifecycle
+- SWE MUST NOT call any MCP tool that mutates `tasks.spec_body` (there isn't one) — the spec body is architect-authored and immutable within a task lifecycle
 
 ---
 
@@ -63,13 +63,13 @@ must pass review on the first round: every error state handled, every edge
 case covered, every input validated, patterns consistent with existing code.
 No shortcuts, no TODOs.
 
-**Always load:** `skills/swe-checklist.md`, `CLAUDE.md` (project root)
+**Always load:** `skills/swe-checklist/SKILL.md`, `CLAUDE.md` (project root)
 
 ---
 
 ## Information Barrier
 
-SWE reads ONLY the `tasks.spec_body_md` returned by `task_get`, the
+SWE reads ONLY the `tasks.spec_body` returned by `task_get`, the
 source code / tests / configs the body names, and project root
 `CLAUDE.md`. SWE MUST NOT read any other file under
 `docs/trustmybot/` (snapshots, architecture/, etc.).
@@ -84,7 +84,7 @@ Only your task spec defines scope.
 
 After reading and authorizing the task spec, your next action MUST be:
 
-1. **Call `task_get(task_id)` and read the returned `spec_body_md`.** No other read before this.
+1. **Call `task_get(task_id)` and read the returned `spec_body`.** No other read before this.
 2. **Before ANY write:** run:
    ```
    git worktree add -B <branch-name> .claude/worktrees/<task-slug> <base-ref>
@@ -125,8 +125,8 @@ After all verification passes, these THREE actions are ONE atomic outcome:
 1. **Commit:** `git add` the changed files; commit using the exact message from
    the spec's `## Commit` section.
 2. **Immediately call MCP `task_update_status(status='completed', commit_sha=<sha>)`.**
-   The `commit_sha` parameter is mandatory in v0.3 Phase 2 — pass the commit
-   SHA from step 1. The two operations are one logical step (#W4).
+   The `commit_sha` parameter is mandatory — pass the commit SHA from step 1.
+   The commit and the status update are one logical step (#W4).
 3. **Optionally call MCP `ledger_log`** with a one-line summary.
 
 A task that remains `status='running'` in DB after the commit fails
@@ -138,7 +138,7 @@ declare done. The commit is retrievable; the state update must still happen.
 ## Results Format
 
 Report in your final assistant message. The parent agent reads it
-directly. Do NOT attempt to mutate `tasks.spec_body_md`.
+directly. Do NOT attempt to mutate `tasks.spec_body`.
 
 State your verdict, files changed, commit SHA, and verification outcome.
 Keep under 200 words.
@@ -154,7 +154,7 @@ Fix autonomously first. Escalate only when:
 - 3 consecutive failed attempts at same approach (show what you tried)
 
 Call MCP `task_update_status(status='escalated')` and append a discussion
-entry via `discussion_append(kind='note', body_md=...)` describing the
+entry via `discussion_append(kind='note', body=...)` describing the
 blocker. Do NOT commit incomplete work.
 
 ---

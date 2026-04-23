@@ -1,6 +1,6 @@
 ---
 description: Post-roundtable cleanup steps.
-agent: architect, secretary
+agent: architect, gatekeeper
 ---
 
 # Roundtable Cleanup Rule

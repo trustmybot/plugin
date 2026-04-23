@@ -5,8 +5,7 @@ CREATE TABLE IF NOT EXISTS issues (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     parent_issue_id   INTEGER REFERENCES issues(id),
     objective         TEXT    NOT NULL,
-    goals_md          TEXT    NOT NULL DEFAULT '',
-    goals_md_hash     TEXT    NOT NULL DEFAULT '',
+    description       TEXT    NOT NULL DEFAULT '',
     pre_commit_hash   TEXT    NOT NULL DEFAULT '',
     post_commit_hash  TEXT,
     status            TEXT    NOT NULL DEFAULT 'open',
@@ -28,10 +27,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     success_criteria  TEXT    NOT NULL,
     status            TEXT    NOT NULL DEFAULT 'pending',
     attempts          INTEGER NOT NULL DEFAULT 0,
-    execution_plan_md TEXT    NOT NULL DEFAULT '',
-    qa_results        TEXT    NOT NULL DEFAULT '',
-    task_spec_path    TEXT    NOT NULL DEFAULT '',
-    spec_body_md      TEXT    NOT NULL DEFAULT '',
+    spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
@@ -68,12 +64,11 @@ CREATE TABLE IF NOT EXISTS audit (
 
 CREATE TABLE IF NOT EXISTS validation_attempts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id         TEXT    NOT NULL,
+    task_id         INTEGER NOT NULL REFERENCES tasks(id),
     attempt_n       INTEGER NOT NULL,
     agent           TEXT    NOT NULL DEFAULT '',
     verdict         TEXT    NOT NULL,
-    feedback_md     TEXT    NOT NULL DEFAULT '',
-    reviewer_verdict TEXT,
+    feedback         TEXT    NOT NULL DEFAULT '',
     created_at      TEXT    NOT NULL,
     UNIQUE(task_id, attempt_n)
 );
@@ -121,7 +116,7 @@ CREATE TABLE IF NOT EXISTS discussions (
     issue_id    INTEGER NOT NULL REFERENCES issues(id),
     author      TEXT    NOT NULL,
     kind        TEXT    NOT NULL DEFAULT 'note',
-    body_md     TEXT    NOT NULL,
+    body        TEXT    NOT NULL,
     created_at  TEXT    NOT NULL
 );
 
@@ -135,7 +130,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (5, '0.3.0-alpha');
+INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (1, '0.3.2');
 
 CREATE TABLE IF NOT EXISTS file_registry (
     path             TEXT PRIMARY KEY,

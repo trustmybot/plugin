@@ -30,11 +30,14 @@ Pick one. Mode A is tighter for iteration; Mode B matches the release path end u
 Launch Claude Code against the plugin source directly:
 
 ```bash
-mkdir -p /tmp/tmb-scratch  # or anywhere disposable
-cd /tmp/tmb-scratch
+# Set PLUGIN_PATH to wherever you cloned this repo.
+export PLUGIN_PATH=/absolute/path/to/trustmybot-plugin
+
+# Use any disposable directory for the scratch project.
+mkdir -p /tmp/tmb-scratch && cd /tmp/tmb-scratch
 git init && git commit --allow-empty -m "init"
 
-claude --plugin-dir $PLUGIN_PATH
+claude --plugin-dir "$PLUGIN_PATH"
 ```
 
 Edits to agent prompts, skills, or hook scripts are picked up after `/reload-plugins` inside the session. TypeScript edits under `mcp/trajectory-server/src/` require a rebuild (`bun run build`) then `/reload-plugins`.
@@ -131,7 +134,7 @@ Manual scenarios to walk before shipping a change. Tick each after running.
 |---|---|---|
 | 1 | Fresh install in empty project | Gatekeeper introduces itself; onboarding triggers |
 | 2 | Read-only question (`list files in src/`) | Gatekeeper answers inline; no agent spawn |
-| 3 | Simple code change | Gatekeeper triages `simple` → architect double-checks → task row created via `task_create_batch(spec_body_md=...)` → SWE in worktree reads via `task_get` |
+| 3 | Simple code change | Gatekeeper triages `simple` → architect double-checks → task row created via `task_create_batch(spec_body=...)` → SWE in worktree reads via `task_get` |
 | 4 | Architecture-affecting change | Gatekeeper triages `difficult` → architect updates `architecture/manual/` ADR → task row (standard template) |
 | 5 | `/tmb reonboard` phrase | Skill re-prompts branching + identity |
 | 6 | Identity rename (`call yourself alex`) | `identity_set` persists; subsequent responses use new name |

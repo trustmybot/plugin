@@ -10,7 +10,7 @@ bash tests/run-all.sh
 ```
 
 Runs, in order:
-1. **MCP server suite** — TypeScript unit tests for schema, tools, migrations (242+ cases).
+1. **MCP server suite** — TypeScript unit tests for schema + tools (~233 cases).
 2. **Hook script suite** — bash unit tests for `scripts/hooks/*.sh`.
 
 Exit code is non-zero if any suite fails.
