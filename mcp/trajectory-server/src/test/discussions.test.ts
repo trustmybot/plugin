@@ -199,7 +199,7 @@ describe('Phase 2 discussions + snapshot integration', () => {
     assert.equal(data.discussions.length, 0);
   });
 
-  it('step 4: create a task and call deprecated task_set_spec_path', async () => {
+  it('step 4: create a task with spec_body_md inline', async () => {
     const tasks = taskTools(db);
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
@@ -222,49 +222,10 @@ describe('Phase 2 discussions + snapshot integration', () => {
 
     const task = created[0];
     (globalThis as Record<string, unknown>)['testTaskId'] = String(task.id);
-
-    const specResult = await call(tasks.handlers, 'task_set_spec_path', {
-      agent: 'architect',
-      issue_id: issueId,
-      branch_id: 'feat/phase-2-discussions',
-      spec_path: 'docs/trustmybot/tasks/feat-phase-2-discussions.md',
-    });
-    const payload = parseResult(specResult);
-    assert.ok(!specResult.isError, `Expected no error: ${JSON.stringify(payload)}`);
-    assert.equal(payload.deprecated, true, 'Payload must have deprecated: true');
-    assert.ok(
-      payload.message.includes('task_set_spec_path is deprecated'),
-      'Payload must include deprecation message',
-    );
-    assert.ok(payload.task, 'Payload must include task row');
     assert.equal(
-      payload.task.task_spec_path,
-      task.task_spec_path,
-      'task_spec_path must be unchanged (no-op)',
-    );
-  });
-
-  it('step 4b: task_set_spec_path with invalid path still returns deprecated no-op payload', async () => {
-    const tasks = taskTools(db);
-    const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
-
-    const result = await call(tasks.handlers, 'task_set_spec_path', {
-      agent: 'architect',
-      issue_id: issueId,
-      branch_id: 'feat/phase-2-discussions',
-      spec_path: 'docs/trustmybot/tasks/some-other-task.md',
-    });
-    assert.ok(!result.isError, 'Deprecated no-op must not return isError');
-    const payload = parseResult(result);
-    assert.equal(payload.deprecated, true, 'Payload must have deprecated: true');
-    assert.ok(
-      payload.message.includes('task_set_spec_path is deprecated'),
-      'Payload must include deprecation message',
-    );
-    assert.equal(
-      payload.task.task_spec_path,
-      '',
-      'task_spec_path must still be empty (validation bypassed)',
+      task.spec_body_md,
+      'This is the spec body for the phase 2 discussions task.',
+      'spec_body_md must persist as written',
     );
   });
 

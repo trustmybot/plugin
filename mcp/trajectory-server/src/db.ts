@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 
 export class TrajectoryDB {
-  static readonly TARGET_VERSION = 5;
+  static readonly TARGET_VERSION = 6;
 
   private db: Database.Database;
 
@@ -50,7 +50,7 @@ export class TrajectoryDB {
       );
     }
 
-    if (existingVersion === 3 || existingVersion === 4) {
+    if (existingVersion === 3 || existingVersion === 4 || existingVersion === 5) {
       return;
     }
 
@@ -134,6 +134,56 @@ export class TrajectoryDB {
       .run();
   }
 
+  private applyV5ToV6(): void {
+    const taskColumns = this.db
+      .prepare('PRAGMA table_info(tasks)')
+      .all() as Array<{ name: string }>;
+    if (taskColumns.some((c) => c.name === 'task_spec_path')) {
+      this.db.exec('ALTER TABLE tasks DROP COLUMN task_spec_path');
+    }
+
+    const vaColumns = this.db
+      .prepare('PRAGMA table_info(validation_attempts)')
+      .all() as Array<{ name: string; type: string }>;
+    const taskIdCol = vaColumns.find((c) => c.name === 'task_id');
+    const needsVaRebuild =
+      taskIdCol !== undefined && taskIdCol.type.toUpperCase() !== 'INTEGER';
+
+    if (needsVaRebuild) {
+      this.db.pragma('foreign_keys = OFF');
+      this.db.exec(`
+        CREATE TABLE validation_attempts_new (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id          INTEGER NOT NULL REFERENCES tasks(id),
+          attempt_n        INTEGER NOT NULL,
+          agent            TEXT    NOT NULL DEFAULT '',
+          verdict          TEXT    NOT NULL,
+          feedback_md      TEXT    NOT NULL DEFAULT '',
+          reviewer_verdict TEXT,
+          created_at       TEXT    NOT NULL,
+          UNIQUE(task_id, attempt_n)
+        );
+        INSERT INTO validation_attempts_new
+          (id, task_id, attempt_n, agent, verdict, feedback_md, reviewer_verdict, created_at)
+        SELECT id, CAST(task_id AS INTEGER), attempt_n, agent, verdict, feedback_md, reviewer_verdict, created_at
+        FROM validation_attempts
+        WHERE CAST(task_id AS INTEGER) IN (SELECT id FROM tasks);
+        DROP TABLE validation_attempts;
+        ALTER TABLE validation_attempts_new RENAME TO validation_attempts;
+      `);
+      this.db.pragma('foreign_keys = ON');
+    }
+
+    this.db.exec(
+      "DELETE FROM plugin_meta WHERE id > (SELECT MIN(id) FROM plugin_meta)",
+    );
+    this.db
+      .prepare(
+        "UPDATE plugin_meta SET schema_version = 6, plugin_version = '0.3.2', updated_at = datetime('now')",
+      )
+      .run();
+  }
+
   migrate(): void {
     const schemaPath = join(
       dirname(fileURLToPath(import.meta.url)),
@@ -177,6 +227,20 @@ export class TrajectoryDB {
     const needsV5 = !taskColsAfterV4.some((c) => c.name === 'spec_body_md');
     if (needsV5) {
       this.applyV4ToV5();
+    }
+
+    const taskColsAfterV5 = this.db
+      .prepare('PRAGMA table_info(tasks)')
+      .all() as Array<{ name: string }>;
+    const vaCols = this.db
+      .prepare('PRAGMA table_info(validation_attempts)')
+      .all() as Array<{ name: string; type: string }>;
+    const vaTaskId = vaCols.find((c) => c.name === 'task_id');
+    const needsV6 =
+      taskColsAfterV5.some((c) => c.name === 'task_spec_path') ||
+      (vaTaskId !== undefined && vaTaskId.type.toUpperCase() !== 'INTEGER');
+    if (needsV6) {
+      this.applyV5ToV6();
     }
   }
 

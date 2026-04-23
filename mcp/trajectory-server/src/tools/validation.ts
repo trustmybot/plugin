@@ -37,13 +37,23 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 
 interface ValidationAttempt {
   id: number;
-  task_id: string;
+  task_id: number;
   attempt_n: number;
   agent: string;
   verdict: string;
   feedback_md: string;
   reviewer_verdict: string | null;
   created_at: string;
+}
+
+function coerceTaskId(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(
+      `task_id must be a positive integer; got: ${JSON.stringify(raw)}`,
+    );
+  }
+  return n;
 }
 
 export function validationTools(db: TrajectoryDB): {
@@ -85,7 +95,7 @@ export function validationTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     validation_record: wrapHandler(async (args) => {
       const agent = requireArg(args, 'agent') as string;
-      const taskId = requireArg(args, 'task_id') as string;
+      const taskId = coerceTaskId(requireArg(args, 'task_id'));
       requireArg(args, 'attempt_n');
       const verdict = requireArg(args, 'verdict') as string;
       requireArg(args, 'feedback_md');
@@ -94,6 +104,14 @@ export function validationTools(db: TrajectoryDB): {
         throw new Error(
           `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`,
         );
+      }
+
+      const taskExists = db.get<{ id: number }>(
+        `SELECT id FROM tasks WHERE id = ?`,
+        [taskId],
+      );
+      if (!taskExists) {
+        throw new Error(`task_id=${taskId} not found in tasks table`);
       }
 
       const attemptN = args['attempt_n'] as number;
@@ -124,8 +142,12 @@ export function validationTools(db: TrajectoryDB): {
 
     validation_history: wrapHandler(async (args) => {
       const agent = normalizeAgent(args['agent'] as string | undefined);
-      const taskId = requireArg(args, 'task_id') as string;
-      const ownTaskId = args['own_task_id'] as string | undefined;
+      const taskId = coerceTaskId(requireArg(args, 'task_id'));
+      const ownTaskIdRaw = args['own_task_id'];
+      const ownTaskId =
+        ownTaskIdRaw !== undefined && ownTaskIdRaw !== null
+          ? coerceTaskId(ownTaskIdRaw)
+          : undefined;
 
       const rows = db.all<ValidationAttempt>(
         `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,

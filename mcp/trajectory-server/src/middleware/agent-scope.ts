@@ -30,7 +30,7 @@ export function normalizeAgent(name?: string): AgentRole {
 
 export interface ValidationAttempt {
   id: number;
-  task_id: string;
+  task_id: number;
   attempt_n: number;
   agent: string;
   verdict: string;
@@ -93,7 +93,7 @@ export function redactIssue(
 export function redactValidationRow(
   row: ValidationAttempt,
   agent: AgentRole,
-  scope: { own_task_id?: string },
+  scope: { own_task_id?: number },
 ): Partial<ValidationAttempt> {
   if (agent === 'swe' && row.task_id !== scope.own_task_id) {
     const { feedback_md: _, ...rest } = row;
