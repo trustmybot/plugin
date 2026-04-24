@@ -1,8 +1,8 @@
 ---
 name: first-run-onboarding
-description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Welcomes the user, captures identity + branching model + PR target + protected branches via MCP. Hold-and-resume any code-touching ask received during the flow.
+description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Welcomes the user, captures identity + branching model + PR target via AskUserQuestion radio UI, then persists via MCP. Hold-and-resume any code-touching ask received during the flow.
 agent: bro
-allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set
+allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set
 ---
 
 # first-run-onboarding
@@ -25,77 +25,106 @@ Read-only asks during onboarding (e.g. "what is this repo?") are answered direct
 ## MCP-only — no agent spawns
 
 During onboarding the skill may:
+- Call `AskUserQuestion` to collect answers with a proper radio UI
 - Call MCP `config_set` and `identity_set` to persist answers
 - Use read-only Bash for context if needed
 
 It MUST NOT spawn any agent and MUST NOT run side-effecting shell commands.
 
-## Step 1 — Welcome + name
+## Step 1 — Welcome
 
-Say:
+Emit this short text, then proceed to Step 2:
 
-> "Hey, I'm bro. Trust me bro, it works — that's the plugin's whole pitch. I route your work to the right agents and keep things tidy. What should I call you? (Press enter to stay anonymous.)"
+> "Hey, I'm bro. Trust me bro, it works — that's the plugin's whole pitch. I route your work to the right agents and keep things tidy. Let me grab a couple of settings."
 
-MCP call after the Human responds (even if blank):
+## Step 2 — Collect answers via AskUserQuestion
 
-```
-identity_set(human_name=<answer or omit if blank>)
-```
-
-## Step 2 — Branching model
-
-Say:
-
-> "How does your team branch? (1) github-flow — single main, feature branches off main, PRs back to main. (2) gitflow — long-lived develop branch, releases promoted to main. (3) custom — you tell me."
-
-### Step 2a — PR target (choices 1 and 2 only)
-
-Always ask `pr_target` explicitly — do NOT auto-derive. Some repos use `master` not `main`, or fork-based workflows where the target isn't the obvious default. One-time question; silent defaults hide configuration drift.
-
-For **github-flow**: ask `pr_target` with `main` as the press-enter default.
-For **gitflow**: ask `pr_target` with `develop` as the press-enter default.
-
-For choice **1 (github-flow)**:
-
-> "What's your PR target branch? (default: main — press enter to accept, or type an alternative like master)"
-
-MCP calls:
+Call `AskUserQuestion` with **three questions batched in one call** so the Human sees one form, answers once:
 
 ```
-config_set("branching_model", "github-flow")
-config_set("pr_target", <answer or "main" if blank>)
-config_set("protected_branches", <JSON array containing the chosen pr_target>)
+AskUserQuestion({
+  questions: [
+    {
+      question: "What should I call you?",
+      header: "Your name",
+      multiSelect: false,
+      options: [
+        { label: "Anonymous", description: "No name on file — bro addresses you in plain second-person." },
+        { label: "Use inferred name", description: "If the Human mentioned a name (e.g. 'I'm Zax'), use that. Otherwise hide this option." }
+      ]
+      // 'Other' is auto-added; lets the Human type any name freely.
+    },
+    {
+      question: "How does your team branch?",
+      header: "Branching",
+      multiSelect: false,
+      options: [
+        { label: "Trunk + feature branches (GitHub Flow) (Recommended)", description: "Single main branch, feature branches off main, PRs back to main." },
+        { label: "Trunk + develop + releases (Git Flow)", description: "Long-lived develop branch, releases promoted to main." },
+        { label: "Custom workflow", description: "Something else — you'll describe it via Other." }
+      ]
+    },
+    {
+      question: "What's your PR target branch?",
+      header: "PR target",
+      multiSelect: false,
+      options: [
+        { label: "main (Recommended)", description: "Default for github-flow and most modern repos." },
+        { label: "master", description: "Older repos that predate the main-branch rename." },
+        { label: "develop", description: "Use this if you chose Git Flow above." },
+        { label: "trunk", description: "Some teams still use this." }
+      ]
+      // 'Other' auto-added for any other name.
+    }
+  ]
+})
 ```
 
-For choice **2 (gitflow)**:
+If the Human previously introduced themselves inline ("I'm Zax"), pre-populate the name question's second option as `Use "Zax"` so they can one-click confirm. Otherwise omit that option and let them type via Other.
 
-> "What's your PR target branch? (default: develop — press enter to accept, or type an alternative)"
+## Step 3 — Persist answers via MCP
 
-MCP calls:
-
-```
-config_set("branching_model", "gitflow")
-config_set("pr_target", <answer or "develop" if blank>)
-config_set("protected_branches", <JSON array: ["main", <chosen pr_target>] — deduplicated if user picked main>)
-```
-
-### Step 3 — Custom branching (choice 3 only)
-
-Say:
-
-> "Got it. What's your PR target branch? (e.g. main, trunk, release)"
-
-Then:
-
-> "And which branches should I treat as protected (no direct commits)? Comma-separated."
-
-MCP calls:
+After `AskUserQuestion` returns:
 
 ```
-config_set("branching_model", "custom")
-config_set("pr_target", <answer to first question>)
-config_set("protected_branches", <split-and-trim CSV → JSON array>)
+name_answer       = answers["What should I call you?"]
+branching_answer  = answers["How does your team branch?"]
+pr_target_answer  = answers["What's your PR target branch?"]
 ```
+
+Map the labels back to canonical values:
+
+| Label | Canonical value |
+|---|---|
+| "Anonymous" | skip `identity_set` |
+| `Use "<name>"` or Other | `<name>` → `identity_set(agent='bro', human_name=<name>)` |
+| "Trunk + feature branches (GitHub Flow) (Recommended)" | `github-flow` |
+| "Trunk + develop + releases (Git Flow)" | `gitflow` |
+| "Custom workflow" | `custom` |
+| "main (Recommended)" / "master" / "develop" / "trunk" / Other | literal value |
+
+MCP writes:
+
+```
+if name_answer != "Anonymous":
+    identity_set(agent='bro', human_name=name_canonical)
+
+config_set(agent='bro', key='branching_model', value=branching_canonical)
+config_set(agent='bro', key='pr_target', value=pr_target_canonical)
+
+# Protected branches:
+if branching_canonical == 'github-flow':
+    protected = [pr_target_canonical]
+elif branching_canonical == 'gitflow':
+    protected = dedup(['main', pr_target_canonical])
+else:  # custom
+    protected = [pr_target_canonical]   # Human can edit later via tmb-reonboard
+config_set(agent='bro', key='protected_branches', value=protected)
+```
+
+## Step 4 — Custom branching follow-up
+
+If the Human picked "Custom workflow", ask one more batch for their protected-branch list via a second `AskUserQuestion` call — option A: "Just the PR target I picked", option B: "PR target + main", option C: "I'll add more via Other". Whatever they pick, parse into a JSON array and `config_set('protected_branches', ...)`.
 
 ## Closing message
 

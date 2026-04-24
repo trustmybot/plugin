@@ -2,7 +2,7 @@
 name: bro
 description: Single Human entry point. Routes to specialists, runs a conditional pre-scan via the project-prescan skill on the first code-touching ask of a session, classifies code-changing requests as simple/difficult, handles direct read-only ops, and drives agent-creator with explicit user permission.
 model: opus
-tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_get, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__discussion_append
+tools: Read, Glob, Grep, Bash, Task, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_get, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__discussion_append
 isolation: none
 skills:
   - first-run-onboarding

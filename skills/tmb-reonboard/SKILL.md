@@ -1,141 +1,120 @@
 ---
 name: tmb-reonboard
-description: Re-run the TMB onboarding flow on demand, showing current values as defaults. Handles branching model changes, PR target updates, and optional identity rename.
+description: Re-run the TMB onboarding flow on demand, showing current values as the pre-selected default in a radio UI via AskUserQuestion. Handles branching model changes, PR target updates, and identity rename.
 agent: bro
-allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
+allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
 ---
 
 # tmb-reonboard
 
 ## A. Purpose
 
-Allow a user who has already completed first-run onboarding to update their
-branching model, PR target, protected branches, or bro/human identity
-without needing to know the underlying MCP calls. This skill re-runs the same
-3-step sequence as first-run onboarding, but reads current values first and
-uses them as press-enter defaults.
+Allow a user who has already completed first-run onboarding to update branching model, PR target, protected branches, or their name, without typing MCP calls. Uses `AskUserQuestion` so the current value can be the first (pre-selected) option.
 
-This skill does NOT touch issues, tasks, or validation_attempts. It only
-reads and writes `plugin_config` keys and `identity`.
+This skill does NOT touch issues, tasks, or validation_attempts. It only reads/writes `plugin_config` keys and `identity`.
 
 ## B. When Invoked
 
-Bro invokes this skill directly (no other agent spawn needed) when the
-Human says any of the following — or close paraphrases:
+Bro invokes this skill directly (no other agent spawn needed) when the Human says any of the following — or close paraphrases:
 
 - "re-onboard"
 - "change branching model" / "switch to gitflow" / "switch to github-flow"
-- "rename bro" / "rename yourself"
-- "update my name" / "change my name in bro"
+- "update my name" / "change my name"
 - "reset onboarding"
 
 ## C. Execution Steps
 
 ### Step 1 — Read current state
 
-Call:
-
 ```
-config_list()
-identity_get()
+config_list(agent='bro')
+identity_get(agent='bro')
 ```
 
-Extract the following values (use `null` if absent):
+Extract (use `null` if absent):
 
-- `current_branching_model` — from `config_list()` key `branching_model`
-- `current_pr_target` — from `config_list()` key `pr_target`
-- `current_protected_branches` — from `config_list()` key `protected_branches`
-- `current_human_name` — from `identity_get()` field `human_name`
+- `current_branching_model`
+- `current_pr_target`
+- `current_protected_branches`
+- `current_human_name`
 
-### Step 2 — Show current values
+### Step 2 — Collect new values via AskUserQuestion
 
-Present a summary to the Human:
-
-> "Here's what I have on file:
-> - Branching model: `<current_branching_model>`
-> - PR target: `<current_pr_target>`
-> - Protected branches: `<current_protected_branches>`
-> - Your name: `<current_human_name>`
->
-> Let's walk through each. Press enter to keep the current value."
-
-### Step 3 — Identity (Step 1 of onboarding)
-
-Ask:
-
-> "What should I call you? (Press enter to keep `<current_human_name>`)"
-
-If blank (press-enter), skip the MCP call — nothing changed. Otherwise call:
+One batched call. For each question, make the **current value the first option** (pre-selected default):
 
 ```
-identity_set(human_name=<new answer>)
+AskUserQuestion({
+  questions: [
+    {
+      question: "What should I call you?",
+      header: "Your name",
+      multiSelect: false,
+      options: [
+        { label: `Keep "${current_human_name}"`, description: "No change." },  // hide if null
+        { label: "Anonymous", description: "Remove name from file." }
+      ]
+      // 'Other' lets the Human type a new name.
+    },
+    {
+      question: "How does your team branch?",
+      header: "Branching",
+      multiSelect: false,
+      options: [
+        // Current value goes first, labeled "Keep …"
+        { label: `Keep "${current_branching_model}"`, description: "No change." },
+        { label: "Switch to Trunk + feature branches (GitHub Flow)", description: "Single main, feature branches, PRs back." },
+        { label: "Switch to Trunk + develop + releases (Git Flow)", description: "Long-lived develop + releases to main." },
+        { label: "Custom workflow", description: "Describe via Other." }
+      ]
+    },
+    {
+      question: "What's your PR target branch?",
+      header: "PR target",
+      multiSelect: false,
+      options: [
+        { label: `Keep "${current_pr_target}"`, description: "No change." },
+        { label: "main", description: "Most common default." },
+        { label: "develop", description: "Common for Git Flow." },
+        { label: "master", description: "Older repos." }
+      ]
+      // 'Other' for any alternative.
+    }
+  ]
+})
 ```
 
-**Reset path:** If the Human says "reset everything" or "clear identity" at
-any point during this step, call `identity_reset()` then re-prompt the name
-question with no default.
+Dedupe logic: if `current_pr_target` is already one of the static options (e.g. "main"), collapse the `Keep "main"` entry with the second option to avoid a duplicate.
 
-### Step 4 — Branching model (Step 2 of onboarding)
+### Step 3 — Persist via MCP
 
-Ask:
-
-> "How does your team branch? (1) github-flow — single main, feature branches
-> off main, PRs back to main. (2) gitflow — long-lived develop branch,
-> releases promoted to main. (3) custom — you tell me.
-> (Press enter to keep `<current_branching_model>`)"
-
-If blank (press-enter), skip branching model changes — skip to Step 5.
-
-**Choice 1 (github-flow):**
-
-Ask PR target:
-
-> "What's your PR target branch? (Press enter to keep `<current_pr_target>`)"
-
-MCP calls:
+Parse each answer. If it starts with "Keep ", no write for that field. Otherwise:
 
 ```
-config_set("branching_model", "github-flow")
-config_set("pr_target", <new answer or current_pr_target if blank>)
-config_set("protected_branches", <JSON array containing the chosen pr_target>)
+if name_answer == "Anonymous":
+    identity_reset(agent='bro')
+elif name_answer != Keep:
+    identity_set(agent='bro', human_name=<name>)
+
+if branching_answer != Keep:
+    config_set(agent='bro', key='branching_model', value=<canonical>)
+
+if pr_target_answer != Keep:
+    config_set(agent='bro', key='pr_target', value=<value>)
+    # Update protected_branches when PR target changes:
+    if final_branching == 'github-flow':
+        protected = [final_pr_target]
+    elif final_branching == 'gitflow':
+        protected = dedup(['main', final_pr_target])
+    else:
+        protected = [final_pr_target]
+    config_set(agent='bro', key='protected_branches', value=protected)
 ```
 
-**Choice 2 (gitflow):**
+**Reset path:** If the Human types "reset everything" via Other on the name question, call `identity_reset(agent='bro')` and re-ask via a second `AskUserQuestion` round with no "Keep" default.
 
-Ask PR target:
+### Step 4 — Confirm and close
 
-> "What's your PR target branch? (Press enter to keep `<current_pr_target>`)"
-
-MCP calls:
-
-```
-config_set("branching_model", "gitflow")
-config_set("pr_target", <new answer or current_pr_target if blank>)
-config_set("protected_branches", <JSON array: ["main", <chosen pr_target>] — deduplicated if user picked main>)
-```
-
-**Choice 3 (custom):**
-
-Ask:
-
-> "What's your PR target branch? (e.g. main, trunk, release)"
-
-Then:
-
-> "And which branches should I treat as protected (no direct commits)?
-> Comma-separated."
-
-MCP calls:
-
-```
-config_set("branching_model", "custom")
-config_set("pr_target", <answer to first question>)
-config_set("protected_branches", <split-and-trim CSV → JSON array>)
-```
-
-### Step 5 — Confirm and close
-
-After all MCP writes succeed, say:
+After writes:
 
 > "Done. Settings updated:
 > - Branching model: `<final_branching_model>`
@@ -147,22 +126,18 @@ After all MCP writes succeed, say:
 
 ## D. Scope Constraint
 
-This skill ONLY calls the following MCP tools:
+This skill ONLY calls:
 
-- `config_list` (read)
-- `config_set` (write — `branching_model`, `pr_target`, `protected_branches` keys only)
-- `identity_get` (read)
-- `identity_set` (write)
-- `identity_reset` (write — only when user explicitly requests "reset everything")
+- `AskUserQuestion` (read Human input)
+- `config_list`, `config_set` (write — `branching_model`, `pr_target`, `protected_branches` keys only)
+- `identity_get`, `identity_set`, `identity_reset`
 
-It MUST NOT call: `issue_create`, `task_create_batch`, `task_update_status`,
-`validation_record`, or any other MCP tool outside the above list.
+It MUST NOT call `issue_create`, `task_create_batch`, `task_update_status`, `validation_record`, or anything outside the list above.
 
 ## E. Error Handling
 
 | Trigger | Response |
 |---|---|
-| `config_list()` or `identity_get()` fails | Report the error to the Human, offer to proceed with blank defaults or abort. Do NOT proceed silently. |
-| `config_set` or `identity_set` fails | Report the failure immediately. Do NOT continue to the next step. Ask if the Human wants to retry. |
-| Human provides an invalid branching model string | Only accept "github-flow", "gitflow", or "custom". For anything else, re-ask. |
-| Human says "reset everything" outside of Step 3 | Acknowledge, call `identity_reset()`, then restart from Step 3 with no defaults for identity and current config defaults for branching. |
+| `config_list()` or `identity_get()` fails | Report the error, offer to proceed with blank defaults or abort. Never proceed silently. |
+| `config_set` or `identity_set` fails | Report immediately. Do NOT continue to the next step. Ask whether to retry. |
+| Human picks Custom + invalid branching value via Other | Re-ask via a second `AskUserQuestion` round. Don't accept free-text model strings other than via valid canonical mapping. |
