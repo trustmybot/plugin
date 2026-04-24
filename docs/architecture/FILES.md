@@ -173,7 +173,7 @@ plugin/
 ## Open issues touching file-map concerns
 
 - **#14** — subagent Bash may bypass PreToolUse hooks (diagnostic harness shipped at `scripts/hooks/diagnostic/`)
-- **#29** — DB location should scope per-project rather than one global file under `CLAUDE_PLUGIN_DATA`
+- (closed by this PR: #29 — DB now project-local at `<cwd>/.claude/tmb/trajectory.db`)
 
 ## Summary
 

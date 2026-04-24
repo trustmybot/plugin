@@ -4,6 +4,21 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 
+/**
+ * Resolve the trajectory DB path.
+ *
+ * 1. Explicit `TRAJECTORY_DB_PATH` env override wins. Power-user / CI use.
+ * 2. Default: `<cwd>/.claude/tmb/trajectory.db` — project-local, per-user,
+ *    auto-gitignored via the plugin-root `.gitignore` exclusion of `.claude/`.
+ */
+export function resolveDbPath(opts?: { env?: NodeJS.ProcessEnv; cwd?: string }): string {
+  const env = opts?.env ?? process.env;
+  const cwd = opts?.cwd ?? process.cwd();
+  const override = env['TRAJECTORY_DB_PATH'];
+  if (override && override.trim().length > 0) return override;
+  return join(cwd, '.claude', 'tmb', 'trajectory.db');
+}
+
 export class TrajectoryDB {
   private db: Database.Database;
 
