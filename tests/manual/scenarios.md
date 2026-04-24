@@ -90,7 +90,7 @@ Pass: [ ]
 **Prerequisites:** `rm -rf .claude/tmb/` in the scratch project (no DB yet). Fresh `claude --plugin-dir "$PLUGIN_PATH"` session launched.
 
 **Trigger prompt:**
-> `hello` (no @-mention — bro IS main Claude, loaded via `plugin/CLAUDE.md` at session start)
+> `bro hello` (the trigger word "bro" activates the persona; main Claude enters bro mode and runs onboarding)
 
 **Expected agent chain (in spawn order):**
 
@@ -247,7 +247,7 @@ sqlite3 .claude/tmb/trajectory.db "SELECT COUNT(*) FROM issues; SELECT COUNT(*) 
 **Prerequisites:** Onboarding complete (1.1 passed). DB has identity + config rows.
 
 **Trigger prompt:**
-> `switch to gitflow`
+> `bro, switch to gitflow` (already in bro mode from earlier; addressing bro again is fine but optional)
 
 **Expected agent chain:**
 
