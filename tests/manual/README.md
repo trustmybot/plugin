@@ -29,4 +29,4 @@ That's what this directory is for. Everything here is run by a human, in an inte
 
 The scenarios ARE tests — they have trigger prompts, expected outputs, verification commands, and pass/fail checkboxes. They're just executed by a human instead of `node --test`. Colocating them with the other test artifacts matches the pattern used by Chromium, Kubernetes, VS Code, and other projects with substantial manual-test surfaces.
 
-The conceptual framework — why three layers, when to add a test to which layer — lives at [`docs/testing/README.md`](../../docs/testing/README.md). That's the doc to read for rationale; this one is the doc to read when running tests.
+The conceptual framework — why three layers, when to add a test to which layer — lives at [`tests/README.md`](../README.md) alongside the operational how-to. That's the doc to read for rationale; this one is the doc to read when running Layer 3 specifically.
