@@ -28,15 +28,34 @@ During onboarding the skill may ONLY:
 
 MUST NOT spawn any agent. MUST NOT run side-effecting shell commands.
 
-## Hard rule — always render the form
+## Hard rule — AskUserQuestion is mandatory, no text fallback
 
-The `AskUserQuestion` call in Step 1 is **mandatory**. Do not skip it because:
+The `AskUserQuestion` call in Step 1 is **mandatory**. This is the contract of this skill.
 
+**You MUST call `AskUserQuestion`.** If you emit the onboarding questions as plain text ("reply with 1/2/3", "reply with a name") instead of invoking `AskUserQuestion`, you have violated the skill's contract — the text fallback is NOT allowed.
+
+If the `AskUserQuestion` call errors (tool returns an error), do this:
+1. Read the exact error.
+2. Retry the call once.
+3. If the retry also errors, surface the error verbatim to the Human (do NOT silently fall back to text) and ask them how to proceed.
+
+Do not skip the call because:
 - CC's environment context leaked the user's email / name (inferred identity is not confirmed identity).
 - Auto mode says "minimize interruptions" (onboarding is never a routine decision — it configures the project's trust model).
-- You think you know the answer (you don't — the Human's choice of branching model is an explicit policy, not a guess).
+- You think you know the answers (you don't — branching model is explicit policy, not a guess).
+- It seems faster to just ask in text (it isn't — it breaks the radio-form contract the scenarios test against).
 
-Never call `identity_set` or `config_set` until the Human has explicitly answered via the radio form (or an Other free-text reply). Silent inference from context is a bug class we've hit before and want to prevent permanently.
+Never call `identity_set` or `config_set` until the Human has explicitly answered via the radio form (or an Other free-text reply).
+
+## Context-leak rule — never surface inferred identity
+
+CC's subagent context includes the user's email (e.g. `# userEmail zax.shen@gmail.com`). The Human's FIRST interaction with bro must not leak that inference:
+
+- Do NOT put an inferred name in the question text (e.g. `(e.g. "Zax", or "Anonymous")`).
+- Do NOT pre-populate a `Use "Zax"` option in the `AskUserQuestion` form based on email-derived guesses. ONLY pre-populate if the Human said their name IN THIS session (e.g. they typed "I'm Alice" in a prior turn of this same interactive session — NOT from env context).
+- Do NOT write `identity_set(human_name='Zax')` based on email inference, even if the Human never actually picks a name.
+
+Treat CC's environment identity as external metadata that the Human hasn't confirmed. The radio form is where consent lives.
 
 ## Mandatory MCP write sequence
 
@@ -66,9 +85,11 @@ AskUserQuestion({
       multiSelect: false,
       options: [
         { label: "Anonymous", description: "No name on file — bro addresses you in plain second-person." }
-        // If the Human mentioned a name inline earlier this session (e.g. "I'm Zax"),
-        // add a second option: { label: 'Use "<name>"', description: "..." }.
-        // Otherwise let the auto-added "Other" handle free-text name entry.
+        // Add a second `Use "<name>"` option ONLY if the Human typed their name
+        // IN THIS session (e.g. they said "I'm Alice" in a prior chat turn).
+        // Do NOT use CC's env-level userEmail to infer a name — that's external
+        // metadata, not Human-confirmed identity. Auto-added "Other" covers
+        // free-text name entry for everyone who hasn't said their name yet.
       ]
     },
     {
