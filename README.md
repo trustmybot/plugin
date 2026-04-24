@@ -4,7 +4,7 @@
 
 **Multi-agent engineering workflow for Claude Code. MIT, free forever.**
 
-Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch Claude pick the wrong one) or ship 10 canned agents you didn't ask for. TMB does neither. It gives you **two agents globally**, **five editable placeholders per project**, and **an agent factory** so your roster matches your actual domain — not a company org chart someone imagined.
+Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch Claude pick the wrong one) or ship 10 canned agents you didn't ask for. TMB does neither. It gives you **one persona (`bro`)**, **three constrained subagents** for the workflow chain, and **an agent factory** so your domain roster matches your real project — not a company org chart someone imagined.
 
 ---
 
@@ -16,24 +16,40 @@ Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch C
 /plugin install tmb@trustmybot
 ```
 
-On first activation, the bro introduces itself and asks 2–3 short questions: your branching model (trunk-based, gitflow, etc.) and your identity preference for commits and agent comments. Takes ~30 seconds. Answers are stored in the plugin's trajectory DB via MCP (see `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the exact keys) and configure the workflow guards for your repo. No files are seeded into your project — domain agents come on-demand (see below).
+The plugin sits dormant until you address `@bro`. No auto-takeover, no surprise behavior — every regular Claude Code workflow keeps working in TMB-enabled sessions.
+
+---
+
+## How to use it
+
+```
+@bro write a todo cli
+```
+
+That's the entry point. Saying `@bro` (or otherwise addressing bro in your message) **activates the bro persona for the rest of the session**. From that point on:
+
+- **First trigger** runs onboarding — bro asks 2–3 short questions (your name, branching model, PR target). ~30 seconds. Answers persist to the trajectory DB.
+- **Code-touching asks** route through the workflow: triage → branch-id confirm → architect plans + asks clarifying questions → SWE implements in an isolated worktree → pr-reviewer signs off → ship.
+- **Read-only / casual asks** (status, "what's in this dir") are handled inline by bro without spawning anyone.
+
+Casual messages that don't address `@bro` are answered by regular Claude Code — TMB stays out of your way.
 
 ---
 
 ## How the roster works
 
-### Four global workflow agents (ship with the plugin)
+### One persona + three subagents (ship with the plugin)
 
-Everything a coding workflow needs, nothing else. Install the plugin and you have them in every project where it's enabled.
+| Name | Where it runs | What it does |
+|---|---|---|
+| `bro` | Main Claude (persona) | Your single Human entry point. Activates when you address `@bro`. Routes requests to subagents, runs onboarding + project pre-scan, handles direct read-only ops. The only thing the Human ever talks to. |
+| `architect` | Subagent (Task tool) | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body` via MCP, runs alignment Q+A with the Human, spawns + validates SWE. Also edits agent prompts, skill files, and workflow markdown. |
+| `swe` | Subagent (Task tool, worktree) | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
+| `pr-reviewer` | Subagent (Task tool) | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
 
-| Agent | What it does |
-|---|---|
-| `bro` | Your single entry point. Routes requests to the right specialist, runs a conditional project scan on the first code-touching ask, handles direct read-only ops. Ask it anything — it will either answer or route. |
-| `architect` | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body` via MCP, spawns + validates SWE. Also edits agent prompts, skill files, and workflow markdown when they drift. Double-checks every bro triage. |
-| `swe` | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
-| `pr-reviewer` | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
+The three subagents auto-reject direct Human `@-mention` invocation (`@architect` / `@swe` / `@pr-reviewer`). They're internal to the workflow — talk to `@bro`, and bro routes to them.
 
-**Override any of these per-project** by creating a same-named file in the project's `.claude/agents/`. The local file wins.
+**Override any subagent per-project** by creating a same-named file in the project's `.claude/agents/`. The local file wins.
 
 ### Domain agents arrive on-demand
 

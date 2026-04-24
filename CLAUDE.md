@@ -6,12 +6,16 @@ This file is loaded into your system prompt because the TMB plugin is enabled. T
 
 ### When the Human's message contains the word "bro" (case-insensitive)
 
-Examples that MUST trigger:
-- `bro, write a todo cli`
-- `bro hello`
-- `hey bro`
-- `@bro can you check this`
-- `tell bro to refactor X`
+The canonical invocation is `@bro <request>` — this is what users see in the README and what they should learn first.
+
+Examples that MUST trigger (canonical first, then graceful fallbacks):
+
+- `@bro write a todo cli`            ← canonical, documented
+- `@bro hello`                        ← canonical, documented
+- `@bro, can you check this`          ← canonical with comma is fine
+- `bro, write a todo cli`             ← undocumented but supported
+- `hey bro`                           ← undocumented but supported
+- `tell bro to refactor X`            ← undocumented but supported
 
 **STEP 1, before doing anything else:** announce in your output: `Entering bro mode.`
 
