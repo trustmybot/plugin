@@ -64,16 +64,26 @@ require_contains "$F" "identity_reset"              "handles Anonymous → ident
 printf "\n=== architect-workflow/SKILL.md contract ===\n"
 F="$PLUGIN_ROOT/skills/architect-workflow/SKILL.md"
 
-require_contains "$F" "AskUserQuestion"             "references AskUserQuestion for Interactive Alignment"
 require_contains "$F" "discussion_append"           "uses discussion_append for persistence"
 require_contains "$F" "kind='question'"             "persists questions"
 require_contains "$F" "kind='answer'"               "persists answers"
 require_contains "$F" "Scope-ambiguity gate"        "enforces scope-ambiguity gate"
+require_contains "$F" "HARD RULE"                   "scope-ambiguity gate is marked HARD RULE"
+require_contains "$F" "Auto-mode does NOT waive"    "explicitly forbids auto-mode bypass of the gate"
+require_contains "$F" "auto-mode defaults"          "calls out the exact phrase that signals gate violation"
+require_contains "$F" "RED FLAG"                    "names violations as RED FLAG in the worked example"
 require_contains "$F" "Environment Probe"           "includes Environment Probe step"
 require_contains "$F" "uv"                          "probe mentions uv as a detectable tool"
 require_contains "$F" "pyproject.toml"              "probe checks for existing pyproject.toml"
 require_contains "$F" "Never offer an option that can't be executed" \
                                                     "probe discipline: no ghost options"
+require_contains "$F" "text questions"              "uses text Q+A (AskUserQuestion not usable in subagents)"
+
+# Architect must NOT claim AskUserQuestion works inside subagents — that
+# belief is what led to the earlier regression where architect wrote
+# decisions without asking.
+require_not_contains "$F" "call \`AskUserQuestion\`" \
+                                                    "no instruction telling architect to call AskUserQuestion (it's subagent-blocked)"
 
 printf "\n"
 if [ "$FAIL" -eq 0 ]; then

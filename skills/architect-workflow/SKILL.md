@@ -148,82 +148,94 @@ discussion_append(
 )
 ```
 
-### Scope-ambiguity gate
+### Scope-ambiguity gate — HARD RULE
 
-Before writing ANY `discussion_append(kind='decision')` row, verify that every choice in the plan has either:
+**Before calling `discussion_append(kind='decision', ...)`, architect MUST have written at least one `kind='question'` + `kind='answer'` pair for this issue if ANY plan choice is in the ambiguous list below.**
 
-- **(a)** an explicit Human answer recorded in the `discussions` table (via the pattern below), OR
-- **(b)** a choice the Human plausibly wouldn't care about (e.g. internal variable names, stylistic choices that don't affect the external interface).
-
-If any decision in the plan doesn't pass this gate — stop, render `AskUserQuestion`, persist the Q+A, then revisit. Examples of decisions that ALWAYS need explicit Human input:
+Ambiguous choices that ALWAYS need an explicit Human `question` + `answer` pair before a decision:
 
 - Storage backend (JSON vs SQLite vs in-memory vs external DB)
-- Library choice (argparse vs click vs typer; pytest vs unittest)
+- Library choice (argparse vs click vs typer; pytest vs unittest; requests vs httpx)
 - Command surface / CLI verbs ("What subcommands do you want?")
-- Feature scope ("Do you want auth, or skip it for now?")
+- Feature scope ("Do you want auth in this iteration, or skip it?")
 - Persistence location (`./data/` vs `~/.myapp/` vs stdin/stdout)
+- Runtime target (Python 3.10 vs 3.12, Node 18 vs 22, etc.)
+- File layout for the new code (single file vs package vs module)
 
-Auto-mode does NOT waive this gate. The architect's judgment is load-bearing for correctness, but the Human's choice is load-bearing for what "correct" means.
+**Auto-mode does NOT waive this gate.** The gate exists precisely because auto-mode encourages shortcuts. If your response body would include phrases like "auto-mode defaults" or "defaulting to X since you didn't specify" — STOP. Ask the Human. Persist the Q+A. THEN decide.
 
-### Interactive Alignment — AskUserQuestion + discussion_append
+**What it looks like when this gate fires correctly:**
 
-For every clarifying round where the answer shape is enumerable (scope,
-tech choice, priority, ordering, approach-between-N-options), use
-`AskUserQuestion` to render a radio form AND persist both sides of the
-Q/A to `discussions` so the trajectory is replayable.
+```
+discussions table (ordered):
+  1. kind='intent',   author='human',     body='write a todo cli'
+  2. kind='note',     author='architect', body='Triage: simple'
+  3. kind='note',     author='architect', body='Env probe: uv, python 3.12, ...'
+  4. kind='question', author='architect', body='CLI framework?\n1. argparse...'
+  5. kind='answer',   author='human',     body='1'
+  6. kind='question', author='architect', body='Storage?\n1. JSON file...'
+  7. kind='answer',   author='human',     body='1'
+  8. kind='decision', author='architect', body='## Plan\n- argparse\n- JSON in ~/...'
+```
+
+**What a gate violation looks like (to check during self-review):**
+
+```
+discussions table (ordered):
+  1. kind='intent',   author='human',     body='write a todo cli'
+  2. kind='note',     author='architect', body='Triage: simple'
+  3. kind='note',     author='architect', body='Env probe: ...'
+  4. kind='decision', author='architect', body='## Plan ... (auto-mode defaults)'
+                                                                ^^^^^^^^^^^^^^^^
+                                               RED FLAG — gate skipped, revert and ask
+```
+
+Before calling `task_create_batch`, re-read the discussion history via `discussion_list` or `issue_get_with_discussions`. If there's a `kind='decision'` with no preceding `kind='question'` — you violated the gate. Revert by NOT creating tasks, asking the missing question, persisting Q+A, then re-decide.
+
+### Interactive Alignment — text Q + discussion_append persistence
+
+`AskUserQuestion` is unavailable to plugin subagents (see [anthropics/claude-code#12890](https://github.com/anthropics/claude-code/issues/12890)). Architect must use **text questions** via regular chat output, then persist BOTH sides to `discussions` so the trajectory is replayable. Main Claude only hoists AskUserQuestion for `bro`'s onboarding form — not for architect mid-flow.
 
 **Pattern — one round:**
 
 ```
-# 1. Fire the radio form.
-ask_result = AskUserQuestion({
-  questions: [{
-    question: <explicit question>,
-    header: <≤12 chars chip>,
-    multiSelect: false,  // true for "which features to enable" style
-    options: [
-      { label: "<Option A> (Recommended)", description: "<what this means>" },
-      { label: "<Option B>", description: "..." },
-      { label: "<Option C>", description: "..." }
-      // "Other" is auto-added for free-text
-    ]
-  }]
-})
+# 1. Emit a plain-text question to the Human. Keep it scannable:
+#    - One short lead sentence framing the choice.
+#    - 2–4 numbered options with a one-liner each.
+#    - Close with an explicit reply instruction.
 
-# 2. Persist BOTH sides — question first, then answer. Chronological order.
+Example output:
+
+> I need to pick the CLI framework. Which fits?
+>
+> 1. **argparse** (stdlib, zero-install, verbose)
+> 2. **click** (3rd-party, decorator DSL, prettier help)
+> 3. **typer** (click + type hints, Python 3.10+)
+>
+> Reply with 1 / 2 / 3, or describe a different choice.
+
+# 2. WAIT for the Human's reply in the next turn.
+
+# 3. After reply, persist BOTH sides — question first, then answer. Chronological.
 discussion_append(
   agent='architect',
   issue_id=<id>,
   kind='question',
   author='architect',
-  body='<question text>\n\nOptions:\n- <A>\n- <B>\n- <C>'
+  body='<the question text + options verbatim>'
 )
 discussion_append(
   agent='architect',
   issue_id=<id>,
   kind='answer',
   author='human',
-  body='<selected label OR Other free-text>'
+  body='<their reply verbatim>'
 )
 ```
 
-**When to fall back to text-only discussion_append (no radio):**
+**When to batch multiple questions in one message:** when the answers are independent (scope, tech, priority can all be asked at once, numbered as a single list with sub-options).
 
-- Open-ended questions where the answer shape isn't enumerable ("what
-  constraints do you have?").
-- Follow-up clarification on a free-text Other response.
-- When the options would be more than 4 — AskUserQuestion caps at 4 per
-  question, batched up to 4 questions per call.
-
-**Rule:** every alignment decision that affects the plan must land in
-`discussions` as a `question` + `answer` (or `decision`) pair. If the
-Human picks via radio but nothing gets persisted, the task spec loses
-its provenance and future sessions can't replay the reasoning.
-
-**When to batch multiple questions in one AskUserQuestion call:** when
-the answers are independent (scope, tech, priority can all be asked at
-once). When the answer to Q1 changes what Q2 should ask, call
-sequentially.
+**Persistence is non-negotiable.** Every alignment that affects the plan must land as a `question` + `answer` pair in `discussions`. If you ask but don't persist, the task spec loses its provenance and future sessions can't replay the reasoning.
 
 ### Closing the discussion
 

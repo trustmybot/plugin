@@ -1,6 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import { genId, nowISO } from '../db.js';
+import { nowISO } from '../db.js';
 import type { Issue, Task } from '../types.js';
 import { normalizeAgent, redactIssue } from '../middleware/agent-scope.js';
 
@@ -130,7 +130,6 @@ export function issueTools(db: TrajectoryDB): {
       const objective = args['objective'] as string;
       const description = (args['description'] as string | undefined) ?? '';
       const now = nowISO();
-      const issueId = genId('iss');
       const preGitSha = process.env['PRE_GIT_SHA'] ?? '';
 
       db.run(
@@ -149,7 +148,7 @@ export function issueTools(db: TrajectoryDB): {
 
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [rowId.id]);
       const redacted = redactIssue(issue!, agent, { include_description: true });
-      return ok({ ...redacted, issue_string_id: issueId });
+      return ok(redacted);
     }),
 
     issue_get: wrapHandler(async (args) => {
