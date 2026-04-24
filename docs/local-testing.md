@@ -48,23 +48,27 @@ No install, no cache, no marketplace.
 
 ### Mode B — marketplace install (matches end-user flow)
 
-Run all of this from the plugin repo root:
+**Step 1 — from the plugin repo root**, print the absolute path so you can copy it:
 
 ```bash
-export PLUGIN_PATH="$(pwd)"
-printf '%s' "$PLUGIN_PATH" > /tmp/tmb-plugin-path
-command -v pbcopy >/dev/null && pbcopy < /tmp/tmb-plugin-path   # macOS: also copy to clipboard
+cd <your plugin clone>   # if you're not already there
+pwd
+```
 
+Copy the output.
+
+**Step 2 — set up a disposable scratch project and launch CC:**
+
+```bash
 mkdir -p /tmp/tmb-smoke && cd /tmp/tmb-smoke
 git init && git commit --allow-empty -m "init"
-
-claude                                   # launch CC (no --plugin-dir; marketplace-based)
+claude
 ```
 
-Inside the CC session — on macOS just paste (`Cmd-V`) where the path goes; anywhere else, run `!cat /tmp/tmb-plugin-path` in the prompt to see the path, then paste it. CC's slash-commands don't expand `$PLUGIN_PATH`, so you have to substitute the literal path yourself.
+**Step 3 — inside the CC session, install via the local marketplace** (paste the path you copied in Step 1 — CC's slash-commands don't expand shell variables):
 
 ```
-/plugin marketplace add <paste the plugin-clone absolute path here>
+/plugin marketplace add <paste-the-path-from-step-1>
 /plugin install tmb@trustmybot
 ```
 
