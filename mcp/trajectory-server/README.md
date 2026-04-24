@@ -22,9 +22,9 @@ node --test dist/test/*.test.js
 
 | Variable | Default | Description |
 |---|---|---|
-| `TRAJECTORY_DB_PATH` | `.trajectory.db` in CWD | Absolute path to the SQLite database |
+| `TRAJECTORY_DB_PATH` | `<cwd>/.claude/tmb/trajectory.db` | Absolute path to the SQLite database, or `:memory:` for ephemeral runs |
 
-Set by Claude Code as `${CLAUDE_PLUGIN_DATA}/trajectory.db`. See issue #29 for pending per-project DB-path scoping.
+Default is project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). Each project has its own DB; nothing crosses project boundaries; nothing committed. Set the env var to override for CI, isolated tests, or shared testbeds.
 
 ## Tool families
 

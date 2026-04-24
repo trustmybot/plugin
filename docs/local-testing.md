@@ -75,10 +75,10 @@ On the first prompt in a fresh project, the `gatekeeper` should:
    - PR target + protected branches
    - Identity for commits and agent comments
 
-After the answers are captured, verify they persisted to SQLite:
+After the answers are captured, verify they persisted to SQLite. The DB is project-local at `<your-project>/.claude/tmb/trajectory.db`:
 
 ```bash
-sqlite3 ~/.config/claude-code/plugin-data/tmb/trajectory.db <<'SQL'
+sqlite3 .claude/tmb/trajectory.db <<'SQL'
   SELECT key, value_json FROM plugin_config;
   SELECT * FROM identity;
 SQL
@@ -118,11 +118,11 @@ Then `/reload-plugins`.
 # Inside Claude Code (if installed via marketplace):
 /plugin marketplace remove trustmybot
 
-# Outside CC — always reset the DB:
-rm ~/.config/claude-code/plugin-data/tmb/trajectory.db
+# Outside CC — always reset the project-local DB:
+rm -rf .claude/tmb/
 ```
 
-The DB persists across sessions and across plugin updates. Stale onboarding state is the #1 source of "why isn't first-run triggering" confusion — delete the DB whenever you want a truly fresh run.
+The DB persists across sessions but is scoped to the project directory you launch CC from. Switch projects → different DB. Delete `.claude/tmb/` whenever you want a truly fresh run. Stale onboarding state is the #1 source of "why isn't first-run triggering" confusion.
 
 ---
 
@@ -150,7 +150,7 @@ Any failure here is a bug a downstream user will hit identically — file an iss
 ## Common pitfalls
 
 - **"MCP server not connected"** — almost always a build failure. Run `cd plugin/mcp/trajectory-server && bun run build` and check for errors.
-- **"Onboarding didn't fire"** — stale DB. Delete `~/.config/claude-code/plugin-data/tmb/trajectory.db` and relaunch.
+- **"Onboarding didn't fire"** — stale DB. Delete `.claude/tmb/` in your project root and relaunch.
 - **"Agent changes didn't take effect"** — forgot `/reload-plugins`, or CC cached a previous install (Mode B). Try Mode A for cleaner iteration.
 - **"Hook didn't block"** — hook path mismatch. Check `plugin/hooks/hooks.json` points at the script you edited and that the script is executable (`chmod +x`).
 - **"git-guards blocked my legitimate commit"** — check `plugin_config.protected_branches` — you're on a configured protected branch. Override intentionally or switch to a feature branch.

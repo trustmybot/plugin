@@ -11,7 +11,7 @@ PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/git-guards.sh"
 
 run_hook() {
-  (cd "$PLUGIN_ROOT" && echo "$1" | CLAUDE_PLUGIN_DATA=/nonexistent bash "$HOOK" 2>&1 || true)
+  (cd "$PLUGIN_ROOT" && echo "$1" | TRAJECTORY_DB_PATH=/nonexistent.db bash "$HOOK" 2>&1 || true)
 }
 
 test_case "no config (fresh install) is non-blocking for commits"

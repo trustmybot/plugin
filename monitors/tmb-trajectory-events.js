@@ -4,13 +4,18 @@
 const fs = require('fs');
 const path = require('path');
 
-const dataDir = process.env.CLAUDE_PLUGIN_DATA;
-if (!dataDir) process.exit(0);
+// Resolve DB path the same way the MCP server does:
+//   1. TRAJECTORY_DB_PATH env override wins.
+//   2. Otherwise default to <cwd>/.claude/tmb/trajectory.db.
+const override = process.env.TRAJECTORY_DB_PATH;
+const dbDir = override
+  ? path.dirname(override)
+  : path.join(process.cwd(), '.claude', 'tmb');
+const dbPath = override || path.join(dbDir, 'trajectory.db');
 
-const dbPath = path.join(dataDir, 'trajectory.db');
 if (!fs.existsSync(dbPath)) process.exit(0);
 
-const cursorPath = path.join(dataDir, 'monitor-cursor.json');
+const cursorPath = path.join(dbDir, 'monitor-cursor.json');
 
 let Database;
 try {

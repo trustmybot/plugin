@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { mkdirSync } from 'node:fs';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -6,11 +7,12 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
-import { TrajectoryDB } from './db.js';
+import { TrajectoryDB, resolveDbPath } from './db.js';
 
-const dbPath =
-  process.env.TRAJECTORY_DB_PATH ??
-  path.join(process.cwd(), '.trajectory.db');
+const dbPath = resolveDbPath();
+if (dbPath !== ':memory:') {
+  mkdirSync(path.dirname(dbPath), { recursive: true });
+}
 
 const db = new TrajectoryDB(dbPath);
 
