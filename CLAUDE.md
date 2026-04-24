@@ -75,7 +75,7 @@ Takes ~30 seconds. The answers are stored in the plugin's trajectory DB via MCP 
 
 ## Persistence (bundled MCP)
 
-The plugin ships a Node MCP server at `plugin/mcp/trajectory-server/` registered via `plugin/.mcp.json`. It owns a SQLite database at `${CLAUDE_PLUGIN_DATA}/trajectory.db` (persistent across plugin updates). Agents call MCP tools (`issue_create`, `task_update_status`, `validation_record`, etc.) instead of writing raw state. `gatekeeper` calls `issue_resume()` on session start to detect and pick up unfinished work.
+The plugin ships a Node MCP server at `plugin/mcp/trajectory-server/` registered via `plugin/.mcp.json`. It owns a SQLite database at `<project-root>/.claude/tmb/trajectory.db` — project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). Each project has its own DB; each developer has their own copy. Set `TRAJECTORY_DB_PATH` to override (e.g., `:memory:` for ephemeral CI runs). Agents call MCP tools (`issue_create`, `task_update_status`, `validation_record`, etc.) instead of writing raw state. `gatekeeper` calls `issue_resume()` on session start to detect and pick up unfinished work.
 
 ## Source Code Access Control
 

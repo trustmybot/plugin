@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` baseline). Persistent at `${CLAUDE_PLUGIN_DATA}/trajectory.db` (see issue #29 for pending per-project scoping), owned by the bundled MCP server.
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` baseline). Persistent at `<cwd>/.claude/tmb/trajectory.db` — project-local, per-user, gitignored. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -85,9 +85,14 @@ erDiagram
         INT  issue_id FK
         TEXT branch_id
         TEXT parent_branch_id
+        TEXT title
+        TEXT description
+        TEXT tools_required "JSON array"
+        TEXT skills_required "JSON array"
+        TEXT success_criteria
         TEXT status
-        TEXT spec_body
         INT  attempts
+        TEXT spec_body
         TEXT commit_sha
     }
 
@@ -97,6 +102,7 @@ erDiagram
         INT  attempt_n
         TEXT agent
         TEXT verdict
+        TEXT feedback
     }
 
     ledger {
@@ -111,8 +117,11 @@ erDiagram
         INT  id PK
         INT  issue_id FK
         TEXT branch_id
+        TEXT from_node
         TEXT tool_name
+        TEXT tool_args "JSON"
         TEXT output
+        INT  round
     }
 
     discussions {
@@ -135,6 +144,7 @@ erDiagram
         INT  roundtable_id FK
         TEXT agent
         TEXT vote
+        TEXT rationale
     }
 ```
 
@@ -182,7 +192,7 @@ erDiagram
 - **gatekeeper** — reads `plugin_config`, `identity`, `issues(status='open')` on session start. Writes `discussions` when relaying human intent.
 - **architect** — `issue_create` → `discussion_append` → `task_create_batch(spec_body)` → `task_update_status` → `validation_record`. Also edits agent prompts, skill files, and workflow markdown when they drift (see `skills/docs-conventions` prompt-editing rules).
 - **swe** — `task_get(id)` for spec → `ledger_log` / `audit_log` during work → `task_update_status('completed')` on success.
-- **pr-reviewer** — `task_list(issue_id, status='completed')` → `validation_record(verdict)` per task.
+- **pr-reviewer** — `task_get(task_id)` to inspect the spec + status of the task passed in the spawn → `validation_record(task_id, attempt_n, verdict, feedback)` to sign off. Never writes to `tasks`; status flip to `closed` is the architect's call.
 - **monitors/tmb-trajectory-events.js** — read-only tail of `ledger` for status-line output.
 
 External writers are blocked by role-gating inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles` + `AgentRole` type).

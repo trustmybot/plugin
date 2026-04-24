@@ -3,8 +3,18 @@
 # Sourced (not exec'd) by other hook scripts.
 set -euo pipefail
 
+# tmb_db_path
+# Resolve the trajectory DB path the same way the MCP server does:
+#   1. TRAJECTORY_DB_PATH env override wins
+#   2. Otherwise default to <cwd>/.claude/tmb/trajectory.db
+# Prints the path only if the file exists.
 tmb_db_path() {
-  local p="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/tmb}/trajectory.db"
+  local p
+  if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
+    p="$TRAJECTORY_DB_PATH"
+  else
+    p="$(pwd)/.claude/tmb/trajectory.db"
+  fi
   [ -f "$p" ] && echo "$p"
 }
 

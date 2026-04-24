@@ -10,11 +10,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
 
-# Fixture: isolated CLAUDE_PLUGIN_DATA + a tasks table with known rows
+# Fixture: isolated TRAJECTORY_DB_PATH + a tasks table with known rows
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
-export CLAUDE_PLUGIN_DATA="$TMPDIR"
+export TRAJECTORY_DB_PATH="$DB"
 
 sqlite3 "$DB" "
   CREATE TABLE tasks (
@@ -88,7 +88,7 @@ out=$(run_hook "$(swe_input 'task_id=1 and also task_id=4')")
 assert_eq "" "$out" "first token is valid -> passes"
 
 test_case "missing trajectory.db is blocked with clear reason"
-out=$(run_hook_env "$(swe_input 'task_id=1')" "CLAUDE_PLUGIN_DATA" "$TMPDIR/nonexistent")
+out=$(run_hook_env "$(swe_input 'task_id=1')" "TRAJECTORY_DB_PATH" "$TMPDIR/nonexistent.db")
 assert_contains "$out" '"decision":"block"' "block decision"
 assert_contains "$out" "trajectory.db not found" "reason cites missing DB"
 
