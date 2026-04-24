@@ -23,6 +23,14 @@ else
   FAIL=1
 fi
 
+printf "\n=== Lint: agent prompt budget (tests/lint) ===\n"
+if bash "$HERE/lint/agent-line-budget.sh"; then
+  printf "\nLint suite: PASS\n"
+else
+  printf "\nLint suite: FAIL\n"
+  FAIL=1
+fi
+
 if [ "$FAIL" -eq 0 ]; then
   printf "\nAll test suites passed.\n"
   exit 0
