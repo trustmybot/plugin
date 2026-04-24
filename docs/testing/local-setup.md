@@ -1,6 +1,6 @@
 # Local Testing — Setup Guide
 
-How to stand up a scratch project and exercise the TMB plugin end-to-end. This is the canonical manual-testing path for contributors and dogfooders. For automated test suites, see [`tests/README.md`](../tests/README.md).
+How to stand up a scratch project and exercise the TMB plugin end-to-end. This is the canonical manual-testing path for contributors and dogfooders. For automated test suites, see [`tests/README.md`](../../tests/README.md).
 
 ## Prerequisites
 
@@ -178,6 +178,6 @@ Any failure here is a bug a downstream user will hit identically — file an iss
 
 ## Related
 
-- [`tests/README.md`](../tests/README.md) — automated MCP + hook test suites (`bash tests/run-all.sh`)
-- [`CONTRIBUTING.md`](../CONTRIBUTING.md) — branch workflow, pre-PR checklist, design principles
-- [`mcp/trajectory-server/docs/CONFIG_KEYS.md`](../mcp/trajectory-server/docs/CONFIG_KEYS.md) — every `plugin_config` key the plugin reads or writes
+- [`tests/README.md`](../../tests/README.md) — automated MCP + hook test suites (`bash tests/run-all.sh`)
+- [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — branch workflow, pre-PR checklist, design principles
+- [`mcp/trajectory-server/docs/CONFIG_KEYS.md`](../../mcp/trajectory-server/docs/CONFIG_KEYS.md) — every `plugin_config` key the plugin reads or writes

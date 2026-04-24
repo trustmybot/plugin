@@ -2,7 +2,7 @@
 
 For each workflow in [`FLOWS.md`](FLOWS.md), the verbatim user prompt that triggers it + the observable expected behavior + how to verify it landed correctly.
 
-These are the **manual test cases** for the plugin. Run during a fresh `claude --plugin-dir <PLUGIN_PATH>` session against a disposable scratch project (see [`docs/local-testing.md`](../local-testing.md) for setup).
+These are the **manual test cases** for the plugin. Run during a fresh `claude --plugin-dir <PLUGIN_PATH>` session against a disposable scratch project (see [`docs/testing/local-setup.md`](../testing/local-setup.md) for setup).
 
 ## How to use this doc
 
@@ -501,5 +501,5 @@ When a scenario's expected behavior doesn't match actual output:
 ## Related
 
 - [`FLOWS.md`](FLOWS.md) — the flowcharts each scenario verifies
-- [`docs/local-testing.md`](../local-testing.md) — how to launch a scratch session
+- [`docs/testing/local-setup.md`](../testing/local-setup.md) — how to launch a scratch session
 - [`tests/run-all.sh`](../../tests/run-all.sh) — automated suites that run before any dogfood test

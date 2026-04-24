@@ -93,7 +93,7 @@ Assertion helpers in `tests/lib/assert.sh`:
 
 ## Layer 3 — Local dogfood testing (end-to-end, human-driven)
 
-For setting up a scratch project and exercising the plugin end-to-end — install modes, first-run expectations, DB verification, hot reload, reset, the scenario library, and common pitfalls — see [`docs/local-testing.md`](../docs/local-testing.md).
+For setting up a scratch project and exercising the plugin end-to-end — install modes, first-run expectations, DB verification, hot reload, reset, the scenario library, and common pitfalls — see [`docs/testing/local-setup.md`](../docs/testing/local-setup.md).
 
 The full scenario library lives at [`docs/architecture/SCENARIOS.md`](../docs/architecture/SCENARIOS.md): 30+ scenarios across all 9 flows in [`FLOWS.md`](../docs/architecture/FLOWS.md), each with a verbatim trigger prompt, prerequisites, expected behavior, and verification SQL. Walk these before tagging a release.
 
