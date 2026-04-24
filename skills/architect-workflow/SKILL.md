@@ -148,7 +148,27 @@ discussion_append(
 )
 ```
 
-### Scope-ambiguity gate — HARD RULE
+### Scope-ambiguity gate — structurally enforced by MCP
+
+**`task_create_batch` now refuses to run if the issue has zero `kind='question'` rows in discussions.** This is an MCP-level check — the handler rejects the call before any tasks are inserted. Auto-mode cannot bypass it.
+
+If your issue genuinely has no Q+A to record (typo fix, one-line doc change, truly trivial scope), pass a waiver:
+
+```
+task_create_batch(
+  agent='architect',
+  issue_id=<id>,
+  waive_scope_gate=true,
+  waive_scope_gate_reason='typo in README line 12; no interpretation needed',
+  tasks=[...]
+)
+```
+
+The waiver requires a reason ≥10 chars. The reason is logged to the `ledger` table as a `scope_gate_waived` event so pr-reviewer + Human reviewers can flag misuse.
+
+**Default to not waiving.** The gate exists because auto-mode LLMs tend to skip asking questions even when scope is ambiguous. Asking is cheaper than re-doing. Use the waiver only when you genuinely have nothing to clarify.
+
+
 
 **Before calling `discussion_append(kind='decision', ...)`, architect MUST have written at least one `kind='question'` + `kind='answer'` pair for this issue if ANY plan choice is in the ambiguous list below.**
 

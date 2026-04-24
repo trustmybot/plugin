@@ -31,6 +31,7 @@ test('architect — simple task workflow: issue → discussion → tasks → clo
 
   // 3. Create a task
   const batch = await call(client, 'task_create_batch', {
+    waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
     agent: 'architect',
     issue_id: issueId,
     tasks: [{

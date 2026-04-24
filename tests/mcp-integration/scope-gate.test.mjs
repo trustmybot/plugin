@@ -85,3 +85,124 @@ test('discussion_append chronology: answer rows have a preceding question row', 
   assert.equal(decisions.length, 1);
   assert.ok(questionIdx.length >= 1, 'expected at least one question row to precede the decision');
 });
+
+test('task_create_batch — rejects when issue has 0 question rows and no waiver', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'architect',
+    objective: 'gate test — no questions seeded',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  // Only a note, no question rows → gate must fire.
+  await call(client, 'discussion_append', {
+    agent: 'architect',
+    issue_id: issueId,
+    kind: 'note',
+    author: 'architect',
+    body: 'Triage: simple',
+  });
+
+  const attempt = await call(client, 'task_create_batch', {
+    agent: 'architect',
+    issue_id: issueId,
+    tasks: [{ branch_id: 'feat/gate-fail', description: 'd', success_criteria: 'x' }],
+  });
+
+  assert.equal(attempt.ok, false, 'must be rejected');
+  assert.equal(attempt.error?.error, 'scope_gate_violation');
+  assert.equal(attempt.error?.questions_found, 0);
+});
+
+test('task_create_batch — accepts when a kind=question row exists', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'architect',
+    objective: 'gate test — questions seeded',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  await call(client, 'discussion_append', {
+    agent: 'architect',
+    issue_id: issueId,
+    kind: 'question',
+    author: 'architect',
+    body: 'Which lib?',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'architect',
+    issue_id: issueId,
+    kind: 'answer',
+    author: 'human',
+    body: 'argparse',
+  });
+
+  const attempt = await call(client, 'task_create_batch', {
+    agent: 'architect',
+    issue_id: issueId,
+    tasks: [{ branch_id: 'feat/gate-ok', description: 'd', success_criteria: 'x' }],
+  });
+
+  assert.equal(attempt.ok, true, `should be accepted with question present: ${JSON.stringify(attempt)}`);
+});
+
+test('task_create_batch — accepts with waiver + reason ≥10 chars', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'architect',
+    objective: 'typo fix',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  const attempt = await call(client, 'task_create_batch', {
+    agent: 'architect',
+    issue_id: issueId,
+    waive_scope_gate: true,
+    waive_scope_gate_reason: 'typo in README line 12; no interpretation needed',
+    tasks: [{ branch_id: 'fix/readme-typo', description: 'fix recieve', success_criteria: 'green spellcheck' }],
+  });
+
+  assert.equal(attempt.ok, true, `waiver with valid reason must be accepted: ${JSON.stringify(attempt)}`);
+});
+
+test('task_create_batch — rejects waiver with missing/short reason', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'architect',
+    objective: 'trivial',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  // Missing reason
+  const noReason = await call(client, 'task_create_batch', {
+    agent: 'architect',
+    issue_id: issueId,
+    waive_scope_gate: true,
+    tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(noReason.ok, false);
+  assert.match(noReason.error?.error ?? '', /waive_scope_gate_reason/);
+
+  // Too-short reason (<10 chars)
+  const shortReason = await call(client, 'task_create_batch', {
+    agent: 'architect',
+    issue_id: issueId,
+    waive_scope_gate: true,
+    waive_scope_gate_reason: 'short',
+    tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(shortReason.ok, false);
+  assert.match(shortReason.error?.error ?? '', /≥10|>=10|\b10 chars\b/);
+});

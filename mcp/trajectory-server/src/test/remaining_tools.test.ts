@@ -39,6 +39,7 @@ async function createTask(
 ): Promise<number> {
   const tools = taskTools(db);
   const result = await call(tools.handlers, 'task_create_batch', {
+    waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
     agent: 'swe',
     issue_id: String(issueId),
     tasks: [

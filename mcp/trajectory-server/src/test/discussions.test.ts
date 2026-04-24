@@ -204,6 +204,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
       agent: 'architect',
       issue_id: issueId,
       tasks: [
@@ -299,6 +300,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
       agent: 'architect',
       issue_id: issueId,
       tasks: [

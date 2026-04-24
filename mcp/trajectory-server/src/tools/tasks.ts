@@ -91,6 +91,16 @@ export function taskTools(db: TrajectoryDB): {
               required: ['branch_id', 'description', 'success_criteria'],
             },
           },
+          waive_scope_gate: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the scope-ambiguity gate. Only acceptable for truly trivial changes (typo fix, one-line doc change, etc.) where no Q+A was needed. If false or omitted, the issue MUST have at least one discussion row with kind='question' before tasks can be created.",
+          },
+          waive_scope_gate_reason: {
+            type: 'string',
+            description:
+              "Required when waive_scope_gate=true. Min 10 chars. Explain why this task has no Human-reviewed scope (e.g. 'typo fix in README line 12; no interpretation needed').",
+          },
         },
         required: ['agent', 'issue_id', 'tasks'],
       },
@@ -155,6 +165,59 @@ export function taskTools(db: TrajectoryDB): {
         return ok([]);
       }
 
+      // --- Scope-ambiguity gate (MCP-level enforcement) ---
+      // Every task_create_batch must be preceded by at least one
+      // discussion row with kind='question' for this issue, UNLESS the
+      // caller explicitly waives the gate with a written reason. This
+      // stops the LLM from silently bypassing the alignment loop under
+      // auto-mode pressure.
+      const waived = args['waive_scope_gate'] === true;
+      const waiverReason = (args['waive_scope_gate_reason'] ?? '') as string;
+
+      if (waived) {
+        if (typeof waiverReason !== 'string' || waiverReason.trim().length < 10) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error:
+                    "waive_scope_gate_reason must be a string ≥10 chars. Explain why this task has no Human-reviewed scope.",
+                }),
+              },
+            ],
+          };
+        }
+      } else {
+        const row = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'question'`,
+          [issueId],
+        );
+        const questionCount = row?.c ?? 0;
+        if (questionCount === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'scope_gate_violation',
+                  message:
+                    `Scope-ambiguity gate: issue ${issueId} has zero kind='question' discussions. ` +
+                    `Before creating tasks, architect must ask the Human at least one clarifying ` +
+                    `question via discussion_append(kind='question') and record their answer via ` +
+                    `discussion_append(kind='answer'). For truly trivial changes (typo fix, one-line ` +
+                    `doc), pass waive_scope_gate=true with waive_scope_gate_reason="<why trivial>".`,
+                  issue_id: issueId,
+                  questions_found: 0,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
       const inserted = db.transaction(() => {
         const results: Task[] = [];
         const now = nowISO();
@@ -207,6 +270,27 @@ export function taskTools(db: TrajectoryDB): {
 
         return results;
       });
+
+      // Audit log for gate waivers so pr-reviewer / human-review can flag
+      // tasks that skipped the alignment loop.
+      if (waived) {
+        const now = nowISO();
+        db.run(
+          `INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, content, created_at)
+           VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`,
+          [
+            issueId,
+            inserted[0]?.branch_id ?? '',
+            args['agent'] as string,
+            waiverReason.slice(0, 200),
+            JSON.stringify({
+              waive_scope_gate_reason: waiverReason,
+              tasks_created: inserted.length,
+            }),
+            now,
+          ],
+        );
+      }
 
       return ok(inserted);
     }),

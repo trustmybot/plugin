@@ -82,6 +82,7 @@ describe('issueTools', () => {
     const issue = parseResult(createResult);
 
     await call(tTools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
       agent: 'swe',
       issue_id: String(issue.id),
       tasks: [
@@ -139,6 +140,7 @@ describe('issueTools', () => {
     const issue = parseResult(createResult);
 
     await call(tTools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
       agent: 'swe',
       issue_id: String(issue.id),
       tasks: [

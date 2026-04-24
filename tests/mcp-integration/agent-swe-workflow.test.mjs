@@ -14,6 +14,7 @@ async function seedIssueAndTask(client) {
   });
   assert.equal(issue.ok, true);
   const batch = await call(client, 'task_create_batch', {
+    waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
     agent: 'architect',
     issue_id: issue.data.id,
     tasks: [{
