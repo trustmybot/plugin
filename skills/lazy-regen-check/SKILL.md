@@ -2,7 +2,7 @@
 name: lazy-regen-check
 description: Decide whether to run an incremental architecture regen at session start. Compares HEAD to the last regen cursor; under 25 commits → silent incremental; over 25 → one-line nudge to the user; first-ever session → silent skip.
 agent: bro
-allowed-tools: Bash
+allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__regen_state_get, mcp__plugin_tmb_trajectory-server__ledger_log
 ---
 
 # lazy-regen-check

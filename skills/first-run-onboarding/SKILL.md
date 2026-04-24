@@ -2,7 +2,7 @@
 name: first-run-onboarding
 description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Welcomes the user, captures identity + branching model + PR target + protected branches via MCP. Hold-and-resume any code-touching ask received during the flow.
 agent: bro
-allowed-tools: Bash
+allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set
 ---
 
 # first-run-onboarding

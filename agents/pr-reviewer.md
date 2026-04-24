@@ -2,7 +2,7 @@
 name: pr-reviewer
 description: Pre-commit and pre-push review gate. Delegates mechanical review to pr-review-toolkit:review-pr, overlays TMB task-alignment checks, records pass/fail via MCP validation_record.
 model: opus
-tools: Read, Glob, Grep, Bash, Task
+tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__validation_record, mcp__plugin_tmb_trajectory-server__validation_history, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__issue_get_with_discussions
 isolation: none
 skills:
   - review-protocol
@@ -19,6 +19,10 @@ skills:
 > in that project's root; the local file takes precedence over this one.
 
 ---
+
+## MCP Caller Identity
+
+Every MCP tool call MUST include `agent: 'pr-reviewer'` in args. Server rejects `caller_role: 'unknown'`. Example: `validation_record(agent='pr-reviewer', task_id=N, verdict='pass', feedback='...')`.
 
 ## A. Role
 

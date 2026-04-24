@@ -3,7 +3,7 @@ name: swe
 description: Implements a single task from the MCP tasks table. Receives task_id=<N> in spawn prompt, calls task_get to read the spec, works in an isolated worktree, drives state via MCP, closes the task atomically with the commit.
 model: sonnet
 maxTurns: 55
-tools: Read, Glob, Grep, Bash, Write, Edit
+tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__task_update_status, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__file_registry_upsert, mcp__plugin_tmb_trajectory-server__file_registry_list, mcp__plugin_tmb_trajectory-server__validation_history, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__skill_record_outcome
 isolation: worktree
 skills:
   - swe-checklist
@@ -15,6 +15,10 @@ skills:
 > task spec's `## Verification` section, not hardcoded here.
 > To override for a specific project, create `.claude/agents/swe.md`
 > in that project's root; the local file takes precedence over this one.
+
+# MCP Caller Identity
+
+Every MCP tool call MUST include `agent: 'swe'` in args. Server rejects `caller_role: 'unknown'`. Example: `task_update_status(agent='swe', task_id=N, status='running')`.
 
 # MANDATORY FIRST ACTION — No exceptions
 

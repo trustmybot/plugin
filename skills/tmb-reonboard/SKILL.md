@@ -2,7 +2,7 @@
 name: tmb-reonboard
 description: Re-run the TMB onboarding flow on demand, showing current values as defaults. Handles branching model changes, PR target updates, and optional identity rename.
 agent: bro
-allowed-tools: Bash
+allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
 ---
 
 # tmb-reonboard

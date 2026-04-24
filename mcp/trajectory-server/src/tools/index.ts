@@ -27,6 +27,24 @@ function wrapAll(
   );
 }
 
+function decorateWithAgent(tools: Tool[]): Tool[] {
+  return tools.map((t) => ({
+    ...t,
+    inputSchema: {
+      ...t.inputSchema,
+      properties: {
+        agent: {
+          type: 'string',
+          enum: ['bro', 'architect', 'swe', 'pr-reviewer'],
+          description:
+            "Calling agent identity. Required for role-enforced writes (identity_set, config_set, task_update_status, validation_record, etc.). Must match the spawning agent's role.",
+        },
+        ...((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
+      },
+    },
+  }));
+}
+
 export function registerTools(server: Server, db: TrajectoryDB): void {
   const discussions = discussionTools(db);
   const issues = issueTools(db);
@@ -42,7 +60,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
   const fileRegistry = fileRegistryTools(db);
   const architectureRegen = architectureRegenTools(db);
 
-  toolDefinitions = [
+  toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
     ...tasks.definitions,
@@ -56,7 +74,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...regenState.definitions,
     ...fileRegistry.definitions,
     ...architectureRegen.definitions,
-  ];
+  ]);
 
   toolHandlers = {
     ...wrapAll(discussions.handlers),
