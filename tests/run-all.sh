@@ -7,11 +7,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/.." && pwd)"
 FAIL=0
 
-printf "=== MCP server tests (mcp/trajectory-server) ===\n"
+printf "=== Layer 1: MCP unit tests (handlers direct, no protocol) ===\n"
 if (cd "$PLUGIN_ROOT/mcp/trajectory-server" && bun run build && node --test dist/test/*.test.js); then
-  printf "MCP suite: PASS\n\n"
+  printf "MCP unit suite: PASS\n\n"
 else
-  printf "MCP suite: FAIL\n\n"
+  printf "MCP unit suite: FAIL\n\n"
+  FAIL=1
+fi
+
+printf "=== Layer 2: MCP integration tests (real server subprocess + stdio JSON-RPC) ===\n"
+if bash "$HERE/mcp-integration/run.sh"; then
+  printf "\nMCP integration suite: PASS\n\n"
+else
+  printf "\nMCP integration suite: FAIL\n\n"
   FAIL=1
 fi
 

@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "tmb-plugin",
+      "devDependencies": {
+        "@modelcontextprotocol/sdk": "^1.18.1",
+      },
     },
     "mcp/trajectory-server": {
       "name": "@trustmybot/trajectory-server",

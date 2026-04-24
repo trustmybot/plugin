@@ -33,13 +33,13 @@ function decorateWithAgent(tools: Tool[]): Tool[] {
     inputSchema: {
       ...t.inputSchema,
       properties: {
+        ...((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
         agent: {
           type: 'string',
           enum: ['bro', 'architect', 'swe', 'pr-reviewer'],
           description:
             "Calling agent identity. Required for role-enforced writes (identity_set, config_set, task_update_status, validation_record, etc.). Must match the spawning agent's role.",
         },
-        ...((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
       },
     },
   }));

@@ -11,6 +11,9 @@
     "build": "bun --filter='*' run build",
     "test": "bash tests/run-all.sh"
   },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.1"
+  },
   "engines": {
     "node": ">=20"
   }
