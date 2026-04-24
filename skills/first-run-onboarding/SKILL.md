@@ -51,7 +51,7 @@ Never call `identity_set` or `config_set` until the Human has explicitly answere
 
 CC's subagent context includes the user's email (e.g. `# userEmail zax.shen@gmail.com`). The Human's FIRST interaction with bro must not leak that inference:
 
-- Do NOT put an inferred name in the question text (e.g. `(e.g. "Zax", or "Anonymous")`).
+- Do NOT put an inferred name in the question text as an example. The question should be neutral ("What should I call you?") and let the `AskUserQuestion` options + auto-Other carry the answer choices.
 - Do NOT pre-populate a `Use "Zax"` option in the `AskUserQuestion` form based on email-derived guesses. ONLY pre-populate if the Human said their name IN THIS session (e.g. they typed "I'm Alice" in a prior turn of this same interactive session — NOT from env context).
 - Do NOT write `identity_set(human_name='Zax')` based on email inference, even if the Human never actually picks a name.
 

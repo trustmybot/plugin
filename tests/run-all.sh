@@ -39,6 +39,14 @@ else
   FAIL=1
 fi
 
+printf "\n=== Lint: onboarding skill contract (tests/lint) ===\n"
+if bash "$HERE/lint/onboarding-skill-contract.sh"; then
+  printf "\nOnboarding contract lint: PASS\n"
+else
+  printf "\nOnboarding contract lint: FAIL\n"
+  FAIL=1
+fi
+
 if [ "$FAIL" -eq 0 ]; then
   printf "\nAll test suites passed.\n"
   exit 0
