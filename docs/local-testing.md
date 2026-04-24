@@ -52,7 +52,8 @@ Run all of this from the plugin repo root:
 
 ```bash
 export PLUGIN_PATH="$(pwd)"
-echo "$PLUGIN_PATH"                      # copy this value — you'll paste it into CC below
+printf '%s' "$PLUGIN_PATH" > /tmp/tmb-plugin-path
+command -v pbcopy >/dev/null && pbcopy < /tmp/tmb-plugin-path   # macOS: also copy to clipboard
 
 mkdir -p /tmp/tmb-smoke && cd /tmp/tmb-smoke
 git init && git commit --allow-empty -m "init"
@@ -60,10 +61,10 @@ git init && git commit --allow-empty -m "init"
 claude                                   # launch CC (no --plugin-dir; marketplace-based)
 ```
 
-Then inside the CC session, paste the echoed path into the first line (CC's slash-commands don't expand `$PLUGIN_PATH`):
+Inside the CC session — on macOS just paste (`Cmd-V`) where the path goes; anywhere else, run `!cat /tmp/tmb-plugin-path` in the prompt to see the path, then paste it. CC's slash-commands don't expand `$PLUGIN_PATH`, so you have to substitute the literal path yourself.
 
 ```
-/plugin marketplace add /absolute/path/from/echo/above
+/plugin marketplace add <paste the plugin-clone absolute path here>
 /plugin install tmb@trustmybot
 ```
 
