@@ -74,6 +74,8 @@ snapshot via `issue_snapshot_md` when the Human wants a doc to review.
 
 ## Discussion Phase
 
+Triggers **in both simple and difficult triage** when the spec would have 2+ defensible interpretations. Triage decides template depth, NOT whether to align — any ambiguous scope needs the Human's explicit input before `kind='decision'`.
+
 1. Call `issue_resume` or `issue_create` to load context.
 2. Explore the codebase — identify affected modules, read existing code paths
    (error handling, validation, patterns).
@@ -84,6 +86,23 @@ snapshot via `issue_snapshot_md` when the Human wants a doc to review.
 5. When aligned: **ALIGNED — PRODUCING TASK SPECS**
 
 **Never skip discussion.** Explore code BEFORE asking questions.
+
+### Scope-ambiguity gate
+
+Before writing ANY `discussion_append(kind='decision')` row, verify that every choice in the plan has either:
+
+- **(a)** an explicit Human answer recorded in the `discussions` table (via the pattern below), OR
+- **(b)** a choice the Human plausibly wouldn't care about (e.g. internal variable names, stylistic choices that don't affect the external interface).
+
+If any decision in the plan doesn't pass this gate — stop, render `AskUserQuestion`, persist the Q+A, then revisit. Examples of decisions that ALWAYS need explicit Human input:
+
+- Storage backend (JSON vs SQLite vs in-memory vs external DB)
+- Library choice (argparse vs click vs typer; pytest vs unittest)
+- Command surface / CLI verbs ("What subcommands do you want?")
+- Feature scope ("Do you want auth, or skip it for now?")
+- Persistence location (`./data/` vs `~/.myapp/` vs stdin/stdout)
+
+Auto-mode does NOT waive this gate. The architect's judgment is load-bearing for correctness, but the Human's choice is load-bearing for what "correct" means.
 
 ### Interactive Alignment — AskUserQuestion + discussion_append
 

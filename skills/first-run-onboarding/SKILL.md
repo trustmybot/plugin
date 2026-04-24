@@ -28,6 +28,16 @@ During onboarding the skill may ONLY:
 
 MUST NOT spawn any agent. MUST NOT run side-effecting shell commands.
 
+## Hard rule — always render the form
+
+The `AskUserQuestion` call in Step 1 is **mandatory**. Do not skip it because:
+
+- CC's environment context leaked the user's email / name (inferred identity is not confirmed identity).
+- Auto mode says "minimize interruptions" (onboarding is never a routine decision — it configures the project's trust model).
+- You think you know the answer (you don't — the Human's choice of branching model is an explicit policy, not a guess).
+
+Never call `identity_set` or `config_set` until the Human has explicitly answered via the radio form (or an Other free-text reply). Silent inference from context is a bug class we've hit before and want to prevent permanently.
+
 ## Mandatory MCP write sequence
 
 Onboarding completes ONLY after ALL FOUR writes have succeeded AND `config_list` confirms the state. Do not emit the closing message until every expected row is present:
