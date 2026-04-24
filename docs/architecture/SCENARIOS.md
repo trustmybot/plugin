@@ -272,7 +272,7 @@ Expect at least one row with `kind='decision'`.
 **Trigger prompt:**
 > `create a new architect2 agent`
 
-**Expected:** Skill refuses with "architect is a reserved name." (Same for `gatekeeper`, `swe`, `pr-reviewer`.)
+**Expected:** Skill refuses with "architect is a reserved name." (Same for `bro`, `swe`, `pr-reviewer`.)
 
 **Pass:** [ ]
 
@@ -430,7 +430,7 @@ WHERE event_type='roundtable_summary' ORDER BY id DESC LIMIT 1;
 
 ### 9.2 — Explicit magic word, only `architect` present
 
-**Prerequisites:** Fresh project with only the four shipped agents (gatekeeper, architect, swe, pr-reviewer); no domain agents.
+**Prerequisites:** Fresh project with only the four shipped agents (bro, architect, swe, pr-reviewer); no domain agents.
 
 **Trigger prompt:**
 > `let's do a roundtable on whether to adopt OAuth or stay with session cookies`
@@ -451,7 +451,7 @@ WHERE event_type='roundtable_summary' ORDER BY id DESC LIMIT 1;
 > `should we ship our beta to enterprise customers next quarter or wait until we have SSO?`
 
 **Expected behavior:**
-1. Bro routes to architect (could be ceo since it's strategic — gatekeeper may ask the framing question).
+1. Bro routes to architect (could be ceo since it's strategic — bro may ask the framing question).
 2. Architect detects: this isn't a single-domain decision (touches product timing, technical readiness, business risk).
 3. Architect invokes `roundtable` skill **without explicit user request**.
 4. Skill picks ceo + cto (+ architect as convener).

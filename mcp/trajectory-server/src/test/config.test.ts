@@ -24,7 +24,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'my.key', value: 'hello' });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'my.key', value: 'hello' });
     const result = await call(tools.handlers, 'config_get', { key: 'my.key' });
     assert.ok(!result.isError);
     assert.equal(parseResult(result), 'hello');
@@ -36,7 +36,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'count', value: 42 });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'count', value: 42 });
     const result = await call(tools.handlers, 'config_get', { key: 'count' });
     assert.equal(parseResult(result), 42);
 
@@ -48,7 +48,7 @@ describe('configTools', () => {
     const tools = configTools(db);
 
     const obj = { branching: 'trunk', protected: ['main'] };
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'settings', value: obj });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'settings', value: obj });
     const result = await call(tools.handlers, 'config_get', { key: 'settings' });
     assert.deepEqual(parseResult(result), obj);
 
@@ -59,7 +59,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'branches', value: ['main', 'dev'] });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'branches', value: ['main', 'dev'] });
     const result = await call(tools.handlers, 'config_get', { key: 'branches' });
     assert.deepEqual(parseResult(result), ['main', 'dev']);
 
@@ -70,7 +70,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'nullable', value: null });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'nullable', value: null });
     const result = await call(tools.handlers, 'config_get', { key: 'nullable' });
     assert.equal(parseResult(result), null);
 
@@ -81,7 +81,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    const result = await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: '', value: 'x' });
+    const result = await call(tools.handlers, 'config_set', { agent: 'bro', key: '', value: 'x' });
     assert.ok(result.isError, 'Expected error for empty key');
     assert.match(parseResult(result).error, /Invalid config key/);
 
@@ -92,7 +92,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    const result = await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: '1invalid', value: 'x' });
+    const result = await call(tools.handlers, 'config_set', { agent: 'bro', key: '1invalid', value: 'x' });
     assert.ok(result.isError, 'Expected error for leading digit');
     assert.match(parseResult(result).error, /Invalid config key/);
 
@@ -103,7 +103,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    const result = await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'bad key', value: 'x' });
+    const result = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'bad key', value: 'x' });
     assert.ok(result.isError, 'Expected error for key with space');
     assert.match(parseResult(result).error, /Invalid config key/);
 
@@ -136,7 +136,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'alpha', value: 'one' });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'alpha', value: 'one' });
     const result = await call(tools.handlers, 'config_list', {});
     assert.ok(!result.isError);
     assert.deepEqual(parseResult(result), { alpha: 'one' });
@@ -148,9 +148,9 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'alpha', value: 1 });
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'beta', value: 2 });
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'gamma', value: 3 });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'alpha', value: 1 });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'beta', value: 2 });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'gamma', value: 3 });
     const result = await call(tools.handlers, 'config_list', {});
     assert.ok(!result.isError);
     assert.deepEqual(parseResult(result), { alpha: 1, beta: 2, gamma: 3 });
@@ -162,12 +162,12 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    const first = await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'evolving', value: 'v1' });
+    const first = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'evolving', value: 'v1' });
     const firstTs = parseResult(first).updated_at as string;
 
     await new Promise((res) => setTimeout(res, 5));
 
-    const second = await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'evolving', value: 'v2' });
+    const second = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'evolving', value: 'v2' });
     const secondTs = parseResult(second).updated_at as string;
 
     assert.ok(secondTs >= firstTs, 'second updated_at must be >= first');
@@ -184,7 +184,7 @@ describe('configTools', () => {
 
     const key = 'a' + 'b'.repeat(63);
     assert.equal(key.length, 64);
-    const result = await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key, value: 'ok' });
+    const result = await call(tools.handlers, 'config_set', { agent: 'bro', key, value: 'ok' });
     assert.ok(!result.isError, 'A 64-char key should be valid');
 
     db.close();
@@ -214,12 +214,12 @@ describe('configTools', () => {
     db.close();
   });
 
-  it('config_set called with agent=gatekeeper succeeds', async () => {
+  it('config_set called with agent=bro succeeds', async () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    const result = await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'gate.key', value: true });
-    assert.ok(!result.isError, 'Expected gatekeeper to be allowed');
+    const result = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'gate.key', value: true });
+    assert.ok(!result.isError, 'Expected bro to be allowed');
 
     db.close();
   });
@@ -228,7 +228,7 @@ describe('configTools', () => {
     const db = tempDB();
     const tools = configTools(db);
 
-    await call(tools.handlers, 'config_set', { agent: 'gatekeeper', key: 'open.key', value: 'readable' });
+    await call(tools.handlers, 'config_set', { agent: 'bro', key: 'open.key', value: 'readable' });
     const result = await call(tools.handlers, 'config_get', { agent: 'swe', key: 'open.key' });
     assert.ok(!result.isError, 'Read should be open to all agents');
     assert.equal(parseResult(result), 'readable');

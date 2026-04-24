@@ -1,7 +1,7 @@
 ---
 name: first-run-onboarding
-description: First-time setup flow gatekeeper runs when neither branching_model nor identity has been persisted. Welcomes the user, captures identity + branching model + PR target + protected branches via MCP. Hold-and-resume any code-touching ask received during the flow.
-agent: gatekeeper
+description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Welcomes the user, captures identity + branching model + PR target + protected branches via MCP. Hold-and-resume any code-touching ask received during the flow.
+agent: bro
 allowed-tools: Bash
 ---
 
@@ -9,12 +9,12 @@ allowed-tools: Bash
 
 ## When invoked
 
-Gatekeeper invokes this skill at session start when **either** of the following is true:
+Bro invokes this skill at session start when **either** of the following is true:
 
 - `config_get("branching_model")` returns `null`
 - `identity_get().created_at` is `null` (default row — no identity has been persisted)
 
-When invoked, the skill takes over: gatekeeper enters Onboarding Mode immediately, regardless of what the Human's first message says. The pre-scan does NOT run during onboarding — onboarding is its own mode.
+When invoked, the skill takes over: bro enters Onboarding Mode immediately, regardless of what the Human's first message says. The pre-scan does NOT run during onboarding — onboarding is its own mode.
 
 ## Hold-and-resume
 
@@ -34,19 +34,13 @@ It MUST NOT spawn any agent and MUST NOT run side-effecting shell commands.
 
 Say:
 
-> "Hey, I'm bro — your gatekeeper for this project. I'll route your work to the right agents and keep things tidy. What should I call you? (Press enter to stay anonymous.)"
-
-Bro's name is not configurable by the user — it's the plugin's branding. Do not offer to rename it.
+> "Hey, I'm bro. I route your work to the right agents and keep things tidy. What should I call you? (Press enter to stay anonymous.)"
 
 MCP call after the Human responds (even if blank):
 
 ```
 identity_set(human_name=<answer or omit if blank>)
 ```
-
-`gatekeeper_name` is not passed; the schema default of `'bro'` is preserved.
-
-If the Human declined to share a name, address them with plain second-person sentences for the rest of the session. Do not invent an honorific ("boss", "master", "friend" — these all read as subservient or saccharine).
 
 ## Step 2 — Branching model
 

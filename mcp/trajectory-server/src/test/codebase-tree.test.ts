@@ -65,13 +65,13 @@ describe('renderCodebaseTree', () => {
 
   it('multi-directory input renders proper tree lines', () => {
     const rows = [
-      makeRow({ path: 'src/agents/gatekeeper.md', type: 'doc' }),
+      makeRow({ path: 'src/agents/bro.md', type: 'doc' }),
       makeRow({ path: 'src/agents/architect.md', type: 'doc' }),
       makeRow({ path: 'README.md', type: 'doc' }),
     ];
     const out = renderCodebaseTree(rows, OPTS);
     assert.ok(out.includes('src/'), `Expected "src/" dir in:\n${out}`);
-    assert.ok(out.includes('gatekeeper.md'), `Expected gatekeeper.md in:\n${out}`);
+    assert.ok(out.includes('bro.md'), `Expected bro.md in:\n${out}`);
     assert.ok(out.includes('architect.md'), `Expected architect.md in:\n${out}`);
     assert.ok(out.includes('README.md'), `Expected README.md in:\n${out}`);
     assert.ok(out.includes('├──') || out.includes('└──'), `Expected tree chars in:\n${out}`);

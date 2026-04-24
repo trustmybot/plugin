@@ -14,7 +14,7 @@ Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch C
 /plugin install tmb@trustmybot
 ```
 
-On first activation, the gatekeeper introduces itself and asks 2–3 short questions: your branching model (trunk-based, gitflow, etc.) and your identity preference for commits and agent comments. Takes ~30 seconds. Answers are stored in the plugin's trajectory DB via MCP (see `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the exact keys) and configure the workflow guards for your repo. No files are seeded into your project — domain agents come on-demand (see below).
+On first activation, the bro introduces itself and asks 2–3 short questions: your branching model (trunk-based, gitflow, etc.) and your identity preference for commits and agent comments. Takes ~30 seconds. Answers are stored in the plugin's trajectory DB via MCP (see `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the exact keys) and configure the workflow guards for your repo. No files are seeded into your project — domain agents come on-demand (see below).
 
 ---
 
@@ -26,8 +26,8 @@ Everything a coding workflow needs, nothing else. Install the plugin and you hav
 
 | Agent | What it does |
 |---|---|
-| `gatekeeper` | Your single entry point. Routes requests to the right specialist, runs a conditional project scan on the first code-touching ask, handles direct read-only ops. Ask it anything — it will either answer or route. |
-| `architect` | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body` via MCP, spawns + validates SWE. Also edits agent prompts, skill files, and workflow markdown when they drift. Double-checks every gatekeeper triage. |
+| `bro` | Your single entry point. Routes requests to the right specialist, runs a conditional project scan on the first code-touching ask, handles direct read-only ops. Ask it anything — it will either answer or route. |
+| `architect` | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body` via MCP, spawns + validates SWE. Also edits agent prompts, skill files, and workflow markdown when they drift. Double-checks every bro triage. |
 | `swe` | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
 | `pr-reviewer` | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
 
@@ -35,9 +35,9 @@ Everything a coding workflow needs, nothing else. Install the plugin and you hav
 
 ### Domain agents arrive on-demand
 
-When you hit a scenario the four-agent backbone doesn't cover — "I need a `legal-reviewer` for this merger PR", "this project needs a `ceo` to make scope calls", "we need a `cto` for IEC 62304 compliance" — gatekeeper invokes the `agent-creator` skill: drafts a tailored prompt for your project's context, shows it to you, asks your explicit permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony, no canned company-org-chart pretending to know your domain.
+When you hit a scenario the four-agent backbone doesn't cover — "I need a `legal-reviewer` for this merger PR", "this project needs a `ceo` to make scope calls", "we need a `cto` for IEC 62304 compliance" — bro invokes the `agent-creator` skill: drafts a tailored prompt for your project's context, shows it to you, asks your explicit permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony, no canned company-org-chart pretending to know your domain.
 
-Once created, the agent lives in your project forever (until you delete it). Next session, gatekeeper routes to it by name.
+Once created, the agent lives in your project forever (until you delete it). Next session, bro routes to it by name.
 
 ---
 
@@ -66,13 +66,13 @@ not on disk — architect writes them via MCP, SWE reads via
 `task_get(task_id)`. Only architecture narrative and snapshots are on
 the filesystem.
 
-Everything else — goals, discussions, validation attempts, task status, skill effectiveness, identity, branching-model config — lives in the plugin's trajectory DB (see below). The loop: **intent captured → alignment via discussion → tasks → SWE in worktree → pr-reviewer → ship**. Every transition auditable; kill Claude mid-loop, gatekeeper resumes on session start.
+Everything else — goals, discussions, validation attempts, task status, skill effectiveness, identity, branching-model config — lives in the plugin's trajectory DB (see below). The loop: **intent captured → alignment via discussion → tasks → SWE in worktree → pr-reviewer → ship**. Every transition auditable; kill Claude mid-loop, bro resumes on session start.
 
 ---
 
 ## Persistent trajectory (bundled MCP)
 
-TMB ships a tiny local MCP server with a SQLite-backed trajectory database. Every issue, task, validation attempt, skill usage, and review verdict is recorded. Kill Claude mid-task, come back tomorrow, gatekeeper reads the trajectory and resumes where you left off. The database lives in `${CLAUDE_PLUGIN_DATA}/trajectory.db` and survives plugin updates.
+TMB ships a tiny local MCP server with a SQLite-backed trajectory database. Every issue, task, validation attempt, skill usage, and review verdict is recorded. Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes where you left off. The database lives in `${CLAUDE_PLUGIN_DATA}/trajectory.db` and survives plugin updates.
 
 Inspired by — and compatible with the lessons of — [claude-mem](https://github.com/thedotmack/claude-mem) and [claude-brain](https://github.com/mikeadolan/claude-brain). Different architecture: TMB's DB is a **workflow state machine**, not a memory bank.
 
@@ -82,7 +82,7 @@ Inspired by — and compatible with the lessons of — [claude-mem](https://gith
 
 | Concern | TMB's take |
 |---|---|
-| Routing | Explicit — gatekeeper is the single door. No skill auto-invocation roulette. |
+| Routing | Explicit — bro is the single door. No skill auto-invocation roulette. |
 | State | Bundled SQLite via MCP. Queryable across sessions. |
 | Info isolation | SWE literally cannot read your strategic context (issue body, discussion entries) while writing code. No context pollution. |
 | Verification | Hard hook gates — no push until pr-reviewer has signed off on every task. |
@@ -94,7 +94,7 @@ Inspired by — and compatible with the lessons of — [claude-mem](https://gith
 ## Compared to adjacent tools
 
 - **claude-mem** — passive memory layer, observational. TMB is active, opinionated workflow.
-- **superpowers** — skill library with auto-invocation. TMB has explicit routing via gatekeeper to avoid wrong-skill pickup.
+- **superpowers** — skill library with auto-invocation. TMB has explicit routing via bro to avoid wrong-skill pickup.
 - **claude-brain** — SQLite + MCP for memory recall. TMB's SQLite is for trajectory/validation/retry state, not fact recall.
 
 ---

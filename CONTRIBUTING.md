@@ -52,8 +52,8 @@ Every code change should add or update tests.
 If you're proposing a big change, check these first.
 
 1. **SQLite is canonical state.** Files are for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills, rules). Workflow state (issues, tasks, discussions, validation attempts) lives in the trajectory DB, never on disk.
-2. **No bypass in the workflow.** Every code change routes gatekeeper → architect → swe → pr-reviewer. The "fast path" is a lighter task spec, not skipping a role.
-3. **Plugin is an agent factory.** Four workflow agents ship (gatekeeper, architect, swe, pr-reviewer). Domain agents (ceo, cto, pm, legal-reviewer, …) are user-created on-demand via the `agent-creator` skill with explicit Human approval.
+2. **No bypass in the workflow.** Every code change routes bro → architect → swe → pr-reviewer. The "fast path" is a lighter task spec, not skipping a role.
+3. **Plugin is an agent factory.** Four workflow agents ship (bro, architect, swe, pr-reviewer). Domain agents (ceo, cto, pm, legal-reviewer, …) are user-created on-demand via the `agent-creator` skill with explicit Human approval.
 4. **Override per project.** Any plugin-shipped agent can be overridden by creating a same-named file in the project's `.claude/agents/`. Local wins.
 
 ## Code of conduct

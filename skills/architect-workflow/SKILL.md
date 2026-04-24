@@ -19,20 +19,20 @@ Workflow artifacts live in MCP (SQLite) and `docs/trustmybot/` at the project ro
 
 ### 0. Triage Double-Check
 
-Gatekeeper passes a `triage:` field in the spawn prompt (`simple` or
+Bro passes a `triage:` field in the spawn prompt (`simple` or
 `difficult`). Before any other workflow step, re-evaluate the classification
 using the heuristic:
 
 > **Does this request require updates to `docs/trustmybot/architecture/`?**
 > If yes → `difficult`. If no → `simple`.
 
-Gatekeeper's classification is a proposal; architect's is binding. Record the
-final classification (even when confirming gatekeeper's):
+Bro's classification is a proposal; architect's is binding. Record the
+final classification (even when confirming bro's):
 
 ```
 discussion_append(
   kind='note',
-  body='Triage: <simple|difficult> (gatekeeper proposed <x>, architect <confirmed|overrode>)'
+  body='Triage: <simple|difficult> (bro proposed <x>, architect <confirmed|overrode>)'
 )
 ```
 

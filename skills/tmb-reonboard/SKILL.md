@@ -1,7 +1,7 @@
 ---
 name: tmb-reonboard
 description: Re-run the TMB onboarding flow on demand, showing current values as defaults. Handles branching model changes, PR target updates, and optional identity rename.
-agent: gatekeeper
+agent: bro
 allowed-tools: Bash
 ---
 
@@ -10,7 +10,7 @@ allowed-tools: Bash
 ## A. Purpose
 
 Allow a user who has already completed first-run onboarding to update their
-branching model, PR target, protected branches, or gatekeeper/human identity
+branching model, PR target, protected branches, or bro/human identity
 without needing to know the underlying MCP calls. This skill re-runs the same
 3-step sequence as first-run onboarding, but reads current values first and
 uses them as press-enter defaults.
@@ -20,12 +20,12 @@ reads and writes `plugin_config` keys and `identity`.
 
 ## B. When Invoked
 
-Gatekeeper invokes this skill directly (no other agent spawn needed) when the
+Bro invokes this skill directly (no other agent spawn needed) when the
 Human says any of the following — or close paraphrases:
 
 - "re-onboard"
 - "change branching model" / "switch to gitflow" / "switch to github-flow"
-- "rename gatekeeper" / "rename yourself"
+- "rename bro" / "rename yourself"
 - "update my name" / "change my name in bro"
 - "reset onboarding"
 
@@ -46,8 +46,6 @@ Extract the following values (use `null` if absent):
 - `current_pr_target` — from `config_list()` key `pr_target`
 - `current_protected_branches` — from `config_list()` key `protected_branches`
 - `current_human_name` — from `identity_get()` field `human_name`
-
-(bro's name is fixed plugin branding; it is not shown or changed here.)
 
 ### Step 2 — Show current values
 
@@ -72,9 +70,6 @@ If blank (press-enter), skip the MCP call — nothing changed. Otherwise call:
 ```
 identity_set(human_name=<new answer>)
 ```
-
-`gatekeeper_name` is not offered as a re-onboard option — bro is the plugin's
-branding. Do not prompt to rename it.
 
 **Reset path:** If the Human says "reset everything" or "clear identity" at
 any point during this step, call `identity_reset()` then re-prompt the name

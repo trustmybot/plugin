@@ -79,7 +79,7 @@ This is what downstream users do with `trustmybot/plugin` as the marketplace pat
 
 ## First-run expectations
 
-On the first prompt in a fresh project, the `gatekeeper` should:
+On the first prompt in a fresh project, the `bro` should:
 
 1. Introduce itself in one short paragraph.
 2. Seed the project's domain-role templates at `./.claude/agents/ceo.md` + `cto.md`.
@@ -97,7 +97,7 @@ sqlite3 .claude/tmb/trajectory.db <<'SQL'
 SQL
 ```
 
-Expected rows: `branching_model`, `pr_target`, `protected_branches`, and an `identity` row with `human_name` set (and `gatekeeper_name` still at its default `'bro'`).
+Expected rows: `branching_model`, `pr_target`, `protected_branches`, and an `identity` row with `human_name` set.
 
 If nothing is written, the MCP server didn't connect — check `claude --plugin-dir` output for MCP errors.
 
@@ -151,12 +151,12 @@ Quick smoke checklist (covers the 80% — see SCENARIOS.md for the full grid):
 
 | # | Trigger | Expected |
 |---|---|---|
-| 1 | Fresh install + any first prompt | Gatekeeper greets and runs onboarding |
-| 2 | Read-only question (`list files in src/`) | Gatekeeper answers inline; no agent spawn |
+| 1 | Fresh install + any first prompt | Bro greets and runs onboarding |
+| 2 | Read-only question (`list files in src/`) | Bro answers inline; no agent spawn |
 | 3 | `fix the typo in README` | Simple-task chain: triage:simple → architect → swe → pr-reviewer |
 | 4 | `add OAuth login` (or any architecture-touching ask) | Difficult chain: triage:difficult + ADR file + standard template |
 | 5 | `change branching model to gitflow` | `tmb-reonboard` skill re-runs onboarding with current values as defaults |
-| 6 | `call yourself alex` | `identity_set` persists; gatekeeper signs off as alex |
+| 6 | `call yourself alex` | `identity_set` persists; bro signs off as alex |
 | 7 | `refresh architecture docs` | 4 files regenerated under `docs/trustmybot/architecture/auto/` |
 | 8 | Commit on protected branch | `git-guards.sh` blocks |
 | 9 | Push to `feature/*` branch | Always allowed |

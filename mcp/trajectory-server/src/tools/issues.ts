@@ -60,7 +60,7 @@ export function issueTools(db: TrajectoryDB): {
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string', description: 'The issue string ID' },
-          include_description: { type: 'boolean', description: 'Whether to include the full description (default false). Architect + gatekeeper only.' },
+          include_description: { type: 'boolean', description: 'Whether to include the full description (default false). Architect + bro only.' },
         },
         required: ['agent', 'issue_id'],
       },
@@ -104,7 +104,7 @@ export function issueTools(db: TrajectoryDB): {
     },
         {
       name: 'issue_list',
-      description: 'Enumerate issues for the gatekeeper pre-scan. Returns a thin index (id, objective, status, created_at, updated_at) ordered by updated_at DESC. Used at session start to decide whether to resume an in-flight issue or start fresh.',
+      description: 'Enumerate issues for the bro pre-scan. Returns a thin index (id, objective, status, created_at, updated_at) ordered by updated_at DESC. Used at session start to decide whether to resume an in-flight issue or start fresh.',
       inputSchema: {
         type: 'object',
         properties: {

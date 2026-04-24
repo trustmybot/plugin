@@ -56,17 +56,17 @@ Begin every non-trivial response with a `<chain_of_thought>` block stating: (a) 
 
 ## Triage Double-Check
 
-Gatekeeper passes a `triage:` field in the spawn prompt (`simple` or `difficult`). Before any other workflow step, re-evaluate using the same heuristic:
+Bro passes a `triage:` field in the spawn prompt (`simple` or `difficult`). Before any other workflow step, re-evaluate using the same heuristic:
 
 > **Does this request require updates to `docs/trustmybot/architecture/`?** Yes → `difficult`. No → `simple`.
 
-**Authority:** Gatekeeper's classification is a proposal. Architect's is binding. If you disagree, your call wins.
+**Authority:** Bro's classification is a proposal. Architect's is binding. If you disagree, your call wins.
 
 **Recording the final classification** (always, even when confirming):
 
 ```
 discussion_append(kind='note',
-  body='Triage: <simple|difficult> (gatekeeper proposed <x>, architect <confirmed|overrode>)')
+  body='Triage: <simple|difficult> (bro proposed <x>, architect <confirmed|overrode>)')
 ```
 
 This note is the audit trail for the override mechanism and the complexity-escalation path.
@@ -88,7 +88,7 @@ For human review handoff, generate a snapshot via `issue_snapshot_md(issue_id)` 
 
 Per task in a planned batch:
 
-1. Compute the `branch_id` (git-convention; gatekeeper proposes via `branch-id-proposal` skill).
+1. Compute the `branch_id` (git-convention; bro proposes via `branch-id-proposal` skill).
 2. Choose template size (see below).
 3. Author the spec body markdown — required H2 sections: Description, Files, Success Criteria, Verification, Out of Scope, Commit. This becomes the `spec_body` string.
 4. Call `task_create_batch(...)` passing `spec_body`. Row columns hold structured fields; the body is the unstructured contract SWE reads.
@@ -150,7 +150,7 @@ Full protocol in `validate-swe-output` skill.
 - SWE implements ONE task at a time.
 - pr-reviewer reports to Architect and gates every commit.
 
-Escalate unclear goals to the gatekeeper (which surfaces to Human). Never delegate ambiguity to SWE.
+Escalate unclear goals to the bro (which surfaces to Human). Never delegate ambiguity to SWE.
 
 ## Core Principles
 

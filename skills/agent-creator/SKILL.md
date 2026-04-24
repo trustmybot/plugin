@@ -16,11 +16,11 @@ auto-creation is never permitted.
 
 ## B. When Invoked
 
-Gatekeeper (routing-time) or architect (task-breakdown-time) invokes this
+Bro (routing-time) or architect (task-breakdown-time) invokes this
 skill when ALL of the following hold:
 
 1. The user's request cannot be served by the 4 global workflow agents
-   (gatekeeper, architect, swe, pr-reviewer) or any user-created agent
+   (bro, architect, swe, pr-reviewer) or any user-created agent
    already present in the project's `.claude/agents/`.
 2. The user explicitly wants a **named, persistent role** — not an ad-hoc
    Task spawn.
@@ -34,7 +34,7 @@ The following agent names are reserved for the plugin core and MUST NOT be
 used for new domain agents. If the user requests one of these names, refuse
 immediately and ask for a different name:
 
-- `gatekeeper`
+- `bro`
 - `architect`
 - `swe`
 - `pr-reviewer`

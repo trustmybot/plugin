@@ -1,6 +1,6 @@
 ---
 name: refresh-architecture
-description: Wraps the architecture_regen MCP tool to regenerate auto/ architecture docs. Invoked by architect after difficult-path structural changes, by gatekeeper at session start for incremental refresh, and by the Human via phrase trigger for a full regen.
+description: Wraps the architecture_regen MCP tool to regenerate auto/ architecture docs. Invoked by architect after difficult-path structural changes, by bro at session start for incremental refresh, and by the Human via phrase trigger for a full regen.
 when-to-use: When architecture auto/ docs need regenerating — either because a structural change was just committed (full regen) or at session start to lazily sync any accumulated drift (incremental).
 when-not-to-use: When you only need to read architecture docs. Do not invoke this as a substitute for reading manual/ files or for editing auto/ files by hand.
 ---
@@ -20,12 +20,12 @@ Three callers, two scopes:
 - **Architect** calls `scope:'full'` after any difficult-path task that
   completes a structural change (new module boundary, schema change, new
   dependency, public API surface change).
-- **Gatekeeper** calls `scope:'incremental'` lazily at session start, before
+- **Bro** calls `scope:'incremental'` lazily at session start, before
   routing the first code-touching ask, to sync any drift from commits made
   outside a full regen cycle.
-- **Human** triggers a full regen by asking gatekeeper one of these phrases:
+- **Human** triggers a full regen by asking bro one of these phrases:
   "refresh architecture docs", "refresh architecture", "regenerate
-  architecture", or "regen architecture". Gatekeeper recognises any of these
+  architecture", or "regen architecture". Bro recognises any of these
   phrases and invokes this skill with `scope:'full'` directly (no architect
   spawn, no triage — this is a direct op, not a code change).
 

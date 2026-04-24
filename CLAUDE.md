@@ -25,21 +25,21 @@ The plugin ships **four global workflow agents** — the minimum needed for any 
 
 | Agent | Model | Role |
 |---|---|---|
-| `gatekeeper` | Opus | Single Human entry point. Routes to specialists, runs a conditional pre-scan, handles direct read-only ops, drives the onboarding flow + `agent-creator`. |
+| `bro` | Opus | Single Human entry point. Routes to specialists, runs a conditional pre-scan, handles direct read-only ops, drives the onboarding flow + `agent-creator`. |
 | `architect` | Sonnet | Captures intent into MCP (issues + discussions); writes task specs into `tasks.spec_body` via `task_create_batch`; spawns + validates SWE; **also edits agent prompts, skill files, and workflow markdown when they drift** (see `skills/docs-conventions` prompt-editing rules). |
 | `swe` | Sonnet | Implements one task per spec; runs in isolated git worktree; drives state via MCP; closes atomically with commit. |
 | `pr-reviewer` | Sonnet | Pre-commit/pre-push review gate. Records verdicts via MCP `validation_record`; no Edit tool (strict read-only). |
 
 ### On-demand domain agents (created via `agent-creator` skill)
 
-Nothing else ships. When the user needs a domain role (`ceo`, `cto`, `pm`, `legal-reviewer`, ...), gatekeeper invokes the `agent-creator` skill: understand the need → propose a tailored prompt → ask explicit permission → write to `.claude/agents/<name>.md` on approval. **Every new agent requires explicit Human yes.** No silent ceremony.
+Nothing else ships. When the user needs a domain role (`ceo`, `cto`, `pm`, `legal-reviewer`, ...), bro invokes the `agent-creator` skill: understand the need → propose a tailored prompt → ask explicit permission → write to `.claude/agents/<name>.md` on approval. **Every new agent requires explicit Human yes.** No silent ceremony.
 
 ## Decision Flow
 
 ```
 Human
   ↓
-gatekeeper (route + pre-scan + direct ops + agent-creator driver
+bro (route + pre-scan + direct ops + agent-creator driver
             + simple/difficult triage)
   ↓
 architect (task specs via MCP, SWE coordination, validation, markdown edits)
@@ -47,14 +47,14 @@ architect (task specs via MCP, SWE coordination, validation, markdown edits)
 swe (executor, in worktree)
 
 architect also invokes: pr-reviewer (review gate)
-gatekeeper also invokes: any user-created domain agent in .claude/agents/
+bro also invokes: any user-created domain agent in .claude/agents/
 ```
 
-Architect double-checks the triage; gatekeeper's classification is a proposal.
+Architect double-checks the triage; bro's classification is a proposal.
 
 ## First Run
 
-On first activation in a new project, gatekeeper introduces itself and runs a short setup before routing any requests. You'll see:
+On first activation in a new project, bro introduces itself and runs a short setup before routing any requests. You'll see:
 
 1. A brief hello and explanation of the four workflow agents.
 2. One question about your branching model (e.g., trunk-based, gitflow, feature-branch).
@@ -66,8 +66,8 @@ Takes ~30 seconds. The answers are stored in the plugin's trajectory DB via MCP 
 
 | Artifact | Storage | Writers | Purpose |
 |---|---|---|---|
-| Issue intent + objective | SQLite `issues` table | gatekeeper, architect | Captured via MCP issue_create at routing time |
-| Architect ↔ Human alignment | SQLite `discussions` table | gatekeeper, architect, human-via-relay | Captured via MCP discussion_append |
+| Issue intent + objective | SQLite `issues` table | bro, architect | Captured via MCP issue_create at routing time |
+| Architect ↔ Human alignment | SQLite `discussions` table | bro, architect, human-via-relay | Captured via MCP discussion_append |
 | Architecture decisions (ADRs) | `docs/trustmybot/architecture/manual/decisions/N-*.md` | architect | Hand-curated; referenced by the architecture-regen flow |
 | Per-task execution spec | SQLite `tasks.spec_body` | architect | Markdown body stored inline on the tasks row; fetched via `task_get(task_id)` |
 | Read-only review snapshot | `docs/trustmybot/snapshots/<issue_id>.md` | MCP `issue_snapshot_md` (called by architect / pr-reviewer) | Generated for human review handoff |
@@ -75,7 +75,7 @@ Takes ~30 seconds. The answers are stored in the plugin's trajectory DB via MCP 
 
 ## Persistence (bundled MCP)
 
-The plugin ships a Node MCP server at `plugin/mcp/trajectory-server/` registered via `plugin/.mcp.json`. It owns a SQLite database at `<project-root>/.claude/tmb/trajectory.db` — project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). Each project has its own DB; each developer has their own copy. Set `TRAJECTORY_DB_PATH` to override (e.g., `:memory:` for ephemeral CI runs). Agents call MCP tools (`issue_create`, `task_update_status`, `validation_record`, etc.) instead of writing raw state. `gatekeeper` calls `issue_resume()` on session start to detect and pick up unfinished work.
+The plugin ships a Node MCP server at `plugin/mcp/trajectory-server/` registered via `plugin/.mcp.json`. It owns a SQLite database at `<project-root>/.claude/tmb/trajectory.db` — project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). Each project has its own DB; each developer has their own copy. Set `TRAJECTORY_DB_PATH` to override (e.g., `:memory:` for ephemeral CI runs). Agents call MCP tools (`issue_create`, `task_update_status`, `validation_record`, etc.) instead of writing raw state. `bro` calls `issue_resume()` on session start to detect and pick up unfinished work.
 
 ## Source Code Access Control
 
@@ -92,11 +92,11 @@ source code files.** This applies to:
 
 ## Mode Rules
 
-gatekeeper picks the mode based on the Human's ask:
+bro picks the mode based on the Human's ask:
 
-0. **Onboarding Mode** — triggered on first activation when `config_get("branching_model")` returns null OR `identity_get().created_at` is null (i.e., the plugin's trajectory DB has no onboarding record for this project). Gatekeeper runs the onboarding flow before any other routing: asks the branching-model question, asks identity preference. Exits to Silent default or Workflow Mode once config is written via MCP.
-1. **Silent default** — read-only, status, or conversational ask. Gatekeeper handles directly; no agent spawn, no inventory.
-2. **Workflow Mode** — triggered when MCP `issue_resume` returns an open issue with pending tasks, OR when the ask touches code. Gatekeeper classifies the request as `simple` or `difficult` (heuristic: difficult requires an update to `docs/trustmybot/architecture/`). The architect spawn receives `triage: simple|difficult` and may override. Every code change goes through architect — no bypass.
+0. **Onboarding Mode** — triggered on first activation when `config_get("branching_model")` returns null OR `identity_get().created_at` is null (i.e., the plugin's trajectory DB has no onboarding record for this project). Bro runs the onboarding flow before any other routing: asks the branching-model question, asks identity preference. Exits to Silent default or Workflow Mode once config is written via MCP.
+1. **Silent default** — read-only, status, or conversational ask. Bro handles directly; no agent spawn, no inventory.
+2. **Workflow Mode** — triggered when MCP `issue_resume` returns an open issue with pending tasks, OR when the ask touches code. Bro classifies the request as `simple` or `difficult` (heuristic: difficult requires an update to `docs/trustmybot/architecture/`). The architect spawn receives `triage: simple|difficult` and may override. Every code change goes through architect — no bypass.
 3. **Direct Mode** — Human explicitly says "direct mode" / "just do it". Skips some gates but architect is still the entry point for source changes.
 
 ## Code Style

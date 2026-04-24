@@ -48,7 +48,7 @@ architecture, the PR MUST update the corresponding architecture doc in the
 same commit.
 
 **If you discover a discrepancy between architecture docs and the actual
-codebase, STOP and report it to the Gatekeeper.** Do not silently follow
+codebase, STOP and report it to the Bro.** Do not silently follow
 stale docs or silently follow code that contradicts docs. The discrepancy
 must be resolved — either the doc is updated or the code is wrong.
 

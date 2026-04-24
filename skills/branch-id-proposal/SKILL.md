@@ -1,7 +1,7 @@
 ---
 name: branch-id-proposal
 description: Derive and propose a git-convention branch_id for a code-changing request, present it to the Human alongside the simple/difficult triage label, wait for confirmation, then open or resume the MCP issue and append the routing-note discussion entries before architect spawn.
-agent: gatekeeper
+agent: bro
 allowed-tools: Bash
 ---
 
@@ -9,11 +9,11 @@ allowed-tools: Bash
 
 ## Purpose
 
-A `branch_id` is the working git branch name for a task. It doubles as the task's identifier inside the MCP `tasks` table — so the format is enforced at runtime by `task_create_batch`. **If gatekeeper proposes an invalid branch_id, task creation will fail.** This skill produces a valid, intent-matching branch_id and gets explicit Human approval before any architect spawn.
+A `branch_id` is the working git branch name for a task. It doubles as the task's identifier inside the MCP `tasks` table — so the format is enforced at runtime by `task_create_batch`. **If bro proposes an invalid branch_id, task creation will fail.** This skill produces a valid, intent-matching branch_id and gets explicit Human approval before any architect spawn.
 
 ## When invoked
 
-Gatekeeper invokes this skill when a Human request crosses into a code or prompt change (i.e., a task will be created). It runs **after** the C.0 triage decision (`simple` or `difficult`), and **before** any architect spawn.
+Bro invokes this skill when a Human request crosses into a code or prompt change (i.e., a task will be created). It runs **after** the C.0 triage decision (`simple` or `difficult`), and **before** any architect spawn.
 
 Direct read-only ops do NOT require a branch_id. Skip this skill in that case.
 
@@ -61,7 +61,7 @@ Format: `<type>/<slug>` where `<slug>` is lowercase alphanumeric + hyphens, max 
      ```
      discussion_append(issue_id, author='human', kind='intent',
        body=<the verbatim Human request>)
-     discussion_append(issue_id, author='gatekeeper', kind='note',
+     discussion_append(issue_id, author='bro', kind='note',
        body='Routed to architect on branch_id <the branch_id>, triage: <simple|difficult>')
      ```
 

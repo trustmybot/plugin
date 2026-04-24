@@ -1,7 +1,7 @@
 ---
 name: project-prescan
 description: Deterministic, non-LLM scan of the project at the first code-touching ask of a session. Enumerates git state, top-level layout, stack indicators, agents present, and open MCP issues into a flat inventory block. Skipped on greetings and read-only asks.
-agent: gatekeeper
+agent: bro
 allowed-tools: Bash, Glob, Grep
 ---
 
@@ -9,7 +9,7 @@ allowed-tools: Bash, Glob, Grep
 
 ## When invoked
 
-Gatekeeper invokes this skill **only** on:
+Bro invokes this skill **only** on:
 
 - The **first code-touching ask** of a session (any request that will result in a task being created — implement, fix, refactor, etc.), OR
 - An explicit `/tmb status` (or equivalent status-check) request.

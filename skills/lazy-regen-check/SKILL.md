@@ -1,7 +1,7 @@
 ---
 name: lazy-regen-check
 description: Decide whether to run an incremental architecture regen at session start. Compares HEAD to the last regen cursor; under 25 commits → silent incremental; over 25 → one-line nudge to the user; first-ever session → silent skip.
-agent: gatekeeper
+agent: bro
 allowed-tools: Bash
 ---
 
@@ -13,7 +13,7 @@ Keep the architecture docs incrementally fresh without surprising the user with 
 
 ## When invoked
 
-Gatekeeper invokes this skill once per session — immediately before the pre-scan on the **first code-touching ask** of the session, and also when the Human issues an explicit `/tmb status` request. The skill does NOT run on read-only or conversational asks, and it does NOT run while Onboarding Mode is active.
+Bro invokes this skill once per session — immediately before the pre-scan on the **first code-touching ask** of the session, and also when the Human issues an explicit `/tmb status` request. The skill does NOT run on read-only or conversational asks, and it does NOT run while Onboarding Mode is active.
 
 ## Procedure
 

@@ -67,7 +67,7 @@ export function configTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    config_set: requireRoles('config_set', ['gatekeeper', 'architect'], wrapHandler(async (args) => {
+    config_set: requireRoles('config_set', ['bro', 'architect'], wrapHandler(async (args) => {
       const key = args['key'];
       if (typeof key !== 'string' || !KEY_REGEX.test(key)) {
         return err(

@@ -16,7 +16,7 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 BRANCHING_MODEL=$(tmb_config_get "branching_model")
 
 if [ -z "$BRANCHING_MODEL" ]; then
-  echo "TMB: branching_model not configured — run gatekeeper onboarding" >&2
+  echo "TMB: branching_model not configured — run bro onboarding" >&2
   exit 0
 fi
 
@@ -24,12 +24,12 @@ PR_TARGET=$(tmb_config_get "pr_target")
 PROTECTED_RAW=$(tmb_config_raw "protected_branches")
 
 if [ -z "$PR_TARGET" ] || [ -z "$PROTECTED_RAW" ]; then
-  echo '{"decision":"block","reason":"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run gatekeeper onboarding or fix your config."}'
+  echo '{"decision":"block","reason":"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run bro onboarding or fix your config."}'
   exit 0
 fi
 
 if ! echo "$PROTECTED_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
-  echo '{"decision":"block","reason":"BLOCKED: TMB plugin_config key protected_branches is malformed JSON. Fix the config or re-run gatekeeper onboarding."}'
+  echo '{"decision":"block","reason":"BLOCKED: TMB plugin_config key protected_branches is malformed JSON. Fix the config or re-run bro onboarding."}'
   exit 0
 fi
 

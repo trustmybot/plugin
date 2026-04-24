@@ -42,7 +42,7 @@ function makeValidationRow(overrides: Partial<ValidationAttempt> = {}): Validati
 
 describe('agent-scope middleware', () => {
   it('normalizeAgent maps known names correctly', () => {
-    assert.equal(normalizeAgent('gatekeeper'), 'gatekeeper');
+    assert.equal(normalizeAgent('bro'), 'bro');
     assert.equal(normalizeAgent('architect'), 'architect');
     assert.equal(normalizeAgent('swe'), 'swe');
     assert.equal(normalizeAgent('pr-reviewer'), 'pr-reviewer');
@@ -87,12 +87,12 @@ describe('agent-scope middleware', () => {
     assert.equal(result.feedback, 'SENSITIVE FEEDBACK');
   });
 
-  it('normalizeAgent gatekeeper returns gatekeeper', () => {
-    assert.equal(normalizeAgent('gatekeeper'), 'gatekeeper');
+  it('normalizeAgent bro returns bro', () => {
+    assert.equal(normalizeAgent('bro'), 'bro');
   });
 
-  it('normalizeAgent Gatekeeper (mixed-case) returns gatekeeper', () => {
-    assert.equal(normalizeAgent('Gatekeeper'), 'gatekeeper');
+  it('normalizeAgent Bro (mixed-case) returns bro', () => {
+    assert.equal(normalizeAgent('Bro'), 'bro');
   });
 
   it('normalizeAgent undefined returns unknown', () => {
@@ -104,14 +104,14 @@ describe('agent-scope middleware', () => {
       content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
     });
 
-    const wrapped = requireRoles('identity_set', ['gatekeeper'], passthrough);
+    const wrapped = requireRoles('identity_set', ['bro'], passthrough);
     const result = await wrapped({ agent: 'swe' });
 
     assert.ok(result.isError, 'Expected isError=true');
     const payload = JSON.parse((result.content[0] as { type: string; text: string }).text);
     assert.equal(payload.error, 'forbidden');
     assert.equal(payload.caller_role, 'swe');
-    assert.deepEqual(payload.allowed_roles, ['gatekeeper']);
+    assert.deepEqual(payload.allowed_roles, ['bro']);
   });
 
   it('requireRoles delegates to handler when caller role is allowed', async () => {
@@ -121,8 +121,8 @@ describe('agent-scope middleware', () => {
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
     };
 
-    const wrapped = requireRoles('identity_set', ['gatekeeper'], passthrough);
-    const result = await wrapped({ agent: 'gatekeeper' });
+    const wrapped = requireRoles('identity_set', ['bro'], passthrough);
+    const result = await wrapped({ agent: 'bro' });
 
     assert.ok(!result.isError, 'Expected no error');
     assert.ok(called, 'Expected underlying handler to be invoked');

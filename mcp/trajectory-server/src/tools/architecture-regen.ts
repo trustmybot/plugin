@@ -272,7 +272,7 @@ export function architectureRegenTools(
   ];
 
   const handlers: Record<string, Fn> = {
-    architecture_regen: requireRoles('architecture_regen', ['architect', 'gatekeeper', 'pr-reviewer'], async (args) => {
+    architecture_regen: requireRoles('architecture_regen', ['architect', 'bro', 'pr-reviewer'], async (args) => {
       const startMs = Date.now();
 
       const rawScope = args['scope'] ?? 'incremental';
