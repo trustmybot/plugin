@@ -126,12 +126,16 @@ plugin/
 ├── skills/                           # Claude Code skills — all <name>/SKILL.md form
 │   ├── agent-creator/SKILL.md        # propose & write new agent files on user approval
 │   ├── architect-workflow/SKILL.md   # architect's end-to-end task-authoring flow
+│   ├── branch-id-proposal/SKILL.md   # gatekeeper derives branch_id + opens MCP issue before architect spawn
 │   ├── code-quality/SKILL.md         # generic quality gates (error handling, security, edges)
 │   ├── create-hook/SKILL.md          # how to add a new hook script safely
 │   ├── docs-conventions/SKILL.md     # docs-update rules + prompt-editing discipline
 │   ├── feedback-loop/SKILL.md        # architect ↔ SWE retry/escalation protocol
+│   ├── first-run-onboarding/SKILL.md # gatekeeper's identity + branching-model capture flow on first activation
 │   ├── git-conventions/SKILL.md     # emoji-prefixed commits, branch naming
+│   ├── lazy-regen-check/SKILL.md     # gatekeeper's session-start architecture-regen heuristic (25-commit threshold)
 │   ├── naming-conventions/SKILL.md   # file/variable/test naming rules
+│   ├── project-prescan/SKILL.md      # gatekeeper's deterministic inventory pass on first code-touching ask
 │   ├── refresh-architecture/SKILL.md # user-facing "regenerate architecture docs" entry
 │   ├── review-findings/SKILL.md      # pr-reviewer output format
 │   ├── review-protocol/SKILL.md      # pr-reviewer full protocol
@@ -139,7 +143,7 @@ plugin/
 │   ├── roundtable-cleanup/SKILL.md   # post-roundtable DB cleanup
 │   ├── swe-checklist/SKILL.md        # SWE pre-commit checklist
 │   ├── swe-spawn-workflow/SKILL.md   # architect's protocol for spawning SWE
-│   ├── tmb-reonboard/SKILL.md        # re-run onboarding flow
+│   ├── tmb-reonboard/SKILL.md        # re-run onboarding flow + mid-session identity rename
 │   └── validate-swe-output/SKILL.md  # fork Explore to verify SWE task
 │
 ├── templates/
