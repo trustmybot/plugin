@@ -31,7 +31,7 @@ Every code change should add or update tests.
 
 - **MCP server changes** → `mcp/trajectory-server/src/test/<name>.test.ts`. Helper API in `tests/README.md`; key fixture `tempDB()`.
 - **Hook changes** → `tests/hooks/<name>.test.sh`. Assertion helpers in `tests/lib/assert.sh`.
-- **Agent prompts / skills / docs** — no automated tests yet (known gap). Walk the manual dogfood checklist in [`docs/testing/local-setup.md`](docs/testing/local-setup.md) before opening the PR.
+- **Agent prompts / skills / docs** — no automated tests yet (known gap). Walk the manual dogfood checklist in [`tests/manual/setup.md`](tests/manual/setup.md) before opening the PR.
 
 ## Pre-PR checklist
 

@@ -1,6 +1,6 @@
 # Local Testing — Setup Guide
 
-How to stand up a scratch project and exercise the TMB plugin end-to-end. This is the canonical manual-testing path for contributors and dogfooders. For automated test suites, see [`tests/README.md`](../../tests/README.md).
+How to stand up a scratch project and exercise the TMB plugin end-to-end. This is the canonical manual-testing path for contributors and dogfooders. For automated test suites, see [`tests/README.md`](../README.md).
 
 ## Prerequisites
 
@@ -145,7 +145,7 @@ The DB persists across sessions but is scoped to the project directory you launc
 
 ## End-to-end dogfood checklist
 
-The full set of manual scenarios — verbatim trigger prompts, prerequisites, expected behavior, verification queries — lives in [**`docs/testing/scenarios.md`**](scenarios.md). 30+ scenarios across all 9 workflows from `FLOWS.md`, including all four corner cases of the roundtable flow.
+The full set of manual scenarios — verbatim trigger prompts, prerequisites, expected behavior, verification queries — lives in [**`scenarios.md`**](./scenarios.md) (same directory). 30+ scenarios across all 9 workflows from [`FLOWS.md`](../../docs/architecture/FLOWS.md), including all four corner cases of the roundtable flow.
 
 Quick smoke checklist (covers the 80% — see SCENARIOS.md for the full grid):
 
@@ -178,6 +178,6 @@ Any failure here is a bug a downstream user will hit identically — file an iss
 
 ## Related
 
-- [`tests/README.md`](../../tests/README.md) — automated MCP + hook test suites (`bash tests/run-all.sh`)
+- [`tests/README.md`](../README.md) — automated MCP + hook test suites (`bash tests/run-all.sh`)
 - [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — branch workflow, pre-PR checklist, design principles
 - [`mcp/trajectory-server/docs/CONFIG_KEYS.md`](../../mcp/trajectory-server/docs/CONFIG_KEYS.md) — every `plugin_config` key the plugin reads or writes

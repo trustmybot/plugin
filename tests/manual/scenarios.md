@@ -1,8 +1,8 @@
 # Dogfood Test Scenarios
 
-For each workflow in [`FLOWS.md`](../architecture/FLOWS.md), the verbatim user prompt that triggers it + the observable expected behavior + how to verify it landed correctly.
+For each workflow in [`FLOWS.md`](../../docs/architecture/FLOWS.md), the verbatim user prompt that triggers it + the observable expected behavior + how to verify it landed correctly.
 
-These are the **manual test cases** for the plugin. Run during a fresh `claude --plugin-dir <PLUGIN_PATH>` session against a disposable scratch project (see [`docs/testing/local-setup.md`](../testing/local-setup.md) for setup).
+These are the **manual test cases** for the plugin. Run during a fresh `claude --plugin-dir <PLUGIN_PATH>` session against a disposable scratch project (see [`setup.md`](./setup.md) for setup).
 
 ## How to use this doc
 
@@ -71,15 +71,15 @@ Pass: [ ]
 
 | Flow | FLOWS.md § | Scenarios |
 |---|---|---|
-| 1 — First-Run Onboarding | [§1](../architecture/FLOWS.md#1-first-run-onboarding) | 1.1, 1.2, 1.3, 1.4 |
-| 2 — Simple Task | [§2](../architecture/FLOWS.md#2-simple-task) | 2.1, 2.2, 2.3 |
-| 3 — Difficult Task | [§3](../architecture/FLOWS.md#3-difficult-task) | 3.1, 3.2, 3.3 |
-| 4 — Agent-creator | [§4](../architecture/FLOWS.md#4-agent-creator-on-demand-domain-agent) | 4.1, 4.2, 4.3, 4.4 |
-| 5 — Skill Creation | [§5](../architecture/FLOWS.md#5-skill-creation) | 5.1 |
-| 6 — PR Review | [§6](../architecture/FLOWS.md#6-pr-review) | 6.1 |
-| 7 — Architecture Regen | [§7](../architecture/FLOWS.md#7-architecture-regen) | 7.1, 7.2, 7.3, 7.4 |
-| 8 — SWE Retry / Escalation | [§8](../architecture/FLOWS.md#8-swe-retry--escalation) | 8.1, 8.2 |
-| 9 — Roundtable | [§9](../architecture/FLOWS.md#9-roundtable-multi-agent-deliberation) | 9.1, 9.2, 9.3, 9.4 |
+| 1 — First-Run Onboarding | [§1](../../docs/architecture/FLOWS.md#1-first-run-onboarding) | 1.1, 1.2, 1.3, 1.4 |
+| 2 — Simple Task | [§2](../../docs/architecture/FLOWS.md#2-simple-task) | 2.1, 2.2, 2.3 |
+| 3 — Difficult Task | [§3](../../docs/architecture/FLOWS.md#3-difficult-task) | 3.1, 3.2, 3.3 |
+| 4 — Agent-creator | [§4](../../docs/architecture/FLOWS.md#4-agent-creator-on-demand-domain-agent) | 4.1, 4.2, 4.3, 4.4 |
+| 5 — Skill Creation | [§5](../../docs/architecture/FLOWS.md#5-skill-creation) | 5.1 |
+| 6 — PR Review | [§6](../../docs/architecture/FLOWS.md#6-pr-review) | 6.1 |
+| 7 — Architecture Regen | [§7](../../docs/architecture/FLOWS.md#7-architecture-regen) | 7.1, 7.2, 7.3, 7.4 |
+| 8 — SWE Retry / Escalation | [§8](../../docs/architecture/FLOWS.md#8-swe-retry--escalation) | 8.1, 8.2 |
+| 9 — Roundtable | [§9](../../docs/architecture/FLOWS.md#9-roundtable-multi-agent-deliberation) | 9.1, 9.2, 9.3, 9.4 |
 
 ---
 
@@ -669,6 +669,6 @@ When a scenario's expected behavior doesn't match actual output:
 
 ## Related
 
-- [`FLOWS.md`](../architecture/FLOWS.md) — the flowcharts each scenario verifies
-- [`docs/testing/local-setup.md`](../testing/local-setup.md) — how to launch a scratch session
+- [`FLOWS.md`](../../docs/architecture/FLOWS.md) — the flowcharts each scenario verifies
+- [`setup.md`](./setup.md) — how to launch a scratch session
 - [`tests/run-all.sh`](../../tests/run-all.sh) — automated suites that run before any dogfood test
