@@ -217,15 +217,15 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Architect notices pattern:<br/>repeated checklist, drifting<br/>workflow, or duplicated logic<br/>across multiple agent prompts] --> B{Worth a skill?<br/>Used by ≥2 agents OR<br/>fires < 20% of sessions?}
+    A["Architect notices pattern:<br/>repeated checklist, drifting<br/>workflow, or duplicated logic<br/>across multiple agent prompts"] --> B{"Worth a skill?<br/>Used by ≥2 agents OR<br/>fires &lt; 20% of sessions?"}
     B -->|no| C[Inline in agent prompt]
     B -->|yes| D[Decide scope]
     D --> E{Plugin-shipped<br/>or project-local?}
-    E -->|reusable across<br/>all projects| F[plugin/skills/X/SKILL.md]
-    E -->|specific to<br/>this project| G[.claude/skills/X/SKILL.md]
-    F --> H[Write SKILL.md with<br/>frontmatter: name, description,<br/>agent allowlist, allowed-tools]
+    E -->|reusable across<br/>all projects| F["plugin/skills/X/SKILL.md"]
+    E -->|specific to<br/>this project| G[".claude/skills/X/SKILL.md"]
+    F --> H["Write SKILL.md with<br/>frontmatter: name, description,<br/>agent allowlist, allowed-tools"]
     G --> H
-    H --> I[Update calling agent's<br/>frontmatter: skills: [X]]
+    H --> I["Update calling agent's<br/>frontmatter: skills: &#91;X&#93;"]
     I --> J{Track effectiveness?}
     J -->|yes| K[Architect calls<br/>skill_register MCP tool]
     J -->|no| L[Done — Claude Code<br/>auto-loads via name]
