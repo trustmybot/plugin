@@ -1,143 +1,120 @@
 ---
 name: tmb-reonboard
-description: Re-run the TMB onboarding flow on demand, showing current values as the pre-selected default in a radio UI via AskUserQuestion. Handles branching model changes, PR target updates, and identity rename.
+description: Re-run the TMB onboarding flow on demand. Shows current values as explicit defaults. Handles branching model changes, PR target updates, and identity rename.
 agent: bro
-allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
+allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
 ---
 
 # tmb-reonboard
 
-## A. Purpose
+## Purpose
 
-Allow a user who has already completed first-run onboarding to update branching model, PR target, protected branches, or their name, without typing MCP calls. Uses `AskUserQuestion` so the current value can be the first (pre-selected) option.
+Let a user update branching model, PR target, protected branches, or their name after first-run onboarding completed. Reads current state, shows it as the default, writes changes via MCP.
 
-This skill does NOT touch issues, tasks, or validation_attempts. It only reads/writes `plugin_config` keys and `identity`.
+## When Invoked
 
-## B. When Invoked
+Bro invokes this skill directly (no subagent spawn) on these trigger phrases or close paraphrases:
 
-Bro invokes this skill directly (no other agent spawn needed) when the Human says any of the following — or close paraphrases:
-
-- "re-onboard"
+- "re-onboard", "reset onboarding"
 - "change branching model" / "switch to gitflow" / "switch to github-flow"
 - "update my name" / "change my name"
-- "reset onboarding"
 
-## C. Execution Steps
+## Scope
 
-### Step 1 — Read current state
+ONLY:
+- `config_list`, `config_set` (keys `branching_model`, `pr_target`, `protected_branches` only)
+- `identity_get`, `identity_set`, `identity_reset`
+
+NEVER: `issue_create`, `task_create_batch`, `task_update_status`, `validation_record`, or anything outside the list above.
+
+## Step 1 — Read current state
+
+Call with `agent='bro'`:
 
 ```
 config_list(agent='bro')
 identity_get(agent='bro')
 ```
 
-Extract (use `null` if absent):
+Extract (use "(unset)" as the display for `null`):
 
-- `current_branching_model`
-- `current_pr_target`
-- `current_protected_branches`
-- `current_human_name`
+- `current_human_name` — from `identity_get().human_name`
+- `current_branching_model` — from `config_list()` key `branching_model`
+- `current_pr_target` — from `config_list()` key `pr_target`
+- `current_protected_branches` — from `config_list()` key `protected_branches`
 
-### Step 2 — Collect new values via AskUserQuestion
+## Step 2 — Show current values
 
-One batched call. For each question, make the **current value the first option** (pre-selected default):
+Emit:
 
-```
-AskUserQuestion({
-  questions: [
-    {
-      question: "What should I call you?",
-      header: "Your name",
-      multiSelect: false,
-      options: [
-        { label: `Keep "${current_human_name}"`, description: "No change." },  // hide if null
-        { label: "Anonymous", description: "Remove name from file." }
-      ]
-      // 'Other' lets the Human type a new name.
-    },
-    {
-      question: "How does your team branch?",
-      header: "Branching",
-      multiSelect: false,
-      options: [
-        // Current value goes first, labeled "Keep …"
-        { label: `Keep "${current_branching_model}"`, description: "No change." },
-        { label: "Switch to Trunk + feature branches (GitHub Flow)", description: "Single main, feature branches, PRs back." },
-        { label: "Switch to Trunk + develop + releases (Git Flow)", description: "Long-lived develop + releases to main." },
-        { label: "Custom workflow", description: "Describe via Other." }
-      ]
-    },
-    {
-      question: "What's your PR target branch?",
-      header: "PR target",
-      multiSelect: false,
-      options: [
-        { label: `Keep "${current_pr_target}"`, description: "No change." },
-        { label: "main", description: "Most common default." },
-        { label: "develop", description: "Common for Git Flow." },
-        { label: "master", description: "Older repos." }
-      ]
-      // 'Other' for any alternative.
-    }
-  ]
-})
-```
+> Here's what I have on file:
+> - Your name: `<current_human_name>`
+> - Branching model: `<current_branching_model>`
+> - PR target: `<current_pr_target>`
+> - Protected branches: `<current_protected_branches>`
+>
+> Which do you want to change? Reply with one of: `name`, `branching`, `pr-target`, `protected`, `all`, or `none` to cancel.
 
-Dedupe logic: if `current_pr_target` is already one of the static options (e.g. "main"), collapse the `Keep "main"` entry with the second option to avoid a duplicate.
+## Step 3 — Per-field update
 
-### Step 3 — Persist via MCP
+Based on their reply, ask one or more sub-questions. Accept canonical input or sentinel `keep` to preserve current.
 
-Parse each answer. If it starts with "Keep ", no write for that field. Otherwise:
+**name:**
+> Reply with a new name, `anonymous` to clear, or `keep` to keep `<current_human_name>`.
 
-```
-if name_answer == "Anonymous":
-    identity_reset(agent='bro')
-elif name_answer != Keep:
-    identity_set(agent='bro', human_name=<name>)
+- If `keep` → no MCP call.
+- If `anonymous` → `identity_reset(agent='bro')`.
+- Otherwise → `identity_set(agent='bro', human_name=<reply>)`.
 
-if branching_answer != Keep:
-    config_set(agent='bro', key='branching_model', value=<canonical>)
+**branching:**
+> Reply with `1` (github-flow), `2` (gitflow), `3` (custom), or `keep` to keep `<current_branching_model>`.
 
-if pr_target_answer != Keep:
-    config_set(agent='bro', key='pr_target', value=<value>)
-    # Update protected_branches when PR target changes:
-    if final_branching == 'github-flow':
-        protected = [final_pr_target]
-    elif final_branching == 'gitflow':
-        protected = dedup(['main', final_pr_target])
-    else:
-        protected = [final_pr_target]
-    config_set(agent='bro', key='protected_branches', value=protected)
-```
+- If `keep` → no MCP call for this field.
+- Otherwise → `config_set(agent='bro', key='branching_model', value=<canonical>)`, then proceed to ask pr-target (Step 3/pr-target) so protected_branches can be recomputed correctly.
 
-**Reset path:** If the Human types "reset everything" via Other on the name question, call `identity_reset(agent='bro')` and re-ask via a second `AskUserQuestion` round with no "Keep" default.
+**pr-target:**
+> Reply with a branch name, or `keep` to keep `<current_pr_target>`.
 
-### Step 4 — Confirm and close
+- If `keep` → no MCP call.
+- Otherwise → `config_set(agent='bro', key='pr_target', value=<reply>)`.
 
-After writes:
+Recompute `protected_branches` using the (possibly new) branching + (possibly new) pr_target:
 
-> "Done. Settings updated:
+| branching | protected_branches |
+|---|---|
+| `github-flow` | `[<pr_target>]` |
+| `gitflow` | `["main", <pr_target>]` deduplicated |
+| `custom` | unchanged unless the user explicitly updates it |
+
+If the recomputed list differs from current: `config_set(agent='bro', key='protected_branches', value=<new list>)`.
+
+**protected:**
+> Reply with comma-separated branch names, or `keep`.
+
+- If `keep` → no MCP call.
+- Otherwise → parse CSV → JSON array → `config_set(agent='bro', key='protected_branches', value=<array>)`.
+
+**all:** sequentially ask name, branching, pr-target, protected — same logic as above.
+
+**none:** no MCP calls, close immediately.
+
+## Step 4 — Confirm and close
+
+After any writes, call `config_list(agent='bro')` + `identity_get(agent='bro')` one more time to verify. Emit:
+
+> Done. Settings:
+> - Your name: `<final_human_name>`
 > - Branching model: `<final_branching_model>`
 > - PR target: `<final_pr_target>`
 > - Protected branches: `<final_protected_branches>`
-> - Your name: `<final_human_name>`
 >
-> Tell me what you want to work on."
+> Tell me what you want to work on.
 
-## D. Scope Constraint
-
-This skill ONLY calls:
-
-- `AskUserQuestion` (read Human input)
-- `config_list`, `config_set` (write — `branching_model`, `pr_target`, `protected_branches` keys only)
-- `identity_get`, `identity_set`, `identity_reset`
-
-It MUST NOT call `issue_create`, `task_create_batch`, `task_update_status`, `validation_record`, or anything outside the list above.
-
-## E. Error Handling
+## Error Handling
 
 | Trigger | Response |
 |---|---|
-| `config_list()` or `identity_get()` fails | Report the error, offer to proceed with blank defaults or abort. Never proceed silently. |
-| `config_set` or `identity_set` fails | Report immediately. Do NOT continue to the next step. Ask whether to retry. |
-| Human picks Custom + invalid branching value via Other | Re-ask via a second `AskUserQuestion` round. Don't accept free-text model strings other than via valid canonical mapping. |
+| `config_list()` or `identity_get()` fails | Report the exact error, offer to retry or abort. Do NOT proceed with stale state. |
+| `config_set` or `identity_set` fails | Report the exact error, retry the same call. Do NOT skip and continue. |
+| Invalid branching input (not 1/2/3/keep) | Re-ask the same sub-question; do not guess. |
+| Reply doesn't match any Step-2 option | Re-ask Step 2 with the same options. |
