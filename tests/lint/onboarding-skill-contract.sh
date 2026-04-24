@@ -34,33 +34,32 @@ require_not_contains() {
 printf "=== first-run-onboarding/SKILL.md contract ===\n"
 F="$PLUGIN_ROOT/skills/first-run-onboarding/SKILL.md"
 
-require_contains "$F" "MUST NOT call \`AskUserQuestion\`" \
-                                                    "explicitly forbids AskUserQuestion (subagent-blocked upstream)"
+require_contains "$F" "AskUserQuestion"             "references AskUserQuestion at least once"
+require_contains "$F" "mandatory"                   "marks AskUserQuestion call as mandatory"
+require_contains "$F" "text fallback"               "explicitly addresses the text-fallback pitfall"
+require_contains "$F" "no text fallback"            "explicitly forbids text fallback in the mandatory-tool rule"
 require_contains "$F" "userEmail"                   "addresses env-level userEmail leak"
 require_contains "$F" "github-flow"                 "maps GitHub Flow to canonical 'github-flow'"
 require_contains "$F" "gitflow"                     "maps Git Flow to canonical 'gitflow'"
 require_contains "$F" "custom"                      "maps Custom workflow to canonical 'custom'"
 require_contains "$F" "identity_set"                "names identity_set as a required MCP write"
 require_contains "$F" "config_set"                  "names config_set as a required MCP write"
-require_contains "$F" "github-flow\`" \
-                                                    "shows canonical reply mapping for github-flow"
-require_contains "$F" "anonymous"                   "supports anonymous skip path"
-require_contains "$F" "comma-separated"             "custom branching collects protected branches as CSV"
+require_contains "$F" "config_list"                 "requires post-write verify via config_list"
+require_contains "$F" "Never narrate"               "forbids hallucinated rejection narration"
+require_contains "$F" "IN THIS session"             "constrains pre-populated Use-name option to in-session typed names"
 
-# Identity leak gate: skill must NOT carry a literal `"Zax"` example.
+# Identity leak gate: skill must NOT carry a literal `"Zax"` (or similar
+# canonical-example user identity) in its examples. Earlier regressions saw
+# bro's LLM copy-paste such examples into the live prompt.
 require_not_contains "$F" '(e.g. "Zax"'             "no 'e.g. \"Zax\"' literal that would teach LLMs to echo inferred identity"
 require_not_contains "$F" '(e.g. \"Zax\")'          "no escaped Zax example"
 
 printf "\n=== tmb-reonboard/SKILL.md contract ===\n"
 F="$PLUGIN_ROOT/skills/tmb-reonboard/SKILL.md"
 
-require_contains "$F" "NEVER:" \
-                                                    "scope NEVER list bans agent spawns + AskUserQuestion + out-of-allowlist tools"
-require_contains "$F" "AskUserQuestion" \
-                                                    "explicitly mentions AskUserQuestion (in the NEVER list)"
-require_contains "$F" "\`keep\`"                    "uses keep sentinel to preserve current values"
-require_contains "$F" "identity_reset"              "handles anonymous → identity_reset path"
-require_contains "$F" "config_set"                  "writes via config_set"
+require_contains "$F" "AskUserQuestion"             "references AskUserQuestion"
+require_contains "$F" "Keep"                        "offers Keep-current-value as an option pattern"
+require_contains "$F" "identity_reset"              "handles Anonymous → identity_reset path"
 
 printf "\n=== architect-workflow/SKILL.md contract ===\n"
 F="$PLUGIN_ROOT/skills/architect-workflow/SKILL.md"

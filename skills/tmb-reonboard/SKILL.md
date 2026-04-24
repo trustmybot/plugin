@@ -1,15 +1,15 @@
 ---
 name: tmb-reonboard
-description: Re-run the TMB onboarding flow on demand. Asks per-field via text Q+A, accepts `keep` to preserve current value. Handles branching model changes, PR target updates, and identity rename.
+description: Re-run the TMB onboarding flow on demand. Shows current values as the pre-selected default in an AskUserQuestion radio UI. Handles branching model changes, PR target updates, and identity rename.
 agent: bro
-allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
+allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
 ---
 
 # tmb-reonboard
 
 ## Purpose
 
-Let a user update branching model, PR target, protected branches, or their name after first-run onboarding. Reads current state, asks per-field via text, persists changes via MCP. `AskUserQuestion` is unavailable to plugin subagents — use plain chat output.
+Let a user update branching model, PR target, protected branches, or their name after first-run onboarding completed. Reads current state, shows it as the `Keep "<current>"` first option in a radio form, writes changes via MCP.
 
 ## When Invoked
 
@@ -22,10 +22,11 @@ Bro invokes this skill directly (no subagent spawn) on these trigger phrases or 
 ## Scope
 
 ONLY:
+- `AskUserQuestion` (collect answers)
 - `config_list`, `config_set` (keys `branching_model`, `pr_target`, `protected_branches` only)
 - `identity_get`, `identity_set`, `identity_reset`
 
-NEVER: `issue_create`, `task_create_batch`, `task_update_status`, `validation_record`, `AskUserQuestion`, or anything outside the list above.
+NEVER: `issue_create`, `task_create_batch`, `task_update_status`, `validation_record`, or anything outside the list above.
 
 ## Step 1 — Read current state
 
@@ -41,94 +42,81 @@ Extract (use "(unset)" display for `null`):
 - `current_human_name` — from `identity_get().human_name`
 - `current_branching_model`, `current_pr_target`, `current_protected_branches` — from `config_list()`.
 
-## Step 2 — Show current values + ask which to change
+## Step 2 — Collect new values via AskUserQuestion
 
-Emit one message:
-
-```
-Here's what I have on file:
-- Your name: <current_human_name>
-- Branching model: <current_branching_model>
-- PR target: <current_pr_target>
-- Protected branches: <current_protected_branches>
-
-Which do you want to change? Reply with one of: `name`, `branching`, `pr-target`, `protected`, `all`, or `none` to cancel.
-```
-
-Wait for reply.
-
-## Step 3 — Per-field update
-
-Based on their reply, ask one or more sub-questions. `keep` preserves current; otherwise write the new value via MCP.
-
-**name:**
+One batched call. First option on each question is `Keep "<current>"` (pre-selected default):
 
 ```
-Reply with a new name, `anonymous` to clear, or `keep` to keep "<current_human_name>".
+AskUserQuestion({
+  questions: [
+    {
+      question: "What should I call you?",
+      header: "Your name",
+      multiSelect: false,
+      options: [
+        { label: `Keep "${current_human_name}"`, description: "No change." },  // drop this option if current_human_name is null
+        { label: "Anonymous", description: "Remove name from file." }
+        // Other — free text new name.
+      ]
+    },
+    {
+      question: "How does your team branch?",
+      header: "Branching",
+      multiSelect: false,
+      options: [
+        { label: `Keep "${current_branching_model}"`, description: "No change." },
+        { label: "Switch to Trunk + feature branches (GitHub Flow)", description: "Single main, feature branches, PRs back." },
+        { label: "Switch to Trunk + develop + releases (Git Flow)", description: "Long-lived develop + releases to main." },
+        { label: "Custom workflow", description: "Describe via Other." }
+      ]
+    },
+    {
+      question: "What's your PR target branch?",
+      header: "PR target",
+      multiSelect: false,
+      options: [
+        { label: `Keep "${current_pr_target}"`, description: "No change." },
+        { label: "main", description: "Most common default." },
+        { label: "develop", description: "Common for Git Flow." },
+        { label: "master", description: "Older repos." }
+      ]
+      // Other for any alternative.
+    }
+  ]
+})
 ```
 
-- `keep` → no MCP call.
-- `anonymous` → `identity_reset(agent='bro')`.
-- otherwise → `identity_set(agent='bro', human_name=<reply>)`.
+Dedupe: if `current_<field>` already matches a static option (e.g. `current_pr_target == "main"`), collapse the `Keep "main"` entry with the "main" option to avoid a duplicate.
 
-**branching:**
+## Step 3 — Persist via MCP
 
-```
-How does your team branch? Reply with one of:
-- `1` — Trunk + feature branches (GitHub Flow)
-- `2` — Trunk + develop + releases (Git Flow)
-- `3` — Custom workflow
-- `keep` — keep "<current_branching_model>"
-```
+For each answer:
 
-- `keep` → no MCP call.
-- otherwise → `config_set(agent='bro', key='branching_model', value=<canonical>)`. Then proceed to **pr-target** sub-flow so protected_branches can be recomputed.
+- Starts with `Keep "`: no write for that field.
+- Name = "Anonymous": `identity_reset(agent='bro')`.
+- Name = other: `identity_set(agent='bro', human_name=<name>)`.
+- Branching changed: `config_set(agent='bro', key='branching_model', value=<canonical>)`.
+- PR target changed: `config_set(agent='bro', key='pr_target', value=<value>)` AND recompute `protected_branches`:
 
-**pr-target:**
+  | branching | protected_branches |
+  |---|---|
+  | `github-flow` | `[<pr_target>]` |
+  | `gitflow` | `["main", <pr_target>]` deduped |
+  | `custom` | ask separately (second AskUserQuestion round, multiSelect=true like first-run-onboarding Step 3a) |
 
-```
-What's your PR target branch? Reply with a branch name, or `keep` to keep "<current_pr_target>".
-```
-
-- `keep` → no MCP call.
-- otherwise → `config_set(agent='bro', key='pr_target', value=<reply>)`.
-
-After branching or pr-target changes, recompute `protected_branches`:
-
-| branching | protected_branches |
-|---|---|
-| `github-flow` | `[<pr_target>]` |
-| `gitflow` | `["main", <pr_target>]` deduped |
-| `custom` | unchanged unless the user explicitly updates it |
-
-If the recomputed list differs from current → `config_set(agent='bro', key='protected_branches', value=<new list>)`.
-
-**protected:**
-
-```
-Which branches should I treat as protected? Reply comma-separated (e.g. `main,develop`), or `keep`.
-```
-
-- `keep` → no MCP call.
-- otherwise → parse CSV → JSON array → `config_set(agent='bro', key='protected_branches', value=<array>)`.
-
-**all:** sequentially ask name, branching, pr-target, protected — same logic as above.
-
-**none:** no MCP calls; close.
+  Then `config_set(agent='bro', key='protected_branches', value=<new list>)`.
 
 ## Step 4 — Verify and close
 
-After any writes, call `config_list(agent='bro')` + `identity_get(agent='bro')` to confirm. Emit:
+After writes, `config_list(agent='bro')` + `identity_get(agent='bro')` to confirm. Emit:
 
-```
-Done. Settings:
-- Your name: <final_human_name>
-- Branching model: <final_branching_model>
-- PR target: <final_pr_target>
-- Protected branches: <final_protected_branches>
-
-Tell me what you want to work on.
-```
+> Done. Settings updated:
+> - Your name: `<final_human_name>`
+> - Branching model: `<final_branching_model>`
+> - PR target: `<final_pr_target>`
+> - Protected branches: `<final_protected_branches>`
+>
+> Tell me what you want to work on.
 
 ## Error Handling
 
@@ -136,4 +124,4 @@ Tell me what you want to work on.
 |---|---|
 | `config_list()` or `identity_get()` fails | Report the exact error, offer to retry or abort. Do NOT proceed with stale state. |
 | `config_set` or `identity_set` fails | Report the exact error, retry the same call. Do NOT skip and continue. |
-| Reply doesn't match any valid option for the active sub-question | Re-ask the sub-question once, listing the valid options again. |
+| Invalid answer (e.g. unparseable Other for branching) | Re-ask via a second `AskUserQuestion` round, omit the invalid answer. |

@@ -1,8 +1,8 @@
 ---
 name: first-run-onboarding
-description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Captures identity + branching + PR target via text Q+A in chat, then persists via MCP. Hold-and-resume any code-touching ask received during the flow.
+description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Uses AskUserQuestion radio UI to collect identity + branching + PR target, then persists via MCP. Hold-and-resume any code-touching ask received during the flow.
 agent: bro
-allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list
+allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list
 ---
 
 # first-run-onboarding
@@ -23,20 +23,39 @@ Any code-touching ask received while onboarding is pending is **held** — do no
 ## Scope
 
 During onboarding the skill may ONLY:
-- Emit text questions to the Human via regular chat output.
+- Call `AskUserQuestion` to collect answers via the radio UI.
 - Call MCP `identity_set`, `config_set`, `config_list` (each with `agent='bro'`).
 
-MUST NOT spawn any agent. MUST NOT run side-effecting shell commands. MUST NOT call `AskUserQuestion` — it is unavailable to plugin subagents (see [anthropics/claude-code#12890](https://github.com/anthropics/claude-code/issues/12890)).
+MUST NOT spawn any agent. MUST NOT run side-effecting shell commands.
+
+## Hard rule — AskUserQuestion is mandatory, no text fallback
+
+The `AskUserQuestion` call in Step 1 is **mandatory**. This is the contract of this skill.
+
+**You MUST call `AskUserQuestion`.** If you emit the onboarding questions as plain text ("reply with 1/2/3", "reply with a name") instead of invoking `AskUserQuestion`, you have violated the skill's contract — the text fallback is NOT allowed.
+
+If the `AskUserQuestion` call errors (tool returns an error), do this:
+1. Read the exact error.
+2. Retry the call once.
+3. If the retry also errors, surface the error verbatim to the Human (do NOT silently fall back to text) and ask them how to proceed.
+
+Do not skip the call because:
+- CC's environment context leaked the user's email / name (inferred identity is not confirmed identity).
+- Auto mode says "minimize interruptions" (onboarding is never a routine decision — it configures the project's trust model).
+- You think you know the answers (you don't — branching model is explicit policy, not a guess).
+- It seems faster to just ask in text (it isn't — it breaks the radio-form contract the scenarios test against).
+
+Never call `identity_set` or `config_set` until the Human has explicitly answered via the radio form (or an Other free-text reply).
 
 ## Context-leak rule — never surface inferred identity
 
 CC's subagent context includes the user's email (e.g. `# userEmail zax.shen@gmail.com`). The Human's FIRST interaction with bro must not leak that inference:
 
-- Do NOT put an inferred name in the question text as an example. The question should be neutral ("What should I call you?") with no example values that hint at what bro might already know.
-- Do NOT pre-populate the answer based on email-derived guesses. The Human's reply is the only confirmed identity.
-- Do NOT write `identity_set(human_name='Zax')` based on email inference, even if the Human never actually answers.
+- Do NOT put an inferred name in the question text as an example. The question should be neutral ("What should I call you?") and let the `AskUserQuestion` options + auto-Other carry the answer choices.
+- Do NOT pre-populate a `Use "Zax"` option in the `AskUserQuestion` form based on email-derived guesses. ONLY pre-populate if the Human said their name IN THIS session (e.g. they typed "I'm Alice" in a prior turn of this same interactive session — NOT from env context).
+- Do NOT write `identity_set(human_name='Zax')` based on email inference, even if the Human never actually picks a name.
 
-Treat CC's environment identity as external metadata that the Human hasn't confirmed. The reply is where consent lives.
+Treat CC's environment identity as external metadata that the Human hasn't confirmed. The radio form is where consent lives.
 
 ## Mandatory MCP write sequence
 
@@ -49,39 +68,68 @@ Onboarding completes ONLY after ALL FOUR writes have succeeded AND `config_list`
 
 **Never narrate a rejection** — only report what the MCP tool actually returned. **Never skip a write** because you think it might fail. If a call errors, retry it. If it keeps erroring, surface the exact error to the Human and ask whether to retry or abort.
 
-## Step 1 — Welcome + three questions in one message
+## Step 1 — Welcome + name + branching + PR target (one batched AskUserQuestion call)
 
-Emit the welcome line plus all three questions in a single message so the Human can answer once. Wait for the reply before moving on:
+Emit the welcome line first:
+
+> Hey, I'm bro. Trust me bro, it works — that's the plugin's whole pitch. I route your work to the right agents and keep things tidy. Let me grab a couple of settings.
+
+Then call `AskUserQuestion` with three questions batched in one invocation so the Human answers once:
 
 ```
-Hey, I'm bro. Trust me bro, it works — that's the plugin's whole pitch. I route your work to the right agents and keep things tidy. Three quick questions:
-
-1. **What should I call you?** Reply with a name, or `anonymous` to skip.
-2. **How does your team branch?** Reply with one of:
-   - `1` — Trunk + feature branches (GitHub Flow) (recommended)
-   - `2` — Trunk + develop + releases (Git Flow)
-   - `3` — Custom workflow (you describe it)
-3. **What's your PR target branch?** Reply with: `main` (recommended), `master`, `develop`, `trunk`, or any other name.
-
-Reply in any order — quote each question briefly so I can match.
+AskUserQuestion({
+  questions: [
+    {
+      question: "What should I call you?",
+      header: "Your name",
+      multiSelect: false,
+      options: [
+        { label: "Anonymous", description: "No name on file — bro addresses you in plain second-person." }
+        // Add a second `Use "<name>"` option ONLY if the Human typed their name
+        // IN THIS session (e.g. they said "I'm Alice" in a prior chat turn).
+        // Do NOT use CC's env-level userEmail to infer a name — that's external
+        // metadata, not Human-confirmed identity. Auto-added "Other" covers
+        // free-text name entry for everyone who hasn't said their name yet.
+      ]
+    },
+    {
+      question: "How does your team branch?",
+      header: "Branching",
+      multiSelect: false,
+      options: [
+        { label: "Trunk + feature branches (GitHub Flow) (Recommended)", description: "Single main, feature branches off main, PRs back to main." },
+        { label: "Trunk + develop + releases (Git Flow)", description: "Long-lived develop branch, releases promoted to main." },
+        { label: "Custom workflow", description: "Different workflow — describe via Other." }
+      ]
+    },
+    {
+      question: "What's your PR target branch?",
+      header: "PR target",
+      multiSelect: false,
+      options: [
+        { label: "main (Recommended)", description: "Default for github-flow and most modern repos." },
+        { label: "master", description: "Older repos that predate the main-branch rename." },
+        { label: "develop", description: "Use this if you chose Git Flow above." },
+        { label: "trunk", description: "Some teams still use this." }
+      ]
+    }
+  ]
+})
 ```
 
-## Step 2 — Parse the Human's reply, map to canonical values
+## Step 2 — Map answers to canonical values
 
-The Human will reply in free text. Extract:
+Parse `AskUserQuestion` response. Map labels:
 
-- **Name** — whatever they typed for question 1. If it's `anonymous` (case-insensitive), `none`, blank, or a similar refusal → skip `identity_set`.
-- **Branching** — match `1`/`2`/`3` or the words "github", "gitflow", "custom":
-
-| Reply | Canonical value |
+| Label | Canonical value |
 |---|---|
-| `1` or "github-flow" or "github flow" | `github-flow` |
-| `2` or "gitflow" or "git flow" | `gitflow` |
-| `3` or "custom" | `custom` |
-
-- **PR target** — accept the literal branch name they typed (`main`, `master`, `develop`, `trunk`, or anything else).
-
-If any of the three answers can't be parsed unambiguously, ask ONE focused follow-up question for that field only. Do not retry the whole onboarding.
+| "Anonymous" | skip `identity_set` |
+| `Use "<name>"` or Other (free text) | `<name>` → passed to `identity_set` |
+| "Trunk + feature branches (GitHub Flow) (Recommended)" | `github-flow` |
+| "Trunk + develop + releases (Git Flow)" | `gitflow` |
+| "Custom workflow" | `custom` |
+| "main (Recommended)" | `main` |
+| "master" / "develop" / "trunk" / Other | literal |
 
 ## Step 3 — Protected branches
 
@@ -93,15 +141,28 @@ Compute based on branching + PR target:
 | `gitflow` | `["main", <pr_target>]` deduplicated |
 | `custom` | (ask separately — see Step 3a) |
 
-### Step 3a — Custom branching (only if branching answer was `custom`)
+### Step 3a — Custom branching (only if Step 1 answer was "Custom workflow")
 
-Ask one follow-up message:
+Second `AskUserQuestion` call:
 
 ```
-Which branches should I treat as protected (no direct commits)? Reply comma-separated, e.g. `main,release` or `main,develop,staging`.
+AskUserQuestion({
+  questions: [{
+    question: "Which branches should I treat as protected (no direct commits)?",
+    header: "Protected",
+    multiSelect: true,
+    options: [
+      { label: `<pr_target>`, description: "Your PR target — almost always protected." },
+      { label: "main", description: "Most repos protect this regardless of workflow." },
+      { label: "release", description: "For release-branch workflows." },
+      { label: "master", description: "Legacy name for main." }
+    ]
+    // Other for custom branch names the user types freely.
+  }]
+})
 ```
 
-Parse the CSV (split on `,`, trim each), produce a JSON array.
+Parse the selected labels + any Other entries into a JSON array.
 
 ## Step 4 — Persist + verify
 
