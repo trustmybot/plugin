@@ -6,7 +6,7 @@ Three-layer test framework for the TMB plugin. Each layer catches a different cl
 |---|---|---|---|---|
 | **1 — Unit** | Handler logic with synthetic args; no LLM, no protocol | `mcp/trajectory-server/src/test/*.test.ts` | `bun run test` (CI) | Handler bugs, constraint violations, return-shape drift |
 | **2 — Integration** | Real server subprocess over JSON-RPC stdio; per-agent workflows + role matrix + schema contract | `tests/mcp-integration/*.test.mjs` | `bun run test` (CI) | Schema drift, missing `agent` param, protocol plumbing, role-enforcement gaps, cross-tool workflow bugs |
-| **3 — Dogfood** | Human-driven interactive Claude Code session | [`docs/architecture/SCENARIOS.md`](../architecture/SCENARIOS.md) | Manual (follow [`local-setup.md`](./local-setup.md)) | UX regressions, agent prompt drift, routing decisions, anything that depends on real LLM judgment |
+| **3 — Dogfood** | Human-driven interactive Claude Code session | [`docs/testing/scenarios.md`](../testing/scenarios.md) | Manual (follow [`local-setup.md`](./local-setup.md)) | UX regressions, agent prompt drift, routing decisions, anything that depends on real LLM judgment |
 
 **Golden rule:** *Layer N green does not imply Layer N+1 green.* Layer 1 passed with 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. Layer 2 would have caught that at the wire level in milliseconds. Always run all three.
 
@@ -97,7 +97,7 @@ bash tests/run-all.sh
 **Run:**
 
 1. Follow [`local-setup.md`](./local-setup.md) for environment setup.
-2. Walk [`docs/architecture/SCENARIOS.md`](../architecture/SCENARIOS.md) — 30+ scenarios mapped to [`docs/architecture/FLOWS.md`](../architecture/FLOWS.md).
+2. Walk [`docs/testing/scenarios.md`](../testing/scenarios.md) — 30+ scenarios mapped to [`docs/architecture/FLOWS.md`](../architecture/FLOWS.md).
 3. Record observations in each scenario's pass/fail checkbox.
 4. File GitHub issues for any scenario that doesn't match its "expected behavior" column.
 
@@ -149,7 +149,7 @@ bun run test
 
 This runs: 235 Layer 1 unit + 21 Layer 2 integration + 16 hook script tests + 4 agent-budget lint checks. Expected runtime ≤ 10s on a modern laptop.
 
-For Layer 3, follow [`local-setup.md`](./local-setup.md) and walk [`docs/architecture/SCENARIOS.md`](../architecture/SCENARIOS.md). There's no automated runner — the point is human observation.
+For Layer 3, follow [`local-setup.md`](./local-setup.md) and walk [`docs/testing/scenarios.md`](../testing/scenarios.md). There's no automated runner — the point is human observation.
 
 ---
 
@@ -166,6 +166,6 @@ For Layer 3, follow [`local-setup.md`](./local-setup.md) and walk [`docs/archite
 
 - [`tests/README.md`](../../tests/README.md) — test harness layout on disk
 - [`local-setup.md`](./local-setup.md) — how to run Layer 3
-- [`docs/architecture/SCENARIOS.md`](../architecture/SCENARIOS.md) — Layer 3 scenario library
+- [`docs/testing/scenarios.md`](../testing/scenarios.md) — Layer 3 scenario library
 - [`docs/architecture/FLOWS.md`](../architecture/FLOWS.md) — the workflows scenarios map to
 - [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — pre-PR checklist

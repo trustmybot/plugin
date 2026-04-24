@@ -145,7 +145,7 @@ The DB persists across sessions but is scoped to the project directory you launc
 
 ## End-to-end dogfood checklist
 
-The full set of manual scenarios — verbatim trigger prompts, prerequisites, expected behavior, verification queries — lives in [**`docs/architecture/SCENARIOS.md`**](architecture/SCENARIOS.md). 30+ scenarios across all 9 workflows from `FLOWS.md`, including all four corner cases of the roundtable flow.
+The full set of manual scenarios — verbatim trigger prompts, prerequisites, expected behavior, verification queries — lives in [**`docs/testing/scenarios.md`**](scenarios.md). 30+ scenarios across all 9 workflows from `FLOWS.md`, including all four corner cases of the roundtable flow.
 
 Quick smoke checklist (covers the 80% — see SCENARIOS.md for the full grid):
 

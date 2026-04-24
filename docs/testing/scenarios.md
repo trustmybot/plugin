@@ -1,6 +1,6 @@
 # Dogfood Test Scenarios
 
-For each workflow in [`FLOWS.md`](FLOWS.md), the verbatim user prompt that triggers it + the observable expected behavior + how to verify it landed correctly.
+For each workflow in [`FLOWS.md`](../architecture/FLOWS.md), the verbatim user prompt that triggers it + the observable expected behavior + how to verify it landed correctly.
 
 These are the **manual test cases** for the plugin. Run during a fresh `claude --plugin-dir <PLUGIN_PATH>` session against a disposable scratch project (see [`docs/testing/local-setup.md`](../testing/local-setup.md) for setup).
 
@@ -8,13 +8,52 @@ These are the **manual test cases** for the plugin. Run during a fresh `claude -
 
 For each scenario:
 
-1. Set up the **prerequisites** (e.g., delete the DB, create some agents via flow #4 first).
+1. Set up the **prerequisites**.
 2. Type the **trigger prompt** verbatim into Claude Code.
-3. Watch the agent output against **expected behavior**.
-4. Run the **verification** command(s) to confirm what landed in the DB / filesystem.
-5. Tick ✓ or note the deviation in the trailing checkbox.
+3. Watch the **expected agent chain** resolve in order.
+4. Cross-check the **expected MCP tool calls** against `/mcp` or the session log.
+5. Confirm **expected hooks** fired (or didn't).
+6. Run the **verification SQL/shell** to confirm DB + filesystem state.
+7. Tick ✓ on the checkbox, or file an issue quoting the scenario ID and what deviated.
 
 Reset between scenarios with `rm -rf .claude/tmb/` in the scratch project.
+
+## Scenario format — comprehensive template
+
+Every scenario below should have all eight sections. Flow 1 is rewritten to this template as the reference example; flows 2–9 are being brought up to it (tracked in [issue #51](https://github.com/trustmybot/plugin/issues/51)).
+
+Template:
+
+```
+### X.Y — short title
+
+Prerequisites: <exact setup state>
+
+Trigger prompt: <verbatim user input>
+
+Expected agent chain (in spawn order):
+  | # | Agent | Model | Via | Purpose |
+
+Expected MCP tool calls (in order):
+  | # | Caller | Tool | Key args | Purpose |
+
+Expected hooks fired:
+  - PreToolUse matcher → which script → expected verdict (allow / deny / defer)
+
+Expected user-visible output (key markers):
+  - Verbatim or fuzzy-match strings the Human should see
+
+Expected DB state after:
+  | Table | Rows / values |
+
+Verification (bash/sqlite):
+  <command>
+
+Common failure modes:
+  - What might go wrong and what it means
+
+Pass: [ ]
+```
 
 ## Index by trigger style
 
@@ -32,15 +71,15 @@ Reset between scenarios with `rm -rf .claude/tmb/` in the scratch project.
 
 | Flow | FLOWS.md § | Scenarios |
 |---|---|---|
-| 1 — First-Run Onboarding | [§1](FLOWS.md#1-first-run-onboarding) | 1.1, 1.2, 1.3, 1.4 |
-| 2 — Simple Task | [§2](FLOWS.md#2-simple-task) | 2.1, 2.2, 2.3 |
-| 3 — Difficult Task | [§3](FLOWS.md#3-difficult-task) | 3.1, 3.2, 3.3 |
-| 4 — Agent-creator | [§4](FLOWS.md#4-agent-creator-on-demand-domain-agent) | 4.1, 4.2, 4.3, 4.4 |
-| 5 — Skill Creation | [§5](FLOWS.md#5-skill-creation) | 5.1 |
-| 6 — PR Review | [§6](FLOWS.md#6-pr-review) | 6.1 |
-| 7 — Architecture Regen | [§7](FLOWS.md#7-architecture-regen) | 7.1, 7.2, 7.3, 7.4 |
-| 8 — SWE Retry / Escalation | [§8](FLOWS.md#8-swe-retry--escalation) | 8.1, 8.2 |
-| 9 — Roundtable | [§9](FLOWS.md#9-roundtable-multi-agent-deliberation) | 9.1, 9.2, 9.3, 9.4 |
+| 1 — First-Run Onboarding | [§1](../architecture/FLOWS.md#1-first-run-onboarding) | 1.1, 1.2, 1.3, 1.4 |
+| 2 — Simple Task | [§2](../architecture/FLOWS.md#2-simple-task) | 2.1, 2.2, 2.3 |
+| 3 — Difficult Task | [§3](../architecture/FLOWS.md#3-difficult-task) | 3.1, 3.2, 3.3 |
+| 4 — Agent-creator | [§4](../architecture/FLOWS.md#4-agent-creator-on-demand-domain-agent) | 4.1, 4.2, 4.3, 4.4 |
+| 5 — Skill Creation | [§5](../architecture/FLOWS.md#5-skill-creation) | 5.1 |
+| 6 — PR Review | [§6](../architecture/FLOWS.md#6-pr-review) | 6.1 |
+| 7 — Architecture Regen | [§7](../architecture/FLOWS.md#7-architecture-regen) | 7.1, 7.2, 7.3, 7.4 |
+| 8 — SWE Retry / Escalation | [§8](../architecture/FLOWS.md#8-swe-retry--escalation) | 8.1, 8.2 |
+| 9 — Roundtable | [§9](../architecture/FLOWS.md#9-roundtable-multi-agent-deliberation) | 9.1, 9.2, 9.3, 9.4 |
 
 ---
 
@@ -48,75 +87,205 @@ Reset between scenarios with `rm -rf .claude/tmb/` in the scratch project.
 
 ### 1.1 — Fresh DB, any first prompt triggers onboarding
 
-**Prerequisites:** `rm -rf .claude/tmb/` (no DB yet).
+**Prerequisites:** `rm -rf .claude/tmb/` in the scratch project (no DB yet). Fresh `claude --plugin-dir "$PLUGIN_PATH"` session launched.
 
 **Trigger prompt:**
-> `hello`
+> `@tmb:bro hello`
 
-**Expected behavior:**
-1. Bro greets, introduces itself.
-2. Asks "What should I call you?"
-3. Asks "What would you like to call me? (default: bro)"
-4. Asks branching model (1/2/3).
-5. Based on choice, asks PR target (with default).
-6. Asks protected branches if `custom`.
-7. Closing: "Done. Identity and branching model saved. Tell me what you want to work on."
+**Expected agent chain (in spawn order):**
+
+| # | Agent | Model | Via | Purpose |
+|---|---|---|---|---|
+| 1 | `tmb:bro` | opus | user @-mention | Session-start check; enters Onboarding Mode because identity + branching are both null |
+
+No other agents spawn during onboarding. `first-run-onboarding` is a skill bro loads inline, not a subagent.
+
+**Expected MCP tool calls (in order):**
+
+| # | Caller | Tool | Key args | Purpose |
+|---|---|---|---|---|
+| 1 | bro | `identity_get` | `agent='bro'` | Session-start identity check |
+| 2 | bro | `config_get` | `agent='bro', key='branching_model'` | Session-start config check — returns null → enter Onboarding Mode |
+| 3 | bro | `AskUserQuestion` | 3-question batch (name, branching, PR target) | Collect answers via radio UI |
+| 4 | bro | `identity_set` | `agent='bro', human_name=<answer>` | Persist name (skip if Anonymous) |
+| 5 | bro | `config_set` | `agent='bro', key='branching_model', value=<canonical>` | Persist branching model |
+| 6 | bro | `config_set` | `agent='bro', key='pr_target', value=<answer>` | Persist PR target |
+| 7 | bro | `config_set` | `agent='bro', key='protected_branches', value=[<list>]` | Persist protected-branches list |
+
+**Expected hooks fired:** none during onboarding. Hooks only fire for Bash / Agent / WorktreeCreate events, and the onboarding path stays inside AskUserQuestion + MCP writes.
+
+**Expected user-visible output (key markers):**
+
+- Opens with the catchphrase: *"Hey, I'm bro. Trust me bro, it works — that's the plugin's whole pitch."*
+- A single radio form with three questions (name, branching, PR target).
+  - Branching options labeled: *"Trunk + feature branches (GitHub Flow)"*, *"Trunk + develop + releases (Git Flow)"*, *"Custom workflow"*.
+- Closes with: *"Done. Identity and branching model saved. Tell me what you want to work on — trust me bro, it works."*
+
+**Expected DB state after (choosing name=Zax, branching=GitHub Flow, PR target=main):**
+
+| Table | Rows / values |
+|---|---|
+| `identity` | `id=1, human_name='Zax', created_at=<ISO>, updated_at=<ISO>` |
+| `plugin_config` | Three rows: `branching_model='"github-flow"'`, `pr_target='"main"'`, `protected_branches='["main"]'` (stored as JSON text) |
 
 **Verification:**
+
 ```bash
 sqlite3 .claude/tmb/trajectory.db <<'SQL'
-SELECT * FROM identity;
-SELECT key, value_json FROM plugin_config;
+  SELECT * FROM identity;
+  SELECT key, value_json FROM plugin_config WHERE key IN ('branching_model','pr_target','protected_branches') ORDER BY key;
 SQL
 ```
-Expect rows in `identity` and 3 keys in `plugin_config` (branching_model, pr_target, protected_branches).
+
+**Common failure modes:**
+
+- **Zero rows** → the MCP server isn't connected. Verify `/mcp` inside the session lists `plugin:tmb:trajectory-server: ✔ connected`. If missing, check `.mcp.json` and rebuild with `bun run build`.
+- **Bro asks digit-input questions instead of a radio form** → `AskUserQuestion` wasn't in bro's `tools:` allowlist; pull latest.
+- **`caller_role: 'unknown'` errors in the session log** → prompt is missing the `agent='bro'` param on MCP calls. Bug in the agent prompt or a tool that doesn't declare `agent` in its inputSchema.
 
 **Pass:** [ ]
+
+---
 
 ### 1.2 — Code-touching ask DURING onboarding is held
 
-**Prerequisites:** Reset DB. Start onboarding (type `hello`); answer through Step 1 (identity) but stop before Step 2.
+**Prerequisites:** Reset DB. Type the welcome trigger, let bro open the AskUserQuestion form. Before submitting answers, open a second chat turn.
 
-**Trigger prompt** (mid-onboarding):
+**Trigger prompt** (mid-onboarding, without finishing the form):
 > `add a hello-world endpoint to the api`
 
-**Expected behavior:**
-1. Bro acknowledges the code-touching ask but **does not route to architect**.
-2. Says something like "I'll get to that as soon as we finish setup. What's your branching model?"
-3. Continues onboarding.
-4. After onboarding closes, surfaces the held request: "Now — about that hello-world endpoint…"
+**Expected agent chain:**
 
-**Verification:** No `tasks` row created during onboarding; no architect spawn in the session log.
+| # | Agent | Model | Via | Purpose |
+|---|---|---|---|---|
+| 1 | `tmb:bro` | opus | active session | Recognizes code-touching ask; defers routing |
+
+**Expected MCP tool calls:** none for the held request. Bro's `first-run-onboarding` skill runs the hold-and-resume branch — no `issue_create`, no `task_create_batch`, no architect spawn.
+
+**Expected hooks fired:** none.
+
+**Expected user-visible output:**
+
+- Acknowledgement like *"I'll get to that as soon as we finish setup — let's wrap the onboarding form first."*
+- AskUserQuestion form re-surfaced.
+- After onboarding completes: *"Now — about that hello-world endpoint…"* and bro proceeds to the normal code-change flow (flow 2 or 3).
+
+**Expected DB state (during the hold):**
+
+| Table | Rows / values |
+|---|---|
+| `issues` | 0 rows created |
+| `tasks` | 0 rows created |
+| `discussions` | 0 rows created |
+
+**Verification:**
+
+```bash
+sqlite3 .claude/tmb/trajectory.db "SELECT COUNT(*) FROM issues; SELECT COUNT(*) FROM tasks; SELECT COUNT(*) FROM discussions;"
+# Expect 0 / 0 / 0 until onboarding completes.
+```
+
+**Common failure modes:**
+
+- **Architect spawns during onboarding** → bro's prompt isn't enforcing hold-and-resume. File against the `first-run-onboarding` skill.
+- **Bro forgets the held request** → after onboarding completes, bro should surface it. If not, prompt drift in bro's A.4 Mode Rules.
 
 **Pass:** [ ]
 
+---
+
 ### 1.3 — Read-only ask DURING onboarding is answered, then resumes
 
-**Prerequisites:** Reset DB. Start onboarding; pause before Step 2.
+**Prerequisites:** Reset DB. Trigger onboarding; pause with the AskUserQuestion form open.
 
 **Trigger prompt** (mid-onboarding):
 > `what files are in this repo?`
 
-**Expected behavior:**
-1. Bro answers the read-only question (lists files).
-2. Immediately resumes onboarding from where it paused.
+**Expected agent chain:**
+
+| # | Agent | Model | Via | Purpose |
+|---|---|---|---|---|
+| 1 | `tmb:bro` | opus | active session | Handles read-only ask inline (no agent spawn) |
+
+**Expected MCP tool calls:** none (read-only op; bro uses `Bash`/`Glob` directly).
+
+**Expected hooks fired:**
+- `PreToolUse:Bash` → `git-guards.sh` → **allow** (read-only `ls` / `git status` / `find` are unconstrained).
+
+**Expected user-visible output:**
+
+- A file listing from `ls` or `git ls-files`.
+- Immediately after: the AskUserQuestion form re-surfaced or a reminder to complete onboarding.
+
+**Expected DB state:** unchanged — no MCP writes during a read-only branch.
+
+**Verification:**
+
+```bash
+sqlite3 .claude/tmb/trajectory.db "SELECT COUNT(*) FROM issues; SELECT COUNT(*) FROM plugin_config WHERE key='branching_model';"
+# Expect 0 / 0 until the user finishes the onboarding form.
+```
+
+**Common failure modes:**
+
+- **Bro runs `find /` or scans outside cwd** → bash bug in project-prescan; shouldn't be invoked during onboarding anyway.
+- **Onboarding abandoned** → bro answered the read-only ask but didn't resume onboarding. Prompt-drift in `first-run-onboarding`'s hold-and-resume section.
 
 **Pass:** [ ]
+
+---
 
 ### 1.4 — Re-onboarding (explicit phrase, post-onboarding)
 
 **Prerequisites:** Onboarding complete (1.1 passed). DB has identity + config rows.
 
 **Trigger prompt:**
-> `change branching model to gitflow`
+> `@tmb:bro switch to gitflow`
 
-**Expected behavior:**
-1. Bro recognizes the re-onboard phrase.
-2. Invokes `tmb-reonboard` skill (no agent spawn).
-3. Re-runs the 3-step onboarding with **current values as press-enter defaults**.
-4. Persists changes via `config_set`.
+**Expected agent chain:**
 
-**Verification:** `plugin_config.branching_model` updated; `identity` unchanged unless rename was also requested.
+| # | Agent | Model | Via | Purpose |
+|---|---|---|---|---|
+| 1 | `tmb:bro` | opus | user @-mention | Recognizes re-onboard phrase; invokes `tmb-reonboard` skill inline (no subagent spawn) |
+
+**Expected MCP tool calls (in order):**
+
+| # | Caller | Tool | Key args | Purpose |
+|---|---|---|---|---|
+| 1 | bro | `identity_get` | `agent='bro'` | Read current name |
+| 2 | bro | `config_list` | `agent='bro'` | Read current branching/pr_target/protected |
+| 3 | bro | `AskUserQuestion` | 3-question batch with current values as `Keep "<current>"` first option | Offer one-click preserve + alternatives |
+| 4 | bro | `config_set` | `agent='bro', key='branching_model', value='gitflow'` | Only if changed |
+| 5 | bro | `config_set` | `agent='bro', key='pr_target', value=<answer>` | Only if changed |
+| 6 | bro | `config_set` | `agent='bro', key='protected_branches', value=[<list>]` | Recomputed from new branching + pr_target |
+
+**Expected hooks fired:** none.
+
+**Expected user-visible output:**
+
+- Form with first option `Keep "<current>"` for every question.
+- Closing line summarizing the 4 settings (including `human_name`).
+
+**Expected DB state after:**
+
+| Table | Rows / values |
+|---|---|
+| `identity` | unchanged (only re-written if name changed) |
+| `plugin_config` | `branching_model='"gitflow"'`, `protected_branches` includes both `main` and `<new pr_target>` deduplicated |
+
+**Verification:**
+
+```bash
+sqlite3 .claude/tmb/trajectory.db <<'SQL'
+  SELECT key, value_json FROM plugin_config WHERE key IN ('branching_model','pr_target','protected_branches');
+  SELECT * FROM identity;
+SQL
+```
+
+**Common failure modes:**
+
+- **Bro re-asks every question with no `Keep` default** → `tmb-reonboard` isn't reading current state. Check skill's Step 1.
+- **protected_branches regresses to just `[pr_target]`** → the dedup-with-main logic for gitflow didn't run. Skill Step 3 bug.
 
 **Pass:** [ ]
 
@@ -500,6 +669,6 @@ When a scenario's expected behavior doesn't match actual output:
 
 ## Related
 
-- [`FLOWS.md`](FLOWS.md) — the flowcharts each scenario verifies
+- [`FLOWS.md`](../architecture/FLOWS.md) — the flowcharts each scenario verifies
 - [`docs/testing/local-setup.md`](../testing/local-setup.md) — how to launch a scratch session
 - [`tests/run-all.sh`](../../tests/run-all.sh) — automated suites that run before any dogfood test
