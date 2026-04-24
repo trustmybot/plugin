@@ -48,21 +48,33 @@ No install, no cache, no marketplace.
 
 ### Mode B — marketplace install (matches end-user flow)
 
+**Step 1 — from the plugin repo root**, capture its absolute path before moving elsewhere:
+
+```bash
+# Run from your plugin clone (cd into it first if you're not there):
+export PLUGIN_PATH="$(pwd)"
+echo "$PLUGIN_PATH"                      # sanity-check: points at your plugin clone
+```
+
+**Step 2 — set up a disposable scratch project and launch CC:**
+
 ```bash
 mkdir -p /tmp/tmb-smoke && cd /tmp/tmb-smoke
 git init && git commit --allow-empty -m "init"
 
-claude                                   # launch CC
+claude                                   # launch CC (no --plugin-dir; marketplace-based)
 ```
 
-Inside the session:
+**Step 3 — inside the CC session, install via the local marketplace:**
 
 ```
-/plugin marketplace add $PLUGIN_PATH
+/plugin marketplace add <absolute-path-to-plugin-clone>
 /plugin install tmb@trustmybot
 ```
 
-This is what downstream users do with `trustmybot/plugin` as the marketplace path. Useful for verifying the install UX, not for rapid iteration.
+Substitute `<absolute-path-to-plugin-clone>` with the value `$PLUGIN_PATH` printed above (CC's slash-commands don't expand shell variables).
+
+This is what downstream users do — only the path differs, since downstream they'd use `trustmybot/plugin` (GitHub reference) instead of a local clone. Useful for verifying the install UX, not for rapid iteration.
 
 ---
 
