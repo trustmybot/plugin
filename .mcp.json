@@ -1,8 +1,8 @@
 {
-  "servers": {
+  "mcpServers": {
     "trajectory-server": {
       "command": "node",
-      "args": ["mcp/trajectory-server/dist/index.js"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"]
     }
   }
 }
