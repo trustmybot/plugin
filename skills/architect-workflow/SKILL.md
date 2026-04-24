@@ -148,7 +148,7 @@ discussion_append(
 )
 ```
 
-### Scope-ambiguity gate — structurally enforced by MCP
+### Scope-ambiguity gate — HARD RULE, structurally enforced by MCP
 
 **`task_create_batch` now refuses to run if the issue has zero `kind='question'` rows in discussions.** This is an MCP-level check — the handler rejects the call before any tasks are inserted. Auto-mode cannot bypass it.
 
