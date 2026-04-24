@@ -120,11 +120,15 @@ Then `/reload-plugins`.
 # Inside Claude Code (if installed via marketplace):
 /plugin marketplace remove trustmybot
 
-# Outside CC — always reset the project-local DB:
+# Outside CC — reset the project-local DB. Run from inside the SCRATCH
+# project (e.g. /tmp/tmb-scratch), NOT from the plugin repo:
+cd /tmp/tmb-scratch          # your scratch project — NOT your plugin clone
 rm -rf .claude/tmb/
 ```
 
 The DB persists across sessions but is scoped to the project directory you launch CC from. Switch projects → different DB. Delete `.claude/tmb/` whenever you want a truly fresh run. Stale onboarding state is the #1 source of "why isn't first-run triggering" confusion.
+
+**If you accidentally run `rm -rf .claude/tmb/` in the plugin repo itself**: harmless. `.claude/` is gitignored; the only thing that could be there is a stray DB from a headless smoke test, and it's not shared with any real project.
 
 ---
 
