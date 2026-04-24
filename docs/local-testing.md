@@ -48,14 +48,18 @@ No install, no cache, no marketplace.
 
 ### Mode B — marketplace install (matches end-user flow)
 
+Step 1: capture the plugin path FIRST, from the plugin repo root.
+
 ```bash
-# Step 1: capture the plugin path FIRST, from the plugin repo root.
-#         (the marketplace command inside CC needs an absolute path)
+# (the marketplace command inside CC needs an absolute path)
 cd /path/to/your/trustmybot-plugin-clone       # ← your clone
 export PLUGIN_PATH="$(pwd)"
 echo "$PLUGIN_PATH"                            # sanity-check
+```
 
-# Step 2: create a scratch project and launch bare CC (no --plugin-dir).
+Step 2: create a scratch project and launch bare CC (no --plugin-dir).
+
+```bash
 mkdir -p /tmp/tmb-smoke && cd /tmp/tmb-smoke
 git init && git commit --allow-empty -m "init"
 
