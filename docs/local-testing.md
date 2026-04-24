@@ -9,12 +9,11 @@ How to stand up a scratch project and exercise the TMB plugin end-to-end. This i
 - **bun** — used to build the MCP server. `curl -fsSL https://bun.sh/install | bash`.
 - **sqlite3** — for inspecting the trajectory DB. Usually preinstalled; `brew install sqlite3` if not.
 
-Verify the MCP server builds cleanly before doing anything else:
+Verify the MCP server builds cleanly before doing anything else. **Run from the plugin repo root** (i.e. `cd` into your clone first):
 
 ```bash
-cd plugin/mcp/trajectory-server
-bun install
-bun run build
+bun install         # installs every workspace (mcp/trajectory-server + monitors)
+bun run build       # builds every workspace that has a build script
 ```
 
 If that fails, fix it first — the plugin won't load a broken MCP server.
@@ -102,10 +101,10 @@ Picks up edits to:
 - Hook scripts (`plugin/scripts/hooks/*.sh`)
 - Template content (`plugin/templates/**/*`)
 
-Does **not** pick up TypeScript edits in the MCP server. Rebuild first:
+Does **not** pick up TypeScript edits in the MCP server. Rebuild first, from the plugin repo root:
 
 ```bash
-cd plugin/mcp/trajectory-server && bun run build
+bun run build
 ```
 
 Then `/reload-plugins`.
@@ -151,7 +150,7 @@ Any failure here is a bug a downstream user will hit identically — file an iss
 
 ## Common pitfalls
 
-- **"MCP server not connected"** — almost always a build failure. Run `cd plugin/mcp/trajectory-server && bun run build` and check for errors.
+- **"MCP server not connected"** — almost always a build failure. From the plugin repo root: `bun run build` and check for errors.
 - **"Onboarding didn't fire"** — stale DB. Delete `.claude/tmb/` in your project root and relaunch.
 - **"Agent changes didn't take effect"** — forgot `/reload-plugins`, or CC cached a previous install (Mode B). Try Mode A for cleaner iteration.
 - **"Hook didn't block"** — hook path mismatch. Check `plugin/hooks/hooks.json` points at the script you edited and that the script is executable (`chmod +x`).

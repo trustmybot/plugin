@@ -26,17 +26,11 @@ jobs:
       - name: install sqlite3
         run: sudo apt-get install -y sqlite3
 
-      - name: install MCP server deps
-        working-directory: mcp/trajectory-server
+      - name: install workspace deps
         run: bun install --frozen-lockfile
 
-      - name: build MCP server
-        working-directory: mcp/trajectory-server
+      - name: build all workspaces
         run: bun run build
 
-      - name: run MCP tests
-        working-directory: mcp/trajectory-server
-        run: node --test dist/test/*.test.js
-
-      - name: run hook tests
-        run: bash tests/hooks/run.sh
+      - name: run full test suite
+        run: bash tests/run-all.sh
