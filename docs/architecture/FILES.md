@@ -32,7 +32,8 @@ plugin/
 │   └── architecture/                 # contributor-facing reference
 │       ├── ERD.md                    # SQLite schema: Mermaid ER diagram + FK + soft-ref tables
 │       ├── FILES.md                  # this file — every tracked file with its purpose
-│       └── FLOWS.md                  # 9 workflow flowcharts (onboarding → roundtable)
+│       ├── FLOWS.md                  # 9 workflow flowcharts (onboarding → roundtable)
+│       └── SCENARIOS.md              # dogfood test plan — trigger prompts mapped to each flow
 │
 ├── hooks/
 │   └── hooks.json                    # CC hooks manifest (PreToolUse, WorktreeCreate, etc.)

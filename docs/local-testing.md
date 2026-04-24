@@ -128,22 +128,24 @@ The DB persists across sessions but is scoped to the project directory you launc
 
 ## End-to-end dogfood checklist
 
-Manual scenarios to walk before shipping a change. Tick each after running.
+The full set of manual scenarios — verbatim trigger prompts, prerequisites, expected behavior, verification queries — lives in [**`docs/architecture/SCENARIOS.md`**](architecture/SCENARIOS.md). 30+ scenarios across all 9 workflows from `FLOWS.md`, including all four corner cases of the roundtable flow.
 
-| # | Scenario | Expected |
+Quick smoke checklist (covers the 80% — see SCENARIOS.md for the full grid):
+
+| # | Trigger | Expected |
 |---|---|---|
-| 1 | Fresh install in empty project | Gatekeeper introduces itself; onboarding triggers |
+| 1 | Fresh install + any first prompt | Gatekeeper greets and runs onboarding |
 | 2 | Read-only question (`list files in src/`) | Gatekeeper answers inline; no agent spawn |
-| 3 | Simple code change | Gatekeeper triages `simple` → architect double-checks → task row created via `task_create_batch(spec_body=...)` → SWE in worktree reads via `task_get` |
-| 4 | Architecture-affecting change | Gatekeeper triages `difficult` → architect updates `architecture/manual/` ADR → task row (standard template) |
-| 5 | `/tmb reonboard` phrase | Skill re-prompts branching + identity |
-| 6 | Identity rename (`call yourself alex`) | `identity_set` persists; subsequent responses use new name |
-| 7 | Architecture regen (`refresh architecture docs`) | 4 files regenerated at `docs/trustmybot/architecture/auto/` with generated-header |
+| 3 | `fix the typo in README` | Simple-task chain: triage:simple → architect → swe → pr-reviewer |
+| 4 | `add OAuth login` (or any architecture-touching ask) | Difficult chain: triage:difficult + ADR file + standard template |
+| 5 | `change branching model to gitflow` | `tmb-reonboard` skill re-runs onboarding with current values as defaults |
+| 6 | `call yourself alex` | `identity_set` persists; gatekeeper signs off as alex |
+| 7 | `refresh architecture docs` | 4 files regenerated under `docs/trustmybot/architecture/auto/` |
 | 8 | Commit on protected branch | `git-guards.sh` blocks |
-| 9 | Push to `feature/*` branch | Always allowed (issue #13) |
-| 10 | Push to dev/main with unsigned completed tasks | `require-review-sign.sh` blocks until pr-reviewer records `validation_record(verdict='pass')` |
+| 9 | Push to `feature/*` branch | Always allowed |
+| 10 | Push to dev/main with unsigned completed tasks | `require-review-sign.sh` blocks until pr-reviewer signed |
 
-Any failure here is a bug a downstream user will hit identically — file an issue.
+Any failure here is a bug a downstream user will hit identically — file an issue tagged `dogfood` and reference the scenario ID from SCENARIOS.md.
 
 ---
 

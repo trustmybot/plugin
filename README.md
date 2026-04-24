@@ -115,6 +115,7 @@ Full testing guide — including manual dogfood walkthrough and how to write new
 - [`docs/architecture/FILES.md`](docs/architecture/FILES.md) — file-by-file map of the whole plugin
 - [`docs/architecture/ERD.md`](docs/architecture/ERD.md) — SQLite schema with FK + soft-ref tables
 - [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) — 9 workflow flowcharts (onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry, roundtable)
+- [`docs/architecture/SCENARIOS.md`](docs/architecture/SCENARIOS.md) — dogfood test plan: verbatim user-prompt triggers + expected behavior for every flow
 
 ---
 
