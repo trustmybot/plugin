@@ -16,6 +16,7 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | 6 | [PR review](#6-pr-review) | After SWE marks task `completed` | pr-reviewer | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional) | `require-review-sign` |
 | 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | gatekeeper | `refresh-architecture` | `regen_state`, `file_registry` | — |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | `validation_record(verdict='fail')` | architect ↔ swe ↔ pr-reviewer | `feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `require-review-sign` |
+| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Cross-domain decision **AND** ≥2 planning agents available | architect (convener) + 2-4 user-created planners | `roundtable`, `roundtable-cleanup` | `ledger` (current); `roundtables` + `roundtable_votes` (schema reserved) | — |
 
 ---
 
@@ -362,6 +363,57 @@ flowchart TD
 - Each attempt is a separate `validation_attempts` row — full audit trail of what failed each time.
 - Escalation never auto-merges. Human is the only one who decides "give up" or "respec".
 - `feedback-loop` skill (loaded by architect + pr-reviewer) defines what counts as "fixable" vs "needs escalation".
+
+---
+
+## 9. Roundtable (multi-agent deliberation)
+
+**Prerequisite — REQUIRED, no exceptions:** At least **2 planning-capable agents** must exist in `.claude/agents/` for the skill to run. The plugin ships exactly **one planner** — `architect`. SWE is an executor and is always excluded; pr-reviewer reviews code, not strategy. So out-of-the-box, roundtable can't run. It becomes available only after the user has created additional planning agents via flow [#4 (agent-creator)](#4-agent-creator-on-demand-domain-agent) — typically `ceo`, `cto`, `pm`, `designer`, or domain reviewers.
+
+If the skill finds < 2 suitable participants, it escalates back to the caller — roundtable requires at least 2 voices.
+
+**Trigger conditions** (any of these — see `skills/roundtable/SKILL.md` for the authoritative list):
+
+- **Divergent opinions need structured airing** — different agents have given conflicting recommendations on the same issue (visible via `discussion_list`).
+- **Multi-dimension trade-offs** — a decision spans product / technical / business axes; no single agent owns all dimensions.
+- **Cross-discipline calls** — domain-specific question (e.g., legal/compliance/UX) where the architect alone can't credibly decide.
+- **Human explicitly requests deliberation** — phrases like "convene a roundtable", "discuss with X and Y", "let's get more opinions".
+
+**Do NOT use roundtable for:**
+
+- Quick factual questions (architect just answers).
+- Single-discipline decisions (spawn that one agent directly via `Task`).
+- A caller who wants one voice (roundtable is deliberation, not delegation).
+
+**Involved:**
+
+- Convener: `architect` (skill is in architect's frontmatter)
+- Participants: 2-4 user-created planning agents from `.claude/agents/`. SWE always excluded.
+- Skills: `roundtable` (mechanics), `roundtable-cleanup` (post-synthesis archive)
+- MCP tools: `ledger_log` (records the summary as `event_type='roundtable_summary'`); `discussion_list` to inspect prior conflicting positions
+- DB tables: `ledger` (where the summary lands today). The `roundtables` + `roundtable_votes` tables exist in the schema as reserved structure for a future structured-record upgrade; current skill writes to `ledger`.
+- Hooks: none
+
+```mermaid
+flowchart TD
+    A[Trigger:<br/>cross-domain decision OR<br/>conflicting positions OR<br/>Human request for deliberation] --> B{Glob .claude/agents/<br/>+ read frontmatter:<br/>≥2 suitable participants?<br/>SWE excluded}
+    B -->|no| C[Skill escalates to caller:<br/>'roundtable requires ≥2 voices'<br/>Architect proceeds solo OR<br/>proposes flow #4 to create planners]
+    B -->|yes| D[Architect: pick 2-4<br/>participants whose<br/>frontmatter description<br/>best matches the topic]
+    D --> E[Parallel spawn via Task<br/>multiple calls in one message]
+    E --> F[Each participant:<br/>state position + reasoning]
+    F --> G[Architect synthesizes:<br/>convergence, tensions,<br/>recommendation, open questions<br/>output as structured XML]
+    G --> H[ledger_log<br/>event_type='roundtable_summary'<br/>topic, participants, recommendation,<br/>tensions_count]
+    H --> I[Invoke roundtable-cleanup skill:<br/>archive raw positions, tidy workspace]
+    I --> J[Return synthesis<br/>to architect's flow]
+```
+
+**Notes:**
+
+- **Parallel spawn, sequential synthesis.** Participants are spawned in one message (multiple `Task` calls); each runs in its own context window so there's no cross-contamination. Architect waits for all responses, then synthesizes.
+- **No groupthink.** If all participants agree immediately, the skill instructs the convener to probe the weakest shared assumption before accepting consensus.
+- **Protect dissent.** A lone dissenter may be right — dissenting views get explicit airtime in the synthesis's `<tensions>` section.
+- **Ledger is the current record store.** `roundtables` + `roundtable_votes` tables in the schema are forward-looking; the skill writes summaries to `ledger` today. A future schema-uplift task can migrate to the structured tables when there's reason to query roundtable history independently.
+- **One voice ≠ roundtable.** If the user only has architect, the skill refuses. Telling architect to "discuss with itself" is a smell; surface it back to the user as "I'd need a `pm` (or similar) for this — want me to create one?" and route through flow #4.
 
 ---
 
