@@ -44,9 +44,7 @@ sequenceDiagram
 
     G->>H: "Hey, I'm bro. What should I call you?"
     H-->>G: name (or blank)
-    G->>H: "What would you like to call me? (default: bro)"
-    H-->>G: gatekeeper_name (or blank)
-    G->>DB: identity_set(human_name, gatekeeper_name)
+    G->>DB: identity_set(human_name)
 
     G->>H: "How does your team branch? (1) github-flow (2) gitflow (3) custom"
     H-->>G: choice

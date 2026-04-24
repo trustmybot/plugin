@@ -46,7 +46,8 @@ Extract the following values (use `null` if absent):
 - `current_pr_target` — from `config_list()` key `pr_target`
 - `current_protected_branches` — from `config_list()` key `protected_branches`
 - `current_human_name` — from `identity_get()` field `human_name`
-- `current_gatekeeper_name` — from `identity_get()` field `gatekeeper_name`
+
+(bro's name is fixed plugin branding; it is not shown or changed here.)
 
 ### Step 2 — Show current values
 
@@ -57,7 +58,6 @@ Present a summary to the Human:
 > - PR target: `<current_pr_target>`
 > - Protected branches: `<current_protected_branches>`
 > - Your name: `<current_human_name>`
-> - My name: `<current_gatekeeper_name>`
 >
 > Let's walk through each. Press enter to keep the current value."
 
@@ -67,20 +67,18 @@ Ask:
 
 > "What should I call you? (Press enter to keep `<current_human_name>`)"
 
-Then:
-
-> "And what would you like to call me? (Press enter to keep `<current_gatekeeper_name>`)"
-
-If both answers are blank (press-enter), skip the MCP call — nothing changed.
-Otherwise call:
+If blank (press-enter), skip the MCP call — nothing changed. Otherwise call:
 
 ```
-identity_set(human_name=<new or current>, gatekeeper_name=<new or current>)
+identity_set(human_name=<new answer>)
 ```
+
+`gatekeeper_name` is not offered as a re-onboard option — bro is the plugin's
+branding. Do not prompt to rename it.
 
 **Reset path:** If the Human says "reset everything" or "clear identity" at
-any point during this step, call `identity_reset()` then re-prompt these two
-questions with no defaults.
+any point during this step, call `identity_reset()` then re-prompt the name
+question with no default.
 
 ### Step 4 — Branching model (Step 2 of onboarding)
 
@@ -149,7 +147,6 @@ After all MCP writes succeed, say:
 > - PR target: `<final_pr_target>`
 > - Protected branches: `<final_protected_branches>`
 > - Your name: `<final_human_name>`
-> - My name: `<final_gatekeeper_name>`
 >
 > Tell me what you want to work on."
 

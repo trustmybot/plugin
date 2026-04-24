@@ -97,7 +97,7 @@ sqlite3 .claude/tmb/trajectory.db <<'SQL'
 SQL
 ```
 
-Expected rows: `branching_model`, `pr_target`, `protected_branches`, and an `identity` row with `gatekeeper_name` + `human_name`.
+Expected rows: `branching_model`, `pr_target`, `protected_branches`, and an `identity` row with `human_name` set (and `gatekeeper_name` still at its default `'bro'`).
 
 If nothing is written, the MCP server didn't connect — check `claude --plugin-dir` output for MCP errors.
 
