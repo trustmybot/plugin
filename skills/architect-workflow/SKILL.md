@@ -77,13 +77,91 @@ snapshot via `issue_snapshot_md` when the Human wants a doc to review.
 1. Call `issue_resume` or `issue_create` to load context.
 2. Explore the codebase — identify affected modules, read existing code paths
    (error handling, validation, patterns).
-3. Append analysis + questions via `discussion_append(kind='question')`
+3. Ask clarifying questions via **the Interactive Alignment pattern below**
    (max 3-4 questions per round).
-4. Wait for Human replies; load them via `discussion_list(issue_id=<id>)` or
-   from the conversation thread.
+4. Wait for Human replies. Each reply is recorded via `discussion_append`
+   (see pattern below) so the alignment is auditable.
 5. When aligned: **ALIGNED — PRODUCING TASK SPECS**
 
 **Never skip discussion.** Explore code BEFORE asking questions.
+
+### Interactive Alignment — AskUserQuestion + discussion_append
+
+For every clarifying round where the answer shape is enumerable (scope,
+tech choice, priority, ordering, approach-between-N-options), use
+`AskUserQuestion` to render a radio form AND persist both sides of the
+Q/A to `discussions` so the trajectory is replayable.
+
+**Pattern — one round:**
+
+```
+# 1. Fire the radio form.
+ask_result = AskUserQuestion({
+  questions: [{
+    question: <explicit question>,
+    header: <≤12 chars chip>,
+    multiSelect: false,  // true for "which features to enable" style
+    options: [
+      { label: "<Option A> (Recommended)", description: "<what this means>" },
+      { label: "<Option B>", description: "..." },
+      { label: "<Option C>", description: "..." }
+      // "Other" is auto-added for free-text
+    ]
+  }]
+})
+
+# 2. Persist BOTH sides — question first, then answer. Chronological order.
+discussion_append(
+  agent='architect',
+  issue_id=<id>,
+  kind='question',
+  author='architect',
+  body='<question text>\n\nOptions:\n- <A>\n- <B>\n- <C>'
+)
+discussion_append(
+  agent='architect',
+  issue_id=<id>,
+  kind='answer',
+  author='human',
+  body='<selected label OR Other free-text>'
+)
+```
+
+**When to fall back to text-only discussion_append (no radio):**
+
+- Open-ended questions where the answer shape isn't enumerable ("what
+  constraints do you have?").
+- Follow-up clarification on a free-text Other response.
+- When the options would be more than 4 — AskUserQuestion caps at 4 per
+  question, batched up to 4 questions per call.
+
+**Rule:** every alignment decision that affects the plan must land in
+`discussions` as a `question` + `answer` (or `decision`) pair. If the
+Human picks via radio but nothing gets persisted, the task spec loses
+its provenance and future sessions can't replay the reasoning.
+
+**When to batch multiple questions in one AskUserQuestion call:** when
+the answers are independent (scope, tech, priority can all be asked at
+once). When the answer to Q1 changes what Q2 should ask, call
+sequentially.
+
+### Closing the discussion
+
+Once aligned, capture the final decision:
+
+```
+discussion_append(
+  agent='architect',
+  issue_id=<id>,
+  kind='decision',
+  author='architect',
+  body='<architectural plan: what changes, why, trade-offs, risks>'
+)
+```
+
+Then proceed to `task_create_batch`. The `discussions` table now contains
+the full Q/A trail plus the final decision — `issue_report_md` and
+`issue_snapshot_md` will render it chronologically for any reviewer.
 
 ---
 

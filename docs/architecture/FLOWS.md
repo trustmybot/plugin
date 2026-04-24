@@ -151,10 +151,10 @@ sequenceDiagram
     A->>DB: discussion_append(kind='note', body='Triage: difficult …')
 
     loop until aligned with Human
-        A->>DB: discussion_append(kind='question', body=...)
-        A-->>H: surface question via bro
-        H-->>A: answer
-        A->>DB: discussion_append(kind='answer', body=...)
+        A->>H: AskUserQuestion(radio form, ≤4 options per Q, batched)
+        H-->>A: selected label OR Other free-text
+        A->>DB: discussion_append(kind='question', body=Q + options)
+        A->>DB: discussion_append(kind='answer', body=selected)
     end
 
     A->>DB: discussion_append(kind='decision', body=architectural plan)
@@ -168,6 +168,8 @@ sequenceDiagram
 **Notes:**
 - Architect's triage is binding; bro's classification is a proposal. If architect downgrades to `simple`, no ADR needed and standard template not required.
 - ADR file is the durable architectural record. Discussions table holds the conversation that produced it.
+- Alignment uses `AskUserQuestion` — a proper radio form — for any question with 2–4 enumerable answers (scope, tech choice, priority). Every Q/A round persists TO `discussions` as a `question` + `answer` pair so the trajectory is replayable via `issue_report_md` / `issue_snapshot_md`. See `skills/architect-workflow/SKILL.md#interactive-alignment` for the pattern.
+- Falls back to plain text `discussion_append(kind='question')` when the answer shape isn't enumerable (e.g., "what constraints do you have?").
 
 ---
 
