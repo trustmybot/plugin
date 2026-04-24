@@ -47,15 +47,22 @@ Do not skip the call because:
 
 Never call `identity_set` or `config_set` until the Human has explicitly answered via the radio form (or an Other free-text reply).
 
-## Context-leak rule — never surface inferred identity
+## Context-leak rule — local git config OK, CC env context NOT OK
 
-CC's subagent context includes the user's email (e.g. `# userEmail zax.shen@gmail.com`). The Human's FIRST interaction with bro must not leak that inference:
+Allowed identity sources to pre-populate a `Use "<name>"` option:
 
-- Do NOT put an inferred name in the question text as an example. The question should be neutral ("What should I call you?") and let the `AskUserQuestion` options + auto-Other carry the answer choices.
-- Do NOT pre-populate a `Use "Zax"` option in the `AskUserQuestion` form based on email-derived guesses. ONLY pre-populate if the Human said their name IN THIS session (e.g. they typed "I'm Alice" in a prior turn of this same interactive session — NOT from env context).
-- Do NOT write `identity_set(human_name='Zax')` based on email inference, even if the Human never actually picks a name.
+- **`git config --get user.name`** — user-set local config, attributable to the Human's own commit identity. OK.
 
-Treat CC's environment identity as external metadata that the Human hasn't confirmed. The radio form is where consent lives.
+Forbidden sources:
+
+- CC's `# userEmail` / session-level env context. That's external metadata the Human didn't set in this repo; treat it as untrusted.
+- Inferences from filesystem paths, `$USER`, `whoami`, or LDAP/SSO data.
+
+Other rules:
+
+- Do NOT put an inferred name in the question text as an example (keep the question neutral: *"What should I call you?"*).
+- Do NOT add placeholder options that just point the user at the auto-added `Other`. AskUserQuestion already surfaces `Other` for free-text entry; adding a synonym option (e.g. one labeled as "enter a custom value", "pick Other below", etc.) is redundant and confuses the UI.
+- Do NOT write `identity_set(human_name=…)` based on any source until the Human picks an option (or types free-text via Other). The form is where consent lives.
 
 ## Mandatory MCP write sequence
 
@@ -67,6 +74,18 @@ Onboarding completes ONLY after ALL FOUR writes have succeeded AND `config_list`
 4. `config_set(agent='bro', key='protected_branches', value=<JSON array>)`
 
 **Never narrate a rejection** — only report what the MCP tool actually returned. **Never skip a write** because you think it might fail. If a call errors, retry it. If it keeps erroring, surface the exact error to the Human and ask whether to retry or abort.
+
+## Step 0 — Probe local identity sources (read-only Bash)
+
+Before rendering the AskUserQuestion form, probe the local machine for a name the Human has already set themselves:
+
+```bash
+git config --get user.name   # user's own git identity
+```
+
+Cache the result as `git_user_name` if non-empty. This is **user-set local config**, not CC environment metadata — safe to offer as a pre-populated option.
+
+Do NOT use CC's `# userEmail` / session-level env context to infer a name. That's external metadata the Human hasn't confirmed in this repo.
 
 ## Step 1 — Welcome + name + branching + PR target (one batched AskUserQuestion call)
 
@@ -85,11 +104,12 @@ AskUserQuestion({
       multiSelect: false,
       options: [
         { label: "Anonymous", description: "No name on file — bro addresses you in plain second-person." }
-        // Add a second `Use "<name>"` option ONLY if the Human typed their name
-        // IN THIS session (e.g. they said "I'm Alice" in a prior chat turn).
-        // Do NOT use CC's env-level userEmail to infer a name — that's external
-        // metadata, not Human-confirmed identity. Auto-added "Other" covers
-        // free-text name entry for everyone who hasn't said their name yet.
+        // IF `git_user_name` from Step 0 is non-empty, append a second option:
+        //   { label: `Use "${git_user_name}"`, description: "Detected from git config user.name" }
+        // Otherwise do NOT add a second option. AskUserQuestion auto-adds
+        // `Other` for free-text entry; the UI surfaces it automatically.
+        // Do NOT add any synonym/placeholder option that redirects the user
+        // to `Other` — it's redundant and confuses the form.
       ]
     },
     {
@@ -124,7 +144,8 @@ Parse `AskUserQuestion` response. Map labels:
 | Label | Canonical value |
 |---|---|
 | "Anonymous" | skip `identity_set` |
-| `Use "<name>"` or Other (free text) | `<name>` → passed to `identity_set` |
+| `Use "<name>"` (git-detected) | strip the `Use "` prefix + trailing `"`, pass the inner name to `identity_set` |
+| Other (free text) | pass verbatim to `identity_set` |
 | "Trunk + feature branches (GitHub Flow) (Recommended)" | `github-flow` |
 | "Trunk + develop + releases (Git Flow)" | `gitflow` |
 | "Custom workflow" | `custom` |

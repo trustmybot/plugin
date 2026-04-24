@@ -46,7 +46,10 @@ require_contains "$F" "identity_set"                "names identity_set as a req
 require_contains "$F" "config_set"                  "names config_set as a required MCP write"
 require_contains "$F" "config_list"                 "requires post-write verify via config_list"
 require_contains "$F" "Never narrate"               "forbids hallucinated rejection narration"
-require_contains "$F" "IN THIS session"             "constrains pre-populated Use-name option to in-session typed names"
+require_contains "$F" "git config --get user.name"  "probes git config for local identity"
+require_contains "$F" "Detected from git config"    "labels git-detected name appropriately"
+require_not_contains "$F" "I'll enter it"           "no redundant I-ll-enter-it placeholder (Other is auto-added)"
+require_not_contains "$F" "Type something else"     "no redundant Type-something-else placeholder"
 
 # Identity leak gate: skill must NOT carry a literal `"Zax"` (or similar
 # canonical-example user identity) in its examples. Earlier regressions saw
