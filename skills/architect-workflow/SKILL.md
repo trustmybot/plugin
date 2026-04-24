@@ -77,15 +77,76 @@ snapshot via `issue_snapshot_md` when the Human wants a doc to review.
 Triggers **in both simple and difficult triage** when the spec would have 2+ defensible interpretations. Triage decides template depth, NOT whether to align — any ambiguous scope needs the Human's explicit input before `kind='decision'`.
 
 1. Call `issue_resume` or `issue_create` to load context.
-2. Explore the codebase — identify affected modules, read existing code paths
-   (error handling, validation, patterns).
-3. Ask clarifying questions via **the Interactive Alignment pattern below**
-   (max 3-4 questions per round).
-4. Wait for Human replies. Each reply is recorded via `discussion_append`
-   (see pattern below) so the alignment is auditable.
-5. When aligned: **ALIGNED — PRODUCING TASK SPECS**
+2. **Environment probe** (see below) — detect language versions, package managers, linters, test runners on the local machine before offering any options.
+3. Explore the codebase — identify affected modules, read existing code paths (error handling, validation, patterns).
+4. Ask clarifying questions via **the Interactive Alignment pattern below** (max 3-4 questions per round). Every option in every radio form must be grounded in what the probe found — never offer generic "uv vs poetry vs pip" when only one is installed.
+5. Wait for Human replies. Each reply is recorded via `discussion_append` so the alignment is auditable.
+6. When aligned: **ALIGNED — PRODUCING TASK SPECS**
 
-**Never skip discussion.** Explore code BEFORE asking questions.
+**Never skip discussion.** Explore code AND probe the environment BEFORE asking questions.
+
+### Environment Probe
+
+Before rendering AskUserQuestion, detect what the Human actually has locally. Use `Bash` (read-only). Examples — pick the ones relevant to the stack the ask implies:
+
+```bash
+# Language versions
+python3 --version 2>&1 || echo "no python"
+node --version 2>&1 || echo "no node"
+go version 2>&1 || echo "no go"
+rustc --version 2>&1 || echo "no rust"
+
+# Python env/package managers
+command -v uv && uv --version
+command -v poetry && poetry --version
+command -v pipenv && pipenv --version
+command -v pip && pip --version
+
+# Python project files
+ls pyproject.toml requirements.txt setup.py Pipfile 2>/dev/null
+
+# Node ecosystem
+command -v bun && bun --version
+command -v pnpm && pnpm --version
+command -v npm && npm --version
+ls package.json bun.lock pnpm-lock.yaml package-lock.json 2>/dev/null
+
+# Linters / formatters
+command -v ruff && ruff --version
+command -v black && black --version
+command -v biome && biome --version
+command -v eslint && eslint --version
+
+# Test runners
+command -v pytest && pytest --version
+command -v vitest && vitest --version
+
+# Git state
+git remote -v 2>/dev/null | head -2
+```
+
+**Use the results to build grounded AskUserQuestion options.** Example for the Python CLI todo case:
+
+| If probe shows | Question | Options |
+|---|---|---|
+| `uv` installed + `python3` ≥ 3.11 | "Package manager?" | `uv (detected, v0.5.x) (Recommended)`, `pip + venv`, `poetry` |
+| No package manager installed | "Install one?" | `Install uv (curl ...)`, `Use pip + venv (already available)`, `I'll handle it` |
+| `pyproject.toml` exists | "Use existing pyproject.toml?" | `Yes (keep layout)`, `New project alongside`, `Scrap and restart` |
+| `.python-version` file present | skip asking Python version; use the pinned version |
+
+Never offer an option that can't be executed on the local machine. Never list a tool as `(Recommended)` unless it's detected AND fits the task.
+
+**Persist the probe findings** — one `discussion_append(kind='note')` row summarizing what was detected, so future sessions can replay the environment context:
+
+```
+discussion_append(
+  agent='architect',
+  issue_id=<id>,
+  kind='note',
+  author='architect',
+  body='Env probe: uv 0.5.11, Python 3.12.3, no existing pyproject.toml, git remote set.'
+)
+```
 
 ### Scope-ambiguity gate
 
