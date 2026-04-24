@@ -83,8 +83,8 @@ erDiagram
     tasks {
         INT  id PK
         INT  issue_id FK
-        TEXT branch_id
-        TEXT parent_branch_id
+        TEXT branch_id "git branch: feat/x, fix/y, …"
+        TEXT parent_branch_id "git branch of parent task"
         TEXT title
         TEXT description
         TEXT tools_required "JSON array"
@@ -164,11 +164,13 @@ erDiagram
 
 ## Soft references (no FK, by convention)
 
+`branch_id` is the **git-convention working branch name** (e.g. `feat/user-login`, `fix/null-crash`), enforced via `validateBranchId` in `tools/tasks.ts`. It doubles as the actual git branch SWE creates the worktree on. Tasks are uniquely keyed by `(issue_id, branch_id)` — see the `idx_tasks_issue_branch` UNIQUE INDEX below — so the same `feat/user-login` could in principle exist under two different issues without collision.
+
 | From | Column | → To | Why no FK |
 |---|---|---|---|
-| `ledger` | `branch_id` | `tasks.branch_id` | `branch_id` is a hierarchy code (`"1.2.3"`), unique only per-issue. Composite FK not declared. |
-| `audit` | `branch_id` | `tasks.branch_id` | same reason |
-| `tasks` | `parent_branch_id` | `tasks.branch_id` (same issue) | same reason |
+| `ledger` | `branch_id` | `tasks.branch_id` | `branch_id` alone isn't unique in `tasks` — the UNIQUE constraint is composite `(issue_id, branch_id)`. A composite FK `(issue_id, branch_id)` would work in principle, but `ledger.branch_id` is nullable (some events are issue-scoped, not task-scoped), and nullable composite FKs are awkward. Kept as a soft ref scoped by `ledger.issue_id`. |
+| `audit` | `branch_id` | `tasks.branch_id` | Same reason — composite-uniqueness + nullable column. Audit rows are scoped by `audit.issue_id` already. |
+| `tasks` | `parent_branch_id` | `tasks.branch_id` (same issue) | Self-reference within an issue. A composite self-FK `(issue_id, parent_branch_id) → (issue_id, branch_id)` is feasible but adds insert-order brittleness; kept soft. |
 
 ## Registries (no relationships to workflow tables)
 
@@ -183,7 +185,7 @@ erDiagram
 
 ## Indexes
 
-- `idx_tasks_issue_branch` — `UNIQUE(issue_id, branch_id)`. Prevents two tasks sharing the same branch_id within an issue.
+- `idx_tasks_issue_branch` — `UNIQUE(issue_id, branch_id)`. Each issue has one task per git branch name; this is also the lookup index for "does this task exist?" checks. Two issues may legitimately have the same `branch_id` (e.g. both have a `feat/user-login` task).
 - `idx_discussions_issue_created` — `(issue_id, created_at)`. Feeds the chronological discussion view.
 - `validation_attempts` — `UNIQUE(task_id, attempt_n)`. One row per (task, attempt).
 
