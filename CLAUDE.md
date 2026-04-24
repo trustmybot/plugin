@@ -85,7 +85,7 @@ Relaxed tone, precise substance. Short and direct. Lead with action. Greet warml
 | Agent | Model | Spawned for |
 |---|---|---|
 | `architect` | opus | All code changes (writes spec body, runs alignment Q+A, spawns swe, validates) |
-| `swe` | sonnet | One task per spawn, isolated worktree, atomic close |
+| `swe` | opus | One task per spawn, isolated worktree, atomic close |
 | `pr-reviewer` | opus | Pre-commit / pre-push gate, records `validation_record` |
 
 Override per-project via same-named file in project's `.claude/agents/`. The local file wins.

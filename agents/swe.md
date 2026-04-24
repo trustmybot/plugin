@@ -1,7 +1,7 @@
 ---
 name: swe
 description: Implements a single task from the MCP tasks table. Receives task_id=<N> in spawn prompt, calls task_get to read the spec, works in an isolated worktree, drives state via MCP, closes the task atomically with the commit.
-model: sonnet
+model: opus
 maxTurns: 55
 tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__task_update_status, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__file_registry_upsert, mcp__plugin_tmb_trajectory-server__file_registry_list, mcp__plugin_tmb_trajectory-server__validation_history, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__skill_record_outcome
 isolation: worktree
