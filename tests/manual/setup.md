@@ -127,19 +127,50 @@ Then `/reload-plugins`.
 
 ## Reset between tests
 
+Two levels of reset, depending on what you're verifying.
+
+### DB-only reset — keeps the scratch project
+
+Fastest. Use between most scenarios: same scratch dir, same git history, just wipes plugin state so onboarding fires again.
+
 ```bash
 # Inside Claude Code (if installed via marketplace):
 /plugin marketplace remove trustmybot
 
-# Outside CC — reset the project-local DB. Run from inside the SCRATCH
-# project (e.g. /tmp/tmb-scratch), NOT from the plugin repo:
-cd /tmp/tmb-scratch          # your scratch project — NOT your plugin clone
+# Outside CC — run from inside the SCRATCH project (not the plugin repo):
+cd /tmp/tmb-scratch
 rm -rf .claude/tmb/
 ```
 
-The DB persists across sessions but is scoped to the project directory you launch CC from. Switch projects → different DB. Delete `.claude/tmb/` whenever you want a truly fresh run. Stale onboarding state is the #1 source of "why isn't first-run triggering" confusion.
+### Full scratch wipe — true cold start
 
-**If you accidentally run `rm -rf .claude/tmb/` in the plugin repo itself**: harmless. `.claude/` is gitignored; the only thing that could be there is a stray DB from a headless smoke test, and it's not shared with any real project.
+Use when switching scenario families, after a failed session that may have created stray files, or when you want the scratch project to have zero history too:
+
+```bash
+# Exit CC first. Then, from anywhere:
+rm -rf /tmp/tmb-scratch
+mkdir -p /tmp/tmb-scratch && cd /tmp/tmb-scratch
+git init && git commit --allow-empty -m init
+
+# Then relaunch:
+claude --plugin-dir "$PLUGIN_PATH"
+```
+
+This nukes everything the agents may have created (source files, commits, branches) along with `.claude/tmb/`. Equivalent to a brand-new contributor running the plugin for the first time.
+
+### When to use which
+
+| Situation | Reset |
+|---|---|
+| Moving to the next scenario in the same flow | DB-only |
+| Switching flows (e.g. finishing Flow 1, starting Flow 2) | DB-only |
+| Previous session left the repo in a broken state (partial commits, stray branches) | Full wipe |
+| Verifying first-time-contributor UX | Full wipe |
+| Testing Mode B install flow | Full wipe |
+
+The DB is project-local at `<scratch>/.claude/tmb/trajectory.db`. Switch scratch projects → different DB. Stale onboarding state is the #1 source of *"why isn't first-run triggering"* confusion — when in doubt, full wipe.
+
+**If you accidentally run `rm -rf .claude/tmb/` in the plugin repo itself**: harmless. `.claude/` is gitignored; the only thing that could be there is a stray DB from a headless smoke test, not shared with any real project.
 
 ---
 
