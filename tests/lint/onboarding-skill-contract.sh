@@ -57,6 +57,16 @@ require_not_contains "$F" "Type something else"     "no redundant Type-something
 require_not_contains "$F" '(e.g. "Zax"'             "no 'e.g. \"Zax\"' literal that would teach LLMs to echo inferred identity"
 require_not_contains "$F" '(e.g. \"Zax\")'          "no escaped Zax example"
 
+printf "\n=== branch-id-proposal/SKILL.md contract ===\n"
+F="$PLUGIN_ROOT/skills/branch-id-proposal/SKILL.md"
+
+require_contains "$F" "AskUserQuestion"             "uses AskUserQuestion for the proposal form"
+require_contains "$F" "No \"Skip architect\""        "explicitly forbids the Skip-architect option"
+require_contains "$F" "Downgrade triage to simple"  "offers triage downgrade as the simple-template path"
+require_contains "$F" "Upgrade triage to difficult" "offers triage upgrade for ambiguous-scope cases"
+require_not_contains "$F" "Skip architect — let"    "no Skip-architect-let-bro/SWE wording in any option"
+require_not_contains "$F" "Type something."         "no Type-something. placeholder (Other is auto-added)"
+
 printf "\n=== tmb-reonboard/SKILL.md contract ===\n"
 F="$PLUGIN_ROOT/skills/tmb-reonboard/SKILL.md"
 
