@@ -26,11 +26,12 @@ Pick one. Mode A is tighter for iteration; Mode B matches the release path end u
 
 ### Mode A — dev mode with hot reload (recommended for contributor iteration)
 
-Launch Claude Code against the plugin source directly:
+Launch Claude Code against the plugin source directly. **Run these from the plugin repo root** (same directory you ran `bun install` in) so `$(pwd)` resolves correctly:
 
 ```bash
-# Set PLUGIN_PATH to wherever you cloned this repo.
-export PLUGIN_PATH=/absolute/path/to/trustmybot-plugin
+# Capture the plugin repo path from the current directory — no placeholder to edit.
+export PLUGIN_PATH="$(pwd)"
+echo "$PLUGIN_PATH"   # sanity-check: should point at your plugin clone
 
 # Use any disposable directory for the scratch project.
 mkdir -p /tmp/tmb-scratch && cd /tmp/tmb-scratch
@@ -38,6 +39,8 @@ git init && git commit --allow-empty -m "init"
 
 claude --plugin-dir "$PLUGIN_PATH"
 ```
+
+If you prefer to set `PLUGIN_PATH` from somewhere else, substitute your clone path — e.g. `export PLUGIN_PATH=~/code/trustmybot-plugin`. The literal string `/absolute/path/to/...` is not a real path.
 
 Edits to agent prompts, skills, or hook scripts are picked up after `/reload-plugins` inside the session. TypeScript edits under `mcp/trajectory-server/src/` require a rebuild (`bun run build`) then `/reload-plugins`.
 
