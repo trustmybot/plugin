@@ -111,6 +111,11 @@ bash tests/run-all.sh
 
 Full testing guide — including manual dogfood walkthrough and how to write new hook/MCP tests — at [tests/README.md](tests/README.md).
 
+**Architecture reference** for new contributors:
+- [`docs/architecture/FILES.md`](docs/architecture/FILES.md) — file-by-file map of the whole plugin
+- [`docs/architecture/ERD.md`](docs/architecture/ERD.md) — SQLite schema with FK + soft-ref tables
+- [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) — 9 workflow flowcharts (onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry, roundtable)
+
 ---
 
 ## License

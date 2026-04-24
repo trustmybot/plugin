@@ -28,6 +28,12 @@ plugin/
 │   ├── pr-reviewer.md                # pre-commit/pre-push review gate (read-only)
 │   └── swe.md                        # single-task executor in worktree
 │
+├── docs/
+│   └── architecture/                 # contributor-facing reference
+│       ├── ERD.md                    # SQLite schema: Mermaid ER diagram + FK + soft-ref tables
+│       ├── FILES.md                  # this file — every tracked file with its purpose
+│       └── FLOWS.md                  # 9 workflow flowcharts (onboarding → roundtable)
+│
 ├── hooks/
 │   └── hooks.json                    # CC hooks manifest (PreToolUse, WorktreeCreate, etc.)
 │
