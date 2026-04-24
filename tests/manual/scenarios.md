@@ -106,19 +106,25 @@ No other agents spawn during onboarding. `first-run-onboarding` is a skill bro l
 |---|---|---|---|---|
 | 1 | bro | `identity_get` | `agent='bro'` | Session-start identity check |
 | 2 | bro | `config_get` | `agent='bro', key='branching_model'` | Session-start config check — returns null → enter Onboarding Mode |
-| 3 | bro | `AskUserQuestion` | 3-question batch (name, branching, PR target) | Collect answers via radio UI |
-| 4 | bro | `identity_set` | `agent='bro', human_name=<answer>` | Persist name (skip if Anonymous) |
-| 5 | bro | `config_set` | `agent='bro', key='branching_model', value=<canonical>` | Persist branching model |
-| 6 | bro | `config_set` | `agent='bro', key='pr_target', value=<answer>` | Persist PR target |
-| 7 | bro | `config_set` | `agent='bro', key='protected_branches', value=[<list>]` | Persist protected-branches list |
+| 3 | bro | `identity_set` | `agent='bro', human_name=<answer>` | Persist name (skip if Anonymous) |
+| 4 | bro | `config_set` | `agent='bro', key='branching_model', value=<canonical>` | Persist branching model |
+| 5 | bro | `config_set` | `agent='bro', key='pr_target', value=<answer>` | Persist PR target |
+| 6 | bro | `config_set` | `agent='bro', key='protected_branches', value=[<list>]` | Persist protected-branches list |
+| 7 | bro | `config_list` | `agent='bro'` | Post-write verify — retry any missing key before closing |
 
-**Expected hooks fired:** none during onboarding. Hooks only fire for Bash / Agent / WorktreeCreate events, and the onboarding path stays inside AskUserQuestion + MCP writes.
+Note: bro uses **text-based multi-choice** (`Reply with 1/2/3`), not a radio form. `AskUserQuestion` is unavailable to plugin subagents per CC platform restriction ([upstream issue #12890](https://github.com/anthropics/claude-code/issues/12890)).
+
+**Expected hooks fired:** none during onboarding. Hooks only fire for Bash / Agent / WorktreeCreate events, and onboarding stays inside MCP writes + plain chat messages.
 
 **Expected user-visible output (key markers):**
 
 - Opens with the catchphrase: *"Hey, I'm bro. Trust me bro, it works — that's the plugin's whole pitch."*
-- A single radio form with three questions (name, branching, PR target).
-  - Branching options labeled: *"Trunk + feature branches (GitHub Flow)"*, *"Trunk + develop + releases (Git Flow)"*, *"Custom workflow"*.
+- Asks four text prompts in sequence, waiting for a reply between each:
+  1. *"What should I call you? Reply with a name, or `anonymous` to skip."*
+  2. *"How does your team branch? Reply with `1`, `2`, or `3`"* with labeled options: *"Trunk + feature branches (GitHub Flow)"* / *"Trunk + develop + releases (Git Flow)"* / *"Custom workflow"*.
+  3. *"What's your PR target branch?"* (free text, default depends on branching choice).
+  4. Only for `custom`: *"Which branches should I treat as protected?"* (CSV).
+- Per-write inline confirmations: *"✓ branching_model saved"*, etc.
 - Closes with: *"Done. Identity and branching model saved. Tell me what you want to work on — trust me bro, it works."*
 
 **Expected DB state after (choosing name=Zax, branching=GitHub Flow, PR target=main):**
@@ -140,8 +146,9 @@ SQL
 **Common failure modes:**
 
 - **Zero rows** → the MCP server isn't connected. Verify `/mcp` inside the session lists `plugin:tmb:trajectory-server: ✔ connected`. If missing, check `.mcp.json` and rebuild with `bun run build`.
-- **Bro asks digit-input questions instead of a radio form** → `AskUserQuestion` wasn't in bro's `tools:` allowlist; pull latest.
+- **Bro narrates "the write was denied" but zero rows appear in `plugin_config`** → bro hallucinated a rejection instead of calling `config_set`. Prompt-drift; re-test with the latest `first-run-onboarding` skill which enforces a mandatory post-write verify via `config_list`.
 - **`caller_role: 'unknown'` errors in the session log** → prompt is missing the `agent='bro'` param on MCP calls. Bug in the agent prompt or a tool that doesn't declare `agent` in its inputSchema.
+- **Bro asks only 1–2 questions and closes onboarding** → missing MCP writes. Post-write `config_list` should catch this; if it doesn't, the verify step was skipped.
 
 **Pass:** [ ]
 
@@ -149,9 +156,9 @@ SQL
 
 ### 1.2 — Code-touching ask DURING onboarding is held
 
-**Prerequisites:** Reset DB. Type the welcome trigger, let bro open the AskUserQuestion form. Before submitting answers, open a second chat turn.
+**Prerequisites:** Reset DB. Type the welcome trigger, let bro ask the first onboarding question (name). Before replying with a name, open a second chat turn.
 
-**Trigger prompt** (mid-onboarding, without finishing the form):
+**Trigger prompt** (mid-onboarding, without answering the current question):
 > `add a hello-world endpoint to the api`
 
 **Expected agent chain:**
@@ -166,8 +173,8 @@ SQL
 
 **Expected user-visible output:**
 
-- Acknowledgement like *"I'll get to that as soon as we finish setup — let's wrap the onboarding form first."*
-- AskUserQuestion form re-surfaced.
+- Acknowledgement like *"I'll get to that as soon as we finish setup — let's finish onboarding first."*
+- The current onboarding question is re-asked.
 - After onboarding completes: *"Now — about that hello-world endpoint…"* and bro proceeds to the normal code-change flow (flow 2 or 3).
 
 **Expected DB state (during the hold):**
@@ -196,7 +203,7 @@ sqlite3 .claude/tmb/trajectory.db "SELECT COUNT(*) FROM issues; SELECT COUNT(*) 
 
 ### 1.3 — Read-only ask DURING onboarding is answered, then resumes
 
-**Prerequisites:** Reset DB. Trigger onboarding; pause with the AskUserQuestion form open.
+**Prerequisites:** Reset DB. Trigger onboarding; pause after bro asks the first question, before replying.
 
 **Trigger prompt** (mid-onboarding):
 > `what files are in this repo?`
@@ -215,7 +222,7 @@ sqlite3 .claude/tmb/trajectory.db "SELECT COUNT(*) FROM issues; SELECT COUNT(*) 
 **Expected user-visible output:**
 
 - A file listing from `ls` or `git ls-files`.
-- Immediately after: the AskUserQuestion form re-surfaced or a reminder to complete onboarding.
+- Immediately after: the pending onboarding question re-asked or a reminder to complete onboarding.
 
 **Expected DB state:** unchanged — no MCP writes during a read-only branch.
 
@@ -254,7 +261,7 @@ sqlite3 .claude/tmb/trajectory.db "SELECT COUNT(*) FROM issues; SELECT COUNT(*) 
 |---|---|---|---|---|
 | 1 | bro | `identity_get` | `agent='bro'` | Read current name |
 | 2 | bro | `config_list` | `agent='bro'` | Read current branching/pr_target/protected |
-| 3 | bro | `AskUserQuestion` | 3-question batch with current values as `Keep "<current>"` first option | Offer one-click preserve + alternatives |
+| 3 | bro | (text prompts) | Asks which field(s) to change; per field, accepts `keep` sentinel or new value | Sequential — no radio UI (AskUserQuestion unavailable in subagents) |
 | 4 | bro | `config_set` | `agent='bro', key='branching_model', value='gitflow'` | Only if changed |
 | 5 | bro | `config_set` | `agent='bro', key='pr_target', value=<answer>` | Only if changed |
 | 6 | bro | `config_set` | `agent='bro', key='protected_branches', value=[<list>]` | Recomputed from new branching + pr_target |
