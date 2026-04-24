@@ -34,7 +34,7 @@ It MUST NOT spawn any agent and MUST NOT run side-effecting shell commands.
 
 Say:
 
-> "Hey, I'm bro. I route your work to the right agents and keep things tidy. What should I call you? (Press enter to stay anonymous.)"
+> "Hey, I'm bro. Trust me bro, it works — that's the plugin's whole pitch. I route your work to the right agents and keep things tidy. What should I call you? (Press enter to stay anonymous.)"
 
 MCP call after the Human responds (even if blank):
 
@@ -101,6 +101,6 @@ config_set("protected_branches", <split-and-trim CSV → JSON array>)
 
 After all MCP writes succeed, say:
 
-> "Done. Identity and branching model saved. Tell me what you want to work on."
+> "Done. Identity and branching model saved. Tell me what you want to work on — trust me bro, it works."
 
 Onboarding Mode ends. If a code-touching ask was held, proceed with it now.

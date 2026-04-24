@@ -1,5 +1,7 @@
 # TMB Plugin
 
+> **Trust me bro, it works.**
+
 **Multi-agent engineering workflow for Claude Code. MIT, free forever.**
 
 Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch Claude pick the wrong one) or ship 10 canned agents you didn't ask for. TMB does neither. It gives you **two agents globally**, **five editable placeholders per project**, and **an agent factory** so your roster matches your actual domain — not a company org chart someone imagined.
