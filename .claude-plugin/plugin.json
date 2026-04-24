@@ -7,22 +7,13 @@
     "url": "https://github.com/trustmybot"
   },
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/trustmybot/plugin"
-  },
-  "dependencies": {
-    "anthropic/commit-commands": "^1.0",
-    "anthropic/pr-review-toolkit": "^1.0"
-  },
-  "provides": {
-    "agents": [
-      "gatekeeper",
-      "architect",
-      "swe",
-      "pr-reviewer"
-    ],
-    "skills": [],
-    "workflow": "docs/trustmybot/"
-  }
+  "repository": "https://github.com/trustmybot/plugin",
+  "homepage": "https://github.com/trustmybot/plugin",
+  "keywords": [
+    "agents",
+    "workflow",
+    "mcp",
+    "sqlite",
+    "orchestration"
+  ]
 }
