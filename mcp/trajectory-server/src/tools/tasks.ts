@@ -232,9 +232,18 @@ export function taskTools(db: TrajectoryDB): {
             if (typeof t.spec_body !== 'string') {
               throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
             }
-            if (t.spec_body.length > 64000) {
+            // Hard cap: 8000 chars per task. Architect should cite existing
+            // code/conventions rather than restate them; a spec longer than
+            // ~8k is usually a sign the task should be split. Over-long specs
+            // force SWE to spend tokens reading instead of coding.
+            // See issue #55 (P0: architect over-engineered 55k-char spec
+            // → session hang).
+            if (t.spec_body.length > 8000) {
               throw new Error(
-                `spec_body exceeds 64000 char limit (actual: ${t.spec_body.length}). Split into multiple tasks via depends_on.`,
+                `spec_body exceeds 8000 char limit (actual: ${t.spec_body.length}). ` +
+                `Split into multiple tasks via depends_on, or cite existing code/` +
+                `conventions rather than restating them inline. Very long specs ` +
+                `push SWE cold-start into the minutes range; see issue #55.`,
               );
             }
           }

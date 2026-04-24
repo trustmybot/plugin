@@ -13,6 +13,20 @@ Workflow artifacts live in MCP (SQLite) and `docs/trustmybot/` at the project ro
 |---|---|---|---|
 | `tasks.spec_body` (SQLite row) | Markdown H2 sections stored as a string | Architect → SWE | Structured contract in DB; retrieved via `task_get(task_id)` |
 
+## Spec-body brevity rule (HARD CAP at 8000 chars, enforced by MCP)
+
+**`spec_body` is capped at 8000 chars** by `task_create_batch` — the MCP server rejects anything longer. A spec longer than that is usually a sign you should split the task.
+
+Write specs that **cite**, don't **restate**:
+
+- Reference existing code: *"Follow the error-handling pattern in `src/api/users.ts` around lines 45-90"* — not a 200-line copy-paste.
+- Reference existing conventions: *"Use pytest fixtures per `tests/conftest.py`"* — not a rewritten fixtures tutorial.
+- Reference industry standards by name: *"Standard argparse CLI, `~/.app/config.json` for persistence, JSON atomic-write via tmpfile + rename"* — not a full implementation outline.
+
+**Why this matters:** over-long specs force SWE to spend its context token budget reading instead of coding. A 55k-token spec can push the chain from 30s to 5 minutes (see issue #55). When in doubt, shorter + reference existing code.
+
+Split into multiple tasks when the work spans >2 files with meaningfully different concerns; set `parent_branch_id` to establish the dependency chain. Smaller, focused tasks also parallelize better (worktree isolation makes it safe).
+
 ---
 
 ## Workflow Steps

@@ -8,9 +8,6 @@ skills:
   - architect-workflow
   - swe-spawn-workflow
   - validate-swe-output
-  - agent-creator
-  - roundtable
-  - refresh-architecture
 ---
 
 > **Plugin-shipped workflow agent.** Architect behavior is meant to be consistent across projects — domain specialization happens via the project's own `ceo` / `cto` / domain agents, not by editing this file. To override for a specific project, create `.claude/agents/architect.md` in that project's root; the local file takes precedence.
