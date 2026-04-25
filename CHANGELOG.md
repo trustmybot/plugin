@@ -2,6 +2,26 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.1.1 — 2026-04-25
+
+**Patch release.** Single fix to `scripts/hooks/git-guards.sh` that affects projects using a dual-tier `dev`/`main` branching model.
+
+### Fixed
+
+- **`gh pr create --base main --head dev` no longer blocked when `pr_target=dev`** ([#70](https://github.com/trustmybot/plugin/pull/70)). The previous rule treated all non-`pr_target` bases as forbidden, which blocked the legitimate `dev → main` release-merge PR. The hook now permits this exact case (release exception) while still blocking `feature → main` PRs.
+- **Silent-allow bug under `set -o pipefail`** in the `--head` extraction. `grep -oE` returned non-zero when `--head` was absent (the common case), causing the script to exit silently and fall through to allow. Added `|| true` to the extraction pipeline.
+
+### Test coverage
+
+The commit message includes a 7-case synthetic-DB harness covering all explicit + implicit-head combinations. All pass.
+
+### Who's affected
+
+- **Projects using github-flow** (`pr_target=main`, the most common): no behavior change. The dual-tier exception code path doesn't activate.
+- **Projects using dual-tier `dev/main`** (e.g. trustmybot/plugin itself): the dev → main release-merge PR now goes through the hook cleanly without manual workarounds.
+
+---
+
 ## v0.1.0 — 2026-04-25
 
 **First actionable release.** Supersedes the placeholder v0.2.0 tag (revoked) — that earlier tag predated the multi-agent decision-chain doctrine and didn't represent a working end-to-end workflow. This release does.
