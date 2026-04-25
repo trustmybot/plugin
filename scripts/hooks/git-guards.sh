@@ -44,11 +44,35 @@ branch_is_protected() {
   return 1
 }
 
-# --- Rule 1: PR must target pr_target ---
+# --- Rule 1: PR must target pr_target, with the dev → main release-merge exception ---
+#
+# Default: feature/* branches must PR to PR_TARGET (typically `dev` for the
+# dual-tier dev/main model, or `main` for single-tier github-flow).
+#
+# Exception: when PR_TARGET == "dev" (dual-tier model), `dev → main` is the
+# release-merge path and is allowed. The head MUST be `dev` (either
+# explicit `--head dev` or the current branch is `dev` and `--head` is
+# omitted). Any other head targeting main is blocked — feature branches do
+# not PR directly to main.
 case "$CMD" in
   *"gh pr create"*)
-    if ! echo "$CMD" | grep -qF -- "--base ${PR_TARGET}"; then
-      echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: PRs must target ${PR_TARGET} branch. Use: gh pr create --base ${PR_TARGET}\"}"
+    if echo "$CMD" | grep -qF -- "--base ${PR_TARGET}"; then
+      :  # OK — feature → pr_target (the standard path)
+    elif [ "$PR_TARGET" = "dev" ] && echo "$CMD" | grep -qF -- "--base main"; then
+      # Dual-tier exception: dev → main release merge.
+      # `set -o pipefail` makes the assignment fail when grep finds no
+      # `--head` (which is the common case — gh defaults head to the
+      # current branch). The `|| true` keeps the pipeline succeeding.
+      HEAD_BRANCH=$(echo "$CMD" | grep -oE -- '--head[= ][^[:space:]]+' | head -1 | sed -E 's/--head[= ]+//' | tr -d "'\"" || true)
+      if [ -z "$HEAD_BRANCH" ]; then
+        HEAD_BRANCH=$(git branch --show-current 2>/dev/null || true)
+      fi
+      if [ "$HEAD_BRANCH" != "dev" ]; then
+        echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${PR_TARGET}: gh pr create --base ${PR_TARGET} --head <branch>. Got --head=${HEAD_BRANCH}.\"}"
+        exit 0
+      fi
+    else
+      echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: PRs must target ${PR_TARGET} branch. Use: gh pr create --base ${PR_TARGET} --head <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)\"}"
       exit 0
     fi
     ;;
