@@ -75,9 +75,29 @@ export function configTools(db: TrajectoryDB): {
         );
       }
 
+      const rawValue = args['value'];
+      if (typeof rawValue === 'string') {
+        const trimmed = rawValue.trim();
+        if (
+          (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+          (trimmed.startsWith('{') && trimmed.endsWith('}'))
+        ) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (typeof parsed === 'object' && parsed !== null) {
+              return err(
+                `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? 'array' : 'object'} (passed as a string). Pass the raw value directly — e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`,
+              );
+            }
+          } catch {
+            // not valid JSON — fall through, treat as a plain string value
+          }
+        }
+      }
+
       let valueJson: string;
       try {
-        valueJson = JSON.stringify(args['value']);
+        valueJson = JSON.stringify(rawValue);
       } catch {
         return err('config value not JSON-serializable');
       }

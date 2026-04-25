@@ -69,9 +69,9 @@ Other rules:
 Onboarding completes ONLY after ALL FOUR writes have succeeded AND `config_list` confirms the state. Do not emit the closing message until every expected row is present:
 
 1. `identity_set(agent='bro', human_name=<answer>)` — skip iff the Human chose Anonymous.
-2. `config_set(agent='bro', key='branching_model', value=<canonical>)`
-3. `config_set(agent='bro', key='pr_target', value=<answer>)`
-4. `config_set(agent='bro', key='protected_branches', value=<JSON array>)`
+2. `config_set(agent='bro', key='branching_model', value=<canonical>)` — `value` is a string, e.g. `value="github-flow"`.
+3. `config_set(agent='bro', key='pr_target', value=<answer>)` — `value` is a string, e.g. `value="main"`.
+4. `config_set(agent='bro', key='protected_branches', value=<array of strings>)` — `value` is a **raw JSON array**, e.g. `value=["main"]`. Do NOT pass `value="[\"main\"]"` (a pre-serialized string). The MCP server calls `JSON.stringify(value)` on what you pass; if you pre-serialize, the DB stores a string and every downstream hook that expects an array breaks.
 
 **Never narrate a rejection** — only report what the MCP tool actually returned. **Never skip a write** because you think it might fail. If a call errors, retry it. If it keeps erroring, surface the exact error to the Human and ask whether to retry or abort.
 
@@ -193,9 +193,9 @@ Fire the writes IN ORDER, each with `agent='bro'`. Report each success inline ("
 if name != "Anonymous":
     identity_set(agent='bro', human_name=<name>)
 
-config_set(agent='bro', key='branching_model', value=<canonical>)
-config_set(agent='bro', key='pr_target', value=<pr_target>)
-config_set(agent='bro', key='protected_branches', value=<JSON array>)
+config_set(agent='bro', key='branching_model',    value="github-flow")   # string
+config_set(agent='bro', key='pr_target',          value="main")           # string
+config_set(agent='bro', key='protected_branches', value=["main"])         # raw array — NOT "[\"main\"]"
 ```
 
 Then verify:
