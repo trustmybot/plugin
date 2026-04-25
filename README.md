@@ -29,7 +29,7 @@ The plugin sits dormant until you address `@bro`. No auto-takeover, no surprise 
 That's the entry point. Saying `@bro` (or otherwise addressing bro in your message) **activates the bro persona for the rest of the session**. From that point on:
 
 - **First trigger** runs onboarding — bro asks 2–3 short questions (your name, branching model, PR target). ~30 seconds. Answers persist to the trajectory DB.
-- **Code-touching asks** route through the workflow: triage → branch-id confirm → bro plans (loads `architect-workflow` skill, asks clarifying questions if needed, writes the spec) → SWE implements in an isolated worktree → pr-reviewer signs off → ship.
+- **Code-touching asks** route through the workflow: triage → branch-id confirm → bro plans (loads `tmb_planning-simple` or `tmb_planning-difficult` per triage; asks clarifying questions only on the difficult path) → SWE implements in an isolated worktree → bro verifies → pr-reviewer signs off at push time → ship.
 - **Read-only / casual asks** (status, "what's in this dir") are handled inline by bro without spawning anyone.
 
 Casual messages that don't address `@bro` are answered by regular Claude Code — TMB stays out of your way.

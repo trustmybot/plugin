@@ -26,15 +26,15 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
 | 1 | [Onboarding](#1-first-run-onboarding) | First activation in a project | bro | `first-run-onboarding` | `identity`, `plugin_config` | — |
-| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe → pr-reviewer | `architect-workflow` (loaded by bro), `swe-checklist`, `validate-swe-output`, `review-protocol` | `issues`, `tasks`, `discussions`, `validation_attempts`, `ledger` | `require-task-spec`, `require-review-sign`, `git-guards` |
-| 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion phase) → swe → pr-reviewer | + `architect-workflow` discussion + ADR step | + ADR file | same |
+| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe → pr-reviewer | `tmb_planning-simple` (loaded by bro), `swe-checklist`, `validate-swe-output`, `review-protocol` | `issues`, `tasks`, `discussions`, `validation_attempts`, `ledger` | `require-task-spec`, `require-review-sign`, `git-guards` |
+| 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion phase) → swe → pr-reviewer | + `tmb_planning-difficult` (full discussion + ADR) | + ADR file | same |
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → user | `agent-creator` | — | — |
 | 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | — | `skills` | — |
 | 6 | [PR review](#6-pr-review) | After SWE marks task `completed` | pr-reviewer (returns to bro) | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional) | `require-review-sign` |
 | 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture` | `regen_state`, `file_registry` | — |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | `validation_record(verdict='fail')` | bro ↔ swe ↔ pr-reviewer | `feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `require-review-sign` |
 | 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 consultants | `tmb_roundtable`, `roundtable-cleanup` | `discussions`, `ledger` | — |
-| **C** | [Consultant invocation](#c-consultant-invocation-new) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / etc.) | `architect-workflow` (architect side, when consulted) | `discussions` (kind='analysis'/'concern') | — |
+| **C** | [Consultant invocation](#c-consultant-invocation-new) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / etc.) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
 
 ---
 
@@ -90,7 +90,7 @@ sequenceDiagram
 
 **Involved:**
 - Agents: `bro` (planner + task gate), `swe` (executor)
-- Skills loaded by bro on demand: `tmb_architect-workflow` (the planner protocol), `tmb_swe-spawn-workflow` (right before SWE handoff)
+- Skills loaded by bro on demand: `tmb_planning-simple` or `tmb_planning-difficult` per triage, `tmb_swe-spawn-workflow` (right before SWE handoff)
 - Skills loaded by swe: `swe-checklist` **only on demand** (when spec verification needs interpretation; not eager)
 - MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `ledger_log` (no `validation_record` per task — that fires at push time)
 - DB tables: `issues`, `tasks`, `discussions`, `ledger`, `audit`
@@ -104,7 +104,7 @@ sequenceDiagram
     participant DB as SQLite
 
     H->>B: "implement X"
-    B->>B: triage → simple; load tmb_architect-workflow skill
+    B->>B: triage → simple; load tmb_planning-simple skill
     B->>DB: issue_create(agent='bro')
     B->>DB: discussion_append(kind='intent')
     B->>DB: discussion_append(kind='note', body='Triage: simple')
@@ -149,7 +149,7 @@ sequenceDiagram
 **Same chain as flow 2, plus:** alignment loop + ADR commit before any task is created.
 
 **Extra components:**
-- Skills: + `architect-workflow` discussion phase
+- Skills: + `tmb_planning-difficult` discussion phase
 - MCP tools: + `discussion_append`, `discussion_list`
 - DB tables: + `discussions`
 - Files: ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md`
@@ -187,7 +187,7 @@ sequenceDiagram
 **Notes:**
 - Architect's triage is binding; bro's classification is a proposal. If architect downgrades to `simple`, no ADR needed and standard template not required.
 - ADR file is the durable architectural record. Discussions table holds the conversation that produced it.
-- Alignment uses `AskUserQuestion` — a proper radio form — for any question with 2–4 enumerable answers (scope, tech choice, priority). Every Q/A round persists TO `discussions` as a `question` + `answer` pair so the trajectory is replayable via `issue_report_md` / `issue_snapshot_md`. See `skills/architect-workflow/SKILL.md#interactive-alignment` for the pattern.
+- Alignment uses `AskUserQuestion` — a proper radio form — for any question with 2–4 enumerable answers (scope, tech choice, priority). Every Q/A round persists TO `discussions` as a `question` + `answer` pair so the trajectory is replayable via `issue_report_md` / `issue_snapshot_md`. See `skills/tmb_planning-difficult/SKILL.md` for the pattern.
 - Falls back to plain text `discussion_append(kind='question')` when the answer shape isn't enumerable (e.g., "what constraints do you have?").
 
 ---

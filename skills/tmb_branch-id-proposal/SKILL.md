@@ -13,7 +13,7 @@ A `branch_id` is the working git branch name for a task. It doubles as the task'
 
 ## When invoked
 
-Bro invokes this skill when a Human request crosses into a code or prompt change (i.e., a task will be created). It runs **after** the C.0 triage decision (`simple` or `difficult`), and **before** bro loads the `architect-workflow` planning skill.
+Bro invokes this skill when a Human request crosses into a code or prompt change (i.e., a task will be created). It runs **after** the C.0 triage decision (`simple` or `difficult`), and **before** bro loads the planning skill (`tmb_planning-simple` or `tmb_planning-difficult` per triage).
 
 Direct read-only ops do NOT require a branch_id. Skip this skill in that case.
 
@@ -114,4 +114,4 @@ AskUserQuestion({
        body='Beginning planning on branch_id <the branch_id>, triage: <simple|difficult>')
      ```
 
-5. Load the `architect-workflow` skill and proceed with planning. The `issue_id` and confirmed `branch_id` carry forward into `task_create_batch` when the spec is ready.
+5. Load `tmb_planning-simple` (if triage=simple) or `tmb_planning-difficult` (if triage=difficult) and proceed with planning. The `issue_id` and confirmed `branch_id` carry forward into `task_create_batch` when the spec is ready.

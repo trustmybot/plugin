@@ -63,7 +63,7 @@ Default chain (most asks):
 
 ```
 tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-proposal
-  → load tmb_architect-workflow skill → discussion + spec authoring
+  → load tmb_planning-simple OR tmb_planning-difficult based on triage → discussion + spec authoring
   → task_create_batch + spawn swe + ledger_log(planning_complete)  [batched in one response]
   → SWE returns
   → bro flips task → 'closed' (no pr-reviewer at this stage)
@@ -73,7 +73,9 @@ tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-propos
 
 Triage heuristic: **`difficult` iff the change requires updates to `docs/trustmybot/architecture/`**, otherwise `simple`. Each step is a skill — see `skills/<name>/SKILL.md` for the protocol.
 
-You load `tmb_architect-workflow` (the planning protocol skill) on-demand at this step — don't load it at session start. Same for `tmb_swe-spawn-workflow` (load right before spawning SWE).
+You load the planning skill that matches the triage decision — `tmb_planning-simple` (≤120 lines, defaults table + batched handoff + bro verification) or `tmb_planning-difficult` (~210 lines, full env probe + Q+A + ADR + verification). Don't load both. Don't load at session start. Same for `tmb_swe-spawn-workflow` (load right before spawning SWE).
+
+**Bro verification is non-negotiable.** Both planning skills include a bro-verification protocol bro runs after SWE returns and BEFORE flipping the task to `closed`. The protocol re-runs the spec's `## Verification` commands, sanity-checks the diff against `## Files`, and confirms each `## Success Criteria` bullet is met. PR-reviewer is the deeper push gate; bro's verification is the always-on task gate. Never skip it.
 
 **Tool-call batching for latency.** When you reach the planner-handoff moment, emit `task_create_batch` + `Task(subagent_type='swe', ...)` + `ledger_log(event_type='planning_complete')` as **multiple tool_use blocks in a single assistant response**. CC executes them concurrently. This shaves ~5–10s of MCP write latency vs sequential.
 
@@ -146,7 +148,7 @@ The plugin ships only templates. The first time a particular agent is needed in 
 | Ask shape | Action |
 |---|---|
 | Trivial single-file change (typo, comment, ≤3 lines) | **Direct Mode** — bro edits + commits + logs `direct_mode_used`. No SWE spawn. |
-| "Implement this" / non-trivial task work | Plan inline (load `tmb_architect-workflow`), then batch task_create_batch + spawn `swe` + ledger_log in one response |
+| "Implement this" / non-trivial task work | Triage simple/difficult, load `tmb_planning-simple` OR `tmb_planning-difficult` accordingly, then batch task_create_batch + spawn `swe` + ledger_log in one response |
 | "Review before push" / `git push` blocked by pre-push hook | Spawn `pr-reviewer` for each task with unsigned commit_sha. Parallel where possible. |
 | "Get architect's / cto's / pm's opinion on X" | Check `.claude/agents/<name>.md`. If absent → invoke `tmb_agent-creator` skill (template-copy mode if `templates/agents/<name>.md` exists, draft-from-scratch otherwise; Human approval either way). Then spawn the agent in **consultant mode**. |
 | Domain role with no shipped template (`legal-reviewer`, `security-reviewer`, etc.) | Invoke `tmb_agent-creator` skill, draft-from-scratch flow, ask Human approval, write to `.claude/agents/<name>.md` on yes |

@@ -78,8 +78,21 @@ require_contains "$F" "AskUserQuestion"             "references AskUserQuestion"
 require_contains "$F" "Keep"                        "offers Keep-current-value as an option pattern"
 require_contains "$F" "identity_reset"              "handles Anonymous → identity_reset path"
 
-printf "\n=== architect-workflow/SKILL.md contract ===\n"
-F="$PLUGIN_ROOT/skills/tmb_architect-workflow/SKILL.md"
+printf "\n=== tmb_planning-simple/SKILL.md contract ===\n"
+F="$PLUGIN_ROOT/skills/tmb_planning-simple/SKILL.md"
+
+require_contains "$F" "Defaults table"              "ships the simple-fast-lane defaults table"
+require_contains "$F" "argparse"                    "defaults table mentions argparse"
+require_contains "$F" "single batched response"     "spells out the batched-handoff hard rule"
+require_contains "$F" "task_create_batch"           "names task_create_batch as part of the batch"
+require_contains "$F" "Bro verification protocol"   "defines bro's verification step"
+require_contains "$F" "never skip"                  "marks bro verification as non-negotiable"
+require_contains "$F" "task gate"                   "names bro verification as the task gate"
+require_contains "$F" "waive_scope_gate"            "instructs the simple-path scope-gate waiver"
+require_contains "$F" "Escalate simple"             "describes when to upgrade to difficult"
+
+printf "\n=== tmb_planning-difficult/SKILL.md contract ===\n"
+F="$PLUGIN_ROOT/skills/tmb_planning-difficult/SKILL.md"
 
 require_contains "$F" "discussion_append"           "uses discussion_append for persistence"
 require_contains "$F" "kind='question'"             "persists questions"
@@ -89,18 +102,13 @@ require_contains "$F" "HARD RULE"                   "scope-ambiguity gate is mar
 require_contains "$F" "Auto-mode does NOT waive"    "explicitly forbids auto-mode bypass of the gate"
 require_contains "$F" "auto-mode defaults"          "calls out the exact phrase that signals gate violation"
 require_contains "$F" "RED FLAG"                    "names violations as RED FLAG in the worked example"
-require_contains "$F" "Environment Probe"           "includes Environment Probe step"
+require_contains "$F" "Environment probe"           "includes Environment probe step"
 require_contains "$F" "uv"                          "probe mentions uv as a detectable tool"
 require_contains "$F" "pyproject.toml"              "probe checks for existing pyproject.toml"
-require_contains "$F" "Never offer an option that can't be executed" \
+require_contains "$F" "Never offer an unexecutable" \
                                                     "probe discipline: no ghost options"
-require_contains "$F" "text questions"              "uses text Q+A (AskUserQuestion not usable in subagents)"
-
-# Architect must NOT claim AskUserQuestion works inside subagents — that
-# belief is what led to the earlier regression where architect wrote
-# decisions without asking.
-require_not_contains "$F" "call \`AskUserQuestion\`" \
-                                                    "no instruction telling architect to call AskUserQuestion (it's subagent-blocked)"
+require_contains "$F" "Bro verification protocol"   "defines bro's verification step (same as simple path)"
+require_contains "$F" "never skip"                  "marks bro verification as non-negotiable"
 
 printf "\n"
 if [ "$FAIL" -eq 0 ]; then
