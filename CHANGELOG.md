@@ -2,7 +2,7 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
-## v0.1.2 — 2026-04-24
+## v0.1.2 — 2026-04-25
 
 **Docs + structural release.** No agent, hook, or MCP-server behavior change. Adds multi-platform structural placeholders following the [Superpowers](https://github.com/obra/superpowers) pattern, and refreshes contributor docs to match the bro-as-planner doctrine that landed in v0.1.0.
 
