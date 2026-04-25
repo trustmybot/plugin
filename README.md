@@ -6,6 +6,8 @@
 
 Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch Claude pick the wrong one) or ship 10 canned agents you didn't ask for. TMB does neither. It gives you **one persona (`bro`)**, **three constrained subagents** for the workflow chain, and **an agent factory** so your domain roster matches your real project — not a company org chart someone imagined.
 
+> **Multi-platform structure, Claude Code today.** TMB ships only the Claude Code adapter as of v0.1.1. Repo layout follows the multi-platform pattern (per [Superpowers](https://github.com/obra/superpowers)): shared skills/agents/MCP at the root, thin per-platform manifests under `.<platform>-plugin/`. Codex / Cursor / OpenCode / Gemini CLI directories exist as **placeholders** — see [`docs/multi-platform.md`](docs/multi-platform.md) for the strategy. We'll build adapters when there's user demand for them.
+
 ---
 
 ## Install
