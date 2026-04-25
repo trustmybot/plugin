@@ -2,7 +2,10 @@
   "mcpServers": {
     "trajectory-server": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"]
+      "args": [
+        "--experimental-sqlite",
+        "${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
+      ]
     }
   }
 }

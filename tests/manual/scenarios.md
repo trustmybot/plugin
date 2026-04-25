@@ -44,16 +44,16 @@ During onboarding, the branching-model question is supposed to use Claude Code's
 
 ---
 
-### ③ Silent template copy after onboarding
+### ③ No template copy after onboarding (v0.3.0+)
 
 After answering the 3 onboarding questions:
 
 ```bash
-ls .claude/agents/   # should contain swe.md (and ONLY swe.md)
-ls .claude/skills/   # should contain swe-checklist, code-quality, docs-conventions, git-conventions, naming-conventions
+ls .claude/agents/ 2>&1   # should NOT exist OR be empty
+ls .claude/skills/ 2>&1   # should NOT exist OR be empty
 ```
 
-✅ Pass criteria: `swe.md` is present. `pr-reviewer.md` is **NOT** present (it's lazy-copied at first push gate). The 5 swe-side default skills are present.
+✅ Pass criteria: **`.claude/agents/` and `.claude/skills/` are EMPTY (or don't exist).** swe + pr-reviewer + 7 default skills serve from the plugin globally. The trajectory DB at `.claude/tmb/trajectory.db` SHOULD exist with identity + config rows. Onboarding only writes to MCP, never to the filesystem.
 
 ---
 
@@ -91,7 +91,7 @@ After SWE completes ④, bro should:
 
 ---
 
-### ⑦ Push gate fires + lazy pr-reviewer copy
+### ⑦ Push gate fires (pr-reviewer is global, no copy)
 
 After ④–⑥, set up a remote and try to push:
 
@@ -109,7 +109,7 @@ Run that:
 ```
 
 ✅ Pass criteria:
-- `.claude/agents/pr-reviewer.md` appears (lazy-copied).
+- `.claude/agents/pr-reviewer.md` does **NOT** appear — pr-reviewer ships globally with the plugin (v0.3.0+). CC dispatches by name to the global plugin file.
 - pr-reviewer is spawned, runs review, signs off via MCP.
 - Re-running `git push` succeeds.
 

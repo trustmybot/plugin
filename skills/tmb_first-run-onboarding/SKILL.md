@@ -1,8 +1,8 @@
 ---
 name: tmb_first-run-onboarding
-description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Uses AskUserQuestion radio UI to collect identity + branching + PR target, persists via MCP, then silently copies the swe + pr-reviewer + default-skills templates into the project. Hold-and-resume any code-touching ask received during the flow.
+description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Uses AskUserQuestion radio UI to collect identity + branching + PR target, persists via MCP, logs the onboarding_complete audit row. Does NOT copy any files — swe + pr-reviewer + default skills ship globally with the plugin. Hold-and-resume any code-touching ask received during the flow.
 agent: bro
-allowed-tools: Read, Write, Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__ledger_list
+allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__ledger_list
 ---
 
 # first-run-onboarding
@@ -208,42 +208,18 @@ config_list(agent='bro')
 
 Expected keys: `branching_model`, `pr_target`, `protected_branches`. If any is missing, RETRY the missing write. Do not close onboarding until the config_list return reflects all three.
 
-## Step 5 — Silently copy the executor + swe-side skills (NOT pr-reviewer)
+## Step 5 — Log the onboarding-complete audit row
 
-This is the **bootstrap step folded into onboarding** (the standalone `tmb_bootstrap` skill is reserved for the rare edge case of a project missing agents AFTER onboarding succeeded). No separate AskUserQuestion — onboarding already got Human approval to set up TMB; copying the executor + the skills it'll likely need is part of that setup.
+**No file copying.** As of v0.3.0, `swe` and `pr-reviewer` ship globally in the plugin's `agents/` directory and are already discoverable by CC. Same for the 7 default skills (`swe-checklist`, `code-quality`, `docs-conventions`, `git-conventions`, `naming-conventions`, `review-protocol`, `review-findings`) — all live in the plugin's `skills/` directory. Onboarding does NOT copy anything into the project. Projects can later override per-name by writing `<project>/.claude/agents/<name>.md` or `<project>/.claude/skills/<name>/SKILL.md` — but that's a per-project customization decision, not a default.
 
-**Doctrinal scope: copy ONLY what the per-task chain needs immediately.** The per-task chain is `bro → swe`; pr-reviewer fires only at push time and is copied lazily on first push-gate trigger (not here). This keeps `.claude/agents/` minimal and matches the "lazy assembly" philosophy of the Lego templates.
-
-Plugin templates are read-only. Resolve the source root via `${CLAUDE_PLUGIN_ROOT}/templates/` (use `Read` for each file, `Write` for each destination). **Verbatim copy — do not transform, normalize, or edit any body.**
-
-Files to copy:
-
-```
-templates/agents/swe.md          → <project>/.claude/agents/swe.md
-
-templates/skills/swe-checklist/SKILL.md      → <project>/.claude/skills/swe-checklist/SKILL.md
-templates/skills/code-quality/SKILL.md       → <project>/.claude/skills/code-quality/SKILL.md
-templates/skills/docs-conventions/SKILL.md   → <project>/.claude/skills/docs-conventions/SKILL.md
-templates/skills/git-conventions/SKILL.md    → <project>/.claude/skills/git-conventions/SKILL.md
-templates/skills/naming-conventions/SKILL.md → <project>/.claude/skills/naming-conventions/SKILL.md
-```
-
-**Explicitly excluded** (copied lazily on demand):
-
-- `templates/agents/pr-reviewer.md` — copied on first `git push` trigger via the push-gate flow in CLAUDE.md.
-- `templates/skills/review-protocol/SKILL.md` and `review-findings/SKILL.md` — copied alongside pr-reviewer.md when push gate first fires (they're pr-reviewer's skills, not swe's).
-
-Skip any destination file that already exists (do not overwrite — projects may have customized them between sessions).
-
-### Step 5b — REQUIRED: log the bootstrap event
-
-This is **not optional** and **must be the last MCP call before the closing message**. Skipping it leaves the trajectory without the "onboarding ran here" anchor — downstream tests and the recovery `tmb_bootstrap` skill both check for it.
+This step is **not optional** and **must be the last MCP call before the closing message**. Skipping it leaves the trajectory without the "onboarding ran here" anchor — downstream tests check for it, and `issue_resume` uses it to detect "first session in this project."
 
 ```
 ledger_log(
   agent='bro',
-  event_type='tmb_bootstrap_complete',
-  summary='Onboarding copied swe + 5 skills from plugin templates. pr-reviewer deferred until first push.',
+  from_node='bro',
+  event_type='tmb_onboarding_complete',
+  summary='Identity + branching + PR target persisted. swe + pr-reviewer + 7 default skills available globally from the plugin.',
 )
 ```
 
@@ -253,16 +229,12 @@ Then verify the row landed:
 ledger_list(agent='bro', limit=5)
 ```
 
-If `tmb_bootstrap_complete` is not in the returned rows, **retry the `ledger_log` call** before closing onboarding. Do not emit the closing message until the audit row is confirmed present.
-
-### Step 5c — Single inline status message
-
-> ✓ TMB executor (swe) and default skills installed in `.claude/`. pr-reviewer will be set up automatically the first time you push.
+If `tmb_onboarding_complete` is not in the returned rows, **retry the `ledger_log` call** before closing onboarding. Do not emit the closing message until the audit row is confirmed present.
 
 ## Closing message
 
-Emit only after **all six items** of the Mandatory MCP write sequence have completed AND `ledger_list` confirms `tmb_bootstrap_complete`:
+Emit only after the identity + 3 config writes succeeded AND `ledger_list` confirms `tmb_onboarding_complete`:
 
-> Done. Identity, branching model, and workflow templates installed. Tell me what you want to work on — trust me bro, it works.
+> Done. Identity + branching model saved. swe + pr-reviewer + default skills are already available from the plugin — no setup needed in your project. Tell me what you want to work on — trust me bro, it works.
 
 Onboarding Mode ends. If a code-touching ask was held, proceed with it now.
