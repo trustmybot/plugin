@@ -4,141 +4,122 @@
 
 **Multi-agent engineering workflow for Claude Code. MIT, free forever.**
 
-Most "agentic dev" tools either pile 14 skills onto auto-invocation (and watch Claude pick the wrong one) or ship 10 canned agents you didn't ask for. TMB does neither. It gives you **one persona (`bro`)**, **three constrained subagents** for the workflow chain, and **an agent factory** so your domain roster matches your real project — not a company org chart someone imagined.
+TMB turns Claude Code from a clever code-generator into a disciplined engineering workflow: one Human entry point (`bro`), a separate executor (`swe`), state that survives session kills, and structural gates that close around every commit.
 
-> **Multi-platform structure, Claude Code today.** TMB ships only the Claude Code adapter as of v0.1.1. Repo layout follows the multi-platform pattern (per [Superpowers](https://github.com/obra/superpowers)): shared skills/agents/MCP at the root, thin per-platform manifests under `.<platform>-plugin/`. Codex / Cursor / OpenCode / Gemini CLI directories exist as **placeholders** — see [`docs/multi-platform.md`](docs/multi-platform.md) for the strategy. We'll build adapters when there's user demand for them.
+> **Multi-platform structure, Claude Code today.** TMB ships only the Claude Code adapter as of v0.1.2. Codex / Cursor / OpenCode / Gemini CLI dirs exist as **placeholders** — see [`docs/multi-platform.md`](docs/multi-platform.md). Adapters arrive when there's user demand.
 
 ---
 
 ## Install
 
 ```bash
-# Once Claude Code's plugin marketplace is live:
 /plugin marketplace add trustmybot/plugin
 /plugin install tmb@trustmybot
 ```
 
-The plugin sits dormant until you address `@bro`. No auto-takeover, no surprise behavior — every regular Claude Code workflow keeps working in TMB-enabled sessions.
+The plugin sits dormant until you address `@bro` in a message. No auto-takeover, no surprise behavior — every regular Claude Code workflow keeps working in TMB-enabled sessions.
 
 ---
 
-## How to use it
+## How to use
 
 ```
 @bro write a todo cli
 ```
 
-That's the entry point. Saying `@bro` (or otherwise addressing bro in your message) **activates the bro persona for the rest of the session**. From that point on:
+That's the entry point. Saying `@bro` activates the bro persona for the rest of the session. From there:
 
-- **First trigger** runs onboarding — bro asks 2–3 short questions (your name, branching model, PR target). ~30 seconds. Answers persist to the trajectory DB.
-- **Code-touching asks** route through the workflow: triage → branch-id confirm → bro plans (loads `tmb_planning-simple` or `tmb_planning-difficult` per triage; asks clarifying questions only on the difficult path) → SWE implements in an isolated worktree → bro verifies → pr-reviewer signs off at push time → ship.
-- **Read-only / casual asks** (status, "what's in this dir") are handled inline by bro without spawning anyone.
+- **First trigger in a project** runs onboarding — bro asks 3 short questions (name, branching model, PR target). ~30 seconds. Answers persist to the trajectory DB.
+- **Code-touching asks** route through bro → SWE, with bro verifying SWE's work before closing the task and pr-reviewer gating at `git push` time.
+- **Read-only / casual asks** (status, "what's in this dir") are answered inline by bro without spawning anyone.
 
 Casual messages that don't address `@bro` are answered by regular Claude Code — TMB stays out of your way.
 
----
-
-## How the roster works
-
-### One persona + two subagents (ship with the plugin)
-
-The decision chain is **Human → bro → SWE**, with `pr-reviewer` as the gate. Bro plans inline. **Consultants (architect, cto, ceo, domain experts) don't ship** — bro generates them on demand via the `agent-creator` skill, with your explicit approval, into your project's `.claude/agents/`.
-
-| Name | Where it runs | What it does |
-|---|---|---|
-| `bro` | Main Claude (persona) | Your single Human entry point AND the planner. Activates when you address `@bro`. Discusses with you, captures intent into the trajectory DB, writes task specs to `tasks.spec_body`, spawns SWE, drives the retry loop, and (when you ask for a second opinion) generates a consultant agent in your project then spawns it. The only thing the Human ever talks to. |
-| `swe` | Subagent (Task tool, worktree) | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
-| `pr-reviewer` | Subagent (Task tool) | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
-
-Subagents auto-reject direct Human `@-mention` invocation (`@swe` / `@pr-reviewer`, plus any project-level consultant you generate). They're internal — talk to `@bro`, and bro routes to them.
-
-**Consultants are project-local.** The first time you ask `@bro get the architect's read on X` (or `cto`, or `legal-reviewer`, or anything domain-specific), bro proposes an agent spec, asks your permission, writes `.claude/agents/<name>.md`, then spawns it in **consultant mode** (analysis-only — server-rejected if the consultant tries to write workflow state). On every subsequent ask in that project, bro reuses the file. Each project ends up with the consultants that project actually needs, not a canned company-org-chart.
-
-**Override any subagent per-project** by creating a same-named file in the project's `.claude/agents/`. The local file wins.
-
-### Domain agents arrive on-demand
-
-When you hit a scenario the four-agent backbone doesn't cover — "I need a `legal-reviewer` for this merger PR", "this project needs a `ceo` to make scope calls", "we need a `cto` for IEC 62304 compliance" — bro invokes the `agent-creator` skill: drafts a tailored prompt for your project's context, shows it to you, asks your explicit permission, and writes it to `.claude/agents/` on approval. **Every new agent requires your explicit yes.** No silent ceremony, no canned company-org-chart pretending to know your domain.
-
-Once created, the agent lives in your project forever (until you delete it). Next session, bro routes to it by name.
+Walkthroughs of every workflow path: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
 ---
 
-## Workflow contract
+## Why TMB
 
-State is SQLite-canonical; files are generated snapshots. Your project's `docs/trustmybot/` directory hosts human-facing artifacts:
+Three structural innovations. Each closes a specific failure mode that single-agent Claude Code hits in real projects.
 
-```
-docs/trustmybot/
-├── snapshots/<issue>.md     ← on-demand human-readable snapshot of issue state
-└── architecture/
-    ├── auto/                ← regenerated via /tmb refresh-architecture
-    │   ├── codebase-tree.md
-    │   ├── erd.md
-    │   ├── module-graph.md
-    │   └── changelog.md
-    └── manual/              ← human-curated ADRs + narrative
-        ├── decisions/
-        ├── data-flow.md
-        ├── infrastructure.md
-        └── security-model.md
-```
+### 1. Agent Harness — split planning from execution
 
-Per-task execution specs live in the trajectory DB (`tasks.spec_body`),
-not on disk — bro writes them via MCP, SWE reads via
-`task_get(task_id)`. Only architecture narrative and snapshots are on
-the filesystem.
+TMB separates two cognitive jobs into two contexts:
 
-Everything else — goals, discussions, validation attempts, task status, skill effectiveness, identity, branching-model config — lives in the plugin's trajectory DB (see below). The loop: **intent captured → alignment via discussion → tasks → SWE in worktree → pr-reviewer → ship**. Every transition auditable; kill Claude mid-loop, bro resumes on session start.
+- **`bro` — planner + gate.** Long-term, full-picture. Discusses with you, designs the breakdown, writes task specs to MCP, verifies SWE's work, drives retry loops. **Never writes source code itself** (one narrow exception: Direct Mode for ≤3-line typo fixes).
+- **`swe` — executor.** Short-term, single-task focus. Implements one task per spawn in an isolated git worktree. **Cannot self-approve** — bro re-runs the spec's verification before closing the task; pr-reviewer signs off before push.
+
+Memory is structurally split: bro carries strategy, swe carries only the task spec. No cross-contamination, no swe drifting into "while I'm here, let me also refactor X." `requireRoles` middleware in the bundled MCP server rejects out-of-role calls (consultants can't write workflow state, swe can't close its own task).
+
+> **Single-agent equivalent:** one context juggles goals + spec + diff + tests + verification, then claims "done" because the same context that wrote the code is also judging it. Verification becomes wishful thinking.
+
+Details: [`CLAUDE.md`](CLAUDE.md) (bro persona), [`templates/agents/swe.md`](templates/agents/swe.md), [`templates/agents/pr-reviewer.md`](templates/agents/pr-reviewer.md).
+
+### 2. Trajectory Memory — state survives session kills
+
+Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/trajectory.db`. Five tables you'll touch directly:
+
+- **`issues`** — your goals + objectives, one row per ask
+- **`discussions`** — Human ↔ bro Q+A, ADR notes, design decisions
+- **`roundtables`** + **`roundtable_votes`** — multi-consultant debate transcripts (when convened)
+- **`tasks`** — execution specs, status, commit SHAs
+- **`validation_attempts`** — pr-reviewer verdicts; the structural record of what was approved
+- **`ledger`** + **`audit`** — append-only event log + tool I/O for replay
+
+Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes via `issue_resume` + `task_get`. The DB is canonical state — files are reserved for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills).
+
+Auto-regenerated architecture docs in `docs/trustmybot/architecture/auto/` keep the codebase map current; bro updates them lazily when ≥25 commits drift.
+
+> **Single-agent equivalent:** kill Claude → lose your place. Re-explain context every session. `CLAUDE.md` doesn't survive a mid-task interruption.
+
+Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema + role-by-tool matrix), [`docs/architecture/FILES.md`](docs/architecture/FILES.md) (file map).
+
+### 3. Agentic Workflow — structural gates, not habits
+
+The harness + memory combine into a workflow with **two structural gates**, both hook-enforced:
+
+- **Bro's task gate.** After SWE returns, bro re-runs the spec's `## Verification` commands, sanity-checks the diff against `## Files`, confirms each `## Success Criteria` bullet. Only then does the task flip to `closed`. **Non-negotiable, never skipped.**
+- **PR-reviewer's push gate.** `scripts/hooks/git-push-guard.sh` blocks `git push` to protected branches until every commit in the push range has a passing `validation_attempts.verdict='pass'` row.
+
+Plus structural decision-chain enforcement: `requireRoles` rejects role violations at the MCP boundary. Consultants (architect, cto, ceo, pm, your domain reviewers) literally cannot write `task_create_batch`, `task_update_status`, or `validation_record`. They're advisors, not deciders.
+
+> **Single-agent equivalent:** the agent says "done" — no structural gate before push, no second context to second-guess the verdict, no audit trail of what was actually verified.
+
+Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) (10 workflow flowcharts), [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) (latency budget + doctrine).
 
 ---
 
-## Persistent trajectory (bundled MCP)
+## Roster on disk
 
-TMB ships a tiny local MCP server with a SQLite-backed trajectory database. Every issue, task, validation attempt, skill usage, and review verdict is recorded. Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes where you left off. The database lives in `${CLAUDE_PLUGIN_DATA}/trajectory.db` and survives plugin updates.
+The plugin ships **zero subagents**. Bro is a CLAUDE.md persona on main Claude. Every other agent lives as a **Lego template** that bro copies into `<project>/.claude/agents/` on demand:
 
-Inspired by — and compatible with the lessons of — [claude-mem](https://github.com/thedotmack/claude-mem) and [claude-brain](https://github.com/mikeadolan/claude-brain). Different architecture: TMB's DB is a **workflow state machine**, not a memory bank.
-
----
-
-## What makes TMB different
-
-| Concern | TMB's take |
+| Template | When bro copies it |
 |---|---|
-| Routing | Explicit — bro is the single door. No skill auto-invocation roulette. |
-| State | Bundled SQLite via MCP. Queryable across sessions. |
-| Info isolation | SWE literally cannot read your strategic context (issue body, discussion entries) while writing code. No context pollution. |
-| Verification | Hard hook gates — no push until pr-reviewer has signed off on every task. |
-| Roster | 4 global workflow agents; domain agents on-demand. Not a canned company. |
-| Agent creation | User-approved only. No silent role sprawl. |
+| `swe.md` | First-run onboarding (silent, no extra question) |
+| `pr-reviewer.md` | First time the push gate fires (`@bro review before push`) |
+| `architect.md`, `cto.md`, `ceo.md`, `pm.md` | First time you ask for that consultant's read |
 
----
+Domain consultants outside this set (`legal-reviewer`, `security-reviewer`, …) are drafted on demand via the `tmb_agent-creator` skill — bro proposes a tailored prompt, you approve, the file gets written. No canned company-org-chart pretending to know your domain.
 
-## Compared to adjacent tools
-
-- **claude-mem** — passive memory layer, observational. TMB is active, opinionated workflow.
-- **superpowers** — skill library with auto-invocation. TMB has explicit routing via bro to avoid wrong-skill pickup.
-- **claude-brain** — SQLite + MCP for memory recall. TMB's SQLite is for trajectory/validation/retry state, not fact recall.
+Override any agent by editing the project-local file. Local wins.
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for branch workflow, test expectations, and design principles.
-
-Run the full test suite before opening a PR:
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch workflow, test expectations, design principles, and the release ritual.
 
 ```bash
 bash tests/run-all.sh
 ```
 
-Full testing guide — including manual dogfood walkthrough and how to write new hook/MCP tests — at [tests/README.md](tests/README.md).
-
-**Architecture reference** for new contributors:
-- [`docs/architecture/FILES.md`](docs/architecture/FILES.md) — file-by-file map of the whole plugin
-- [`docs/architecture/ERD.md`](docs/architecture/ERD.md) — SQLite schema with FK + soft-ref tables
-- [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) — 9 workflow flowcharts (onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry, roundtable)
-- [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — dogfood test plan: verbatim user-prompt triggers + expected behavior for every flow
+Architecture reference for new contributors:
+- [`CLAUDE.md`](CLAUDE.md) — bro persona, first-action chain, push gate, Direct Mode
+- [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) — workflow flowcharts
+- [`docs/architecture/FILES.md`](docs/architecture/FILES.md) — file-by-file map
+- [`docs/architecture/ERD.md`](docs/architecture/ERD.md) — SQLite schema
+- [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — Layer 3 dogfood test plan
 
 ---
 
