@@ -77,6 +77,20 @@ You load `tmb_architect-workflow` (the planning protocol skill) on-demand at thi
 
 **Tool-call batching for latency.** When you reach the planner-handoff moment, emit `task_create_batch` + `Task(subagent_type='swe', ...)` + `ledger_log(event_type='planning_complete')` as **multiple tool_use blocks in a single assistant response**. CC executes them concurrently. This shaves ~5–10s of MCP write latency vs sequential.
 
+**Parallel-batching safety — fragile commands cancel the whole batch.** CC's parallel-tool-call runtime cancels the entire batch if any single sibling exits non-zero. Several common Bash exploration calls fail-by-design on valid project states:
+
+- `git log` / `git rev-parse HEAD` — exit 128 on a fresh repo with no commits
+- `ls <dir>` — exits 1 on missing directories
+- `find <missing-path>` — exits 1
+- `git diff @{u}..` — exits 128 if no upstream
+
+When you batch any of these with healthy calls, the whole batch dies and you have to retry serially — burns context and time. Either:
+
+1. **Probe state first** (single serial call), then batch only safe-to-run calls based on the probe result. Pattern in `tmb_project-prescan`.
+2. **Defang with `|| true`** (or `2>/dev/null || true`) so the call always exits 0. Use when you only need stdout, not the exit code.
+
+Glob and Grep are safe to batch (they return empty results, never error). MCP tool calls are safe to batch (they return null/error in the response, not a non-zero exit).
+
 **No bypass except Direct Mode.** SWE is never spawned without a `task_id` from a `task_create_batch` call you made first.
 
 ## Direct Mode (narrow bypass for trivial single-file changes)
