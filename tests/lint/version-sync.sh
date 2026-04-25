@@ -5,8 +5,7 @@
 #   mcp/trajectory-server/package.json → the MCP subpackage version
 #   package.json (root workspace)      → the workspace root version
 #
-# All three MUST equal each other on every commit. monitors/package.json
-# is allowed to diverge (it has its own ABI; no MCP-server coupling).
+# All three MUST equal each other on every commit.
 #
 # Catches: stale workspace-root version (we shipped 0.3.2 through v0.1.2),
 # release-prep PRs that bump only one of the three.

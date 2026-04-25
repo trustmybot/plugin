@@ -1,17 +1,22 @@
 # TMB Workflows — Flowcharts
 
-> **As of v0.1.2:** the decision chain is `Human → bro → SWE` with two
+> **As of v0.3.0:** the decision chain is `Human → bro → SWE` with two
 > distinct gates — bro is the **task gate** (closes after SWE returns +
 > verifies); pr-reviewer is the **push gate** (fires only at `git push`
 > over a batch of unsigned commits). All consultants (architect, cto,
 > ceo, pm, project-local) advise but never write workflow state.
 >
-> **Plugin ships ZERO subagents.** Bro is a CLAUDE.md persona on main
-> Claude. SWE, pr-reviewer, and the four consultant templates live in
-> `templates/agents/` and are copied into `<project>/.claude/agents/`
-> on demand. The protocol skills referenced below all carry the `tmb_`
-> prefix (in `plugin/skills/`); template skills carry no prefix
-> (in `plugin/templates/skills/`, copied into projects).
+> **Two-layer agent model.** Bro is a CLAUDE.md persona on main Claude.
+> The workflow backbone — `swe` and `pr-reviewer` — ships globally in
+> the plugin's `agents/` directory and is always available; project-local
+> `<project>/.claude/agents/<name>.md` overrides per-name. Consultants
+> (`architect`, `cto`, `ceo`, `pm`) ship as templates in `templates/agents/`
+> and are instantiated per-project on demand via `tmb_agent-creator`.
+>
+> All skills — both `tmb_*` protocol skills and the default workflow
+> skills (`swe-checklist`, `code-quality`, `docs-conventions`, etc.) —
+> live in `plugin/skills/` and are globally discoverable. Project-local
+> `<project>/.claude/skills/<name>/SKILL.md` overrides by name.
 
 Reference workflows — onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry, roundtable, consultant invocation — with the agent / skill / MCP-tool / DB-table / hook involvement spelled out for each.
 
@@ -41,41 +46,47 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 **Involved:**
 - Agent: `bro` (no spawn — handles inline)
-- MCP tools: `identity_get`, `identity_set`, `config_get`, `config_set`
-- DB tables written: `identity`, `plugin_config`
-- Skills: none (inline in bro prompt)
+- MCP tools: `identity_get`, `identity_set`, `config_get`, `config_set`, `ledger_log`
+- DB tables written: `identity`, `plugin_config`, `ledger`
+- Skills: `tmb_first-run-onboarding`
 - Hooks: none
+- **Filesystem ops: NONE.** v0.3.0+ ships `swe`, `pr-reviewer`, and 7 default skills globally; nothing is copied into the project.
 
 ```mermaid
 sequenceDiagram
     participant H as Human
     participant G as Bro
-    participant DB as SQLite (identity, plugin_config)
+    participant DB as SQLite (identity, plugin_config, ledger)
 
     Note over G: Session start — checks identity_get + config_get
     G->>DB: identity_get()
     G->>DB: config_get("branching_model")
     DB-->>G: both null → enter Onboarding Mode
 
-    G->>H: "Hey, I'm bro. What should I call you?"
-    H-->>G: name (or blank)
+    G->>H: AskUserQuestion (radio: name / git-config detected)
+    H-->>G: name choice
     G->>DB: identity_set(human_name)
 
-    G->>H: "How does your team branch? (1) github-flow (2) gitflow (3) custom"
-    H-->>G: choice
-    G->>H: "What's your PR target branch?"
-    H-->>G: branch
+    G->>H: AskUserQuestion (radio: branching_model)
+    H-->>G: github-flow | gitflow | custom
+    G->>H: AskUserQuestion (radio: pr_target)
+    H-->>G: main | dev | …
+    G->>H: AskUserQuestion (multi-radio: protected_branches)
+    H-->>G: selected branches
     G->>DB: config_set("branching_model", ...)
     G->>DB: config_set("pr_target", ...)
     G->>DB: config_set("protected_branches", [...])
 
+    G->>DB: ledger_log(event_type='tmb_onboarding_complete', ...)
     G->>H: "Done. Tell me what you want to work on."
 ```
 
 **Notes:**
+- **No file copying.** swe + pr-reviewer + default skills already serve from the plugin globally. Onboarding only persists identity + branching config to MCP and writes one audit-row to ledger.
 - Onboarding mode HOLDS any code-touching ask received during the flow — runs to completion first, then proceeds.
-- Read-only asks during onboarding (e.g., "what is this repo?") are answered, then onboarding resumes.
+- Read-only asks during onboarding are answered inline, then onboarding resumes.
 - Re-runnable any time via the `tmb_reonboard` skill (bro invokes it on phrases like "rename yourself", "switch to gitflow", etc.).
+- Resolution rule for backbone agents: if `<project>/.claude/agents/swe.md` (or `pr-reviewer.md`) exists → use local; else use the global plugin-shipped one. Local creation is opt-in via `tmb_agent-creator` with explicit Human approval.
 
 ---
 
@@ -231,7 +242,7 @@ flowchart TD
 
 **Trigger:** Recurring pattern that needs encoding for reproducibility (e.g., a checklist agents keep skipping; a procedure invoked from multiple agents). Bro can spot the pattern itself, OR the Human can ask explicitly (`@bro create a skill that …`).
 
-**Lego doctrine matters here.** Agents are immutable identity (Lego studs). Skills are additive bricks that extend an agent's capabilities. **Bro never edits the agent template body**; instead, when a new skill is created, bro appends its name to the consuming agent's `skills:` array on the project-local copy in `.claude/agents/`. The plugin-shipped templates in `templates/agents/` stay untouched.
+**Lego doctrine matters here.** Agents are immutable identity (Lego studs). Skills are additive bricks that extend an agent's capabilities. **Bro never edits the agent body**; instead, when a new skill is created, bro appends its name to the consuming agent's `skills:` array. For backbone agents (swe, pr-reviewer) shipped globally, this means writing a project-local override file (`<project>/.claude/agents/<name>.md`) that copies the global body and extends the `skills:` array — the plugin-shipped global file stays untouched.
 
 **Involved:**
 - Agent: `bro` (drives the flow inline, asks the Human to confirm)

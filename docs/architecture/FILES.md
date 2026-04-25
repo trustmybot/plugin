@@ -46,19 +46,19 @@ plugin/
 ├── LICENSE                           # MIT
 ├── README.md                         # project README + quickstart
 │
-├── # Plugin runtime — agents (empty by design — bro is in CLAUDE.md, all others are templates)
-├── agents/                           # EMPTY at ship — bro is a CLAUDE.md persona, every other
-│                                     # agent is a Lego template under templates/agents/.
-│                                     # Bro copies templates into <project>/.claude/agents/ on demand.
+├── # Plugin runtime — workflow backbone agents (always global, project can override per-name)
+├── agents/                           # 2 backbone agents — auto-discovered by CC, no copy step
+│   ├── pr-reviewer.md                # push gate — runs at git push over batch of unsigned tasks
+│   └── swe.md                        # executor — one task per spawn, isolated worktree, atomic close
 │
-├── # Plugin runtime — protocol skills (always tmb_ prefix, can't be overridden by name)
-├── skills/                           # 17 plugin protocol skills, all <name>/SKILL.md form
+├── # Plugin runtime — skills (all global; project can override per-name)
+├── skills/                           # 16 protocol skills (tmb_*) + 7 default workflow skills
+│   ├── # Protocol skills (immutable, plugin-owned, can't be overridden by name)
 │   ├── tmb_agent-creator/            # propose & write new agent files on user approval (template-copy or from-scratch)
-│   ├── tmb_bootstrap/                # recovery skill — rebuilds .claude/agents/ if hand-deleted
 │   ├── tmb_branch-id-proposal/       # bro derives branch_id + opens MCP issue before loading planning skill
 │   ├── tmb_create-hook/              # how to add a new hook script safely
 │   ├── tmb_feedback-loop/            # bro ↔ swe ↔ pr-reviewer retry/escalation protocol
-│   ├── tmb_first-run-onboarding/     # bro's identity + branching capture + silent template copy on first activation
+│   ├── tmb_first-run-onboarding/     # bro's identity + branching capture (no file copy in v0.3.0+)
 │   ├── tmb_lazy-regen-check/         # bro's session-start architecture-regen heuristic (25-commit threshold)
 │   ├── tmb_planning-difficult/       # bro's planning protocol when triage=difficult (env probe + Q+A + ADR + verification)
 │   ├── tmb_planning-simple/          # bro's planning protocol when triage=simple (defaults table + batched handoff + verification)
@@ -69,26 +69,23 @@ plugin/
 │   ├── tmb_roundtable-cleanup/       # post-roundtable archive + DB cleanup
 │   ├── tmb_skill-creator/            # propose & write new skill files; appends to consuming agent's skills:
 │   ├── tmb_swe-spawn-workflow/       # bro's protocol for spawning SWE with task_id + spec
-│   └── tmb_validate-swe-output/      # fork-Explore verification helper used by bro's verification step
+│   ├── tmb_validate-swe-output/      # fork-Explore verification helper used by bro's verification step
+│   ├── # Default workflow skills (used by global agents; project overrides per-name)
+│   ├── code-quality/                 # generic quality gates (error handling, security, edges)
+│   ├── docs-conventions/             # docs-update rules + prompt-editing discipline
+│   ├── git-conventions/              # emoji-prefixed commits, branch naming
+│   ├── naming-conventions/           # file/variable/test naming rules
+│   ├── review-findings/              # pr-reviewer output format
+│   ├── review-protocol/              # pr-reviewer full protocol
+│   └── swe-checklist/                # SWE pre-commit checklist (lazy-loaded by SWE on demand)
 │
-├── # Lego templates copied into projects (bodies immutable; project extends via skills:)
+├── # Consultant templates (opt-in — copied per-project on first request via tmb_agent-creator)
 ├── templates/
-│   ├── agents/                       # 6 minimal agent templates (≤30 lines each, lint-enforced)
+│   ├── agents/                       # 4 consultant templates (≤30 lines each, lint-enforced)
 │   │   ├── architect.md              # consultant — system-design analysis, on-demand
 │   │   ├── ceo.md                    # consultant — product scope, prioritization, business framing
 │   │   ├── cto.md                    # consultant — tech strategy, scaling, stack trade-offs
-│   │   ├── pm.md                     # consultant — product strategy, user-need framing
-│   │   ├── pr-reviewer.md            # push gate — runs at git push over batch of unsigned tasks
-│   │   └── swe.md                    # executor — one task per spawn, isolated worktree, atomic close
-│   │
-│   ├── skills/                       # 7 default skills bro copies into project on first need
-│   │   ├── code-quality/SKILL.md     # generic quality gates (error handling, security, edges)
-│   │   ├── docs-conventions/SKILL.md # docs-update rules + prompt-editing discipline
-│   │   ├── git-conventions/SKILL.md  # emoji-prefixed commits, branch naming
-│   │   ├── naming-conventions/SKILL.md # file/variable/test naming rules
-│   │   ├── review-findings/SKILL.md  # pr-reviewer output format (lazy-copied with pr-reviewer.md)
-│   │   ├── review-protocol/SKILL.md  # pr-reviewer full protocol (lazy-copied with pr-reviewer.md)
-│   │   └── swe-checklist/SKILL.md    # SWE pre-commit checklist (lazy-loaded by SWE on demand)
+│   │   └── pm.md                     # consultant — product strategy, user-need framing
 │   │
 │   └── docs-trustmybot/              # seeded docs skeleton for downstream projects
 │       ├── architecture/
@@ -126,7 +123,7 @@ plugin/
 │       ├── .gitignore                # dist/, node_modules/, *.db variants
 │       ├── README.md                 # MCP server build/test/run instructions
 │       ├── bun.lock                  # dependency lockfile
-│       ├── package.json              # @modelcontextprotocol/sdk + better-sqlite3
+│       ├── package.json              # @modelcontextprotocol/sdk; SQLite via Node stdlib (node:sqlite)
 │       ├── tsconfig.json             # strict TS, emits to dist/
 │       │
 │       ├── docs/
@@ -190,11 +187,6 @@ plugin/
 │               ├── tasks.ts          # task_create_batch, task_get, task_update_status (requireRoles)
 │               └── validation.ts     # validation_record (requireRoles=['pr-reviewer']), validation_history
 │
-├── # Background status-line process
-├── monitors/
-│   ├── package.json                  # better-sqlite3 for read-only DB tail
-│   └── tmb-trajectory-events.js      # emits [TMB] status lines from ledger events
-│
 ├── # Cross-platform strategy doc
 ├── docs/
 │   ├── multi-platform.md             # how the per-platform adapter pattern works
@@ -240,10 +232,9 @@ plugin/
 
 ## Summary
 
-- **Plugin ships ZERO subagents.** Bro is a CLAUDE.md persona; everything else is a Lego template.
-- **17 protocol skills** (all `tmb_*` prefix, in `skills/`, can't be name-overridden by projects)
-- **6 agent templates + 7 default skills** in `templates/` (copied into `<project>/.claude/` on demand)
+- **Two-layer agent model.** Bro is a CLAUDE.md persona. Backbone agents (`swe`, `pr-reviewer`) ship globally in `agents/`. Consultants (`architect`, `cto`, `ceo`, `pm`) ship as templates in `templates/agents/`, instantiated per-project on demand.
+- **23 skills total** in `skills/`: 16 protocol skills (`tmb_*`, plugin-owned) + 7 default workflow skills (overridable by name in `<project>/.claude/skills/`).
 - **5 hook scripts** (`git-guards`, `git-push-guard`, `require-task-spec`, `create-worktree`, `diagnostic/probe-bash`)
-- **14-table SQLite schema** (see [`ERD.md`](ERD.md))
-- **Test layers**: lint (2 scripts) + MCP integration (9 .mjs suites) + MCP unit (20 .ts suites in `mcp/trajectory-server/src/test/`) + hook tests (2 .sh suites) + Layer 3 manual dogfood (`tests/manual/scenarios.md`).
+- **14-table SQLite schema** via `node:sqlite` (Node stdlib, no native deps; Node ≥22 required) — see [`ERD.md`](ERD.md).
+- **Test layers (L0-L6)**: see [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`../../tests/run-all.sh`](../../tests/run-all.sh). 10 lint scripts + 245 MCP unit + 43 MCP integration + 27 hook unit + 10-item manual checklist + Docker install-smoke + post-tag canary.
 - **Multi-platform structure** present as placeholders; only `.claude-plugin/` is implemented (see [`../multi-platform.md`](../multi-platform.md)).

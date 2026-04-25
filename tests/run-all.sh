@@ -44,7 +44,7 @@ run_step "L1 lint: release script safety guards"      bash "$HERE/lint/release-s
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 
 printf "\n=== L2 unit: MCP handlers (node --test on built dist/) ===\n"
-if (cd "$PLUGIN_ROOT/mcp/trajectory-server" && bun run build && node --test dist/test/*.test.js); then
+if (cd "$PLUGIN_ROOT/mcp/trajectory-server" && bun run build && node --experimental-sqlite --test dist/test/*.test.js); then
   printf "→ PASS\n"
 else
   printf "→ FAIL\n"

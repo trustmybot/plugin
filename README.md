@@ -54,7 +54,7 @@ Memory is structurally split: bro carries strategy, swe carries only the task sp
 
 > **Single-agent (conflict of interest):** one context juggles goals + spec + diff + tests + verification, then claims "done" because the same context that wrote the code is also marking its own homework. You should never trust a guy self-merging their own PR.
 
-Details: [`CLAUDE.md`](CLAUDE.md) (bro persona), [`templates/agents/swe.md`](templates/agents/swe.md), [`templates/agents/pr-reviewer.md`](templates/agents/pr-reviewer.md).
+Details: [`CLAUDE.md`](CLAUDE.md) (bro persona), [`agents/swe.md`](agents/swe.md), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
 
 ### 2. Trajectory Memory — state survives session kills
 
@@ -89,7 +89,7 @@ Long-term engineering quality decays when verification is implicit. TMB makes it
 
 > **Single-agent (no audit):** the agent says "tests pass" — you trust the chat scrollback. Three days later production breaks, the chat is gone, the reasoning is gone, and the only artifact is a green CI badge that didn't catch what mattered.
 
-Details: [`docs/architecture/FLOWS.md` § 6 (Push gate)](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`templates/agents/pr-reviewer.md`](templates/agents/pr-reviewer.md), [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (`validation_attempts` table).
+Details: [`docs/architecture/FLOWS.md` § 6 (Push gate)](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md), [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (`validation_attempts` table).
 
 ### 4. Agentic Workflow — composable, not monolithic
 

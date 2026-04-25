@@ -10,9 +10,12 @@
 #
 # Each `RUN test` line is a fail-fast assertion. Build success = release shippable.
 
-FROM node:20-slim
+FROM node:22-slim
 
-# Install bun + sqlite (CC's plugin install runtime assumes bun for workspace handling)
+# Install bun + sqlite (CC's plugin install runtime assumes bun for workspace handling).
+# Node 22 is the minimum because the MCP server uses node:sqlite (stdlib, behind
+# --experimental-sqlite on 22.x, stable on 24+) — that's how v0.3.0 eliminated
+# the entire native-binding bug class that broke v0.2.0.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl unzip git ca-certificates sqlite3 \
  && rm -rf /var/lib/apt/lists/* \
@@ -44,11 +47,32 @@ RUN test -f mcp/trajectory-server/dist/index.js \
 RUN test -f mcp/trajectory-server/dist/schema.sql \
  || (echo "❌ FAIL: dist/schema.sql missing — build didn't copy schema" && exit 1)
 
-# A3: MCP server actually spawns and responds to tools/list
+# A3: MCP server spawns and responds to tools/list
 RUN echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
-  | timeout 8 node mcp/trajectory-server/dist/index.js 2>/dev/null \
+  | timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js 2>/dev/null \
   | grep -q '"name":"identity_get"' \
  || (echo "❌ FAIL: MCP server did not respond with tools/list containing identity_get" && exit 1)
+
+# A3b: SQLite actually opens + a real tool call round-trips.
+# tools/list does NOT exercise the DB. v0.2.0 shipped broken because the
+# native better-sqlite3 binding wasn't installed but tools/list still
+# responded (no tool had opened a DB yet). v0.3.0 switched to node:sqlite
+# (stdlib), which removes that class of bug — but we keep the assertion to
+# catch *any* future cause of "MCP starts but can't actually serve calls."
+RUN ( \
+    echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'; \
+    echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'; \
+    echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity_get","arguments":{"agent":"bro"}}}'; \
+    sleep 1; \
+  ) \
+  | TRAJECTORY_DB_PATH=/tmp/smoke-test.db timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js > /tmp/smoke-out.log 2>&1; \
+  # Two distinct asserts: identity_get-shaped result present AND no error frame for id=2.
+  # identity_get's success payload carries the literal "human_name" field; absence means it crashed.
+  grep -q 'human_name' /tmp/smoke-out.log \
+   && ! grep '"id":2' /tmp/smoke-out.log | grep -q '"error"' \
+  || (echo "❌ FAIL: identity_get call failed — DB open or first-write broken"; \
+      cat /tmp/smoke-out.log; exit 1)
+RUN echo "✓ A3b: SQLite open + identity_get round-tripped"
 
 # A4: every shipped agent template parses (frontmatter + body, ≤30 lines)
 RUN bash tests/lint/agent-line-budget.sh \
@@ -64,9 +88,22 @@ RUN for h in scripts/hooks/*.sh; do \
       bash -n "$h" || (echo "❌ FAIL: $h has syntax error" && exit 1); \
     done
 
-# A7: .mcp.json points at a path that actually exists in the install
-RUN test -f "$(node -e 'const m=require("./.mcp.json");console.log(m.mcpServers["trajectory-server"].args[0].replace("${CLAUDE_PLUGIN_ROOT}", "/plugin"))')" \
- || (echo "❌ FAIL: .mcp.json command path does not exist in installed tree" && exit 1)
+# A7: every path-shaped arg in .mcp.json resolves in the installed tree.
+# args may interleave Node flags (--experimental-sqlite) with the entry point;
+# we test all args that *look* like a path (start with ${CLAUDE_PLUGIN_ROOT}).
+RUN node -e ' \
+  const m = require("./.mcp.json"); \
+  const args = m.mcpServers["trajectory-server"].args; \
+  for (const a of args) { \
+    if (a.includes("${CLAUDE_PLUGIN_ROOT}")) { \
+      const path = a.replace("${CLAUDE_PLUGIN_ROOT}", "/plugin"); \
+      if (!require("fs").existsSync(path)) { \
+        console.error("❌ FAIL: .mcp.json arg references missing path:", a, "→", path); \
+        process.exit(1); \
+      } \
+    } \
+  } \
+'
 
 # Final marker so the build log shows we made it all the way
 RUN echo "✓ Layer 0 install-smoke: all assertions passed"
