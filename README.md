@@ -69,11 +69,12 @@ Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/traj
 
 Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes via `issue_resume` + `task_get`. The DB is canonical state — files are reserved for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills).
 
-**Big token dividend.** SWE never sees bro's planning conversation — `task_get(id)` returns only the spec (~1–2 KB) instead of the whole discussion thread. Bro doesn't carry SWE's tool outputs forward — those land in `audit` and `ledger`, not bro's context. Consultants return distilled analyses, not raw reasoning. On resume, `issue_resume` loads a tight summary instead of replaying the full session. Each agent runs on the smallest context that does its job.
+**Big token dividend — no codebase-rediscovery tax.** A cold-start agent without persistent memory has to re-derive what your project even *is* every session: glob the tree, read scattered files, walk git log, query the schema. Hundreds of tool round-trips, each one pulling content back into context. TMB sidesteps this two ways:
 
-Auto-regenerated architecture docs in `docs/trustmybot/architecture/auto/` keep the codebase map current; bro updates them lazily when ≥25 commits drift.
+- **Auto-regenerated architecture docs.** `docs/trustmybot/architecture/auto/{codebase-tree, module-graph, erd, changelog}.md` are pre-computed snapshots of the project's shape. Bro updates them lazily when ≥25 commits drift, so they're cheap. Bro reads ~4 files (~20 KB total) and knows the codebase — instead of dozens of Glob + Read calls bouncing into context.
+- **Local SQLite, no remote round-trips.** The trajectory DB lives at `<project>/.claude/tmb/trajectory.db`. No memory service to call, no API to query, no rate-limit. `issue_resume` returns the active issue + recent ledger events as one local read.
 
-> **Single-agent (amnesia + bloat):** kill Claude → lose your place. Re-explain context every session. The single context grows linearly with conversation length, so each new turn costs more than the last; `CLAUDE.md` doesn't survive a mid-task interruption either.
+> **Single-agent (amnesia + rediscovery tax):** kill Claude → lose your place. Re-explain context every session. Worse, the agent re-derives the codebase from scratch on every cold start — globbing, reading, walking git log — paying the discovery tax in tokens before it can do any actual work.
 
 Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema + role-by-tool matrix), [`docs/architecture/FILES.md`](docs/architecture/FILES.md) (file map).
 
