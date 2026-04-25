@@ -442,16 +442,25 @@ Expect at least one row with `kind='decision'`.
 
 ## Flow C — Consultant invocation (NEW — bro-as-planner model)
 
-When the Human asks bro for a second opinion, bro spawns a consultant agent (`architect`, `cto`, `ceo`, or any user-created agent) in **analysis-only** mode. Consultants return a read; bro summarizes; Human decides. Consultants must NOT call `task_create_batch`, `task_update_status`, `validation_record`, or `issue_create` (server-enforced via `requireRoles`).
+When the Human asks bro for a second opinion, bro checks for the named consultant in `.claude/agents/`. If absent, bro invokes `agent-creator` to draft + write the file with explicit Human approval (consultants are project-local, not shipped). Then bro spawns it in **analysis-only** mode. Consultants return a read; bro summarizes; Human decides. Consultants must NOT call `task_create_batch`, `task_update_status`, `validation_record`, or `issue_create` (server-enforced via `requireRoles`).
 
 ### C.1 — Architect invoked for a second opinion on a design choice
 
-**Prerequisites:** Onboarded scratch project. An open issue with a design question (you can seed via `2.1.bro` and stop before SWE spawn, or open a fresh design discussion via bro).
+**Prerequisites:** Onboarded scratch project. An open issue with a design question (you can seed via `2.1.bro` and stop before SWE spawn, or open a fresh design discussion via bro). `.claude/agents/architect.md` may or may not exist yet — both branches tested below.
 
 **Trigger prompt:**
 > `@bro get the architect's read on whether we should use SQLite or a JSON file for this CLI's storage. Single-user laptop scope.`
 
-**Expected agent chain:**
+**Expected agent chain (when `architect.md` doesn't exist yet):**
+
+| # | Agent | Model | Via | Purpose |
+|---|---|---|---|---|
+| 1 | bro (main Claude) | opus | persona | Detects no `.claude/agents/architect.md`; invokes `agent-creator` skill |
+| 1a | bro | opus | AskUserQuestion | Proposes architect spec; gets Human approval |
+| 1b | bro | opus | Write tool | Writes `.claude/agents/architect.md` to project |
+| 2 | architect | opus | Task tool (consultant) | Analyzes; returns analysis text + appends `discussion_append(kind='analysis')` |
+
+**Expected agent chain (when `architect.md` already exists):**
 
 | # | Agent | Model | Via | Purpose |
 |---|---|---|---|---|

@@ -442,9 +442,11 @@ flowchart TD
 
 **Trigger:** Human asks for a second opinion (`@bro get the cto's read on X`) **OR** bro decides it wants to challenge its own plan and spawns a consultant on its own initiative.
 
+Consultants are **project-local** — the plugin ships none. The first time a consultant of a given name is needed, bro invokes `agent-creator` to draft + write the file with explicit Human approval. Every subsequent ask in the same project reuses the file.
+
 **Involved:**
-- Agents: `bro` (decision-maker), one consultant subagent (e.g. `architect`, `cto`, or any user-created agent)
-- Skills: `architect-workflow` (the consultant agent loads this if it's the architect; other consultants follow their own prompts)
+- Agents: `bro` (decision-maker), one consultant subagent (project-local, e.g. `architect`, `cto`, `legal-reviewer`)
+- Skills: `agent-creator` (first-time create), each consultant follows its own prompt
 - MCP tools: `issue_get_with_discussions` (read), `discussion_append(kind='analysis'|'concern')` (write)
 - DB tables: `discussions` (one or more `kind='analysis'` or `kind='concern'` rows)
 - Hooks: none
@@ -453,18 +455,26 @@ flowchart TD
 sequenceDiagram
     participant H as Human
     participant B as Bro
-    participant C as Consultant (e.g. architect)
+    participant C as Consultant (project-local)
     participant DB as SQLite
 
     H->>B: "get architect's read on the SQLite-vs-JSON storage choice"
+    alt .claude/agents/architect.md exists
+        B->>B: skip create
+    else first time
+        B->>B: invoke agent-creator skill
+        B->>H: propose agent spec
+        H-->>B: approve
+        B->>B: write .claude/agents/architect.md
+    end
     B->>C: spawn(consultant: analysis-only, issue_id=<N>, question)
     C->>DB: issue_get_with_discussions(issue_id) — reads context
     C->>C: read code if relevant; build analysis
-    C->>DB: discussion_append(kind='analysis', author='architect', body=analysis)
+    C->>DB: discussion_append(kind='analysis', author='<consultant-name>', body=analysis)
     C-->>B: structured analysis (position + risks + recommendation if asked)
     B->>B: summarize for Human
     B-->>H: "architect says: X, with these risks. Your call."
-    Note over B,DB: Forbidden for the consultant: task_create_batch, task_update_status,<br/>validation_record, issue_create — all server-rejected with 'forbidden'
+    Note over B,DB: Server-rejected for consultants: task_create_batch, task_update_status,<br/>validation_record, issue_create — all return 'forbidden' via requireRoles
 ```
 
 **Notes:**
