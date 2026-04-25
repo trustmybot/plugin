@@ -142,14 +142,14 @@ plugin/
 │   ├── lazy-regen-check/SKILL.md     # bro's session-start architecture-regen heuristic (25-commit threshold)
 │   ├── naming-conventions/SKILL.md   # file/variable/test naming rules
 │   ├── project-prescan/SKILL.md      # bro's deterministic inventory pass on first code-touching ask
-│   ├── refresh-architecture/SKILL.md # user-facing "regenerate architecture docs" entry
+│   ├── tmb_refresh-architecture/SKILL.md # user-facing "regenerate architecture docs" entry
 │   ├── review-findings/SKILL.md      # pr-reviewer output format
 │   ├── review-protocol/SKILL.md      # pr-reviewer full protocol
 │   ├── roundtable/SKILL.md           # multi-agent debate coordinator
 │   ├── roundtable-cleanup/SKILL.md   # post-roundtable DB cleanup
 │   ├── swe-checklist/SKILL.md        # SWE pre-commit checklist
 │   ├── swe-spawn-workflow/SKILL.md   # architect's protocol for spawning SWE
-│   ├── tmb-reonboard/SKILL.md        # re-run onboarding flow + mid-session identity rename
+│   ├── tmb_reonboard/SKILL.md        # re-run onboarding flow + mid-session identity rename
 │   └── validate-swe-output/SKILL.md  # fork Explore to verify SWE task
 │
 ├── templates/

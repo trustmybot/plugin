@@ -31,9 +31,9 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → user | `agent-creator` | — | — |
 | 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | — | `skills` | — |
 | 6 | [PR review](#6-pr-review) | After SWE marks task `completed` | pr-reviewer (returns to bro) | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional) | `require-review-sign` |
-| 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `refresh-architecture` | `regen_state`, `file_registry` | — |
+| 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture` | `regen_state`, `file_registry` | — |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | `validation_record(verdict='fail')` | bro ↔ swe ↔ pr-reviewer | `feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `require-review-sign` |
-| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 consultants | `roundtable`, `roundtable-cleanup` | `discussions`, `ledger` | — |
+| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 consultants | `tmb_roundtable`, `roundtable-cleanup` | `discussions`, `ledger` | — |
 | **C** | [Consultant invocation](#c-consultant-invocation-new) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / etc.) | `architect-workflow` (architect side, when consulted) | `discussions` (kind='analysis'/'concern') | — |
 
 ---
@@ -78,7 +78,7 @@ sequenceDiagram
 **Notes:**
 - Onboarding mode HOLDS any code-touching ask received during the flow — runs to completion first, then proceeds.
 - Read-only asks during onboarding (e.g., "what is this repo?") are answered, then onboarding resumes.
-- Re-runnable any time via the `tmb-reonboard` skill (bro invokes it on phrases like "rename yourself", "switch to gitflow", etc.).
+- Re-runnable any time via the `tmb_reonboard` skill (bro invokes it on phrases like "rename yourself", "switch to gitflow", etc.).
 
 ---
 
@@ -313,7 +313,7 @@ sequenceDiagram
 
 **Involved:**
 - Agent: `bro` (orchestrates inline)
-- Skill: `refresh-architecture`
+- Skill: `tmb_refresh-architecture`
 - MCP tools: `regen_state_get`, `regen_state_update`, `file_registry_scan_commits`, `architecture_regen`
 - DB tables: `regen_state`, `file_registry`
 - Files written: `docs/trustmybot/architecture/auto/{codebase-tree,erd,module-graph,changelog}.md`
@@ -393,7 +393,7 @@ flowchart TD
 
 If the skill finds < 2 suitable participants, it escalates back to the caller — roundtable requires at least 2 voices.
 
-**Trigger conditions** (any of these — see `skills/roundtable/SKILL.md` for the authoritative list):
+**Trigger conditions** (any of these — see `skills/tmb_roundtable/SKILL.md` for the authoritative list):
 
 - **Divergent opinions need structured airing** — different agents have given conflicting recommendations on the same issue (visible via `discussion_list`).
 - **Multi-dimension trade-offs** — a decision spans product / technical / business axes; no single agent owns all dimensions.
@@ -410,7 +410,7 @@ If the skill finds < 2 suitable participants, it escalates back to the caller �
 
 - Convener: `architect` (skill is in architect's frontmatter)
 - Participants: 2-4 user-created planning agents from `.claude/agents/`. SWE always excluded.
-- Skills: `roundtable` (mechanics), `roundtable-cleanup` (post-synthesis archive)
+- Skills: `tmb_roundtable` (mechanics), `roundtable-cleanup` (post-synthesis archive)
 - MCP tools: `ledger_log` (records the summary as `event_type='roundtable_summary'`); `discussion_list` to inspect prior conflicting positions
 - DB tables: `ledger` (where the summary lands today). The `roundtables` + `roundtable_votes` tables exist in the schema as reserved structure for a future structured-record upgrade; current skill writes to `ledger`.
 - Hooks: none

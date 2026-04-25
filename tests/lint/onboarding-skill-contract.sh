@@ -32,7 +32,7 @@ require_not_contains() {
 }
 
 printf "=== first-run-onboarding/SKILL.md contract ===\n"
-F="$PLUGIN_ROOT/skills/first-run-onboarding/SKILL.md"
+F="$PLUGIN_ROOT/skills/tmb_first-run-onboarding/SKILL.md"
 
 require_contains "$F" "AskUserQuestion"             "references AskUserQuestion at least once"
 require_contains "$F" "mandatory"                   "marks AskUserQuestion call as mandatory"
@@ -58,7 +58,7 @@ require_not_contains "$F" '(e.g. "Zax"'             "no 'e.g. \"Zax\"' literal t
 require_not_contains "$F" '(e.g. \"Zax\")'          "no escaped Zax example"
 
 printf "\n=== branch-id-proposal/SKILL.md contract ===\n"
-F="$PLUGIN_ROOT/skills/branch-id-proposal/SKILL.md"
+F="$PLUGIN_ROOT/skills/tmb_branch-id-proposal/SKILL.md"
 
 require_contains "$F" "AskUserQuestion"             "uses AskUserQuestion for the proposal form"
 require_contains "$F" "No \"Skip architect\""        "explicitly forbids the Skip-architect option"
@@ -67,15 +67,15 @@ require_contains "$F" "Upgrade triage to difficult" "offers triage upgrade for a
 require_not_contains "$F" "Skip architect — let"    "no Skip-architect-let-bro/SWE wording in any option"
 require_not_contains "$F" "Type something."         "no Type-something. placeholder (Other is auto-added)"
 
-printf "\n=== tmb-reonboard/SKILL.md contract ===\n"
-F="$PLUGIN_ROOT/skills/tmb-reonboard/SKILL.md"
+printf "\n=== tmb_reonboard/SKILL.md contract ===\n"
+F="$PLUGIN_ROOT/skills/tmb_reonboard/SKILL.md"
 
 require_contains "$F" "AskUserQuestion"             "references AskUserQuestion"
 require_contains "$F" "Keep"                        "offers Keep-current-value as an option pattern"
 require_contains "$F" "identity_reset"              "handles Anonymous → identity_reset path"
 
 printf "\n=== architect-workflow/SKILL.md contract ===\n"
-F="$PLUGIN_ROOT/skills/architect-workflow/SKILL.md"
+F="$PLUGIN_ROOT/skills/tmb_architect-workflow/SKILL.md"
 
 require_contains "$F" "discussion_append"           "uses discussion_append for persistence"
 require_contains "$F" "kind='question'"             "persists questions"

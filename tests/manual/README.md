@@ -22,7 +22,7 @@ That's what this directory is for. Everything here is run by a human, in an inte
 
 - **Before tagging a release** — walk at minimum every scenario in the "blocker" set (currently: 1.1, 2.1, 3.1, 6.1, 8.1).
 - **After changing an agent prompt** — re-run scenarios that exercise that agent.
-- **After changing `first-run-onboarding` or `tmb-reonboard`** — re-run Flow 1.
+- **After changing `first-run-onboarding` or `tmb_reonboard`** — re-run Flow 1.
 - **When an automated test passes but something still feels wrong** — likely a symptom the automated layers don't cover. Walk the relevant scenario.
 
 ## Why this is in `tests/` and not `docs/`

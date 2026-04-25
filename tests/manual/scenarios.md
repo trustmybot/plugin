@@ -269,7 +269,7 @@ sqlite3 .claude/tmb/trajectory.db "SELECT COUNT(*) FROM issues; SELECT COUNT(*) 
 
 | # | Agent | Model | Via | Purpose |
 |---|---|---|---|---|
-| 1 | `tmb:bro` | opus | user @-mention | Recognizes re-onboard phrase; invokes `tmb-reonboard` skill inline (no subagent spawn) |
+| 1 | `tmb:bro` | opus | user @-mention | Recognizes re-onboard phrase; invokes `tmb_reonboard` skill inline (no subagent spawn) |
 
 **Expected MCP tool calls (in order):**
 
@@ -307,7 +307,7 @@ SQL
 
 **Common failure modes:**
 
-- **Bro re-asks every question with no `Keep` default** → `tmb-reonboard` isn't reading current state. Check skill's Step 1.
+- **Bro re-asks every question with no `Keep` default** → `tmb_reonboard` isn't reading current state. Check skill's Step 1.
 - **protected_branches regresses to just `[pr_target]`** → the dedup-with-main logic for gitflow didn't run. Skill Step 3 bug.
 
 **Pass:** [ ]
@@ -600,7 +600,7 @@ Expect at least one row per closed task with `verdict='pass'` (or `'fail'` follo
 
 **Expected behavior:**
 1. Bro recognizes the phrase (no architect spawn, no triage).
-2. Invokes `refresh-architecture` skill with `scope:'full'`.
+2. Invokes `tmb_refresh-architecture` skill with `scope:'full'`.
 3. Calls `architecture_regen`.
 4. 4 files updated under `docs/trustmybot/architecture/auto/`: `codebase-tree.md`, `erd.md`, `module-graph.md`, `changelog.md`.
 5. Each carries a generated-header on line 1.
@@ -632,7 +632,7 @@ sqlite3 .claude/tmb/trajectory.db "SELECT target, last_seen_sha FROM regen_state
 **Trigger prompt:**
 > `fix the navbar colour`
 
-**Expected:** Bro silently invokes `refresh-architecture` with `scope:'incremental'`. No user-facing output for the regen. Then proceeds with normal flow 2 chain.
+**Expected:** Bro silently invokes `tmb_refresh-architecture` with `scope:'incremental'`. No user-facing output for the regen. Then proceeds with normal flow 2 chain.
 
 **Pass:** [ ]
 
@@ -692,7 +692,7 @@ This flow has **four distinct corners** depending on whether the trigger is expl
 
 **Expected behavior:**
 1. Bro recognizes "roundtable" magic word + topic.
-2. Routes to architect; architect invokes `roundtable` skill.
+2. Routes to architect; architect invokes `tmb_roundtable` skill.
 3. Skill globs `.claude/agents/`, picks 2-4 best-matching participants by frontmatter description (excluding SWE).
 4. Spawns participants in **parallel** (multiple `Task` calls in one message).
 5. Each participant returns a position + reasoning.
@@ -733,7 +733,7 @@ WHERE event_type='roundtable_summary' ORDER BY id DESC LIMIT 1;
 **Expected behavior:**
 1. Bro routes to architect (could be ceo since it's strategic — bro may ask the framing question).
 2. Architect detects: this isn't a single-domain decision (touches product timing, technical readiness, business risk).
-3. Architect invokes `roundtable` skill **without explicit user request**.
+3. Architect invokes `tmb_roundtable` skill **without explicit user request**.
 4. Skill picks ceo + cto (+ architect as convener).
 5. Same flow as 9.1 from there.
 
