@@ -3,7 +3,7 @@ description: Fork an Explore subagent to verify a completed SWE task against its
 context: fork
 agent: Explore
 allowed-tools: Read, Grep, Glob, Bash
-invoked-by: architect
+invoked-by: bro
 ---
 
 # validate-swe-output
@@ -13,15 +13,15 @@ invoked-by: architect
 Verify a completed SWE task in a forked context window. Confirm MCP task status,
 re-run the spec's `## Verification` commands, diff actual changes against the
 declared `## Files` list, and return a structured verdict block to the calling
-Architect. The forked context means no side effects can leak back to the
-Architect's workspace.
+planner (bro). The forked context means no side effects can leak back to the
+planner (bro)'s workspace.
 
-The Architect invokes this skill; the forked Explore agent runs all checks
+The planner (bro) invokes this skill; the forked Explore agent runs all checks
 independently, and only the verdict crosses back. Saves roughly 30K tokens
-per validation cycle by keeping pytest/diff output out of the Architect's
+per validation cycle by keeping pytest/diff output out of the planner (bro)'s
 context window.
 
-## B. Inputs (provided by the Architect in the invocation message)
+## B. Inputs (provided by the planner (bro) in the invocation message)
 
 - `task_id` — MCP task ID (integer); the primary input; used to fetch the spec via `task_get`
 - `commit_range` — SHA range of the SWE commit(s), e.g. `HEAD~1..HEAD`
@@ -63,7 +63,7 @@ Stop immediately.
 If the spec body has no `## Verification` section:
 ```
 verdict: escalate
-findings: Spec has no ## Verification section. Task is underspecified — escalate to Architect.
+findings: Spec has no ## Verification section. Task is underspecified — escalate.
 ```
 Stop immediately.
 
@@ -117,7 +117,7 @@ Record which cases are covered and which are missing.
 
 Call `validation_record(task_id=task_id, verdict='pass'|'fail'|'escalate', notes=...)`.
 
-Then return one of the following verdicts to the Architect.
+Then return one of the following verdicts to the planner (bro).
 
 **Pass** — MCP status is `completed`, all verification commands succeeded,
 diff matches spec files, all error/edge cases are covered:
@@ -159,7 +159,7 @@ findings: {exact error text from the failing tool or command}
   or Edit.
 - MCP calls are allowed: `task_get` (read) and `validation_record` (write) only.
 - The forked context window means side effects cannot leak back to the calling
-  Architect's workspace state, but this constraint still applies as defense in
+  planner (bro)'s workspace state, but this constraint still applies as defense in
   depth.
-- Return the verdict block and nothing else as the final output. The Architect
+- Return the verdict block and nothing else as the final output. The planner (bro)
   reads only that block.

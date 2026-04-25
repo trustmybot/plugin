@@ -1,5 +1,12 @@
 # TMB Workflows — Flowcharts
 
+> **STALE — pending refresh.** The flows below describe the legacy
+> `bro → architect → swe → pr-reviewer` chain. As of `feat/bro-as-planner`,
+> the architect agent is no longer the default planner; bro plans inline by
+> loading `architect-workflow` and spawns SWE directly. Architect remains as
+> an on-demand consultant. These flowcharts will be regenerated in a
+> follow-up PR.
+
 Eight reference workflows — onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry — with the agent / skill / MCP-tool / DB-table / hook involvement spelled out for each.
 
 Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the file map, [`SCENARIOS.md`](../../tests/manual/scenarios.md) for the **trigger prompts that exercise each flow** (dogfood test plan), [`../../CLAUDE.md`](../../CLAUDE.md) for top-level rules.

@@ -30,8 +30,8 @@ output EXACTLY this and STOP:
 
 ```
 REJECTED: No task_id=<N> found in prompt. SWE cannot work without an
-authorized task row. Route: Human → Architect (creates tasks row) →
-SWE (executes).
+authorized task row. Route: Human → bro (creates tasks row via
+task_create_batch) → SWE (executes).
 ```
 
 Do NOT attempt to be helpful. Do NOT explore the codebase. Just output the
@@ -56,7 +56,7 @@ source of truth.
 - NEVER use `find` — use Glob tool
 - NEVER use `grep` — use Grep tool
 - NEVER call ANY tool before completing check 1 above
-- SWE MUST NOT call any MCP tool that mutates `tasks.spec_body` (there isn't one) — the spec body is architect-authored and immutable within a task lifecycle
+- SWE MUST NOT call any MCP tool that mutates `tasks.spec_body` (there isn't one) — the spec body is planner-authored (bro by default) and immutable within a task lifecycle
 
 ---
 
