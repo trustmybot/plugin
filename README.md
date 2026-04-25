@@ -52,7 +52,7 @@ TMB separates two cognitive jobs into two contexts:
 
 Memory is structurally split: bro carries strategy, swe carries only the task spec. No cross-contamination, no swe drifting into "while I'm here, let me also refactor X." `requireRoles` middleware in the bundled MCP server rejects out-of-role calls (consultants can't write workflow state, swe can't close its own task).
 
-> **Single-agent equivalent:** one context juggles goals + spec + diff + tests + verification, then claims "done" because the same context that wrote the code is also marking its own homework.
+> **Single-agent (conflict of interest):** one context juggles goals + spec + diff + tests + verification, then claims "done" because the same context that wrote the code is also marking its own homework. You should never trust a guy self-merging their own PR.
 
 Details: [`CLAUDE.md`](CLAUDE.md) (bro persona), [`templates/agents/swe.md`](templates/agents/swe.md), [`templates/agents/pr-reviewer.md`](templates/agents/pr-reviewer.md).
 
@@ -71,7 +71,7 @@ Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes v
 
 Auto-regenerated architecture docs in `docs/trustmybot/architecture/auto/` keep the codebase map current; bro updates them lazily when ≥25 commits drift.
 
-> **Single-agent equivalent:** kill Claude → lose your place. Re-explain context every session. `CLAUDE.md` doesn't survive a mid-task interruption.
+> **Single-agent (amnesia):** kill Claude → lose your place. Re-explain context every session. `CLAUDE.md` doesn't survive a mid-task interruption.
 
 Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema + role-by-tool matrix), [`docs/architecture/FILES.md`](docs/architecture/FILES.md) (file map).
 
@@ -84,7 +84,7 @@ The harness + memory combine into a workflow with **two structural gates**, both
 
 Plus structural decision-chain enforcement: `requireRoles` rejects role violations at the MCP boundary. Consultants (architect, cto, ceo, pm, your domain reviewers) literally cannot write `task_create_batch`, `task_update_status`, or `validation_record`. They're advisors, not deciders.
 
-> **Single-agent equivalent:** the agent says "done" — no structural gate before push, no second context to second-guess the verdict, no audit trail of what was actually verified.
+> **Single-agent (no brakes):** the agent says "done" — no structural gate before push, no second context to second-guess the verdict, no audit trail of what was actually verified.
 
 Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) (10 workflow flowcharts), [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) (latency budget + doctrine).
 
