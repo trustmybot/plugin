@@ -66,18 +66,25 @@ discussion_append(
    matched to the triage result (see "Template Selection" below). Required H2
    sections: Description, Files, Success Criteria, Verification, Out of Scope,
    Commit.
-5. Call `task_create_batch` passing `spec_body` to insert rows in SQLite.
-   The row columns (`issue_id`, `branch_id`, `title`, `status`, `created_at`)
-   hold the structured fields; the body is the free-form contract SWE reads.
-6. Spawn SWE per task (one worktree per task) using `task_id=<N>` in the
-   Task-tool prompt. Load `skills/swe-spawn-workflow/SKILL.md` first if you
-   haven't already.
-7. Validate per `skills/validate-swe-output/SKILL.md`.
-8. Spawn PR Reviewer before reporting phase complete.
-9. Close tasks via `task_update_status(status='closed')` once review passes.
+5. **Batched handoff (single response).** Emit `task_create_batch` + the
+   `Task` spawn for SWE + `ledger_log(event_type='planning_complete')` as
+   multiple tool_use blocks in one assistant response. CC executes them
+   concurrently; saves 5–10s of sequential MCP-write latency. The
+   `task_create_batch` row needs to land before SWE's `task_get` runs, but
+   the MCP server processes the create write first, and the SWE subagent
+   doesn't reach `task_get` for a few seconds anyway. Load
+   `skills/tmb_swe-spawn-workflow/SKILL.md` first if you haven't already.
+6. SWE returns with `status='completed'` and a `commit_sha`. **You (bro)
+   immediately flip the task to `closed` via
+   `task_update_status(agent='bro', status='closed')`.**
+   No pr-reviewer at task close — pr-reviewer is the push gate, not
+   the task gate. See bro's CLAUDE.md `## Push gate` for the deferred
+   review flow.
+7. If more tasks remain in the planned batch, return to step 5.
 
-**Loops until all tasks are closed.** After step 8, check for remaining open
-tasks → return to step 2.
+**Loops until all tasks are closed.** When everything's closed, optionally
+generate a snapshot via `issue_snapshot_md` for human review and consider
+closing the issue with `issue_close(agent='bro')`.
 
 ### Intent Change Mid-Workflow
 
@@ -101,8 +108,8 @@ Target: 3–5 tool calls, ≤20k tokens, ≤30s wall-clock.
 2. `discussion_append(kind='note', body='Triage: simple')`.
 3. Author the spec body (trivial template, ≤8000 chars). Put picked defaults as explicit **Assumptions** bullets in the Description so SWE and the Human can see them.
 4. `task_create_batch(tasks=[<one task>], waive_scope_gate=true, waive_scope_gate_reason='<reason naming the defaults>')`. The waiver is the legitimate simple-path use of `waive_scope_gate`; the reason is persisted to `ledger` as `scope_gate_waived` for pr-reviewer audit.
-5. `ledger_log(event_type='planning_complete', summary='...')`.
-6. Return a short handoff summary. Bro spawns SWE next.
+5. **Batched handoff (single response).** Emit `task_create_batch` (step 4 above) + `Task(subagent_type='swe', prompt='task_id=<N>...')` + `ledger_log(event_type='planning_complete', summary='...')` as multiple tool_use blocks in one assistant response. CC runs them in parallel. SWE picks up the task row a few seconds later via `task_get`.
+6. SWE returns with `status='completed'`. Flip to `status='closed'` immediately via `task_update_status(agent='bro', status='closed')`. **No pr-reviewer at task close** — pr-reviewer is the push gate.
 
 ### Picking defaults (not asking)
 
@@ -433,4 +440,4 @@ tasks. Sequence by `depends_on`.
 ---
 
 > SWE spawn rules (worktree isolation, task spec template, parallel execution):
-> `skills/swe-spawn-workflow/SKILL.md`
+> `skills/tmb_swe-spawn-workflow/SKILL.md`

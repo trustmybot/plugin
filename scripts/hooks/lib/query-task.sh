@@ -22,8 +22,11 @@ tmb_have_sqlite() {
   command -v sqlite3 >/dev/null 2>&1
 }
 
-# Print branch_ids of tasks that are completed in DB but missing
-# validation_attempts row with verdict=pass.
+# Print branch_ids of tasks that are closed and have a commit_sha but
+# lack a passing validation_attempts row. Under the bro-as-task-gate
+# doctrine, bro auto-flips tasks to 'closed' immediately after SWE
+# returns; pr-reviewer fires only at push time. Unsigned == closed
+# tasks whose commits haven't been reviewed yet.
 tmb_unsigned_tasks() {
   local db
   db=$(tmb_db_path) || true
@@ -32,7 +35,8 @@ tmb_unsigned_tasks() {
   sqlite3 "$db" "
     SELECT t.branch_id
       FROM tasks t
-     WHERE t.status = 'completed'
+     WHERE t.status = 'closed'
+       AND t.commit_sha IS NOT NULL
        AND NOT EXISTS (
          SELECT 1 FROM validation_attempts v
           WHERE v.task_id = CAST(t.id AS TEXT)

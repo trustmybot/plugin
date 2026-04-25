@@ -1,8 +1,8 @@
 ---
 name: tmb_first-run-onboarding
-description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Uses AskUserQuestion radio UI to collect identity + branching + PR target, then persists via MCP. Hold-and-resume any code-touching ask received during the flow.
+description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Uses AskUserQuestion radio UI to collect identity + branching + PR target, persists via MCP, then silently copies the swe + pr-reviewer + default-skills templates into the project. Hold-and-resume any code-touching ask received during the flow.
 agent: bro
-allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list
+allowed-tools: Read, Write, Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__ledger_log
 ---
 
 # first-run-onboarding
@@ -206,10 +206,46 @@ config_list(agent='bro')
 
 Expected keys: `branching_model`, `pr_target`, `protected_branches`. If any is missing, RETRY the missing write. Do not close onboarding until the config_list return reflects all three.
 
+## Step 5 — Silently copy the agent + skill templates into the project
+
+This is the **bootstrap step folded into onboarding** (formerly the standalone `tmb_bootstrap` skill, now reserved for the rare edge case of a project missing agents AFTER onboarding succeeded). No separate AskUserQuestion — onboarding already got Human approval to set up TMB; copying the workflow agents is part of that setup.
+
+Plugin templates are read-only. Resolve the source root via `${CLAUDE_PLUGIN_ROOT}/templates/` (use `Read` for each file, `Write` for each destination). **Verbatim copy — do not transform, normalize, or edit any body.**
+
+Files to copy:
+
+```
+templates/agents/swe.md          → <project>/.claude/agents/swe.md
+templates/agents/pr-reviewer.md  → <project>/.claude/agents/pr-reviewer.md
+
+templates/skills/swe-checklist/SKILL.md      → <project>/.claude/skills/swe-checklist/SKILL.md
+templates/skills/review-protocol/SKILL.md    → <project>/.claude/skills/review-protocol/SKILL.md
+templates/skills/review-findings/SKILL.md    → <project>/.claude/skills/review-findings/SKILL.md
+templates/skills/code-quality/SKILL.md       → <project>/.claude/skills/code-quality/SKILL.md
+templates/skills/docs-conventions/SKILL.md   → <project>/.claude/skills/docs-conventions/SKILL.md
+templates/skills/git-conventions/SKILL.md    → <project>/.claude/skills/git-conventions/SKILL.md
+templates/skills/naming-conventions/SKILL.md → <project>/.claude/skills/naming-conventions/SKILL.md
+```
+
+Skip any destination file that already exists (do not overwrite — projects may have customized them between sessions).
+
+**Single inline status message after the copies:**
+
+> ✓ TMB workflow agents (swe, pr-reviewer) and default skills installed in `.claude/`.
+
+Then log the copy event:
+
+```
+ledger_log(agent='bro', event_type='tmb_bootstrap_complete',
+  summary='Onboarding copied 2 agents + 7 skills from plugin templates.')
+```
+
+(Same `event_type` as the standalone `tmb_bootstrap` skill so audit history is consistent.)
+
 ## Closing message
 
-After every expected write succeeded AND `config_list` confirmed the state, emit:
+After every expected write succeeded AND `config_list` confirmed the state AND templates are copied, emit:
 
-> Done. Identity and branching model saved. Tell me what you want to work on — trust me bro, it works.
+> Done. Identity, branching model, and workflow templates installed. Tell me what you want to work on — trust me bro, it works.
 
 Onboarding Mode ends. If a code-touching ask was held, proceed with it now.

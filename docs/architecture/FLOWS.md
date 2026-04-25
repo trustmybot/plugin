@@ -86,61 +86,59 @@ sequenceDiagram
 
 **Trigger:** Human asks for a code change; bro triages as `simple` (does NOT require an update to `docs/trustmybot/architecture/`).
 
+**New chain (post #64):** bro is both planner AND task gate; pr-reviewer is the **push gate**, not the task gate. Tasks close as soon as SWE returns.
+
 **Involved:**
-- Agents: `bro` (planner), `swe` (executor), `pr-reviewer` (gate)
-- Skills loaded by bro on demand: `architect-workflow` (the planner protocol), `swe-spawn-workflow` (right before SWE handoff), `validate-swe-output` (when SWE returns)
-- Skills loaded by swe: `swe-checklist`
-- Skills loaded by pr-reviewer: `review-protocol`, `review-findings`, `code-quality`
-- MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `validation_record`, `ledger_log`
-- DB tables: `issues`, `tasks`, `discussions`, `validation_attempts`, `ledger`, `audit`
-- Hooks: `require-task-spec` (gates SWE spawn), `require-review-sign` (gates push), `git-guards` (commit branch check)
+- Agents: `bro` (planner + task gate), `swe` (executor)
+- Skills loaded by bro on demand: `tmb_architect-workflow` (the planner protocol), `tmb_swe-spawn-workflow` (right before SWE handoff)
+- Skills loaded by swe: `swe-checklist` **only on demand** (when spec verification needs interpretation; not eager)
+- MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `ledger_log` (no `validation_record` per task — that fires at push time)
+- DB tables: `issues`, `tasks`, `discussions`, `ledger`, `audit`
+- Hooks: `require-task-spec` (gates SWE spawn), `git-push-guard` (gates `git push`), `git-guards` (commit branch check)
 
 ```mermaid
 sequenceDiagram
     participant H as Human
-    participant B as Bro (planner)
+    participant B as Bro (planner + task gate)
     participant S as SWE (worktree)
-    participant P as PR-Reviewer
     participant DB as SQLite
 
     H->>B: "implement X"
-    B->>B: triage → simple; load architect-workflow skill
-    B->>DB: issue_create(agent='bro', objective, description)
-    DB-->>B: issue_id
-    B->>DB: discussion_append(kind='intent', author='human')
+    B->>B: triage → simple; load tmb_architect-workflow skill
+    B->>DB: issue_create(agent='bro')
+    B->>DB: discussion_append(kind='intent')
     B->>DB: discussion_append(kind='note', body='Triage: simple')
     B->>B: pick defaults (simple fast-lane); author trivial-template spec_body
-    B->>DB: task_create_batch(agent='bro', spec_body, waive_scope_gate=true, reason)
-    DB-->>B: task_id
-    B->>DB: ledger_log(event_type='planning_complete')
 
-    B->>S: spawn(task_id=N) [hook: require-task-spec verifies row]
-    S->>DB: task_get(agent='swe', task_id=N)
+    Note over B,DB: BATCHED IN ONE RESPONSE — three tool_use blocks in parallel
+    par
+        B->>DB: task_create_batch(agent='bro', spec_body, waive_scope_gate=true)
+    and
+        B->>S: spawn Task(swe, task_id=N) [hook: require-task-spec verifies row]
+    and
+        B->>DB: ledger_log(event_type='planning_complete')
+    end
+
+    Note over S: BATCHED IN SWE'S FIRST RESPONSE
+    par
+        S->>DB: task_get(agent='swe', task_id=N)
+    and
+        S->>S: git worktree add (parallel cold-start)
+    end
     S->>DB: task_update_status(agent='swe', status='running')
-    S->>S: create worktree, implement, run verification
+    S->>S: implement per spec, run verification
     S->>S: git commit
     S->>DB: task_update_status(agent='swe', status='completed', commit_sha)  [#W4 atomic]
 
-    B->>B: load validate-swe-output skill (forked Explore subagent)
-    B->>P: spawn(task_id=N)
-    P->>DB: task_get(agent='pr-reviewer', task_id=N)
-    P->>P: pr-review-toolkit + TMB overlay checks
-    alt PASS
-        P->>DB: validation_record(agent='pr-reviewer', task_id, verdict='pass', feedback)
-        B->>DB: task_update_status(agent='bro', status='closed')
-    else FAIL
-        P->>DB: validation_record(agent='pr-reviewer', task_id, verdict='fail', feedback)
-        Note over B,S: → flow 8 (bro drives retry; re-spawns SWE with feedback)
-    end
-
-    B-->>H: result summary ("Trust me bro, it works.")
+    B->>DB: task_update_status(agent='bro', status='closed')  [no pr-reviewer at this stage]
+    B-->>H: "task closed — push when ready (pr-reviewer fires at push time)"
 ```
 
 **Notes:**
-- Bro is the only mutator of `issues`, the planning side of `tasks`, `ledger`, and (post-review) `task_update_status('closed')`. `requireRoles` enforces this server-side.
-- The whole loop runs without surfacing to the Human until result.
+- Bro is the only mutator of `issues`, the planning side of `tasks`, `ledger`, and the closing-side `task_update_status('closed')`. `requireRoles` enforces this server-side.
+- The whole loop runs without surfacing to the Human until task close.
 - `require-task-spec.sh` verifies the `tasks` row has `status IN (pending, open)` AND non-empty `spec_body` BEFORE allowing the SWE spawn — silent block if the row isn't real.
-- `require-review-sign.sh` blocks pushes to protected branches if any `tasks.status='completed'` row lacks a `validation_attempts.verdict='pass'` row.
+- **`git-push-guard.sh`** (formerly `require-review-sign.sh`) blocks pushes to protected branches if any pushed commit's task lacks a `validation_attempts.verdict='pass'` row. See **Flow R — Push Gate** below for what happens then.
 
 ---
 
@@ -260,48 +258,63 @@ flowchart TD
 
 ---
 
-## 6. PR Review
+## 6. PR Review (push gate, post #64)
 
-**Trigger:** SWE marks `task_update_status(status='completed', commit_sha=X)`; architect spawns pr-reviewer to validate.
+**Trigger:** Human runs `git push` (or `gh pr create`) → `git-push-guard.sh` PreToolUse hook scans for unsigned commits in the push range → blocks with a "Run `@bro review before push`" message → Human invokes that → bro spawns pr-reviewer for each unsigned task.
+
+PR-reviewer no longer fires per-task at task-close. It fires at push time over a batch of unsigned commits. This amortizes the cost across multiple tasks per push.
 
 **Involved:**
-- Agent: `pr-reviewer`
-- Skills: `review-protocol`, `review-findings`, `code-quality`
+- Agents: `bro` (orchestrator + push-gate driver), `pr-reviewer` (one per unsigned task, parallel where possible)
 - External: `pr-review-toolkit:review-pr` (mechanical pass; plugin dependency)
 - MCP tools: `task_get`, `validation_record`, `discussion_append` (on FAIL), `issue_snapshot_md` (on PASS), `regen_state_get` (auto-dir check)
 - DB tables: `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL note)
-- Hooks: `require-review-sign.sh` enforces this gate at push time
+- Hooks: `git-push-guard.sh` blocks `git push` until all push-range tasks have a `validation_attempts.verdict='pass'` row
 
 ```mermaid
 sequenceDiagram
-    participant A as Architect
-    participant P as PR-Reviewer
-    participant T as pr-review-toolkit<br/>(external plugin)
+    participant H as Human
+    participant Hook as git-push-guard.sh
+    participant B as Bro
+    participant P as PR-Reviewer<br/>(one per unsigned task)
+    participant T as pr-review-toolkit
     participant DB as SQLite
 
-    A->>P: spawn(task_id=N)
-    P->>DB: task_get(N) → spec_body, status, commit_sha
-    P->>T: review-pr(diff, context=spec)
-    T-->>P: structured findings
-
-    P->>P: TMB overlay checks
-    Note over P: 1) scope: changed files match ## Files<br/>2) success_criteria met<br/>3) atomic-close (#W4): tasks.status='completed'<br/>4) auto/architecture-dir check (if applicable)
-
-    alt overlay PASS
-        P->>DB: issue_snapshot_md(issue_id) → docs/trustmybot/snapshots/
-        P->>DB: validation_record(task_id, attempt_n, verdict='pass', feedback='LGTM')
-        P-->>A: PASS — architect closes via task_update_status('closed')
-    else overlay FAIL
-        P->>DB: validation_record(task_id, attempt_n, verdict='fail', feedback=findings)
-        P->>DB: discussion_append(kind='note', body=findings) [optional]
-        P-->>A: FAIL — see flow 8 retry loop
+    H->>Hook: git push origin feat/cli-todo
+    Hook->>DB: query tasks WHERE commit_sha IN (push-range) AND no pass verdict
+    Hook-->>H: BLOCK — "N unsigned tasks. Run `@bro review before push`"
+    H->>B: @bro review before push
+    B->>DB: list unsigned tasks (status='closed', commit_sha set, no pass row)
+    par one spawn per unsigned task
+        B->>P: spawn(task_id=N1)
+    and
+        B->>P: spawn(task_id=N2)
     end
+
+    loop per pr-reviewer
+        P->>DB: task_get(N) → spec_body, status, commit_sha
+        P->>T: review-pr(diff, context=spec)
+        T-->>P: structured findings
+        P->>P: TMB overlay checks (scope, success_criteria, #W4, auto-dir)
+        alt PASS
+            P->>DB: validation_record(verdict='pass', feedback='LGTM')
+        else FAIL
+            P->>DB: validation_record(verdict='fail', feedback=findings)
+        end
+    end
+
+    B-->>H: All passed — push unblocked. (or: N failed — see findings.)
+    H->>Hook: git push (retry)
+    Hook->>DB: re-query — all signed
+    Hook-->>H: ALLOW
 ```
 
 **Notes:**
 - pr-reviewer has **no Edit tool**. All sign-off is via MCP, never by editing files.
 - Auto/architecture-dir check: any staged change under `docs/trustmybot/architecture/auto/` must preserve the generated-header comment. If broken → FAIL with "regenerate via `/tmb refresh-architecture`".
-- The `require-review-sign.sh` hook enforces the gate at push time — pushes to protected branches blocked until every `completed` task has a `validation_record(verdict='pass')`.
+- The `git-push-guard.sh` hook is the structural enforcement. Bro drives the actual review when the Human invokes the magic phrase.
+- Multiple unsigned tasks in one push → parallel pr-reviewer spawns where independent. Bro waits for all to return before reporting outcome.
+- WIP pushes to feature/fix/etc. branches are NOT gated (per existing #13 convention) — only protected-branch pushes trigger the gate.
 
 ---
 
