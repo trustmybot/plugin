@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Lint: structural safety checks on scripts/release.sh.
+#
+# Protects against the "force-push a published tag" antipattern: the
+# release script must contain the explicit "Refusing to re-tag a PUBLISHED
+# release" guard. This test catches accidental removal of that guard
+# during refactors.
+#
+# This is a lint, not a behavior test, because driving release.sh
+# end-to-end requires a real repo + real remote. The behavior is small
+# enough that grep'ing for the guard text + the underlying mechanism
+# (`git ls-remote --tags origin`) is sufficient evidence.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT="$ROOT/scripts/release.sh"
+
+failed=0
+fail() { echo "  ✗ $1" >&2; failed=1; }
+pass() { echo "  ✓ $1"; }
+
+if [ ! -f "$SCRIPT" ]; then
+  fail "scripts/release.sh missing"
+  echo "Release-script-safety: FAIL" >&2
+  exit 1
+fi
+
+# G1: must check the remote before considering retag
+if grep -q 'git ls-remote --tags origin "refs/tags/\$NEW_TAG"' "$SCRIPT"; then
+  pass "checks remote for the tag before allowing any retag"
+else
+  fail "missing remote-tag check (git ls-remote --tags origin refs/tags/\$NEW_TAG)"
+fi
+
+# G2: must contain the explicit refusal message
+if grep -q 'Refusing to re-tag a PUBLISHED release' "$SCRIPT"; then
+  pass "contains explicit refusal message for published-tag retag"
+else
+  fail "missing 'Refusing to re-tag a PUBLISHED release' guard"
+fi
+
+# G3: must exit non-zero on the published-retag path (so it actually blocks).
+# Look for `exit 1` (any indentation) within ~30 lines after the refusal message.
+if awk '
+  /Refusing to re-tag a PUBLISHED release/ { found=1; line=NR }
+  found && /^[[:space:]]*exit 1[[:space:]]*$/ && NR-line<=30 { print "ok"; exit }
+' "$SCRIPT" | grep -q ok; then
+  pass "exits non-zero on published-retag refusal path"
+else
+  fail "no 'exit 1' within 30 lines of the refusal message — guard would be advisory only"
+fi
+
+# G4: must mention the doctrinal alternative (bump version, ship new tag)
+if grep -q "ship a NEW version with the fix" "$SCRIPT"; then
+  pass "documents the doctrinal alternative (bump version)"
+else
+  fail "missing doctrinal alternative — refusal should explain what to do instead"
+fi
+
+# G5: must NOT push to origin a deleted tag in the local-only retag path
+# (an earlier version did `git push origin :refs/tags/$NEW_TAG` even for
+# local-only tags, which would silently delete the remote tag if it existed)
+if awk '/Local-only/{found=1} found && /git push.*:refs\/tags/ {print "BAD"; exit}' "$SCRIPT" | grep -q BAD; then
+  fail "local-only retag path still tries to push tag deletion to origin (would corrupt remote)"
+else
+  pass "local-only retag path doesn't push tag deletion to origin"
+fi
+
+echo ""
+if [ $failed -ne 0 ]; then
+  echo "Release-script-safety: FAIL" >&2
+  exit 1
+fi
+echo "Release-script-safety: PASS"

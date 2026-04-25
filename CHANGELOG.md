@@ -31,6 +31,12 @@ The 5 flows that **can't** be tested at L4 (onboarding, agent-creator, skill-cre
 
 10 numbered items, ~30 minutes to walk. **Required before tagging any release ≥ v0.2.0.**
 
+#### Release-script anti-retag guard
+
+`scripts/release.sh` now **refuses to re-tag a published release**. If `git ls-remote --tags origin refs/tags/v<X.Y.Z>` returns a SHA, the script exits with a clear error explaining the doctrinal alternative (bump the version, ship a new tag). Force-pushing tags is the antipattern that breaks consumer pinning, corrupts marketplace caches, and destroys audit trails — the script now prevents the accidental case while still allowing safe local-only retags (e.g. you tagged but haven't pushed yet).
+
+`tests/lint/release-script-safety.sh` (new lint) protects this guard against accidental removal during refactors. 5 grep-based assertions cover the remote-check, refusal message, exit-code, doctrinal alternative text, and the local-only path's correctness.
+
 #### L5 release gate
 
 `scripts/release.sh` now refuses to tag unless `MANUAL_DOGFOOD_PASSED=v<X.Y.Z>` matches the version being tagged. Sign-off after walking `tests/manual/scenarios.md`:
