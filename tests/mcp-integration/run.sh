@@ -17,4 +17,8 @@ if [ ! -f "mcp/trajectory-server/dist/index.js" ]; then
   (cd mcp/trajectory-server && bun run build)
 fi
 
-exec node --test --test-reporter spec "$HERE"/*.test.mjs
+WORKFLOW_SIM="$PLUGIN_ROOT/tests/workflow-sim"
+
+# Run both L3 integration tests and L4 workflow-simulation flows in one Node
+# process. Both share the same harness + spawn the real MCP server.
+exec node --test --test-reporter spec "$HERE"/*.test.mjs "$WORKFLOW_SIM"/*.test.mjs

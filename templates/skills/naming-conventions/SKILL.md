@@ -1,4 +1,5 @@
 ---
+name: naming-conventions
 description: File and identifier naming patterns.
 agent: swe, pr-reviewer
 paths: ["src/**", "lib/**", "app/**", "tests/**"]

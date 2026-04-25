@@ -1,6 +1,6 @@
 {
   "name": "tmb-plugin",
-  "version": "0.3.2",
+  "version": "0.2.0",
   "description": "TMB multi-agent Claude Code plugin — workspace root. Shipped content is declared in .claude-plugin/plugin.json; this file exists only to wire the two Node subpackages together.",
   "private": true,
   "workspaces": [
@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "build": "bun --filter='*' run build",
+    "postinstall": "bun --filter='*' run build",
     "test": "bash tests/run-all.sh"
   },
   "devDependencies": {

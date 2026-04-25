@@ -77,6 +77,34 @@ if ! grep -q "^## ${NEW_TAG} " CHANGELOG.md; then
   exit 1
 fi
 
+# L5 manual dogfood gate. The release script refuses to tag without an
+# explicit signed-off env var matching this exact version. See
+# tests/manual/scenarios.md for the checklist that produces this sign-off.
+#
+# Bypass for hotfix releases that don't change Claude-side behavior:
+# set BYPASS_DOGFOOD=1 with a justification in the commit log.
+if [ "${BYPASS_DOGFOOD:-0}" = "1" ]; then
+  printf "⚠️  L5 manual dogfood gate BYPASSED (BYPASS_DOGFOOD=1).\n"
+  printf "    This is acceptable for hotfix releases that don't touch Claude-side\n"
+  printf "    behavior (agents/skills/CLAUDE.md). Document the bypass reason in the\n"
+  printf "    release commit message.\n\n"
+elif [ "${MANUAL_DOGFOOD_PASSED:-}" = "$NEW_TAG" ]; then
+  printf "✓ L5 manual dogfood passed for %s (MANUAL_DOGFOOD_PASSED matches).\n\n" "$NEW_TAG"
+else
+  printf "❌ Refusing to tag. L5 manual dogfood not signed off for %s.\n" "$NEW_TAG" >&2
+  printf "\n" >&2
+  printf "   Walk through the checklist at tests/manual/scenarios.md, then re-run with:\n" >&2
+  printf "     export MANUAL_DOGFOOD_PASSED=%s && bash scripts/release.sh\n" "$NEW_TAG" >&2
+  printf "\n" >&2
+  printf "   For hotfix releases that don't change Claude-side behavior:\n" >&2
+  printf "     BYPASS_DOGFOOD=1 bash scripts/release.sh    # justify in commit message\n" >&2
+  if [ -n "${MANUAL_DOGFOOD_PASSED:-}" ]; then
+    printf "\n   (MANUAL_DOGFOOD_PASSED is set to '%s' but plugin version is '%s' — version drift.)\n" \
+      "$MANUAL_DOGFOOD_PASSED" "$NEW_TAG" >&2
+  fi
+  exit 1
+fi
+
 confirm() {
   printf "%s [y/N] " "$1"
   read -r answer
@@ -99,12 +127,35 @@ if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
   if [ "$EXISTING_TAG_TARGET" = "$LOCAL_HEAD" ]; then
     printf "  Step 1: %s already points at HEAD — skipping retag.\n\n" "$NEW_TAG"
   else
-    printf "  ⚠️  %s exists but points at %s, not main HEAD %s.\n" "$NEW_TAG" "${EXISTING_TAG_TARGET:0:8}" "${LOCAL_HEAD:0:8}"
+    # The local tag exists but points elsewhere. Before offering to move it,
+    # check whether it's already published to the remote. If yes — REFUSE.
+    # Re-tagging a published release is the antipattern that breaks every
+    # downstream consumer's pinning + the marketplace cache. The discipline
+    # is "bump the version and ship a new tag" (e.g. v0.2.0 broken → v0.2.1).
+    REMOTE_TAG_SHA="$(git ls-remote --tags origin "refs/tags/$NEW_TAG" 2>/dev/null | awk '{print $1}')"
+    if [ -n "$REMOTE_TAG_SHA" ]; then
+      printf "❌ Refusing to re-tag a PUBLISHED release.\n" >&2
+      printf "\n" >&2
+      printf "  %s is already on origin (sha=%s).\n" "$NEW_TAG" "${REMOTE_TAG_SHA:0:8}" >&2
+      printf "  Re-tagging breaks every consumer that pinned to this version,\n" >&2
+      printf "  silently corrupts marketplace caches, and destroys the audit trail.\n" >&2
+      printf "\n" >&2
+      printf "  If you found a bug in %s, ship a NEW version with the fix:\n" "$NEW_TAG" >&2
+      printf "    1. Bump plugin.json + mcp pkg.json + root pkg.json to v%s.<next-patch>\n" "${NEW_VERSION%.*}" >&2
+      printf "    2. Add a CHANGELOG section for the new version\n" >&2
+      printf "    3. PR through dev → main → bash scripts/release.sh\n" >&2
+      printf "\n" >&2
+      printf "  Optionally annotate the broken release on GitHub:\n" >&2
+      printf "    gh release edit %s --notes \"⚠️  Known bug: <describe>. Upgrade to v...\"\n" "$NEW_TAG" >&2
+      exit 1
+    fi
+    printf "  ⚠️  Local-only %s exists at %s but points at %s, not main HEAD %s.\n" \
+      "$NEW_TAG" "${EXISTING_TAG_TARGET:0:8}" "${EXISTING_TAG_TARGET:0:8}" "${LOCAL_HEAD:0:8}"
+    printf "      (Not on origin yet — local-only retag is safe.)\n"
     if confirm "  Move $NEW_TAG to current main HEAD?"; then
       git tag -d "$NEW_TAG"
-      git push origin ":refs/tags/$NEW_TAG" 2>/dev/null || true
       git tag -a "$NEW_TAG" -m "$NEW_TAG"
-      printf "  ✓ %s re-tagged on %s\n\n" "$NEW_TAG" "${LOCAL_HEAD:0:8}"
+      printf "  ✓ %s re-tagged locally on %s\n\n" "$NEW_TAG" "${LOCAL_HEAD:0:8}"
     else
       printf "  Skipped — %s left where it is.\n\n" "$NEW_TAG"
     fi
@@ -161,6 +212,46 @@ else
   else
     printf "  Skipped.\n\n"
   fi
+fi
+
+# ---------- step 4: L6 release canary (post-tag verify) ----------
+#
+# Re-clones the freshly-tagged release into a temp dir and runs the
+# install-smoke Dockerfile against it. Catches "the published artifact
+# differs from what we tested locally" — e.g. a .gitignore that excluded
+# something the install needs.
+#
+# Skipped if Docker is unavailable; warning instead of failure since the
+# release is already public at this point.
+
+if confirm "Step 4: Run L6 release canary (re-clone tag in Docker, run install-smoke)?"; then
+  if ! command -v docker >/dev/null 2>&1; then
+    printf "  ⊘ docker not available — skipping canary. Run manually before announcing the release:\n"
+    printf "      bash tests/docker/run-install-smoke.sh\n"
+  else
+    CANARY_DIR=$(mktemp -d -t tmb-canary-XXXX)
+    trap 'rm -rf "$CANARY_DIR"' EXIT
+    printf "  Cloning %s into %s ...\n" "$NEW_TAG" "$CANARY_DIR"
+    if git clone --quiet --depth 1 --branch "$NEW_TAG" \
+        "https://github.com/trustmybot/plugin.git" "$CANARY_DIR/plugin"; then
+      if (cd "$CANARY_DIR/plugin" && docker build \
+            -f tests/docker/install-smoke.Dockerfile \
+            -t "tmb-canary-$NEW_VERSION" \
+            --quiet .); then
+        printf "  ✓ Canary PASSED — published %s installs cleanly from a fresh clone\n\n" "$NEW_TAG"
+      else
+        printf "\n  ⚠️  CANARY FAILED — published %s does NOT install cleanly!\n" "$NEW_TAG" >&2
+        printf "     The release is public but broken. Investigate before announcing.\n" >&2
+        printf "     Likely causes: .gitignore excluded something needed; postinstall regression;\n" >&2
+        printf "     bun.lock out of sync; etc.\n" >&2
+        exit 1
+      fi
+    else
+      printf "  ⚠️  Could not clone tag %s — release exists but git clone failed.\n" "$NEW_TAG" >&2
+    fi
+  fi
+else
+  printf "  Skipped — run 'bash tests/docker/run-install-smoke.sh' manually before announcing.\n\n"
 fi
 
 # ---------- summary ----------

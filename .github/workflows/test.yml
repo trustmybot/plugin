@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   test:
+    name: lint + MCP unit + integration + hooks
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -34,3 +35,19 @@ jobs:
 
       - name: run full test suite
         run: bash tests/run-all.sh
+
+  install-smoke:
+    name: L0 install-smoke (cold-start Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: build install-smoke image
+        # Strips local artifacts, runs `bun install`, asserts dist/index.js
+        # exists, spawns the MCP server, and verifies tools/list responds.
+        # This catches the v0.1.2 class of bug where the published artifact
+        # was unbootable because postinstall didn't fire.
+        run: docker build -f tests/docker/install-smoke.Dockerfile -t tmb-install-smoke .
