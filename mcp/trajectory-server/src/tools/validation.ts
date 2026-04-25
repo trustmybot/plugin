@@ -1,7 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
-import { normalizeAgent, redactValidationRow } from '../middleware/agent-scope.js';
+import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -91,7 +91,7 @@ export function validationTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    validation_record: wrapHandler(async (args) => {
+    validation_record: requireRoles('validation_record', ['pr-reviewer'], wrapHandler(async (args) => {
       const agent = requireArg(args, 'agent') as string;
       const taskId = coerceTaskId(requireArg(args, 'task_id'));
       requireArg(args, 'attempt_n');
@@ -134,7 +134,7 @@ export function validationTools(db: TrajectoryDB): {
       );
 
       return ok(row);
-    }),
+    })),
 
     validation_history: wrapHandler(async (args) => {
       const agent = normalizeAgent(args['agent'] as string | undefined);

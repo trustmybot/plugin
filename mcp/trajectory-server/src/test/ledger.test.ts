@@ -21,7 +21,7 @@ function parseResult(result: RawResult) {
 async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
-    agent: 'swe',
+    agent: 'bro',
     objective: 'Ledger test issue',
   });
   const data = parseResult(result);
@@ -36,7 +36,7 @@ describe('ledgerTools', () => {
 
     const before = new Date().toISOString();
     const result = await call(tools.handlers, 'ledger_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       from_node: 'swe',
       event_type: 'task_started',
@@ -63,7 +63,7 @@ describe('ledgerTools', () => {
 
     for (let i = 0; i < 5; i++) {
       await call(tools.handlers, 'ledger_log', {
-        agent: 'swe',
+        agent: 'bro',
         issue_id: String(issueId),
         from_node: 'swe',
         event_type: 'step',
@@ -72,7 +72,7 @@ describe('ledgerTools', () => {
     }
 
     const page1Result = await call(tools.handlers, 'ledger_list', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       limit: 2,
       offset: 0,
@@ -84,7 +84,7 @@ describe('ledgerTools', () => {
     assert.equal(page1[1].summary, 'Step 1');
 
     const page2Result = await call(tools.handlers, 'ledger_list', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       limit: 2,
       offset: 2,
@@ -105,7 +105,7 @@ describe('ledgerTools', () => {
     const bigContent = JSON.stringify({ data: 'x'.repeat(1_100_000) });
 
     const result = await call(tools.handlers, 'ledger_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       from_node: 'swe',
       event_type: 'large_event',
@@ -128,7 +128,7 @@ describe('ledgerTools', () => {
     const bigContent = JSON.stringify({ data: 'y'.repeat(1_100_000) });
 
     await call(tools.handlers, 'ledger_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       from_node: 'swe',
       event_type: 'large_event',
@@ -137,7 +137,7 @@ describe('ledgerTools', () => {
     });
 
     await call(tools.handlers, 'ledger_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       from_node: 'swe',
       event_type: 'small_event',
@@ -145,7 +145,7 @@ describe('ledgerTools', () => {
     });
 
     const listResult = await call(tools.handlers, 'ledger_list', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
     });
     const entries = parseResult(listResult);
@@ -163,7 +163,7 @@ describe('ledgerTools', () => {
     const tools = ledgerTools(db);
 
     await call(tools.handlers, 'ledger_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       branch_id: '1.1',
       from_node: 'swe',
@@ -172,7 +172,7 @@ describe('ledgerTools', () => {
     });
 
     await call(tools.handlers, 'ledger_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       branch_id: '1.2',
       from_node: 'architect',
@@ -181,7 +181,7 @@ describe('ledgerTools', () => {
     });
 
     await call(tools.handlers, 'ledger_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       branch_id: '1.1',
       from_node: 'swe',
@@ -190,7 +190,7 @@ describe('ledgerTools', () => {
     });
 
     const result = await call(tools.handlers, 'ledger_list', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       branch_id: '1.1',
     });

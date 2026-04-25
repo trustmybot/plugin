@@ -1,7 +1,7 @@
 ---
 name: agent-creator
 description: Interactively propose and create a new domain agent in the user's workspace. Always requires explicit user approval before writing.
-agent: architect
+agent: bro
 allowed-tools: Read, Glob, Grep, Write
 ---
 
@@ -16,17 +16,21 @@ auto-creation is never permitted.
 
 ## B. When Invoked
 
-Bro (routing-time) or architect (task-breakdown-time) invokes this
-skill when ALL of the following hold:
+Bro invokes this skill when ALL of the following hold:
 
-1. The user's request cannot be served by the 4 global workflow agents
-   (bro, architect, swe, pr-reviewer) or any user-created agent
+1. The user's request cannot be served by the plugin's three subagents
+   (swe, pr-reviewer, architect-as-consultant) or any user-created agent
    already present in the project's `.claude/agents/`.
 2. The user explicitly wants a **named, persistent role** — not an ad-hoc
    Task spawn.
 3. The role does not already exist in `.claude/agents/`.
 
 Do NOT invoke for one-off sub-tasks that a Task tool spawn can handle.
+
+User-created agents default to **consultant** scope: they advise, return
+analysis to bro, and never write workflow state (no `task_create_batch`,
+no `validation_record`, no `task_update_status`). The decision chain stays
+Human → bro → swe.
 
 ## C. Reserved Names
 

@@ -21,7 +21,7 @@ function parseResult(result: RawResult) {
 async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
-    agent: 'swe',
+    agent: 'bro',
     objective: 'Test issue',
   });
   const data = parseResult(result);
@@ -36,7 +36,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [
         { branch_id: 'feat/task-one', description: 'Task one', success_criteria: 'works' },
@@ -64,14 +64,14 @@ describe('taskTools', () => {
 
     const batchResult = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [{ branch_id: 'feat/a-task', description: 'A task', success_criteria: 'ok' }],
     });
     const tasks = parseResult(batchResult);
 
     const result = await call(tools.handlers, 'task_update_status', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: String(tasks[0].id),
       status: 'banana',
     });
@@ -90,7 +90,7 @@ describe('taskTools', () => {
 
     await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [
         { branch_id: 'feat/first', description: 'First', success_criteria: 'ok' },
@@ -105,18 +105,18 @@ describe('taskTools', () => {
     );
 
     await call(tools.handlers, 'task_update_status', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: String(allTasks[0].id),
       status: 'completed',
     });
     await call(tools.handlers, 'task_update_status', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: String(allTasks[1].id),
       status: 'failed',
     });
 
     const result = await call(tools.handlers, 'task_first_actionable', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
     });
     const task = parseResult(result);
@@ -147,14 +147,14 @@ describe('taskTools', () => {
       const branchId = branchNames[i]!;
       const batchResult = await call(tools.handlers, 'task_create_batch', {
         waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-        agent: 'swe',
+        agent: 'bro',
         issue_id: String(issueId),
         tasks: [{ branch_id: branchId, description: `Task for ${status}`, success_criteria: 'ok' }],
       });
       const tasks = parseResult(batchResult);
 
       const result = await call(tools.handlers, 'task_update_status', {
-        agent: 'swe',
+        agent: 'bro',
         task_id: String(tasks[0].id),
         status,
       });
@@ -173,7 +173,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [{ branch_id: 'feat/user-login', description: 'login feature', success_criteria: 'works' }],
     });
@@ -191,7 +191,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [{ branch_id: 'refactor/extract-helper', description: 'extract helper', success_criteria: 'clean' }],
     });
@@ -209,7 +209,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [{ branch_id: 'Foo/Bar', description: 'bad', success_criteria: 'n/a' }],
     });
@@ -227,7 +227,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [{ branch_id: 'feat/UPPERCASE', description: 'bad', success_criteria: 'n/a' }],
     });
@@ -245,7 +245,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [{ branch_id: 'feat/-leading-hyphen', description: 'bad', success_criteria: 'n/a' }],
     });
@@ -263,7 +263,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [{ branch_id: '', description: 'bad', success_criteria: 'n/a' }],
     });
@@ -281,7 +281,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [{ branch_id: 'feat/double//slash', description: 'bad', success_criteria: 'n/a' }],
     });
@@ -299,7 +299,7 @@ describe('taskTools', () => {
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [
         {
@@ -325,7 +325,7 @@ describe('taskTools', () => {
     const specBody = '# Description\nThis is a test spec body.';
     const batchResult = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'architect',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [
         {
@@ -340,7 +340,7 @@ describe('taskTools', () => {
     assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
 
     const getResult = await call(tools.handlers, 'task_get', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: String(inserted[0].id),
     });
     const task = parseResult(getResult);
@@ -357,7 +357,7 @@ describe('taskTools', () => {
 
     const batchResult = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'architect',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [
         {
@@ -382,7 +382,7 @@ describe('taskTools', () => {
     const oversizeBody = 'x'.repeat(8001);
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'architect',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [
         {
@@ -409,7 +409,7 @@ describe('taskTools', () => {
     const body = 'x'.repeat(8000);
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'architect',
+      agent: 'bro',
       issue_id: String(issueId),
       tasks: [
         {

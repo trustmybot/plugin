@@ -17,7 +17,7 @@ test('issue_create returns a single id (no issue_string_id ghost field)', async 
   t.after(async () => { await close(); });
 
   const result = await call(client, 'issue_create', {
-    agent: 'architect',
+    agent: 'bro',
     objective: 'smoke',
     description: 'x',
   });
@@ -36,7 +36,7 @@ test('discussion_append chronology: answer rows have a preceding question row', 
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
-    agent: 'architect',
+    agent: 'bro',
     objective: 'chronology test',
     description: 'x',
   });
@@ -50,7 +50,7 @@ test('discussion_append chronology: answer rows have a preceding question row', 
     { kind: 'decision', author: 'architect', body: 'Going with argparse' },
   ]) {
     const res = await call(client, 'discussion_append', {
-      agent: 'architect',
+      agent: 'bro',
       issue_id: issueId,
       ...entry,
     });
@@ -58,7 +58,7 @@ test('discussion_append chronology: answer rows have a preceding question row', 
   }
 
   const listed = await call(client, 'discussion_list', {
-    agent: 'architect', issue_id: issueId,
+    agent: 'bro', issue_id: issueId,
   });
   assert.equal(listed.ok, true);
   const rows = Array.isArray(listed.data) ? listed.data : listed.data.discussions ?? [];
@@ -91,7 +91,7 @@ test('task_create_batch — rejects when issue has 0 question rows and no waiver
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
-    agent: 'architect',
+    agent: 'bro',
     objective: 'gate test — no questions seeded',
     description: 'x',
   });
@@ -99,7 +99,7 @@ test('task_create_batch — rejects when issue has 0 question rows and no waiver
 
   // Only a note, no question rows → gate must fire.
   await call(client, 'discussion_append', {
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issueId,
     kind: 'note',
     author: 'architect',
@@ -107,7 +107,7 @@ test('task_create_batch — rejects when issue has 0 question rows and no waiver
   });
 
   const attempt = await call(client, 'task_create_batch', {
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issueId,
     tasks: [{ branch_id: 'feat/gate-fail', description: 'd', success_criteria: 'x' }],
   });
@@ -122,21 +122,21 @@ test('task_create_batch — accepts when a kind=question row exists', async (t) 
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
-    agent: 'architect',
+    agent: 'bro',
     objective: 'gate test — questions seeded',
     description: 'x',
   });
   const issueId = issue.data.id;
 
   await call(client, 'discussion_append', {
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issueId,
     kind: 'question',
     author: 'architect',
     body: 'Which lib?',
   });
   await call(client, 'discussion_append', {
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issueId,
     kind: 'answer',
     author: 'human',
@@ -144,7 +144,7 @@ test('task_create_batch — accepts when a kind=question row exists', async (t) 
   });
 
   const attempt = await call(client, 'task_create_batch', {
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issueId,
     tasks: [{ branch_id: 'feat/gate-ok', description: 'd', success_criteria: 'x' }],
   });
@@ -157,14 +157,14 @@ test('task_create_batch — accepts with waiver + reason ≥10 chars', async (t)
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
-    agent: 'architect',
+    agent: 'bro',
     objective: 'typo fix',
     description: 'x',
   });
   const issueId = issue.data.id;
 
   const attempt = await call(client, 'task_create_batch', {
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'typo in README line 12; no interpretation needed',
@@ -179,7 +179,7 @@ test('task_create_batch — rejects waiver with missing/short reason', async (t)
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', {
-    agent: 'architect',
+    agent: 'bro',
     objective: 'trivial',
     description: 'x',
   });
@@ -187,7 +187,7 @@ test('task_create_batch — rejects waiver with missing/short reason', async (t)
 
   // Missing reason
   const noReason = await call(client, 'task_create_batch', {
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issueId,
     waive_scope_gate: true,
     tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'x' }],
@@ -197,7 +197,7 @@ test('task_create_batch — rejects waiver with missing/short reason', async (t)
 
   // Too-short reason (<10 chars)
   const shortReason = await call(client, 'task_create_batch', {
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'short',

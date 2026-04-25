@@ -1,6 +1,6 @@
 ---
 description: 3-question protocol for capturing bugs into review skills.
-agent: architect, pr-reviewer
+agent: bro, pr-reviewer
 ---
 
 # Feedback Loop

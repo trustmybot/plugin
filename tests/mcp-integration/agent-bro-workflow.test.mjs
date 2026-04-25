@@ -90,7 +90,7 @@ test('bro — issue_resume returns latest open issue for session-start check', a
 
   // Architect seeds an open issue.
   const create = await call(client, 'issue_create', {
-    agent: 'architect', objective: 'seed for resume test', description: 'x',
+    agent: 'bro', objective: 'seed for resume test', description: 'x',
   });
   assert.equal(create.ok, true);
   const issueId = create.data.id;

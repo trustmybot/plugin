@@ -203,13 +203,15 @@ describe('configTools', () => {
     db.close();
   });
 
-  it('config_set called with agent=architect succeeds', async () => {
+  it('config_set called with agent=architect is forbidden (post bro-as-planner)', async () => {
     const db = tempDB();
     const tools = configTools(db);
 
     const result = await call(tools.handlers, 'config_set', { agent: 'architect', key: 'arch.key', value: 42 });
-    assert.ok(!result.isError, 'Expected architect to be allowed');
-    assert.equal(parseResult(result).key, 'arch.key');
+    assert.ok(result.isError, 'Expected architect to be forbidden');
+    const payload = parseResult(result);
+    assert.equal(payload.error, 'forbidden');
+    assert.equal(payload.caller_role, 'architect');
 
     db.close();
   });
@@ -229,7 +231,7 @@ describe('configTools', () => {
     const tools = configTools(db);
 
     await call(tools.handlers, 'config_set', { agent: 'bro', key: 'open.key', value: 'readable' });
-    const result = await call(tools.handlers, 'config_get', { agent: 'swe', key: 'open.key' });
+    const result = await call(tools.handlers, 'config_get', { agent: 'bro', key: 'open.key' });
     assert.ok(!result.isError, 'Read should be open to all agents');
     assert.equal(parseResult(result), 'readable');
 

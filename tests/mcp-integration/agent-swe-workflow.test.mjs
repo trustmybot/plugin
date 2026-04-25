@@ -8,14 +8,14 @@ import { startClient, call } from './harness.mjs';
 
 async function seedIssueAndTask(client) {
   const issue = await call(client, 'issue_create', {
-    agent: 'architect',
+    agent: 'bro',
     objective: 'task for swe',
     description: 'x',
   });
   assert.equal(issue.ok, true);
   const batch = await call(client, 'task_create_batch', {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issue.data.id,
     tasks: [{
       branch_id: 'feat/swe-test',
