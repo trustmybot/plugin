@@ -63,7 +63,7 @@ Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/traj
 - **`issues`** — your goals + objectives, one row per ask
 - **`discussions`** — Human ↔ bro Q+A, ADR (Architecture Decision Record) notes, design decisions
 - **`roundtables`** + **`roundtable_votes`** — multi-consultant debate transcripts (when convened)
-- **`tasks`** — execution specs, status, commit SHAs
+- **`tasks`** — execution specs (planned by bro, executed by swe), status, commit SHAs
 - **`validation_attempts`** — pr-reviewer verdicts; the structural record of what was approved
 - **`ledger`** + **`audit`** — append-only event log + tool I/O for replay
 
