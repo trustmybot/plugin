@@ -156,7 +156,7 @@ erDiagram
 | `tasks` | `issue_id` | `issues.id` | every task belongs to one issue |
 | `ledger` | `issue_id` | `issues.id` | event row always scoped to an issue |
 | `audit` | `issue_id` | `issues.id` | tool output row always scoped to an issue |
-| `discussions` | `issue_id` | `issues.id` | architect ↔ human notes per issue |
+| `discussions` | `issue_id` | `issues.id` | bro ↔ human ↔ consultants conversation per issue |
 | `roundtables` | `issue_id` | `issues.id` | a multi-agent debate belongs to an issue |
 | `roundtable_votes` | `roundtable_id` | `roundtables.id` | one vote row per agent per roundtable |
 | `validation_attempts` | `task_id` | `tasks.id` | every validation attempt belongs to one task |
@@ -180,7 +180,7 @@ erDiagram
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, etc.). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
 | `identity` | Single-row table (`CHECK id=1`) holding bro name + human name. |
 | `regen_state` | Per-target cursor (`last_seen_sha`) for the lazy architecture regen. |
-| `plugin_meta` | Schema + plugin version (for future migrations). Current row: `schema_version=1, plugin_version='0.3.2'`. |
+| `plugin_meta` | Schema + plugin version (for future migrations). Current row: `schema_version=1, plugin_version='0.1.2'`. |
 
 ## Indexes
 
@@ -190,13 +190,13 @@ erDiagram
 
 ## How agents use this
 
-- **bro** — reads `plugin_config`, `identity`, `issues(status='open')` on session start. Writes `discussions` when relaying human intent.
-- **architect** — `issue_create` → `discussion_append` → `task_create_batch(spec_body)` → `task_update_status` → `validation_record`. Also edits agent prompts, skill files, and workflow markdown when they drift (see `skills/docs-conventions` prompt-editing rules).
-- **swe** — `task_get(id)` for spec → `ledger_log` / `audit_log` during work → `task_update_status('completed')` on success.
-- **pr-reviewer** — `task_get(task_id)` to inspect the spec + status of the task passed in the spawn → `validation_record(task_id, attempt_n, verdict, feedback)` to sign off. Never writes to `tasks`; status flip to `closed` is the architect's call.
+- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `identity_get`/`set`, `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `ledger_log`. Also reads `validation_history` to drive the retry loop (flow 8) and runs `architecture_regen` (flow 7).
+- **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `ledger_log` / `audit_log` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, or close tasks.
+- **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call.
+- **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis'|'concern')` to record their position. Server-rejected on `task_create_batch`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
 - **monitors/tmb-trajectory-events.js** — read-only tail of `ledger` for status-line output.
 
-External writers are blocked by role-gating inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles` + `AgentRole` type).
+The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is structurally enforced by `requireRoles` middleware inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles`, `AgentRole` type, and the role-by-tool matrix).
 
 ## Migrations
 

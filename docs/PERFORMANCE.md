@@ -1,6 +1,6 @@
 # TMB Performance — latency budget + design decisions
 
-This doc records the latency target, the measured baseline from #63, the optimizations shipped in #64, and the **doctrine of what's safe to trim** so future contributors can decide where to spend complexity budget.
+This doc records the latency target, the measured baseline from #63, the optimizations shipped in #64 (the v0.1.0 release), and the **doctrine of what's safe to trim** so future contributors can decide where to spend complexity budget. The v0.1.1 hook patch and v0.1.2 multi-platform-placeholder release did not change the latency story (no agent or MCP call paths added).
 
 ## Target
 
@@ -92,3 +92,4 @@ Open this doc and re-measure when any of:
 - A user reports a chain that took >12 min for a simple-triage task in real use.
 - We add a new gate / hook / skill that fires on the per-task path.
 - CC platform changes the subagent cold-start cost (model swap, tool-registration overhead, etc.).
+- A new platform adapter (Codex, Cursor, OpenCode, Gemini CLI) gets implemented — re-baseline on that platform; the doctrine above is platform-agnostic but the constants (cold-start, MCP write latency) are not.

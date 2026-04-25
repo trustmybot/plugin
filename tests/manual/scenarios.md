@@ -1,20 +1,22 @@
 # Dogfood Test Scenarios
 
-> **Active rewrite — bro-as-planner chain.** As of `feat/bro-as-planner` +
-> the cleanup PR, the decision chain is `Human → bro → swe` with
-> `pr-reviewer` as the gate. Scenarios that exercise the **old**
-> `bro → architect → swe` chain (Flow 2, 3, 8 and parts of 9) are STALE
-> until rewritten — they will fail in unhelpful ways if you walk them
-> as written.
+> **Active rewrite — bro-as-planner chain (tracked in [#51](https://github.com/trustmybot/plugin/issues/51)).**
+> As of v0.1.2 the decision chain is `Human → bro → SWE` with two gates:
+> bro is the **task gate** (verifies after SWE returns), pr-reviewer is
+> the **push gate** (fires only at `git push`). Scenarios that still
+> describe the legacy `bro → architect → swe` chain (Flow 2.1/2.2/2.3,
+> 3, 8 and parts of 9) are STALE until rewritten — they will fail in
+> unhelpful ways if you walk them as written.
 >
-> **Layer-3 dogfood targets that ARE current** in the new chain:
+> **Layer-3 dogfood targets that ARE current** in the bro-as-planner chain:
 > - **Flow 1 (onboarding)** — unchanged, still valid.
-> - **Flow 2 (simple task), bro-as-planner version** — rewritten below
->   as scenario `2.1.bro` (the canonical end-to-end smoke test).
-> - **Consultant invocation** — new flow, scenario `C.1` below.
+> - **Flow 2 (simple task)** — use scenario `2.1.bro` below as the canonical end-to-end smoke test.
+> - **Flow 6 (push gate)** — pr-reviewer fires once per push over the batch of unsigned commits, not per task.
 > - **Flow 7 (architecture regen)** — still valid; bro is the only caller.
+> - **Flow C (consultant invocation)** — scenario `C.1` below.
+> - **Flow D (Direct Mode)** — trivial single-file fix should land in ≤30s without a SWE spawn.
 >
-> Other scenarios will be refreshed in a follow-up.
+> The full template-rewrite of every scenario is tracked in [#51](https://github.com/trustmybot/plugin/issues/51).
 
 For each workflow in [`FLOWS.md`](../../docs/architecture/FLOWS.md), the verbatim user prompt that triggers it + the observable expected behavior + how to verify it landed correctly.
 

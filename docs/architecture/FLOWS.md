@@ -1,40 +1,37 @@
 # TMB Workflows — Flowcharts
 
-> **As of `feat/bro-as-planner`:** the decision chain is `Human → bro → SWE`
-> with `pr-reviewer` as the gate. Bro is the planner; architect is a
-> consultant on-demand. Flows below are partially refreshed:
+> **As of v0.1.2:** the decision chain is `Human → bro → SWE` with two
+> distinct gates — bro is the **task gate** (closes after SWE returns +
+> verifies); pr-reviewer is the **push gate** (fires only at `git push`
+> over a batch of unsigned commits). All consultants (architect, cto,
+> ceo, pm, project-local) advise but never write workflow state.
 >
-> | Flow | State |
-> |---|---|
-> | 1 (Onboarding) | Current |
-> | 2 (Simple task) | **Refreshed** below |
-> | 3 (Difficult task) | STALE — refresh pending |
-> | 4 (Agent-creator) | Current (bro invokes; new agents default to consultant scope) |
-> | 5 (Skill creation) | STALE |
-> | 6 (PR review) | Current with one substitution: pr-reviewer returns to **bro** (not architect) |
-> | 7 (Architecture regen) | Current — bro is the only caller |
-> | 8 (SWE retry) | STALE — architect→bro substitution needed throughout |
-> | 9 (Roundtable) | STALE — multi-consultant voting tracked in #57 |
-> | **C (Consultant invocation)** | **NEW** — added below |
+> **Plugin ships ZERO subagents.** Bro is a CLAUDE.md persona on main
+> Claude. SWE, pr-reviewer, and the four consultant templates live in
+> `templates/agents/` and are copied into `<project>/.claude/agents/`
+> on demand. The protocol skills referenced below all carry the `tmb_`
+> prefix (in `plugin/skills/`); template skills carry no prefix
+> (in `plugin/templates/skills/`, copied into projects).
 
-Reference workflows — onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry, consultant invocation — with the agent / skill / MCP-tool / DB-table / hook involvement spelled out for each.
+Reference workflows — onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry, roundtable, consultant invocation — with the agent / skill / MCP-tool / DB-table / hook involvement spelled out for each.
 
-Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the file map, [`SCENARIOS.md`](../../tests/manual/scenarios.md) for the **trigger prompts that exercise each flow** (dogfood test plan), [`../../CLAUDE.md`](../../CLAUDE.md) for top-level rules.
+Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the file map, [`SCENARIOS.md`](../../tests/manual/scenarios.md) for the **trigger prompts that exercise each flow** (dogfood test plan, refresh tracked in [#51](https://github.com/trustmybot/plugin/issues/51)), [`../../CLAUDE.md`](../../CLAUDE.md) for top-level rules.
 
 ## Quick index
 
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
-| 1 | [Onboarding](#1-first-run-onboarding) | First activation in a project | bro | `first-run-onboarding` | `identity`, `plugin_config` | — |
-| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe → pr-reviewer | `tmb_planning-simple` (loaded by bro), `swe-checklist`, `validate-swe-output`, `review-protocol` | `issues`, `tasks`, `discussions`, `validation_attempts`, `ledger` | `require-task-spec`, `require-review-sign`, `git-guards` |
-| 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion phase) → swe → pr-reviewer | + `tmb_planning-difficult` (full discussion + ADR) | + ADR file | same |
-| 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → user | `agent-creator` | — | — |
-| 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | — | `skills` | — |
-| 6 | [PR review](#6-pr-review) | After SWE marks task `completed` | pr-reviewer (returns to bro) | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional) | `require-review-sign` |
-| 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture` | `regen_state`, `file_registry` | — |
-| 8 | [SWE retry / escalation](#8-swe-retry--escalation) | `validation_record(verdict='fail')` | bro ↔ swe ↔ pr-reviewer | `feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `require-review-sign` |
-| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 consultants | `tmb_roundtable`, `roundtable-cleanup` | `discussions`, `ledger` | — |
-| **C** | [Consultant invocation](#c-consultant-invocation-new) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / etc.) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
+| 1 | [Onboarding](#1-first-run-onboarding) | First activation in a project | bro | `tmb_first-run-onboarding` | `identity`, `plugin_config` | — |
+| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `swe-checklist` (lazy on demand) | `issues`, `tasks`, `ledger` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
+| 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion + ADR) → swe (pr-reviewer at push time) | + `tmb_planning-difficult` (env probe, Q+A, ADR) | + `discussions`, ADR file | same |
+| 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → human | `tmb_agent-creator` | — | — |
+| 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | `tmb_skill-creator` | `skills` (optional, for tracking) | — |
+| 6 | [Push gate / PR review](#6-push-gate--pr-review) | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL) | `git-push-guard` |
+| 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture`, `tmb_lazy-regen-check` | `regen_state`, `file_registry` | — |
+| 8 | [SWE retry / escalation](#8-swe-retry--escalation) | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer when at push gate) | `tmb_feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `git-push-guard` |
+| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `discussions`, `ledger` (and reserved: `roundtables`, `roundtable_votes`) | — |
+| **C** | [Consultant invocation](#c-consultant-invocation) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / pm / domain) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
+| **D** | [Direct Mode](#d-direct-mode-narrow-bypass) | Trivial single-file change ≤3 lines, no public API / docs / tests | bro only (no spawn) | — | `ledger` (event_type='direct_mode_used') | `git-guards` (commit branch check) |
 
 ---
 
@@ -144,12 +141,10 @@ sequenceDiagram
 
 ## 3. Difficult Task
 
-**Trigger:** Human asks for a code change that requires updating `docs/trustmybot/architecture/`; bro triages as `difficult`.
+**Trigger:** Human asks for a code change that requires updating `docs/trustmybot/architecture/`; bro triages as `difficult`. Same chain as flow 2 — bro is still the planner — plus an alignment loop + ADR commit before `task_create_batch` fires.
 
-**Same chain as flow 2, plus:** alignment loop + ADR commit before any task is created.
-
-**Extra components:**
-- Skills: + `tmb_planning-difficult` discussion phase
+**Extra components vs flow 2:**
+- Skills: bro loads `tmb_planning-difficult` (instead of `tmb_planning-simple`)
 - MCP tools: + `discussion_append`, `discussion_list`
 - DB tables: + `discussions`
 - Files: ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md`
@@ -157,38 +152,46 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant H as Human
-    participant G as Bro
-    participant A as Architect
+    participant B as Bro (planner + task gate)
+    participant S as SWE (worktree)
     participant DB as SQLite
 
-    H->>G: "refactor module X to support Y"
-    G->>G: triage → difficult
-    G->>A: spawn (triage:difficult)
+    H->>B: "refactor module X to support Y"
+    B->>B: triage → difficult; load tmb_planning-difficult skill
+    B->>DB: issue_create(agent='bro')
+    B->>DB: discussion_append(kind='intent')
+    B->>DB: discussion_append(kind='note', body='Triage: difficult …')
 
-    A->>A: re-evaluate triage; confirm difficult
-    A->>DB: issue_create(objective, description)
-    A->>DB: discussion_append(kind='note', body='Triage: difficult …')
-
-    loop until aligned with Human
-        A->>H: AskUserQuestion(radio form, ≤4 options per Q, batched)
-        H-->>A: selected label OR Other free-text
-        A->>DB: discussion_append(kind='question', body=Q + options)
-        A->>DB: discussion_append(kind='answer', body=selected)
+    Note over B: env probe — Read/Glob/Grep on relevant code paths
+    loop until aligned with Human (sequential, one Q at a time)
+        B->>H: AskUserQuestion (radio, ≤4 options) OR free-text Q
+        H-->>B: selected label OR Other free-text
+        B->>DB: discussion_append(kind='question', body=Q + options)
+        B->>DB: discussion_append(kind='answer', body=selected)
     end
 
-    A->>DB: discussion_append(kind='decision', body=architectural plan)
-    A->>A: write docs/trustmybot/architecture/manual/decisions/N-*.md (ADR)
+    B->>DB: discussion_append(kind='decision', body=architectural plan)
+    B->>B: write docs/trustmybot/architecture/manual/decisions/N-*.md (ADR)
 
-    A->>DB: task_create_batch(spec_body, …)  [standard template, deeper sections]
+    Note over B,DB: BATCHED IN ONE RESPONSE — three tool_use blocks in parallel
+    par
+        B->>DB: task_create_batch(agent='bro', spec_body, standard template)
+    and
+        B->>S: spawn Task(swe, task_id=N) [hook: require-task-spec]
+    and
+        B->>DB: ledger_log(event_type='planning_complete')
+    end
 
-    Note over A,DB: → flow 2 from "spawn SWE" onwards
+    Note over S,B: → flow 2 "SWE returns" onwards: bro verifies, flips → 'closed'
+    Note over B: pr-reviewer fires only at git push (flow 6), not per task
 ```
 
 **Notes:**
-- Architect's triage is binding; bro's classification is a proposal. If architect downgrades to `simple`, no ADR needed and standard template not required.
-- ADR file is the durable architectural record. Discussions table holds the conversation that produced it.
-- Alignment uses `AskUserQuestion` — a proper radio form — for any question with 2–4 enumerable answers (scope, tech choice, priority). Every Q/A round persists TO `discussions` as a `question` + `answer` pair so the trajectory is replayable via `issue_report_md` / `issue_snapshot_md`. See `skills/tmb_planning-difficult/SKILL.md` for the pattern.
-- Falls back to plain text `discussion_append(kind='question')` when the answer shape isn't enumerable (e.g., "what constraints do you have?").
+- **Bro is the only planner.** No architect-as-decider. If the Human wants an architect's read on the design, bro spawns the project-local `architect.md` consultant via flow C — but bro retains the decision and the spec-authoring responsibility.
+- ADR file is the durable architectural record. The `discussions` table holds the conversation that produced it; bro reconstructs the narrative via `issue_report_md` / `issue_snapshot_md`.
+- **Sequential AskUserQuestion, not batched.** Per dogfood feedback, bro asks one question at a time for better UX in the difficult flow — the radio UI is still used per question, but multiple Q's aren't bundled in one prompt.
+- Falls back to plain `discussion_append(kind='question')` when the answer shape isn't enumerable.
+- Bro's verification step after SWE returns runs the same protocol as the simple flow (re-run spec's `## Verification`, sanity-check diff against `## Files`, confirm each `## Success Criteria` bullet) — never skipped, even when the task was difficult-triaged.
 
 ---
 
@@ -226,39 +229,46 @@ flowchart TD
 
 ## 5. Skill Creation
 
-**Trigger:** Recurring pattern that needs encoding for reproducibility (e.g., a checklist agents keep skipping; a workflow that's invoked from multiple agents).
+**Trigger:** Recurring pattern that needs encoding for reproducibility (e.g., a checklist agents keep skipping; a procedure invoked from multiple agents). Bro can spot the pattern itself, OR the Human can ask explicitly (`@bro create a skill that …`).
+
+**Lego doctrine matters here.** Agents are immutable identity (Lego studs). Skills are additive bricks that extend an agent's capabilities. **Bro never edits the agent template body**; instead, when a new skill is created, bro appends its name to the consuming agent's `skills:` array on the project-local copy in `.claude/agents/`. The plugin-shipped templates in `templates/agents/` stay untouched.
 
 **Involved:**
-- Agent: `architect` (authors the skill markdown)
+- Agent: `bro` (drives the flow inline, asks the Human to confirm)
+- Skill: `tmb_skill-creator` (the meta-skill that authors the new skill)
 - DB tables (optional): `skills` — for effectiveness tracking via `skill_register` + `skill_record_outcome`
-- Files: `plugin/skills/<name>/SKILL.md` (or `.claude/skills/<name>/SKILL.md` for project-local skills)
+- Files: `<project>/.claude/skills/<name>/SKILL.md` (project-local) — plugin-shipped `tmb_*` skills are out of scope for this flow
 - Hooks: none
 
 ```mermaid
 flowchart TD
-    A["Architect notices pattern:<br/>repeated checklist, drifting<br/>workflow, or duplicated logic<br/>across multiple agent prompts"] --> B{"Worth a skill?<br/>Used by ≥2 agents OR<br/>fires &lt; 20% of sessions?"}
-    B -->|no| C[Inline in agent prompt]
-    B -->|yes| D[Decide scope]
-    D --> E{Plugin-shipped<br/>or project-local?}
-    E -->|reusable across<br/>all projects| F["plugin/skills/X/SKILL.md"]
-    E -->|specific to<br/>this project| G[".claude/skills/X/SKILL.md"]
-    F --> H["Write SKILL.md with<br/>frontmatter: name, description,<br/>agent allowlist, allowed-tools"]
-    G --> H
-    H --> I["Update calling agent's<br/>frontmatter: skills: &#91;X&#93;"]
+    A["Trigger:<br/>bro spots a recurring pattern<br/>OR human asks for a skill"] --> B{"Worth a skill?<br/>Used by ≥2 agents OR<br/>fires in &gt;20% of sessions?"}
+    B -->|no| C[Keep inline in spec_body or agent prompt]
+    B -->|yes| D[Bro invokes tmb_skill-creator]
+    D --> E[Skill: draft frontmatter + body<br/>name, description, allowed-tools]
+    E --> F[Show draft to Human]
+    F --> G{Human approves?}
+    G -->|no / changes| E
+    G -->|yes| H["Write .claude/skills/&lt;name&gt;/SKILL.md"]
+    H --> I["Append &lt;name&gt; to consuming<br/>agent's skills: array<br/>(.claude/agents/&lt;agent&gt;.md)"]
     I --> J{Track effectiveness?}
-    J -->|yes| K[Architect calls<br/>skill_register MCP tool]
-    J -->|no| L[Done — Claude Code<br/>auto-loads via name]
+    J -->|yes| K["bro: skill_register(agent='bro')"]
+    J -->|no| L[Done — auto-loaded via Skill tool]
     K --> L
 ```
 
 **When NOT to create a skill:**
-- One-off workflow used by one agent → keep inline.
-- Pure read/grep operations → use Glob + Grep tools directly.
-- Domain-specific advice that varies per project → user-authored, not plugin-shipped.
+- One-off procedure used by one agent → keep inline in the task spec.
+- Pure read/grep operations → use Glob + Grep directly.
+- Domain-specific advice that varies per project → user-curated, not plugin-shipped.
+
+**Plugin-shipped vs project-local:**
+- Plugin-shipped protocol skills (`tmb_*` in `plugin/skills/`) are reserved — projects can't override them by name. New plugin-shipped skills require a contribution PR (see [`CONTRIBUTING.md`](../../CONTRIBUTING.md)).
+- Project-local skills go to `<project>/.claude/skills/<name>/SKILL.md` (no `tmb_` prefix).
 
 ---
 
-## 6. PR Review (push gate, post #64)
+## 6. Push Gate / PR Review
 
 **Trigger:** Human runs `git push` (or `gh pr create`) → `git-push-guard.sh` PreToolUse hook scans for unsigned commits in the push range → blocks with a "Run `@bro review before push`" message → Human invokes that → bro spawns pr-reviewer for each unsigned task.
 
@@ -361,97 +371,101 @@ flowchart LR
 
 ## 8. SWE Retry / Escalation
 
-**Trigger:** pr-reviewer records `validation_record(verdict='fail', feedback=…)`. Architect runs the retry loop.
+**Trigger:** EITHER bro's task-gate verification fails (re-run of spec's `## Verification` doesn't pass, diff doesn't match `## Files`, or a `## Success Criteria` bullet isn't met) OR pr-reviewer records `validation_record(verdict='fail', feedback=…)` at the push gate. Bro runs the retry loop in both cases.
 
 **Involved:**
-- Agents: `architect`, `swe`, `pr-reviewer`
-- Skill: `feedback-loop` (defines the retry/escalation protocol)
+- Agents: `bro` (retry orchestrator), `swe` (re-spawned with feedback), `pr-reviewer` (only at push-gate retries)
+- Skill: `tmb_feedback-loop` (defines the retry/escalation protocol)
 - MCP tools: `validation_history`, `task_update_status`, `discussion_append`
-- DB tables: `validation_attempts` (one row per attempt; UNIQUE(task_id, attempt_n)), `discussions`
-- Hooks: `require-review-sign` (still enforces — no push until a `verdict='pass'` row exists)
+- DB tables: `validation_attempts` (one row per pr-reviewer attempt; UNIQUE(task_id, attempt_n)), `discussions`
+- Hooks: `git-push-guard` (still enforces — no push until a `verdict='pass'` row exists for every commit-bearing task)
 
 ```mermaid
 flowchart TD
-    A[Validation FAIL<br/>attempt_n=N] --> B[Architect reads<br/>validation_history task_id]
-    B --> C{Attempts < 3<br/>AND failure is<br/>fixable?}
-    C -->|yes| D[Architect re-spawns SWE<br/>with feedback context]
+    A["Failure source:<br/>(a) bro verification fails<br/>(b) pr-reviewer verdict='fail' at push gate"] --> B[Bro reads<br/>validation_history task_id<br/>+ inspects diff itself]
+    B --> C{Attempts &lt; 3<br/>AND failure is<br/>fixable?}
+    C -->|yes| D[Bro re-spawns SWE<br/>Task tool with feedback context]
     D --> E[SWE attempt_n=N+1]
     E --> F[Implement fix per feedback]
-    F --> G[task_update_status<br/>completed + new commit_sha]
-    G --> H[Architect spawns pr-reviewer]
-    H --> I{New verdict?}
-    I -->|pass| J[Architect closes task]
-    I -->|fail| A
+    F --> G[task_update_status<br/>'completed' + new commit_sha]
+    G --> H{Source was push gate?}
+    H -->|yes| I[Bro re-spawns pr-reviewer]
+    H -->|no| J[Bro re-runs verification protocol]
+    I --> K{New verdict?}
+    J --> K
+    K -->|pass| L[Bro flips task → 'closed']
+    K -->|fail| A
 
-    C -->|3 attempts hit| K[Escalation]
-    K --> L[SWE / Architect:<br/>discussion_append<br/>kind='note', body=blocker]
-    L --> M[task_update_status<br/>'escalated']
-    M --> N[Surface to Human via bro:<br/>'this task hit 3 fails — what now?']
-    N --> O{Human decides}
-    O -->|split task| P[Architect: cancel current,<br/>create smaller tasks]
-    O -->|change approach| Q[Architect: append decision,<br/>respec the task]
-    O -->|abandon| R[task_update_status 'failed']
+    C -->|3 attempts hit| M[Escalation]
+    M --> N["Bro: discussion_append<br/>kind='note', body=blocker"]
+    N --> O[task_update_status<br/>'escalated']
+    O --> P[Surface to Human via bro:<br/>'this task hit 3 fails — what now?']
+    P --> Q{Human decides}
+    Q -->|split task| R[Bro: cancel current,<br/>create smaller tasks]
+    Q -->|change approach| S[Bro: append decision,<br/>respec the task]
+    Q -->|abandon| T[task_update_status 'failed']
 ```
 
 **Notes:**
-- Each attempt is a separate `validation_attempts` row — full audit trail of what failed each time.
-- Escalation never auto-merges. Human is the only one who decides "give up" or "respec".
-- `feedback-loop` skill (loaded by architect + pr-reviewer) defines what counts as "fixable" vs "needs escalation".
+- Each pr-reviewer attempt is a separate `validation_attempts` row — full audit trail of what failed each time. Bro-verification fails are recorded as `discussions(kind='note')` rather than validation_attempts (validation_attempts is reserved for the push gate's structured verdicts).
+- Escalation never auto-merges. The Human is the only one who decides "give up" or "respec".
+- `tmb_feedback-loop` skill (loaded by bro) defines what counts as "fixable" vs "needs escalation".
 
 ---
 
 ## 9. Roundtable (multi-agent deliberation)
 
-**Prerequisite — REQUIRED, no exceptions:** At least **2 planning-capable agents** must exist in `.claude/agents/` for the skill to run. The plugin ships exactly **one planner** — `architect`. SWE is an executor and is always excluded; pr-reviewer reviews code, not strategy. So out-of-the-box, roundtable can't run. It becomes available only after the user has created additional planning agents via flow [#4 (agent-creator)](#4-agent-creator-on-demand-domain-agent) — typically `ceo`, `cto`, `pm`, `designer`, or domain reviewers.
+**Prerequisite — REQUIRED, no exceptions:** At least **2 consultant agents** must exist in `<project>/.claude/agents/`. The plugin ships ZERO consultants — they're all templates that bro copies into the project on demand (see flow C). So out-of-the-box, roundtable cannot run; it becomes available after the project has at least 2 of `architect`, `cto`, `ceo`, `pm`, or any user-created domain consultant. SWE is an executor and is always excluded; pr-reviewer reviews code, not strategy.
 
-If the skill finds < 2 suitable participants, it escalates back to the caller — roundtable requires at least 2 voices.
+If the skill finds < 2 suitable participants, it escalates back to bro — roundtable requires at least 2 voices.
 
 **Trigger conditions** (any of these — see `skills/tmb_roundtable/SKILL.md` for the authoritative list):
 
-- **Divergent opinions need structured airing** — different agents have given conflicting recommendations on the same issue (visible via `discussion_list`).
-- **Multi-dimension trade-offs** — a decision spans product / technical / business axes; no single agent owns all dimensions.
-- **Cross-discipline calls** — domain-specific question (e.g., legal/compliance/UX) where the architect alone can't credibly decide.
+- **Divergent opinions need structured airing** — different consultants have given conflicting recommendations on the same issue (visible via `discussion_list`).
+- **Multi-dimension trade-offs** — a decision spans product / technical / business axes; no single consultant owns all dimensions.
+- **Cross-discipline calls** — domain-specific question (e.g., legal/compliance/UX) where one consultant alone can't credibly decide.
 - **Human explicitly requests deliberation** — phrases like "convene a roundtable", "discuss with X and Y", "let's get more opinions".
 
 **Do NOT use roundtable for:**
 
-- Quick factual questions (architect just answers).
-- Single-discipline decisions (spawn that one agent directly via `Task`).
-- A caller who wants one voice (roundtable is deliberation, not delegation).
+- Quick factual questions (bro answers OR spawns one consultant directly via flow C).
+- Single-discipline decisions (spawn that one consultant via flow C).
+- A caller who wants a binding decision (roundtable produces a synthesis; the Human still decides).
 
 **Involved:**
 
-- Convener: `architect` (skill is in architect's frontmatter)
-- Participants: 2-4 user-created planning agents from `.claude/agents/`. SWE always excluded.
-- Skills: `tmb_roundtable` (mechanics), `roundtable-cleanup` (post-synthesis archive)
-- MCP tools: `ledger_log` (records the summary as `event_type='roundtable_summary'`); `discussion_list` to inspect prior conflicting positions
-- DB tables: `ledger` (where the summary lands today). The `roundtables` + `roundtable_votes` tables exist in the schema as reserved structure for a future structured-record upgrade; current skill writes to `ledger`.
+- Convener: `bro` (loads the `tmb_roundtable` skill)
+- Participants: 2-4 project-local consultants. SWE + pr-reviewer always excluded.
+- Skills: `tmb_roundtable` (mechanics), `tmb_roundtable-cleanup` (post-synthesis archive)
+- MCP tools: `ledger_log` (records the summary as `event_type='roundtable_summary'`); `discussion_list` to inspect prior conflicting positions; `discussion_append(kind='analysis')` per consultant
+- DB tables: `discussions` (one `kind='analysis'` row per consultant), `ledger` (summary). Reserved-but-unused: `roundtables` + `roundtable_votes` (schema exists; no MCP tool wrappers yet — tracked in [#57](https://github.com/trustmybot/plugin/issues/57) / [#67](https://github.com/trustmybot/plugin/issues/67) / [#68](https://github.com/trustmybot/plugin/issues/68))
 - Hooks: none
 
 ```mermaid
 flowchart TD
-    A[Trigger:<br/>cross-domain decision OR<br/>conflicting positions OR<br/>Human request for deliberation] --> B{Glob .claude/agents/<br/>+ read frontmatter:<br/>≥2 suitable participants?<br/>SWE excluded}
-    B -->|no| C[Skill escalates to caller:<br/>'roundtable requires ≥2 voices'<br/>Architect proceeds solo OR<br/>proposes flow #4 to create planners]
-    B -->|yes| D[Architect: pick 2-4<br/>participants whose<br/>frontmatter description<br/>best matches the topic]
+    A[Trigger:<br/>cross-domain decision OR<br/>conflicting positions OR<br/>Human request for deliberation] --> B{Glob .claude/agents/<br/>+ read frontmatter:<br/>≥2 consultants?<br/>SWE + pr-reviewer excluded}
+    B -->|no| C[Bro escalates to Human:<br/>'roundtable needs ≥2 consultants —<br/>want me to create &lt;X&gt; via tmb_agent-creator?']
+    B -->|yes| D[Bro picks 2-4 participants<br/>whose frontmatter description<br/>best matches the topic]
     D --> E[Parallel spawn via Task<br/>multiple calls in one message]
-    E --> F[Each participant:<br/>state position + reasoning]
-    F --> G[Architect synthesizes:<br/>convergence, tensions,<br/>recommendation, open questions<br/>output as structured XML]
-    G --> H[ledger_log<br/>event_type='roundtable_summary'<br/>topic, participants, recommendation,<br/>tensions_count]
-    H --> I[Invoke roundtable-cleanup skill:<br/>archive raw positions, tidy workspace]
-    I --> J[Return synthesis<br/>to architect's flow]
+    E --> F[Each consultant runs in own context:<br/>state position + reasoning<br/>+ discussion_append kind='analysis']
+    F --> G[Bro synthesizes:<br/>convergence, tensions,<br/>recommendation, open questions]
+    G --> H["ledger_log<br/>event_type='roundtable_summary'<br/>topic, participants, recommendation"]
+    H --> I[Invoke tmb_roundtable-cleanup:<br/>archive raw positions, tidy workspace]
+    I --> J[Bro relays synthesis to Human;<br/>Human decides]
 ```
 
 **Notes:**
 
-- **Parallel spawn, sequential synthesis.** Participants are spawned in one message (multiple `Task` calls); each runs in its own context window so there's no cross-contamination. Architect waits for all responses, then synthesizes.
-- **No groupthink.** If all participants agree immediately, the skill instructs the convener to probe the weakest shared assumption before accepting consensus.
+- **Parallel spawn, sequential synthesis.** Consultants are spawned in one message (multiple `Task` calls); each runs in its own context window so there's no cross-contamination. Bro waits for all responses, then synthesizes.
+- **No groupthink.** If all participants agree immediately, the skill instructs bro to probe the weakest shared assumption before accepting consensus.
 - **Protect dissent.** A lone dissenter may be right — dissenting views get explicit airtime in the synthesis's `<tensions>` section.
-- **Ledger is the current record store.** `roundtables` + `roundtable_votes` tables in the schema are forward-looking; the skill writes summaries to `ledger` today. A future schema-uplift task can migrate to the structured tables when there's reason to query roundtable history independently.
-- **One voice ≠ roundtable.** If the user only has architect, the skill refuses. Telling architect to "discuss with itself" is a smell; surface it back to the user as "I'd need a `pm` (or similar) for this — want me to create one?" and route through flow #4.
+- **Ledger is the current record store.** `roundtables` + `roundtable_votes` tables in the schema are reserved structure; today the skill writes summaries to `ledger`. A future schema-uplift task can migrate to the structured tables when there's reason to query roundtable history independently.
+- **One voice ≠ roundtable.** If the project only has one consultant (or none), the skill refuses. Bro surfaces it as "I'd need a `pm` (or similar) for this — want me to create one?" and routes through flow #4.
+- **Bro never auto-applies the synthesis.** Even when consultants converge unanimously, the recommendation goes to the Human, not into a task spec.
 
 ---
 
-## C. Consultant invocation (NEW)
+## C. Consultant invocation
 
 **Trigger:** Human asks for a second opinion (`@bro get the cto's read on X`) **OR** bro decides it wants to challenge its own plan and spawns a consultant on its own initiative.
 
@@ -495,6 +509,45 @@ sequenceDiagram
 - **Server-side enforcement** (post `feat/bro-as-planner` cleanup): `requireRoles` rejects any consultant call to `task_create_batch`, `task_update_status`, `validation_record`, or `issue_create`. The decision chain is structurally protected, not just prompt-discipline.
 - For multi-consultant deliberation (cto + architect + ceo voting), see flow 9 (Roundtable). The voting protocol is tracked in [#57](https://github.com/trustmybot/plugin/issues/57).
 - The Human always decides; bro never auto-applies a consultant's recommendation.
+
+---
+
+## D. Direct Mode (narrow bypass)
+
+**Trigger:** Bro receives a code-touching ask that meets ALL of:
+
+- Single file change.
+- ≤3 lines diff (typo fix, comment, constant bump, one-line README rewording).
+- No public API change, no new file, no test change required.
+- No `docs/trustmybot/architecture/` touched (architecture-touching is always difficult-triage → no Direct Mode).
+
+**Involved:**
+- Agent: `bro` only (no spawn)
+- Skills: none
+- MCP tools: `ledger_log` (event_type='direct_mode_used')
+- DB tables: `ledger`
+- Hooks: `git-guards` (commit branch check)
+
+```mermaid
+sequenceDiagram
+    participant H as Human
+    participant B as Bro
+    participant FS as Filesystem
+    participant DB as SQLite
+
+    H->>B: "@bro fix typo 'recieve' → 'receive' in README.md"
+    B->>B: triage → trivial; auto-engage Direct Mode
+    B->>FS: Edit README.md (single ≤3-line change)
+    B->>FS: Bash: git commit -m "chore: typo fix"
+    B->>DB: ledger_log(agent='bro', event_type='direct_mode_used', summary=...)
+    B-->>H: "fixed + committed."
+```
+
+**Notes:**
+- Direct Mode is the ONLY narrow exception to "every code change goes through SWE." It exists to make trivial fixes feel as fast as pure Claude (~10–20s).
+- If the change creeps past 3 lines or touches state bro can't reason about in one read, bro falls back to the default chain (flow 2 or 3 with task_create_batch + SWE spawn).
+- The discipline is the narrow scope. Resist extending Direct Mode "just for this one case" — that's the slippery slope this rule explicitly guards against.
+- Pre-push gate (flow 6) does NOT fire for Direct-Mode commits because no `tasks` row exists for them — they're recorded as `ledger.direct_mode_used` events instead.
 
 ---
 
