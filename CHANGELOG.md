@@ -2,6 +2,38 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.1.3 — 2026-04-25
+
+**Critical install hotfix.** v0.1.2 shipped without prebuilt `dist/` for the MCP trajectory server, so a fresh marketplace install left the MCP server unbootable. First sessions silently failed to register any of the `mcp__plugin_tmb_trajectory-server__*` tools, breaking onboarding, planning, and every workflow that depends on MCP state. **Anyone on v0.1.2 should upgrade.**
+
+### Fixed
+
+- **Marketplace install now boots cleanly** — added a `postinstall` script to the workspace root `package.json` that runs `bun --filter='*' run build`, ensuring `dist/index.js` and `dist/schema.sql` exist after `bun install`. Restores the cold-start contract that v0.1.2 broke.
+- Synced workspace-root `package.json` version (was a stale `0.3.2`) to track the plugin version (now `0.1.3`).
+
+### Added — Layer 0 distribution test (so this can't ship again)
+
+Added a Docker-based **install-smoke test** at [`tests/docker/install-smoke.Dockerfile`](tests/docker/install-smoke.Dockerfile) and a local wrapper [`tests/docker/run-install-smoke.sh`](tests/docker/run-install-smoke.sh). The Dockerfile:
+
+1. Starts from a clean `node:20-slim` (no preexisting `dist/`, no `node_modules/`).
+2. Installs bun + sqlite, copies the plugin tree.
+3. Strips any local artifacts to force cold-start conditions.
+4. Runs `bun install --frozen-lockfile` and asserts `mcp/trajectory-server/dist/index.js` + `dist/schema.sql` exist after install.
+5. Spawns the MCP server, sends `tools/list`, asserts it responds with `identity_get`.
+6. Re-runs both lint scripts in the as-shipped tree.
+7. Verifies all hook scripts are executable + syntactically valid.
+8. Confirms `.mcp.json`'s server path resolves in the installed tree.
+
+Wired into `.github/workflows/test.yml` as a separate `install-smoke` CI job that runs on every PR + push to dev/main. Build success = a clean marketplace install would boot. Build failure = release blocker.
+
+This is **Layer 0** in the broader test-pyramid plan tracked in #76 follow-ups. v0.1.4 will add Layer 1 lint expansions + Layer 2 unit expansions + Layer 6 release-canary; v0.2.0 will add Layer 4 workflow-simulation harness.
+
+### Versioning
+
+Bumped `.claude-plugin/plugin.json`, `mcp/trajectory-server/package.json`, and root `package.json` to `0.1.3`. No schema migrations needed (still `schema_version=1`).
+
+---
+
 ## v0.1.2 — 2026-04-25
 
 **Docs + structural release.** No agent, hook, or MCP-server behavior change. Adds multi-platform structural placeholders following the [Superpowers](https://github.com/obra/superpowers) pattern, and refreshes contributor docs to match the bro-as-planner doctrine that landed in v0.1.0.
