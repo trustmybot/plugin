@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 
 /**
  * Resolve the trajectory DB path.
@@ -20,13 +20,16 @@ export function resolveDbPath(opts?: { env?: NodeJS.ProcessEnv; cwd?: string }):
 }
 
 export class TrajectoryDB {
-  private db: Database.Database;
+  private db: DatabaseSync;
 
   constructor(dbPath: string) {
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.db.pragma('busy_timeout = 5000');
+    // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
+    // on 22.x, stable on 24+. The plugin's .mcp.json passes --experimental-sqlite
+    // unconditionally — it's required on 22 and a no-op on 24+.
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA foreign_keys = ON');
+    this.db.exec('PRAGMA busy_timeout = 5000');
     this.applySchema();
   }
 
@@ -54,22 +57,43 @@ export class TrajectoryDB {
     params?: unknown[],
   ): { changes: number; lastInsertRowid: number | bigint } {
     const stmt = this.db.prepare(sql);
-    const result = stmt.run(...(params ?? []));
-    return { changes: result.changes, lastInsertRowid: result.lastInsertRowid };
+    const result = stmt.run(...((params ?? []) as never[]));
+    return {
+      changes: Number(result.changes),
+      lastInsertRowid: result.lastInsertRowid,
+    };
   }
 
   get<T>(sql: string, params?: unknown[]): T | undefined {
     const stmt = this.db.prepare(sql);
-    return stmt.get(...(params ?? [])) as T | undefined;
+    return stmt.get(...((params ?? []) as never[])) as T | undefined;
   }
 
   all<T>(sql: string, params?: unknown[]): T[] {
     const stmt = this.db.prepare(sql);
-    return stmt.all(...(params ?? [])) as T[];
+    return stmt.all(...((params ?? []) as never[])) as T[];
   }
 
+  /**
+   * Wraps `fn` in a SQLite transaction. better-sqlite3 had a built-in
+   * `db.transaction(fn)` helper; node:sqlite does not, so we issue
+   * BEGIN/COMMIT/ROLLBACK explicitly.
+   */
   transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+    this.db.exec('BEGIN');
+    try {
+      const result = fn();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        // ROLLBACK can fail if the txn was already broken; surface the
+        // original error, not the rollback error.
+      }
+      throw err;
+    }
   }
 
   close(): void {

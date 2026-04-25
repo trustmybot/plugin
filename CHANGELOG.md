@@ -2,6 +2,72 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.3.0 — 2026-04-25
+
+**Cold-start fix release.** Two structural changes that together eliminate the v0.2.0 marketplace-install pain class. Anyone on v0.2.0 should upgrade. (v0.2.1 was planned as a single-bug hotfix; we folded it into v0.3.0 because both changes touch the same cold-start path.)
+
+### Two changes, one outcome: `/plugin install` → first ask works, no `/reload-plugins` dance.
+
+#### 1. SQLite via Node stdlib — no native deps, no install scripts
+
+**Replaced `better-sqlite3` (native binding) with `node:sqlite` (Node stdlib).** v0.2.0 broke because bun's install lifecycle skipped `better-sqlite3`'s prebuild-install script, leaving the native `.node` binary missing. This bug class is permanently gone — `node:sqlite` ships with Node itself, no compilation, no prebuilds, no install scripts to skip.
+
+| Risk | Before (better-sqlite3) | After (node:sqlite) |
+|---|---|---|
+| Package-manager install-script lifecycle | ⚠️ broke v0.2.0 | ✅ no install scripts |
+| Prebuild server availability / firewall | ⚠️ install fails | ✅ no downloads |
+| Platform coverage (Alpine/musl, FreeBSD, exotic ARM) | ⚠️ no prebuild → fail | ✅ stdlib, runs anywhere Node runs |
+| Build-tools-required fallback (no gcc) | ⚠️ fails | ✅ no compile step |
+| Node ABI churn between Node majors | ⚠️ prebuild lag | ✅ part of Node itself |
+
+**Migration cost:** ~50 LOC wrapper rewrite in `mcp/trajectory-server/src/db.ts`. All 245 unit tests + 43 integration tests pass against the new wrapper.
+
+**Node 22+ now required.** `node:sqlite` is in stdlib since Node 22 (behind `--experimental-sqlite` flag, stable on Node 24). `.mcp.json` passes the flag unconditionally — required on 22, no-op on 24+.
+
+#### 2. swe + pr-reviewer ship globally — no copy step at onboarding
+
+**Workflow backbone agents now ship in `agents/`** (was: empty by design). CC discovers them automatically the moment the plugin installs. Onboarding no longer copies anything into the project — identity + 3 config writes + audit-row log. Done.
+
+Default skills (`swe-checklist`, `code-quality`, `docs-conventions`, `git-conventions`, `naming-conventions`, `review-protocol`, `review-findings`) similarly moved to plugin's `skills/` (alongside `tmb_*` protocol skills) — globally discoverable, project overrides per-name.
+
+**Resolution rule:**
+
+```
+if <project>/.claude/agents/<name>.md exists → use local
+else                                          → use global plugin-shipped
+```
+
+Same for skills. Projects that need custom backbone behavior drop a project-local file; the global plugin file is **never edited** by bro. Local creation triggers: (a) Human explicitly asks, OR (b) bro determines the global default genuinely doesn't fit. Both paths route through `tmb_agent-creator` with explicit Human approval.
+
+**Consultants stay opt-in.** `architect`, `cto`, `ceo`, `pm` remain in `templates/agents/` and are only instantiated per-project when the Human explicitly asks for that consultant's read.
+
+#### Onboarding flow before vs after
+
+| Step | v0.2.0 | v0.3.0 |
+|---|---|---|
+| Identity capture (AskUserQuestion) | ✓ | ✓ |
+| Branching model + PR target capture | ✓ | ✓ |
+| Persist via `identity_set` + 3 × `config_set` | ✓ | ✓ |
+| **Copy `swe.md` + 5 default skills into `<project>/.claude/`** | required (8+ filesystem ops) | **eliminated** |
+| Log onboarding audit row | ✓ (`tmb_bootstrap_complete`) | ✓ (renamed `tmb_onboarding_complete`) |
+| Required `/reload-plugins` after install? | yes | **no** (plugin already serves agents + skills globally) |
+
+### Removed
+
+- `skills/tmb_bootstrap/SKILL.md` — recovery skill for the old "missing local agents" failure mode. Unnecessary now.
+- `templates/skills/` — all default skills moved to `skills/` (globally discoverable).
+- `templates/agents/swe.md`, `templates/agents/pr-reviewer.md` — promoted to `agents/` (globally discoverable).
+
+### Hardened — L0 install-smoke now drives a real DB call
+
+Previously, L0 only asserted `tools/list` responded. **`tools/list` doesn't open a DB**, which is exactly why L0 didn't catch v0.2.0's bug. New assertion **A3b** in `tests/docker/install-smoke.Dockerfile` runs the full MCP `initialize → tools/call identity_get` round-trip, forcing the SQLite layer to load. Catches any future "install succeeds but first DB call fails" regardless of root cause.
+
+### Versioning
+
+Bumped all 3 manifest versions to `0.3.0`. `engines.node` bumped from `>=20` to `>=22`.
+
+---
+
 ## v0.2.0 — 2026-04-25
 
 **Workflow simulation harness + manual dogfood gate.** Final PR in the test-pyramid build. The full layered model is now in place: every failure mode that doesn't require Claude Code in the loop has an automated test owner.

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Lint: every SKILL.md (in skills/ and templates/skills/) must have a
-# valid frontmatter block with `name` and `description` fields, and the
-# `name` field must equal the parent directory name.
+# Lint: every SKILL.md under skills/ must have a valid frontmatter block
+# with `name` and `description` fields, and the `name` field must equal
+# the parent directory name.
+#
+# (As of v0.3.0, all skills — both `tmb_*` protocol skills and the default
+# workflow skills — live in skills/. There is no separate templates/skills/
+# directory anymore; default skills ship globally and projects override by
+# name in <project>/.claude/skills/.)
 #
 # Catches: typos in skill metadata, broken skill registration, mismatch
 # between dir name (what CC discovers) and frontmatter name (what the
@@ -14,8 +19,8 @@ cd "$ROOT"
 
 failed=0
 
-# Find every SKILL.md under both plugin-shipped + template-shipped trees
-for skill in $(find skills templates/skills -type f -name 'SKILL.md' 2>/dev/null | sort); do
+# Find every SKILL.md (single source of truth: plugin's skills/ dir)
+for skill in $(find skills -type f -name 'SKILL.md' 2>/dev/null | sort); do
   dir=$(dirname "$skill")
   dirname_base=$(basename "$dir")
 

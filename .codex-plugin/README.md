@@ -6,7 +6,7 @@
 
 Once implemented, this directory would hold the OpenAI Codex adapter:
 
-- `plugin.json` — the Codex-format manifest pointing at the shared `./skills/`, `./templates/agents/`, and `./templates/skills/` directories at the repo root
+- `plugin.json` — the Codex-format manifest pointing at the shared `./agents/` (workflow backbone), `./skills/` (protocol + default skills), and `./templates/agents/` (opt-in consultants) directories at the repo root
 - Any Codex-specific persona/loading file (likely `../CODEX.md` at the repo root)
 - Any Codex-specific hook scripts under `../hooks/codex/`
 

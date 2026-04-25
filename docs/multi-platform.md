@@ -21,10 +21,9 @@ plugin/
 ├── gemini-extension.json   # Gemini CLI manifest — placeholder
 │
 ├── # Shared cross-platform content (single source of truth)
-├── agents/                 # currently empty (.gitkeep) — bro is in CLAUDE.md
-├── templates/agents/       # 6 Lego agent templates (bodies portable; frontmatter currently CC-shaped)
-├── templates/skills/       # default project skills (portable)
-├── skills/                 # tmb_* protocol skills (portable)
+├── agents/                 # workflow backbone — swe + pr-reviewer, ship globally
+├── skills/                 # tmb_* protocol skills + default workflow skills (all global)
+├── templates/agents/       # opt-in consultant templates (architect, cto, ceo, pm)
 ├── mcp/trajectory-server/  # MCP server — already cross-platform (MCP is the emerging standard)
 │
 ├── # Per-platform hook configs (CC only today; future: hooks/<platform>/)
@@ -44,10 +43,10 @@ The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpower
 
 | Asset | Status | Notes |
 |---|---|---|
-| `skills/tmb_*/SKILL.md` | ✓ Portable | Skill format is shared (Claude/Codex/Cursor all read frontmatter + markdown body) |
-| `templates/skills/*` | ✓ Portable | Plain markdown |
-| `templates/agents/*.md` body | ✓ Portable | Body is platform-agnostic |
-| `templates/agents/*.md` frontmatter | ⚠️ CC-shaped | `tools:`, `model:`, `isolation:`, `skills:` are Claude Code conventions. Other platforms may need adapter-side translation. |
+| `skills/*` (all — protocol + default) | ✓ Portable | Skill format is shared (Claude/Codex/Cursor all read frontmatter + markdown body) |
+| `agents/*.md` body (swe + pr-reviewer) | ✓ Portable | Body is platform-agnostic |
+| `agents/*.md` frontmatter | ⚠️ CC-shaped | `tools:`, `model:`, `isolation:`, `skills:` are Claude Code conventions. Other platforms may need adapter-side translation. |
+| `templates/agents/*.md` (consultants) | ✓ Portable bodies, ⚠️ CC-shaped frontmatter (same as above) | Opt-in templates, not auto-installed |
 | `mcp/trajectory-server/` | ✓ Portable | MCP is the cross-platform standard (Anthropic + OpenAI + Cursor all support) |
 | `hooks/hooks.json` | ✗ CC-only | Each platform has different hook event names + decision protocol |
 | `scripts/hooks/*.sh` | ⚠️ Partly | Shell logic is portable; the JSON-decision contract is CC-specific |

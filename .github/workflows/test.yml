@@ -19,6 +19,15 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      # Node 22+ required: MCP server uses node:sqlite (stdlib) — added in 22,
+      # behind --experimental-sqlite flag on 22.x, stable on 24+. The
+      # ubuntu-latest runner ships Node 20 by default, which doesn't have
+      # node:sqlite — would fail with ERR_UNKNOWN_BUILTIN_MODULE.
+      - name: install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: install bun
         uses: oven-sh/setup-bun@v2
         with:
