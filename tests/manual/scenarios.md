@@ -1,5 +1,21 @@
 # Dogfood Test Scenarios
 
+> **Active rewrite — bro-as-planner chain.** As of `feat/bro-as-planner` +
+> the cleanup PR, the decision chain is `Human → bro → swe` with
+> `pr-reviewer` as the gate. Scenarios that exercise the **old**
+> `bro → architect → swe` chain (Flow 2, 3, 8 and parts of 9) are STALE
+> until rewritten — they will fail in unhelpful ways if you walk them
+> as written.
+>
+> **Layer-3 dogfood targets that ARE current** in the new chain:
+> - **Flow 1 (onboarding)** — unchanged, still valid.
+> - **Flow 2 (simple task), bro-as-planner version** — rewritten below
+>   as scenario `2.1.bro` (the canonical end-to-end smoke test).
+> - **Consultant invocation** — new flow, scenario `C.1` below.
+> - **Flow 7 (architecture regen)** — still valid; bro is the only caller.
+>
+> Other scenarios will be refreshed in a follow-up.
+
 For each workflow in [`FLOWS.md`](../../docs/architecture/FLOWS.md), the verbatim user prompt that triggers it + the observable expected behavior + how to verify it landed correctly.
 
 These are the **manual test cases** for the plugin. Run during a fresh `claude --plugin-dir <PLUGIN_PATH>` session against a disposable scratch project (see [`setup.md`](./setup.md) for setup).
@@ -298,52 +314,78 @@ SQL
 
 ---
 
-## Flow 2 — Simple Task
+## Flow 2 — Simple Task (bro-as-planner chain)
 
-All three should produce: `triage:simple`, trivial template task spec, no ADR, architect → swe → pr-reviewer chain.
+> **The 2.x scenarios below are STALE** — they describe the legacy
+> `bro → architect → swe` chain. Use **`2.1.bro` as the canonical
+> simple-task smoke test** in the new model. The original 2.1/2.2/2.3
+> are kept for reference until they're rewritten.
 
-### 2.1 — Typo fix
+### 2.1.bro — Simple task end-to-end (NEW canonical smoke test)
 
 **Prerequisites:** Onboarded scratch project with at least a README.
 
 **Trigger prompt:**
-> `fix the typo in README — "recieve" should be "receive"`
+> `@bro fix the typo in README — "recieve" should be "receive"`
 
-**Expected behavior:**
-1. Bro pre-scans (inventory block emitted).
-2. Proposes branch_id like `fix/typo-receive` + `triage: simple`.
-3. Waits for "y".
-4. Spawns architect with `task_id=N`.
-5. Architect creates trivial-template task; spawns SWE.
-6. SWE creates worktree, fixes the typo, commits.
-7. pr-reviewer signs off; architect closes.
+**Expected agent chain:**
+
+| # | Agent | Model | Via | Purpose |
+|---|---|---|---|---|
+| 1 | bro (main Claude) | opus | persona | Triages, captures intent in MCP, plans, authors task spec, spawns SWE, spawns pr-reviewer, closes |
+| 2 | swe | sonnet | Task tool | Implements typo fix in worktree; commits |
+| 3 | pr-reviewer | opus | Task tool | Reviews diff; records `validation_record(verdict='pass')` |
+
+**Expected MCP tool calls (bro is the only mutator outside swe/pr-reviewer's lane):**
+
+| # | Caller | Tool | Key args |
+|---|---|---|---|
+| 1 | bro | `issue_create` | `agent='bro'`, objective |
+| 2 | bro | `discussion_append` | `kind='intent'`, author='human' |
+| 3 | bro | `discussion_append` | `kind='note'`, body='Triage: simple' |
+| 4 | bro | `task_create_batch` | `agent='bro'`, single task with `waive_scope_gate=true`, reason citing simple-fast-lane defaults |
+| 5 | bro | `ledger_log` | `event_type='planning_complete'` |
+| 6 | swe | `task_get` | `agent='swe'`, task_id |
+| 7 | swe | `task_update_status` | `agent='swe'`, status='running' |
+| 8 | swe | `task_update_status` | `agent='swe'`, status='completed', commit_sha |
+| 9 | pr-reviewer | `task_get` | `agent='pr-reviewer'` |
+| 10 | pr-reviewer | `validation_record` | `agent='pr-reviewer'`, verdict='pass' |
+| 11 | bro | `task_update_status` | `agent='bro'`, status='closed' |
+
+**Expected DB state after:**
+- 1 issue, status='open' (or closed if bro closed it)
+- 1 task, status='closed', commit_sha non-empty
+- 1 validation_attempts row, verdict='pass', agent='pr-reviewer'
+- ledger row with event_type='planning_complete'
 
 **Verification:**
-```sql
-SELECT branch_id, status, commit_sha FROM tasks ORDER BY id DESC LIMIT 1;
-SELECT verdict FROM validation_attempts ORDER BY id DESC LIMIT 1;
+```bash
+sqlite3 .claude/tmb/trajectory.db "
+  SELECT t.branch_id, t.status, t.commit_sha, v.verdict, v.agent
+  FROM tasks t LEFT JOIN validation_attempts v ON v.task_id=t.id
+  ORDER BY t.id DESC LIMIT 1;"
 ```
-Expect status='closed', verdict='pass'.
+
+Expect a row with status='closed', commit_sha matching git log, verdict='pass', agent='pr-reviewer'.
+
+**Common failure modes:**
+- bro spawns architect via Task tool → routing regression (architect is consultant-only now)
+- task_create_batch returns `forbidden` → bro called with wrong agent param (must be 'bro')
+- validation_record returns `forbidden` for any caller other than pr-reviewer
 
 **Pass:** [ ]
 
-### 2.2 — Add a code comment
+### 2.1 — Typo fix [STALE — use 2.1.bro]
 
-**Trigger prompt:**
-> `add a doc comment to the parseConfig function explaining what each option means`
+(Original architect-as-planner scenario; kept for reference.)
 
-**Expected:** Same as 2.1; `triage: simple`, no architecture/ touched.
+### 2.2 — Add a code comment [STALE]
 
-**Pass:** [ ]
+(Original; will be re-derived from 2.1.bro after the cleanup PR settles.)
 
-### 2.3 — Internal refactor with no API change
+### 2.3 — Internal refactor with no API change [STALE]
 
-**Trigger prompt:**
-> `extract the validation logic in parseConfig into a separate helper function — same external behavior`
-
-**Expected:** Architect double-checks triage; if no public API surface changes, stays `simple`. Trivial-template spec.
-
-**Pass:** [ ]
+(Original; same as above.)
 
 ---
 
@@ -393,6 +435,68 @@ Expect at least one row with `kind='decision'`.
 > `add structured request logging across every API endpoint`
 
 **Expected:** difficult triage (new cross-cutting concern); ADR + standard template.
+
+**Pass:** [ ]
+
+---
+
+## Flow C — Consultant invocation (NEW — bro-as-planner model)
+
+When the Human asks bro for a second opinion, bro checks for the named consultant in `.claude/agents/`. If absent, bro invokes `agent-creator` to draft + write the file with explicit Human approval (consultants are project-local, not shipped). Then bro spawns it in **analysis-only** mode. Consultants return a read; bro summarizes; Human decides. Consultants must NOT call `task_create_batch`, `task_update_status`, `validation_record`, or `issue_create` (server-enforced via `requireRoles`).
+
+### C.1 — Architect invoked for a second opinion on a design choice
+
+**Prerequisites:** Onboarded scratch project. An open issue with a design question (you can seed via `2.1.bro` and stop before SWE spawn, or open a fresh design discussion via bro). `.claude/agents/architect.md` may or may not exist yet — both branches tested below.
+
+**Trigger prompt:**
+> `@bro get the architect's read on whether we should use SQLite or a JSON file for this CLI's storage. Single-user laptop scope.`
+
+**Expected agent chain (when `architect.md` doesn't exist yet):**
+
+| # | Agent | Model | Via | Purpose |
+|---|---|---|---|---|
+| 1 | bro (main Claude) | opus | persona | Detects no `.claude/agents/architect.md`; invokes `agent-creator` skill |
+| 1a | bro | opus | AskUserQuestion | Proposes architect spec; gets Human approval |
+| 1b | bro | opus | Write tool | Writes `.claude/agents/architect.md` to project |
+| 2 | architect | opus | Task tool (consultant) | Analyzes; returns analysis text + appends `discussion_append(kind='analysis')` |
+
+**Expected agent chain (when `architect.md` already exists):**
+
+| # | Agent | Model | Via | Purpose |
+|---|---|---|---|---|
+| 1 | bro (main Claude) | opus | persona | Spawns architect with `consultant: analysis-only` marker |
+| 2 | architect | opus | Task tool (consultant) | Analyzes; returns analysis text + appends `discussion_append(kind='analysis')` |
+
+**Expected MCP tool calls:**
+
+| # | Caller | Tool | Key args |
+|---|---|---|---|
+| 1 | architect | `issue_get_with_discussions` | `agent='architect'`, issue_id |
+| 2 | architect | `discussion_append` | `agent='architect'`, kind='analysis', author='architect' |
+| 3 | bro | (summary back to Human via chat) | — |
+
+**Server-enforced negative checks (architect must be REJECTED if it tries):**
+
+| Tool | Expected response |
+|---|---|
+| `task_create_batch` (agent=architect) | `forbidden`, allowed_roles=[bro] |
+| `task_update_status` (agent=architect) | `forbidden`, allowed_roles=[bro,swe] |
+| `validation_record` (agent=architect) | `forbidden`, allowed_roles=[pr-reviewer] |
+| `issue_create` (agent=architect) | `forbidden`, allowed_roles=[bro] |
+
+**Verification:**
+```bash
+sqlite3 .claude/tmb/trajectory.db "
+  SELECT id, kind, author, substr(body,1,80) FROM discussions
+  WHERE issue_id=<id> AND author='architect' ORDER BY id DESC LIMIT 3;"
+```
+
+Expect a `kind='analysis'` row with substantive text. No new tasks should appear (architect is consultant-only).
+
+**Common failure modes:**
+- Architect calls `task_create_batch` and the call **succeeds** → MCP role enforcement regression (it should be forbidden).
+- Architect tries to spawn SWE itself → architect prompt regression (subagents can't spawn subagents anyway, but the explicit prohibition should be in the prompt).
+- Architect's analysis is recorded as `kind='decision'` instead of `kind='analysis'` → prompt drift; analyses are not decisions.
 
 **Pass:** [ ]
 

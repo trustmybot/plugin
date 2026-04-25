@@ -2,7 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import type { Issue, Task } from '../types.js';
-import { normalizeAgent, redactIssue } from '../middleware/agent-scope.js';
+import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -123,7 +123,7 @@ export function issueTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    issue_create: wrapHandler(async (args) => {
+    issue_create: requireRoles('issue_create', ['bro'], wrapHandler(async (args) => {
       const agent = normalizeAgent(args['agent'] as string | undefined);
       requireArg(args, 'objective');
 
@@ -149,7 +149,7 @@ export function issueTools(db: TrajectoryDB): {
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [rowId.id]);
       const redacted = redactIssue(issue!, agent, { include_description: true });
       return ok(redacted);
-    }),
+    })),
 
     issue_get: wrapHandler(async (args) => {
       const agent = normalizeAgent(args['agent'] as string | undefined);
@@ -184,7 +184,7 @@ export function issueTools(db: TrajectoryDB): {
       return ok({ issue: redactIssue(issue, agent), next_task: task ?? null });
     }),
 
-    issue_close: wrapHandler(async (args) => {
+    issue_close: requireRoles('issue_close', ['bro'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
 
@@ -214,7 +214,7 @@ export function issueTools(db: TrajectoryDB): {
 
       const updated = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
       return ok(updated);
-    }),
+    })),
 
     issue_get_phase: wrapHandler(async (args) => {
       requireArg(args, 'agent');

@@ -54,7 +54,7 @@ describe('discussions + snapshot integration', () => {
   it('step 1: creates an issue', async () => {
     const issues = issueTools(db);
     const result = await call(issues.handlers, 'issue_create', {
-      agent: 'architect',
+      agent: 'bro',
       objective: 'discussion integration test issue',
       description: '# Goals\n- Prove the tools work',
     });
@@ -126,7 +126,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const r1 = await call(disc.handlers, 'discussion_append', {
-      agent: 'architect',
+      agent: 'bro',
       issue_id: issueId,
       author: 'architect',
       kind: 'intent',
@@ -156,7 +156,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const result = await call(disc.handlers, 'discussion_append', {
-      agent: 'architect',
+      agent: 'bro',
       issue_id: issueId,
       author: 'architect',
       kind: 'invalid_kind',
@@ -205,7 +205,7 @@ describe('discussions + snapshot integration', () => {
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'architect',
+      agent: 'bro',
       issue_id: issueId,
       tasks: [
         {
@@ -236,7 +236,7 @@ describe('discussions + snapshot integration', () => {
     const sha = 'deadbeefcafe1234567890abcdef0123456789ab';
 
     const result = await call(tasks.handlers, 'task_update_status', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: taskId,
       status: 'completed',
       commit_sha: sha,
@@ -248,7 +248,7 @@ describe('discussions + snapshot integration', () => {
     assert.ok(updated.completed_at !== null, 'completed_at must be set');
 
     const getResult = await call(tasks.handlers, 'task_get', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: taskId,
     });
     const row = parseResult(getResult);
@@ -260,7 +260,7 @@ describe('discussions + snapshot integration', () => {
     const taskId = (globalThis as Record<string, unknown>)['testTaskId'] as string;
 
     const result = await call(tasks.handlers, 'task_update_status', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: taskId,
       status: 'pending',
       commit_sha: 'not-hex!',
@@ -268,7 +268,7 @@ describe('discussions + snapshot integration', () => {
     assert.ok(result.isError, 'Should reject non-hex commit_sha');
 
     const getResult = await call(tasks.handlers, 'task_get', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: taskId,
     });
     const row = parseResult(getResult);
@@ -280,7 +280,7 @@ describe('discussions + snapshot integration', () => {
     const taskId = (globalThis as Record<string, unknown>)['testTaskId'] as string;
 
     const result = await call(tasks.handlers, 'task_update_status', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: taskId,
       status: 'running',
       commit_sha: 'abc',
@@ -288,7 +288,7 @@ describe('discussions + snapshot integration', () => {
     assert.ok(result.isError, 'Should reject SHA shorter than 7 chars');
 
     const getResult = await call(tasks.handlers, 'task_get', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: taskId,
     });
     const row = parseResult(getResult);
@@ -301,7 +301,7 @@ describe('discussions + snapshot integration', () => {
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'architect',
+      agent: 'bro',
       issue_id: issueId,
       tasks: [
         {
@@ -315,7 +315,7 @@ describe('discussions + snapshot integration', () => {
     const taskId2 = String(batchData[0].id);
 
     const result = await call(tasks.handlers, 'task_update_status', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: taskId2,
       status: 'completed',
     });
@@ -375,7 +375,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const result = await call(disc.handlers, 'issue_get_with_discussions', {
-      agent: 'architect',
+      agent: 'bro',
       issue_id: issueId,
     });
     const data = parseResult(result);

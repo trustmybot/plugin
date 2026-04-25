@@ -8,12 +8,12 @@ import { startClient, call } from './harness.mjs';
 
 async function seedCompletedTask(client) {
   const issue = await call(client, 'issue_create', {
-    agent: 'architect', objective: 'pr test', description: 'x',
+    agent: 'bro', objective: 'pr test', description: 'x',
   });
   assert.equal(issue.ok, true);
   const batch = await call(client, 'task_create_batch', {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-    agent: 'architect',
+    agent: 'bro',
     issue_id: issue.data.id,
     tasks: [{
       branch_id: 'feat/pr-test',
@@ -63,7 +63,7 @@ test('pr-reviewer — happy path: read task → record pass → history reflects
   assert.equal(rows[0].verdict, 'pass');
 });
 
-test('pr-reviewer — fail path: record fail → architect sees it in history', async (t) => {
+test('pr-reviewer — fail path: record fail → bro sees it in history', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -78,9 +78,9 @@ test('pr-reviewer — fail path: record fail → architect sees it in history', 
   });
   assert.equal(fail.ok, true);
 
-  // Architect reads back (validation_history is read-any).
+  // bro reads back (validation_history is read-any).
   const history = await call(client, 'validation_history', {
-    agent: 'architect', task_id: taskId,
+    agent: 'bro', task_id: taskId,
   });
   assert.equal(history.ok, true);
   const rows = Array.isArray(history.data) ? history.data : history.data.attempts ?? [];

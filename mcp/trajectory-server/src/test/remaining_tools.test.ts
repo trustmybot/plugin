@@ -26,7 +26,7 @@ function parseResult(result: RawResult) {
 async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
-    agent: 'swe',
+    agent: 'bro',
     objective: 'Test issue',
   });
   return parseResult(result).id as number;
@@ -40,7 +40,7 @@ async function createTask(
   const tools = taskTools(db);
   const result = await call(tools.handlers, 'task_create_batch', {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-    agent: 'swe',
+    agent: 'bro',
     issue_id: String(issueId),
     tasks: [
       {
@@ -61,7 +61,7 @@ describe('auditTools', () => {
     const tools = auditTools(db);
 
     const result = await call(tools.handlers, 'audit_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       from_node: 'executor',
       tool_name: 'bash',
@@ -88,7 +88,7 @@ describe('auditTools', () => {
     const bigOutput = 'x'.repeat(2_000_000);
 
     const result = await call(tools.handlers, 'audit_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       from_node: 'executor',
       tool_name: 'bash',
@@ -112,7 +112,7 @@ describe('auditTools', () => {
 
     const logEntry = (branchId: string) =>
       call(tools.handlers, 'audit_log', {
-        agent: 'swe',
+        agent: 'bro',
         issue_id: String(issueId),
         branch_id: branchId,
         from_node: 'executor',
@@ -141,7 +141,7 @@ describe('validationTools', () => {
     const tools = validationTools(db);
 
     const result = await call(tools.handlers, 'validation_record', {
-      agent: 'swe',
+      agent: 'pr-reviewer',
       task_id: 1,
       attempt_n: 1,
       verdict: 'maybe',
@@ -160,7 +160,7 @@ describe('validationTools', () => {
     const tools = validationTools(db);
 
     const result = await call(tools.handlers, 'validation_record', {
-      agent: 'swe',
+      agent: 'pr-reviewer',
       task_id: 'task_abc',
       attempt_n: 1,
       verdict: 'fail',
@@ -182,7 +182,7 @@ describe('validationTools', () => {
     const tools = validationTools(db);
 
     const result = await call(tools.handlers, 'validation_record', {
-      agent: 'swe',
+      agent: 'pr-reviewer',
       task_id: 9999,
       attempt_n: 1,
       verdict: 'pass',
@@ -206,7 +206,7 @@ describe('validationTools', () => {
     const tools = validationTools(db);
 
     await call(tools.handlers, 'validation_record', {
-      agent: 'swe',
+      agent: 'pr-reviewer',
       task_id: taskId,
       attempt_n: 3,
       verdict: 'fail',
@@ -214,7 +214,7 @@ describe('validationTools', () => {
     });
 
     await call(tools.handlers, 'validation_record', {
-      agent: 'swe',
+      agent: 'pr-reviewer',
       task_id: taskId,
       attempt_n: 1,
       verdict: 'fail',
@@ -222,7 +222,7 @@ describe('validationTools', () => {
     });
 
     await call(tools.handlers, 'validation_record', {
-      agent: 'swe',
+      agent: 'pr-reviewer',
       task_id: taskId,
       attempt_n: 2,
       verdict: 'pass',
@@ -230,7 +230,7 @@ describe('validationTools', () => {
     });
 
     const result = await call(tools.handlers, 'validation_history', {
-      agent: 'swe',
+      agent: 'bro',
       task_id: taskId,
     });
 
@@ -251,7 +251,7 @@ describe('skillTools', () => {
     const tools = skillTools(db);
 
     await call(tools.handlers, 'skill_register', {
-      agent: 'swe',
+      agent: 'bro',
       name: 'my-skill',
       description: 'A test skill',
       file_path: 'skills/my-skill.md',
@@ -260,7 +260,7 @@ describe('skillTools', () => {
     });
 
     const result = await call(tools.handlers, 'skill_record_outcome', {
-      agent: 'swe',
+      agent: 'bro',
       name: 'my-skill',
       success: true,
     });
@@ -279,7 +279,7 @@ describe('skillTools', () => {
     const tools = skillTools(db);
 
     await call(tools.handlers, 'skill_register', {
-      agent: 'swe',
+      agent: 'bro',
       name: 'my-skill',
       description: 'A test skill',
       file_path: 'skills/my-skill.md',
@@ -288,7 +288,7 @@ describe('skillTools', () => {
     });
 
     const result = await call(tools.handlers, 'skill_promote', {
-      agent: 'swe',
+      agent: 'bro',
       name: 'my-skill',
       from_status: 'draft',
       to_status: 'active',
@@ -306,7 +306,7 @@ describe('skillTools', () => {
     const tools = skillTools(db);
 
     await call(tools.handlers, 'skill_register', {
-      agent: 'swe',
+      agent: 'bro',
       name: 'my-skill',
       description: 'A test skill',
       file_path: 'skills/my-skill.md',
@@ -315,7 +315,7 @@ describe('skillTools', () => {
     });
 
     const result = await call(tools.handlers, 'skill_promote', {
-      agent: 'swe',
+      agent: 'bro',
       name: 'my-skill',
       from_status: 'draft',
       to_status: 'pending_review',
@@ -337,7 +337,7 @@ describe('reportTools', () => {
 
     const ledger = ledgerTools(db);
     await call(ledger.handlers, 'ledger_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
       from_node: 'swe',
       event_type: 'task_started',
@@ -346,7 +346,7 @@ describe('reportTools', () => {
 
     const tools = reportTools(db);
     const result = await call(tools.handlers, 'issue_report_md', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
     });
 

@@ -25,7 +25,7 @@ describe('issueTools', () => {
     const tools = issueTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
-      agent: 'architect',
+      agent: 'bro',
       objective: 'Build feature X',
       description: '# Requirements\n- Do X',
     });
@@ -35,7 +35,7 @@ describe('issueTools', () => {
     assert.equal(created.status, 'open');
 
     const getResult = await call(tools.handlers, 'issue_get', {
-      agent: 'architect',
+      agent: 'bro',
       issue_id: String(created.id),
       include_description: true,
     });
@@ -52,14 +52,14 @@ describe('issueTools', () => {
     const tools = issueTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
-      agent: 'swe',
+      agent: 'bro',
       objective: 'Test redaction',
       description: 'secret description',
     });
     const created = parseResult(createResult);
 
     const getResult = await call(tools.handlers, 'issue_get', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(created.id),
       include_description: false,
     });
@@ -76,14 +76,14 @@ describe('issueTools', () => {
     const tTools = taskTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
-      agent: 'swe',
+      agent: 'bro',
       objective: 'Resume test',
     });
     const issue = parseResult(createResult);
 
     await call(tTools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issue.id),
       tasks: [
         { branch_id: 'feat/first-task', description: 'First task', success_criteria: 'done' },
@@ -92,7 +92,7 @@ describe('issueTools', () => {
     });
 
     const resumeResult = await call(tools.handlers, 'issue_resume', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issue.id),
     });
     const resumed = parseResult(resumeResult);
@@ -109,13 +109,13 @@ describe('issueTools', () => {
     const tools = issueTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
-      agent: 'swe',
+      agent: 'bro',
       objective: 'Close test',
     });
     const issue = parseResult(createResult);
 
     const closeResult = await call(tools.handlers, 'issue_close', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issue.id),
       post_git_sha: 'abc123',
     });
@@ -134,14 +134,14 @@ describe('issueTools', () => {
     const tTools = taskTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
-      agent: 'swe',
+      agent: 'bro',
       objective: 'Phase test',
     });
     const issue = parseResult(createResult);
 
     await call(tTools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issue.id),
       tasks: [
         { branch_id: 'feat/task-1', description: 'Task 1', success_criteria: 'done' },
@@ -150,7 +150,7 @@ describe('issueTools', () => {
     });
 
     const phaseResult = await call(tools.handlers, 'issue_get_phase', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issue.id),
     });
     const phaseData = parseResult(phaseResult);
@@ -166,14 +166,14 @@ describe('issueTools', () => {
     const tools = issueTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
-      agent: 'architect',
+      agent: 'bro',
       objective: 'SHA preservation test',
     });
     const issue = parseResult(createResult);
     const originalPreHash = issue.pre_commit_hash;
 
     const closeResult = await call(tools.handlers, 'issue_close', {
-      agent: 'architect',
+      agent: 'bro',
       issue_id: String(issue.id),
       post_git_sha: 'deadbeef',
     });
@@ -190,13 +190,13 @@ describe('issueTools', () => {
     const tools = issueTools(db);
 
     const createResult = await call(tools.handlers, 'issue_create', {
-      agent: 'swe',
+      agent: 'bro',
       objective: 'Optional SHA test',
     });
     const issue = parseResult(createResult);
 
     const closeResult = await call(tools.handlers, 'issue_close', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issue.id),
     });
     const closed = parseResult(closeResult);
@@ -212,7 +212,7 @@ describe('issueTools', () => {
     const tools = issueTools(db);
 
     const result = await call(tools.handlers, 'issue_get', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: '99999',
     });
     const data = parseResult(result);

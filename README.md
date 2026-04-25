@@ -38,18 +38,19 @@ Casual messages that don't address `@bro` are answered by regular Claude Code �
 
 ## How the roster works
 
-### One persona + three subagents (ship with the plugin)
+### One persona + two subagents (ship with the plugin)
 
-The decision chain is **Human → bro → SWE**, with `pr-reviewer` as the gate. Bro plans inline. The architect agent ships as a **consultant**, available when you want a second opinion — not in the default chain.
+The decision chain is **Human → bro → SWE**, with `pr-reviewer` as the gate. Bro plans inline. **Consultants (architect, cto, ceo, domain experts) don't ship** — bro generates them on demand via the `agent-creator` skill, with your explicit approval, into your project's `.claude/agents/`.
 
 | Name | Where it runs | What it does |
 |---|---|---|
-| `bro` | Main Claude (persona) | Your single Human entry point AND the planner. Activates when you address `@bro`. Discusses with you, captures intent into the trajectory DB, writes task specs to `tasks.spec_body`, spawns SWE, drives the retry loop, and routes second-opinion requests to consultants. The only thing the Human ever talks to. |
+| `bro` | Main Claude (persona) | Your single Human entry point AND the planner. Activates when you address `@bro`. Discusses with you, captures intent into the trajectory DB, writes task specs to `tasks.spec_body`, spawns SWE, drives the retry loop, and (when you ask for a second opinion) generates a consultant agent in your project then spawns it. The only thing the Human ever talks to. |
 | `swe` | Subagent (Task tool, worktree) | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
 | `pr-reviewer` | Subagent (Task tool) | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
-| `architect` | Subagent (Task tool, **consultant**) | On-demand second-opinion analyst — system design feasibility, hidden assumptions, alternatives, scale + security risk. Returns analysis only; never writes task rows, never spawns SWE, never closes work. Bro spawns it when you ask or when bro wants to challenge its own plan. |
 
-The three subagents auto-reject direct Human `@-mention` invocation (`@architect` / `@swe` / `@pr-reviewer`). They're internal — talk to `@bro`, and bro routes to them.
+Subagents auto-reject direct Human `@-mention` invocation (`@swe` / `@pr-reviewer`, plus any project-level consultant you generate). They're internal — talk to `@bro`, and bro routes to them.
+
+**Consultants are project-local.** The first time you ask `@bro get the architect's read on X` (or `cto`, or `legal-reviewer`, or anything domain-specific), bro proposes an agent spec, asks your permission, writes `.claude/agents/<name>.md`, then spawns it in **consultant mode** (analysis-only — server-rejected if the consultant tries to write workflow state). On every subsequent ask in that project, bro reuses the file. Each project ends up with the consultants that project actually needs, not a canned company-org-chart.
 
 **Override any subagent per-project** by creating a same-named file in the project's `.claude/agents/`. The local file wins.
 

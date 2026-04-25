@@ -1,13 +1,23 @@
 # TMB Workflows — Flowcharts
 
-> **STALE — pending refresh.** The flows below describe the legacy
-> `bro → architect → swe → pr-reviewer` chain. As of `feat/bro-as-planner`,
-> the architect agent is no longer the default planner; bro plans inline by
-> loading `architect-workflow` and spawns SWE directly. Architect remains as
-> an on-demand consultant. These flowcharts will be regenerated in a
-> follow-up PR.
+> **As of `feat/bro-as-planner`:** the decision chain is `Human → bro → SWE`
+> with `pr-reviewer` as the gate. Bro is the planner; architect is a
+> consultant on-demand. Flows below are partially refreshed:
+>
+> | Flow | State |
+> |---|---|
+> | 1 (Onboarding) | Current |
+> | 2 (Simple task) | **Refreshed** below |
+> | 3 (Difficult task) | STALE — refresh pending |
+> | 4 (Agent-creator) | Current (bro invokes; new agents default to consultant scope) |
+> | 5 (Skill creation) | STALE |
+> | 6 (PR review) | Current with one substitution: pr-reviewer returns to **bro** (not architect) |
+> | 7 (Architecture regen) | Current — bro is the only caller |
+> | 8 (SWE retry) | STALE — architect→bro substitution needed throughout |
+> | 9 (Roundtable) | STALE — multi-consultant voting tracked in #57 |
+> | **C (Consultant invocation)** | **NEW** — added below |
 
-Eight reference workflows — onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry — with the agent / skill / MCP-tool / DB-table / hook involvement spelled out for each.
+Reference workflows — onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry, consultant invocation — with the agent / skill / MCP-tool / DB-table / hook involvement spelled out for each.
 
 Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the file map, [`SCENARIOS.md`](../../tests/manual/scenarios.md) for the **trigger prompts that exercise each flow** (dogfood test plan), [`../../CLAUDE.md`](../../CLAUDE.md) for top-level rules.
 
@@ -15,15 +25,16 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
-| 1 | [Onboarding](#1-first-run-onboarding) | First activation in a project | bro | — | `identity`, `plugin_config` | — |
-| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → architect → swe → pr-reviewer | `architect-workflow`, `swe-checklist`, `validate-swe-output`, `review-protocol` | `issues`, `tasks`, `validation_attempts`, `ledger`, `audit` | `require-task-spec`, `require-review-sign`, `git-guards` |
-| 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | + alignment loop + ADR | + `architect-workflow` discussion phase | + `discussions`; ADR file | same |
+| 1 | [Onboarding](#1-first-run-onboarding) | First activation in a project | bro | `first-run-onboarding` | `identity`, `plugin_config` | — |
+| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe → pr-reviewer | `architect-workflow` (loaded by bro), `swe-checklist`, `validate-swe-output`, `review-protocol` | `issues`, `tasks`, `discussions`, `validation_attempts`, `ledger` | `require-task-spec`, `require-review-sign`, `git-guards` |
+| 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion phase) → swe → pr-reviewer | + `architect-workflow` discussion + ADR step | + ADR file | same |
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → user | `agent-creator` | — | — |
-| 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | architect | — | `skills` (optional, for effectiveness tracking) | — |
-| 6 | [PR review](#6-pr-review) | After SWE marks task `completed` | pr-reviewer | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional) | `require-review-sign` |
+| 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | — | `skills` | — |
+| 6 | [PR review](#6-pr-review) | After SWE marks task `completed` | pr-reviewer (returns to bro) | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional) | `require-review-sign` |
 | 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `refresh-architecture` | `regen_state`, `file_registry` | — |
-| 8 | [SWE retry / escalation](#8-swe-retry--escalation) | `validation_record(verdict='fail')` | architect ↔ swe ↔ pr-reviewer | `feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `require-review-sign` |
-| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Cross-domain decision **AND** ≥2 planning agents available | architect (convener) + 2-4 user-created planners | `roundtable`, `roundtable-cleanup` | `ledger` (current); `roundtables` + `roundtable_votes` (schema reserved) | — |
+| 8 | [SWE retry / escalation](#8-swe-retry--escalation) | `validation_record(verdict='fail')` | bro ↔ swe ↔ pr-reviewer | `feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `require-review-sign` |
+| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 consultants | `roundtable`, `roundtable-cleanup` | `discussions`, `ledger` | — |
+| **C** | [Consultant invocation](#c-consultant-invocation-new) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / etc.) | `architect-workflow` (architect side, when consulted) | `discussions` (kind='analysis'/'concern') | — |
 
 ---
 
@@ -76,54 +87,57 @@ sequenceDiagram
 **Trigger:** Human asks for a code change; bro triages as `simple` (does NOT require an update to `docs/trustmybot/architecture/`).
 
 **Involved:**
-- Agents: `bro`, `architect`, `swe`, `pr-reviewer`
-- Skills: `architect-workflow`, `swe-spawn-workflow`, `swe-checklist`, `validate-swe-output`, `review-protocol`, `code-quality`
-- MCP tools: `issue_create`, `task_create_batch`, `task_get`, `task_update_status`, `validation_record`, `ledger_log`
-- DB tables: `issues`, `tasks`, `validation_attempts`, `ledger`, `audit`
+- Agents: `bro` (planner), `swe` (executor), `pr-reviewer` (gate)
+- Skills loaded by bro on demand: `architect-workflow` (the planner protocol), `swe-spawn-workflow` (right before SWE handoff), `validate-swe-output` (when SWE returns)
+- Skills loaded by swe: `swe-checklist`
+- Skills loaded by pr-reviewer: `review-protocol`, `review-findings`, `code-quality`
+- MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `validation_record`, `ledger_log`
+- DB tables: `issues`, `tasks`, `discussions`, `validation_attempts`, `ledger`, `audit`
 - Hooks: `require-task-spec` (gates SWE spawn), `require-review-sign` (gates push), `git-guards` (commit branch check)
 
 ```mermaid
 sequenceDiagram
     participant H as Human
-    participant G as Bro
-    participant A as Architect
+    participant B as Bro (planner)
     participant S as SWE (worktree)
     participant P as PR-Reviewer
     participant DB as SQLite
 
-    H->>G: "implement X"
-    G->>G: triage → simple
-    G->>A: spawn (triage:simple, branch_id proposal)
+    H->>B: "implement X"
+    B->>B: triage → simple; load architect-workflow skill
+    B->>DB: issue_create(agent='bro', objective, description)
+    DB-->>B: issue_id
+    B->>DB: discussion_append(kind='intent', author='human')
+    B->>DB: discussion_append(kind='note', body='Triage: simple')
+    B->>B: pick defaults (simple fast-lane); author trivial-template spec_body
+    B->>DB: task_create_batch(agent='bro', spec_body, waive_scope_gate=true, reason)
+    DB-->>B: task_id
+    B->>DB: ledger_log(event_type='planning_complete')
 
-    A->>DB: issue_create(objective, description)
-    DB-->>A: issue_id
-    A->>A: author trivial-template spec_body
-    A->>DB: task_create_batch(spec_body, ...)
-    DB-->>A: task_id
-
-    A->>S: spawn(task_id=N) [hook: require-task-spec verifies row]
-    S->>DB: task_get(N) → reads spec_body
-    S->>DB: task_update_status(running)
+    B->>S: spawn(task_id=N) [hook: require-task-spec verifies row]
+    S->>DB: task_get(agent='swe', task_id=N)
+    S->>DB: task_update_status(agent='swe', status='running')
     S->>S: create worktree, implement, run verification
-    S->>DB: ledger_log / audit_log during work
     S->>S: git commit
-    S->>DB: task_update_status(completed, commit_sha) [#W4 atomic]
+    S->>DB: task_update_status(agent='swe', status='completed', commit_sha)  [#W4 atomic]
 
-    A->>P: spawn(task_id=N)
-    P->>DB: task_get(N)
+    B->>B: load validate-swe-output skill (forked Explore subagent)
+    B->>P: spawn(task_id=N)
+    P->>DB: task_get(agent='pr-reviewer', task_id=N)
     P->>P: pr-review-toolkit + TMB overlay checks
     alt PASS
-        P->>DB: validation_record(task_id, attempt_n=1, verdict='pass', feedback)
-        A->>DB: task_update_status(closed)
+        P->>DB: validation_record(agent='pr-reviewer', task_id, verdict='pass', feedback)
+        B->>DB: task_update_status(agent='bro', status='closed')
     else FAIL
-        P->>DB: validation_record(task_id, attempt_n=1, verdict='fail', feedback)
-        Note over A,S: → flow 8 (retry / escalation)
+        P->>DB: validation_record(agent='pr-reviewer', task_id, verdict='fail', feedback)
+        Note over B,S: → flow 8 (bro drives retry; re-spawns SWE with feedback)
     end
 
-    A-->>H: result summary
+    B-->>H: result summary ("Trust me bro, it works.")
 ```
 
 **Notes:**
+- Bro is the only mutator of `issues`, the planning side of `tasks`, `ledger`, and (post-review) `task_update_status('closed')`. `requireRoles` enforces this server-side.
 - The whole loop runs without surfacing to the Human until result.
 - `require-task-spec.sh` verifies the `tasks` row has `status IN (pending, open)` AND non-empty `spec_body` BEFORE allowing the SWE spawn — silent block if the row isn't real.
 - `require-review-sign.sh` blocks pushes to protected branches if any `tasks.status='completed'` row lacks a `validation_attempts.verdict='pass'` row.
@@ -421,6 +435,53 @@ flowchart TD
 - **Protect dissent.** A lone dissenter may be right — dissenting views get explicit airtime in the synthesis's `<tensions>` section.
 - **Ledger is the current record store.** `roundtables` + `roundtable_votes` tables in the schema are forward-looking; the skill writes summaries to `ledger` today. A future schema-uplift task can migrate to the structured tables when there's reason to query roundtable history independently.
 - **One voice ≠ roundtable.** If the user only has architect, the skill refuses. Telling architect to "discuss with itself" is a smell; surface it back to the user as "I'd need a `pm` (or similar) for this — want me to create one?" and route through flow #4.
+
+---
+
+## C. Consultant invocation (NEW)
+
+**Trigger:** Human asks for a second opinion (`@bro get the cto's read on X`) **OR** bro decides it wants to challenge its own plan and spawns a consultant on its own initiative.
+
+Consultants are **project-local** — the plugin ships none. The first time a consultant of a given name is needed, bro invokes `agent-creator` to draft + write the file with explicit Human approval. Every subsequent ask in the same project reuses the file.
+
+**Involved:**
+- Agents: `bro` (decision-maker), one consultant subagent (project-local, e.g. `architect`, `cto`, `legal-reviewer`)
+- Skills: `agent-creator` (first-time create), each consultant follows its own prompt
+- MCP tools: `issue_get_with_discussions` (read), `discussion_append(kind='analysis'|'concern')` (write)
+- DB tables: `discussions` (one or more `kind='analysis'` or `kind='concern'` rows)
+- Hooks: none
+
+```mermaid
+sequenceDiagram
+    participant H as Human
+    participant B as Bro
+    participant C as Consultant (project-local)
+    participant DB as SQLite
+
+    H->>B: "get architect's read on the SQLite-vs-JSON storage choice"
+    alt .claude/agents/architect.md exists
+        B->>B: skip create
+    else first time
+        B->>B: invoke agent-creator skill
+        B->>H: propose agent spec
+        H-->>B: approve
+        B->>B: write .claude/agents/architect.md
+    end
+    B->>C: spawn(consultant: analysis-only, issue_id=<N>, question)
+    C->>DB: issue_get_with_discussions(issue_id) — reads context
+    C->>C: read code if relevant; build analysis
+    C->>DB: discussion_append(kind='analysis', author='<consultant-name>', body=analysis)
+    C-->>B: structured analysis (position + risks + recommendation if asked)
+    B->>B: summarize for Human
+    B-->>H: "architect says: X, with these risks. Your call."
+    Note over B,DB: Server-rejected for consultants: task_create_batch, task_update_status,<br/>validation_record, issue_create — all return 'forbidden' via requireRoles
+```
+
+**Notes:**
+- The consultant returns analysis as its final assistant message AND persists key points to MCP. Bro reads both: the message in conversation, the rows when assembling the summary.
+- **Server-side enforcement** (post `feat/bro-as-planner` cleanup): `requireRoles` rejects any consultant call to `task_create_batch`, `task_update_status`, `validation_record`, or `issue_create`. The decision chain is structurally protected, not just prompt-discipline.
+- For multi-consultant deliberation (cto + architect + ceo voting), see flow 9 (Roundtable). The voting protocol is tracked in [#57](https://github.com/trustmybot/plugin/issues/57).
+- The Human always decides; bro never auto-applies a consultant's recommendation.
 
 ---
 

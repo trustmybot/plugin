@@ -32,7 +32,7 @@ function makeValidationRow(overrides: Partial<ValidationAttempt> = {}): Validati
     id: 1,
     task_id: 123,
     attempt_n: 1,
-    agent: 'architect',
+    agent: 'bro',
     verdict: 'pass',
     feedback: 'SENSITIVE FEEDBACK',
     created_at: '2026-01-01T00:00:00Z',

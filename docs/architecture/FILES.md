@@ -4,10 +4,9 @@ Every tracked file in `plugin/` with its purpose. Regenerate after any restructu
 
 Last refresh: 2026-04-23 on `chore/23-stale-cleanup`.
 
-> **Partial-stale.** The agent roster line + `architect.md` description below
-> reflect the legacy "architect is the default planner" chain. As of
-> `feat/bro-as-planner`, bro is the planner and architect is a consultant.
-> Refresh of this file is pending.
+> **Roster updated post `feat/bro-as-planner` + cleanup.** The plugin ships
+> only `bro` (persona, defined in `CLAUDE.md`), `swe`, and `pr-reviewer`.
+> Consultants are project-local and generated on demand via `agent-creator`.
 
 ## Tree (excluding `node_modules/`, `dist/`, `.git/`, `*.lock*`, local `.trajectory.db`)
 
@@ -27,11 +26,12 @@ plugin/
 ├── LICENSE                           # MIT
 ├── README.md                         # project README
 │
-├── agents/                           # four global workflow agents (ship with plugin)
-│   ├── architect.md                  # consultant: second-opinion analyses, no decision authority
-│   ├── bro.md                 # human entry point, routing, onboarding, triage, agent-creator driver
+├── agents/                           # plugin-shipped subagents (bro is main-Claude persona, defined in CLAUDE.md)
 │   ├── pr-reviewer.md                # pre-commit/pre-push review gate (read-only)
 │   └── swe.md                        # single-task executor in worktree
+│   # consultants (architect, cto, ceo, domain experts) are NOT shipped —
+│   # bro generates them on demand into <project>/.claude/agents/ via the
+│   # agent-creator skill, with explicit Human approval each time.
 │
 ├── docs/
 │   └── architecture/                 # contributor-facing reference

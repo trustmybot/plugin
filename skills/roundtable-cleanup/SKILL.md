@@ -1,6 +1,6 @@
 ---
 description: Post-roundtable cleanup steps.
-agent: architect, bro
+agent: bro
 ---
 
 # Roundtable Cleanup Rule

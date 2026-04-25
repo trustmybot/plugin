@@ -24,6 +24,7 @@ const VALID_STATUSES = new Set([
   'running',
   'needs_validation',
   'completed',
+  'closed',
   'failed',
   'escalated',
 ]);
@@ -127,7 +128,7 @@ export function taskTools(db: TrajectoryDB): {
           task_id: { type: 'string' },
           status: {
             type: 'string',
-            enum: ['pending', 'running', 'needs_validation', 'completed', 'failed', 'escalated'],
+            enum: ['pending', 'running', 'needs_validation', 'completed', 'closed', 'failed', 'escalated'],
           },
           attempts: { type: 'number' },
           commit_sha: {
@@ -154,7 +155,7 @@ export function taskTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    task_create_batch: wrapHandler(async (args) => {
+    task_create_batch: requireRoles('task_create_batch', ['bro'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
       requireArg(args, 'tasks');
@@ -302,7 +303,7 @@ export function taskTools(db: TrajectoryDB): {
       }
 
       return ok(inserted);
-    }),
+    })),
 
     task_get: wrapHandler(async (args) => {
       requireArg(args, 'agent');
@@ -315,7 +316,7 @@ export function taskTools(db: TrajectoryDB): {
       return ok(task);
     }),
 
-    task_update_status: wrapHandler(async (args) => {
+    task_update_status: requireRoles('task_update_status', ['bro', 'swe'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const taskId = requireArg(args, 'task_id') as string;
       const status = requireArg(args, 'status') as string;
@@ -358,7 +359,7 @@ export function taskTools(db: TrajectoryDB): {
 
       const updated = db.get<Task>('SELECT * FROM tasks WHERE id = ?', [taskId]);
       return ok(updated);
-    }),
+    })),
 
     task_first_actionable: wrapHandler(async (args) => {
       requireArg(args, 'agent');

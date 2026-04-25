@@ -1,7 +1,7 @@
 ---
 name: agent-creator
 description: Interactively propose and create a new domain agent in the user's workspace. Always requires explicit user approval before writing.
-agent: architect
+agent: bro
 allowed-tools: Read, Glob, Grep, Write
 ---
 
@@ -16,30 +16,57 @@ auto-creation is never permitted.
 
 ## B. When Invoked
 
-Bro (routing-time) or architect (task-breakdown-time) invokes this
-skill when ALL of the following hold:
+Bro invokes this skill when ALL of the following hold:
 
-1. The user's request cannot be served by the 4 global workflow agents
-   (bro, architect, swe, pr-reviewer) or any user-created agent
-   already present in the project's `.claude/agents/`.
+1. The user's request cannot be served by the plugin's two subagents
+   (swe, pr-reviewer) or any user-created agent already present in the
+   project's `.claude/agents/`.
 2. The user explicitly wants a **named, persistent role** — not an ad-hoc
    Task spawn.
 3. The role does not already exist in `.claude/agents/`.
 
 Do NOT invoke for one-off sub-tasks that a Task tool spawn can handle.
 
-## C. Reserved Names
+User-created agents default to **consultant** scope: they advise, return
+analysis to bro, and never write workflow state (`task_create_batch`,
+`task_update_status`, `validation_record`, `issue_create` are all
+server-rejected for non-bro / non-swe / non-pr-reviewer callers — see
+`mcp/trajectory-server/src/middleware/agent-scope.ts`). The decision chain
+stays **Human → bro → swe**, with `pr-reviewer` as the gate.
+
+## C. Common consultant templates
+
+Project-local consultants the plugin used to ship and you'll likely want
+to recreate on demand. The Human asks (`get the architect's read on X`,
+`get a cto opinion`); bro proposes the spec; Human approves; the file
+lands in `.claude/agents/`.
+
+| Common name | Typical role |
+|---|---|
+| `architect` | System design, feasibility challenge, alternatives, risks |
+| `cto` | Technical strategy, scaling, tech-stack trade-offs |
+| `ceo` | Product scope, prioritization, business framing |
+| `legal-reviewer` | Compliance posture, license, data handling |
+| `security-reviewer` | Threat model, attack surface, secret handling |
+| `pm` / `gtm` / `designer` | Product strategy, positioning, UX |
+
+These are starting points, not canon. Tailor each to the project's actual
+domain when you draft the spec.
+
+## D. Reserved Names
 
 The following agent names are reserved for the plugin core and MUST NOT be
 used for new domain agents. If the user requests one of these names, refuse
 immediately and ask for a different name:
 
 - `bro`
-- `architect`
 - `swe`
 - `pr-reviewer`
 
-## D. Execution Steps
+(`architect` is no longer reserved — it's a common consultant name now,
+expected to be project-local.)
+
+## E. Execution Steps
 
 ### Step 1 — Discover the gap
 
@@ -60,7 +87,7 @@ After the user answers:
 1. Glob `.claude/agents/` to list all existing agent files. If the directory
    does not exist, note that it will be created on write.
 2. Check for a name collision: if `.claude/agents/<proposed-name>.md` already
-   exists, pause and proceed to the overwrite flow in Section E.
+   exists, pause and proceed to the overwrite flow in Section F.
 3. Glob the project's top-level files (e.g. `package.json`, `pyproject.toml`,
    `Cargo.toml`, `go.mod`, `*.md`) to understand the stack and domain.
 
@@ -108,7 +135,7 @@ Field guidance:
 - `memory`: default `false`. Set `true` only if the agent needs cross-session
   context; if set, add a brief justification in the body.
 - Do NOT add `isolation` or `disallowedTools` fields unless the agent writes
-  source code (see edge case in Section F).
+  source code (see edge case in Section G).
 
 ### Step 4 — Show and ask (mandatory)
 
@@ -140,7 +167,7 @@ Do NOT write anything until the user responds.
 After the write, confirm the file exists by reading its first 5 lines. Print
 the final absolute path so the user knows exactly where the agent lives.
 
-## E. Error Handling
+## F. Error Handling
 
 | Trigger | Response |
 |---|---|
@@ -150,7 +177,7 @@ the final absolute path so the user knows exactly where the agent lives.
 | User requests a reserved core name | Refuse: "The name `<name>` is reserved for a plugin core agent. Please choose a different name." Then re-ask Step 1 question 1. |
 | User attempts to skip Step 4 (proposal + approval) | Refuse: "Explicit approval is required before writing any agent file. I cannot skip this step." |
 
-## F. Edge Cases
+## G. Edge Cases
 
 **User wants a code-writing agent (e.g. `backend-swe`, `ml-engineer`)**
 

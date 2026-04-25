@@ -1,6 +1,6 @@
 ---
 name: refresh-architecture
-description: Wraps the architecture_regen MCP tool to regenerate auto/ architecture docs. Invoked by architect after difficult-path structural changes, by bro at session start for incremental refresh, and by the Human via phrase trigger for a full regen.
+description: Wraps the architecture_regen MCP tool to regenerate auto/ architecture docs. Invoked by bro after difficult-path structural changes, at session start for incremental refresh, and via Human phrase trigger for a full regen.
 when-to-use: When architecture auto/ docs need regenerating — either because a structural change was just committed (full regen) or at session start to lazily sync any accumulated drift (incremental).
 when-not-to-use: When you only need to read architecture docs. Do not invoke this as a substitute for reading manual/ files or for editing auto/ files by hand.
 ---
@@ -15,19 +15,20 @@ by calling the `architecture_regen` MCP tool. It does not touch
 
 ## Invocation
 
-Three callers, two scopes:
+One caller, two scopes:
 
-- **Architect** calls `scope:'full'` after any difficult-path task that
-  completes a structural change (new module boundary, schema change, new
-  dependency, public API surface change).
+- **Bro** calls `scope:'full'` after a difficult-path task completes a
+  structural change (new module boundary, schema change, new dependency,
+  public API surface change). Bro is the planner; difficult-path triage
+  signals when a full regen is warranted.
 - **Bro** calls `scope:'incremental'` lazily at session start, before
   routing the first code-touching ask, to sync any drift from commits made
-  outside a full regen cycle.
+  outside a full regen cycle. See `lazy-regen-check`.
 - **Human** triggers a full regen by asking bro one of these phrases:
   "refresh architecture docs", "refresh architecture", "regenerate
   architecture", or "regen architecture". Bro recognises any of these
-  phrases and invokes this skill with `scope:'full'` directly (no architect
-  spawn, no triage — this is a direct op, not a code change).
+  phrases and invokes this skill with `scope:'full'` directly — this is a
+  direct op, not a code change.
 
 No slash-command directory (`plugin/commands/`) is present in this plugin.
 Until such a mechanism exists, the phrase-routing described above is the
@@ -68,11 +69,10 @@ incremental sync.
 
 If `architecture_regen` returns an error:
 
-1. Surface the MCP error message verbatim to the Human (or to architect, if
-   this was called from architect context).
+1. Surface the MCP error message verbatim to the Human.
 2. State: "Architecture auto/ docs were not updated. Manual review may be
    needed."
-3. Do NOT retry automatically. The Human or architect decides next steps.
+3. Do NOT retry automatically. The Human decides next steps.
 
 Common causes: the MCP server is not running, the SQLite `file_registry` table
 is missing, or the git working tree is dirty with uncommitted files that the
@@ -84,4 +84,4 @@ tool cannot parse. Resolve the underlying condition, then re-invoke.
 - Editing any file in `docs/trustmybot/architecture/auto/` by hand — the MCP
   tool owns those files exclusively.
 - Deciding whether a change is structural enough to warrant a full regen —
-  that judgment belongs to architect (difficult-path triage).
+  that judgment belongs to bro (difficult-path triage).
