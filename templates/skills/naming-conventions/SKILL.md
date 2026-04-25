@@ -1,6 +1,6 @@
 ---
 description: File and identifier naming patterns.
-agent: swe, architect
+agent: swe, pr-reviewer
 paths: ["src/**", "lib/**", "app/**", "tests/**"]
 ---
 

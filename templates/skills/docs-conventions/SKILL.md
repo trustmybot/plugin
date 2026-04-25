@@ -1,6 +1,6 @@
 ---
 description: When and how to update docs alongside code changes, plus the discipline for editing agent prompts and skill files.
-agent: swe, architect, pr-reviewer
+agent: bro, swe, pr-reviewer
 ---
 
 # Docs Conventions
@@ -72,20 +72,20 @@ This is normal for new projects. For projects without architecture docs:
 
 ### Enforcement
 
-PR Reviewer flags architectural changes that don't update docs. The Architect
-escalates systemic discrepancies back to Human.
+PR-reviewer flags architectural changes that don't update docs at push time. Bro escalates systemic discrepancies back to the Human during planning when it spots a doc/code mismatch.
 
 ## Editing Agent Prompts and Skill Files
 
 When modifying `agents/*.md`, `skills/**/SKILL.md`, `CLAUDE.md`, or any
 workflow markdown, follow the discipline below. Any agent touching prompt
-files — usually architect — applies these rules.
+files applies these rules. In TMB, that's bro (planning + Direct Mode docs)
+or SWE (when the task spec names a markdown file).
 
 ### Scope
 
 Markdown only. `src/`, `tests/`, or runtime-consumed config files are
 off-limits for prompt-style edits. If a fix touches those paths, route via
-architect → SWE instead.
+bro → SWE (the standard task chain) instead of doing it inline.
 
 ### Rules
 

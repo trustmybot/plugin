@@ -131,8 +131,9 @@ plugin/
 │
 ├── skills/                           # Claude Code skills — all <name>/SKILL.md form
 │   ├── agent-creator/SKILL.md        # propose & write new agent files on user approval
-│   ├── architect-workflow/SKILL.md   # architect's end-to-end task-authoring flow
-│   ├── branch-id-proposal/SKILL.md   # bro derives branch_id + opens MCP issue before architect spawn
+│   ├── tmb_planning-simple/SKILL.md  # bro's planning protocol when triage=simple (defaults table + batched handoff + verification)
+│   ├── tmb_planning-difficult/SKILL.md # bro's planning protocol when triage=difficult (env probe + Q+A + ADR + verification)
+│   ├── branch-id-proposal/SKILL.md   # bro derives branch_id + opens MCP issue before loading the planning skill
 │   ├── code-quality/SKILL.md         # generic quality gates (error handling, security, edges)
 │   ├── create-hook/SKILL.md          # how to add a new hook script safely
 │   ├── docs-conventions/SKILL.md     # docs-update rules + prompt-editing discipline

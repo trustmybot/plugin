@@ -5,7 +5,7 @@
 // Also verifies the discussions table invariant: kind='answer' rows must
 // follow a kind='question' row for the same issue (chronologically). This
 // structural test complements the prompt-level scope-ambiguity gate in
-// architect-workflow — it can't catch "architect skipped asking" (that's
+// tmb_planning-simple/-difficult — they can't catch "bro skipped asking" (that's
 // LLM behavior, Layer 3), but it catches schema/contract regressions.
 
 import { test } from 'node:test';

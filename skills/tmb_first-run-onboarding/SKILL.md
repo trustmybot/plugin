@@ -1,8 +1,8 @@
 ---
 name: tmb_first-run-onboarding
-description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Uses AskUserQuestion radio UI to collect identity + branching + PR target, then persists via MCP. Hold-and-resume any code-touching ask received during the flow.
+description: First-time setup flow bro runs when neither branching_model nor identity has been persisted. Uses AskUserQuestion radio UI to collect identity + branching + PR target, persists via MCP, then silently copies the swe + pr-reviewer + default-skills templates into the project. Hold-and-resume any code-touching ask received during the flow.
 agent: bro
-allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list
+allowed-tools: Read, Write, Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__ledger_list
 ---
 
 # first-run-onboarding
@@ -66,12 +66,14 @@ Other rules:
 
 ## Mandatory MCP write sequence
 
-Onboarding completes ONLY after ALL FOUR writes have succeeded AND `config_list` confirms the state. Do not emit the closing message until every expected row is present:
+Onboarding completes ONLY after ALL of the following have succeeded AND a final `ledger_list` confirms the audit row landed. Do not emit the closing message until every expected row is present:
 
 1. `identity_set(agent='bro', human_name=<answer>)` — skip iff the Human chose Anonymous.
 2. `config_set(agent='bro', key='branching_model', value=<canonical>)` — `value` is a string, e.g. `value="github-flow"`.
 3. `config_set(agent='bro', key='pr_target', value=<answer>)` — `value` is a string, e.g. `value="main"`.
 4. `config_set(agent='bro', key='protected_branches', value=<array of strings>)` — `value` is a **raw JSON array**, e.g. `value=["main"]`. Do NOT pass `value="[\"main\"]"` (a pre-serialized string). The MCP server calls `JSON.stringify(value)` on what you pass; if you pre-serialize, the DB stores a string and every downstream hook that expects an array breaks.
+5. Read+Write file copies for the executor + swe-side skills (Step 5 below — 1 agent file, 5 skill files).
+6. `ledger_log(agent='bro', event_type='tmb_bootstrap_complete', summary='...')` — **non-optional audit-trail row.** Without this, the trajectory loses the "onboarding ran here" anchor; future skills + tests assume it exists.
 
 **Never narrate a rejection** — only report what the MCP tool actually returned. **Never skip a write** because you think it might fail. If a call errors, retry it. If it keeps erroring, surface the exact error to the Human and ask whether to retry or abort.
 
@@ -206,10 +208,61 @@ config_list(agent='bro')
 
 Expected keys: `branching_model`, `pr_target`, `protected_branches`. If any is missing, RETRY the missing write. Do not close onboarding until the config_list return reflects all three.
 
+## Step 5 — Silently copy the executor + swe-side skills (NOT pr-reviewer)
+
+This is the **bootstrap step folded into onboarding** (the standalone `tmb_bootstrap` skill is reserved for the rare edge case of a project missing agents AFTER onboarding succeeded). No separate AskUserQuestion — onboarding already got Human approval to set up TMB; copying the executor + the skills it'll likely need is part of that setup.
+
+**Doctrinal scope: copy ONLY what the per-task chain needs immediately.** The per-task chain is `bro → swe`; pr-reviewer fires only at push time and is copied lazily on first push-gate trigger (not here). This keeps `.claude/agents/` minimal and matches the "lazy assembly" philosophy of the Lego templates.
+
+Plugin templates are read-only. Resolve the source root via `${CLAUDE_PLUGIN_ROOT}/templates/` (use `Read` for each file, `Write` for each destination). **Verbatim copy — do not transform, normalize, or edit any body.**
+
+Files to copy:
+
+```
+templates/agents/swe.md          → <project>/.claude/agents/swe.md
+
+templates/skills/swe-checklist/SKILL.md      → <project>/.claude/skills/swe-checklist/SKILL.md
+templates/skills/code-quality/SKILL.md       → <project>/.claude/skills/code-quality/SKILL.md
+templates/skills/docs-conventions/SKILL.md   → <project>/.claude/skills/docs-conventions/SKILL.md
+templates/skills/git-conventions/SKILL.md    → <project>/.claude/skills/git-conventions/SKILL.md
+templates/skills/naming-conventions/SKILL.md → <project>/.claude/skills/naming-conventions/SKILL.md
+```
+
+**Explicitly excluded** (copied lazily on demand):
+
+- `templates/agents/pr-reviewer.md` — copied on first `git push` trigger via the push-gate flow in CLAUDE.md.
+- `templates/skills/review-protocol/SKILL.md` and `review-findings/SKILL.md` — copied alongside pr-reviewer.md when push gate first fires (they're pr-reviewer's skills, not swe's).
+
+Skip any destination file that already exists (do not overwrite — projects may have customized them between sessions).
+
+### Step 5b — REQUIRED: log the bootstrap event
+
+This is **not optional** and **must be the last MCP call before the closing message**. Skipping it leaves the trajectory without the "onboarding ran here" anchor — downstream tests and the recovery `tmb_bootstrap` skill both check for it.
+
+```
+ledger_log(
+  agent='bro',
+  event_type='tmb_bootstrap_complete',
+  summary='Onboarding copied swe + 5 skills from plugin templates. pr-reviewer deferred until first push.',
+)
+```
+
+Then verify the row landed:
+
+```
+ledger_list(agent='bro', limit=5)
+```
+
+If `tmb_bootstrap_complete` is not in the returned rows, **retry the `ledger_log` call** before closing onboarding. Do not emit the closing message until the audit row is confirmed present.
+
+### Step 5c — Single inline status message
+
+> ✓ TMB executor (swe) and default skills installed in `.claude/`. pr-reviewer will be set up automatically the first time you push.
+
 ## Closing message
 
-After every expected write succeeded AND `config_list` confirmed the state, emit:
+Emit only after **all six items** of the Mandatory MCP write sequence have completed AND `ledger_list` confirms `tmb_bootstrap_complete`:
 
-> Done. Identity and branching model saved. Tell me what you want to work on — trust me bro, it works.
+> Done. Identity, branching model, and workflow templates installed. Tell me what you want to work on — trust me bro, it works.
 
 Onboarding Mode ends. If a code-touching ask was held, proceed with it now.

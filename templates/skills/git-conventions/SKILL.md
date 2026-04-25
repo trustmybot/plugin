@@ -1,77 +1,70 @@
 ---
 description: Commit message style, branching rules, push safety.
-agent: swe, architect, pr-reviewer
+agent: bro, swe, pr-reviewer
 ---
 
 # Git Conventions
 
 ## Commit Message Style
 
-Two mandatory review gates. No exceptions.
+Use Conventional Commits with an emoji prefix. Examples:
 
-### Gate 1 — Pre-Commit Review
+```
+✨ feat(api): add /users endpoint
+🐛 fix(auth): handle expired refresh tokens
+📝 docs(readme): clarify install steps
+♻️ refactor(parser): extract URL canonicalizer
+✅ test(orders): cover refund path
+🔥 perf(query): batch N+1 lookups
+🔧 chore(ci): bump node version
+```
 
-- **When:** Before creating any commit
-- **Who:** Architect spawns pr-reviewer agent
-- **Mode:** pre-commit (focused on staged diff)
-- **Gate:** BLOCK → fix; PASS → commit
+## Two review gates
 
-### Gate 2 — Pre-Push Review
-
-- **When:** Before `git push` or PR creation
-- **Who:** Architect spawns pr-reviewer agent
-- **Mode:** pre-push (comprehensive audit)
-- **Gate:** BLOCK → fix; PASS WITH NOTES → human decides; PASS → push
-
-### Gate 3 — Pre-Merge
-
-- **When:** After `gh pr create`, before `gh pr merge`
-- **Who:** Founder (explicit merge command required)
-- **Mode:** human review of the actual diff on GitHub
-- **Gate:** Never chain `gh pr merge` after `gh pr create`. Stop, hand PR URL + summary back to Founder, wait for explicit merge instruction.
-
-Why: surfaced 2026-04-16 on PR #47 where pr-reviewer rationalized a missing fix as intentional; auto-merge denied the Founder the last-mile diff eyeball that would have caught it.
+| Gate | When | Who | What |
+|---|---|---|---|
+| **1. Bro task gate** | Immediately after SWE returns | Bro (planner) | Verifies SWE matched the spec — re-runs `## Verification`, sanity-checks diff against `## Files`, confirms each `## Success Criteria` bullet is met. Auto-runs per the `tmb_planning-simple` / `tmb_planning-difficult` "Bro verification protocol" section. |
+| **2. PR-reviewer push gate** | When the Human runs `git push` to a protected branch | PR-reviewer (spawned by bro at push time) | Deeper mechanical + style + security pass over the batch of unsigned commits. Records `validation_record(verdict='pass'\|'fail')`. The `git-push-guard.sh` hook blocks the push until each task in the push range has a passing verdict. |
+| **3. Human merge gate** | After `gh pr create`, before `gh pr merge` | Human (last-mile eyeball) | The pr-reviewer can miss things; the Human reviewing the diff on GitHub is the final check. Never chain `gh pr merge` after `gh pr create` — hand the PR URL back to the Human and wait for the explicit merge command. |
 
 ### Rules
 
-- Never skip Gate 1 (even for "obvious" one-liners)
-- Never skip Gate 2 (even if Gate 1 passed)
-- SWE never commits directly (works in worktrees)
-- Human can override with explicit "skip review" or "just commit"
-- Never auto-merge. Gate 3 applies to every PR with no exceptions.
+- **SWE never commits to the main worktree** — only inside its own `.claude/worktrees/<task-slug>` worktree, which bro+pr-reviewer copy or merge into the main branch later.
+- **Bro never edits source code directly** unless Direct Mode applies (≤3 lines, single file, no API change — see CLAUDE.md `## Direct Mode`).
+- **Never auto-merge.** Gate 3 applies to every PR with no exceptions.
+- **Never push to a protected branch** without the push gate passing. The hook makes it physically hard; respect the message.
 
-### Source Code Authorship Check
+### Source-code authorship check (PR-reviewer Gate 2)
 
-The PR Reviewer MUST verify at Gate 1:
+PR-reviewer verifies at push time:
 
-- **Every source code change** (`src/`, `tests/`, `config/settings.toml`, `*.sql`) was made by a SWE agent, not the Architect or any other agent
-- Check: the commit should correspond to a tasks row (matching branch_id and commit_sha populated by SWE) or be attributed to a SWE worktree
-- If the Architect directly edited source code: **BLOCK** with finding "architect_direct_edit_violation"
-- This is a CRITICAL finding — the Architect must revert and re-do via SWE
+- Every source code change (`src/`, `tests/`, `config/settings.toml`, `*.sql`) corresponds to a `tasks` row whose `commit_sha` matches one of the commits being pushed.
+- If a source-code commit has no matching task row, surface as a finding `untracked_source_change`. Either the change was made outside TMB (acceptable, but flag) or someone bypassed the planner (not acceptable).
+- Bro's Direct Mode commits are exceptions: they ARE source-code commits with no `tasks` row, but they have a `direct_mode_used` ledger event. Cross-check the ledger before flagging.
 
 ## Branching Rules
 
-- **`main`** — stable, production-ready. Only receives merges from `dev` via PR.
-- **`dev`** — integration branch. All feature PRs target `dev`, never `main`.
-- **Feature branches** — `feat/<name>`, branched from `dev`. One feature per branch.
+- **`main`** — stable, production-ready. Receives merges from `dev` via PR.
+- **`dev`** — integration branch. Feature PRs target `dev`, never `main`.
+- **Feature branches** — `feat/<name>`, `fix/<name>`, etc., branched from `dev`. One feature per branch.
 
 ### Rules
 
-1. **Never commit directly to `dev` or `main`.** Always use feature branches + PRs.
-2. **PRs always target `dev`** — `gh pr create --base dev --head feat/<name>`.
+1. **Never commit directly to `dev` or `main`.** Always use feature branches + PRs. Enforced by `scripts/hooks/git-guards.sh`.
+2. **PRs target `dev`** — `gh pr create --base dev --head feat/<name>`.
 3. **Periodically merge `dev` → `main`** via a separate PR when `dev` is stable.
 4. **Delete feature branches** after PR merge.
 
-### Branch Creation
+### Branch creation
 
-Always `git fetch origin dev` before creating a new feature branch. Stale `origin/dev` means the new branch misses merged PRs.
+Always `git fetch origin dev` before creating a new feature branch. Stale `origin/dev` means the new branch misses merged PRs. Enforced by `git-guards.sh`.
 
-### Upstream Sources
+### Upstream sources
 
-When pulling code from upstream repos (e.g., shadcn-admin), use `git clone` into `$TMPDIR` and copy files. Never use `curl`/`fetch` on individual `raw.githubusercontent.com` URLs.
+When pulling code from upstream repos (e.g. shadcn-admin), use `git clone` into `$TMPDIR` and copy files. Never use `curl`/`fetch` on individual `raw.githubusercontent.com` URLs.
 
-## Push Safety
+## Push safety
 
-### File Copy
+### File copy
 
 When copying files from worktrees to the main repo, use `/bin/cp` (not `cp`) to bypass the macOS `cp -i` alias that prompts for overwrite confirmation.

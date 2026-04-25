@@ -23,7 +23,7 @@
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-review-sign.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/git-push-guard.sh",
             "timeout": 5
           }
         ]

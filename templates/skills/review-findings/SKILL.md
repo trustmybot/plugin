@@ -9,9 +9,9 @@ Living list of bug patterns and anti-patterns caught during code review.
 Every agent reads this before doing their job.
 
 **How to use:**
-- **Architect** — consult before writing task files to anticipate gaps
+- **Bro** — consult before authoring a `task_create_batch` spec_body, so the spec already names the gaps to avoid
 - **SWE** — consult before implementation to avoid known pitfalls
-- **PR Reviewer** — add new findings here when you catch a recurring pattern
+- **PR-reviewer** — add new findings here when you catch a recurring pattern at the push gate
 
 ## Error Handling Gaps
 
