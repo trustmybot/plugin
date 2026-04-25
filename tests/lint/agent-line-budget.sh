@@ -1,52 +1,56 @@
 #!/usr/bin/env bash
-# Enforce caps on agent prompts.
+# Enforce Lego cap on every agent that ships with the plugin.
 #
-# Plugin ships ZERO agents under agents/ (it's intentionally empty — bro is
-# a persona in CLAUDE.md). All shipped agents live as Lego templates under
-# templates/agents/ and follow a much tighter 30-line cap (Lego rule:
-# identity + role + boundary + "rest comes from skills").
+# As of v0.3.0:
+#   - agents/        → workflow backbone (swe + pr-reviewer), GLOBAL.
+#                      Same Lego cap as templates: identity + role + boundary,
+#                      "rest comes from skills."
+#   - templates/agents/ → opt-in consultant templates (architect, cto, ceo, pm),
+#                      copied into projects on demand.
 #
-# Project-local agents (after tmb_bootstrap or tmb_agent-creator copies a
-# template) are ignored by this lint — they live outside the plugin.
+# Both directories enforce the same ≤30-line cap.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
-TEMPLATE_LIMIT=30
-SHIPPED_LIMIT=200    # only used if anything ever ships under agents/
+LIMIT=30
 FAIL=0
 
-# 1. agents/ should be empty (only .gitkeep allowed).
-shipped_agents=$(find "$PLUGIN_ROOT/agents" -maxdepth 1 -name '*.md' -type f | sort)
-if [ -n "$shipped_agents" ]; then
-  printf "Plugin ships agents (should be empty — Lego rule):\n"
-  for f in $shipped_agents; do
-    lines=$(wc -l < "$f" | tr -d ' ')
-    printf "  ⚠️  %s: %d lines (plugin should ship NO agents)\n" "$f" "$lines"
-    if [ "$lines" -gt "$SHIPPED_LIMIT" ]; then
-      FAIL=$((FAIL + 1))
-    fi
-  done
-  printf "\n"
-fi
-
-# 2. templates/agents/ — Lego cap (≤30 lines).
-printf "Enforcing %d-line Lego cap on templates/agents/*.md\n" "$TEMPLATE_LIMIT"
-while IFS= read -r f; do
-  lines=$(wc -l < "$f" | tr -d ' ')
-  if [ "$lines" -gt "$TEMPLATE_LIMIT" ]; then
-    printf "  ❌ %s: %d lines (over Lego cap by %d)\n" "$f" "$lines" "$((lines - TEMPLATE_LIMIT))"
-    FAIL=$((FAIL + 1))
-  else
-    printf "  ✓ %s: %d lines\n" "$f" "$lines"
+check_dir() {
+  local label="$1" dir="$2"
+  if [ ! -d "$dir" ]; then
+    return 0
   fi
-done < <(find "$PLUGIN_ROOT/templates/agents" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort)
+  local files
+  files=$(find "$dir" -maxdepth 1 -name '*.md' -type f | sort)
+  if [ -z "$files" ]; then
+    return 0
+  fi
+  printf "Enforcing %d-line Lego cap on %s\n" "$LIMIT" "$label"
+  while IFS= read -r f; do
+    local lines
+    lines=$(wc -l < "$f" | tr -d ' ')
+    if [ "$lines" -gt "$LIMIT" ]; then
+      printf "  ❌ %s: %d lines (over cap by %d)\n" "$f" "$lines" "$((lines - LIMIT))"
+      FAIL=$((FAIL + 1))
+    else
+      printf "  ✓ %s: %d lines\n" "$f" "$lines"
+    fi
+  done <<< "$files"
+  printf "\n"
+}
+
+# Workflow backbone (global)
+check_dir "agents/ (global backbone)" "$PLUGIN_ROOT/agents"
+
+# Consultant templates (opt-in)
+check_dir "templates/agents/ (consultant templates)" "$PLUGIN_ROOT/templates/agents"
 
 if [ "$FAIL" -eq 0 ]; then
-  printf "\nAll agent templates within Lego cap.\n"
+  printf "All agent files within Lego cap.\n"
   exit 0
 else
-  printf "\n%d agent file(s) over budget.\n" "$FAIL"
+  printf "%d agent file(s) over budget.\n" "$FAIL"
   exit 1
 fi
