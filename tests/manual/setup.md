@@ -186,7 +186,7 @@ Quick smoke checklist (covers the 80% — see SCENARIOS.md for the full grid):
 | 2 | Read-only question (`list files in src/`) | Bro answers inline; no agent spawn |
 | 3 | `fix the typo in README` | Simple-task chain: triage:simple → architect → swe → pr-reviewer |
 | 4 | `add OAuth login` (or any architecture-touching ask) | Difficult chain: triage:difficult + ADR file + standard template |
-| 5 | `change branching model to gitflow` | `tmb-reonboard` skill re-runs onboarding with current values as defaults |
+| 5 | `change branching model to gitflow` | `tmb_reonboard` skill re-runs onboarding with current values as defaults |
 | 6 | `call yourself alex` | `identity_set` persists; bro signs off as alex |
 | 7 | `refresh architecture docs` | 4 files regenerated under `docs/trustmybot/architecture/auto/` |
 | 8 | Commit on protected branch | `git-guards.sh` blocks |
