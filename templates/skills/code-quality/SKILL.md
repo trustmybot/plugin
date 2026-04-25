@@ -1,12 +1,12 @@
 ---
 name: code-quality
-description: Shared quality criteria for design, implementation, and review. Used by Architect (design-time), SWE (implementation-time), and PR Reviewer (review-time). Covers error handling, edge cases, database safety, Python patterns, test isolation, and the self-review checklist.
+description: Shared quality criteria for design, implementation, and review. Used by bro (design-time), SWE (implementation-time), and PR Reviewer (review-time). Covers error handling, edge cases, database safety, Python patterns, test isolation, and the self-review checklist.
 ---
 
 # Code Quality Criteria
 
 Shared reference for all agents. Each agent uses these criteria at their stage:
-- **Architect** — verify the design addresses each category before writing task files
+- **Bro** — verify the design addresses each category before writing task files
 - **SWE** — verify the implementation handles each category before reporting COMPLETED
 - **PR Reviewer** — verify the code satisfies each category, construct proofs for violations
 
@@ -14,7 +14,7 @@ Shared reference for all agents. Each agent uses these criteria at their stage:
 
 ## Error Handling
 
-### Design-time questions (Architect)
+### Design-time questions (bro)
 - What happens when the database query returns no results?
 - What happens when the database connection fails (timeout, pool exhausted)?
 - What happens when the Claude CLI call fails (timeout, non-zero exit, missing output)?
@@ -42,7 +42,7 @@ Shared reference for all agents. Each agent uses these criteria at their stage:
 
 ## Edge Cases
 
-### Design-time questions (Architect)
+### Design-time questions (bro)
 - What happens with an empty JD list? With no JDs for a specific version?
 - What happens with a missing or empty rubric/prompt file?
 - What happens when the database is unavailable?
@@ -69,7 +69,7 @@ Shared reference for all agents. Each agent uses these criteria at their stage:
 
 ## Database Safety
 
-### Design-time questions (Architect)
+### Design-time questions (bro)
 - Are all queries parameterized?
 - Is connection cleanup handled (context managers)?
 - Are multi-statement operations wrapped in transactions?
@@ -116,7 +116,7 @@ Shared reference for all agents. Each agent uses these criteria at their stage:
 
 ## Security
 
-### Design-time questions (Architect)
+### Design-time questions (bro)
 - Is user input sanitized before use in queries?
 - Are sensitive values (API keys, DB credentials) kept out of logs and error messages?
 - Are bulk operations bounded to prevent resource exhaustion?
