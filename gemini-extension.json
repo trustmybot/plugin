@@ -1,0 +1,8 @@
+{
+  "name": "tmb",
+  "version": "0.1.1",
+  "description": "PLACEHOLDER — TMB multi-agent workflow extension for Gemini CLI (not yet implemented).",
+  "contextFileName": "GEMINI.md",
+  "_status": "placeholder",
+  "_see": "https://github.com/trustmybot/plugin/blob/main/docs/multi-platform.md"
+}

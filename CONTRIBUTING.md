@@ -12,11 +12,27 @@ Thanks for the interest. Public MIT-licensed plugin for Claude Code. Contributio
 
 ## Branching
 
-- `main` — release tip. Tags (`v0.3.2`, `v1.0.0`, …) live here.
-- `dev` — integration branch. All PRs land here first.
+- `main` — release tip. Tags (`v0.1.2`, `v1.0.0`, …) live here.
+- `dev` — integration branch. All work-branch PRs land here first.
 - Work branches — use `<type>/<issue-number>-<slug>`, e.g. `feat/42-dual-backend-issues`, `fix/45-gitguards-missing-branch`, `docs/27-local-testing`. Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`. Embedding the issue number makes every branch self-documenting and auto-links on PR merge.
 
 Direct commits to `dev` or `main` are blocked by `git-guards.sh`. Always work on a branch.
+
+**Releases** go via a `dev → main` PR (the only branch other than work-branches that can target `main`). The hook in `git-guards.sh` permits exactly this case while still blocking `feature → main` PRs (the v0.1.1 release exception).
+
+### Release ritual
+
+Releases are scripted, idempotent, and gated by safety checks. The full ritual:
+
+1. On a work branch off `dev`, bump `version` in both `.claude-plugin/plugin.json` and `mcp/trajectory-server/package.json`. Add the matching `## v<X.Y.Z>` section at the top of `CHANGELOG.md`. Commit + PR into `dev` like any other change.
+2. Once that's merged into `dev`, open a `dev → main` PR. Merge it.
+3. Locally:
+   ```bash
+   git checkout main && git pull origin main
+   bash scripts/release.sh
+   ```
+
+`scripts/release.sh` reads the version from `plugin.json`, validates that `mcp/trajectory-server/package.json` agrees, requires a matching `## v<version>` section in `CHANGELOG.md`, and asks for `y/N` confirmation at each step. It tags `main` HEAD, pushes the tag, and creates a GitHub release with the CHANGELOG section as the body. Re-running after a step succeeds is safe — already-done steps are skipped.
 
 ## Writing code
 
@@ -35,10 +51,12 @@ Every code change should add or update tests.
 
 ## Pre-PR checklist
 
-- [ ] `bash tests/run-all.sh` passes locally.
+- [ ] `bash tests/run-all.sh` passes locally (lint + MCP integration + hook suites).
 - [ ] Workflow state (issues, tasks, discussions, validation attempts) goes through MCP tools into SQLite — never onto disk.
 - [ ] `CHANGELOG.md` updated for user-visible changes.
-- [ ] If the edit affects a workflow contract, update every agent prompt that cites it — not just one.
+- [ ] If the edit affects a workflow contract, update every agent template body AND every consuming skill that cites it — not just one. Remember: agent templates are the immutable Lego stud, skills are the bricks. Behavior changes go in skills; identity changes go in templates.
+- [ ] If the edit changes a `tmb_*` skill's contract, also update the lint assertions in `tests/lint/` if a contract is involved.
+- [ ] If the edit touches the SQLite schema, regenerate the ER diagram in `docs/architecture/ERD.md` and update the `requireRoles` matrix in `mcp/trajectory-server/src/middleware/agent-scope.ts`.
 - [ ] PR description names the issue (`Closes #N`).
 
 ## Filing an issue
@@ -52,9 +70,36 @@ Every code change should add or update tests.
 If you're proposing a big change, check these first.
 
 1. **SQLite is canonical state.** Files are for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills, rules). Workflow state (issues, tasks, discussions, validation attempts) lives in the trajectory DB, never on disk.
-2. **No bypass in the workflow.** Every code change routes bro → architect → swe → pr-reviewer. The "fast path" is a lighter task spec, not skipping a role.
-3. **Plugin is an agent factory.** Four workflow agents ship (bro, architect, swe, pr-reviewer). Domain agents (ceo, cto, pm, legal-reviewer, …) are user-created on-demand via the `agent-creator` skill with explicit Human approval.
-4. **Override per project.** Any plugin-shipped agent can be overridden by creating a same-named file in the project's `.claude/agents/`. Local wins.
+2. **No bypass in the workflow.** Every non-trivial code change routes Human → bro → SWE, with bro as the **task gate** (verifies after SWE returns) and pr-reviewer as the **push gate** (fires only at `git push`). The "fast path" is a lighter spec, not skipping a gate. Direct Mode is the single narrow exception (≤3 lines, single file, no API/test/docs change).
+3. **Plugin ships ZERO subagents.** Bro is a CLAUDE.md persona on main Claude. SWE, pr-reviewer, and the 4 consultant templates (architect, cto, ceo, pm) live in `templates/agents/` and are copied into `<project>/.claude/agents/` on demand. Domain agents (legal-reviewer, security-reviewer, …) are user-created via the `tmb_agent-creator` skill with explicit Human approval.
+4. **Lego layering.** Three layers, never confused: agent file = identity (immutable), `skills:` array on the project copy = capabilities (additive via `tmb_skill-creator`), spawn prompt = task context (per-call). Don't edit the template body to add behavior — extend `skills:`.
+5. **Override per project.** Any agent template can be overridden by editing the same-named file in the project's `.claude/agents/`. Local wins. Plugin-shipped protocol skills (`tmb_*` in `plugin/skills/`) are reserved and cannot be name-overridden.
+6. **Server-enforced decision chain.** `requireRoles` middleware in `mcp/trajectory-server/src/middleware/agent-scope.ts` rejects calls that violate the chain (e.g. consultants trying to write `task_create_batch`). Doctrine isn't just prompt discipline — it's wire-enforced.
+
+## Performance
+
+The plugin's overhead vs pure Claude Code on the same ask should land in this band:
+
+| Ask shape | Pure Claude | TMB target | Acceptable ceiling |
+|---|---|---|---|
+| Trivial single-file (typo, comment) | ~10s | ~10–20s (Direct Mode) | 30s |
+| Simple task (single feature) | ~30s | ~2–3 min | 5 min |
+| Difficult task (architecture change + ADR) | ~2 min | ~5–8 min | 12 min |
+| Multi-task batch | n/a | ≤ 1.5× single-task per task | 2× per task |
+
+**Doctrine — what's safe to trim, what isn't.** When proposing a perf change, classify the cost into one of three tiers:
+
+- **Tier 1 — pure waste, trim aggressively.** Sequential MCP writes that could batch in one assistant response; eager skill loading that fires on every spawn but is needed in <30% of spawns; forced chain-of-thought blocks for tasks that don't benefit; redundant approval prompts.
+- **Tier 2 — design overhead, trim with care.** Per-task gate spawns (justified for difficult-triage, not for every typo — hence the push-gate vs task-gate split); worktree creation; forced subagent cold-start when bro could just edit (hence Direct Mode).
+- **Tier 3 — load-bearing overhead, do NOT trim.** The trajectory DB writes (the audit trail IS the product); `requireRoles` enforcement (~1ms, structural protection); worktree isolation (prevents cross-task corruption); the push gate (only structural defence against pushing unreviewed commits).
+
+**Re-evaluate** when (a) a SWE or pr-reviewer cold-start in a Layer 3 dogfood takes >2× the previous baseline, (b) a user reports a chain >12 min for a simple-triage task, (c) a new gate / hook / skill fires on the per-task path, (d) CC platform changes subagent cold-start cost, or (e) a new platform adapter (Codex, Cursor, …) gets implemented — re-baseline on that platform.
+
+Historical perf-cycle records live in git history (PR #63 baseline, PR #64 optimizations) and the changelog, not in a separate doc.
+
+## Multi-platform structure
+
+The repo follows the [`obra/superpowers`](https://github.com/obra/superpowers) pattern: shared `skills/`, `templates/`, and `mcp/` at the root, with thin per-platform manifests in `.<platform>-plugin/` directories. Today only `.claude-plugin/` is implemented; `.codex-plugin/`, `.cursor-plugin/`, `.opencode/`, and `gemini-extension.json` are placeholders. See [`docs/multi-platform.md`](docs/multi-platform.md) for the strategy and what an adapter would do. Adapters get built when there's user demand; until then, contributions should target Claude Code only.
 
 ## Code of conduct
 
