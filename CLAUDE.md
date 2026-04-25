@@ -120,13 +120,18 @@ When the Human runs `git push` (or `gh pr create`), a pre-push hook (`scripts/ho
 
 When the Human responds with `@bro review before push` (or any phrase containing "review before push"):
 
-1. You query MCP for tasks with `commit_sha NOT NULL` and no passing validation row.
-2. For each such task, spawn `pr-reviewer` with `task_id=N`. Run them in parallel where possible.
-3. pr-reviewer signs each off with `validation_record(verdict='pass'|'fail')`.
-4. On all-pass: tell the Human the push is unblocked.
-5. On any fail: surface the failure; either the Human accepts the fix scope (you spawn swe to address) or aborts.
+1. **Lazy-copy pr-reviewer.md if missing.** Check `.claude/agents/pr-reviewer.md`. If absent (this is the project's first push), copy `${CLAUDE_PLUGIN_ROOT}/templates/agents/pr-reviewer.md` to `.claude/agents/pr-reviewer.md` verbatim, plus `${CLAUDE_PLUGIN_ROOT}/templates/skills/{review-protocol,review-findings}/SKILL.md` to `.claude/skills/`. No AskUserQuestion — the Human just invoked the push-review flow, that's the consent. Log to ledger:
+   ```
+   ledger_log(agent='bro', event_type='tmb_pr_reviewer_lazy_copied',
+     summary='First push gate triggered; copied pr-reviewer + review skills from templates.')
+   ```
+2. Query MCP for tasks with `commit_sha NOT NULL` and no passing validation row.
+3. For each such task, spawn `pr-reviewer` with `task_id=N`. Run them in parallel where possible.
+4. pr-reviewer signs each off with `validation_record(verdict='pass'|'fail')`.
+5. On all-pass: tell the Human the push is unblocked.
+6. On any fail: surface the failure; either the Human accepts the fix scope (you spawn swe to address) or aborts.
 
-This makes pr-reviewer cost amortized across multiple tasks per push, instead of paid per task.
+This makes pr-reviewer cost amortized across multiple tasks per push, instead of paid per task — AND keeps pr-reviewer.md out of the project until it's actually needed.
 
 ## Direct ops (no spawn)
 
@@ -172,13 +177,13 @@ The plugin's `templates/agents/` directory holds 6 minimal Lego-block agent temp
 | Template | Role | When bro copies it |
 |---|---|---|
 | `swe.md` | Executor — one task per spawn, isolated worktree, atomic close | During first-run onboarding (silent, no extra question) |
-| `pr-reviewer.md` | Push gate — runs at `git push` over a batch of unsigned tasks | Same as swe — copied during onboarding |
+| `pr-reviewer.md` | Push gate — runs at `git push` over a batch of unsigned tasks | **First time the push gate fires** (`@bro review before push`) — lazy, not at onboarding |
 | `architect.md` | Consultant — system-design analysis, surface load-bearing assumptions | First time Human asks `get the architect's read on X` |
 | `cto.md` | Consultant — technical strategy, scaling, tech-stack trade-offs | First time Human asks for cto opinion |
 | `ceo.md` | Consultant — product scope, prioritization, business framing | First time Human asks for ceo opinion |
 | `pm.md` | Consultant — product strategy, user-need framing, success metrics | First time Human asks for pm opinion |
 
-`templates/skills/` holds default skills that get copied alongside swe + pr-reviewer during onboarding (swe-checklist, review-protocol, review-findings, code-quality, docs-conventions, git-conventions, naming-conventions). Projects edit those copies freely; plugin protocol skills (`tmb_*` in `skills/`) cannot be overridden by name.
+`templates/skills/` holds default skills. Onboarding copies the **swe-side** ones (swe-checklist, code-quality, docs-conventions, git-conventions, naming-conventions) alongside swe.md. The **pr-reviewer-side** skills (review-protocol, review-findings) are copied lazily alongside pr-reviewer.md on first push-gate trigger. Projects edit those copies freely; plugin protocol skills (`tmb_*` in `skills/`) cannot be overridden by name.
 
 User-created project consultants (via `tmb_agent-creator` from-scratch flow) are also consultants by default. They write analyses, not decisions. Bro summarizes; Human decides.
 

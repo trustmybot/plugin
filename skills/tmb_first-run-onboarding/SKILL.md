@@ -206,9 +206,11 @@ config_list(agent='bro')
 
 Expected keys: `branching_model`, `pr_target`, `protected_branches`. If any is missing, RETRY the missing write. Do not close onboarding until the config_list return reflects all three.
 
-## Step 5 — Silently copy the agent + skill templates into the project
+## Step 5 — Silently copy the executor + swe-side skills (NOT pr-reviewer)
 
-This is the **bootstrap step folded into onboarding** (formerly the standalone `tmb_bootstrap` skill, now reserved for the rare edge case of a project missing agents AFTER onboarding succeeded). No separate AskUserQuestion — onboarding already got Human approval to set up TMB; copying the workflow agents is part of that setup.
+This is the **bootstrap step folded into onboarding** (the standalone `tmb_bootstrap` skill is reserved for the rare edge case of a project missing agents AFTER onboarding succeeded). No separate AskUserQuestion — onboarding already got Human approval to set up TMB; copying the executor + the skills it'll likely need is part of that setup.
+
+**Doctrinal scope: copy ONLY what the per-task chain needs immediately.** The per-task chain is `bro → swe`; pr-reviewer fires only at push time and is copied lazily on first push-gate trigger (not here). This keeps `.claude/agents/` minimal and matches the "lazy assembly" philosophy of the Lego templates.
 
 Plugin templates are read-only. Resolve the source root via `${CLAUDE_PLUGIN_ROOT}/templates/` (use `Read` for each file, `Write` for each destination). **Verbatim copy — do not transform, normalize, or edit any body.**
 
@@ -216,28 +218,30 @@ Files to copy:
 
 ```
 templates/agents/swe.md          → <project>/.claude/agents/swe.md
-templates/agents/pr-reviewer.md  → <project>/.claude/agents/pr-reviewer.md
 
 templates/skills/swe-checklist/SKILL.md      → <project>/.claude/skills/swe-checklist/SKILL.md
-templates/skills/review-protocol/SKILL.md    → <project>/.claude/skills/review-protocol/SKILL.md
-templates/skills/review-findings/SKILL.md    → <project>/.claude/skills/review-findings/SKILL.md
 templates/skills/code-quality/SKILL.md       → <project>/.claude/skills/code-quality/SKILL.md
 templates/skills/docs-conventions/SKILL.md   → <project>/.claude/skills/docs-conventions/SKILL.md
 templates/skills/git-conventions/SKILL.md    → <project>/.claude/skills/git-conventions/SKILL.md
 templates/skills/naming-conventions/SKILL.md → <project>/.claude/skills/naming-conventions/SKILL.md
 ```
 
+**Explicitly excluded** (copied lazily on demand):
+
+- `templates/agents/pr-reviewer.md` — copied on first `git push` trigger via the push-gate flow in CLAUDE.md.
+- `templates/skills/review-protocol/SKILL.md` and `review-findings/SKILL.md` — copied alongside pr-reviewer.md when push gate first fires (they're pr-reviewer's skills, not swe's).
+
 Skip any destination file that already exists (do not overwrite — projects may have customized them between sessions).
 
 **Single inline status message after the copies:**
 
-> ✓ TMB workflow agents (swe, pr-reviewer) and default skills installed in `.claude/`.
+> ✓ TMB executor (swe) and default skills installed in `.claude/`. pr-reviewer will be set up automatically the first time you push.
 
 Then log the copy event:
 
 ```
 ledger_log(agent='bro', event_type='tmb_bootstrap_complete',
-  summary='Onboarding copied 2 agents + 7 skills from plugin templates.')
+  summary='Onboarding copied swe + 5 skills from plugin templates. pr-reviewer deferred until first push.')
 ```
 
 (Same `event_type` as the standalone `tmb_bootstrap` skill so audit history is consistent.)
