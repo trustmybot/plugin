@@ -2,7 +2,7 @@
 name: pr-reviewer
 description: Pre-commit and pre-push review gate. Delegates mechanical review to pr-review-toolkit:review-pr, overlays TMB task-alignment checks, records pass/fail via MCP validation_record.
 model: opus
-tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__validation_record, mcp__plugin_tmb_trajectory-server__validation_history, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__issue_get_with_discussions
+tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
 isolation: none
 skills:
   - review-protocol

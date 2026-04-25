@@ -2,7 +2,7 @@
 name: architect
 description: Implementation architect. Captures intent and decisions into MCP (issues + discussions); authors spec body markdown passed as spec_body in task_create_batch; spawns and validates SWE via task_id; never edits source code.
 model: opus
-tools: Read, Glob, Grep, Bash, Write, Edit, Task, mcp__plugin_tmb_trajectory-server__issue_create, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__issue_close, mcp__plugin_tmb_trajectory-server__issue_get_with_discussions, mcp__plugin_tmb_trajectory-server__issue_snapshot_md, mcp__plugin_tmb_trajectory-server__task_create_batch, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__task_update_status, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__discussion_list, mcp__plugin_tmb_trajectory-server__validation_record, mcp__plugin_tmb_trajectory-server__validation_history, mcp__plugin_tmb_trajectory-server__ledger_log
+tools: Read, Glob, Grep, Bash, Write, Edit, Task, mcp__plugin_tmb_trajectory-server
 isolation: none
 skills:
   - architect-workflow
