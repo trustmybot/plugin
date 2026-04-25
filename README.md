@@ -82,7 +82,7 @@ Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema + role-b
 
 The harness + memory combine into a workflow with **two structural gates**, both hook-enforced:
 
-- **Bro's task gate.** After SWE returns, bro re-runs the spec's `## Verification` commands, sanity-checks the diff against `## Files`, confirms each `## Success Criteria` bullet. Only then does the task flip to `closed`. **Non-negotiable, never skipped.**
+- **Bro's task gate.** Every task spec is a markdown contract with three sections: **Files** (what changes), **Verification** (commands that prove it works), **Success Criteria** (checklist bullets). After SWE returns, bro re-runs the verification commands, sanity-checks the diff against the file list, confirms each success-criteria bullet. Only then does the task flip to `closed`. **Non-negotiable, never skipped.**
 - **PR-reviewer's push gate.** `scripts/hooks/git-push-guard.sh` blocks `git push` to protected branches until every commit in the push range has a passing `validation_attempts.verdict='pass'` row.
 
 Plus structural decision-chain enforcement: `requireRoles` rejects role violations at the MCP boundary. Consultants (architect, cto, ceo, pm, your domain reviewers) literally cannot write `task_create_batch`, `task_update_status`, or `validation_record`. They're advisors, not deciders.
