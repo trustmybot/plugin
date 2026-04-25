@@ -1,4 +1,5 @@
 ---
+name: git-conventions
 description: Commit message style, branching rules, push safety.
 agent: bro, swe, pr-reviewer
 ---

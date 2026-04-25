@@ -163,6 +163,46 @@ else
   fi
 fi
 
+# ---------- step 4: L6 release canary (post-tag verify) ----------
+#
+# Re-clones the freshly-tagged release into a temp dir and runs the
+# install-smoke Dockerfile against it. Catches "the published artifact
+# differs from what we tested locally" — e.g. a .gitignore that excluded
+# something the install needs.
+#
+# Skipped if Docker is unavailable; warning instead of failure since the
+# release is already public at this point.
+
+if confirm "Step 4: Run L6 release canary (re-clone tag in Docker, run install-smoke)?"; then
+  if ! command -v docker >/dev/null 2>&1; then
+    printf "  ⊘ docker not available — skipping canary. Run manually before announcing the release:\n"
+    printf "      bash tests/docker/run-install-smoke.sh\n"
+  else
+    CANARY_DIR=$(mktemp -d -t tmb-canary-XXXX)
+    trap 'rm -rf "$CANARY_DIR"' EXIT
+    printf "  Cloning %s into %s ...\n" "$NEW_TAG" "$CANARY_DIR"
+    if git clone --quiet --depth 1 --branch "$NEW_TAG" \
+        "https://github.com/trustmybot/plugin.git" "$CANARY_DIR/plugin"; then
+      if (cd "$CANARY_DIR/plugin" && docker build \
+            -f tests/docker/install-smoke.Dockerfile \
+            -t "tmb-canary-$NEW_VERSION" \
+            --quiet .); then
+        printf "  ✓ Canary PASSED — published %s installs cleanly from a fresh clone\n\n" "$NEW_TAG"
+      else
+        printf "\n  ⚠️  CANARY FAILED — published %s does NOT install cleanly!\n" "$NEW_TAG" >&2
+        printf "     The release is public but broken. Investigate before announcing.\n" >&2
+        printf "     Likely causes: .gitignore excluded something needed; postinstall regression;\n" >&2
+        printf "     bun.lock out of sync; etc.\n" >&2
+        exit 1
+      fi
+    else
+      printf "  ⚠️  Could not clone tag %s — release exists but git clone failed.\n" "$NEW_TAG" >&2
+    fi
+  fi
+else
+  printf "  Skipped — run 'bash tests/docker/run-install-smoke.sh' manually before announcing.\n\n"
+fi
+
 # ---------- summary ----------
 
 printf "Done. Verify:\n"

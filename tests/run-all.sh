@@ -1,56 +1,66 @@
 #!/usr/bin/env bash
-# Full TMB plugin test suite: MCP server + hook scripts.
-# Exit 0 only if every suite passes.
+# Full TMB plugin test suite. Exit 0 only if every layer passes.
+#
+# Layered model (see docs/architecture/FLOWS.md + CONTRIBUTING.md):
+#   L0 — Distribution / install-smoke   → tests/docker/install-smoke.Dockerfile (CI-only)
+#   L1 — Static / lint                  → tests/lint/*.sh (this file runs them)
+#   L2 — Unit (per-component)           → mcp/trajectory-server/src/test/*.ts
+#   L3 — Integration (cross-component)  → tests/mcp-integration/*.mjs + tests/hooks/*.sh
+#   L4 — Workflow simulation            → (planned for v0.2.0)
+#   L5 — Manual dogfood                 → tests/manual/scenarios.md (human-walked)
+#   L6 — Release canary                 → scripts/release.sh post-tag step
+
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/.." && pwd)"
 FAIL=0
 
-printf "=== Layer 1: MCP unit tests (handlers direct, no protocol) ===\n"
+run_step() {
+  local label="$1"
+  shift
+  printf "\n=== %s ===\n" "$label"
+  if "$@"; then
+    printf "→ PASS\n"
+  else
+    printf "→ FAIL\n"
+    FAIL=1
+  fi
+}
+
+# ----- L1 — Static / lint -----------------------------------------------
+
+run_step "L1 lint: agent template line budget"        bash "$HERE/lint/agent-line-budget.sh"
+run_step "L1 lint: onboarding skill contract"         bash "$HERE/lint/onboarding-skill-contract.sh"
+run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/lint/skill-frontmatter.sh"
+run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/lint/manifest-shape.sh"
+run_step "L1 lint: version sync (3 manifests agree)"  bash "$HERE/lint/version-sync.sh"
+run_step "L1 lint: changelog top section current"     bash "$HERE/lint/changelog-current.sh"
+run_step "L1 lint: link-check (relative md links)"    bash "$HERE/lint/link-check.sh"
+run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/lint/shellcheck-hooks.sh"
+run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/lint/tsc-noemit.sh"
+
+# ----- L2 — Unit + L3 — Integration -------------------------------------
+
+printf "\n=== L2 unit: MCP handlers (node --test on built dist/) ===\n"
 if (cd "$PLUGIN_ROOT/mcp/trajectory-server" && bun run build && node --test dist/test/*.test.js); then
-  printf "MCP unit suite: PASS\n\n"
+  printf "→ PASS\n"
 else
-  printf "MCP unit suite: FAIL\n\n"
+  printf "→ FAIL\n"
   FAIL=1
 fi
 
-printf "=== Layer 2: MCP integration tests (real server subprocess + stdio JSON-RPC) ===\n"
-if bash "$HERE/mcp-integration/run.sh"; then
-  printf "\nMCP integration suite: PASS\n\n"
-else
-  printf "\nMCP integration suite: FAIL\n\n"
-  FAIL=1
-fi
+run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/mcp-integration/run.sh"
+run_step "L3 integration: hook script tests"                         bash "$HERE/hooks/run.sh"
 
-printf "=== Hook script tests (tests/hooks) ===\n"
-if bash "$HERE/hooks/run.sh"; then
-  printf "\nHook suite: PASS\n"
-else
-  printf "\nHook suite: FAIL\n"
-  FAIL=1
-fi
+# ----- summary -----------------------------------------------------------
 
-printf "\n=== Lint: agent prompt budget (tests/lint) ===\n"
-if bash "$HERE/lint/agent-line-budget.sh"; then
-  printf "\nLint suite: PASS\n"
-else
-  printf "\nLint suite: FAIL\n"
-  FAIL=1
-fi
-
-printf "\n=== Lint: onboarding skill contract (tests/lint) ===\n"
-if bash "$HERE/lint/onboarding-skill-contract.sh"; then
-  printf "\nOnboarding contract lint: PASS\n"
-else
-  printf "\nOnboarding contract lint: FAIL\n"
-  FAIL=1
-fi
-
+printf "\n========================================\n"
 if [ "$FAIL" -eq 0 ]; then
-  printf "\nAll test suites passed.\n"
+  printf "All test layers passed (L1 + L2 + L3).\n"
+  printf "L0 install-smoke runs separately in CI (docker required).\n"
   exit 0
 else
-  printf "\nOne or more test suites failed. See output above.\n"
+  printf "One or more layers FAILED. See output above.\n"
   exit 1
 fi
