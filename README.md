@@ -61,7 +61,7 @@ Details: [`CLAUDE.md`](CLAUDE.md) (bro persona), [`templates/agents/swe.md`](tem
 Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/trajectory.db`. Five tables you'll touch directly:
 
 - **`issues`** — your goals + objectives, one row per ask
-- **`discussions`** — Human ↔ bro Q+A, ADR notes, design decisions
+- **`discussions`** — Human ↔ bro Q+A, ADR (Architecture Decision Record) notes, design decisions
 - **`roundtables`** + **`roundtable_votes`** — multi-consultant debate transcripts (when convened)
 - **`tasks`** — execution specs, status, commit SHAs
 - **`validation_attempts`** — pr-reviewer verdicts; the structural record of what was approved
@@ -69,9 +69,11 @@ Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/traj
 
 Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes via `issue_resume` + `task_get`. The DB is canonical state — files are reserved for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills).
 
+**Big token dividend.** SWE never sees bro's planning conversation — `task_get(id)` returns only the spec (~1–2 KB) instead of the whole discussion thread. Bro doesn't carry SWE's tool outputs forward — those land in `audit` and `ledger`, not bro's context. Consultants return distilled analyses, not raw reasoning. On resume, `issue_resume` loads a tight summary instead of replaying the full session. Each agent runs on the smallest context that does its job.
+
 Auto-regenerated architecture docs in `docs/trustmybot/architecture/auto/` keep the codebase map current; bro updates them lazily when ≥25 commits drift.
 
-> **Single-agent (amnesia):** kill Claude → lose your place. Re-explain context every session. `CLAUDE.md` doesn't survive a mid-task interruption.
+> **Single-agent (amnesia + bloat):** kill Claude → lose your place. Re-explain context every session. The single context grows linearly with conversation length, so each new turn costs more than the last; `CLAUDE.md` doesn't survive a mid-task interruption either.
 
 Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema + role-by-tool matrix), [`docs/architecture/FILES.md`](docs/architecture/FILES.md) (file map).
 
