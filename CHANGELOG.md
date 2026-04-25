@@ -2,6 +2,60 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.1.4 — 2026-04-25
+
+**Test pyramid expansion (L1, L2, L6).** No agent / hook / MCP behavior change — but a meaningful regression-prevention upgrade. PR 2 of the comprehensive auto-test layers initiative (PR 1 was v0.1.3's L0 install-smoke).
+
+### Added
+
+#### L1 — Static lint expansion (7 new linters)
+
+Eight failure modes that used to slip through review now fail the build instead. Run via `bash tests/run-all.sh` (also wired into CI).
+
+| New linter | What it catches |
+|---|---|
+| `tests/lint/version-sync.sh` | Out-of-sync version fields across `.claude-plugin/plugin.json`, `mcp/trajectory-server/package.json`, root `package.json`. (Caught + corrected the stale `0.3.2` root version that survived through v0.1.2.) |
+| `tests/lint/changelog-current.sh` | CHANGELOG top section's version doesn't match `plugin.json`. |
+| `tests/lint/manifest-shape.sh` | JSON-shape validation of `plugin.json`, `.mcp.json`, `hooks/hooks.json`. Verifies semver-shape `version`, presence of required fields, and that every `command` path in `hooks/hooks.json` resolves. |
+| `tests/lint/link-check.sh` | Every relative `[text](path)` link in tracked `.md` files resolves to an existing file. (Would have caught the broken `docs/PERFORMANCE.md` references after we retired it in v0.1.2.) |
+| `tests/lint/skill-frontmatter.sh` | Every `SKILL.md` (under `skills/` and `templates/skills/`) has valid frontmatter with `name` + `description`, AND `name` matches the parent dirname. **Caught real bugs:** `templates/skills/{docs-conventions,git-conventions,naming-conventions}/SKILL.md` were missing the `name:` field — they wouldn't have loaded properly when copied into projects. Fixed in this release. |
+| `tests/lint/shellcheck-hooks.sh` | shellcheck-clean enforcement on every shell script in `scripts/` and `tests/`. (Would have caught the `set -o pipefail` silent-allow bug we hit in v0.1.0.) |
+| `tests/lint/tsc-noemit.sh` | Standalone TS type check on the MCP server source — catches type errors without relying on someone reading the build log. |
+
+#### L2 — Hook decision-matrix expansion
+
+`tests/hooks/git-push-guard.test.sh` — **16 new test cases** covering every decision branch of `scripts/hooks/git-push-guard.sh`:
+
+- Non-push command → pass-through
+- `git push --force` / `-f` → delegated to git-guards (this hook allows)
+- Missing DB / no upstream / no new commits → allowed
+- Untracked commits (no matching `tasks` row) → allowed (pre-TMB / external work)
+- All-signed tracked commits → allowed
+- One unsigned → BLOCKED with helpful message + task_id list
+- Multiple unsigned → BLOCKED, all listed
+- Mixed-signed → BLOCKED only on the unsigned ones
+
+Previously `git-push-guard.sh` had **zero** test coverage — a critical gap given it's the structural protection against pushing unreviewed commits.
+
+#### L6 — Release canary
+
+`scripts/release.sh` now has a step 4: after the GitHub release is created, the script offers to re-clone the just-published tag in a temp dir and run the L0 install-smoke Dockerfile against it. Catches "the published artifact differs from what we tested locally" — e.g. if `.gitignore` excluded something needed for install. Skipped gracefully if Docker is unavailable.
+
+### Fixed
+
+- **Three template skills (`docs-conventions`, `git-conventions`, `naming-conventions`) now have `name:` frontmatter** — they were missing it and would have failed to load by name when copied into a project. Caught by the new `skill-frontmatter.sh` lint.
+
+### Test infrastructure
+
+- `tests/run-all.sh` now uses the explicit layered model (L1 → L2 → L3) with named steps, instead of the previous ad-hoc list. Single-line PASS/FAIL per step.
+- Layer count is now: **L0** (install-smoke, CI-only Docker), **L1** (9 lint scripts), **L2** (245 MCP unit tests), **L3** (9 MCP-integration suites + 3 hook test suites), **L6** (release canary in release.sh). L4 (workflow simulation) and L5 (manual dogfood checklist) coming in v0.2.0.
+
+### Versioning
+
+Bumped all three manifest versions to `0.1.4`. No schema migration.
+
+---
+
 ## v0.1.3 — 2026-04-25
 
 **Critical install hotfix.** v0.1.2 shipped without prebuilt `dist/` for the MCP trajectory server, so a fresh marketplace install left the MCP server unbootable. First sessions silently failed to register any of the `mcp__plugin_tmb_trajectory-server__*` tools, breaking onboarding, planning, and every workflow that depends on MCP state. **Anyone on v0.1.2 should upgrade.**
