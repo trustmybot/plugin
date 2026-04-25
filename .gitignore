@@ -1,0 +1,26 @@
+# Claude Code runtime artifacts (worktrees, session state)
+.claude/
+
+# Dogfood-generated artifacts when running CC inside this repo.
+# The plugin's own contributor docs live at docs/architecture/ — so
+# docs/trustmybot/ is never legitimate here; if it shows up, it came
+# from architect/SWE writing into this project as if it were a user
+# project. Ignore it so it never lands in a commit.
+docs/trustmybot/
+
+# Ephemeral local SQLite DBs (developer-only)
+*.trajectory.db
+*.db-shm
+*.db-wal
+
+# Node / build
+node_modules/
+dist/
+
+# OS
+.DS_Store
+
+# Editor
+*.swp
+.idea/
+.vscode/

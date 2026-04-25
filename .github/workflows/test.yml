@@ -1,0 +1,36 @@
+name: test
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: install sqlite3
+        run: sudo apt-get install -y sqlite3
+
+      - name: install workspace deps
+        run: bun install --frozen-lockfile
+
+      - name: build all workspaces
+        run: bun run build
+
+      - name: run full test suite
+        run: bash tests/run-all.sh

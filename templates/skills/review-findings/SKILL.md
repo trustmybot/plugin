@@ -1,0 +1,52 @@
+---
+name: review-findings
+description: Living list of patterns caught during code review. All agents internalize these before designing, implementing, or reviewing.
+---
+
+# Review Findings
+
+Living list of bug patterns and anti-patterns caught during code review.
+Every agent reads this before doing their job.
+
+**How to use:**
+- **Bro** — consult before authoring a `task_create_batch` spec_body, so the spec already names the gaps to avoid
+- **SWE** — consult before implementation to avoid known pitfalls
+- **PR-reviewer** — add new findings here when you catch a recurring pattern at the push gate
+
+## Error Handling Gaps
+
+(none yet — will be populated as bugs are caught)
+
+## Concurrency / Race Conditions
+
+(none yet)
+
+## Input Validation
+
+(none yet)
+
+## State Management
+
+(none yet)
+
+## Performance Traps
+
+(none yet)
+
+## Test Isolation
+
+(none yet)
+
+## Language-Specific Patterns
+
+Add sections as relevant to your stack (e.g., "Python Patterns", "SQL Patterns",
+"[Your-stack] Patterns"). Each finding includes:
+
+```markdown
+### <Pattern name>
+- **Caught in:** PR / commit / file:line
+- **Symptom:** what went wrong
+- **Root cause:** why
+- **Rule:** generalized guidance for future work
+- **Check:** how to detect in future reviews
+```
