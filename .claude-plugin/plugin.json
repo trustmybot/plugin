@@ -1,6 +1,6 @@
 {
   "name": "tmb",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "TMB multi-agent Claude Code plugin with SQLite trajectory MCP.",
   "author": {
     "name": "trustmybot",

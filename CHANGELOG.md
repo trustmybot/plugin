@@ -2,6 +2,78 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.2.0 — 2026-04-25
+
+**Workflow simulation harness + manual dogfood gate.** Final PR in the test-pyramid build. The full layered model is now in place: every failure mode that doesn't require Claude Code in the loop has an automated test owner.
+
+### Added
+
+#### L4 — Workflow simulation harness
+
+New directory `tests/workflow-sim/` holds **5 trajectory tests**, one per FLOWS.md flow that has an MCP-side contract worth asserting. Each test spawns the real MCP server and walks the flow as a scripted sequence of tool calls — no Claude required. Asserts state transitions, ledger events, role enforcement, and discussion-thread shape.
+
+| Flow | Test file | Asserts |
+|---|---|---|
+| 2 — Simple task | `flow-02-simple-task.test.mjs` | bro plans → swe completes → bro closes; **no per-task pr-reviewer** (push gate is amortized); planning_complete event lands in ledger |
+| 3 — Difficult task | `flow-03-difficult-task.test.mjs` | Q+A discussion sequence satisfies scope gate without `waive_scope_gate`; decision row queryable for ADR generation; positive + negative cases |
+| 6 — Push gate | `flow-06-push-gate.test.mjs` | bro forbidden from `validation_record` (only pr-reviewer); fail-then-pass attempt sequence preserved in `validation_history` |
+| 7 — Architecture regen | `flow-07-architecture-regen.test.mjs` | regen_state cursor lifecycle; swe forbidden from `architecture_regen` and `regen_state_set` |
+| 8 — SWE retry | `flow-08-swe-retry.test.mjs` | 3-attempt sequence preserved; UNIQUE(task_id, attempt_n) yields upsert (latest verdict wins); `'escalated'` is a valid terminal status |
+| D — Direct Mode | `flow-D-direct-mode.test.mjs` | `direct_mode_used` ledger event; no task / validation rows created |
+
+The 5 flows that **can't** be tested at L4 (onboarding, agent-creator, skill-creator) are filesystem-only or Claude-side; they live in L5.
+
+`tests/mcp-integration/run.sh` was extended to run both L3 (existing 9 suites) and L4 (new 5 suites) in one Node process — total **43 tests, ~3.1s**.
+
+#### L5 — Compressed manual dogfood checklist
+
+`tests/manual/scenarios.md` shrunk **from 785 lines → ~140 lines** of checklist focused on Claude-side behaviors that have no MCP surface to test: trigger word activation, AskUserQuestion radio rendering, silent template copy, subagent prompt precedence, worktree isolation, bro task-gate verification visible in conversation, push-gate flow with lazy pr-reviewer copy, Direct Mode timing, resume after kill, tone discipline.
+
+10 numbered items, ~30 minutes to walk. **Required before tagging any release ≥ v0.2.0.**
+
+#### L5 release gate
+
+`scripts/release.sh` now refuses to tag unless `MANUAL_DOGFOOD_PASSED=v<X.Y.Z>` matches the version being tagged. Sign-off after walking `tests/manual/scenarios.md`:
+
+```bash
+export MANUAL_DOGFOOD_PASSED=v0.2.0
+bash scripts/release.sh
+```
+
+Bypass for hotfixes that don't change Claude-side behavior:
+
+```bash
+BYPASS_DOGFOOD=1 bash scripts/release.sh   # justify in commit message
+```
+
+### Doctrine — the full pyramid is now in place
+
+```
+L0 — Distribution / install-smoke   (Docker — CI on every PR)
+L1 — Static / lint                  (9 scripts — CI on every PR)
+L2 — Unit (per-component)           (245 MCP unit + 16 hook unit — CI on every PR)
+L3 — Integration (cross-component)  (9 MCP-integration suites — CI on every PR)
+L4 — Workflow simulation            (5 trajectory suites — CI on every PR)
+L5 — Manual dogfood (Claude-side)   (10-item checklist — required before tag)
+L6 — Release canary                 (Docker re-clone of tag — in release.sh)
+```
+
+| Failure-mode class | Owner |
+|---|---|
+| MCP server fails to boot after install | L0 |
+| Stale version, broken link, missing skill name, shellcheck regression | L1 |
+| Per-tool / per-hook contract regression | L2 |
+| Cross-component (MCP+hook+DB) regression | L3 |
+| Workflow contract change without test update | L4 |
+| Trigger word, AskUserQuestion, agent isolation, tone, resume | L5 |
+| Published artifact ≠ tested artifact | L6 |
+
+### Versioning
+
+Bumped all three manifest versions to `0.2.0`. Minor bump (not patch) reflects the structural test infrastructure addition — no doctrine or behavior change for users.
+
+---
+
 ## v0.1.4 — 2026-04-25
 
 **Test pyramid expansion (L1, L2, L6).** No agent / hook / MCP behavior change — but a meaningful regression-prevention upgrade. PR 2 of the comprehensive auto-test layers initiative (PR 1 was v0.1.3's L0 install-smoke).
