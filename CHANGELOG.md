@@ -2,6 +2,30 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.1.2 — 2026-04-25
+
+**Docs + structural release.** No agent, hook, or MCP-server behavior change. Adds multi-platform structural placeholders following the [Superpowers](https://github.com/obra/superpowers) pattern, and refreshes contributor docs to match the bro-as-planner doctrine that landed in v0.1.0.
+
+### Added
+
+- **Multi-platform placeholder structure** ([#73](https://github.com/trustmybot/plugin/pull/73)). Per-platform adapter dirs (`.codex-plugin/`, `.cursor-plugin/`, `.opencode/`) and root-level personas (`CODEX.md`, `CURSOR.md`, `GEMINI.md`, `gemini-extension.json`) ship as **placeholders only** — clearly marked "not implemented." The strategy doc at [`docs/multi-platform.md`](docs/multi-platform.md) explains how the per-platform adapter pattern works, what an adapter would do, and why placeholders ship now (discoverability + path-precedent). No platform other than Claude Code is functional in this release.
+- **`scripts/release.sh`** — generic, idempotent release ritual. Reads version from `plugin.json`, validates `mcp pkg.json` agrees, requires a matching CHANGELOG section, asks for `y/N` per step, then tags + pushes + creates the GitHub release. Replaces the v0.1.0-specific stranded script. Documented under "Release ritual" in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+### Changed
+
+- **`docs/architecture/FLOWS.md`** — refreshed Flow 3 (difficult task), 5 (skill creation), 8 (SWE retry), 9 (roundtable) to the bro-as-planner chain. Added Flow D (Direct Mode). Dropped stale references to `validate-swe-output` and `require-review-sign` (replaced by bro's verification protocol + `git-push-guard.sh` respectively).
+- **`docs/architecture/FILES.md`** — full file-map refresh: empty `agents/` (by design), 17 `tmb_*` protocol skills, 6 agent + 7 default-skill templates under `templates/`, multi-platform placeholders, current hook list (`git-push-guard.sh` instead of `require-review-sign.sh`), MCP test layout.
+- **`docs/architecture/ERD.md`** — updated "How agents use this" to bro-as-planner role matrix; bumped `plugin_meta.plugin_version` reference to 0.1.2.
+- **`CONTRIBUTING.md`** — design principles rewritten for the bro-as-planner doctrine (zero-shipped-subagents, Lego layering, server-enforced decision chain). Added multi-platform section. Pre-PR checklist expanded to cover template/skill layering and schema-touching changes.
+- **Performance doctrine relocated.** `docs/PERFORMANCE.md` was deleted; its load-bearing content (target latency band + Tier 1/2/3 trim doctrine + re-eval triggers) lives in [`CONTRIBUTING.md` § Performance](CONTRIBUTING.md#performance). Historical baseline + change-tracking now lives in git history + this changelog instead of a doc that grows stale every perf cycle.
+- **`tests/manual/scenarios.md`** — header updated to point at the bro-as-planner targets that ARE current; full template-rewrite still tracked in [#51](https://github.com/trustmybot/plugin/issues/51).
+
+### Versioning
+
+`.claude-plugin/plugin.json` and `mcp/trajectory-server/package.json` bumped 0.1.1 → 0.1.2. No schema migrations needed (still `schema_version=1`).
+
+---
+
 ## v0.1.1 — 2026-04-25
 
 **Patch release.** Single fix to `scripts/hooks/git-guards.sh` that affects projects using a dual-tier `dev`/`main` branching model.
@@ -77,7 +101,7 @@ Every Q&A, decision, task, validation, and ledger event lands in SQLite at `<pro
 
 ### Performance
 
-Layer 3 dogfood verification on a CLI-todo task: ~12 minutes wall-clock end-to-end (including one-time onboarding + bootstrap, planning, SWE work, push gate). The latency story is documented in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) with phase-by-phase timings, doctrine on what's safe to trim, and the candidates for future tuning.
+Layer 3 dogfood verification on a CLI-todo task: ~12 minutes wall-clock end-to-end (including one-time onboarding + bootstrap, planning, SWE work, push gate). The latency story shipped in `docs/PERFORMANCE.md` with phase-by-phase timings + trim doctrine; the doctrine moved into [`CONTRIBUTING.md` § Performance](CONTRIBUTING.md#performance) in v0.1.2.
 
 Trivial single-file edits via Direct Mode land in ~10–20s, approaching pure Claude.
 
@@ -96,7 +120,7 @@ Three layers:
 - `docs/architecture/FLOWS.md` — workflow flowcharts
 - `docs/architecture/FILES.md` — file-by-file map
 - `docs/architecture/ERD.md` — SQLite schema
-- `docs/PERFORMANCE.md` — latency budget + doctrine
+- `CONTRIBUTING.md` § Performance — latency budget + trim doctrine (relocated from `docs/PERFORMANCE.md` in v0.1.2)
 - `tests/manual/scenarios.md` — Layer 3 dogfood test plan
 
 ### Plugin manifest
