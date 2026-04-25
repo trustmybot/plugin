@@ -77,6 +77,34 @@ if ! grep -q "^## ${NEW_TAG} " CHANGELOG.md; then
   exit 1
 fi
 
+# L5 manual dogfood gate. The release script refuses to tag without an
+# explicit signed-off env var matching this exact version. See
+# tests/manual/scenarios.md for the checklist that produces this sign-off.
+#
+# Bypass for hotfix releases that don't change Claude-side behavior:
+# set BYPASS_DOGFOOD=1 with a justification in the commit log.
+if [ "${BYPASS_DOGFOOD:-0}" = "1" ]; then
+  printf "⚠️  L5 manual dogfood gate BYPASSED (BYPASS_DOGFOOD=1).\n"
+  printf "    This is acceptable for hotfix releases that don't touch Claude-side\n"
+  printf "    behavior (agents/skills/CLAUDE.md). Document the bypass reason in the\n"
+  printf "    release commit message.\n\n"
+elif [ "${MANUAL_DOGFOOD_PASSED:-}" = "$NEW_TAG" ]; then
+  printf "✓ L5 manual dogfood passed for %s (MANUAL_DOGFOOD_PASSED matches).\n\n" "$NEW_TAG"
+else
+  printf "❌ Refusing to tag. L5 manual dogfood not signed off for %s.\n" "$NEW_TAG" >&2
+  printf "\n" >&2
+  printf "   Walk through the checklist at tests/manual/scenarios.md, then re-run with:\n" >&2
+  printf "     export MANUAL_DOGFOOD_PASSED=%s && bash scripts/release.sh\n" "$NEW_TAG" >&2
+  printf "\n" >&2
+  printf "   For hotfix releases that don't change Claude-side behavior:\n" >&2
+  printf "     BYPASS_DOGFOOD=1 bash scripts/release.sh    # justify in commit message\n" >&2
+  if [ -n "${MANUAL_DOGFOOD_PASSED:-}" ]; then
+    printf "\n   (MANUAL_DOGFOOD_PASSED is set to '%s' but plugin version is '%s' — version drift.)\n" \
+      "$MANUAL_DOGFOOD_PASSED" "$NEW_TAG" >&2
+  fi
+  exit 1
+fi
+
 confirm() {
   printf "%s [y/N] " "$1"
   read -r answer
