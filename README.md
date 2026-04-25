@@ -50,7 +50,7 @@ TMB separates two cognitive jobs into two contexts:
 - **`bro` — planner + gate.** Long-term, full-picture. Discusses with you, designs the breakdown, writes task specs to MCP, verifies SWE's work, drives retry loops. **Never writes source code itself** (one narrow exception: Direct Mode for ≤3-line typo fixes).
 - **`swe` — executor.** Short-term, single-task focus. Implements one task per spawn in an isolated git worktree. **Cannot self-approve** — bro re-runs the spec's verification before closing the task; pr-reviewer signs off before push.
 
-Memory is structurally split: bro carries strategy, swe carries only the task spec. No cross-contamination, no swe drifting into "while I'm here, let me also refactor X." `requireRoles` middleware in the bundled MCP server rejects out-of-role calls (consultants can't write workflow state, swe can't close its own task).
+Memory is structurally split: bro carries strategy, swe carries only the task spec. No cross-contamination, no swe drifting into "while I'm here, let me also refactor X." Out-of-role calls are rejected at the wire — consultants can't write workflow state, swe can't close its own task.
 
 > **Single-agent (conflict of interest):** one context juggles goals + spec + diff + tests + verification, then claims "done" because the same context that wrote the code is also marking its own homework. You should never trust a guy self-merging their own PR.
 
@@ -67,12 +67,12 @@ Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/traj
 - **`validation_attempts`** — pr-reviewer verdicts; the structural record of what was approved
 - **`ledger`** + **`audit`** — append-only event log + tool I/O for replay
 
-Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes via `issue_resume` + `task_get`. The DB is canonical state — files are reserved for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills).
+Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes where you left off. The DB is canonical state — files stay reserved for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills).
 
 **Big token dividend — no codebase-rediscovery tax.** A cold-start agent without persistent memory has to re-derive what your project even *is* every session: glob the tree, read scattered files, walk git log, query the schema. Hundreds of tool round-trips, each one pulling content back into context. TMB sidesteps this two ways:
 
-- **Auto-regenerated architecture docs.** `docs/trustmybot/architecture/auto/{codebase-tree, module-graph, erd, changelog}.md` are pre-computed snapshots of the project's shape. Bro updates them lazily when ≥25 commits drift, so they're cheap. Bro reads ~4 files (~20 KB total) and knows the codebase — instead of dozens of Glob + Read calls bouncing into context.
-- **Local SQLite, no remote round-trips.** The trajectory DB lives at `<project>/.claude/tmb/trajectory.db`. No memory service to call, no API to query, no rate-limit. `issue_resume` returns the active issue + recent ledger events as one local read.
+- **Auto-regenerated architecture docs.** A handful of pre-computed snapshots (codebase tree, module graph, schema map, recent changelog) live under your project's docs dir, refreshed lazily as commits drift. Bro reads those once at session start and has the project's shape — no glob-and-read bounce.
+- **Local SQLite, no remote round-trips.** Trajectory lives in your project, not in a cloud service. No API call, no rate limit, no auth dance. Resume is one local read.
 
 > **Single-agent (amnesia + rediscovery tax):** kill Claude → lose your place. Re-explain context every session. Worse, the agent re-derives the codebase from scratch on every cold start — globbing, reading, walking git log — paying the discovery tax in tokens before it can do any actual work.
 
@@ -80,12 +80,12 @@ Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema + role-b
 
 ### 3. Agentic Workflow — structural gates, not habits
 
-The harness + memory combine into a workflow with **two structural gates**, both hook-enforced:
+The harness + memory combine into a workflow with **two structural gates** that close around every commit:
 
-- **Bro's task gate.** Every task spec is a markdown contract with three sections: **Files** (what changes), **Verification** (commands that prove it works), **Success Criteria** (checklist bullets). After SWE returns, bro re-runs the verification commands, sanity-checks the diff against the file list, confirms each success-criteria bullet. Only then does the task flip to `closed`. **Non-negotiable, never skipped.**
-- **PR-reviewer's push gate.** `scripts/hooks/git-push-guard.sh` blocks `git push` to protected branches until every commit in the push range has a passing `validation_attempts.verdict='pass'` row.
+- **Bro's task gate.** Every task carries a contract — what changes, what proves it works, what success looks like. After SWE returns, bro re-runs the verification, checks the diff matches what was promised, and confirms success criteria. Only then does the task close. **Non-negotiable, never skipped.**
+- **PR-reviewer's push gate.** `git push` to a protected branch is blocked by a pre-push hook unless every commit being pushed has been signed off by pr-reviewer. No back-channel, no "I'll review after merge."
 
-Plus structural decision-chain enforcement: `requireRoles` rejects role violations at the MCP boundary. Consultants (architect, cto, ceo, pm, your domain reviewers) literally cannot write `task_create_batch`, `task_update_status`, or `validation_record`. They're advisors, not deciders.
+Both gates are wire-enforced — the same MCP server that records workflow state structurally rejects calls that would let a consultant decide for you, or let SWE close its own task. Doctrine isn't a habit; it's a constraint.
 
 > **Single-agent (no brakes):** the agent says "done" — no structural gate before push, no second context to second-guess the verdict, no audit trail of what was actually verified.
 
