@@ -41,7 +41,7 @@ Walkthroughs of every workflow path: [`docs/architecture/FLOWS.md`](docs/archite
 
 ## Why TMB
 
-Three structural innovations. Each closes a specific failure mode that single-agent Claude Code hits in real projects.
+Four structural innovations, in service of long-term engineering quality. Each closes a specific failure mode that single-agent Claude Code hits in real projects.
 
 ### 1. Agent Harness — split planning from execution
 
@@ -78,18 +78,33 @@ Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes w
 
 Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema + role-by-tool matrix), [`docs/architecture/FILES.md`](docs/architecture/FILES.md) (file map).
 
-### 3. Agentic Workflow — structural gates, not habits
+### 3. Evaluation System — verification you can audit later
 
-The harness + memory combine into a workflow with **two structural gates** that close around every commit:
+Long-term engineering quality decays when verification is implicit. TMB makes it structural and persistent through **two gates** that close around every commit:
 
-- **Bro's task gate.** Every task carries a contract — what changes, what proves it works, what success looks like. After SWE returns, bro re-runs the verification, checks the diff matches what was promised, and confirms success criteria. Only then does the task close. **Non-negotiable, never skipped.**
-- **PR-reviewer's push gate.** `git push` to a protected branch is blocked by a pre-push hook unless every commit being pushed has been signed off by pr-reviewer. No back-channel, no "I'll review after merge."
+- **Bro's task gate (per task).** Every task carries a contract — what changes, what proves it works, what success looks like. After SWE returns, bro re-runs the verification, checks the diff matches what was promised, confirms success criteria. Fast, mandatory, **never skipped**.
+- **PR-reviewer's push gate (per push).** `git push` to a protected branch is blocked by a pre-push hook unless every commit being pushed has been signed off by pr-reviewer. No back-channel, no "I'll review after merge."
 
-Both gates are wire-enforced — the same MCP server that records workflow state structurally rejects calls that would let a consultant decide for you, or let SWE close its own task. Doctrine isn't a habit; it's a constraint.
+**Verdicts persist next to the code they judged.** Every pr-reviewer pass/fail lands in the trajectory DB alongside the task it ruled on — not in chat scrollback that disappears with the session. Six months later, when someone asks "why did we ship this commit?", the verdict + reasoning is still queryable. Long-term quality means the *reasoning* survives, not just the diff.
 
-> **Single-agent (no brakes):** the agent says "done" — no structural gate before push, no second context to second-guess the verdict, no audit trail of what was actually verified.
+> **Single-agent (no audit):** the agent says "tests pass" — you trust the chat scrollback. Three days later production breaks, the chat is gone, the reasoning is gone, and the only artifact is a green CI badge that didn't catch what mattered.
 
-Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) (10 workflow flowcharts), [`CONTRIBUTING.md`](CONTRIBUTING.md#performance) (latency budget + trim doctrine).
+Details: [`docs/architecture/FLOWS.md` § 6 (Push gate)](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`templates/agents/pr-reviewer.md`](templates/agents/pr-reviewer.md), [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (`validation_attempts` table).
+
+### 4. Agentic Workflow — composable, not monolithic
+
+The harness + memory + evaluation compose into a workflow whose shape **scales by ask**:
+
+- **Trivial fix** (typo, ≤3 lines, single file) → **Direct Mode**. Bro edits, commits, logs. No SWE spawn. ~10–20s.
+- **Simple task** (a feature, no architecture impact) → bro picks defaults inline, spawns SWE, verifies, closes. ~2–3 min.
+- **Difficult task** (architecture change, ADR needed) → bro asks scope-clarifying questions, captures decisions to ADR, then runs the simple-task flow.
+- **Multi-task batch** → planning amortized across tasks; pr-reviewer's push gate fires once over the batch, not per task.
+
+Wire-enforced decision chain: the same MCP server that records workflow state structurally rejects calls that would let a consultant decide for you, or let SWE close its own task. Doctrine is a constraint, not a habit.
+
+> **Single-agent (one-shape-fits-all):** every ask gets the same monolithic loop — no fast-lane for typos, no escalation path for cross-cutting changes. Either too heavy for trivial work or too thin for architectural decisions.
+
+Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) (10 workflow flowcharts), [`CONTRIBUTING.md` § Performance](CONTRIBUTING.md#performance) (latency budget + trim doctrine).
 
 ---
 
