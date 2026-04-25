@@ -20,6 +20,20 @@ Direct commits to `dev` or `main` are blocked by `git-guards.sh`. Always work on
 
 **Releases** go via a `dev → main` PR (the only branch other than work-branches that can target `main`). The hook in `git-guards.sh` permits exactly this case while still blocking `feature → main` PRs (the v0.1.1 release exception).
 
+### Release ritual
+
+Releases are scripted, idempotent, and gated by safety checks. The full ritual:
+
+1. On a work branch off `dev`, bump `version` in both `.claude-plugin/plugin.json` and `mcp/trajectory-server/package.json`. Add the matching `## v<X.Y.Z>` section at the top of `CHANGELOG.md`. Commit + PR into `dev` like any other change.
+2. Once that's merged into `dev`, open a `dev → main` PR. Merge it.
+3. Locally:
+   ```bash
+   git checkout main && git pull origin main
+   bash scripts/release.sh
+   ```
+
+`scripts/release.sh` reads the version from `plugin.json`, validates that `mcp/trajectory-server/package.json` agrees, requires a matching `## v<version>` section in `CHANGELOG.md`, and asks for `y/N` confirmation at each step. It tags `main` HEAD, pushes the tag, and creates a GitHub release with the CHANGELOG section as the body. Re-running after a step succeeds is safe — already-done steps are skipped.
+
 ## Writing code
 
 - Self-documenting code. Prefer deletion over addition.
