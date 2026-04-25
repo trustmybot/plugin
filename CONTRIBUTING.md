@@ -76,6 +76,27 @@ If you're proposing a big change, check these first.
 5. **Override per project.** Any agent template can be overridden by editing the same-named file in the project's `.claude/agents/`. Local wins. Plugin-shipped protocol skills (`tmb_*` in `plugin/skills/`) are reserved and cannot be name-overridden.
 6. **Server-enforced decision chain.** `requireRoles` middleware in `mcp/trajectory-server/src/middleware/agent-scope.ts` rejects calls that violate the chain (e.g. consultants trying to write `task_create_batch`). Doctrine isn't just prompt discipline — it's wire-enforced.
 
+## Performance
+
+The plugin's overhead vs pure Claude Code on the same ask should land in this band:
+
+| Ask shape | Pure Claude | TMB target | Acceptable ceiling |
+|---|---|---|---|
+| Trivial single-file (typo, comment) | ~10s | ~10–20s (Direct Mode) | 30s |
+| Simple task (single feature) | ~30s | ~2–3 min | 5 min |
+| Difficult task (architecture change + ADR) | ~2 min | ~5–8 min | 12 min |
+| Multi-task batch | n/a | ≤ 1.5× single-task per task | 2× per task |
+
+**Doctrine — what's safe to trim, what isn't.** When proposing a perf change, classify the cost into one of three tiers:
+
+- **Tier 1 — pure waste, trim aggressively.** Sequential MCP writes that could batch in one assistant response; eager skill loading that fires on every spawn but is needed in <30% of spawns; forced chain-of-thought blocks for tasks that don't benefit; redundant approval prompts.
+- **Tier 2 — design overhead, trim with care.** Per-task gate spawns (justified for difficult-triage, not for every typo — hence the push-gate vs task-gate split); worktree creation; forced subagent cold-start when bro could just edit (hence Direct Mode).
+- **Tier 3 — load-bearing overhead, do NOT trim.** The trajectory DB writes (the audit trail IS the product); `requireRoles` enforcement (~1ms, structural protection); worktree isolation (prevents cross-task corruption); the push gate (only structural defence against pushing unreviewed commits).
+
+**Re-evaluate** when (a) a SWE or pr-reviewer cold-start in a Layer 3 dogfood takes >2× the previous baseline, (b) a user reports a chain >12 min for a simple-triage task, (c) a new gate / hook / skill fires on the per-task path, (d) CC platform changes subagent cold-start cost, or (e) a new platform adapter (Codex, Cursor, …) gets implemented — re-baseline on that platform.
+
+Historical perf-cycle records live in git history (PR #63 baseline, PR #64 optimizations) and the changelog, not in a separate doc.
+
 ## Multi-platform structure
 
 The repo follows the [`obra/superpowers`](https://github.com/obra/superpowers) pattern: shared `skills/`, `templates/`, and `mcp/` at the root, with thin per-platform manifests in `.<platform>-plugin/` directories. Today only `.claude-plugin/` is implemented; `.codex-plugin/`, `.cursor-plugin/`, `.opencode/`, and `gemini-extension.json` are placeholders. See [`docs/multi-platform.md`](docs/multi-platform.md) for the strategy and what an adapter would do. Adapters get built when there's user demand; until then, contributions should target Claude Code only.

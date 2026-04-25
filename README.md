@@ -88,7 +88,7 @@ Plus structural decision-chain enforcement: `requireRoles` rejects role violatio
 
 > **Single-agent (no brakes):** the agent says "done" — no structural gate before push, no second context to second-guess the verdict, no audit trail of what was actually verified.
 
-Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) (10 workflow flowcharts), [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) (latency budget + doctrine).
+Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) (10 workflow flowcharts), [`CONTRIBUTING.md`](CONTRIBUTING.md#performance) (latency budget + trim doctrine).
 
 ---
 

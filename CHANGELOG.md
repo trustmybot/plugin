@@ -17,7 +17,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 - **`docs/architecture/FILES.md`** — full file-map refresh: empty `agents/` (by design), 17 `tmb_*` protocol skills, 6 agent + 7 default-skill templates under `templates/`, multi-platform placeholders, current hook list (`git-push-guard.sh` instead of `require-review-sign.sh`), MCP test layout.
 - **`docs/architecture/ERD.md`** — updated "How agents use this" to bro-as-planner role matrix; bumped `plugin_meta.plugin_version` reference to 0.1.2.
 - **`CONTRIBUTING.md`** — design principles rewritten for the bro-as-planner doctrine (zero-shipped-subagents, Lego layering, server-enforced decision chain). Added multi-platform section. Pre-PR checklist expanded to cover template/skill layering and schema-touching changes.
-- **`docs/PERFORMANCE.md`** — clarified that v0.1.1 and v0.1.2 didn't change the latency story; added a re-evaluation trigger for future platform adapters.
+- **Performance doctrine relocated.** `docs/PERFORMANCE.md` was deleted; its load-bearing content (target latency band + Tier 1/2/3 trim doctrine + re-eval triggers) lives in [`CONTRIBUTING.md` § Performance](CONTRIBUTING.md#performance). Historical baseline + change-tracking now lives in git history + this changelog instead of a doc that grows stale every perf cycle.
 - **`tests/manual/scenarios.md`** — header updated to point at the bro-as-planner targets that ARE current; full template-rewrite still tracked in [#51](https://github.com/trustmybot/plugin/issues/51).
 
 ### Versioning
@@ -101,7 +101,7 @@ Every Q&A, decision, task, validation, and ledger event lands in SQLite at `<pro
 
 ### Performance
 
-Layer 3 dogfood verification on a CLI-todo task: ~12 minutes wall-clock end-to-end (including one-time onboarding + bootstrap, planning, SWE work, push gate). The latency story is documented in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) with phase-by-phase timings, doctrine on what's safe to trim, and the candidates for future tuning.
+Layer 3 dogfood verification on a CLI-todo task: ~12 minutes wall-clock end-to-end (including one-time onboarding + bootstrap, planning, SWE work, push gate). The latency story shipped in `docs/PERFORMANCE.md` with phase-by-phase timings + trim doctrine; the doctrine moved into [`CONTRIBUTING.md` § Performance](CONTRIBUTING.md#performance) in v0.1.2.
 
 Trivial single-file edits via Direct Mode land in ~10–20s, approaching pure Claude.
 
@@ -120,7 +120,7 @@ Three layers:
 - `docs/architecture/FLOWS.md` — workflow flowcharts
 - `docs/architecture/FILES.md` — file-by-file map
 - `docs/architecture/ERD.md` — SQLite schema
-- `docs/PERFORMANCE.md` — latency budget + doctrine
+- `CONTRIBUTING.md` § Performance — latency budget + trim doctrine (relocated from `docs/PERFORMANCE.md` in v0.1.2)
 - `tests/manual/scenarios.md` — Layer 3 dogfood test plan
 
 ### Plugin manifest

@@ -197,7 +197,6 @@ plugin/
 │
 ├── # Cross-platform strategy doc
 ├── docs/
-│   ├── PERFORMANCE.md                # latency target, baseline, doctrine of safe-to-trim
 │   ├── multi-platform.md             # how the per-platform adapter pattern works
 │   └── architecture/                 # contributor-facing reference
 │       ├── ERD.md                    # SQLite schema: Mermaid ER diagram + FK + soft-ref tables

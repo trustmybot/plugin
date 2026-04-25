@@ -199,7 +199,7 @@ User-created project consultants (via `tmb_agent-creator` from-scratch flow) are
 - **Auto-regenerated architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed via `architecture_regen`.
 - **Snapshots** — `docs/trustmybot/snapshots/<issue_id>.md`, generated via `issue_snapshot_md`.
 
-For `plugin_config` keys see `mcp/trajectory-server/docs/CONFIG_KEYS.md`. For full architecture see `docs/architecture/FLOWS.md`. For latency design + budgets see `docs/PERFORMANCE.md`.
+For `plugin_config` keys see `mcp/trajectory-server/docs/CONFIG_KEYS.md`. For full architecture see `docs/architecture/FLOWS.md`. For latency design + budgets see the Performance section in `CONTRIBUTING.md`.
 
 ---
 
