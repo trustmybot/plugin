@@ -4,6 +4,11 @@ Every tracked file in `plugin/` with its purpose. Regenerate after any restructu
 
 Last refresh: 2026-04-23 on `chore/23-stale-cleanup`.
 
+> **Partial-stale.** The agent roster line + `architect.md` description below
+> reflect the legacy "architect is the default planner" chain. As of
+> `feat/bro-as-planner`, bro is the planner and architect is a consultant.
+> Refresh of this file is pending.
+
 ## Tree (excluding `node_modules/`, `dist/`, `.git/`, `*.lock*`, local `.trajectory.db`)
 
 ```
@@ -23,7 +28,7 @@ plugin/
 ├── README.md                         # project README
 │
 ├── agents/                           # four global workflow agents (ship with plugin)
-│   ├── architect.md                  # task breakdown, spec authoring, SWE spawn, validation, prompt edits
+│   ├── architect.md                  # consultant: second-opinion analyses, no decision authority
 │   ├── bro.md                 # human entry point, routing, onboarding, triage, agent-creator driver
 │   ├── pr-reviewer.md                # pre-commit/pre-push review gate (read-only)
 │   └── swe.md                        # single-task executor in worktree

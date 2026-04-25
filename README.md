@@ -29,7 +29,7 @@ The plugin sits dormant until you address `@bro`. No auto-takeover, no surprise 
 That's the entry point. Saying `@bro` (or otherwise addressing bro in your message) **activates the bro persona for the rest of the session**. From that point on:
 
 - **First trigger** runs onboarding — bro asks 2–3 short questions (your name, branching model, PR target). ~30 seconds. Answers persist to the trajectory DB.
-- **Code-touching asks** route through the workflow: triage → branch-id confirm → architect plans + asks clarifying questions → SWE implements in an isolated worktree → pr-reviewer signs off → ship.
+- **Code-touching asks** route through the workflow: triage → branch-id confirm → bro plans (loads `architect-workflow` skill, asks clarifying questions if needed, writes the spec) → SWE implements in an isolated worktree → pr-reviewer signs off → ship.
 - **Read-only / casual asks** (status, "what's in this dir") are handled inline by bro without spawning anyone.
 
 Casual messages that don't address `@bro` are answered by regular Claude Code — TMB stays out of your way.
@@ -40,14 +40,16 @@ Casual messages that don't address `@bro` are answered by regular Claude Code �
 
 ### One persona + three subagents (ship with the plugin)
 
+The decision chain is **Human → bro → SWE**, with `pr-reviewer` as the gate. Bro plans inline. The architect agent ships as a **consultant**, available when you want a second opinion — not in the default chain.
+
 | Name | Where it runs | What it does |
 |---|---|---|
-| `bro` | Main Claude (persona) | Your single Human entry point. Activates when you address `@bro`. Routes requests to subagents, runs onboarding + project pre-scan, handles direct read-only ops. The only thing the Human ever talks to. |
-| `architect` | Subagent (Task tool) | Captures intent into the trajectory DB (issues + discussions), writes task specs into `tasks.spec_body` via MCP, runs alignment Q+A with the Human, spawns + validates SWE. Also edits agent prompts, skill files, and workflow markdown. |
+| `bro` | Main Claude (persona) | Your single Human entry point AND the planner. Activates when you address `@bro`. Discusses with you, captures intent into the trajectory DB, writes task specs to `tasks.spec_body`, spawns SWE, drives the retry loop, and routes second-opinion requests to consultants. The only thing the Human ever talks to. |
 | `swe` | Subagent (Task tool, worktree) | Implements one task at a time in an isolated git worktree. Drives state via MCP; never edits its own spec. |
 | `pr-reviewer` | Subagent (Task tool) | Pre-commit and pre-push review gate. Records verdicts via MCP `validation_record`; read-only on files (no Edit tool by design). |
+| `architect` | Subagent (Task tool, **consultant**) | On-demand second-opinion analyst — system design feasibility, hidden assumptions, alternatives, scale + security risk. Returns analysis only; never writes task rows, never spawns SWE, never closes work. Bro spawns it when you ask or when bro wants to challenge its own plan. |
 
-The three subagents auto-reject direct Human `@-mention` invocation (`@architect` / `@swe` / `@pr-reviewer`). They're internal to the workflow — talk to `@bro`, and bro routes to them.
+The three subagents auto-reject direct Human `@-mention` invocation (`@architect` / `@swe` / `@pr-reviewer`). They're internal — talk to `@bro`, and bro routes to them.
 
 **Override any subagent per-project** by creating a same-named file in the project's `.claude/agents/`. The local file wins.
 
@@ -80,7 +82,7 @@ docs/trustmybot/
 ```
 
 Per-task execution specs live in the trajectory DB (`tasks.spec_body`),
-not on disk — architect writes them via MCP, SWE reads via
+not on disk — bro writes them via MCP, SWE reads via
 `task_get(task_id)`. Only architecture narrative and snapshots are on
 the filesystem.
 

@@ -17,7 +17,7 @@ PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty')
 TASK_ID=$(echo "$PROMPT" | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
 
 if [ -z "$TASK_ID" ]; then
-  echo '{"decision":"block","reason":"BLOCKED: SWE spawn requires task_id=<N> in the prompt pointing at a row in the tasks table. Route through Architect."}'
+  echo '{"decision":"block","reason":"BLOCKED: SWE spawn requires task_id=<N> in the prompt pointing at a row in the tasks table. Route through bro (bro plans, then spawns SWE with task_id)."}'
   exit 0
 fi
 
@@ -43,7 +43,7 @@ if [ "$STATUS" != "pending" ] && [ "$STATUS" != "open" ]; then
 fi
 
 if [ "${BODY_LEN:-0}" -eq 0 ]; then
-  echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: task_id=${TASK_ID} has empty spec_body. Architect must set spec body before SWE can execute.\"}"
+  echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: task_id=${TASK_ID} has empty spec_body. bro must populate spec_body via task_create_batch before SWE can execute.\"}"
   exit 0
 fi
 

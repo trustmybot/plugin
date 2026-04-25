@@ -1,9 +1,11 @@
 ---
 name: architect-workflow
-description: Feature workflow protocol for Architect. Covers issue/discussion/task lifecycle, MCP state capture, and SWE coordination.
+description: Planning protocol — issue/discussion/task lifecycle, MCP state capture, SWE dispatch. Loaded by bro on every code-touching ask. (The architect agent is a consultant in the new model, not the default planner; bro is.)
 ---
 
-# Architect Workflow
+# Planning Workflow (loaded by bro)
+
+This skill is the **planner's protocol**. In the default decision chain (Human → bro → SWE), bro loads this skill on a code-touching ask and follows the steps below. Throughout this document, "the planner" or "you" refers to whoever loaded the skill — almost always bro.
 
 Workflow artifacts live in MCP (SQLite) and `docs/trustmybot/` at the project root.
 
@@ -11,7 +13,7 @@ Workflow artifacts live in MCP (SQLite) and `docs/trustmybot/` at the project ro
 
 | Artifact | Format | Audience | Rationale |
 |---|---|---|---|
-| `tasks.spec_body` (SQLite row) | Markdown H2 sections stored as a string | Architect → SWE | Structured contract in DB; retrieved via `task_get(task_id)` |
+| `tasks.spec_body` (SQLite row) | Markdown H2 sections stored as a string | Planner → SWE | Structured contract in DB; retrieved via `task_get(task_id)` |
 
 ## Spec-body brevity rule (HARD CAP at 8000 chars, enforced by MCP)
 
@@ -31,22 +33,21 @@ Split into multiple tasks when the work spans >2 files with meaningfully differe
 
 ## Workflow Steps
 
-### 0. Triage Double-Check
+### 0. Triage Confirmation
 
-Bro passes a `triage:` field in the spawn prompt (`simple` or
-`difficult`). Before any other workflow step, re-evaluate the classification
-using the heuristic:
+You arrived here with a tentative `triage` label (`simple` or `difficult`)
+from bro's first-action chain. Confirm it before proceeding using the
+heuristic:
 
 > **Does this request require updates to `docs/trustmybot/architecture/`?**
 > If yes → `difficult`. If no → `simple`.
 
-Bro's classification is a proposal; architect's is binding. Record the
-final classification (even when confirming bro's):
+Record the final classification (even when confirming):
 
 ```
 discussion_append(
   kind='note',
-  body='Triage: <simple|difficult> (bro proposed <x>, architect <confirmed|overrode>)'
+  body='Triage: <simple|difficult>'
 )
 ```
 
@@ -69,7 +70,8 @@ discussion_append(
    The row columns (`issue_id`, `branch_id`, `title`, `status`, `created_at`)
    hold the structured fields; the body is the free-form contract SWE reads.
 6. Spawn SWE per task (one worktree per task) using `task_id=<N>` in the
-   Task-tool prompt.
+   Task-tool prompt. Load `skills/swe-spawn-workflow/SKILL.md` first if you
+   haven't already.
 7. Validate per `skills/validate-swe-output/SKILL.md`.
 8. Spawn PR Reviewer before reporting phase complete.
 9. Close tasks via `task_update_status(status='closed')` once review passes.
@@ -96,7 +98,7 @@ Target: 3–5 tool calls, ≤20k tokens, ≤30s wall-clock.
 ### Steps
 
 1. `issue_create(objective, description)` or `issue_resume(...)`.
-2. `discussion_append(kind='note', body='Triage: simple (bro proposed <x>, architect <confirmed|overrode>)')`.
+2. `discussion_append(kind='note', body='Triage: simple')`.
 3. Author the spec body (trivial template, ≤8000 chars). Put picked defaults as explicit **Assumptions** bullets in the Description so SWE and the Human can see them.
 4. `task_create_batch(tasks=[<one task>], waive_scope_gate=true, waive_scope_gate_reason='<reason naming the defaults>')`. The waiver is the legitimate simple-path use of `waive_scope_gate`; the reason is persisted to `ledger` as `scope_gate_waived` for pr-reviewer audit.
 5. `ledger_log(event_type='planning_complete', summary='...')`.
@@ -104,8 +106,8 @@ Target: 3–5 tool calls, ≤20k tokens, ≤30s wall-clock.
 
 ### Picking defaults (not asking)
 
-On the simple path, architect picks defaults based on project conventions and
-standard-library preference, and records them as explicit assumptions in the
+On the simple path, you (bro) pick defaults based on project conventions and
+standard-library preference, and record them as explicit assumptions in the
 spec. If a default later turns out wrong, the Human revises intent in the
 next turn — that round-trip is cheaper than mid-flow questions.
 
@@ -222,10 +224,10 @@ Never offer an option that can't be executed on the local machine. Never list a 
 
 ```
 discussion_append(
-  agent='architect',
+  agent='bro',
   issue_id=<id>,
   kind='note',
-  author='architect',
+  author='bro',
   body='Env probe: uv 0.5.11, Python 3.12.3, no existing pyproject.toml, git remote set.'
 )
 ```
@@ -241,7 +243,7 @@ The waiver has two legitimate uses:
 
 ```
 task_create_batch(
-  agent='architect',
+  agent='bro',
   issue_id=<id>,
   waive_scope_gate=true,
   waive_scope_gate_reason='<simple-triage reason or trivial-change reason>',
@@ -255,7 +257,7 @@ The waiver requires a reason ≥10 chars. The reason is logged to the `ledger` t
 
 
 
-**Before calling `discussion_append(kind='decision', ...)`, architect MUST have written at least one `kind='question'` + `kind='answer'` pair for this issue if ANY plan choice is in the ambiguous list below.**
+**Before calling `discussion_append(kind='decision', ...)`, you (the planner) MUST have written at least one `kind='question'` + `kind='answer'` pair for this issue if ANY plan choice is in the ambiguous list below.**
 
 Ambiguous choices that ALWAYS need an explicit Human `question` + `answer` pair before a decision:
 
@@ -267,20 +269,20 @@ Ambiguous choices that ALWAYS need an explicit Human `question` + `answer` pair 
 - Runtime target (Python 3.10 vs 3.12, Node 18 vs 22, etc.)
 - File layout for the new code (single file vs package vs module)
 
-**Auto-mode does NOT waive this gate on the difficult path.** The gate exists precisely because auto-mode encourages shortcuts on architecture-touching work. If your difficult-path response body would include phrases like "auto-mode defaults" or "defaulting to X since you didn't specify" — STOP. Ask the Human. Persist the Q+A. THEN decide. (The simple fast-lane's defaults table is the one legitimate place where architect picks instead of asking — and only for narrowly-scoped asks that the triage double-check confirms are `simple`.)
+**Auto-mode does NOT waive this gate on the difficult path.** The gate exists precisely because auto-mode encourages shortcuts on architecture-touching work. If your difficult-path response body would include phrases like "auto-mode defaults" or "defaulting to X since you didn't specify" — STOP. Ask the Human. Persist the Q+A. THEN decide. (The simple fast-lane's defaults table is the one legitimate place where the planner picks instead of asking — and only for narrowly-scoped asks that the triage double-check confirms are `simple`.)
 
 **What it looks like when this gate fires correctly:**
 
 ```
 discussions table (ordered):
   1. kind='intent',   author='human',     body='write a todo cli'
-  2. kind='note',     author='architect', body='Triage: simple'
-  3. kind='note',     author='architect', body='Env probe: uv, python 3.12, ...'
-  4. kind='question', author='architect', body='CLI framework?\n1. argparse...'
+  2. kind='note',     author='bro', body='Triage: simple'
+  3. kind='note',     author='bro', body='Env probe: uv, python 3.12, ...'
+  4. kind='question', author='bro', body='CLI framework?\n1. argparse...'
   5. kind='answer',   author='human',     body='1'
-  6. kind='question', author='architect', body='Storage?\n1. JSON file...'
+  6. kind='question', author='bro', body='Storage?\n1. JSON file...'
   7. kind='answer',   author='human',     body='1'
-  8. kind='decision', author='architect', body='## Plan\n- argparse\n- JSON in ~/...'
+  8. kind='decision', author='bro', body='## Plan\n- argparse\n- JSON in ~/...'
 ```
 
 **What a gate violation looks like (to check during self-review):**
@@ -288,9 +290,9 @@ discussions table (ordered):
 ```
 discussions table (ordered):
   1. kind='intent',   author='human',     body='write a todo cli'
-  2. kind='note',     author='architect', body='Triage: simple'
-  3. kind='note',     author='architect', body='Env probe: ...'
-  4. kind='decision', author='architect', body='## Plan ... (auto-mode defaults)'
+  2. kind='note',     author='bro', body='Triage: simple'
+  3. kind='note',     author='bro', body='Env probe: ...'
+  4. kind='decision', author='bro', body='## Plan ... (auto-mode defaults)'
                                                                 ^^^^^^^^^^^^^^^^
                                                RED FLAG — gate skipped, revert and ask
 ```
@@ -299,7 +301,9 @@ Before calling `task_create_batch`, re-read the discussion history via `discussi
 
 ### Interactive Alignment — text Q + discussion_append persistence
 
-`AskUserQuestion` is unavailable to plugin subagents (see [anthropics/claude-code#12890](https://github.com/anthropics/claude-code/issues/12890)). Architect must use **text questions** via regular chat output, then persist BOTH sides to `discussions` so the trajectory is replayable. Main Claude only hoists AskUserQuestion for `bro`'s onboarding form — not for architect mid-flow.
+When this skill is loaded by **bro** (the default planner, who runs as main Claude), `AskUserQuestion` is available — use the radio UI for clean Q+A.
+
+When this skill is loaded by a **consultant subagent** (e.g. architect invoked for a second opinion), `AskUserQuestion` is unavailable to plugin subagents (see [anthropics/claude-code#12890](https://github.com/anthropics/claude-code/issues/12890)). Consultants must use **text questions** via regular chat output, then persist BOTH sides to `discussions` so the trajectory is replayable.
 
 **Pattern — one round:**
 
@@ -323,14 +327,14 @@ Example output:
 
 # 3. After reply, persist BOTH sides — question first, then answer. Chronological.
 discussion_append(
-  agent='architect',
+  agent='bro',
   issue_id=<id>,
   kind='question',
-  author='architect',
+  author='bro',
   body='<the question text + options verbatim>'
 )
 discussion_append(
-  agent='architect',
+  agent='bro',
   issue_id=<id>,
   kind='answer',
   author='human',
@@ -348,10 +352,10 @@ Once aligned, capture the final decision:
 
 ```
 discussion_append(
-  agent='architect',
+  agent='bro',
   issue_id=<id>,
   kind='decision',
-  author='architect',
+  author='bro',
   body='<architectural plan: what changes, why, trade-offs, risks>'
 )
 ```
