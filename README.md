@@ -52,7 +52,7 @@ TMB separates two cognitive jobs into two contexts:
 
 Memory is structurally split: bro carries strategy, swe carries only the task spec. No cross-contamination, no swe drifting into "while I'm here, let me also refactor X." `requireRoles` middleware in the bundled MCP server rejects out-of-role calls (consultants can't write workflow state, swe can't close its own task).
 
-> **Single-agent equivalent:** one context juggles goals + spec + diff + tests + verification, then claims "done" because the same context that wrote the code is also judging it. Verification becomes wishful thinking.
+> **Single-agent equivalent:** one context juggles goals + spec + diff + tests + verification, then claims "done" because the same context that wrote the code is also marking its own homework.
 
 Details: [`CLAUDE.md`](CLAUDE.md) (bro persona), [`templates/agents/swe.md`](templates/agents/swe.md), [`templates/agents/pr-reviewer.md`](templates/agents/pr-reviewer.md).
 
