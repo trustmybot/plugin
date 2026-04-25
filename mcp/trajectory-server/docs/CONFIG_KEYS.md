@@ -4,9 +4,9 @@
 
 | Key | Type | Allowed values | Default | Read by | Written by |
 |-----|------|----------------|---------|---------|------------|
-| `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | (none — first-run prompt sets it) | `git-guards.sh`, gatekeeper routing | gatekeeper onboarding |
-| `pr_target` | string | any valid branch name | derived from `branching_model` when first-run sets it | `git-guards.sh` PR rule | gatekeeper onboarding |
-| `protected_branches` | string[] (JSON) | array of branch names | derived from `branching_model` | `git-guards.sh` commit rule | gatekeeper onboarding |
+| `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | (none — first-run prompt sets it) | `git-guards.sh`, bro routing | bro onboarding |
+| `pr_target` | string | any valid branch name | derived from `branching_model` when first-run sets it | `git-guards.sh` PR rule | bro onboarding |
+| `protected_branches` | string[] (JSON) | array of branch names | derived from `branching_model` | `git-guards.sh` commit rule | bro onboarding |
 
 ## 2. Default Derivation
 

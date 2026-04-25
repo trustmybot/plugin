@@ -71,7 +71,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const result = await call(issues.handlers, 'issue_list', {
-      agent: 'gatekeeper',
+      agent: 'bro',
     });
     const rows = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(rows)}`);
@@ -93,7 +93,7 @@ describe('discussions + snapshot integration', () => {
     const issues = issueTools(db);
 
     const result = await call(issues.handlers, 'issue_list', {
-      agent: 'gatekeeper',
+      agent: 'bro',
       status: 'open',
     });
     const rows = parseResult(result);
@@ -101,7 +101,7 @@ describe('discussions + snapshot integration', () => {
     assert.ok(Array.isArray(rows));
 
     const resultClosed = await call(issues.handlers, 'issue_list', {
-      agent: 'gatekeeper',
+      agent: 'bro',
       status: 'closed',
     });
     const closedRows = parseResult(resultClosed);
@@ -113,7 +113,7 @@ describe('discussions + snapshot integration', () => {
     const issues = issueTools(db);
 
     const result = await call(issues.handlers, 'issue_list', {
-      agent: 'gatekeeper',
+      agent: 'bro',
       status: 'invalid_status',
     });
     assert.ok(result.isError, 'Should be error for invalid status');
@@ -138,9 +138,9 @@ describe('discussions + snapshot integration', () => {
     assert.equal(d1.author, 'architect');
 
     const r2 = await call(disc.handlers, 'discussion_append', {
-      agent: 'gatekeeper',
+      agent: 'bro',
       issue_id: issueId,
-      author: 'gatekeeper',
+      author: 'bro',
       kind: 'decision',
       body: 'Approved. SWE will implement.',
     });
@@ -173,7 +173,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const result = await call(disc.handlers, 'discussion_list', {
-      agent: 'gatekeeper',
+      agent: 'bro',
       issue_id: issueId,
     });
     const rows = parseResult(result);
@@ -188,7 +188,7 @@ describe('discussions + snapshot integration', () => {
     const disc = discussionTools(db);
 
     const result = await call(disc.handlers, 'discussion_list', {
-      agent: 'gatekeeper',
+      agent: 'bro',
       issue_id: '999999',
     });
     assert.ok(!result.isError, 'Should NOT throw for unknown issue');
@@ -204,6 +204,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
       agent: 'architect',
       issue_id: issueId,
       tasks: [
@@ -299,6 +300,7 @@ describe('discussions + snapshot integration', () => {
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
       agent: 'architect',
       issue_id: issueId,
       tasks: [

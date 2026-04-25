@@ -64,7 +64,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_list',
       description:
-        'Return discussion entries for an issue ordered by created_at ASC. Used by gatekeeper at session resume and by snapshot generation.',
+        'Return discussion entries for an issue ordered by created_at ASC. Used by bro at session resume and by snapshot generation.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -94,7 +94,7 @@ export function discussionTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     discussion_append: requireRoles(
       'discussion_append',
-      ['gatekeeper', 'architect', 'pr-reviewer'],
+      ['bro', 'architect', 'pr-reviewer'],
       wrapHandler(async (args) => {
         normalizeAgent(args['agent'] as string | undefined);
         const issueId = requireArg(args, 'issue_id') as string;

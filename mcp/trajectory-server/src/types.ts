@@ -105,7 +105,6 @@ export interface PluginConfigRow {
 
 export interface IdentityRow {
   id: number;
-  gatekeeper_name: string;
   human_name: string | null;
   created_at: string;
   updated_at: string;

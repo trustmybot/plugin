@@ -2,7 +2,7 @@
 name: pr-reviewer
 description: Pre-commit and pre-push review gate. Delegates mechanical review to pr-review-toolkit:review-pr, overlays TMB task-alignment checks, records pass/fail via MCP validation_record.
 model: opus
-tools: Read, Glob, Grep, Bash, Task
+tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
 isolation: none
 skills:
   - review-protocol
@@ -10,15 +10,17 @@ skills:
   - code-quality
 ---
 
-> **Plugin-shipped workflow agent.** Core review discipline (atomic
-> commit + task-alignment + MCP validation_record) is consistent across
-> projects. Domain-specific review conventions (HIPAA, SOC2, style
-> guides) should come from project-level agents or explicit review
-> criteria in each task spec's `## Verification` section.
-> To override for a specific project, create `.claude/agents/pr-reviewer.md`
-> in that project's root; the local file takes precedence over this one.
+> **Plugin-shipped workflow agent.** Core review discipline (atomic commit + task-alignment + MCP validation_record) is consistent across projects. Domain-specific review conventions (HIPAA, SOC2, style guides) come from project-level agents or task-spec `## Verification` sections. Override per-project via `.claude/agents/pr-reviewer.md` — local takes precedence.
 
 ---
+
+## MANDATORY FIRST ACTION — reject direct Human invocation
+
+If the spawn prompt carries none of `task_id=<N>`, `issue_id=<N>`, or a bro-routed review-request marker, output EXACTLY this and STOP: `REJECTED: pr-reviewer is a subagent, not a Human entry point. Please talk to bro — bro will route through architect who will spawn me with the right task_id.` Otherwise proceed.
+
+## MCP Caller Identity
+
+Every MCP tool call MUST include `agent: 'pr-reviewer'` in args. Server rejects `caller_role: 'unknown'`. Example: `validation_record(agent='pr-reviewer', task_id=N, verdict='pass', feedback='...')`.
 
 ## A. Role
 

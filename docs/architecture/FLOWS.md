@@ -2,19 +2,19 @@
 
 Eight reference workflows — onboarding, simple/difficult task, agent-creator, skill creation, PR review, architecture regen, SWE retry — with the agent / skill / MCP-tool / DB-table / hook involvement spelled out for each.
 
-Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the file map, [`../../CLAUDE.md`](../../CLAUDE.md) for top-level rules.
+Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the file map, [`SCENARIOS.md`](../../tests/manual/scenarios.md) for the **trigger prompts that exercise each flow** (dogfood test plan), [`../../CLAUDE.md`](../../CLAUDE.md) for top-level rules.
 
 ## Quick index
 
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
-| 1 | [Onboarding](#1-first-run-onboarding) | First activation in a project | gatekeeper | — | `identity`, `plugin_config` | — |
-| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | gatekeeper → architect → swe → pr-reviewer | `architect-workflow`, `swe-checklist`, `validate-swe-output`, `review-protocol` | `issues`, `tasks`, `validation_attempts`, `ledger`, `audit` | `require-task-spec`, `require-review-sign`, `git-guards` |
+| 1 | [Onboarding](#1-first-run-onboarding) | First activation in a project | bro | — | `identity`, `plugin_config` | — |
+| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → architect → swe → pr-reviewer | `architect-workflow`, `swe-checklist`, `validate-swe-output`, `review-protocol` | `issues`, `tasks`, `validation_attempts`, `ledger`, `audit` | `require-task-spec`, `require-review-sign`, `git-guards` |
 | 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | + alignment loop + ADR | + `architect-workflow` discussion phase | + `discussions`; ADR file | same |
-| 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | gatekeeper → user | `agent-creator` | — | — |
+| 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → user | `agent-creator` | — | — |
 | 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | architect | — | `skills` (optional, for effectiveness tracking) | — |
 | 6 | [PR review](#6-pr-review) | After SWE marks task `completed` | pr-reviewer | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional) | `require-review-sign` |
-| 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | gatekeeper | `refresh-architecture` | `regen_state`, `file_registry` | — |
+| 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `refresh-architecture` | `regen_state`, `file_registry` | — |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | `validation_record(verdict='fail')` | architect ↔ swe ↔ pr-reviewer | `feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `require-review-sign` |
 | 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Cross-domain decision **AND** ≥2 planning agents available | architect (convener) + 2-4 user-created planners | `roundtable`, `roundtable-cleanup` | `ledger` (current); `roundtables` + `roundtable_votes` (schema reserved) | — |
 
@@ -22,19 +22,19 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 ## 1. First-Run Onboarding
 
-**Trigger:** Gatekeeper at session start finds `config_get("branching_model")` returns null **OR** `identity_get().created_at` is null.
+**Trigger:** Bro at session start finds `config_get("branching_model")` returns null **OR** `identity_get().created_at` is null.
 
 **Involved:**
-- Agent: `gatekeeper` (no spawn — handles inline)
+- Agent: `bro` (no spawn — handles inline)
 - MCP tools: `identity_get`, `identity_set`, `config_get`, `config_set`
 - DB tables written: `identity`, `plugin_config`
-- Skills: none (inline in gatekeeper prompt)
+- Skills: none (inline in bro prompt)
 - Hooks: none
 
 ```mermaid
 sequenceDiagram
     participant H as Human
-    participant G as Gatekeeper
+    participant G as Bro
     participant DB as SQLite (identity, plugin_config)
 
     Note over G: Session start — checks identity_get + config_get
@@ -44,9 +44,7 @@ sequenceDiagram
 
     G->>H: "Hey, I'm bro. What should I call you?"
     H-->>G: name (or blank)
-    G->>H: "What would you like to call me? (default: bro)"
-    H-->>G: gatekeeper_name (or blank)
-    G->>DB: identity_set(human_name, gatekeeper_name)
+    G->>DB: identity_set(human_name)
 
     G->>H: "How does your team branch? (1) github-flow (2) gitflow (3) custom"
     H-->>G: choice
@@ -62,16 +60,16 @@ sequenceDiagram
 **Notes:**
 - Onboarding mode HOLDS any code-touching ask received during the flow — runs to completion first, then proceeds.
 - Read-only asks during onboarding (e.g., "what is this repo?") are answered, then onboarding resumes.
-- Re-runnable any time via the `tmb-reonboard` skill (gatekeeper invokes it on phrases like "rename yourself", "switch to gitflow", etc.).
+- Re-runnable any time via the `tmb-reonboard` skill (bro invokes it on phrases like "rename yourself", "switch to gitflow", etc.).
 
 ---
 
 ## 2. Simple Task
 
-**Trigger:** Human asks for a code change; gatekeeper triages as `simple` (does NOT require an update to `docs/trustmybot/architecture/`).
+**Trigger:** Human asks for a code change; bro triages as `simple` (does NOT require an update to `docs/trustmybot/architecture/`).
 
 **Involved:**
-- Agents: `gatekeeper`, `architect`, `swe`, `pr-reviewer`
+- Agents: `bro`, `architect`, `swe`, `pr-reviewer`
 - Skills: `architect-workflow`, `swe-spawn-workflow`, `swe-checklist`, `validate-swe-output`, `review-protocol`, `code-quality`
 - MCP tools: `issue_create`, `task_create_batch`, `task_get`, `task_update_status`, `validation_record`, `ledger_log`
 - DB tables: `issues`, `tasks`, `validation_attempts`, `ledger`, `audit`
@@ -80,7 +78,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant H as Human
-    participant G as Gatekeeper
+    participant G as Bro
     participant A as Architect
     participant S as SWE (worktree)
     participant P as PR-Reviewer
@@ -127,7 +125,7 @@ sequenceDiagram
 
 ## 3. Difficult Task
 
-**Trigger:** Human asks for a code change that requires updating `docs/trustmybot/architecture/`; gatekeeper triages as `difficult`.
+**Trigger:** Human asks for a code change that requires updating `docs/trustmybot/architecture/`; bro triages as `difficult`.
 
 **Same chain as flow 2, plus:** alignment loop + ADR commit before any task is created.
 
@@ -140,7 +138,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant H as Human
-    participant G as Gatekeeper
+    participant G as Bro
     participant A as Architect
     participant DB as SQLite
 
@@ -153,10 +151,10 @@ sequenceDiagram
     A->>DB: discussion_append(kind='note', body='Triage: difficult …')
 
     loop until aligned with Human
-        A->>DB: discussion_append(kind='question', body=...)
-        A-->>H: surface question via gatekeeper
-        H-->>A: answer
-        A->>DB: discussion_append(kind='answer', body=...)
+        A->>H: AskUserQuestion(radio form, ≤4 options per Q, batched)
+        H-->>A: selected label OR Other free-text
+        A->>DB: discussion_append(kind='question', body=Q + options)
+        A->>DB: discussion_append(kind='answer', body=selected)
     end
 
     A->>DB: discussion_append(kind='decision', body=architectural plan)
@@ -168,17 +166,19 @@ sequenceDiagram
 ```
 
 **Notes:**
-- Architect's triage is binding; gatekeeper's classification is a proposal. If architect downgrades to `simple`, no ADR needed and standard template not required.
+- Architect's triage is binding; bro's classification is a proposal. If architect downgrades to `simple`, no ADR needed and standard template not required.
 - ADR file is the durable architectural record. Discussions table holds the conversation that produced it.
+- Alignment uses `AskUserQuestion` — a proper radio form — for any question with 2–4 enumerable answers (scope, tech choice, priority). Every Q/A round persists TO `discussions` as a `question` + `answer` pair so the trajectory is replayable via `issue_report_md` / `issue_snapshot_md`. See `skills/architect-workflow/SKILL.md#interactive-alignment` for the pattern.
+- Falls back to plain text `discussion_append(kind='question')` when the answer shape isn't enumerable (e.g., "what constraints do you have?").
 
 ---
 
 ## 4. Agent-creator (on-demand domain agent)
 
-**Trigger:** Gatekeeper routing finds the named role (e.g., "I need a `legal-reviewer`") doesn't exist in `.claude/agents/`.
+**Trigger:** Bro routing finds the named role (e.g., "I need a `legal-reviewer`") doesn't exist in `.claude/agents/`.
 
 **Involved:**
-- Agents: `gatekeeper` (or `architect` as alternative invoker)
+- Agents: `bro` (or `architect` as alternative invoker)
 - Skill: `agent-creator`
 - DB tables: none (no MCP write — file-based outcome)
 - Files written: `.claude/agents/<name>.md` (project-local, on user approval only)
@@ -188,19 +188,19 @@ sequenceDiagram
 flowchart TD
     A[Human asks for role X] --> B{Role X exists in<br/>.claude/agents/?}
     B -->|yes| C[Route to existing agent]
-    B -->|no| D[Gatekeeper invokes<br/>agent-creator skill]
+    B -->|no| D[Bro invokes<br/>agent-creator skill]
     D --> E[Skill: ask up to 3<br/>clarifying questions]
     E --> F[Skill: draft tailored<br/>prompt for role X]
     F --> G[Show prompt to Human]
     G --> H{Human approves?}
     H -->|no / changes| F
     H -->|yes| I[Write .claude/agents/<br/>x.md to project]
-    I --> J[Subsequent sessions:<br/>gatekeeper routes to X]
+    I --> J[Subsequent sessions:<br/>bro routes to X]
 ```
 
 **Notes:**
 - **Every** new agent requires explicit Human "yes". Skill enforces this.
-- Reserved names — `gatekeeper`, `architect`, `swe`, `pr-reviewer` — are refused (these are the plugin's shipped roster).
+- Reserved names — `bro`, `architect`, `swe`, `pr-reviewer` — are refused (these are the plugin's shipped roster).
 - Agent file lives in the user's project, not the plugin. Once committed, every dev on the repo gets it on next pull.
 
 ---
@@ -287,11 +287,11 @@ sequenceDiagram
 ## 7. Architecture Regen
 
 **Trigger:**
-- Lazy: gatekeeper at first code-touching ask of a session, when `regen_state.last_seen_sha` is > 25 commits behind HEAD.
+- Lazy: bro at first code-touching ask of a session, when `regen_state.last_seen_sha` is > 25 commits behind HEAD.
 - On-demand: Human says "refresh architecture docs", "regen architecture", `/tmb refresh-architecture`.
 
 **Involved:**
-- Agent: `gatekeeper` (orchestrates inline)
+- Agent: `bro` (orchestrates inline)
 - Skill: `refresh-architecture`
 - MCP tools: `regen_state_get`, `regen_state_update`, `file_registry_scan_commits`, `architecture_regen`
 - DB tables: `regen_state`, `file_registry`
@@ -352,7 +352,7 @@ flowchart TD
     C -->|3 attempts hit| K[Escalation]
     K --> L[SWE / Architect:<br/>discussion_append<br/>kind='note', body=blocker]
     L --> M[task_update_status<br/>'escalated']
-    M --> N[Surface to Human via gatekeeper:<br/>'this task hit 3 fails — what now?']
+    M --> N[Surface to Human via bro:<br/>'this task hit 3 fails — what now?']
     N --> O{Human decides}
     O -->|split task| P[Architect: cancel current,<br/>create smaller tasks]
     O -->|change approach| Q[Architect: append decision,<br/>respec the task]

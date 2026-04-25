@@ -153,7 +153,6 @@ CREATE TABLE IF NOT EXISTS plugin_config (
 
 CREATE TABLE IF NOT EXISTS identity (
     id               INTEGER PRIMARY KEY CHECK (id = 1),
-    gatekeeper_name  TEXT NOT NULL DEFAULT 'bro',
     human_name       TEXT,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL

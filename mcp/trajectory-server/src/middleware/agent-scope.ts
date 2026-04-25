@@ -2,14 +2,14 @@ import type { Issue } from '../types.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export type AgentRole =
-  | 'gatekeeper'
+  | 'bro'
   | 'architect'
   | 'swe'
   | 'pr-reviewer'
   | 'unknown';
 
 const KNOWN_ROLES = new Set<AgentRole>([
-  'gatekeeper',
+  'bro',
   'architect',
   'swe',
   'pr-reviewer',
@@ -71,7 +71,7 @@ export function redactIssue(
     return { ...rest, objective: truncated };
   }
 
-  // Architect and gatekeeper are full-trust; description gated only on opts.include_description.
+  // Architect and bro are full-trust; description gated only on opts.include_description.
   if (!opts?.include_description) {
     const { description: _, ...rest } = issue;
     void _;

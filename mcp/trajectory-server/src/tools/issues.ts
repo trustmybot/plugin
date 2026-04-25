@@ -1,6 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import { genId, nowISO } from '../db.js';
+import { nowISO } from '../db.js';
 import type { Issue, Task } from '../types.js';
 import { normalizeAgent, redactIssue } from '../middleware/agent-scope.js';
 
@@ -60,7 +60,7 @@ export function issueTools(db: TrajectoryDB): {
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string', description: 'The issue string ID' },
-          include_description: { type: 'boolean', description: 'Whether to include the full description (default false). Architect + gatekeeper only.' },
+          include_description: { type: 'boolean', description: 'Whether to include the full description (default false). Architect + bro only.' },
         },
         required: ['agent', 'issue_id'],
       },
@@ -104,7 +104,7 @@ export function issueTools(db: TrajectoryDB): {
     },
         {
       name: 'issue_list',
-      description: 'Enumerate issues for the gatekeeper pre-scan. Returns a thin index (id, objective, status, created_at, updated_at) ordered by updated_at DESC. Used at session start to decide whether to resume an in-flight issue or start fresh.',
+      description: 'Enumerate issues for the bro pre-scan. Returns a thin index (id, objective, status, created_at, updated_at) ordered by updated_at DESC. Used at session start to decide whether to resume an in-flight issue or start fresh.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -130,7 +130,6 @@ export function issueTools(db: TrajectoryDB): {
       const objective = args['objective'] as string;
       const description = (args['description'] as string | undefined) ?? '';
       const now = nowISO();
-      const issueId = genId('iss');
       const preGitSha = process.env['PRE_GIT_SHA'] ?? '';
 
       db.run(
@@ -149,7 +148,7 @@ export function issueTools(db: TrajectoryDB): {
 
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [rowId.id]);
       const redacted = redactIssue(issue!, agent, { include_description: true });
-      return ok({ ...redacted, issue_string_id: issueId });
+      return ok(redacted);
     }),
 
     issue_get: wrapHandler(async (args) => {

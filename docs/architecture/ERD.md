@@ -53,7 +53,6 @@ erDiagram
 
     identity {
         INT  id PK "always 1"
-        TEXT gatekeeper_name
         TEXT human_name
     }
 
@@ -179,7 +178,7 @@ erDiagram
 | `skills` | Registry of curated + agent-created skills with effectiveness stats (`uses`, `successes`, `failures`, `effectiveness`). Looked up by name. |
 | `file_registry` | Output of the lazy `git log` diff walker. One row per file. Feeds the 4 auto renderers. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, etc.). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `identity` | Single-row table (`CHECK id=1`) holding gatekeeper name + human name. |
+| `identity` | Single-row table (`CHECK id=1`) holding bro name + human name. |
 | `regen_state` | Per-target cursor (`last_seen_sha`) for the lazy architecture regen. |
 | `plugin_meta` | Schema + plugin version (for future migrations). Current row: `schema_version=1, plugin_version='0.3.2'`. |
 
@@ -191,7 +190,7 @@ erDiagram
 
 ## How agents use this
 
-- **gatekeeper** — reads `plugin_config`, `identity`, `issues(status='open')` on session start. Writes `discussions` when relaying human intent.
+- **bro** — reads `plugin_config`, `identity`, `issues(status='open')` on session start. Writes `discussions` when relaying human intent.
 - **architect** — `issue_create` → `discussion_append` → `task_create_batch(spec_body)` → `task_update_status` → `validation_record`. Also edits agent prompts, skill files, and workflow markdown when they drift (see `skills/docs-conventions` prompt-editing rules).
 - **swe** — `task_get(id)` for spec → `ledger_log` / `audit_log` during work → `task_update_status('completed')` on success.
 - **pr-reviewer** — `task_get(task_id)` to inspect the spec + status of the task passed in the spawn → `validation_record(task_id, attempt_n, verdict, feedback)` to sign off. Never writes to `tasks`; status flip to `closed` is the architect's call.

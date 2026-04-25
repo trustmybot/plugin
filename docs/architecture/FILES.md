@@ -24,7 +24,7 @@ plugin/
 │
 ├── agents/                           # four global workflow agents (ship with plugin)
 │   ├── architect.md                  # task breakdown, spec authoring, SWE spawn, validation, prompt edits
-│   ├── gatekeeper.md                 # human entry point, routing, onboarding, triage, agent-creator driver
+│   ├── bro.md                 # human entry point, routing, onboarding, triage, agent-creator driver
 │   ├── pr-reviewer.md                # pre-commit/pre-push review gate (read-only)
 │   └── swe.md                        # single-task executor in worktree
 │
@@ -32,7 +32,8 @@ plugin/
 │   └── architecture/                 # contributor-facing reference
 │       ├── ERD.md                    # SQLite schema: Mermaid ER diagram + FK + soft-ref tables
 │       ├── FILES.md                  # this file — every tracked file with its purpose
-│       └── FLOWS.md                  # 9 workflow flowcharts (onboarding → roundtable)
+│       ├── FLOWS.md                  # 9 workflow flowcharts (onboarding → roundtable)
+│       └── SCENARIOS.md              # dogfood test plan — trigger prompts mapped to each flow
 │
 ├── hooks/
 │   └── hooks.json                    # CC hooks manifest (PreToolUse, WorktreeCreate, etc.)
@@ -126,16 +127,16 @@ plugin/
 ├── skills/                           # Claude Code skills — all <name>/SKILL.md form
 │   ├── agent-creator/SKILL.md        # propose & write new agent files on user approval
 │   ├── architect-workflow/SKILL.md   # architect's end-to-end task-authoring flow
-│   ├── branch-id-proposal/SKILL.md   # gatekeeper derives branch_id + opens MCP issue before architect spawn
+│   ├── branch-id-proposal/SKILL.md   # bro derives branch_id + opens MCP issue before architect spawn
 │   ├── code-quality/SKILL.md         # generic quality gates (error handling, security, edges)
 │   ├── create-hook/SKILL.md          # how to add a new hook script safely
 │   ├── docs-conventions/SKILL.md     # docs-update rules + prompt-editing discipline
 │   ├── feedback-loop/SKILL.md        # architect ↔ SWE retry/escalation protocol
-│   ├── first-run-onboarding/SKILL.md # gatekeeper's identity + branching-model capture flow on first activation
+│   ├── first-run-onboarding/SKILL.md # bro's identity + branching-model capture flow on first activation
 │   ├── git-conventions/SKILL.md     # emoji-prefixed commits, branch naming
-│   ├── lazy-regen-check/SKILL.md     # gatekeeper's session-start architecture-regen heuristic (25-commit threshold)
+│   ├── lazy-regen-check/SKILL.md     # bro's session-start architecture-regen heuristic (25-commit threshold)
 │   ├── naming-conventions/SKILL.md   # file/variable/test naming rules
-│   ├── project-prescan/SKILL.md      # gatekeeper's deterministic inventory pass on first code-touching ask
+│   ├── project-prescan/SKILL.md      # bro's deterministic inventory pass on first code-touching ask
 │   ├── refresh-architecture/SKILL.md # user-facing "regenerate architecture docs" entry
 │   ├── review-findings/SKILL.md      # pr-reviewer output format
 │   ├── review-protocol/SKILL.md      # pr-reviewer full protocol
@@ -181,7 +182,7 @@ plugin/
 
 ## Summary
 
-- 4 global workflow agents (gatekeeper, architect, swe, pr-reviewer)
+- 4 global workflow agents (bro, architect, swe, pr-reviewer)
 - 17 skills, all in `<name>/SKILL.md` form
 - 4 hook scripts + 1 diagnostic harness
 - 14-table SQLite schema (see `ERD.md`)
