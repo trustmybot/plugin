@@ -55,20 +55,30 @@ RUN test -f /root/.claude/plugins/cache/trustmybot/tmb/${PLUGIN_VERSION}/mcp/tra
 RUN test -f /root/.claude/plugins/cache/trustmybot/tmb/${PLUGIN_VERSION}/mcp/trajectory-server/dist/schema.sql \
  || (echo "❌ FAIL: dist/schema.sql missing in marketplace cache layout" && exit 1)
 
-# 4. Install Claude Code CLI
+# 4. Install Claude Code CLI globally (npm puts it in /usr/local/bin → world-readable).
 RUN npm install -g @anthropic-ai/claude-code \
  && claude --version
 
-# 5. Run L6 flows against the marketplace-installed plugin.
-#    Token comes via BuildKit secret (not baked into image layers).
-#    --plugin-dir points to the marketplace cache path so we exercise the
-#    REAL install layout, not /plugin (the source dir).
+# 5. Create a non-root user for the L6 step.
+#    Claude Code refuses `--dangerously-skip-permissions` when running as root
+#    ("cannot be used with root/sudo privileges for security reasons"). The flag
+#    is required in headless `-p` mode so MCP / Bash / Edit calls aren't blocked
+#    waiting on a Human approval that will never come. Switching to UID 1000
+#    sidesteps the safety check while keeping the rest of the install layout
+#    intact.
+RUN useradd -m -s /bin/bash -u 1000 tmb \
+ && chown -R tmb:tmb /plugin
+
+# 6. Run L6 flows against the source tree (the marketplace cache layout was
+#    asserted in step 3; the L6 runner uses --plugin-dir /plugin).
+USER tmb
 WORKDIR /plugin
 ENV TMB_DEBUG_TRAJECTORY=1
+ENV HOME=/home/tmb
 
 # The runner reads CLAUDE_CODE_OAUTH_TOKEN from env. BuildKit secrets are
-# mounted at /run/secrets/<id>; we source it into the shell for the test run.
-RUN --mount=type=secret,id=cc_token \
+# mounted at /run/secrets/<id>; uid=1000 makes the file readable by tmb.
+RUN --mount=type=secret,id=cc_token,uid=1000 \
     if [ -f /run/secrets/cc_token ]; then \
       export CLAUDE_CODE_OAUTH_TOKEN="$(cat /run/secrets/cc_token)"; \
       bash tests/dogfood/run-l6.sh \
