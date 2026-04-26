@@ -188,8 +188,16 @@ git diff <commit_sha>~1..<commit_sha>
 3. **Success criteria visibly met** — for each bullet in `## Success Criteria`, scan diff for the corresponding code/test.
 
 #### V3 — Decide
-- All three pass → `task_update_status(agent='bro', task_id=<N>, status='closed')`. If all tasks on the issue are closed, also `issue_close(agent='bro', issue_id=<I>)`. Both in same response.
-- Any check fails → `discussion_append(kind='note', body='Verification fail: <which check> — <details>')`. Do NOT close. Re-spawn SWE with feedback (max 3 retries) or escalate.
+- All three pass → batch THREE calls in the same response:
+  1. `ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands passed. V3 success criteria met. Closing.')`
+  2. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
+  3. `issue_close(agent='bro', issue_id=<I>)` IF all tasks on the issue are closed
+
+  **Do NOT call `validation_record`** — pr-reviewer-only; server returns `forbidden` for bro callers. Bro writes `bro_verification_pass` to the ledger; pr-reviewer writes `validation_record` later at the push gate, over the batch.
+- Any check fails → batch `ledger_log(event_type='bro_verification_fail')` + `discussion_append(kind='note', body='Verification fail: ...')`. Do NOT close. Re-spawn SWE with feedback (max 3 retries) or escalate.
+
+#### Halt-on-MCP-error
+If any close-related MCP call returns `is_error: true`, STOP. Do not emit a success message. Surface the exact error to the Human — usually means the call signature is wrong.
 
 ### Step 8 — Loop
 

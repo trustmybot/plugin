@@ -51,6 +51,34 @@ Resolution rule for backbone agents: **if `<project>/.claude/agents/<name>.md` e
 
 Every MCP tool call MUST include `agent: 'bro'`. The server rejects `caller_role: 'unknown'`. Example: `identity_set(agent='bro', human_name='Zax')`.
 
+## MCP error handling — halt and surface
+
+If any MCP tool result has `is_error: true` (or content includes `{"error": ...}`), **halt the current flow immediately**. Do NOT proceed to subsequent tool calls as if the call succeeded. Either:
+
+1. Surface the exact error to the Human verbatim and ask how to proceed, OR
+2. If the error is recoverable and you know the correct call, write a `discussion_append(kind='note', body='Recovered from MCP error: ...')` and retry the corrected call.
+
+**Never silently swallow `forbidden`, `validation`, or constraint errors.** The server's role-enforcement middleware exists precisely to catch role violations like bro calling pr-reviewer-only tools — when it fires, it means the doctrine you're following is wrong, not that you should ignore it.
+
+## Tools bro must NEVER call
+
+These tools are scoped to other roles by the server's role-enforcement middleware. Calling them as `agent='bro'` returns `{"error": "forbidden"}` and the call has no effect:
+
+- `validation_record` — pr-reviewer only. Bro's task-gate verification writes `ledger_log(event_type='bro_verification_pass', ...)` instead. See planning skills V3 step.
+- Any consultant-decision tool — bro spawns consultants; consultants don't write decisions either, so this is enforced by absence.
+
+## Policy-key writes — route through tmb_reonboard, never direct
+
+The keys `branching_model`, `pr_target`, `protected_branches` are **policy keys**. They drive hook behavior (`git-guards.sh`) and downstream skill defaults. Changing them mid-session without re-confirming intent is a foot-gun.
+
+**Bro never calls `config_set(key='branching_model'|'pr_target'|'protected_branches', ...)` directly** — even when the Human says "switch to gitflow". Instead invoke the `tmb_reonboard` skill, which:
+
+1. Reads current values via `config_list`.
+2. Renders an AskUserQuestion radio with the current value pre-selected.
+3. Persists only after explicit confirmation.
+
+Other (non-policy) `plugin_config` keys may be written directly when the Human asks.
+
 ## First-action chain (every triggered message)
 
 1. **Identity + onboarding check** — call `identity_get(agent='bro')` and `config_get(agent='bro', key='branching_model')`. If either returns null → invoke the `tmb_first-run-onboarding` skill. **Onboarding only persists identity + branching config to MCP** — no template copying, no filesystem ops. The `swe`, `pr-reviewer`, and 7 default skills ship globally with the plugin and are already discoverable. Hold any code-touching ask until onboarding completes.

@@ -69,7 +69,6 @@ plugin/
 │   ├── tmb_roundtable-cleanup/       # post-roundtable archive + DB cleanup
 │   ├── tmb_skill-creator/            # propose & write new skill files; appends to consuming agent's skills:
 │   ├── tmb_swe-spawn-workflow/       # bro's protocol for spawning SWE with task_id + spec
-│   ├── tmb_validate-swe-output/      # fork-Explore verification helper used by bro's verification step
 │   ├── # Default workflow skills (used by global agents; project overrides per-name)
 │   ├── code-quality/                 # generic quality gates (error handling, security, edges)
 │   ├── docs-conventions/             # docs-update rules + prompt-editing discipline

@@ -68,7 +68,7 @@ Other rules:
 
 Onboarding completes ONLY after ALL of the following have succeeded AND a final `ledger_list` confirms the audit row landed. Do not emit the closing message until every expected row is present:
 
-1. `identity_set(agent='bro', human_name=<answer>)` — skip iff the Human chose Anonymous.
+1. `identity_set(agent='bro', ...)` — **always called.** Pass `human_name=<answer>` for a named identity, or `anonymous=true` for Anonymous. Both forms write a row; downstream code distinguishes "onboarded" by the row's existence (`identity_get().created_at != null`), not by whether `human_name` is set. Skipping this call here is the bug class fixed in v0.4.1 (issue #95).
 2. `config_set(agent='bro', key='branching_model', value=<canonical>)` — `value` is a string, e.g. `value="github-flow"`.
 3. `config_set(agent='bro', key='pr_target', value=<answer>)` — `value` is a string, e.g. `value="main"`.
 4. `config_set(agent='bro', key='protected_branches', value=<array of strings>)` — `value` is a **raw JSON array**, e.g. `value=["main"]`. Do NOT pass `value="[\"main\"]"` (a pre-serialized string). The MCP server calls `JSON.stringify(value)` on what you pass; if you pre-serialize, the DB stores a string and every downstream hook that expects an array breaks.
@@ -145,9 +145,9 @@ Parse `AskUserQuestion` response. Map labels:
 
 | Label | Canonical value |
 |---|---|
-| "Anonymous" | skip `identity_set` |
-| `Use "<name>"` (git-detected) | strip the `Use "` prefix + trailing `"`, pass the inner name to `identity_set` |
-| Other (free text) | pass verbatim to `identity_set` |
+| "Anonymous" | call `identity_set(anonymous=true)` — writes a row with `human_name=NULL` |
+| `Use "<name>"` (git-detected) | strip the `Use "` prefix + trailing `"`, pass the inner name as `identity_set(human_name=<name>)` |
+| Other (free text) | pass verbatim to `identity_set(human_name=<text>)` |
 | "Trunk + feature branches (GitHub Flow) (Recommended)" | `github-flow` |
 | "Trunk + develop + releases (Git Flow)" | `gitflow` |
 | "Custom workflow" | `custom` |
@@ -192,7 +192,9 @@ Parse the selected labels + any Other entries into a JSON array.
 Fire the writes IN ORDER, each with `agent='bro'`. Report each success inline ("✓ name saved", "✓ branching_model saved", etc.):
 
 ```
-if name != "Anonymous":
+if name == "Anonymous":
+    identity_set(agent='bro', anonymous=True)
+else:
     identity_set(agent='bro', human_name=<name>)
 
 config_set(agent='bro', key='branching_model',    value="github-flow")   # string
