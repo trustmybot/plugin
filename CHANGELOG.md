@@ -57,6 +57,37 @@ GH label migration applied: 17 labels → 25 (renames + 9 new K8s `area/*`). All
 
 This is the doctrine half of #38. The DB-side half (`issue_labels` table + 4 MCP tools to mirror GH labels into the trajectory DB) is gated on schema review and ships in a follow-up.
 
+### Workflow ergonomics — three small fixes
+
+#### Bro asks base branch + pulls before branching when remote exists (issue #92)
+
+`tmb_branch-id-proposal` now adds a Step 0: detect `git remote -v` non-empty → `AskUserQuestion` for base branch (pre-selecting `pr_target`) → `git pull origin <base> --ff-only` → then proceed to branch_id derivation. Prevents silently branching off stale `origin/main` in multi-developer repos. No remote configured → step skipped (no concern).
+
+#### Architecture docs bootstrap on small projects (issue #94)
+
+`tmb_lazy-regen-check` previously did nothing on first-ever session, waiting for the Human to manually request `/tmb refresh-architecture`. Tiny dogfood projects rarely cross the 25-commit threshold, so they never got `docs/trustmybot/architecture/auto/` populated.
+
+New behavior: on first-ever session, count source files (`git ls-files | exclude .claude/, node_modules/, dist/, etc.`):
+- 0 files → skip (empty repo)
+- ≤200 files → silent initial bootstrap (cheap, ensures docs/ exists for the first contributor)
+- >200 files → one-line nudge (full bootstrap on a large project can be slow; let Human opt in)
+
+#### Committed team config defaults (issue #32)
+
+Onboarding now reads `.claude/tmb/config.json` if committed:
+
+```json
+{
+  "branching_model": "github-flow",
+  "pr_target": "main",
+  "protected_branches": ["main"]
+}
+```
+
+Values pre-select matching radio options in `AskUserQuestion`, so each new dev confirms team conventions with a single click instead of answering from scratch. The committed file shares team defaults; per-developer DBs still store actual answers locally. Identity (`human_name`) is per-developer and never read from the file.
+
+Template at `templates/project-seed/.claude/tmb/config.example.json`.
+
 ---
 
 ## v0.3.2 — 2026-04-25

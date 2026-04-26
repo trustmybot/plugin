@@ -1,5 +1,9 @@
 # Claude Code runtime artifacts (worktrees, session state)
 .claude/
+# Exception: shipped project-seed templates that downstream projects copy into
+# their own .claude/ — must be committed, not treated as runtime artifacts.
+!templates/project-seed/.claude/
+!templates/project-seed/.claude/**
 
 # Dogfood-generated artifacts when running CC inside this repo.
 # The plugin's own contributor docs live at docs/architecture/ — so

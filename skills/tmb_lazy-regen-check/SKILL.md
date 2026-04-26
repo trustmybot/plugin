@@ -1,6 +1,6 @@
 ---
 name: tmb_lazy-regen-check
-description: Decide whether to run an incremental architecture regen at session start. Compares HEAD to the last regen cursor; under 25 commits → silent incremental; over 25 → one-line nudge to the user; first-ever session → silent skip.
+description: Decide whether to run an incremental architecture regen at session start. First-ever session on a non-empty project → silent initial bootstrap; under 25 commits since last regen → silent incremental; over 25 → one-line nudge.
 agent: bro
 allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__regen_state_get, mcp__plugin_tmb_trajectory-server__ledger_log
 ---
@@ -18,8 +18,16 @@ Bro invokes this skill once per session — immediately before the pre-scan on t
 ## Procedure
 
 1. Call `regen_state_get(target='file_registry')` and `regen_state_get(target='changelog')`.
-2. If **both** return `null` (first-ever session — no regen has ever run), do NOTHING. A full initial regen may be expensive; wait for the Human to trigger it explicitly via "refresh architecture docs" or the `tmb_refresh-architecture` skill. Do not emit any output.
-3. Otherwise, take the SHA from whichever `regen_state` row has the more recent `last_regen_at` timestamp and run:
+2. If **both** return `null` (first-ever session — no regen has ever run): probe the project's source-file count to decide whether to bootstrap initial docs.
+   ```bash
+   # Count source files (excluding obvious non-source dirs)
+   N=$(git ls-files | grep -vE '^(\.claude/|node_modules/|dist/|build/|\.git/|docs/)' | wc -l | tr -d ' ')
+   ```
+   - If `N == 0` (empty repo) → do nothing, log skip to ledger.
+   - If `N <= 200` (small project, e.g. fresh dogfood scratch) → invoke `tmb_refresh-architecture` with `scope:'initial'` silently. The bootstrap is cheap on small projects and ensures `docs/trustmybot/architecture/auto/` exists for the first contributor / cold session. This addresses #94: tiny projects rarely cross the 25-commit threshold, so they used to never get docs.
+   - If `N > 200` → emit the one-line nudge: *"This project has N source files but no architecture docs yet. Run `/tmb refresh-architecture` to bootstrap them."* Don't auto-regen — full bootstrap on a 1000-file project can be slow.
+
+3. Otherwise (regen has run before), take the SHA from whichever `regen_state` row has the more recent `last_regen_at` timestamp and run:
    ```bash
    git log --oneline <last_seen_sha>..HEAD | wc -l
    ```

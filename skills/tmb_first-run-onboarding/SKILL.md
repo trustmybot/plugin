@@ -77,9 +77,11 @@ Onboarding completes ONLY after ALL of the following have succeeded AND a final 
 
 **Never narrate a rejection** — only report what the MCP tool actually returned. **Never skip a write** because you think it might fail. If a call errors, retry it. If it keeps erroring, surface the exact error to the Human and ask whether to retry or abort.
 
-## Step 0 — Probe local identity sources (read-only Bash)
+## Step 0 — Probe local identity sources + committed team config (read-only Bash)
 
-Before rendering the AskUserQuestion form, probe the local machine for a name the Human has already set themselves:
+Before rendering the AskUserQuestion form, probe two sources the Human has already set themselves.
+
+### 0a — Local git identity
 
 ```bash
 git config --get user.name   # user's own git identity
@@ -88,6 +90,31 @@ git config --get user.name   # user's own git identity
 Cache the result as `git_user_name` if non-empty. This is **user-set local config**, not CC environment metadata — safe to offer as a pre-populated option.
 
 Do NOT use CC's `# userEmail` / session-level env context to infer a name. That's external metadata the Human hasn't confirmed in this repo.
+
+### 0b — Committed team config (issue #32)
+
+```bash
+TEAM_CFG=".claude/tmb/config.json"
+if [ -f "$TEAM_CFG" ]; then
+  team_branching=$(jq -r '.branching_model // empty' "$TEAM_CFG" 2>/dev/null)
+  team_pr_target=$(jq -r '.pr_target // empty' "$TEAM_CFG" 2>/dev/null)
+  team_protected=$(jq -c '.protected_branches // empty' "$TEAM_CFG" 2>/dev/null)
+fi
+```
+
+If `.claude/tmb/config.json` exists, it's a **committed team-default**. The format:
+
+```json
+{
+  "branching_model": "github-flow",
+  "pr_target": "main",
+  "protected_branches": ["main"]
+}
+```
+
+Use the values to **pre-select the matching radio option** in each onboarding question (so the team default is one click away). The Human can still override locally; their local DB stores their actual answer. The committed file is unchanged unless they explicitly edit it.
+
+Identity (`human_name`) is NEVER read from the committed file — that's per-user.
 
 ## Step 1 — Welcome + name + branching + PR target (one batched AskUserQuestion call)
 
