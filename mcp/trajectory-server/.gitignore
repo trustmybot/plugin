@@ -1,5 +1,12 @@
 node_modules/
-dist/
+# dist/ is INTENTIONALLY committed (was gitignored through v0.3.0).
+# Reason: CC's marketplace install runs `bun install` but skips lifecycle
+# scripts (no postinstall), so a built `dist/` MUST be present in the
+# published artifact. Without it the MCP server can't spawn → bro can't
+# onboard → silent install failure. v0.3.1 fixed this.
+#
+# Stale dist/ is caught by `tests/lint/dist-fresh.sh` (CI). Contributors
+# rebuild before commit; the lint blocks PRs with out-of-sync dist/.
 *.db
 *.db-journal
 *.log

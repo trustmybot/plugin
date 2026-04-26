@@ -2,6 +2,36 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.3.1 — 2026-04-25
+
+**Critical install hotfix.** v0.3.0 marketplace install left the MCP server's compiled `dist/` directory missing. Symptom: bro can't find any `mcp__plugin_tmb_trajectory-server__*` tools — onboarding's mandatory MCP writes can't run, identity/config never persist, the user is stuck. **Anyone on v0.3.0 should upgrade.**
+
+### Root cause
+
+CC's marketplace plugin install runs `bun install` but **skips lifecycle scripts** (no `postinstall`). v0.3.0's design relied on postinstall to build `dist/` after install — but CC never runs it. The server's compiled JS was never created on user machines.
+
+This is the same class of bug that broke v0.2.0 (better-sqlite3's `prebuild-install` lifecycle script also skipped). My L0 install-smoke ran `bun install --frozen-lockfile` (which DOES fire postinstall) and tested the happy path. CC's actual install path is `bun install --ignore-scripts` (or equivalent) — different behavior, same input. **The simulation was more permissive than reality.**
+
+### Fixed — three layers
+
+1. **Ship `dist/` in the published artifact.** Stopped gitignoring `mcp/trajectory-server/dist/` (with explicit allowlist override in root `.gitignore`). Now the published tag contains pre-built JS — works regardless of install behavior. CC, npm, yarn, pnpm — anyone who clones the tag has a working server.
+2. **Updated L0 install-smoke to use `--ignore-scripts`.** `tests/docker/install-smoke.Dockerfile` now runs `bun install --frozen-lockfile --ignore-scripts` to simulate CC's actual install path. **This single line change would have caught both v0.2.0 and v0.3.0.** Build success now genuinely means "works in CC's hostile install environment."
+3. **`tests/lint/dist-fresh.sh`** — new lint that rebuilds `dist/` in a temp directory and diffs against the committed version. Fails CI if a contributor modifies `src/` but forgets to rebuild `dist/`. Catches the regression where committed dist/ goes stale.
+
+### How this would have been caught earlier
+
+- Reading CC's plugin install docs / observing actual behavior before designing L0.
+- Testing with `--ignore-scripts` from day one (the worst-case install path is the right one to test).
+- Running L6 release canary against the actual install path, not the same `bun install --frozen-lockfile` happy path.
+
+The bug class is **simulation more permissive than reality**. Closed by always testing the worst-case install path.
+
+### Versioning
+
+Bumped all 3 manifest versions to `0.3.1`. No schema migration. `engines.node` unchanged (still `>=22`).
+
+---
+
 ## v0.3.0 — 2026-04-25
 
 **Cold-start fix release.** Two structural changes that together eliminate the v0.2.0 marketplace-install pain class. Anyone on v0.2.0 should upgrade. (v0.2.1 was planned as a single-bug hotfix; we folded it into v0.3.0 because both changes touch the same cold-start path.)
