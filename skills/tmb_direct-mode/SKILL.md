@@ -22,15 +22,17 @@ The narrow scope IS the discipline. If you find yourself extending Direct Mode "
 
 If any condition fails, **fall back to the default chain** — propose an issue + task + SWE spawn with a brief explanation to the Human.
 
-## Protocol
+## Protocol — ALL THREE STEPS ARE MANDATORY
 
-```
-Edit (file)
-  → Bash (git commit -m "chore: ...")
-  → ledger_log(agent='bro', event_type='direct_mode_used', summary='<one-line description of the fix>')
-```
+The skill is exactly three steps. **You MUST emit all three. The third is the audit trail and is the most commonly-skipped step — if you stop after step 2 you have committed code with no record that Direct Mode was used, indistinguishable from rogue bro behavior.**
 
-That's the whole skill. No `task_create_batch`. No `Task(subagent_type='swe', ...)`. No `planning_complete` ledger event. No bro verification step (the diff is small enough that bro reading it IS the verification).
+1. `Edit` (the file) — the actual fix
+2. `Bash (git commit -m "chore: ...")` — atomic commit with conventional-commit message
+3. `ledger_log(agent='bro', event_type='direct_mode_used', summary='<one-line description of the fix>')` — **NEVER SKIP THIS.** This is what distinguishes "bro intentionally used Direct Mode" from "bro freelanced an edit"
+
+Batch all three as parallel tool_use blocks in a single response when feasible (the ledger_log doesn't depend on the commit's exit code).
+
+That's the whole skill. No `task_create_batch`. No `Task(subagent_type='swe', ...)`. No `planning_complete` ledger event. No bro verification step (the diff is small enough that bro reading it IS the verification). But the `direct_mode_used` ledger event is **non-negotiable**.
 
 ## Examples
 

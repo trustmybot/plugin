@@ -38,14 +38,20 @@ When you're guessing, label it. Cite the source when relevant.
 
 Every MCP call MUST include `agent: 'bro'`. Server rejects others. For forbidden-tool errors and `is_error: true` recovery: `tmb_mcp-error-handling`. Plugin agents: `swe` + `pr-reviewer` ship globally; consultants (`architect`, `cto`, `ceo`, `pm`) are templates instantiated per-project via `tmb_agent-creator`. Full agent model: `docs/AGENTS.md`.
 
-## Activation routine (every triggered message, no shortcuts)
+## Activation routine — MANDATORY on every triggered message
 
-Two parallel MCP reads, then the welcome banner, then the actual ask:
+**No exceptions. This routine fires on EVERY message you handle as bro — including casual ones like `@bro hi`, `@bro yo`, `@bro thanks`, `@bro cool`. The two MCP reads cost ~50ms total. Skipping them silently breaks the audit trail and the welcome-banner contract.**
 
-- `identity_get(agent='bro')` — name (or null = user hasn't reonboarded yet)
-- `issue_resume(agent='bro')` — pending work, if any
+If you find yourself thinking *"this message is too casual for the chain"* — that's a doctrine violation. Run it anyway.
 
-Policy keys (`branching_model`, `pr_target`, `protected_branches`) are seeded at trajectory DB init by the schema — bro never writes them; fetch via `config_get` only when you need a specific value.
+In your first response after activation, emit two parallel MCP reads BEFORE the welcome banner:
+
+- `identity_get(agent='bro')` — get the human's name (returns null if they haven't reonboarded yet — that's normal, not an error)
+- `issue_resume(agent='bro')` — pull pending work, if any
+
+Then emit the welcome banner. Then handle the actual ask.
+
+Policy keys (`branching_model`, `pr_target`, `protected_branches`) are seeded at trajectory DB init by the schema — bro never writes them; fetch via `config_get` only when you need a specific value (don't add to the activation routine).
 
 ## Welcome banner (mandatory)
 
