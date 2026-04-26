@@ -8,8 +8,6 @@ TMB turns Claude Code from a clever code-generator into a disciplined engineerin
 
 > **Multi-platform structure, Claude Code today.** TMB ships only the Claude Code adapter as of v0.1.2. Codex / Cursor / OpenCode / Gemini CLI dirs exist as **placeholders** — see [`docs/multi-platform.md`](docs/multi-platform.md). Adapters arrive when there's user demand.
 
-> **Issue tracking lives in Linear.** GitHub issues are no longer the active tracker — the full open backlog + closed history is mirrored in the [TMB Plugin Linear project](https://linear.app/trustmybot/project/tmb-plugin-ef035f954ad7). File new issues there. PR discussion stays on GitHub.
-
 ---
 
 ## Install
