@@ -13,23 +13,25 @@ Each layer catches a different class of bug; skipping any layer means shipping a
 | **L2** | Unit — handler logic, synthetic args; no LLM, no protocol | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
-| **L5** | Manual dogfood — human-driven interactive Claude Code session | [`manual/`](./manual/) | UX regressions only catchable with a human |
 | **L6** | **Workflow-doctrine dogfood — multi-scorer (outcome + trajectory + cost)** against `--plugin-dir` source (issues #108, #110) | [`dogfood/`](./dogfood/) | Doctrine drift between FLOWS.md and reality, agent-prompt regressions, cold-start behavior |
-| **L5+L6 combined** | **Full marketplace install + workflow doctrine in one Docker image** — replaces manual L5 (issue #112) | [`docker/l5-l6-combined.Dockerfile`](./docker/) | Everything L0 catches PLUS everything L6 catches, against the as-shipped marketplace artifact. Release-only (token-heavy). |
+| **Release canary** | **Full marketplace install + workflow doctrine in one Docker image** — the final automated gate (was "L5+L6 combined", #112) | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches PLUS everything L6 catches, against the as-shipped marketplace artifact. RC-only (token-heavy). |
+| **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session — only for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
 **Golden rule:** *Layer N green does not imply Layer N+1 green.* Layer 1 passed with 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. Layer 2 would have caught that at the wire level in milliseconds. Always run all three before tagging a release.
 
 ## Testing philosophy — light to heavy, fail fast
 
-**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L6 (light, --plugin-dir) → L5+L6 combined (heavy, marketplace simulation in Docker) → L5 manual (last resort).
+**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L6 (light, `--plugin-dir`) → Release canary (heavy, marketplace simulation in Docker) → Manual smoke (last resort, fallback only).
 
 This applies to:
 
-- **PR review**: PRs that fail L1 don't pay the L2 cost. PRs that pass L1-L4 trigger L6 only when labeled. L5+L6-combined runs on tag pushes only.
-- **Release validation**: cut a release candidate → run L0 → L4 (every PR did this already) → run L6 light → only if green, run L5+L6 combined → only if green, cut stable.
+- **PR review**: PRs that fail L1 don't pay the L2 cost. PRs that pass L1-L4 trigger L6 only when labeled. Release canary runs on RC tag pushes only.
+- **Release validation**: cut an RC tag → L0 + L1-L4 (every PR did this already) → L6 light → if green, Release canary → if green, promote dev → main → cut stable.
 - **Investigating a regression**: bisect at the lightest layer that fails. If L1 catches it, don't run L4. If L2 catches it, don't run L6.
 
-**Why**: token cost matters (L5+L6 ≈ $1-3 per run; L6 light ≈ ~$0.20; L1-L4 ≈ free). Human time matters (manual L5 = 30-45 min; the rest is automated). Cheap signals first eliminates the need for expensive ones.
+**Why**: token cost matters (Release canary ≈ $1-3 per run; L6 light ≈ ~$0.20; L1-L4 ≈ free). Human time matters (manual smoke = 30-45 min; the rest is automated). Cheap signals first eliminates the need for expensive ones.
+
+**Insertion-friendly naming**: Release canary is non-numeric so future heavy layers (e.g. A/B prompt eval, perf canary) can slot in between L4 and Release canary without renumbering anything.
 
 **The escalation chain**:
 
@@ -38,9 +40,10 @@ PR opened → L0 + L1-L4 in CI (free, < 2 min)
    ↓ green
 PR labeled `L6` (optional) → L6 light in CI (~$0.20, ~3 min)
    ↓ green
-Tag pushed → L5+L6 combined in CI (~$1-3, ~10 min)
+RC tag pushed → Release canary in CI (~$1-3, ~10 min)
    ↓ green
-Release goes out — L5 manual only for genuinely-novel UX scenarios
+Promote RC → main → tag stable. Manual smoke only when an automated layer
+  genuinely can't model the scenario (very rare; document why).
 ```
 
 ## Layout

@@ -107,7 +107,7 @@ No required-approvals (solo dev). Once a second maintainer joins, flip `required
 |---|---|---|---|
 | `test.yml` (L0–L4) | `push` to `dev`/`main`, `pull_request` to `dev`/`main` | dev, main, PRs | free |
 | `l6-dogfood.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*`, `pull_request` labeled `L6` | RC tags + dev/rc dispatch | ~$1–3/run |
-| `l5-l6-combined.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*` | RC tags + dev/rc dispatch | ~$1–3/run |
+| `release-canary.yml` (was `l5-l6-combined.yml`) | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*` | RC tags + dev/rc dispatch | ~$1–3/run |
 
 Stable `v*` tags from main do **not** fire token-heavy tests — that validation already happened on the matching `v*-rc.*` cut. Spending tokens on a known-good cut is waste.
 

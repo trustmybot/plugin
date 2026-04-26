@@ -77,21 +77,25 @@ if ! grep -q "^## ${NEW_TAG} " CHANGELOG.md; then
   exit 1
 fi
 
-# L5 manual dogfood gate. The release script refuses to tag without an
-# explicit signed-off env var matching this exact version. See
-# tests/manual/scenarios.md for the checklist that produces this sign-off.
+# Manual smoke gate (formerly 'L5 manual dogfood'). The release script refuses
+# to tag without an explicit signed-off env var matching this exact version.
+# See tests/manual/scenarios.md for the checklist that produces this sign-off.
+#
+# Note: Release canary (was 'L5+L6 combined') replaces manual smoke for almost
+# everything. Manual smoke remains as a fallback for UX scenarios that the
+# automated layer can't model (e.g. interactive AskUserQuestion responses).
 #
 # Bypass for hotfix releases that don't change Claude-side behavior:
 # set BYPASS_DOGFOOD=1 with a justification in the commit log.
 if [ "${BYPASS_DOGFOOD:-0}" = "1" ]; then
-  printf "⚠️  L5 manual dogfood gate BYPASSED (BYPASS_DOGFOOD=1).\n"
+  printf "⚠️  Manual smoke gate BYPASSED (BYPASS_DOGFOOD=1).\n"
   printf "    This is acceptable for hotfix releases that don't touch Claude-side\n"
   printf "    behavior (agents/skills/CLAUDE.md). Document the bypass reason in the\n"
   printf "    release commit message.\n\n"
 elif [ "${MANUAL_DOGFOOD_PASSED:-}" = "$NEW_TAG" ]; then
-  printf "✓ L5 manual dogfood passed for %s (MANUAL_DOGFOOD_PASSED matches).\n\n" "$NEW_TAG"
+  printf "✓ Manual smoke passed for %s (MANUAL_DOGFOOD_PASSED matches).\n\n" "$NEW_TAG"
 else
-  printf "❌ Refusing to tag. L5 manual dogfood not signed off for %s.\n" "$NEW_TAG" >&2
+  printf "❌ Refusing to tag. Manual smoke not signed off for %s.\n" "$NEW_TAG" >&2
   printf "\n" >&2
   printf "   Walk through the checklist at tests/manual/scenarios.md, then re-run with:\n" >&2
   printf "     export MANUAL_DOGFOOD_PASSED=%s && bash scripts/release.sh\n" "$NEW_TAG" >&2
