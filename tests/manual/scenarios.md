@@ -1,22 +1,47 @@
 # Layer 5 — Manual Dogfood Checklist
 
-> **What this is:** a tight, ~10-item checklist of the things **only a human walking through Claude Code can verify**. The previous 785-line version of this file tried to enumerate every workflow path; that's now covered structurally by L0–L4 (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests). What remains here is the residue — Claude-side behaviors that have no automated test surface.
+> **What this is:** a tight, ~10-item checklist of the things **only a human walking through Claude Code can verify**. L0–L4 cover the rest structurally (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests).
 >
-> **When you must run this:** before tagging any release `v0.2.0` or higher. The release script (`scripts/release.sh`) blocks tagging until you set `MANUAL_DOGFOOD_PASSED=v<X.Y.Z>` in your environment, signed off after walking the checklist below.
+> **When you must run this:**
+> - **Before promoting a release candidate to stable** (the canonical RC validation step — see [`CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) Path 2).
+> - **Before tagging any release** ≥ v0.2.0. The release script (`scripts/release.sh`) refuses to tag until `MANUAL_DOGFOOD_PASSED=v<X.Y.Z>` matches the version being released.
+>
+> **Hotfixes** can bypass via `BYPASS_DOGFOOD=1`, with the bypass reason documented in the release commit. Acceptable when the change demonstrably can't affect Claude-side behavior (doc-only releases, CI-only fixes).
 
 ---
 
-## Setup
+## Setup — TWO supported test paths
+
+### Path A — Marketplace install (REQUIRED for RC validation)
+
+This is what real users experience. **Use this path during RC validation** before promoting `tmb-rc` to stable. It catches install-path bugs that local `--plugin-dir` testing misses (the v0.2.0 + v0.3.0 class).
 
 ```bash
-# Fresh scratch project so no stale .claude/ contaminates the test
+# Fresh scratch project
 mkdir -p /tmp/tmb-dogfood && cd /tmp/tmb-dogfood
 git init -q && git config user.email t@t.t && git config user.name T
 echo "init" > README.md && git add . && git commit -qm init
 
-# Run Claude Code with the plugin under test loaded
+# In Claude Code:
+#   /plugin marketplace add trustmybot/plugin
+#   /plugin install tmb-rc@trustmybot   ← the RC channel under test
+claude
+```
+
+Verify the install actually shipped working code: `ls ~/.claude/plugins/cache/trustmybot/tmb/<version>/mcp/trajectory-server/dist/index.js` should exist. If missing → install path is broken; abort and file v0.X.Y-rc.N+1 fix.
+
+### Path B — `--plugin-dir` local (faster, but does NOT verify install path)
+
+```bash
+mkdir -p /tmp/tmb-dogfood && cd /tmp/tmb-dogfood
+git init -q && git config user.email t@t.t && git config user.name T
+echo "init" > README.md && git add . && git commit -qm init
+
+# Run Claude Code with the local plugin tree loaded — bypasses marketplace install
 claude --plugin-dir "$HOME/Git/GitHub/TMB/plugin"
 ```
+
+Use Path B for **rapid iteration during development**. It uses your local checkout directly — no install lifecycle, no `dist/` rebuild required. **But it does not exercise the marketplace install path that broke v0.2.0 and v0.3.0.** Always finish with at least one Path A run before sign-off.
 
 Reset between scenarios: `rm -rf /tmp/tmb-dogfood && <re-run setup>`.
 

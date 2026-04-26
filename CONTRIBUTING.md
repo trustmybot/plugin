@@ -70,7 +70,10 @@ When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class,
    ```
    /plugin update tmb-rc@trustmybot   # CC re-fetches the rc branch HEAD
    ```
-3. **If broken** → fix on `dev`, cut `v0.4.0-rc.2`, fast-forward `rc`, re-test. Iterate.
+   **Validation protocol:** walk every item in [`tests/manual/scenarios.md`](tests/manual/scenarios.md) against the `tmb-rc` install (Path A — marketplace install, NOT Path B local). Path A is mandatory for RC validation because it exercises the marketplace install lifecycle that broke v0.2.0 and v0.3.0; Path B (`--plugin-dir`) silently sidesteps that bug class.
+
+   On green, set `MANUAL_DOGFOOD_PASSED=v0.4.0` (matching the planned final tag, not the rc.N tag) so `scripts/release.sh` accepts the eventual stable release.
+3. **If broken** → fix on `dev`, cut `v0.4.0-rc.2`, fast-forward `rc`, re-test. Iterate. Each new RC tag is **immutable**; only the floating `rc` branch ref moves.
 4. **If green** → promote: PR `dev → main`, merge, then run `bash scripts/release.sh` to tag `v0.4.0` on main.
 5. After stable release, `tmb-rc` users get the same code that stable users get (rc branch caught up to main). The `rc` branch stays at the validated commit until the next RC cycle starts.
 
