@@ -10,40 +10,18 @@
 
 ---
 
-## Setup — TWO supported test paths
+## Setup
 
-### Path A — Marketplace install (REQUIRED for RC validation)
+Two test paths — see [`setup.md`](./setup.md) for the full instructions, including verify commands and reset procedures.
 
-This is what real users experience. **Use this path during RC validation** before promoting `tmb-rc` to stable. It catches install-path bugs that local `--plugin-dir` testing misses (the v0.2.0 + v0.3.0 class).
+| Path | Command | Use when |
+|---|---|---|
+| **A — Local dev** | `claude --plugin-dir <plugin-clone>` | Active development; fast iteration; hot reload via `/reload-plugins`. |
+| **B — Marketplace RC** | `/plugin install tmb-rc@trustmybot` (in CC) | **REQUIRED for RC validation** before promoting to stable. Exercises CC's actual install lifecycle. |
 
-```bash
-# Fresh scratch project
-mkdir -p /tmp/tmb-dogfood && cd /tmp/tmb-dogfood
-git init -q && git config user.email t@t.t && git config user.name T
-echo "init" > README.md && git add . && git commit -qm init
+**For RC validation: use Path B.** Path A bypasses the install lifecycle that broke v0.2.0 + v0.3.0 — it can't catch that bug class. Path B is the only manual path that does.
 
-# In Claude Code:
-#   /plugin marketplace add trustmybot/plugin
-#   /plugin install tmb-rc@trustmybot   ← the RC channel under test
-claude
-```
-
-Verify the install actually shipped working code: `ls ~/.claude/plugins/cache/trustmybot/tmb/<version>/mcp/trajectory-server/dist/index.js` should exist. If missing → install path is broken; abort and file v0.X.Y-rc.N+1 fix.
-
-### Path B — `--plugin-dir` local (faster, but does NOT verify install path)
-
-```bash
-mkdir -p /tmp/tmb-dogfood && cd /tmp/tmb-dogfood
-git init -q && git config user.email t@t.t && git config user.name T
-echo "init" > README.md && git add . && git commit -qm init
-
-# Run Claude Code with the local plugin tree loaded — bypasses marketplace install
-claude --plugin-dir "$HOME/Git/GitHub/TMB/plugin"
-```
-
-Use Path B for **rapid iteration during development**. It uses your local checkout directly — no install lifecycle, no `dist/` rebuild required. **But it does not exercise the marketplace install path that broke v0.2.0 and v0.3.0.** Always finish with at least one Path A run before sign-off.
-
-Reset between scenarios: `rm -rf /tmp/tmb-dogfood && <re-run setup>`.
+For each scenario below: set up a fresh scratch project per [`setup.md`](./setup.md), run the trigger, verify against the expected behavior, then reset (`rm -rf .claude/tmb/`) before the next scenario.
 
 ---
 

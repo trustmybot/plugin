@@ -1,214 +1,241 @@
-# Local Testing — Setup Guide
+# Manual test setup — two paths
 
-How to stand up a scratch project and exercise the TMB plugin end-to-end. This is the canonical manual-testing path for contributors and dogfooders. For automated test suites, see [`tests/README.md`](../README.md).
+How to stand up a TMB scratch project and verify it works end-to-end. Two distinct paths depending on what you're validating.
+
+> **TL;DR:**
+> - **Local dev** (Path A): `claude --plugin-dir <plugin>` — fast iteration, hot-reload, DOES NOT exercise the marketplace install lifecycle.
+> - **Marketplace RC** (Path B): `/plugin install tmb-rc@trustmybot` — slow but tests the actual install path that broke v0.2.0 + v0.3.0. **Required before promoting an RC to stable.**
+
+---
 
 ## Prerequisites
 
-- **Claude Code** — `claude --version` should work. [Install instructions](https://claude.com/claude-code).
-- **Node 20+** — the bundled MCP server runs on Node.
-- **bun** — used to build the MCP server. `curl -fsSL https://bun.sh/install | bash`.
-- **sqlite3** — for inspecting the trajectory DB. Usually preinstalled; `brew install sqlite3` if not.
-
-Verify the MCP server builds cleanly before doing anything else. **Run from the plugin repo root** (i.e. `cd` into your clone first):
-
-```bash
-bun install         # installs every workspace (mcp/trajectory-server + monitors)
-bun run build       # builds every workspace that has a build script
-```
-
-If that fails, fix it first — the plugin won't load a broken MCP server.
+| Tool | How to check | If missing |
+|---|---|---|
+| Claude Code | `claude --version` | https://claude.com/claude-code |
+| Node 22+ | `node --version` | https://nodejs.org or `nvm install 22` |
+| bun | `bun --version` | `curl -fsSL https://bun.sh/install \| bash` |
+| sqlite3 CLI | `sqlite3 --version` | `brew install sqlite` (macOS) / `apt install sqlite3` (Linux) |
+| Docker (optional, only for L0 install-smoke) | `docker --version` | https://docs.docker.com/desktop |
 
 ---
 
-## Two install modes
+## Path A — Local dev (fast iteration during development)
 
-Pick one. Mode A is tighter for iteration; Mode B matches the release path end users experience.
+**Use this when:** you're developing a feature, fixing a bug, debugging a skill, anything where you want changes to land quickly.
 
-### Mode A — dev mode with hot reload (recommended for contributor iteration)
+**Do NOT use for RC validation** — `--plugin-dir` bypasses CC's marketplace install lifecycle and silently sidesteps the bug class that broke v0.2.0 + v0.3.0.
 
-Launch Claude Code against the plugin source directly. **Run these from the plugin repo root** (same directory you ran `bun install` in) so `$(pwd)` resolves correctly:
+### Setup (one-time per checkout)
 
 ```bash
-# Capture the plugin repo path from the current directory — no placeholder to edit.
+cd ~/Git/GitHub/TMB/plugin   # adjust to your clone path
+bun install                  # installs every workspace + builds dist/
+```
+
+If `bun install` doesn't build `dist/`, run `bun --filter='*' run build` explicitly. Verify:
+
+```bash
+ls mcp/trajectory-server/dist/index.js   # must exist
+```
+
+### Run
+
+```bash
+# Capture plugin path for later commands
 export PLUGIN_PATH="$(pwd)"
-echo "$PLUGIN_PATH"   # sanity-check: should point at your plugin clone
 
-# Use any disposable directory for the scratch project.
-mkdir -p /tmp/tmb-scratch && cd /tmp/tmb-scratch
-git init && git commit --allow-empty -m "init"
+# Fresh scratch project
+mkdir -p /tmp/tmb-dev-test && cd /tmp/tmb-dev-test
+git init -q && git config user.email t@t.t && git config user.name T
+echo init > README.md && git add . && git commit -qm init
 
+# Launch CC against the local plugin tree
 claude --plugin-dir "$PLUGIN_PATH"
 ```
 
-If you prefer to set `PLUGIN_PATH` from somewhere else, substitute your clone path — e.g. `export PLUGIN_PATH=~/code/trustmybot-plugin`. The literal string `/absolute/path/to/...` is not a real path.
+Inside CC, type `@bro hello` (or anything addressing bro). Onboarding should fire.
 
-Edits to agent prompts, skills, or hook scripts are picked up after `/reload-plugins` inside the session. TypeScript edits under `mcp/trajectory-server/src/` require a rebuild (`bun run build`) then `/reload-plugins`.
-
-No install, no cache, no marketplace.
-
-### Mode B — marketplace install (matches end-user flow)
-
-Step 1: capture the plugin path FIRST, from the plugin repo root.
+### Verify (after onboarding)
 
 ```bash
-# (the marketplace command inside CC needs an absolute path)
-cd /path/to/your/trustmybot-plugin-clone       # ← your clone
-export PLUGIN_PATH="$(pwd)"
-echo "$PLUGIN_PATH"                            # sanity-check
-```
-
-Step 2: create a scratch project and launch bare CC (no --plugin-dir).
-
-```bash
-mkdir -p /tmp/tmb-smoke && cd /tmp/tmb-smoke
-git init && git commit --allow-empty -m "init"
-
-claude                                          # launch CC
-```
-
-Inside the session — the `$PLUGIN_PATH` variable was inherited from the shell you launched CC in, so the slash-command resolves it directly:
-
-```
-/plugin marketplace add $PLUGIN_PATH
-/plugin install tmb@trustmybot
-```
-
-This is what downstream users do with `trustmybot/plugin` as the marketplace path. Useful for verifying the install UX, not for rapid iteration.
-
----
-
-## First-run expectations
-
-On the first prompt in a fresh project, the `bro` should:
-
-1. Introduce itself in one short paragraph.
-2. Seed the project's domain-role templates at `./.claude/agents/ceo.md` + `cto.md`.
-3. Ask 2–3 onboarding questions:
-   - Branching model (trunk / gitflow / feature-branch)
-   - PR target + protected branches
-   - Identity for commits and agent comments
-
-After the answers are captured, verify they persisted to SQLite. The DB is project-local at `<your-project>/.claude/tmb/trajectory.db`:
-
-```bash
+# In another terminal, from the scratch dir:
 sqlite3 .claude/tmb/trajectory.db <<'SQL'
-  SELECT key, value_json FROM plugin_config;
-  SELECT * FROM identity;
+.headers on
+SELECT human_name, created_at FROM identity;
+SELECT key, value_json FROM plugin_config ORDER BY key;
+SELECT id, event_type, summary FROM ledger ORDER BY id DESC LIMIT 3;
 SQL
 ```
 
-Expected rows: `branching_model`, `pr_target`, `protected_branches`, and an `identity` row with `human_name` set.
+Expected: 1 identity row, 3 config rows (`branching_model`, `pr_target`, `protected_branches`), and a `tmb_onboarding_complete` ledger event.
 
-If nothing is written, the MCP server didn't connect — check `claude --plugin-dir` output for MCP errors.
-
----
-
-## Hot reload within a session
+### Hot reload (apply edits without restart)
 
 ```
 /reload-plugins
 ```
 
 Picks up edits to:
-- Agent prompts (`plugin/agents/*.md`)
-- Skills (`plugin/skills/**/SKILL.md`)
-- Hook scripts (`plugin/scripts/hooks/*.sh`)
-- Template content (`plugin/templates/**/*`)
+- `agents/*.md` (the global swe + pr-reviewer)
+- `templates/agents/*.md` (consultant templates)
+- `skills/**/SKILL.md` (protocol + default skills)
+- `scripts/hooks/*.sh` (hook scripts)
+- `.mcp.json`, `hooks/hooks.json`
 
-Does **not** pick up TypeScript edits in the MCP server. Rebuild first, from the plugin repo root:
+Does **not** pick up TypeScript edits in `mcp/trajectory-server/src/`. Rebuild first:
 
 ```bash
-bun run build
+cd "$PLUGIN_PATH" && bun run build
 ```
 
-Then `/reload-plugins`.
+Then `/reload-plugins`. The `dist-fresh` lint will fail if you commit a src/ change without rebuilding dist/, so always rebuild before commit anyway.
 
----
+### Reset between test runs
 
-## Reset between tests
-
-Two levels of reset, depending on what you're verifying.
-
-### DB-only reset — keeps the scratch project
-
-Fastest. Use between most scenarios: same scratch dir, same git history, just wipes plugin state so onboarding fires again.
-
+**DB-only (keeps scratch project, fastest):**
 ```bash
-# Inside Claude Code (if installed via marketplace):
-/plugin marketplace remove trustmybot
-
-# Outside CC — run from inside the SCRATCH project (not the plugin repo):
-cd /tmp/tmb-scratch
-rm -rf .claude/tmb/
+cd /tmp/tmb-dev-test
+rm -rf .claude/tmb/   # next @bro will re-trigger onboarding
 ```
 
-### Full scratch wipe — true cold start
-
-Use when switching scenario families, after a failed session that may have created stray files, or when you want the scratch project to have zero history too:
-
+**Full wipe (true cold-start, includes scratch git history):**
 ```bash
-# Exit CC first. Then, from anywhere:
-rm -rf /tmp/tmb-scratch
-mkdir -p /tmp/tmb-scratch && cd /tmp/tmb-scratch
-git init && git commit --allow-empty -m init
-
-# Then relaunch:
+rm -rf /tmp/tmb-dev-test
+mkdir -p /tmp/tmb-dev-test && cd /tmp/tmb-dev-test
+git init -q && git config user.email t@t.t && git config user.name T
+echo init > README.md && git add . && git commit -qm init
 claude --plugin-dir "$PLUGIN_PATH"
 ```
 
-This nukes everything the agents may have created (source files, commits, branches) along with `.claude/tmb/`. Equivalent to a brand-new contributor running the plugin for the first time.
+---
 
-### When to use which
+## Path B — Marketplace RC (REQUIRED for RC validation before promoting to stable)
 
-| Situation | Reset |
-|---|---|
-| Moving to the next scenario in the same flow | DB-only |
-| Switching flows (e.g. finishing Flow 1, starting Flow 2) | DB-only |
-| Previous session left the repo in a broken state (partial commits, stray branches) | Full wipe |
-| Verifying first-time-contributor UX | Full wipe |
-| Testing Mode B install flow | Full wipe |
+**Use this when:** validating a release candidate (`vX.Y.Z-rc.N` tag pushed, `rc` branch fast-forwarded). This is what real users experience — exercises CC's full install lifecycle including the `bun install --ignore-scripts` step that broke v0.2.0 + v0.3.0.
 
-The DB is project-local at `<scratch>/.claude/tmb/trajectory.db`. Switch scratch projects → different DB. Stale onboarding state is the #1 source of *"why isn't first-run triggering"* confusion — when in doubt, full wipe.
+### Setup (one-time per CC profile)
 
-**If you accidentally run `rm -rf .claude/tmb/` in the plugin repo itself**: harmless. `.claude/` is gitignored; the only thing that could be there is a stray DB from a headless smoke test, not shared with any real project.
+If you don't already have the marketplace registered:
+
+In CC:
+```
+/plugin marketplace add trustmybot/plugin
+```
+
+CC clones the marketplace from GitHub and reads `.claude-plugin/marketplace.json` from the default branch (main).
+
+### Install the RC channel
+
+In CC:
+```
+/plugin install tmb-rc@trustmybot
+```
+
+CC fetches whatever commit the `rc` branch points at (per `marketplace.json`'s `tmb-rc` entry), installs into `~/.claude/plugins/cache/trustmybot/tmb/<version>/`. **CC does NOT run postinstall** — this is precisely why we ship `dist/` committed to the repo.
+
+### Verify the install actually delivered working code
+
+**This is the load-bearing check.** v0.2.0 + v0.3.0 both passed this step's expected file but FAILED a deeper invariant. Check both:
+
+```bash
+# 1. Pre-built artifacts present
+INSTALLED=$(ls -td ~/.claude/plugins/cache/trustmybot/tmb/*/ | head -1)
+ls "$INSTALLED/mcp/trajectory-server/dist/index.js"  # must exist
+ls "$INSTALLED/mcp/trajectory-server/dist/schema.sql" # must exist
+
+# 2. Server actually spawns + handles a real DB call
+( echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
+  echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity_get","arguments":{"agent":"bro"}}}'
+  sleep 1
+) | TRAJECTORY_DB_PATH=/tmp/rc-smoke.db \
+  node --experimental-sqlite "$INSTALLED/mcp/trajectory-server/dist/index.js" 2>&1 \
+  | grep -q human_name && echo "✓ MCP responds" || echo "✗ MCP broken — abort RC validation, file v<X.Y.Z>-rc.N+1"
+rm -f /tmp/rc-smoke.db
+```
+
+If either fails, the published artifact is broken — don't run the scenarios; cut a fix RC.
+
+### Run the scenario walkthrough
+
+In CC, set up a **fresh scratch project** and walk every item in [`scenarios.md`](./scenarios.md):
+
+```bash
+# In a new terminal:
+mkdir -p /tmp/tmb-rc-test && cd /tmp/tmb-rc-test
+git init -q && git config user.email t@t.t && git config user.name T
+echo init > README.md && git add . && git commit -qm init
+claude   # bare CC, no --plugin-dir; uses the marketplace install
+```
+
+Then `@bro hello` and walk the 10-item checklist in [`scenarios.md`](./scenarios.md). After completing all 10:
+
+```bash
+export MANUAL_DOGFOOD_PASSED=v<X.Y.Z>   # the FINAL tag, not the rc.N tag
+```
+
+This sets the gate that `scripts/release.sh` checks before tagging the stable release.
+
+### Reset between test runs
+
+**Re-pull the latest RC (CC may cache the install):**
+```
+/plugin update tmb-rc@trustmybot
+```
+
+**Fresh scratch + restart CC** between RCs:
+```bash
+rm -rf /tmp/tmb-rc-test
+# (set up scratch + relaunch claude as above)
+```
+
+**Force re-install (rare — only if cache feels corrupted):**
+```bash
+rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<broken-version>
+# then in CC: /plugin install tmb-rc@trustmybot
+```
 
 ---
 
-## End-to-end dogfood checklist
+## Path C — Docker install-smoke (CI's L0 — also runnable locally)
 
-The full set of manual scenarios — verbatim trigger prompts, prerequisites, expected behavior, verification queries — lives in [**`scenarios.md`**](./scenarios.md) (same directory). 30+ scenarios across all 9 workflows from [`FLOWS.md`](../../docs/architecture/FLOWS.md), including all four corner cases of the roundtable flow.
+This is the automated test that simulates Path B without Claude Code in the loop. Useful for catching install-path bugs at PR time.
 
-Quick smoke checklist (covers the 80% — see SCENARIOS.md for the full grid):
+```bash
+cd "$PLUGIN_PATH"
+bash tests/docker/run-install-smoke.sh
+```
 
-| # | Trigger | Expected |
+Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a marketplace fetch, runs `bun install --frozen-lockfile --ignore-scripts` (CC's actual install behavior), then asserts:
+
+- `dist/index.js` + `dist/schema.sql` present
+- MCP server spawns
+- `tools/list` returns `identity_get`
+- A real `tools/call identity_get` round-trips with a `human_name` field
+- All hooks executable + syntactically valid
+- `.mcp.json`'s referenced paths exist
+
+**This test would have caught both v0.2.0 and v0.3.0** — both bugs were pre-existing before either release shipped, but the test wasn't running with `--ignore-scripts`. v0.3.1 fixed the test to match CC's actual behavior. **Run this locally before any release-related PR.**
+
+---
+
+## Common errors
+
+| Symptom | Cause | Fix |
 |---|---|---|
-| 1 | Fresh install + any first prompt | Bro greets and runs onboarding |
-| 2 | Read-only question (`list files in src/`) | Bro answers inline; no agent spawn |
-| 3 | `fix the typo in README` | Simple-task chain: triage:simple → architect → swe → pr-reviewer |
-| 4 | `add OAuth login` (or any architecture-touching ask) | Difficult chain: triage:difficult + ADR file + standard template |
-| 5 | `change branching model to gitflow` | `tmb_reonboard` skill re-runs onboarding with current values as defaults |
-| 6 | `call yourself alex` | `identity_set` persists; bro signs off as alex |
-| 7 | `refresh architecture docs` | 4 files regenerated under `docs/trustmybot/architecture/auto/` |
-| 8 | Commit on protected branch | `git-guards.sh` blocks |
-| 9 | Push to `feature/*` branch | Always allowed |
-| 10 | Push to dev/main with unsigned completed tasks | `require-review-sign.sh` blocks until pr-reviewer signed |
-
-Any failure here is a bug a downstream user will hit identically — file an issue tagged `dogfood` and reference the scenario ID from SCENARIOS.md.
-
----
-
-## Common pitfalls
-
-- **"MCP server not connected"** — almost always a build failure. From the plugin repo root: `bun run build` and check for errors.
-- **"Onboarding didn't fire"** — stale DB. Delete `.claude/tmb/` in your project root and relaunch.
-- **"Agent changes didn't take effect"** — forgot `/reload-plugins`, or CC cached a previous install (Mode B). Try Mode A for cleaner iteration.
-- **"Hook didn't block"** — hook path mismatch. Check `plugin/hooks/hooks.json` points at the script you edited and that the script is executable (`chmod +x`).
-- **"git-guards blocked my legitimate commit"** — check `plugin_config.protected_branches` — you're on a configured protected branch. Override intentionally or switch to a feature branch.
+| Bro responds but says "MCP tools not available" | dist/ missing in install | Path A: `bun run build`. Path B: file `vX.Y.Z-rc.N+1` to fix the artifact. |
+| Bro doesn't trigger on `@bro hello` | Plugin not loaded | Check `claude --plugin-dir <path>` resolved correctly OR `/plugin install tmb@trustmybot` succeeded |
+| Onboarding asks but doesn't persist | MCP server can't open DB | Check `TRAJECTORY_DB_PATH` env, write permissions on `<scratch>/.claude/tmb/` |
+| `/reload-plugins` doesn't pick up TS edit | TS source needs build | `bun run build` from plugin repo root, then `/reload-plugins` |
+| `git-guards.sh` blocks legitimate commit | On a configured protected branch | Switch to feature branch OR `config_set` `protected_branches` |
+| Multiple installed versions in cache | CC keeps old caches per version | Safe to leave OR `rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<old-version>` |
 
 ---
 
 ## Related
 
-- [`tests/README.md`](../README.md) — automated MCP + hook test suites (`bash tests/run-all.sh`)
-- [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — branch workflow, pre-PR checklist, design principles
-- [`mcp/trajectory-server/docs/CONFIG_KEYS.md`](../../mcp/trajectory-server/docs/CONFIG_KEYS.md) — every `plugin_config` key the plugin reads or writes
+- [`scenarios.md`](./scenarios.md) — the 10-item L5 checklist (what to test during Path B RC validation)
+- [`../README.md`](../README.md) — automated test suites (L0–L4 + L6) and `bash tests/run-all.sh`
+- [`../../CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) — Path 1 hotfix vs Path 2 RC, with explicit promotion sequence
+- [`../../docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md) — workflow flowcharts the scenarios exercise
