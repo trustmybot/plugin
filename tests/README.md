@@ -18,6 +18,30 @@ Each layer catches a different class of bug; skipping any layer means shipping a
 
 **Golden rule:** *Layer N green does not imply Layer N+1 green.* Layer 1 passed with 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. Layer 2 would have caught that at the wire level in milliseconds. Always run all three before tagging a release.
 
+## Testing philosophy — light to heavy, fail fast
+
+**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L6 (light, --plugin-dir) → L5+L6 combined (heavy, marketplace simulation in Docker) → L5 manual (last resort).
+
+This applies to:
+
+- **PR review**: PRs that fail L1 don't pay the L2 cost. PRs that pass L1-L4 trigger L6 only when labeled. L5+L6-combined runs on tag pushes only.
+- **Release validation**: cut a release candidate → run L0 → L4 (every PR did this already) → run L6 light → only if green, run L5+L6 combined → only if green, cut stable.
+- **Investigating a regression**: bisect at the lightest layer that fails. If L1 catches it, don't run L4. If L2 catches it, don't run L6.
+
+**Why**: token cost matters (L5+L6 ≈ $1-3 per run; L6 light ≈ ~$0.20; L1-L4 ≈ free). Human time matters (manual L5 = 30-45 min; the rest is automated). Cheap signals first eliminates the need for expensive ones.
+
+**The escalation chain**:
+
+```
+PR opened → L0 + L1-L4 in CI (free, < 2 min)
+   ↓ green
+PR labeled `L6` (optional) → L6 light in CI (~$0.20, ~3 min)
+   ↓ green
+Tag pushed → L5+L6 combined in CI (~$1-3, ~10 min)
+   ↓ green
+Release goes out — L5 manual only for genuinely-novel UX scenarios
+```
+
 ## Layout
 
 ```
