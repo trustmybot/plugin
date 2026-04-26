@@ -26,6 +26,12 @@ How to stand up a TMB scratch project and verify it works end-to-end. Two distin
 
 **Do NOT use for RC validation** — `--plugin-dir` bypasses CC's marketplace install lifecycle and silently sidesteps the bug class that broke v0.2.0 + v0.3.0.
 
+> ⚠️ **Don't try to "add a local marketplace" with `/plugin marketplace add --local <path>` or `/plugin marketplace add /absolute/path/to/plugin`.**
+> CC has no `--local` flag for marketplace add; both forms get silently mangled into a stale marketplace named something like `"--local -Users"` that pollutes `~/.claude/plugins/marketplaces/` and confuses CC's UI for future installs.
+> The ONLY two correct local-dev paths are:
+> - **Path A (this section):** `claude --plugin-dir <path>` — direct local-tree load, no marketplace involved.
+> - **Path B (next section):** the GitHub-source marketplace, `/plugin marketplace add trustmybot/plugin`. For testing your own fork, push to a GitHub branch and add `your-org/your-fork`.
+
 ### Setup (one-time per checkout)
 
 ```bash
