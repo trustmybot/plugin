@@ -31,32 +31,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify secret is present
-        env:
-          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::warning::CLAUDE_CODE_OAUTH_TOKEN repo secret not set — L6 cannot run."
-            echo "Add the secret in Settings → Secrets and variables → Actions."
-            exit 0
-          fi
-          echo "Secret present."
-
-      - name: Setup Node 22
-        uses: actions/setup-node@v4
+      - name: Verify CC auth (prerequisite — fail-fast on broken token)
+        uses: ./.github/actions/verify-cc-auth
         with:
-          node-version: '22'
+          token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Install plugin deps + build dist/
         run: bun install --frozen-lockfile
-
-      - name: Install Claude Code CLI
-        run: |
-          npm install -g @anthropic-ai/claude-code
-          claude --version
 
       - name: Run L6 dogfood flows
         env:
