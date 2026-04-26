@@ -83,7 +83,7 @@ pending → running → completed → closed
 | `pending` | Planner (bro) | Row inserted with non-empty `spec_body` via `task_create_batch` |
 | `running` | SWE | `task_update_status(running)` at start |
 | `completed` | SWE | `task_update_status(completed)` atomic with commit |
-| `closed` | bro | `task_update_status(closed)` after pr-reviewer's `validation_record(verdict=pass)` |
+| `closed` | bro | `task_update_status(closed)` after bro's own task-gate verification (V1/V2/V3) — see planning skills |
 | `failed` | SWE | `task_update_status(failed)` — escalate to bro |
 
 **SWE MUST call `task_get` to confirm `status='pending'` or `'open'` before
@@ -92,9 +92,15 @@ starting.** If status is anything else, STOP with:
 REJECTED: Task status is "[status]", not pending/open. Only pending tasks can be executed.
 ```
 
-**bro closes tasks** via `task_update_status(closed)` after pr-reviewer
-records a passing `validation_record`. This is the final audit stamp in
-SQLite — not a file edit. pr-reviewer signs the verdict; bro flips state.
+**bro closes tasks** by running its own task-gate verification (the V1/V2/V3
+protocol in `tmb_planning-simple` and `tmb_planning-difficult`), writing a
+`bro_verification_pass` ledger event, then calling `task_update_status(closed)`.
+
+**pr-reviewer is NOT involved at task close.** PR-reviewer is the **push gate**
+— it runs at `git push` time over the batch of unsigned commits, signs them
+with `validation_record(verdict='pass')`, and unblocks the push. Per-task
+sign-off is bro's job; per-push sign-off is pr-reviewer's. See the "Push gate"
+section of plugin `CLAUDE.md`.
 
 ## Parallel Execution
 

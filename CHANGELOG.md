@@ -2,6 +2,47 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.4.1 — 2026-04-25
+
+**Cluster of bugs found during cold-session marketplace dogfood by [@ZaxShen](https://github.com/ZaxShen).** All four were doctrine drift, not infra: bro had stale instructions, server enforcement was working but invisible.
+
+### Fixed — Anonymous identity now persists (issue #95)
+
+`tmb_first-run-onboarding` previously skipped `identity_set` when the Human chose Anonymous. The DB row never existed, so every cold session saw `identity_get().created_at == null` and re-triggered the full onboarding flow — even though configs and ledger events confirmed onboarding had already run.
+
+`identity_set` MCP tool now accepts `anonymous: true` to write a row with `human_name=NULL`. Onboarding always calls `identity_set` (named OR anonymous). Cold-restart-after-Anonymous regression covered by `tests/workflow-sim/flow-09-anonymous-cold-restart.test.mjs`.
+
+### Fixed — Bro now writes `bro_verification_pass` ledger event (issue #91)
+
+The planning skills' V3 step (close path) jumped straight from "verification passed" to `task_update_status(closed)` with no ledger anchor. The trajectory had no record of bro's task-gate verdict — only the absence of a `validation_record` row, which was indistinguishable from "pr-reviewer hasn't gotten there yet."
+
+V3 now batches `ledger_log(event_type='bro_verification_pass')` + `task_update_status(closed)` + `issue_close` (when applicable) in one response. The ledger is the source of truth for bro's task-gate verdict; `validation_attempts` is exclusively pr-reviewer's table.
+
+### Fixed — Bro halts on MCP errors instead of silently proceeding (issue #96)
+
+Trace from cold-session test: bro called `validation_record(agent='bro', verdict='pass')` at task close. Server middleware correctly returned `{"error": "forbidden", "caller_role": "bro", "allowed_roles": ["pr-reviewer"]}`. Bro **ignored the error** and proceeded to `task_update_status(closed)` + `issue_close` + emit "Trust me bro, it works." From the Human's view the task closed cleanly; in reality no verification trace existed.
+
+Two doctrine clauses added to plugin `CLAUDE.md`:
+
+1. **MCP error handling — halt and surface.** Any tool result with `is_error: true` halts the flow. No silent continuation.
+2. **Tools bro must NEVER call.** `validation_record` is pr-reviewer-only. Bro's task-gate uses `ledger_log(bro_verification_pass)`. Server-side rejection now backed by client-side discipline.
+
+### Fixed — Policy-key writes route through `tmb_reonboard` (issue #93)
+
+`branching_model`, `pr_target`, and `protected_branches` are policy keys that drive `git-guards.sh` and skill defaults. Bro could previously call `config_set` on them directly mid-session, bypassing the explicit-confirm UX of the onboarding flow.
+
+`CLAUDE.md` now requires bro to invoke `tmb_reonboard` for policy-key changes — never direct `config_set`. The skill renders an `AskUserQuestion` with current values pre-selected and persists only on explicit confirmation.
+
+### Removed — `tmb_validate-swe-output` skill
+
+Obsolete under bro-as-planner doctrine. Bro's task-gate verification is inline (V1/V2/V3 in the planning skills); pr-reviewer's push-gate verification is its own agent. The forked-Explore validation skill served the old "pr-reviewer signs at task close" flow that v0.3.0 retired.
+
+### Versioning
+
+No schema migration; new column-less `anonymous` flag on `identity_set` is additive. Schema version stays at 1. Tests added: 4 new identity-tool tests + 3 new workflow-sim tests (flow-09 a/b/c).
+
+---
+
 ## v0.3.2 — 2026-04-25
 
 **Hook + agent-prompt hotfix.** Two real bugs in `git-guards.sh` that broke every SWE commit-from-worktree, plus a SWE doctrine violation. Found by [@ZaxShen](https://github.com/ZaxShen) during v0.3.1 marketplace test — bro spent 12 minutes hitting the same hook-block before reporting.

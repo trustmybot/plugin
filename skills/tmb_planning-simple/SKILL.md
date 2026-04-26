@@ -63,8 +63,22 @@ git diff <commit_sha>~1..<commit_sha>           # actual changes
 
 ### Step V3 — Decide
 
-- **All three pass** → emit `task_update_status(agent='bro', task_id=<N>, status='closed')`. If this was the only task on the issue, follow with `issue_close(agent='bro', issue_id=<I>)`. Both calls in the SAME response (parallel batch). Tell the Human "Trust me bro, it works."
-- **Any check fails** → log the failure via `discussion_append(kind='note', body='Verification fail: <which check> — <details>')`. Do NOT close the task. Either re-spawn SWE with feedback (max 3 attempts per task) or escalate to the Human.
+- **All three pass** → batch THREE calls in the SAME response:
+  1. `ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands all passed. V3 success criteria visibly met. Closing.')`
+  2. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
+  3. `issue_close(agent='bro', issue_id=<I>)` IF this was the only task on the issue
+
+  Then tell the Human "Trust me bro, it works." **Do NOT call `validation_record`** — that's pr-reviewer's tool and the server will reject the call as `forbidden`. Bro's task gate writes `bro_verification_pass` to the ledger; pr-reviewer's push gate writes `validation_record` later, over the batch.
+
+- **Any check fails** → batch:
+  1. `ledger_log(agent='bro', from_node='bro', event_type='bro_verification_fail', summary='<which check> — <details>')`
+  2. `discussion_append(kind='note', body='Verification fail: <which check> — <details>')`
+
+  Do NOT close the task. Either re-spawn SWE with feedback (max 3 attempts per task) or escalate to the Human.
+
+### Halt-on-MCP-error
+
+If `task_update_status` or `issue_close` returns `is_error: true`, STOP. Do not emit "Trust me bro, it works." Surface the exact error to the Human. The most common cause is a role-enforcement rejection — meaning the call signature is wrong, not that the close is allowed.
 
 ### What this is NOT
 

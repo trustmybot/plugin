@@ -42,13 +42,17 @@ export function identityTools(db) {
         },
         {
             name: 'identity_set',
-            description: 'Set the human_name on the identity row. Omitted field is preserved (COALESCE semantics).',
+            description: 'Set the identity row. Pass human_name to record a name, OR anonymous:true to record an anonymous identity (row exists with human_name=NULL). Both forms create a row; downstream code distinguishes "onboarded" by row existence (created_at is non-null), not by human_name nullity.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     human_name: {
                         type: 'string',
-                        description: '1-32 chars, must start with a letter',
+                        description: '1-32 chars, must start with a letter. Mutually exclusive with anonymous.',
+                    },
+                    anonymous: {
+                        type: 'boolean',
+                        description: 'true to record an anonymous identity (human_name stored as NULL). Mutually exclusive with human_name.',
                     },
                 },
             },
@@ -76,8 +80,14 @@ export function identityTools(db) {
         }),
         identity_set: requireRoles('identity_set', ['bro'], wrapHandler(async (args) => {
             const rawHuman = args['human_name'];
+            const rawAnonymous = args['anonymous'];
             const hasHuman = rawHuman !== undefined && rawHuman !== null;
-            if (!hasHuman) {
+            const isAnonymous = rawAnonymous === true;
+            if (hasHuman && isAnonymous) {
+                return err('identity_set: pass either human_name OR anonymous:true, not both');
+            }
+            // No-arg call: probe current state without writing.
+            if (!hasHuman && !isAnonymous) {
                 const row = db.get(`SELECT * FROM identity LIMIT 1`);
                 if (!row)
                     return ok(DEFAULT_IDENTITY);
@@ -87,11 +97,17 @@ export function identityTools(db) {
                     updated_at: row.updated_at,
                 });
             }
-            if (typeof rawHuman !== 'string' || !NAME_REGEX.test(rawHuman)) {
-                return err(`Invalid human_name ${JSON.stringify(rawHuman)}: must match /^[a-zA-Z][a-zA-Z0-9 _.-]{0,31}$/`);
+            let humanValue;
+            if (isAnonymous) {
+                humanValue = null;
+            }
+            else {
+                if (typeof rawHuman !== 'string' || !NAME_REGEX.test(rawHuman)) {
+                    return err(`Invalid human_name ${JSON.stringify(rawHuman)}: must match /^[a-zA-Z][a-zA-Z0-9 _.-]{0,31}$/`);
+                }
+                humanValue = rawHuman;
             }
             const now = nowISO();
-            const humanValue = rawHuman;
             const existingRow = db.get(`SELECT * FROM identity WHERE id = 1`);
             if (existingRow) {
                 db.run(`UPDATE identity SET human_name = ?, updated_at = ? WHERE id = 1`, [humanValue, now]);

@@ -125,7 +125,7 @@ describe('identityTools', () => {
     db.close();
   });
 
-  it('identity_set with human_name omitted: no-op, returns current state', async () => {
+  it('identity_set with no args (probe): no-op, returns current state', async () => {
     const db = tempDB();
     const tools = identityTools(db);
 
@@ -134,6 +134,75 @@ describe('identityTools', () => {
     assert.ok(!result.isError);
     const data = parseResult(result);
     assert.equal(data.human_name, 'Alice');
+
+    db.close();
+  });
+
+  it('identity_set with anonymous=true: writes row with human_name=null and non-null timestamps (issue #95)', async () => {
+    const db = tempDB();
+    const tools = identityTools(db);
+
+    const setResult = await call(tools.handlers, 'identity_set', { agent: 'bro', anonymous: true });
+    assert.ok(!setResult.isError);
+    const set = parseResult(setResult);
+    assert.equal(set.human_name, null);
+    assert.ok(set.created_at, 'created_at must be set');
+    assert.ok(set.updated_at, 'updated_at must be set');
+
+    // Critical: the next identity_get must NOT look like "uninitialized".
+    // First-action chain checks `created_at != null` to decide onboarded vs not.
+    const getResult = await call(tools.handlers, 'identity_get', {});
+    const got = parseResult(getResult);
+    assert.equal(got.human_name, null);
+    assert.ok(got.created_at, 'created_at non-null is the "onboarded" signal');
+
+    // Row exists in DB.
+    const row = db.get<{ id: number; human_name: string | null }>('SELECT * FROM identity WHERE id=1');
+    assert.ok(row, 'Anonymous identity must persist a row');
+    assert.equal(row.human_name, null);
+
+    db.close();
+  });
+
+  it('identity_set with anonymous=true on existing named identity: updates to anonymous', async () => {
+    const db = tempDB();
+    const tools = identityTools(db);
+
+    await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: 'Alice' });
+    const setResult = await call(tools.handlers, 'identity_set', { agent: 'bro', anonymous: true });
+    assert.ok(!setResult.isError);
+    const set = parseResult(setResult);
+    assert.equal(set.human_name, null);
+
+    db.close();
+  });
+
+  it('identity_set rejects both human_name AND anonymous in same call', async () => {
+    const db = tempDB();
+    const tools = identityTools(db);
+
+    const result = await call(tools.handlers, 'identity_set', {
+      agent: 'bro',
+      human_name: 'Alice',
+      anonymous: true,
+    });
+    assert.ok(result.isError, 'Must reject ambiguous call');
+    assert.match(parseResult(result).error, /pass either human_name OR anonymous/);
+
+    db.close();
+  });
+
+  it('identity_set with anonymous=false (explicit) is treated as no-op probe, not write', async () => {
+    const db = tempDB();
+    const tools = identityTools(db);
+
+    const result = await call(tools.handlers, 'identity_set', { agent: 'bro', anonymous: false });
+    assert.ok(!result.isError);
+    const data = parseResult(result);
+    assert.equal(data.created_at, null, 'no row should have been written');
+
+    const row = db.get('SELECT * FROM identity LIMIT 1');
+    assert.equal(row, undefined, 'anonymous=false must not write a row');
 
     db.close();
   });
