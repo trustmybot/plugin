@@ -19,6 +19,15 @@ TMB turns Claude Code from a clever code-generator into a disciplined engineerin
 
 The plugin sits dormant until you address `@bro` in a message. No auto-takeover, no surprise behavior — every regular Claude Code workflow keeps working in TMB-enabled sessions.
 
+### Two channels
+
+| Channel | Install | Tracks | When to use |
+|---|---|---|---|
+| **Stable** | `/plugin install tmb@trustmybot` | `main` branch (latest tag) | Production — only validated releases land here |
+| **Release candidate** | `/plugin install tmb-rc@trustmybot` | `rc` branch (currently-testing build) | Beta tester — help validate risky changes pre-promotion. Tolerate occasional breakage. |
+
+The RC channel exists because v0.2.0 and v0.3.0 both shipped install-path bugs that broke every stable user. Now anything risky goes through `tmb-rc` first; stable users only get validated releases. See [`CONTRIBUTING.md` § Release ritual](CONTRIBUTING.md#release-ritual).
+
 ---
 
 ## How to use

@@ -30,6 +30,17 @@ The bug class is **simulation more permissive than reality**. Closed by always t
 
 Bumped all 3 manifest versions to `0.3.1`. No schema migration. `engines.node` unchanged (still `>=22`).
 
+### Added — `tmb-rc` release-candidate channel
+
+`.claude-plugin/marketplace.json` now defines two plugin entries: `tmb` (tracks `main`) and `tmb-rc` (tracks `rc` branch — fast-forwarded to whichever `vX.Y.Z-rc.N` tag is currently being validated). Install path:
+
+- Stable users: `/plugin install tmb@trustmybot` (unchanged behavior — only validated releases)
+- Beta testers: `/plugin install tmb-rc@trustmybot` (opt-in pre-release builds)
+
+**Going forward, any risky change** (install-path, schema, doctrine) **MUST go through `tmb-rc` validation before promoting to `main`.** v0.2.0 and v0.3.0 both broke production because there was no pre-stable channel to catch install-path regressions. Documented end-to-end workflow in [`CONTRIBUTING.md` § Release ritual](CONTRIBUTING.md#release-ritual).
+
+The `tmb-rc` channel is ready to use immediately after this release lands on main. The `rc` branch will be initialized off `main` post-merge.
+
 ---
 
 ## v0.3.0 — 2026-04-25

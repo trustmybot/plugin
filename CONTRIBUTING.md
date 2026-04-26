@@ -12,27 +12,73 @@ Thanks for the interest. Public MIT-licensed plugin for Claude Code. Contributio
 
 ## Branching
 
-- `main` — release tip. Tags (`v0.1.2`, `v1.0.0`, …) live here.
-- `dev` — integration branch. All work-branch PRs land here first.
-- Work branches — use `<type>/<issue-number>-<slug>`, e.g. `feat/42-dual-backend-issues`, `fix/45-gitguards-missing-branch`, `docs/27-local-testing`. Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`. Embedding the issue number makes every branch self-documenting and auto-links on PR merge.
+- `main` — stable release tip. Tags (`v0.3.1`, `v1.0.0`, …) live here. **Marketplace channel: `tmb`.**
+- `rc` — release-candidate channel. Fast-forwarded to whichever `vX.Y.Z-rc.N` tag is currently being validated. **Marketplace channel: `tmb-rc`.**
+- `dev` — integration branch. All work-branch PRs land here first. Not directly published to marketplace; promoted to `rc` for testing, then to `main` for stable.
+- Work branches — use `<type>/<issue-number>-<slug>`, e.g. `feat/42-dual-backend-issues`, `fix/45-gitguards-missing-branch`. Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`. Embedding the issue number makes every branch self-documenting and auto-links on PR merge.
 
 Direct commits to `dev` or `main` are blocked by `git-guards.sh`. Always work on a branch.
 
-**Releases** go via a `dev → main` PR (the only branch other than work-branches that can target `main`). The hook in `git-guards.sh` permits exactly this case while still blocking `feature → main` PRs (the v0.1.1 release exception).
+**Releases** go via `dev → main` PR. **Risky changes go through `rc` first** (see "Release ritual" below). The `git-guards.sh` hook permits dev → main as the only non-work-branch path to main.
+
+## Two marketplace channels
+
+Users choose their risk tolerance:
+
+| Channel | Install command | What it tracks | Audience |
+|---|---|---|---|
+| **stable** | `/plugin install tmb@trustmybot` | `main` branch (latest tag) | Production users — only validated releases |
+| **release candidate** | `/plugin install tmb-rc@trustmybot` | `rc` branch (currently-testing RC tag) | Beta testers, contributors validating risky changes pre-promotion |
+
+Defined in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
+
+The `rc` branch is **fast-forwarded** to a new RC tag for each validation cycle. CC re-fetches on `/plugin update`, so `tmb-rc` users always get the current RC. When an RC graduates to stable, `main` advances; `rc` stays at the validated commit (which is now equivalent to main).
 
 ### Release ritual
 
-Releases are scripted, idempotent, and gated by safety checks. The full ritual:
+Two paths depending on risk:
 
-1. On a work branch off `dev`, bump `version` in both `.claude-plugin/plugin.json` and `mcp/trajectory-server/package.json`. Add the matching `## v<X.Y.Z>` section at the top of `CHANGELOG.md`. Commit + PR into `dev` like any other change.
-2. Once that's merged into `dev`, open a `dev → main` PR. Merge it.
-3. Locally:
-   ```bash
+#### Path 1 — Hotfix (low risk, urgent)
+
+For bug fixes that don't change behavior (security, doctrine-preserving fixes, install-path repairs):
+
+1. On a work branch off `dev`, bump `version` in `.claude-plugin/plugin.json`, `mcp/trajectory-server/package.json`, and root `package.json`. Add `## v<X.Y.Z>` section at the top of `CHANGELOG.md`. Commit + PR into `dev`.
+2. PR `dev → main`, merge.
+3. ```bash
    git checkout main && git pull origin main
    bash scripts/release.sh
    ```
 
-`scripts/release.sh` reads the version from `plugin.json`, validates that `mcp/trajectory-server/package.json` agrees, requires a matching `## v<version>` section in `CHANGELOG.md`, and asks for `y/N` confirmation at each step. It tags `main` HEAD, pushes the tag, and creates a GitHub release with the CHANGELOG section as the body. Re-running after a step succeeds is safe — already-done steps are skipped.
+Stable users (`tmb@trustmybot`) auto-update on next `/plugin update`.
+
+#### Path 2 — Release candidate (any risky change — required for cold-start, install path, doctrine, schema)
+
+When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class, schema migrations, doctrine flips), validate via `tmb-rc` channel before promoting to stable:
+
+1. **Develop on dev as usual.** When ready to test in marketplace, on `dev`:
+   ```bash
+   # Cut RC tag
+   git tag -a v0.4.0-rc.1 -m "v0.4.0 release candidate 1"
+   git push origin v0.4.0-rc.1
+
+   # Fast-forward rc branch to the RC tag
+   git checkout rc && git reset --hard v0.4.0-rc.1
+   git push --force-with-lease origin rc
+   git checkout dev
+   ```
+2. **Install + test from `tmb-rc` channel:**
+   ```
+   /plugin update tmb-rc@trustmybot   # CC re-fetches the rc branch HEAD
+   ```
+3. **If broken** → fix on `dev`, cut `v0.4.0-rc.2`, fast-forward `rc`, re-test. Iterate.
+4. **If green** → promote: PR `dev → main`, merge, then run `bash scripts/release.sh` to tag `v0.4.0` on main.
+5. After stable release, `tmb-rc` users get the same code that stable users get (rc branch caught up to main). The `rc` branch stays at the validated commit until the next RC cycle starts.
+
+`scripts/release.sh` reads the version from `plugin.json`, validates that all 3 manifest versions agree, requires a matching `## v<version>` section in `CHANGELOG.md`, and asks for `y/N` confirmation at each step. It tags `main` HEAD, pushes the tag, creates a GitHub release with the CHANGELOG section as the body, and runs the L6 release canary. Re-running after a step succeeds is safe — already-done steps are skipped. The script also refuses to re-tag a published release (force-pushing tags would corrupt downstream caches; the only path forward is bump version + ship a new tag).
+
+#### Why both paths exist
+
+Path 1 is for fixes that don't need cold-start verification (e.g. doc-only releases). Path 2 is for everything else — especially anything touching install behavior, schema, or agent doctrine. **The v0.2.0 and v0.3.0 breakages happened because we shipped install-path changes via Path 1 with no real-world install verification.** Going forward, anything in those categories MUST go through `tmb-rc` first.
 
 ## Writing code
 

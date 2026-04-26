@@ -1,7 +1,7 @@
 {
   "name": "trustmybot",
   "metadata": {
-    "description": "Public marketplace for trustmybot plugins."
+    "description": "Public marketplace for trustmybot plugins. Two channels — 'tmb' tracks main (production-ready releases), 'tmb-rc' tracks the rc branch (release candidates under active testing). Install whichever you want."
   },
   "owner": {
     "name": "trustmybot",
@@ -10,8 +10,21 @@
   "plugins": [
     {
       "name": "tmb",
-      "source": "./",
-      "description": "TMB multi-agent Claude Code plugin with SQLite trajectory MCP."
+      "source": {
+        "source": "github",
+        "repo": "trustmybot/plugin",
+        "ref": "main"
+      },
+      "description": "TMB multi-agent Claude Code plugin with SQLite trajectory MCP — STABLE channel (tags from main branch only)."
+    },
+    {
+      "name": "tmb-rc",
+      "source": {
+        "source": "github",
+        "repo": "trustmybot/plugin",
+        "ref": "rc"
+      },
+      "description": "TMB release-candidate channel — points at the 'rc' branch which is fast-forwarded to whichever vX.Y.Z-rc.N tag is currently being validated. Install only if you want to test pre-release builds and tolerate breakage. Promotes to 'tmb' (main) once validated."
     }
   ]
 }
