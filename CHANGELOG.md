@@ -206,6 +206,25 @@ tests/dogfood/flows/<name>/
 
 3 new schema unit tests (debug_trajectory cost columns + eval_results structure). All L1-L4 green.
 
+### Added — L5+L6 combined Docker harness (issue #112)
+
+Replaces manual L5 dogfood for everything except UX-only verification. Builds a Docker image that simulates CC's marketplace install path (`bun install --ignore-scripts` → place at `~/.claude/plugins/cache/trustmybot/tmb/<version>/`), then runs L6 deterministic-trajectory flows against the marketplace-installed plugin.
+
+Catches BOTH bug classes in one run:
+- **Install path** (L0's job — dist/ shipping, MCP server cold spawn, native bindings)
+- **Workflow doctrine** (L6's job — does bro do the right thing against the as-shipped artifact?)
+
+Files:
+- `tests/docker/l5-l6-combined.Dockerfile` — combined install + claude install + L6 flows
+- `tests/docker/run-l5-l6-combined.sh` — local convenience wrapper (BuildKit secret for token)
+- `.github/workflows/l5-l6-combined.yml` — release-only CI (tag pushes + manual dispatch)
+
+**Per user policy: token-heavy tests run on tag pushes only, NOT on every PR.** Each full L5+L6 run is ~$1-3 in real Claude tokens. The cost is amortized across releases (one run per tag), trading per-run cost for elimination of manual L5 dogfood (~30-45 min human time per release).
+
+Token security: `CLAUDE_CODE_OAUTH_TOKEN` passed via Docker BuildKit secret (mounted at `/run/secrets/cc_token`), NOT baked into image layers.
+
+The workflow soft-fails when the secret is absent — the L0 install piece still runs, the L6 piece skips with a notice.
+
 ---
 
 ## v0.3.2 — 2026-04-25
