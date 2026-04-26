@@ -164,3 +164,24 @@ CREATE TABLE IF NOT EXISTS regen_state (
     last_seen_sha TEXT,
     notes         TEXT NOT NULL DEFAULT ''
 );
+
+-- L6 deterministic-trajectory test infrastructure (issue #108).
+-- Populated ONLY when env TMB_DEBUG_TRAJECTORY=1. Off by default — zero
+-- overhead in production. The L6 test runner pre-seeds DB state, runs
+-- claude -p with the env set, then asserts the resulting trajectory
+-- matches an expected sequence from FLOWS.md.
+CREATE TABLE IF NOT EXISTS debug_trajectory (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id       TEXT    NOT NULL,
+    step_n           INTEGER NOT NULL,
+    kind             TEXT    NOT NULL,            -- 'mcp_call' | 'tool_use' | 'agent_thinking'
+    agent            TEXT,                        -- 'bro' | 'swe' | 'pr-reviewer' | NULL
+    tool_or_mcp_name TEXT    NOT NULL,            -- e.g. 'mcp__plugin_tmb_trajectory-server__identity_get' or 'Bash'
+    args_json        TEXT    NOT NULL DEFAULT '{}',
+    result_json      TEXT    NOT NULL DEFAULT '{}',
+    is_error         INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_debug_trajectory_session
+    ON debug_trajectory(session_id, step_n);

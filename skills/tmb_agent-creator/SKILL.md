@@ -36,7 +36,7 @@ User-created agents default to **consultant** scope: they advise, return analysi
 | `ceo.md` | Product-scope consultant — prioritization, business framing | ~21 |
 | `pm.md` | Product-strategy consultant — user-need framing, success metrics | ~21 |
 
-(`swe.md` and `pr-reviewer.md` also live as templates but they're handled by `tmb_bootstrap`, not this skill.)
+(`swe.md` and `pr-reviewer.md` ship globally in the plugin's `agents/` dir — no template copy needed. This skill handles consultants only.)
 
 If the Human's request matches a shipped template name → **template-copy mode**. Otherwise → **from-scratch mode**.
 
