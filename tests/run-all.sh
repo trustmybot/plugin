@@ -41,6 +41,8 @@ run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/lint/shellchec
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/lint/tsc-noemit.sh"
 run_step "L1 lint: release script safety guards"      bash "$HERE/lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/lint/dist-fresh.sh"
+run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/lint/labels-stable.sh"
+run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/lint/enums-stable.sh"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 

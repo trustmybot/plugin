@@ -41,6 +41,22 @@ Obsolete under bro-as-planner doctrine. Bro's task-gate verification is inline (
 
 No schema migration; new column-less `anonymous` flag on `identity_set` is additive. Schema version stays at 1. Tests added: 4 new identity-tool tests + 3 new workflow-sim tests (flow-09 a/b/c).
 
+### Added — Label + ENUM doctrine (issue #38)
+
+Two new doctrine docs codify the controlled vocabularies the project relies on:
+
+- **`docs/contributing/LABELS.md`** — canonical GH issue label list. Adopts GitHub's 9 default labels, K8s `area/<name>` + `priority/<level>` + `lifecycle/<state>` namespaces, and 2 documented TMB-specific labels (`doctrine`, `discussion`). Replaces the previously-invented `area:*`, `p:*`, `stale`, `superseded` labels with their K8s equivalents.
+- **`docs/contributing/ENUMS.md`** — every ENUM in `schema.sql` is listed with its canonical values + source convention (GH / K8s / TMB-specific with rationale).
+
+Two new lints enforce drift prevention:
+
+- **`tests/lint/labels-stable.sh`** — fails if a GH label exists that's not in `LABELS.md`, or vice versa. Skipped on dev machines without `gh` auth; always runs in CI.
+- **`tests/lint/enums-stable.sh`** — parses `ENUMS.md` and the code, fails if a hardcoded value isn't documented.
+
+GH label migration applied: 17 labels → 25 (renames + 9 new K8s `area/*`). All 18 open issues' labels auto-renamed in place via `gh label edit --name`. The `superseded` label was dropped — when a issue is replaced, close with a `superseded by #N` comment.
+
+This is the doctrine half of #38. The DB-side half (`issue_labels` table + 4 MCP tools to mirror GH labels into the trajectory DB) is gated on schema review and ships in a follow-up.
+
 ---
 
 ## v0.3.2 — 2026-04-25
