@@ -2,13 +2,22 @@
 
 Thanks for the interest. Public MIT-licensed plugin for Claude Code. Contributions welcome — issues, PRs, dogfood reports, all of it.
 
+## Where issues live
+
+**Linear is the active issue tracker** as of 2026-04-26. The full backlog + closed history is mirrored in the [TMB Plugin Linear project](https://linear.app/trustmybot/project/tmb-plugin-ef035f954ad7).
+
+- **File new issues in Linear.** Linear issue IDs look like `TRU-N`.
+- **GitHub issues are read-only.** All 50 historical GH issues are closed-as-migrated with redirects to their Linear counterparts. Do not file new GH issues.
+- **PR discussion stays on GitHub** — code review, CI, merges, releases all happen here.
+- Linear issue references in PR bodies use the form `TRU-N` (no `#` prefix). GitHub auto-renders as plain text.
+
 ## TL;DR
 
-1. Open (or find) a GitHub issue for the change.
-2. Branch off `dev` using `<type>/<issue-number>-<slug>` (see Branching).
+1. Open (or find) a Linear issue (`TRU-N`) for the change.
+2. Branch off `dev` using `<type>/tru-<N>-<slug>` (see Branching).
 3. Make the change + update or add tests.
 4. `bash tests/run-all.sh` — full suite must be green.
-5. Open a PR targeting `dev`. Reference the issue with `Closes #N`.
+5. Open a GitHub PR targeting `dev`. Reference the Linear issue in the body (e.g. `Resolves TRU-N`).
 
 ## Branching
 
