@@ -8,7 +8,7 @@ agent: bro, swe, pr-reviewer
 
 ## Commit Message Style
 
-Use Conventional Commits with an emoji prefix. Examples:
+Use Conventional Commits with an emoji prefix. Emoji per [gitmoji.dev](https://gitmoji.dev/) — the de facto standard:
 
 ```
 ✨ feat(api): add /users endpoint
@@ -16,9 +16,15 @@ Use Conventional Commits with an emoji prefix. Examples:
 📝 docs(readme): clarify install steps
 ♻️ refactor(parser): extract URL canonicalizer
 ✅ test(orders): cover refund path
-🔥 perf(query): batch N+1 lookups
+⚡ perf(query): batch N+1 lookups
 🔧 chore(ci): bump node version
+📦 build(deps): bump bun to 1.3
+👷 ci(workflow): add Node 22 matrix
+💄 style(button): align padding
+⏪ revert(api): roll back /users endpoint
 ```
+
+**Don't invent emoji.** If the type isn't covered above, look it up on gitmoji.dev — that's the authoritative source.
 
 ## Two review gates
 
