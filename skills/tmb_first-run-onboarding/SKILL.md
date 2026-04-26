@@ -72,8 +72,7 @@ Onboarding completes ONLY after ALL of the following have succeeded AND a final 
 2. `config_set(agent='bro', key='branching_model', value=<canonical>)` — `value` is a string, e.g. `value="github-flow"`.
 3. `config_set(agent='bro', key='pr_target', value=<answer>)` — `value` is a string, e.g. `value="main"`.
 4. `config_set(agent='bro', key='protected_branches', value=<array of strings>)` — `value` is a **raw JSON array**, e.g. `value=["main"]`. Do NOT pass `value="[\"main\"]"` (a pre-serialized string). The MCP server calls `JSON.stringify(value)` on what you pass; if you pre-serialize, the DB stores a string and every downstream hook that expects an array breaks.
-5. Read+Write file copies for the executor + swe-side skills (Step 5 below — 1 agent file, 5 skill files).
-6. `ledger_log(agent='bro', event_type='tmb_bootstrap_complete', summary='...')` — **non-optional audit-trail row.** Without this, the trajectory loses the "onboarding ran here" anchor; future skills + tests assume it exists.
+5. `ledger_log(agent='bro', event_type='tmb_onboarding_complete', summary='...')` — **non-optional audit-trail row.** Without this, the trajectory loses the "onboarding ran here" anchor; future skills + tests assume it exists. (No file copies — `swe`, `pr-reviewer`, and 7 default skills ship globally with the plugin.)
 
 **Never narrate a rejection** — only report what the MCP tool actually returned. **Never skip a write** because you think it might fail. If a call errors, retry it. If it keeps erroring, surface the exact error to the Human and ask whether to retry or abort.
 

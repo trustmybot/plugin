@@ -131,6 +131,48 @@ Net: 25 labels → 18. All open issues auto-relabeled in place.
 
 This is the **second** label migration in the v0.4.1 pre-stable window. Acceptable because no public consumers depend on the names yet — the rc channel hasn't promoted to stable.
 
+### Added — L6 deterministic-trajectory tests + opt-in debug_trajectory schema (issue #108)
+
+Manual L5 dogfood was the release bottleneck. L6 automates it by pre-seeding DB state, running real `claude -p`, and asserting the resulting MCP/tool trajectory matches the expected sequence from `FLOWS.md`. New layer in the test pyramid; existing L0–L5 unchanged.
+
+**New schema table** `debug_trajectory` (15th table):
+- Columns: `session_id`, `step_n`, `kind` (`mcp_call`/`tool_use`), `agent`, `tool_or_mcp_name`, `args_json`, `result_json`, `is_error`, `created_at`
+- **Off by default — populated only when env `TMB_DEBUG_TRAJECTORY=1`.** Zero overhead in production.
+- Schema version stays at 1 (additive change).
+
+**Capture wiring**:
+- MCP server (`src/index.ts`) writes a row per MCP tool call when env is set
+- New PreToolUse hook `scripts/hooks/debug-trajectory.sh` (`matcher: "*"`) writes a row per non-MCP tool call (Bash/Read/Write/Edit/Task/Skill)
+
+**Test infrastructure**:
+- `tests/dogfood/run-l6.sh` runner — checks env + tools, dispatches to flow scripts
+- `tests/dogfood/lib/flow-helpers.sh` — shared helpers (`l6_setup_scratch_project`, `l6_seed_db`, `l6_run_claude`, `l6_assert_trajectory`)
+- `tests/dogfood/flows/` — 16 flow scripts (4 fully wired, 12 scaffold)
+- `tests/dogfood/fixtures/` — pre-seed SQL (empty, onboarding-named, onboarding-anonymous)
+- `tests/dogfood/expected/` — expected-trajectory files (one MCP/tool call per line)
+
+**4 fully wired flows** (have expected-trajectory files):
+- `01-onboarding` — first-run identity + config writes
+- `02-simple-task` — code-touching ask → triage simple → SWE spawn
+- `D-direct-mode` — ≤3-line typo fix → Edit + commit, no SWE spawn (with hard invariant assertions)
+- `95-anonymous-cold-restart` — regression for #95; cold session must skip re-onboarding
+
+**12 scaffolded flows** (auto-skip until expected-trajectory authored): `03-difficult-task`, `04-agent-creator`, `05-skill-creation`, `06-push-gate`, `07-architecture-regen`, `08-swe-retry`, `09-roundtable`, `C-consultant`, `32-team-config`, `92-base-branch`, `94-arch-bootstrap`, `96-halt-on-error`.
+
+**CI workflow** `.github/workflows/l6-dogfood.yml`:
+- Triggers: tag pushes, PRs labeled `L6`, manual dispatch
+- Soft-fails when `CLAUDE_CODE_OAUTH_TOKEN` secret is absent (forks won't break red)
+- Uploads trajectory dumps as artifacts on failure
+
+**Stale doctrine cleanup** (per the migration audit):
+- Onboarding skill: fixed event_type from stale `tmb_bootstrap_complete` → `tmb_onboarding_complete`; dropped reference to "file copies" (swe + pr-reviewer ship globally)
+- Agent-creator skill: dropped `tmb_bootstrap` reference (skill is gone in v0.3.0+)
+- Plugin CLAUDE.md: removed the "tmb_bootstrap is being retired" sentence (it's already retired)
+
+**Unverified assumption flagged in the issue**: `claude -p` mode behavior with `AskUserQuestion`. If the form auto-fails in headless mode, that surfaces as a trajectory-shorter-than-expected failure on the onboarding flow — a real signal to address.
+
+2 new schema tests (table presence + columns + index). All L1-L4 green.
+
 ---
 
 ## v0.3.2 — 2026-04-25

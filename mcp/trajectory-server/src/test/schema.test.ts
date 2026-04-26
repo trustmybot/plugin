@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh DB contains all 14 tables', () => {
+  it('fresh DB contains all 15 tables', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -21,6 +21,7 @@ describe('schema — current table set, default values, constraints', () => {
       'plugin_config',
       'identity',
       'regen_state',
+      'debug_trajectory',
     ];
 
     const rows = db.all<{ name: string }>(
@@ -109,6 +110,45 @@ describe('schema — current table set, default values, constraints', () => {
 
     const rows = db.all('SELECT * FROM file_registry');
     assert.equal(rows.length, 0);
+
+    db.close();
+  });
+
+  it('debug_trajectory has zero rows on init (issue #108)', () => {
+    const db = tempDB();
+
+    const rows = db.all('SELECT * FROM debug_trajectory');
+    assert.equal(rows.length, 0);
+
+    db.close();
+  });
+
+  it('debug_trajectory has expected columns + index (issue #108)', () => {
+    const db = tempDB();
+
+    const cols = db.all<{ name: string }>('PRAGMA table_info(debug_trajectory)');
+    const colNames = cols.map((c) => c.name).sort();
+    assert.deepEqual(colNames, [
+      'agent',
+      'args_json',
+      'created_at',
+      'id',
+      'is_error',
+      'kind',
+      'result_json',
+      'session_id',
+      'step_n',
+      'tool_or_mcp_name',
+    ]);
+
+    const indexes = db.all<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='debug_trajectory'",
+    );
+    const indexNames = indexes.map((i) => i.name);
+    assert.ok(
+      indexNames.includes('idx_debug_trajectory_session'),
+      'session-step index must exist for L6 reads',
+    );
 
     db.close();
   });

@@ -2,15 +2,19 @@
 
 Everything test-related for the plugin — how to run, what each layer covers, when to add a test where, and the full manual-test catalog.
 
-## Three layers
+## Layered test pyramid
 
-Each catches a different class of bug; skipping any layer means shipping a bug the others cannot see.
+Each layer catches a different class of bug; skipping any layer means shipping a bug the others cannot see.
 
 | Layer | What | Where | Catches |
 |---|---|---|---|
-| **1 — Unit** | Handler logic, synthetic args; no LLM, no protocol | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
-| **2 — Integration** | Real server subprocess + JSON-RPC stdio; schema contract, role matrix, per-agent workflow | [`mcp-integration/*.test.mjs`](./mcp-integration/) | Schema drift, missing `agent` param, protocol plumbing, role-enforcement gaps, cross-tool workflow bugs |
-| **3 — Dogfood** | Human-driven interactive Claude Code session | [`manual/`](./manual/) | UX regressions, agent prompt drift, routing decisions, anything that depends on real LLM judgment |
+| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`docker/install-smoke.Dockerfile`](./docker/) | dist/ shipping, prebuild, MCP server cold-spawn — caught v0.2.0 + v0.3.0 |
+| **L1** | Lint (version sync, link check, dist freshness, etc.) | [`lint/*.sh`](./lint/) | Stale CHANGELOG, broken links, version drift, doctrine doc parity |
+| **L2** | Unit — handler logic, synthetic args; no LLM, no protocol | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
+| **L3** | Integration — real server subprocess + JSON-RPC stdio | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement |
+| **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
+| **L5** | Manual dogfood — human-driven interactive Claude Code session | [`manual/`](./manual/) | UX regressions only catchable with a human |
+| **L6** | **Deterministic-trajectory dogfood — pre-seeded DB + `claude -p` + assert MCP/tool sequence** (issue #108) | [`dogfood/`](./dogfood/) | Doctrine drift between FLOWS.md and reality, agent-prompt regressions, cold-start behavior |
 
 **Golden rule:** *Layer N green does not imply Layer N+1 green.* Layer 1 passed with 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. Layer 2 would have caught that at the wire level in milliseconds. Always run all three before tagging a release.
 
@@ -19,15 +23,23 @@ Each catches a different class of bug; skipping any layer means shipping a bug t
 ```
 tests/
 ├── README.md                ← (you are here) framework + operational
-├── run-all.sh               ← orchestrator — runs every automated suite
-├── mcp-integration/         ← Layer 2 — real server subprocess + JSON-RPC
-├── hooks/                   ← hook script tests
-├── lint/                    ← agent-prompt budget + related linters
+├── run-all.sh               ← orchestrator — runs L0-L4
+├── docker/                  ← L0 install-smoke
+├── lint/                    ← L1 lints (version sync, links, doctrine docs)
+├── mcp-integration/         ← L3 real server subprocess + JSON-RPC
+├── hooks/                   ← L3 hook script tests
+├── workflow-sim/            ← L4 MCP-only multi-step workflow tests
 ├── lib/                     ← shared shell-assert helpers
-└── manual/                  ← Layer 3 — human-run against a real Claude Code session
-    ├── README.md
-    ├── setup.md
-    └── scenarios.md
+├── manual/                  ← L5 human-run against a real Claude Code session
+│   ├── README.md
+│   ├── setup.md
+│   └── scenarios.md
+└── dogfood/                 ← L6 deterministic-trajectory tests (issue #108)
+    ├── run-l6.sh
+    ├── lib/flow-helpers.sh
+    ├── flows/<name>.test.sh
+    ├── fixtures/<name>.sql
+    └── expected/<name>.txt
 ```
 
 Layer 1 (MCP unit tests) lives at `mcp/trajectory-server/src/test/` — colocated with the source it tests, following the convention used elsewhere in that package.
@@ -57,9 +69,30 @@ bash tests/hooks/run.sh
 bash tests/lint/agent-line-budget.sh
 ```
 
-## Run the manual suite (Layer 3)
+## Run the manual suite (L5)
 
 See [`manual/README.md`](./manual/README.md) — setup, scenarios, and what to do when a scenario fails.
+
+## Run L6 dogfood (deterministic-trajectory tests)
+
+L6 drives real Claude Code through pre-seeded TMB workflows and asserts the MCP/tool sequence matches FLOWS.md. Issue #108.
+
+```bash
+# One-time: set the headless auth token
+export CLAUDE_CODE_OAUTH_TOKEN="<your-cc-oauth-token>"
+
+# Run all flows
+bash tests/dogfood/run-l6.sh
+
+# Run a single flow by name substring
+bash tests/dogfood/run-l6.sh onboarding
+```
+
+Each flow lives in `tests/dogfood/flows/<name>.test.sh`. Expected trajectories are `tests/dogfood/expected/<name>.txt` (one MCP/tool call per line, prefixed `mcp_call:` or `tool_use:`). Pre-seed SQL fixtures live in `tests/dogfood/fixtures/<name>.sql`.
+
+To add a new flow: copy an existing `flows/*.test.sh`, name a fixture (or write one), capture the expected sequence by running once with `TMB_DEBUG_TRAJECTORY=1` and reading the `debug_trajectory` table.
+
+CI runs L6 on tag pushes and on PRs labeled `L6`. The workflow at `.github/workflows/l6-dogfood.yml` skips silently if the secret is unset.
 
 ## Which layer does a new test belong in?
 

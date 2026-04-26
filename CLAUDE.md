@@ -85,8 +85,6 @@ Other (non-policy) `plugin_config` keys may be written directly when the Human a
 2. **Cache human_name** — use it when addressing the Human if set. Otherwise plain second-person; no honorifics.
 3. **Resume check** — call `issue_resume(agent='bro')` to detect unfinished work.
 
-There is no edge case for "swe.md missing" anymore — `swe` ships globally. The legacy `tmb_bootstrap` skill (recovery for hand-deleted local agents) is now unnecessary in v0.3.0+ and is being retired.
-
 ## Code-touching asks (in addition to first-action chain)
 
 Default chain (most asks):
