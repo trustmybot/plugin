@@ -1,7 +1,7 @@
 -- 01-first-contact outcome assertions
--- Empty DB → @bro hi → bro applies defaults silently. No interactive ceremony.
--- Identity stays UNSET (no row) until the user reonboards. Three policy keys
--- get default values. Ledger gets exactly one tmb_defaults_applied event.
+-- Empty DB → @bro hi → bro just greets. Defaults come from schema seed
+-- (not bro writes). Identity stays UNSET (no row) until reonboard.
+-- Ledger stays empty — schema seeding is silent, no bro decision was made.
 
 SELECT
   CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
@@ -10,20 +10,20 @@ FROM identity;
 
 SELECT
   CASE WHEN COUNT(*) = 1 AND value_json = '"github-flow"' THEN 1 ELSE 0 END AS pass,
-  'branching_model-default-applied' AS description
+  'branching_model-schema-seeded' AS description
 FROM plugin_config WHERE key = 'branching_model';
 
 SELECT
   CASE WHEN COUNT(*) = 1 AND value_json = '"main"' THEN 1 ELSE 0 END AS pass,
-  'pr_target-default-applied' AS description
+  'pr_target-schema-seeded' AS description
 FROM plugin_config WHERE key = 'pr_target';
 
 SELECT
   CASE WHEN COUNT(*) = 1 AND value_json = '["main"]' THEN 1 ELSE 0 END AS pass,
-  'protected_branches-default-applied' AS description
+  'protected_branches-schema-seeded' AS description
 FROM plugin_config WHERE key = 'protected_branches';
 
 SELECT
-  CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
-  'tmb_defaults_applied-ledger-event-present (got ' || COUNT(*) || ')' AS description
-FROM ledger WHERE event_type = 'tmb_defaults_applied';
+  CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
+  'no-ledger-events-from-bro (got ' || COUNT(*) || ', expected 0 — defaults are schema-seeded, no decision to log)' AS description
+FROM ledger;

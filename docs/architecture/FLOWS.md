@@ -52,35 +52,30 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 - Hooks: none
 - **Filesystem ops: NONE.** swe + pr-reviewer + default skills serve globally; nothing is copied into the project.
 
-**Doctrine: no onboarding ceremony.** Modern agents don't onboard — they just work. Bro applies sensible defaults silently on first activation, persists them to the DB so they survive across sessions, and announces what it did in the welcome banner. The user can change anything any time via `tmb_reonboard`.
+**Doctrine: no onboarding, no bro-side default-write.** Modern agents don't onboard. The schema (`mcp/trajectory-server/src/schema.sql`) seeds the three policy keys at DB creation via `INSERT OR IGNORE`, so bro never has to apply or persist defaults — they're there from the moment the DB exists. Bro just reads what it needs and greets.
 
 ```mermaid
 sequenceDiagram
     participant H as Human
     participant G as Bro
-    participant DB as SQLite (plugin_config, ledger)
+    participant DB as SQLite (plugin_config, identity, ledger)
 
-    Note over G: First activation — checks identity_get + config_get
+    Note over DB: Schema-init seeded plugin_config defaults<br/>(github-flow / main / ["main"]) at DB creation.
+
+    Note over G: First activation — two parallel reads
     G->>DB: identity_get()
-    G->>DB: config_get("branching_model")
-    DB-->>G: both null → first contact
-
-    Note over G: No AskUserQuestion. Apply defaults silently.
-    G->>DB: config_set("branching_model", "github-flow")
-    G->>DB: config_set("pr_target", "main")
-    G->>DB: config_set("protected_branches", ["main"])
-    G->>DB: ledger_log(event_type='tmb_defaults_applied', ...)
     G->>DB: issue_resume()
+    DB-->>G: identity null + no pending work
 
-    G->>H: "Entering bro mode. First activation here — applied defaults: github-flow, main as PR target. Say `reonboard` to customize. <continue with the actual ask>"
+    G->>H: "Entering bro mode. What are we doing?"
 ```
 
 **Notes:**
-- **No `identity` row written.** The absence of an identity row means "user hasn't named themselves yet." Bro greets without a name (plain second-person) until the user invokes `tmb_reonboard` to set one.
-- **No file copying.** swe + pr-reviewer + default skills already serve from the plugin globally.
-- **The welcome banner is mandatory** — see CLAUDE.md "Welcome banner" section for the three banner variants (first activation / returning with pending work / returning idle).
-- **Subsequent sessions skip the writes.** Bro reads the existing config, mentions "Welcome back" in the banner, continues.
-- **Re-runnable any time** via the `tmb_reonboard` skill (bro invokes it on phrases like "switch to gitflow", "update my name", "reonboard").
+- **No `identity` row exists** until the user invokes `tmb_reonboard`. Bro greets with plain second-person ("hey", "you") until then.
+- **No bro-side default-write.** Defaults are part of the schema. `INSERT OR IGNORE` makes the seed idempotent across re-runs.
+- **No `tmb_defaults_applied` ledger event** — system seeding is silent; bro only logs ledger events for decisions it actually makes.
+- **Welcome banner is mandatory** (CLAUDE.md). Two variants: pending work (resume) or idle (greeting).
+- **`tmb_reonboard`** is the only skill that writes to `identity` or changes policy keys. Phrases that invoke it: "switch to gitflow", "update my name", "reonboard".
 - Resolution rule for backbone agents: if `<project>/.claude/agents/swe.md` (or `pr-reviewer.md`) exists → use local; else use the global plugin-shipped one. Local creation is opt-in via `tmb_agent-creator` with explicit Human approval.
 
 ---

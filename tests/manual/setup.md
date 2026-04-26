@@ -74,7 +74,7 @@ SELECT id, event_type, summary FROM ledger ORDER BY id DESC LIMIT 3;
 SQL
 ```
 
-Expected: 1 identity row, 3 config rows (`branching_model`, `pr_target`, `protected_branches`), and a `tmb_defaults_applied` ledger event.
+Expected: 1 identity row (set via `tmb_reonboard`), 3 config rows from the schema seed (`branching_model`, `pr_target`, `protected_branches`), and an empty ledger if no decisions have fired yet.
 
 ### Hot reload (apply edits without restart)
 
