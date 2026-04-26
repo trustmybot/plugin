@@ -26,8 +26,13 @@ fi
 
 # Pull canonical names from the doc.
 CANONICAL_FILE=$(mktemp)
+LIVE_FILE=$(mktemp)
 trap 'rm -f "$CANONICAL_FILE" "$LIVE_FILE"' EXIT
-grep -oE '^\| `[^`]+`' "$DOC" | sed -E 's/^\| `([^`]+)`/\1/' | sort -u > "$CANONICAL_FILE"
+# Match label rows from any canonical-list table — heading-agnostic so the
+# parser keeps working as the doc evolves. A label row is `| **Name** | ...`
+# (canonical-list tables) — bold-wrapped so it's distinguishable from the
+# table header rows like `| Label | Means |`.
+grep -oE '^\| \*\*[^*]+\*\*' "$DOC" | sed -E 's/^\| \*\*([^*]+)\*\*/\1/' | sort -u > "$CANONICAL_FILE"
 
 if [ ! -s "$CANONICAL_FILE" ]; then
   echo "  ✗ LABELS.md has no parseable canonical names" >&2
@@ -35,7 +40,6 @@ if [ ! -s "$CANONICAL_FILE" ]; then
 fi
 
 # Pull current GH labels
-LIVE_FILE=$(mktemp)
 gh label list --limit 100 --json name --jq '.[].name' 2>/dev/null | sort -u > "$LIVE_FILE" || true
 
 if [ ! -s "$LIVE_FILE" ]; then

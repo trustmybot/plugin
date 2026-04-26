@@ -107,6 +107,30 @@ Other channel-isolation surfaces called out in #87:
 
 8 new unit tests covering `resolvePluginName` + `resolveDbPath` channel-isolation paths.
 
+### Labels — second migration to Linear-native style (issue #101)
+
+The K8s convention adopted earlier in v0.4.1 (PR #98) proved opaque to readers (*"area (idk wtf it is)"*). Pivoted to Linear-native flat style which is self-explanatory at a glance.
+
+Renames (preserves issue → label links via `gh label edit --name`):
+
+| Before | After |
+|---|---|
+| `area/install`, `area/workflow`, `area/mcp`, `area/hooks`, `area/roundtable`, `area/multi-platform`, `area/perf`, `area/tests` | `Install`, `Workflow`, `MCP`, `Hooks`, `Roundtable`, `Multi-platform`, `Performance`, `Tests` |
+| `priority/critical`, `priority/high`, `priority/medium`, `priority/low` | `Priority: Urgent`, `Priority: High`, `Priority: Medium`, `Priority: Low` (matches Linear's display) |
+| `bug` | `Bug` (capitalized) |
+| `enhancement` | `Feature` (renamed to match Linear default) |
+| `doctrine`, `discussion` | `Doctrine`, `Discussion` |
+
+Added: `Improvement` (Linear default — refactor/polish), `Docs` (doc-only changes — Linear's `Improvement` is too generic).
+
+Dropped: `lifecycle/stale` (use `gh issue list --updated` instead; Linear has native auto-stale), `area/docs` (collapses into the new `Docs` type label), 6 unused GH defaults (`good first issue`, `help wanted`, `invalid`, `question`, `wontfix`, `duplicate`, `documentation`).
+
+Net: 25 labels → 18. All open issues auto-relabeled in place.
+
+`docs/contributing/LABELS.md` rewritten. `tests/lint/labels-stable.sh` updated to parse the new doc structure (bold-wrapped names instead of backtick-wrapped).
+
+This is the **second** label migration in the v0.4.1 pre-stable window. Acceptable because no public consumers depend on the names yet — the rc channel hasn't promoted to stable.
+
 ---
 
 ## v0.3.2 — 2026-04-25
