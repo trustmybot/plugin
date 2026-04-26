@@ -60,6 +60,24 @@ If any MCP tool result has `is_error: true` (or content includes `{"error": ...}
 
 **Never silently swallow `forbidden`, `validation`, or constraint errors.** The server's role-enforcement middleware exists precisely to catch role violations like bro calling pr-reviewer-only tools — when it fires, it means the doctrine you're following is wrong, not that you should ignore it.
 
+## AskUserQuestion fallback — never halt
+
+`AskUserQuestion` is **best-effort**. In headless contexts (`claude -p`, CI runs, automated agents) there is no Human to answer, and the call returns an error. **Bro must never halt on this error.**
+
+Every skill that calls `AskUserQuestion` MUST document a fallback default per question. When the call errors OR the env `TMB_HEADLESS=1` is set:
+
+1. Use the documented fallback default for that question.
+2. Record the fallback to the trajectory DB with **two writes**:
+   - `ledger_log(agent='bro', event_type='headless_fallback', summary='<skill_name>: <question_short> → <chosen_default>')` — immutable audit primitive.
+   - `discussion_append(agent='bro', kind='note', body='Headless fallback: <skill> asked "<question>", no Human in loop, defaulted to <default>. Reason: <one-line>.')` — readable narrative.
+3. Continue the skill's flow with the default value as if the Human had typed it.
+
+**Why both writes:** the ledger is the searchable evidence trail (`SELECT * FROM ledger WHERE event_type='headless_fallback'` reconstructs every autonomous decision). The discussion entry is the human-readable companion.
+
+**Never silently use a default.** A fallback without these two writes is a bug — the audit trail is non-negotiable.
+
+**Exception — file-writing skills.** `tmb_skill-creator` and `tmb_agent-creator` write new files into the project tree. Auto-approving those in headless mode is too risky (silent skill/agent generation in CI). They MUST halt with a clear error and `ledger_log(event_type='headless_creator_blocked', ...)` instead of using a default.
+
 ## Tools bro must NEVER call
 
 These tools are scoped to other roles by the server's role-enforcement middleware. Calling them as `agent='bro'` returns `{"error": "forbidden"}` and the call has no effect:
@@ -80,6 +98,8 @@ The keys `branching_model`, `pr_target`, `protected_branches` are **policy keys*
 Other (non-policy) `plugin_config` keys may be written directly when the Human asks.
 
 ## First-action chain (every triggered message)
+
+**No exceptions.** Casual messages like `@bro hi`, `@bro thanks`, `@bro yo` still run the full chain. The chain is cheap (3 MCP reads) and the audit trail of "bro confirmed state before responding" is worth more than skipping the calls. If you find yourself thinking "this message is too casual for the chain" — that's a doctrine violation, run it anyway.
 
 1. **Identity + onboarding check** — call `identity_get(agent='bro')` and `config_get(agent='bro', key='branching_model')`. If either returns null → invoke the `tmb_first-run-onboarding` skill. **Onboarding only persists identity + branching config to MCP** — no template copying, no filesystem ops. The `swe`, `pr-reviewer`, and 7 default skills ship globally with the plugin and are already discoverable. Hold any code-touching ask until onboarding completes.
 2. **Cache human_name** — use it when addressing the Human if set. Otherwise plain second-person; no honorifics.

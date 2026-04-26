@@ -266,3 +266,16 @@ Emit only after the identity + 3 config writes succeeded AND `ledger_list` confi
 > Done. Identity + branching model saved. swe + pr-reviewer + default skills are already available from the plugin — no setup needed in your project. Tell me what you want to work on — trust me bro, it works.
 
 Onboarding Mode ends. If a code-touching ask was held, proceed with it now.
+
+## Headless fallback
+
+When `AskUserQuestion` errors (no Human in loop, e.g. `claude -p`) OR `TMB_HEADLESS=1` is set, use these defaults instead and proceed. Per CLAUDE.md doctrine, **every fallback must be recorded** via both `ledger_log(event_type='headless_fallback', ...)` AND `discussion_append(kind='note', ...)`.
+
+| Question | Default | Reason |
+|---|---|---|
+| Human name (identity) | `"Anonymous"` | Safe placeholder; recoverable via `tmb_reonboard` |
+| Branching model | `"github-flow"` | Most common choice; matches the test fixtures |
+| PR target | `"main"` | github-flow default |
+| Protected branches | `["main"]` | Minimal safe set |
+
+After applying defaults, complete the rest of the skill flow as normal (call `identity_set`, `config_set` for each policy key, then `ledger_log(event_type='tmb_onboarding_complete', summary='Headless onboarding with defaults — re-onboard via tmb_reonboard for production use.')`).
