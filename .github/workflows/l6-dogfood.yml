@@ -59,3 +59,7 @@ jobs:
           name: l6-trajectory-dumps
           path: /tmp/tmb-l6-*/
           retention-days: 7
+          # The trajectory DB lives at .claude/tmb/trajectory.db — without
+          # this flag upload-artifact skips dot-prefixed paths and we lose
+          # the only useful diagnostic.
+          include-hidden-files: true
