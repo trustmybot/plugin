@@ -17,5 +17,5 @@ l6_seed_db "$PROJECT" "onboarding-named"
 ( cd "$PROJECT" && echo "We recieve patches via PRs." > README.md
   git add . && git commit -qm "chore: add typo'd line" )
 
-l6_run_claude "$PROJECT" "$PROMPT" >/dev/null
+l6_run_claude "$PROJECT" "$PROMPT"
 l6_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"

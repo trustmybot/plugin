@@ -36,6 +36,33 @@ for cmd in claude sqlite3 jq; do
   fi
 done
 
+# ----- Pre-flight diagnostics (issue #116) -----
+# First L6 run on dev (run id 24963880924) showed all 4 wired flows
+# producing 0 trajectory rows + 0 tokens. Adding cheap diagnostics here
+# to identify which layer breaks (auth / -p mode / plugin load / bro
+# trigger) BEFORE running the expensive flow tests.
+printf "\n=== Pre-flight: claude --version ===\n"
+claude --version 2>&1 | sed 's/^/  /' || echo "  ✗ claude --version failed"
+
+printf "\n=== Pre-flight: claude -p basic auth check ===\n"
+echo "  Calling: claude -p \"say hello in one word\" (no plugin, no env)"
+DIAG_OUT=$(timeout 30 claude -p "say hello in one word" 2>&1 | head -20)
+DIAG_RC=$?
+echo "$DIAG_OUT" | sed 's/^/  [output] /'
+echo "  exit code: $DIAG_RC"
+if [ -z "$DIAG_OUT" ]; then
+  echo "  ⚠️  empty output — auth likely silently failed"
+fi
+
+printf "\n=== Pre-flight: claude --plugin-dir loading check ===\n"
+echo "  Calling: claude --plugin-dir <root> -p \"say hi in one word\" (plugin loaded, no bro)"
+DIAG_OUT2=$(timeout 60 claude --plugin-dir "$PLUGIN_ROOT" -p "say hi in one word" 2>&1 | head -20)
+DIAG_RC2=$?
+echo "$DIAG_OUT2" | sed 's/^/  [output] /'
+echo "  exit code: $DIAG_RC2"
+
+printf "\n=== Pre-flight done ===\n"
+
 PASS=0
 FAIL=0
 FAILED_FLOWS=()

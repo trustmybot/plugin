@@ -15,5 +15,5 @@ PROJECT=$(l6_setup_scratch_project)
 trap 'l6_cleanup_project "$PROJECT"' EXIT
 
 l6_seed_db "$PROJECT" "onboarding-named"
-l6_run_claude "$PROJECT" "$PROMPT" >/dev/null
+l6_run_claude "$PROJECT" "$PROMPT"
 l6_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"
