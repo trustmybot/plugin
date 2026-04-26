@@ -49,6 +49,7 @@ jobs:
       - name: Run L6 dogfood flows
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          L6_KEEP_ARTIFACTS: '1'
         run: bash tests/dogfood/run-l6.sh
 
       - name: Upload trajectory dumps on failure

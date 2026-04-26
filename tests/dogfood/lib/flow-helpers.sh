@@ -39,6 +39,11 @@ l6_seed_db() {
 # Echoes claude's stdout + stderr to OUR stderr so CI logs capture them
 # (otherwise diagnosis is impossible — see issue #116). Always returns 0
 # so the test can score the trajectory regardless of claude's exit code.
+#
+# `--dangerously-skip-permissions` is required: in headless `-p` mode
+# claude blocks every tool call (Bash, Edit, MCP) until a human approves
+# them, and there is no human in the loop here. The scratch dir is a
+# fresh mktemp-d, so there's nothing to harm.
 l6_run_claude() {
   local dir="$1" prompt="$2"
   (
@@ -49,7 +54,7 @@ l6_run_claude() {
     echo "  cwd: $dir" >&2
     echo "  plugin-dir: $PLUGIN_ROOT" >&2
     echo "  prompt: $prompt" >&2
-    timeout 180 claude --plugin-dir "$PLUGIN_ROOT" -p "$prompt" 2>&1 \
+    timeout 180 claude --plugin-dir "$PLUGIN_ROOT" --dangerously-skip-permissions -p "$prompt" 2>&1 \
       | sed 's/^/  [claude] /' >&2 || true
     echo "  ── claude invocation end (exit was masked) ──" >&2
   )
@@ -77,8 +82,11 @@ l6_score_flow() {
 }
 
 # l6_cleanup_project <project_dir>: removes the scratch directory.
+# When L6_KEEP_ARTIFACTS=1, becomes a no-op so the workflow's
+# upload-artifact step can collect the trajectory DB after a failure.
 l6_cleanup_project() {
   local dir="$1"
+  [ "${L6_KEEP_ARTIFACTS:-0}" = "1" ] && return 0
   [ -n "$dir" ] && [ -d "$dir" ] && rm -rf "$dir"
 }
 
