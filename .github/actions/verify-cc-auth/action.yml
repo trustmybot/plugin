@@ -1,17 +1,5 @@
 name: 'Verify Claude Code auth'
-description: |
-  Prerequisite check for any workflow that needs to invoke `claude` in CI.
-  Inspects the OAuth token shape, installs Claude Code if needed, runs
-  `claude -p "say hi"` to confirm auth works END-TO-END.
-
-  Fail-fast pattern: if auth is broken (bad token, wrong format, network),
-  the consuming workflow's expensive steps (Docker builds, plugin
-  installs, multi-flow L6 runs) never start.
-
-  Usage:
-    - uses: ./.github/actions/verify-cc-auth
-      with:
-        token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+description: 'Prerequisite check for any workflow that needs to invoke claude in CI. Inspects token shape, installs CC if needed, runs claude -p smoke test. Fail-fast — broken auth never reaches expensive Docker builds or multi-flow L6 runs. See action source for usage.'
 
 inputs:
   token:
