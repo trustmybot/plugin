@@ -1,4 +1,4 @@
-# L5+L6 combined — install-smoke + workflow doctrine, in one image (#112).
+# Release canary — install-smoke + workflow doctrine in one image (was L5+L6 combined, #112).
 #
 # Builds on top of the L0 install-smoke approach, then ALSO installs Claude
 # Code and runs the L6 deterministic-trajectory flows against the
@@ -11,12 +11,12 @@
 # Build (requires CLAUDE_CODE_OAUTH_TOKEN secret):
 #   docker buildx build \
 #     --secret id=cc_token,env=CLAUDE_CODE_OAUTH_TOKEN \
-#     -f tests/docker/l5-l6-combined.Dockerfile \
-#     -t tmb-l5-l6 \
+#     -f tests/docker/release-canary.Dockerfile \
+#     -t tmb-release-canary \
 #     .
 #
 # OR via wrapper:
-#   bash tests/docker/run-l5-l6-combined.sh
+#   bash tests/docker/run-release-canary.sh
 #
 # Build success = release shippable AND workflow doctrine intact.
 
@@ -78,4 +78,4 @@ RUN --mount=type=secret,id=cc_token \
     fi
 
 # Final marker
-RUN echo "✓ L5+L6 combined: install + workflow doctrine all green"
+RUN echo "✓ Release canary: install + workflow doctrine all green"

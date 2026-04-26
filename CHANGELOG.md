@@ -4,6 +4,22 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Refactored — testing framework: `L5+L6 combined` → `Release canary`, `L5 manual dogfood` → `Manual smoke` (fallback)
+
+The numeric "L5+L6 combined" name was awkward (not a real layer, just a Docker-bundled superset) and constrained future insertion of heavy layers. Renamed to a non-numeric **Release canary** so future layers (e.g. A/B prompt eval — issue #131, perf canary, etc.) can slot in between L4 and Release canary without renumbering.
+
+Standalone "L5 manual dogfood" demoted to **Manual smoke** — a fallback used only for UX scenarios the automated layers can't model (e.g. live `AskUserQuestion` interactivity). The Release canary handles everything else automatically.
+
+Renamed files:
+
+- `.github/workflows/l5-l6-combined.yml` → `.github/workflows/release-canary.yml`
+- `tests/docker/l5-l6-combined.Dockerfile` → `tests/docker/release-canary.Dockerfile`
+- `tests/docker/run-l5-l6-combined.sh` → `tests/docker/run-release-canary.sh`
+- Workflow `name:` and job ID updated to `Release canary` / `release-canary`.
+- Image tag: `tmb-l5-l6-combined:<v>` → `tmb-release-canary:<v>`.
+
+Updated docs: `tests/README.md` (test pyramid + escalation chain), `CONTRIBUTING.md` ("CI scope" workflow table), `scripts/release.sh` (manual smoke gate framing).
+
 ### Refactored — defaults seeded by schema, not by bro
 
 The previous unreleased entry had bro silently writing 3 `plugin_config` rows + a `tmb_defaults_applied` ledger event on first contact. Per user follow-up: that's still bro doing work the system should do.
