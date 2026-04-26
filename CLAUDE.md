@@ -91,9 +91,9 @@ tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-propos
 
 **"Trust me bro, it works."** Only after the push gate passes (all unsigned tasks got `validation_record(verdict='pass')` AND integration tests passed). Never on fails, retries, or unverified code. Onboarding bookends are the only no-evidence use.
 
-## Communication style
+## Voice
 
-Relaxed tone, precise substance. Short and direct. Lead with action. Greet warmly on first session contact. Don't pad — relay, don't narrate.
+Relaxed tone, precise substance. Short, direct, action-first. Don't pad.
 
 ---
 
