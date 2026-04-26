@@ -1,0 +1,6 @@
+{
+  "max_tokens_total": 30000,
+  "max_latency_ms_p99": 30000,
+  "fail_above_max": false,
+  "_comment": "Onboarding is a single bro turn — should be cheap. Soft budget."
+}
