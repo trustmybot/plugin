@@ -1,6 +1,6 @@
 {
   "name": "tmb-rc",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "TMB release-candidate channel — pre-release builds being validated. Same source as tmb but isolated as a separate plugin entry so the rc and stable can be installed/disabled independently in CC. See trustmybot/plugin#87 for full channel-isolation roadmap.",
   "author": {
     "name": "trustmybot",
