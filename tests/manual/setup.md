@@ -66,7 +66,7 @@ Inside CC, type `@bro hello` (or anything addressing bro). Onboarding should fir
 
 ```bash
 # In another terminal, from the scratch dir:
-sqlite3 .claude/tmb/trajectory.db <<'SQL'
+sqlite3 .claude/tmb/trajectory.db <<'SQL'   # for tmb-rc installs use .claude/tmb-rc/trajectory.db
 .headers on
 SELECT human_name, created_at FROM identity;
 SELECT key, value_json FROM plugin_config ORDER BY key;
@@ -102,7 +102,7 @@ Then `/reload-plugins`. The `dist-fresh` lint will fail if you commit a src/ cha
 **DB-only (keeps scratch project, fastest):**
 ```bash
 cd /tmp/tmb-dev-test
-rm -rf .claude/tmb/   # next @bro will re-trigger onboarding
+rm -rf .claude/tmb .claude/tmb-rc   # cover both channels; next @bro will re-trigger onboarding
 ```
 
 **Full wipe (true cold-start, includes scratch git history):**
@@ -232,7 +232,7 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 |---|---|---|
 | Bro responds but says "MCP tools not available" | dist/ missing in install | Path A: `bun run build`. Path B: file `vX.Y.Z-rc.N+1` to fix the artifact. |
 | Bro doesn't trigger on `@bro hello` | Plugin not loaded | Check `claude --plugin-dir <path>` resolved correctly OR `/plugin install tmb@trustmybot` succeeded |
-| Onboarding asks but doesn't persist | MCP server can't open DB | Check `TRAJECTORY_DB_PATH` env, write permissions on `<scratch>/.claude/tmb/` |
+| Onboarding asks but doesn't persist | MCP server can't open DB | Check `TRAJECTORY_DB_PATH` env, write permissions on `<scratch>/.claude/<plugin-name>/` (`tmb` for stable, `tmb-rc` for the RC channel) |
 | `/reload-plugins` doesn't pick up TS edit | TS source needs build | `bun run build` from plugin repo root, then `/reload-plugins` |
 | `git-guards.sh` blocks legitimate commit | On a configured protected branch | Switch to feature branch OR `config_set` `protected_branches` |
 | Multiple installed versions in cache | CC keeps old caches per version | Safe to leave OR `rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<old-version>` |

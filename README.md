@@ -103,7 +103,7 @@ Details: [`CLAUDE.md`](CLAUDE.md) (bro persona), [`agents/swe.md`](agents/swe.md
 
 ### 2. Trajectory Memory — state survives session kills
 
-Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/trajectory.db`. Five tables you'll touch directly:
+Every transition lands in a per-project SQLite DB at `<project>/.claude/<plugin-name>/trajectory.db` (`tmb/` for stable, `tmb-rc/` for the RC channel — fully isolated). Five tables you'll touch directly:
 
 - **`issues`** — your goals + objectives, one row per ask
 - **`discussions`** — Human ↔ bro Q+A, ADR (Architecture Decision Record) notes, design decisions

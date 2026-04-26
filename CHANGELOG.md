@@ -88,6 +88,25 @@ Values pre-select matching radio options in `AskUserQuestion`, so each new dev c
 
 Template at `templates/project-seed/.claude/tmb/config.example.json`.
 
+### Channel isolation — DB path per plugin name (issue #87)
+
+Stable (`tmb`) and RC (`tmb-rc`) channels can now be installed simultaneously without colliding on the SQLite trajectory DB.
+
+`resolveDbPath()` previously hardcoded `<cwd>/.claude/tmb/trajectory.db`. Now it derives the path segment from the installed plugin's manifest (`CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json.name`), so:
+
+- `tmb` install → `.claude/tmb/trajectory.db`
+- `tmb-rc` install → `.claude/tmb-rc/trajectory.db`
+
+Different filesystems, different state, no cross-contamination. Backward-compatible — existing tmb installs see no path change. Fallback to `tmb` when `CLAUDE_PLUGIN_ROOT` is unset (local `--plugin-dir` dev outside CC).
+
+Other channel-isolation surfaces called out in #87:
+
+- **plugin.json.name** — already differentiated in v0.3.2 (rc branch maintained as `tmb-rc`).
+- **MCP server names** — CC already namespaces by plugin (`mcp__plugin_tmb-rc_trajectory-server__*` vs `mcp__plugin_tmb_trajectory-server__*`); no change needed.
+- **Agent + skill names** — same name on both sides (`swe`, `pr-reviewer`, `tmb_*`). When both channels are enabled, CC picks one; documented as known limitation in `tests/manual/setup.md`. Suffix-rename is deferred — agents only call their own MCP server, so the worst case is "the other channel's prompt was used" (annoying, not data-corrupting).
+
+8 new unit tests covering `resolvePluginName` + `resolveDbPath` channel-isolation paths.
+
 ---
 
 ## v0.3.2 — 2026-04-25
