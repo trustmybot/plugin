@@ -14,7 +14,8 @@ Each layer catches a different class of bug; skipping any layer means shipping a
 | **L3** | Integration — real server subprocess + JSON-RPC stdio | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | Manual dogfood — human-driven interactive Claude Code session | [`manual/`](./manual/) | UX regressions only catchable with a human |
-| **L6** | **Deterministic-trajectory dogfood — pre-seeded DB + `claude -p` + assert MCP/tool sequence** (issue #108) | [`dogfood/`](./dogfood/) | Doctrine drift between FLOWS.md and reality, agent-prompt regressions, cold-start behavior |
+| **L6** | **Workflow-doctrine dogfood — multi-scorer (outcome + trajectory + cost)** against `--plugin-dir` source (issues #108, #110) | [`dogfood/`](./dogfood/) | Doctrine drift between FLOWS.md and reality, agent-prompt regressions, cold-start behavior |
+| **L5+L6 combined** | **Full marketplace install + workflow doctrine in one Docker image** — replaces manual L5 (issue #112) | [`docker/l5-l6-combined.Dockerfile`](./docker/) | Everything L0 catches PLUS everything L6 catches, against the as-shipped marketplace artifact. Release-only (token-heavy). |
 
 **Golden rule:** *Layer N green does not imply Layer N+1 green.* Layer 1 passed with 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. Layer 2 would have caught that at the wire level in milliseconds. Always run all three before tagging a release.
 
