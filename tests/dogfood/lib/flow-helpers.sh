@@ -36,14 +36,22 @@ l6_seed_db() {
 
 # l6_run_claude <project_dir> <prompt>: runs `claude -p` against the prompt
 # in the project, with TMB_DEBUG_TRAJECTORY=1, plugin loaded via --plugin-dir.
-# Returns exit code from claude.
+# Echoes claude's stdout + stderr to OUR stderr so CI logs capture them
+# (otherwise diagnosis is impossible — see issue #116). Always returns 0
+# so the test can score the trajectory regardless of claude's exit code.
 l6_run_claude() {
   local dir="$1" prompt="$2"
   (
     cd "$dir" || exit 1
     export TMB_DEBUG_TRAJECTORY=1
     export CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN}"
-    timeout 180 claude --plugin-dir "$PLUGIN_ROOT" -p "$prompt" 2>&1 | tail -50 || true
+    echo "  ── claude invocation start ──" >&2
+    echo "  cwd: $dir" >&2
+    echo "  plugin-dir: $PLUGIN_ROOT" >&2
+    echo "  prompt: $prompt" >&2
+    timeout 180 claude --plugin-dir "$PLUGIN_ROOT" -p "$prompt" 2>&1 \
+      | sed 's/^/  [claude] /' >&2 || true
+    echo "  ── claude invocation end (exit was masked) ──" >&2
   )
 }
 
