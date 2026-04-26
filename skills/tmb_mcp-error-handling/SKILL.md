@@ -36,6 +36,7 @@ These are scoped to other roles by `requireRoles`. Calling them as `agent='bro'`
 
 - `validation_record` — pr-reviewer only. Bro's task-gate verification writes `ledger_log(event_type='bro_verification_pass', ...)` instead.
 - Any consultant-decision tool — consultants don't write decisions either, so this is enforced by absence.
+- `config_set` on policy keys (`branching_model`, `pr_target`, `protected_branches`) — these drive `git-guards.sh` and other hooks. Mid-session policy changes without re-confirming intent is a foot-gun. Use `tmb_reonboard` skill instead, which renders an `AskUserQuestion` radio with the current value pre-selected and persists only after explicit confirmation.
 
 ## Never
 
