@@ -22,9 +22,9 @@ node --test dist/test/*.test.js
 
 | Variable | Default | Description |
 |---|---|---|
-| `TRAJECTORY_DB_PATH` | `<cwd>/.claude/tmb/trajectory.db` | Absolute path to the SQLite database, or `:memory:` for ephemeral runs |
+| `TRAJECTORY_DB_PATH` | `<cwd>/.claude/<plugin-name>/trajectory.db` | Absolute path to the SQLite database, or `:memory:` for ephemeral runs |
 
-Default is project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). Each project has its own DB; nothing crosses project boundaries; nothing committed. Set the env var to override for CI, isolated tests, or shared testbeds.
+Default is project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). The `<plugin-name>` segment is read from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` so the stable channel writes to `.claude/tmb/` and the RC channel writes to `.claude/tmb-rc/` — both can be installed simultaneously without colliding (#87). Set the env var to override for CI, isolated tests, or shared testbeds.
 
 ## Tool families
 

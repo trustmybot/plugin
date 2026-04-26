@@ -21,7 +21,7 @@ Two test paths — see [`setup.md`](./setup.md) for the full instructions, inclu
 
 **For RC validation: use Path B.** Path A bypasses the install lifecycle that broke v0.2.0 + v0.3.0 — it can't catch that bug class. Path B is the only manual path that does.
 
-For each scenario below: set up a fresh scratch project per [`setup.md`](./setup.md), run the trigger, verify against the expected behavior, then reset (`rm -rf .claude/tmb/`) before the next scenario.
+For each scenario below: set up a fresh scratch project per [`setup.md`](./setup.md), run the trigger, verify against the expected behavior, then reset (`rm -rf .claude/tmb .claude/tmb-rc`) before the next scenario.
 
 ---
 
@@ -56,7 +56,7 @@ ls .claude/agents/ 2>&1   # should NOT exist OR be empty
 ls .claude/skills/ 2>&1   # should NOT exist OR be empty
 ```
 
-✅ Pass criteria: **`.claude/agents/` and `.claude/skills/` are EMPTY (or don't exist).** swe + pr-reviewer + 7 default skills serve from the plugin globally. The trajectory DB at `.claude/tmb/trajectory.db` SHOULD exist with identity + config rows. Onboarding only writes to MCP, never to the filesystem.
+✅ Pass criteria: **`.claude/agents/` and `.claude/skills/` are EMPTY (or don't exist).** swe + pr-reviewer + 7 default skills serve from the plugin globally. The trajectory DB at `.claude/<plugin-name>/trajectory.db` (`.claude/tmb/` for stable, `.claude/tmb-rc/` for the RC channel) SHOULD exist with identity + config rows. Onboarding only writes to MCP, never to the filesystem.
 
 ---
 

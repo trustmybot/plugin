@@ -5,18 +5,50 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 /**
+ * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
+ *
+ * CC sets CLAUDE_PLUGIN_ROOT to the installed plugin's source root, which
+ * always contains `.claude-plugin/plugin.json` with the canonical `name`
+ * field. Reading it lets the rc and stable channels write to different
+ * filesystem paths despite running the same code (#87 channel isolation).
+ *
+ * Fallback to "tmb" only when CLAUDE_PLUGIN_ROOT is unset (local --plugin-dir
+ * dev outside CC) or when the manifest is unreadable. Both fallbacks are
+ * safe because no tmb-rc install can hit them — those paths only exist when
+ * CC is invoking the server with a real plugin context.
+ */
+export function resolvePluginName(env: NodeJS.ProcessEnv = process.env): string {
+  const root = env['CLAUDE_PLUGIN_ROOT'];
+  if (!root) return 'tmb';
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'),
+    );
+    if (typeof manifest.name === 'string' && manifest.name.length > 0) {
+      return manifest.name;
+    }
+  } catch {
+    // Fall through to the default below.
+  }
+  return 'tmb';
+}
+
+/**
  * Resolve the trajectory DB path.
  *
  * 1. Explicit `TRAJECTORY_DB_PATH` env override wins. Power-user / CI use.
- * 2. Default: `<cwd>/.claude/tmb/trajectory.db` — project-local, per-user,
- *    auto-gitignored via the plugin-root `.gitignore` exclusion of `.claude/`.
+ * 2. Default: `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local,
+ *    per-user, per-channel. Stable installs write to `.claude/tmb/`,
+ *    rc installs write to `.claude/tmb-rc/`. Auto-gitignored via the
+ *    plugin-root `.gitignore` exclusion of `.claude/` (issue #87).
  */
 export function resolveDbPath(opts?: { env?: NodeJS.ProcessEnv; cwd?: string }): string {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
   const override = env['TRAJECTORY_DB_PATH'];
   if (override && override.trim().length > 0) return override;
-  return join(cwd, '.claude', 'tmb', 'trajectory.db');
+  const pluginName = resolvePluginName(env);
+  return join(cwd, '.claude', pluginName, 'trajectory.db');
 }
 
 export class TrajectoryDB {

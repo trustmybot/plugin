@@ -235,7 +235,7 @@ User-created project consultants (via `tmb_agent-creator` from-scratch flow) fol
 
 # Where state lives (concise reference)
 
-- **Issues, tasks, discussions, validation_attempts** — SQLite trajectory DB at `<project>/.claude/tmb/trajectory.db`. Project-local, gitignored, per-developer.
+- **Issues, tasks, discussions, validation_attempts** — SQLite trajectory DB at `<project>/.claude/<plugin-name>/trajectory.db`. The `<plugin-name>` segment matches `plugin.json.name`, so the stable channel writes to `.claude/tmb/` and the RC channel writes to `.claude/tmb-rc/` — full filesystem isolation when both are installed (#87). Project-local, gitignored, per-developer.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **ADRs** — `docs/trustmybot/architecture/manual/decisions/N-*.md`, hand-curated.
 - **Auto-regenerated architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed via `architecture_regen`.
