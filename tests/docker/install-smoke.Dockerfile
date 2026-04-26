@@ -26,16 +26,19 @@ ENV PATH="/root/.bun/bin:${PATH}"
 WORKDIR /plugin
 COPY . /plugin
 
-# Strip any local build artifacts so we test cold-start, not "what was already built"
+# Strip local node_modules + bun artifacts so we test cold-start.
+# DELIBERATELY KEEP the committed dist/ — that's what the published artifact
+# actually contains, and what CC sees on install.
 RUN rm -rf node_modules \
-           mcp/trajectory-server/node_modules \
-           mcp/trajectory-server/dist \
-           monitors/node_modules
+           mcp/trajectory-server/node_modules
 
-# Simulate CC's plugin install: bun install at the workspace root.
-# postinstall (added in v0.1.3) MUST build the workspaces, otherwise the
-# next assertions fail.
-RUN bun install --frozen-lockfile
+# Simulate CC's plugin install path: `bun install --ignore-scripts`.
+# CC sandboxes plugin installs and DOES NOT run lifecycle scripts (postinstall,
+# preinstall, etc.) — confirmed empirically through v0.2.0 (better-sqlite3
+# prebuild-install skipped → native binding missing) and v0.3.0 (postinstall
+# build skipped → dist/ missing). Both bugs would have been caught here if
+# the test had used --ignore-scripts from day one.
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # ---- Hard assertions — these would have failed on v0.1.2 ----
 
