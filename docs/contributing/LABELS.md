@@ -1,82 +1,72 @@
 # Label Doctrine
 
-**Source of truth for both GitHub issue labels AND the local DB `issue_labels` table** (when shipped — see #38). Both sides use the **same names**; no translation table.
+**Source of truth for GitHub issue labels, Linear labels, AND the local DB `issue_labels` table** (when shipped — see #38). All three sides use the **same names**; no translation.
 
-## Rule: don't invent
+## Rule: keep labels self-explanatory
 
-Labels are a controlled vocabulary that downstream code, hooks, and humans branch on. Inventing project-specific labels creates a translation problem the moment another tool needs to read them. We adopt established conventions instead:
-
-| Source | What we adopt |
-|---|---|
-| **GitHub default labels** | The 9 labels every new GH repo ships with |
-| **Kubernetes label convention** | `area/<name>`, `priority/<level>`, `lifecycle/<state>` namespaces |
-| **TMB-specific (documented exceptions)** | Two labels we genuinely need that have no industry analog |
+Labels are read by humans on every triage. The name should answer "what is this?" without consulting a glossary. We picked Linear-native flat style after the K8s `area/install` / `priority/critical-urgent` convention proved opaque (per #101).
 
 If you need a new label and it's not below, ask in the PR. Adding a label is a doctrine change.
 
 ---
 
-## Canonical list
+## Canonical list — 18 labels on GH, 14 on Linear (Linear has native priority field)
 
-### GitHub defaults (9) — adopt as-is
+### Type / kind (4)
 
-| Label | Description |
+| Label | Means |
 |---|---|
-| `bug` | Something isn't working |
-| `enhancement` | New feature or request |
-| `documentation` | Improvements or additions to documentation |
-| `duplicate` | This issue or pull request already exists |
-| `good first issue` | Good for newcomers |
-| `help wanted` | Extra attention is needed |
-| `invalid` | This doesn't seem right |
-| `question` | Further information is requested |
-| `wontfix` | This will not be worked on |
+| **Bug** | Something is broken |
+| **Feature** | New functionality |
+| **Improvement** | Refactor, polish, quality work |
+| **Docs** | Documentation-only changes |
 
-### Area (K8s convention) — `area/<surface>` (9)
+Linear ships the first three by default; we add `Docs`.
+
+### Surface / area (8)
 
 | Label | Surface |
 |---|---|
-| `area/install` | Install / marketplace / cold-start path |
-| `area/workflow` | Bro / SWE / pr-reviewer doctrine + planning skills |
-| `area/mcp` | MCP trajectory server (schema, tools, role enforcement) |
-| `area/hooks` | Hook scripts (git-guards, push-guard, require-task-spec) |
-| `area/roundtable` | Multi-agent roundtable feature |
-| `area/multi-platform` | Codex / Cursor / OpenCode / Gemini adapters |
-| `area/perf` | Latency / token cost |
-| `area/docs` | Documentation (overlap with GH `documentation` is OK) |
-| `area/tests` | Test infrastructure (L0–L6) |
+| **Install** | Marketplace install, cold-start path, channel isolation |
+| **Workflow** | Bro / SWE / pr-reviewer doctrine + planning skills |
+| **MCP** | Trajectory server (schema, tools, role enforcement) |
+| **Hooks** | Hook scripts (git-guards, push-guard, require-task-spec) |
+| **Roundtable** | Multi-agent roundtable feature |
+| **Multi-platform** | Codex / Cursor / OpenCode / Gemini adapters |
+| **Performance** | Latency / token cost |
+| **Tests** | Test infrastructure (L0–L6) |
 
-New `area/*` labels are added when a genuinely new surface emerges. Adding one is a doctrine change.
+New area labels are added when a genuinely new surface emerges. Adding one is a doctrine change.
 
-### Priority (K8s, short levels) — `priority/<level>` (4)
+### Priority — GH labels OR Linear native field
 
-| Label | Meaning |
+| Label (GH) | Linear |
 |---|---|
-| `priority/critical` | Broken-in-prod class — drop everything |
-| `priority/high` | Blocks meaningful workflows |
-| `priority/medium` | Quality / UX |
-| `priority/low` | Polish / nice-to-have |
+| **Priority: Urgent** | `priority: Urgent` (native field) |
+| **Priority: High** | `priority: High` (native field) |
+| **Priority: Medium** | `priority: Medium` (native field) |
+| **Priority: Low** | `priority: Low` (native field) |
 
-K8s's official priority labels are verbose (`priority/critical-urgent`, `priority/important-soon`). We use shorter levels per project doctrine: optimize for human readability since these are read by both humans and bro on every triage.
+GH has no priority field, so we keep them as labels. Linear has a native priority field — no labels needed there.
 
-### Lifecycle (K8s convention) — `lifecycle/<state>` (1)
+### TMB-specific (2)
 
-| Label | Meaning |
+| Label | Means |
 |---|---|
-| `lifecycle/stale` | Possibly outdated; needs reassessment |
-
-K8s also defines `lifecycle/rotten`, `lifecycle/frozen`, `lifecycle/active`. Add only when a real workflow needs them.
-
-### TMB-specific (2 — documented exceptions)
-
-These have no clean industry analog. Each is justified.
-
-| Label | Meaning | Why invented |
-|---|---|---|
-| `doctrine` | Doctrine clarification or contract change | TMB has multiple doctrine documents (CLAUDE.md, planning skills, agent prompts). When an issue updates one, this label flags it for the matching review depth. K8s has nothing analogous for "design rule change." |
-| `discussion` | Open design question, no decided action yet | More specific than GH `question` (which is "I need info"). `discussion` means "we need to converge before action." |
+| **Doctrine** | Design rule / contract change (CLAUDE.md, planning skills, agent prompts) |
+| **Discussion** | Open design question, no decided action yet |
 
 Adding any other TMB-specific label requires an entry in this table with a "why" justification.
+
+---
+
+## Lifecycle / stale — no label
+
+GH: use `gh issue list --state open --search 'updated:<2026-01-01'` (or similar) to surface stale items.
+
+Linear: native auto-stale based on inactivity.
+
+We dropped `lifecycle/stale` (#101) — labels for time-based state are double bookkeeping when both platforms have built-in inactivity detection.
 
 ---
 
@@ -90,19 +80,21 @@ When bro creates an issue:
 
 When pr-reviewer reviews a PR:
 
-1. Check labels on the linked issue. `priority/critical` issues get deeper review.
-2. `area/install` and `area/mcp` PRs trigger L0 install-smoke + L2 unit tests as a hard gate.
+1. Check labels on the linked issue. `Priority: Urgent` issues get deeper review.
+2. `Install` and `MCP` PRs trigger L0 install-smoke + L2 unit tests as a hard gate.
 
 ---
 
 ## Migration history
 
-- **2026-04-25 (v0.4.1)**: Migrated 8 invented labels to K8s convention (`area:install` → `area/install`, `p:critical` → `priority/critical`, `stale` → `lifecycle/stale`). Dropped `superseded` (close issues instead).
+- **2026-04-25 (v0.4.1, PR #98)**: First migration — invented `area:install`, `p:high`, `stale`, etc. (8 invented labels) → adopted K8s convention (`area/install`, `priority/critical-urgent`).
+- **2026-04-25 (v0.4.1, PR for #101)**: Second migration — K8s prefixes proved opaque; pivoted to Linear-native flat style. `area/install` → `Install`, `priority/high` → `Priority: High`. Dropped `lifecycle/stale` and 6 unused GH defaults. Added `Improvement` and `Docs`.
 
 ---
 
 ## Related
 
 - [`ENUMS.md`](./ENUMS.md) — same governance rule applied to DB column ENUMs
-- Issue #38 — `issue_labels` table proposal (mirrors GH labels into local DB)
+- Issue #38 — `issue_labels` table proposal (uses these names verbatim)
+- Issue #103 — Linear migration (mirrors these names into Linear's workspace)
 - `tests/lint/labels-stable.sh` — verifies GH label set matches this doc
