@@ -1,13 +1,14 @@
-name: L5+L6 combined (release-only)
+name: L5+L6 combined (RC-only)
 
 # L5+L6 combined Docker test (#112). Builds a Docker image that simulates
 # CC's marketplace install path (`bun install --ignore-scripts`), then runs
 # L6 deterministic-trajectory flows against the marketplace-installed
 # plugin — catching BOTH install-path bugs and workflow doctrine bugs.
 #
-# Why release-only: each run uses real Claude tokens (~$1-3 per full
-# 4-flow execution). Per user policy: token-heavy tests run on tag
-# pushes and manual dispatch only, NOT on every PR.
+# Why RC-only: each run uses real Claude tokens (~$1-3 per full 4-flow
+# execution). Token-heavy tests run on RC tag pushes and manual dispatch
+# from dev/rc only — NOT on stable v* tags from main (main is already
+# validated upstream).
 #
 # Replaces manual L5 dogfood for everything except UX-only verification.
 #
@@ -20,10 +21,13 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - 'v*-rc.*'
 
 jobs:
   l5-l6-combined:
+    if: |
+      (github.event_name == 'workflow_dispatch' && (github.ref_name == 'dev' || github.ref_name == 'rc')) ||
+      (github.event_name == 'push' && contains(github.ref, '-rc.'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

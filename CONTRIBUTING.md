@@ -87,6 +87,32 @@ When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class,
 
 Path 1 is for fixes that don't need cold-start verification (e.g. doc-only releases). Path 2 is for everything else — especially anything touching install behavior, schema, or agent doctrine. **The v0.2.0 and v0.3.0 breakages happened because we shipped install-path changes via Path 1 with no real-world install verification.** Going forward, anything in those categories MUST go through `tmb-rc` first.
 
+## Branch protection + CI scope
+
+GitHub-side guardrails that match the doctrine above. The intent is "validation budget gets spent on dev/rc; main is already-known-good."
+
+### Branch protection (applied via `gh api`)
+
+| Branch | PR required | Status checks required | Force push | Delete | Why |
+|---|---|---|---|---|---|
+| `main` | ✓ | `lint + MCP unit + integration + hooks`, `L0 install-smoke (cold-start Docker)` | blocked | blocked | Production tip. Only path in is `dev → main` PR. Tags live here forever. |
+| `rc` | ✗ (fast-forward only) | — | allowed (force-with-lease) | blocked | Floating ref onto immutable RC tags. The release ritual rewrites it; protect the ref name from accidental delete. |
+| `dev` | ✗ | `lint + MCP unit + integration + hooks`, `L0 install-smoke (cold-start Docker)` (on PRs only) | blocked | blocked | Integration trunk. Direct doctrine pushes allowed (solo dev velocity), but force-push and delete blocked to prevent history loss. |
+
+No required-approvals (solo dev). Once a second maintainer joins, flip `required_approving_review_count: 1` on `main` + `rc`.
+
+### Workflow scope by trigger
+
+| Workflow | Triggers | Branches/refs | Cost |
+|---|---|---|---|
+| `test.yml` (L0–L4) | `push` to `dev`/`main`, `pull_request` to `dev`/`main` | dev, main, PRs | free |
+| `l6-dogfood.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*`, `pull_request` labeled `L6` | RC tags + dev/rc dispatch | ~$1–3/run |
+| `l5-l6-combined.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*` | RC tags + dev/rc dispatch | ~$1–3/run |
+
+Stable `v*` tags from main do **not** fire token-heavy tests — that validation already happened on the matching `v*-rc.*` cut. Spending tokens on a known-good cut is waste.
+
+`verify-cc-auth` composite action runs as the first step of any CC-using workflow — fail-fast on broken token before Docker builds or multi-flow runs.
+
 ## Writing code
 
 - Self-documenting code. Prefer deletion over addition.
