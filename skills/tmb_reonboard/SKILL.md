@@ -125,3 +125,13 @@ After writes, `config_list(agent='bro')` + `identity_get(agent='bro')` to confir
 | `config_list()` or `identity_get()` fails | Report the exact error, offer to retry or abort. Do NOT proceed with stale state. |
 | `config_set` or `identity_set` fails | Report the exact error, retry the same call. Do NOT skip and continue. |
 | Invalid answer (e.g. unparseable Other for branching) | Re-ask via a second `AskUserQuestion` round, omit the invalid answer. |
+
+## Headless fallback
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, **do not silently overwrite policy keys with defaults** — re-onboard is by definition a Human-driven re-confirmation. Instead:
+
+1. Halt the skill cleanly.
+2. Record `ledger_log(agent='bro', event_type='headless_reonboard_blocked', summary='tmb_reonboard cannot run headless: policy keys (branching_model, pr_target, protected_branches) require explicit Human re-confirmation.')`.
+3. Surface a clear message: "Re-onboarding requires interactive input. Re-run with a Human in the loop, or use `config_set` directly if you know the values."
+
+Rationale: re-onboarding flips policy keys that drive `git-guards.sh` and other hooks. A silent fallback here could break the project's git workflow with no audit trace pointing to the cause.

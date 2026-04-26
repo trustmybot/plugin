@@ -159,3 +159,12 @@ AskUserQuestion({
      ```
 
 5. Load `tmb_planning-simple` (if triage=simple) or `tmb_planning-difficult` (if triage=difficult) and proceed with planning. The `issue_id` and confirmed `branch_id` carry forward into `task_create_batch` when the spec is ready.
+
+## Headless fallback
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, accept the proposed branch_id without Human confirmation. Per CLAUDE.md doctrine, record both:
+
+- `ledger_log(agent='bro', event_type='headless_fallback', summary='tmb_branch-id-proposal: confirm "<proposed_id>" → auto-accepted')`
+- `discussion_append(agent='bro', kind='note', body='Headless fallback: branch-id-proposal asked to confirm <proposed_id>, no Human in loop, auto-accepted. Reason: bro already chose intelligently from project context.')`
+
+Then proceed with the planning chain as if the Human had typed "Yes, proceed". Do NOT auto-pick "Upgrade to difficult" or "Suggest different branch_id" — those require Human intent.

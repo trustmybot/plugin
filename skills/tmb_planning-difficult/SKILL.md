@@ -216,3 +216,12 @@ If the difficult triage was wrong (e.g. the ask doesn't actually touch architect
 discussion_append(kind='note', body='Triage: simple (downgraded from difficult; reason: <why>)')
 # Then load tmb_planning-simple skill instead.
 ```
+
+## Headless fallback
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, proceed with the spec bro has drafted as if the Human had said "proceed as proposed". Record both:
+
+- `ledger_log(agent='bro', event_type='headless_fallback', summary='tmb_planning-difficult: scope confirmation → auto-accepted')`
+- `discussion_append(agent='bro', kind='note', body='Headless fallback: planning-difficult sought scope confirmation, no Human in loop, auto-accepted. Reason: spec was drafted from project context; SWE will surface scope drift if it occurs.')`
+
+Then run the full planning chain (architecture probe, ADR draft, batched task_create_batch + spawn swe + ledger_log). Do NOT skip the ADR — that's the difficult-triage's primary deliverable.

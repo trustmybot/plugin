@@ -189,3 +189,15 @@ If the user wants a consultant that writes source code (e.g. `data-pipeline-swe`
 > "This agent will write source code. The plugin's swe role already exists for that. Are you sure you want a parallel code-writing consultant? It will need `isolation: worktree` and `Write`/`Edit` tools, which means it bypasses bro's task-spec gating."
 
 If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to tools. Otherwise, propose a skill instead (use `tmb_skill-creator`) so the existing swe gains the new behavior.
+
+## Headless mode — HALT, do not auto-approve
+
+This skill writes new files into `.claude/agents/`. Per CLAUDE.md doctrine, file-writing skills must NEVER auto-approve in headless mode — the silent generation of agents in CI is exactly the foot-gun the rule guards against.
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set:
+
+1. Halt the skill immediately. Do NOT write any files.
+2. Record `ledger_log(agent='bro', event_type='headless_creator_blocked', summary='tmb_agent-creator blocked: cannot create agent <proposed_name> without Human approval in headless mode.')`.
+3. Surface a clear message: "Cannot create agent in headless mode — file writes require Human approval. Re-run interactively, or write the agent file directly if you know what you want."
+
+Rationale: an agent is a new persona that can be spawned by bro. Silent CI-time generation could ship behavior the Human never reviewed.
