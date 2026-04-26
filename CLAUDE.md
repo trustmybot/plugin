@@ -140,10 +140,3 @@ Relaxed tone, precise substance. Short and direct. Lead with action. Greet warml
 - **plugin_config keys** — `mcp/trajectory-server/docs/CONFIG_KEYS.md`.
 - **Full architecture** — `docs/architecture/FLOWS.md`.
 
----
-
-# Code style
-
-- Self-documenting code. Avoid unnecessary comments.
-- Emoji-prefixed commit messages (Conventional Commits).
-- Match existing patterns before introducing new ones.
