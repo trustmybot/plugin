@@ -13,6 +13,53 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+# Determine the actual working directory the command will run in.
+# SWE runs in isolated worktrees and prefixes commands with `cd <worktree> &&`.
+# Without this awareness, `git branch --show-current` runs in CC's CWD (the
+# project root) and always returns the root branch — blocking every legitimate
+# worktree commit. The fix: parse the cd prefix and run git from there.
+#
+# Tries (in order):
+#   1. `cd <path> && ...` prefix in the command (SWE's worktree pattern)
+#   2. `--git-dir`/`-C <path>` git option in the command
+#   3. CC's hook payload `cwd` field (if/when CC populates it)
+#   4. Fallback: $PWD (CC's session CWD, usually the project root)
+cmd_cwd() {
+  local cmd="$1"
+  local cd_path
+  # Match leading: `cd /some/path &&` or `cd /some/path ;` or `cd /some/path\n`
+  cd_path=$(echo "$cmd" | sed -nE 's|^[[:space:]]*cd[[:space:]]+("([^"]+)"\|'"'"'([^'"'"']+)'"'"'\|([^[:space:]&;]+)).*|\2\3\4|p' | head -1)
+  if [ -n "$cd_path" ]; then
+    echo "$cd_path"
+    return
+  fi
+  # Try git -C <path>
+  cd_path=$(echo "$cmd" | grep -oE 'git -C [^[:space:]]+' | head -1 | awk '{print $3}' | tr -d "'\"")
+  if [ -n "$cd_path" ]; then
+    echo "$cd_path"
+    return
+  fi
+  # Try hook payload cwd (CC may add this in future)
+  cd_path=$(echo "$INPUT" | jq -r '.cwd // empty')
+  if [ -n "$cd_path" ]; then
+    echo "$cd_path"
+    return
+  fi
+  echo "$PWD"
+}
+
+# Get the current branch in the dir the command will execute in.
+# This is the load-bearing fix — without it, every SWE commit sees `main`.
+cmd_branch() {
+  local wd
+  wd=$(cmd_cwd "$1")
+  if [ -d "$wd" ]; then
+    (cd "$wd" 2>/dev/null && git branch --show-current 2>/dev/null) || true
+  else
+    git branch --show-current 2>/dev/null || true
+  fi
+}
+
 BRANCHING_MODEL=$(tmb_config_get "branching_model")
 
 if [ -z "$BRANCHING_MODEL" ]; then
@@ -78,10 +125,10 @@ case "$CMD" in
     ;;
 esac
 
-# --- Rule 2: No direct commits to protected_branches ---
+# --- Rule 2: No direct commits to protected_branches (worktree-aware) ---
 case "$CMD" in
   *"git commit"*)
-    BRANCH=$(git branch --show-current 2>/dev/null || true)
+    BRANCH=$(cmd_branch "$CMD")
     if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
       echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: No direct commits to ${BRANCH}. Create a feature branch first.\"}"
       exit 0
@@ -99,7 +146,7 @@ case "$CMD" in
         exit 0
       fi
     else
-      BRANCH=$(git branch --show-current 2>/dev/null || true)
+      BRANCH=$(cmd_branch "$CMD")
       if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
         echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible.\"}"
         exit 0
@@ -108,17 +155,23 @@ case "$CMD" in
     ;;
 esac
 
-# --- Rule 4: New branches must be based on latest pr_target ---
+# --- Rule 4: New branches must be based on latest pr_target (worktree-aware) ---
 case "$CMD" in
   *"git checkout -b"*|*"git switch -c"*)
-    BRANCH=$(git branch --show-current 2>/dev/null || true)
+    BRANCH=$(cmd_branch "$CMD")
     if [ "$BRANCH" != "$PR_TARGET" ]; then
       echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: New branches must be created from ${PR_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${PR_TARGET} && git pull origin ${PR_TARGET} first.\"}"
       exit 0
     fi
+    # fetch/check still operate from CC's CWD — pr_target is the project's root branch concern.
     git fetch origin "$PR_TARGET" --quiet 2>/dev/null || true
-    LOCAL=$(git rev-parse "$PR_TARGET" 2>/dev/null || true)
-    REMOTE=$(git rev-parse "origin/${PR_TARGET}" 2>/dev/null || true)
+    # Use --verify: without it, `git rev-parse origin/main` prints the literal
+    # string "origin/main" when the ref doesn't exist, then exits non-zero.
+    # 2>/dev/null swallows the stderr so the literal-string stdout sneaks
+    # through, making LOCAL/REMOTE non-empty even for refs that don't exist.
+    # The "behind origin" check then false-fires on any repo without a remote.
+    LOCAL=$(git rev-parse --verify "${PR_TARGET}" 2>/dev/null || true)
+    REMOTE=$(git rev-parse --verify "origin/${PR_TARGET}" 2>/dev/null || true)
     if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
       echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Local ${PR_TARGET} is behind origin/${PR_TARGET}. Run: git pull origin ${PR_TARGET} first.\"}"
       exit 0

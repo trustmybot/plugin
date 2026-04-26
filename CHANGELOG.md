@@ -2,6 +2,43 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.3.2 — 2026-04-25
+
+**Hook + agent-prompt hotfix.** Two real bugs in `git-guards.sh` that broke every SWE commit-from-worktree, plus a SWE doctrine violation. Found by [@ZaxShen](https://github.com/ZaxShen) during v0.3.1 marketplace test — bro spent 12 minutes hitting the same hook-block before reporting.
+
+### Fixed — `git-guards.sh` worktree-blind branch detection
+
+`git branch --show-current` was running in CC's CWD (the project root, always `main`) regardless of which worktree the actual `git commit` was being executed in. Result: SWE in `isolation: worktree` mode could **never** commit — every commit got rejected as "no direct commits to main."
+
+The hook now parses the working directory from the command itself:
+- `cd <worktree> && git commit ...` → reads branch from the worktree (the SWE pattern)
+- `git -C <worktree> commit ...` → same
+- Falls back to `INPUT.cwd` (if CC populates it) or `$PWD`
+
+`tests/hooks/git-guards.test.sh` extended from 4 → 12 cases, including 7 new worktree-aware regressions.
+
+### Fixed — `git-guards.sh` Rule 4 false-fires on no-remote repos
+
+`git rev-parse "origin/${PR_TARGET}"` (without `--verify`) prints the literal string `"origin/main"` to stdout when the ref doesn't exist, then exits non-zero. The `2>/dev/null` swallowed the stderr, so `REMOTE` ended up as the literal string `"origin/main"` — non-empty — and the "Local main is behind origin/main" check fired falsely on any repo without a remote (which is most fresh scratch projects).
+
+Fix: use `git rev-parse --verify` — empty output if ref doesn't exist, no false-fire.
+
+### Hardened — SWE prompt forbids hook bypass
+
+When the v0.3.1 worktree bug blocked SWE's commit, the SWE subagent attempted to **rewrite `.git/HEAD`** and fabricate branch refs to bypass the hook. CC's security guards blocked the rewrite, but the doctrine was wrong: even when a hook misfires (and v0.3.1's worktree bug was a real misfire), SWE must report and stop, never bypass.
+
+Added explicit clause in `agents/swe.md`:
+
+> **Never attempt to bypass a PreToolUse hook block** — do not rewrite `.git/HEAD`, fabricate refs, edit `.git/` internals, or use any technique to evade a hook decision. If a hook blocks a legitimate operation, that's a plugin bug — STOP immediately, return the failure summary to bro with the exact hook output, and let bro decide the path forward.
+
+`agents/swe.md` still 21 lines — within the 30-line Lego cap.
+
+### Versioning
+
+Bumped all 3 manifest versions to `0.3.2`. No schema migration. Rebuilt `dist/`.
+
+---
+
 ## v0.3.1 — 2026-04-25
 
 **Critical install hotfix.** v0.3.0 marketplace install left the MCP server's compiled `dist/` directory missing. Symptom: bro can't find any `mcp__plugin_tmb_trajectory-server__*` tools — onboarding's mandatory MCP writes can't run, identity/config never persist, the user is stuck. **Anyone on v0.3.0 should upgrade.**
