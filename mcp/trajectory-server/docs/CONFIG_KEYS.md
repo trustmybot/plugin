@@ -25,3 +25,21 @@ Additional keys can be added to `plugin_config` without schema migration; the ta
 ## 4. Reading-the-Config Policy
 
 Readers MUST treat a missing key as "uninitialized; trigger onboarding flow" — NOT as "default to a safe value". Silent defaults hide configuration drift and mask missing onboarding steps. This is a deliberate design choice.
+
+## 5. Committed team config (optional, issue #32)
+
+A project may commit `.claude/tmb/config.json` to share defaults across developers:
+
+```json
+{
+  "branching_model": "github-flow",
+  "pr_target": "main",
+  "protected_branches": ["main"]
+}
+```
+
+Onboarding reads this file (if present) and **pre-selects matching radio options** in `AskUserQuestion`, so each new dev confirms with a single click instead of answering from scratch. The Human can still override locally; their per-developer DB stores their actual answer. The committed file is NOT auto-rewritten — it changes only when a developer edits it deliberately.
+
+The file lives in version control alongside the code; the per-developer trajectory DB at `.claude/tmb/trajectory.db` remains gitignored. Identity (`human_name`) is per-developer and NEVER read from the committed file.
+
+See `templates/project-seed/.claude/tmb/config.example.json` for a starter template.
