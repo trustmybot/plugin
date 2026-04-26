@@ -2,6 +2,23 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## Unreleased
+
+### Removed — first-run-onboarding ceremony (modern-agent UX)
+
+Modern agents (Cursor, ChatGPT, etc.) don't onboard — they just work. TMB's previous behavior of asking name + branching model + PR target + protected branches via `AskUserQuestion` on first contact was friction with no upside for the 80% case, and it broke completely in headless `claude -p` mode (no Human to answer).
+
+- **Deleted**: `skills/tmb_first-run-onboarding/` (entire skill).
+- **Deleted**: `tests/lint/onboarding-skill-contract.sh` (no skill to lint).
+- **Deleted**: `tests/dogfood/flows/01-onboarding/` (no ceremony to test).
+- **New**: `tests/dogfood/flows/01-first-contact/` — asserts the inverse: empty DB → `@bro hi` → bro applies defaults silently + welcome banner mentions them; `AskUserQuestion` and `identity_set` are explicitly forbidden tools.
+- **CLAUDE.md first-action chain rewritten**: on first contact (`config_get` returns null), bro silently writes `branching_model=github-flow`, `pr_target=main`, `protected_branches=["main"]` plus a `tmb_defaults_applied` ledger event. **No `identity` row** — its absence means "user hasn't named themselves yet."
+- **Welcome banner is now mandatory** (also new in CLAUDE.md): bro must announce activation explicitly with state context — three variants for first contact / returning with pending work / returning idle.
+- **Ledger event renamed**: `tmb_onboarding_complete` → `tmb_defaults_applied`. Pre-1.0, no migration shim — fixtures and outcome assertions updated in lockstep.
+- **`tmb_reonboard` repositioned** as the only path to write identity rows or change policy keys (was: "re-run onboarding"). Same skill, same UI, clearer framing.
+
+To set your name post-first-contact: say `@bro reonboard` or `@bro update my name`.
+
 ## v0.4.1 — 2026-04-25
 
 **Cluster of bugs found during cold-session marketplace dogfood by [@ZaxShen](https://github.com/ZaxShen).** All four were doctrine drift, not infra: bro had stale instructions, server enforcement was working but invisible.
@@ -165,7 +182,7 @@ Manual L5 dogfood was the release bottleneck. L6 automates it by pre-seeding DB 
 - Uploads trajectory dumps as artifacts on failure
 
 **Stale doctrine cleanup** (per the migration audit):
-- Onboarding skill: fixed event_type from stale `tmb_bootstrap_complete` → `tmb_onboarding_complete`; dropped reference to "file copies" (swe + pr-reviewer ship globally)
+- Onboarding skill: fixed event_type from stale `tmb_bootstrap_complete` → `tmb_defaults_applied`; dropped reference to "file copies" (swe + pr-reviewer ship globally)
 - Agent-creator skill: dropped `tmb_bootstrap` reference (skill is gone in v0.3.0+)
 - Plugin CLAUDE.md: removed the "tmb_bootstrap is being retired" sentence (it's already retired)
 
@@ -352,7 +369,7 @@ Same for skills. Projects that need custom backbone behavior drop a project-loca
 | Branching model + PR target capture | ✓ | ✓ |
 | Persist via `identity_set` + 3 × `config_set` | ✓ | ✓ |
 | **Copy `swe.md` + 5 default skills into `<project>/.claude/`** | required (8+ filesystem ops) | **eliminated** |
-| Log onboarding audit row | ✓ (`tmb_bootstrap_complete`) | ✓ (renamed `tmb_onboarding_complete`) |
+| Log onboarding audit row | ✓ (`tmb_bootstrap_complete`) | ✓ (renamed `tmb_defaults_applied`) |
 | Required `/reload-plugins` after install? | yes | **no** (plugin already serves agents + skills globally) |
 
 ### Removed

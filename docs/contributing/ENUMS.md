@@ -73,7 +73,7 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 
 | Value | Trigger |
 |---|---|
-| `tmb_onboarding_complete` | Bro finishes first-run onboarding |
+| `tmb_defaults_applied` | Bro finishes first-run onboarding |
 | `planning_complete` | Bro finishes planning, batched task_create + SWE spawn |
 | `scope_gate_waived` | Bro waives the scope gate with explicit reason |
 | `direct_mode_used` | Bro fixes ≤3 lines without SWE spawn |

@@ -26,7 +26,7 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
-| 1 | [Onboarding](#1-first-run-onboarding) | First activation in a project | bro | `tmb_first-run-onboarding` | `identity`, `plugin_config` | — |
+| 1 | [First contact](#1-first-contact-defaults-applied-silently) | First activation in a project | bro | (none — inline default-write) | `plugin_config`, `ledger` | — |
 | 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `swe-checklist` (lazy on demand) | `issues`, `tasks`, `ledger` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
 | 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion + ADR) → swe (pr-reviewer at push time) | + `tmb_planning-difficult` (env probe, Q+A, ADR) | + `discussions`, ADR file | same |
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → human | `tmb_agent-creator` | — | — |
@@ -40,52 +40,47 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 ---
 
-## 1. First-Run Onboarding
+## 1. First Contact (defaults applied silently)
 
-**Trigger:** Bro at session start finds `config_get("branching_model")` returns null **OR** `identity_get().created_at` is null.
+**Trigger:** Bro at session start finds `config_get("branching_model")` returns null.
 
 **Involved:**
-- Agent: `bro` (no spawn — handles inline)
-- MCP tools: `identity_get`, `identity_set`, `config_get`, `config_set`, `ledger_log`
-- DB tables written: `identity`, `plugin_config`, `ledger`
-- Skills: `tmb_first-run-onboarding`
+- Agent: `bro` (no spawn — handles inline; no skill invocation)
+- MCP tools: `identity_get`, `config_get`, `config_set` (×3), `ledger_log`, `issue_resume`
+- DB tables written: `plugin_config`, `ledger`
+- Skills: **none** — the doctrine is intentionally inline in CLAUDE.md's first-action chain
 - Hooks: none
-- **Filesystem ops: NONE.** v0.3.0+ ships `swe`, `pr-reviewer`, and 7 default skills globally; nothing is copied into the project.
+- **Filesystem ops: NONE.** swe + pr-reviewer + default skills serve globally; nothing is copied into the project.
+
+**Doctrine: no onboarding ceremony.** Modern agents don't onboard — they just work. Bro applies sensible defaults silently on first activation, persists them to the DB so they survive across sessions, and announces what it did in the welcome banner. The user can change anything any time via `tmb_reonboard`.
 
 ```mermaid
 sequenceDiagram
     participant H as Human
     participant G as Bro
-    participant DB as SQLite (identity, plugin_config, ledger)
+    participant DB as SQLite (plugin_config, ledger)
 
-    Note over G: Session start — checks identity_get + config_get
+    Note over G: First activation — checks identity_get + config_get
     G->>DB: identity_get()
     G->>DB: config_get("branching_model")
-    DB-->>G: both null → enter Onboarding Mode
+    DB-->>G: both null → first contact
 
-    G->>H: AskUserQuestion (radio: name / git-config detected)
-    H-->>G: name choice
-    G->>DB: identity_set(human_name)
+    Note over G: No AskUserQuestion. Apply defaults silently.
+    G->>DB: config_set("branching_model", "github-flow")
+    G->>DB: config_set("pr_target", "main")
+    G->>DB: config_set("protected_branches", ["main"])
+    G->>DB: ledger_log(event_type='tmb_defaults_applied', ...)
+    G->>DB: issue_resume()
 
-    G->>H: AskUserQuestion (radio: branching_model)
-    H-->>G: github-flow | gitflow | custom
-    G->>H: AskUserQuestion (radio: pr_target)
-    H-->>G: main | dev | …
-    G->>H: AskUserQuestion (multi-radio: protected_branches)
-    H-->>G: selected branches
-    G->>DB: config_set("branching_model", ...)
-    G->>DB: config_set("pr_target", ...)
-    G->>DB: config_set("protected_branches", [...])
-
-    G->>DB: ledger_log(event_type='tmb_onboarding_complete', ...)
-    G->>H: "Done. Tell me what you want to work on."
+    G->>H: "Entering bro mode. First activation here — applied defaults: github-flow, main as PR target. Say `reonboard` to customize. <continue with the actual ask>"
 ```
 
 **Notes:**
-- **No file copying.** swe + pr-reviewer + default skills already serve from the plugin globally. Onboarding only persists identity + branching config to MCP and writes one audit-row to ledger.
-- Onboarding mode HOLDS any code-touching ask received during the flow — runs to completion first, then proceeds.
-- Read-only asks during onboarding are answered inline, then onboarding resumes.
-- Re-runnable any time via the `tmb_reonboard` skill (bro invokes it on phrases like "rename yourself", "switch to gitflow", etc.).
+- **No `identity` row written.** The absence of an identity row means "user hasn't named themselves yet." Bro greets without a name (plain second-person) until the user invokes `tmb_reonboard` to set one.
+- **No file copying.** swe + pr-reviewer + default skills already serve from the plugin globally.
+- **The welcome banner is mandatory** — see CLAUDE.md "Welcome banner" section for the three banner variants (first activation / returning with pending work / returning idle).
+- **Subsequent sessions skip the writes.** Bro reads the existing config, mentions "Welcome back" in the banner, continues.
+- **Re-runnable any time** via the `tmb_reonboard` skill (bro invokes it on phrases like "switch to gitflow", "update my name", "reonboard").
 - Resolution rule for backbone agents: if `<project>/.claude/agents/swe.md` (or `pr-reviewer.md`) exists → use local; else use the global plugin-shipped one. Local creation is opt-in via `tmb_agent-creator` with explicit Human approval.
 
 ---

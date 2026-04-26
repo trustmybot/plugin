@@ -14,10 +14,10 @@ SELECT
   'three-config-keys-still-present (got ' || COUNT(*) || ', expected 3)' AS description
 FROM plugin_config;
 
--- The fixture seeded ONE tmb_onboarding_complete event; if bro re-onboards,
+-- The fixture seeded ONE tmb_defaults_applied event; if bro re-onboards,
 -- a SECOND event would land. Count must stay at 1.
 SELECT
   CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
-  'tmb_onboarding_complete-not-duplicated (got ' || COUNT(*) || ', expected 1)' AS description
+  'tmb_defaults_applied-not-duplicated (got ' || COUNT(*) || ', expected 1)' AS description
 FROM ledger
-WHERE event_type = 'tmb_onboarding_complete';
+WHERE event_type = 'tmb_defaults_applied';

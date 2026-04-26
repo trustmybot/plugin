@@ -1,6 +1,6 @@
 ---
 name: tmb_reonboard
-description: Re-run the TMB onboarding flow on demand. Shows current values as the pre-selected default in an AskUserQuestion radio UI. Handles branching model changes, PR target updates, and identity rename.
+description: Configure or change bro's per-project state — branching model, PR target, protected branches, identity name. The plugin has no first-run onboarding; bro applies defaults silently on first activation, and this skill is the only path to override them. Shows current values as the pre-selected option in an AskUserQuestion radio UI.
 agent: bro
 allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
 ---
@@ -9,7 +9,7 @@ allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identit
 
 ## Purpose
 
-Let a user update branching model, PR target, protected branches, or their name after first-run onboarding completed. Reads current state, shows it as the `Keep "<current>"` first option in a radio form, writes changes via MCP.
+Let a user configure or update branching model, PR target, protected branches, or their name. The plugin has no first-run onboarding ceremony — bro applies defaults silently on first activation. This skill is the **only** path to write `identity` rows or change policy keys; everything else reads what bro has either defaulted or the user has previously set. Reads current state, shows it as the `Keep "<current>"` first option in a radio form, writes changes via MCP.
 
 ## When Invoked
 
@@ -102,7 +102,7 @@ For each answer:
   |---|---|
   | `github-flow` | `[<pr_target>]` |
   | `gitflow` | `["main", <pr_target>]` deduped |
-  | `custom` | ask separately (second AskUserQuestion round, multiSelect=true like first-run-onboarding Step 3a) |
+  | `custom` | ask separately (second AskUserQuestion round, multiSelect=true) |
 
   Then `config_set(agent='bro', key='protected_branches', value=<new list>)`.
 
