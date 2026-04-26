@@ -19,14 +19,50 @@ TMB turns Claude Code from a clever code-generator into a disciplined engineerin
 
 The plugin sits dormant until you address `@bro` in a message. No auto-takeover, no surprise behavior — every regular Claude Code workflow keeps working in TMB-enabled sessions.
 
-### Two channels
+### Channels
 
-| Channel | Install | Tracks | When to use |
+The `trustmybot` marketplace currently ships two channels of the `tmb` plugin:
+
+| Channel | Install | Tracks | Audience |
 |---|---|---|---|
-| **Stable** | `/plugin install tmb@trustmybot` | `main` branch (latest tag) | Production — only validated releases land here |
-| **Release candidate** | `/plugin install tmb-rc@trustmybot` | `rc` branch (currently-testing build) | Beta tester — help validate risky changes pre-promotion. Tolerate occasional breakage. |
+| **`tmb`** (stable) | `/plugin install tmb@trustmybot` | `main` branch (latest tag) | Production users — only validated releases land here |
+| **`tmb-rc`** (release candidate) | `/plugin install tmb-rc@trustmybot` | `rc` branch (currently-testing build) | Beta testers — help validate risky changes pre-promotion. Tolerate occasional breakage. |
 
 The RC channel exists because v0.2.0 and v0.3.0 both shipped install-path bugs that broke every stable user. Now anything risky goes through `tmb-rc` first; stable users only get validated releases. See [`CONTRIBUTING.md` § Release ritual](CONTRIBUTING.md#release-ritual).
+
+### Manage the marketplace from CC
+
+In Claude Code, navigate the plugin UI:
+
+```
+/plugin    →    Marketplaces    →    trustmybot    →    Browse plugins
+```
+
+You'll see one entry per channel (`tmb`, `tmb-rc`). Future channels and add-on plugins from the trustmybot org will appear here as new entries.
+
+### Refresh after upstream marketplace changes
+
+`/plugin marketplace add trustmybot/plugin` is **idempotent** — it won't re-fetch if the marketplace was already added in a previous session. If new channels (or new plugins) were added upstream after you first added the marketplace, refresh:
+
+```
+/plugin marketplace update trustmybot
+```
+
+If `update` isn't supported in your CC version:
+
+```
+/plugin marketplace remove trustmybot
+/plugin marketplace add trustmybot/plugin
+```
+
+### Coming later — pinned versions + add-ons
+
+The marketplace can host more channels and entirely new plugins as the trustmybot ecosystem grows:
+
+- **Pinned-version channels** like `tmb-v0.3.1` (locks to a specific release tag, no auto-update). Useful for users who want a frozen baseline. Achievable today by adding a `marketplace.json` entry with `"source": { "ref": "v0.3.1" }` — file an issue if you want a specific pinned channel published.
+- **Add-on plugins** like `tmb-monitoring`, `tmb-fintech`, etc. (separate plugins published from the same trustmybot marketplace). Each gets its own entry with its own source repo / ref / channels.
+
+Both extend the same marketplace UI — no separate `add` step needed for users; they just appear in `Browse plugins` when the marketplace refreshes.
 
 ---
 
