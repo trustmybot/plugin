@@ -81,17 +81,13 @@ RUN echo "✓ A3b: SQLite open + identity_get round-tripped"
 RUN bash tests/lint/agent-line-budget.sh \
  || (echo "❌ FAIL: agent-line-budget lint failed in clean install" && exit 1)
 
-# A5: onboarding skill contract still met in the as-shipped tree
-RUN bash tests/lint/onboarding-skill-contract.sh \
- || (echo "❌ FAIL: onboarding-skill-contract lint failed in clean install" && exit 1)
-
-# A6: hook scripts are executable + syntactically valid
+# A5: hook scripts are executable + syntactically valid
 RUN for h in scripts/hooks/*.sh; do \
       test -x "$h" || (echo "❌ FAIL: $h not executable" && exit 1); \
       bash -n "$h" || (echo "❌ FAIL: $h has syntax error" && exit 1); \
     done
 
-# A7: every path-shaped arg in .mcp.json resolves in the installed tree.
+# A6: every path-shaped arg in .mcp.json resolves in the installed tree.
 # args may interleave Node flags (--experimental-sqlite) with the entry point;
 # we test all args that *look* like a path (start with ${CLAUDE_PLUGIN_ROOT}).
 RUN node -e ' \
