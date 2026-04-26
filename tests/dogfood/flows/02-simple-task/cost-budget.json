@@ -1,0 +1,6 @@
+{
+  "max_tokens_total": 50000,
+  "max_latency_ms_p99": 60000,
+  "fail_above_max": false,
+  "_comment": "Soft budget — warn on overage but don't fail the run. Treat overage trends as drift signal; tighten thresholds after baseline data."
+}

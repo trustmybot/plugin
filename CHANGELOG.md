@@ -173,6 +173,39 @@ Manual L5 dogfood was the release bottleneck. L6 automates it by pre-seeding DB 
 
 2 new schema tests (table presence + columns + index). All L1-L4 green.
 
+### Added — L6 evals v2: outcome-first multi-scorer architecture (issue #110)
+
+L6 v1 (PR #109) used strict trajectory matching, which Anthropic explicitly warns against as too brittle (*"agents regularly find valid approaches that eval designers didn't anticipate"*). v2 replaces that with the industry-standard multi-scorer pattern (Inspect AI / AgentEvals).
+
+**Schema additions** (additive, schema_version stays at 1):
+- `debug_trajectory`: 3 new columns — `tokens_in`, `tokens_out`, `latency_ms` (default 0)
+- New `eval_results` table — one row per `(flow, scorer)` per run, with `run_id`, `pass`, `value`, `explanation`, `metadata_json`. Indexed on `(run_id, scorer_name)` and `(flow_name, created_at)`.
+
+**4 scorer types** (per `tests/dogfood/lib/scorers.sh`):
+- **Outcome** (primary, deterministic) — SQL assertions on final DB state. Replaces strict trajectory match. *Grade what was produced, not the path.*
+- **trajectory_required** (secondary) — listed tools must have been called (any order; superset semantics)
+- **trajectory_forbidden** (secondary) — listed tools must NOT have been called (subset/safety semantics)
+- **cost** (observational) — tokens + p99 latency tracked vs per-flow budget; warns on overage but doesn't fail unless `fail_above_max: true`
+
+**Per-flow directory layout** (replaces `expected/<name>.txt`):
+```
+tests/dogfood/flows/<name>/
+├── README.md
+├── outcome.sql
+├── tools-required.json
+├── tools-forbidden.json
+├── cost-budget.json
+└── run.sh
+```
+
+**4 wired flows fully converted** to v2 (01-onboarding, 02-simple-task, D-direct-mode, 95-anonymous-cold-restart). 12 scaffolds preserved with v2 entry points; auto-skip until their `outcome.sql` is authored.
+
+**Stale L6 v1 artifacts removed**: `tests/dogfood/expected/` directory, `l6_assert_trajectory` helper.
+
+**Citations** (new `docs/contributing/EVALS.md` and PR body): Anthropic's [Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents), LangSmith's [trajectory-evals docs](https://docs.langchain.com/langsmith/trajectory-evals) (4 match modes), [Inspect AI](https://inspect.aisi.org.uk/) (Dataset / Solver / Scorer / Task primitives), [AgentEvals](https://github.com/langchain-ai/agentevals), and the [LLM Agent Evaluation Survey](https://arxiv.org/html/2507.21504v1).
+
+3 new schema unit tests (debug_trajectory cost columns + eval_results structure). All L1-L4 green.
+
 ---
 
 ## v0.3.2 — 2026-04-25

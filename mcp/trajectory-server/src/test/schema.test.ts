@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh DB contains all 15 tables', () => {
+  it('fresh DB contains all 16 tables', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -22,6 +22,7 @@ describe('schema — current table set, default values, constraints', () => {
       'identity',
       'regen_state',
       'debug_trajectory',
+      'eval_results',
     ];
 
     const rows = db.all<{ name: string }>(
@@ -123,7 +124,7 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('debug_trajectory has expected columns + index (issue #108)', () => {
+  it('debug_trajectory has expected columns + index (issue #108, extended for #110)', () => {
     const db = tempDB();
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(debug_trajectory)');
@@ -135,9 +136,12 @@ describe('schema — current table set, default values, constraints', () => {
       'id',
       'is_error',
       'kind',
+      'latency_ms',
       'result_json',
       'session_id',
       'step_n',
+      'tokens_in',
+      'tokens_out',
       'tool_or_mcp_name',
     ]);
 
@@ -149,6 +153,36 @@ describe('schema — current table set, default values, constraints', () => {
       indexNames.includes('idx_debug_trajectory_session'),
       'session-step index must exist for L6 reads',
     );
+
+    db.close();
+  });
+
+  it('eval_results table exists with v2 multi-scorer schema (issue #110)', () => {
+    const db = tempDB();
+
+    const rows = db.all('SELECT * FROM eval_results');
+    assert.equal(rows.length, 0, 'eval_results must be empty on init');
+
+    const cols = db.all<{ name: string }>('PRAGMA table_info(eval_results)');
+    const colNames = cols.map((c) => c.name).sort();
+    assert.deepEqual(colNames, [
+      'created_at',
+      'explanation',
+      'flow_name',
+      'id',
+      'metadata_json',
+      'pass',
+      'run_id',
+      'scorer_name',
+      'value',
+    ]);
+
+    const indexes = db.all<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='eval_results'",
+    );
+    const indexNames = indexes.map((i) => i.name).sort();
+    assert.ok(indexNames.includes('idx_eval_results_run'), 'run_id index required');
+    assert.ok(indexNames.includes('idx_eval_results_flow'), 'flow_name index required');
 
     db.close();
   });

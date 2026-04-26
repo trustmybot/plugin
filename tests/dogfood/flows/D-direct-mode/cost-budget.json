@@ -1,0 +1,6 @@
+{
+  "max_tokens_total": 10000,
+  "max_latency_ms_p99": 15000,
+  "fail_above_max": false,
+  "_comment": "Direct Mode is the cheapest path — tight soft budget."
+}

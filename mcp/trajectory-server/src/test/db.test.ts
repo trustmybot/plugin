@@ -4,7 +4,7 @@ import { tempDB } from './helpers.js';
 import { nowISO, genId } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all 15 tables exist with schema_version=1', () => {
+  it('opens an in-memory DB and verifies all 16 tables exist with schema_version=1', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -23,6 +23,7 @@ describe('TrajectoryDB', () => {
       'identity',
       'regen_state',
       'debug_trajectory',
+      'eval_results',
     ];
 
     const rows = db.all<{ name: string }>(

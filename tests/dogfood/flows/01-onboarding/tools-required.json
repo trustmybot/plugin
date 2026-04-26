@@ -1,0 +1,7 @@
+[
+  "mcp__plugin_tmb_trajectory-server__identity_get",
+  "mcp__plugin_tmb_trajectory-server__config_get",
+  "mcp__plugin_tmb_trajectory-server__identity_set",
+  "mcp__plugin_tmb_trajectory-server__config_set",
+  "mcp__plugin_tmb_trajectory-server__ledger_log"
+]

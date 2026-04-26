@@ -47,60 +47,25 @@ l6_run_claude() {
   )
 }
 
-# l6_assert_trajectory <project_dir> <expected_file>: reads the recorded
-# trajectory and verifies every line in <expected_file> appears as a
-# substring in the actual sequence (in order). Returns 0 if all matched.
+# l6_score_flow <project_dir> <flow_name> <scorer_dir> <run_id>: runs all
+# v2 scorers against the project's trajectory DB. Returns 0 only if every
+# scorer that's mandated for the flow passes. Issue #110.
 #
-# Expected file format (one line per expected step):
-#   mcp_call:mcp__plugin_tmb_trajectory-server__identity_get
-#   mcp_call:mcp__plugin_tmb_trajectory-server__config_get
-#   tool_use:Bash
-#   ...
-#
-# Allows extra steps to appear between expected lines (subset match in order).
-l6_assert_trajectory() {
-  local dir="$1" expected_file="$2"
-  if [ ! -f "$expected_file" ]; then
-    printf "  ✗ expected file missing: %s\n" "$expected_file" >&2
-    return 1
-  fi
-  local actual
-  actual=$(sqlite3 "$dir/.claude/tmb/trajectory.db" \
-    "SELECT kind || ':' || tool_or_mcp_name FROM debug_trajectory ORDER BY id")
+# Scorers (per industry-standard Inspect AI / AgentEvals pattern):
+#   1. outcome           — primary; SQL assertions on final DB state
+#   2. trajectory_required — required tools were called (any order)
+#   3. trajectory_forbidden — forbidden tools were NOT called
+#   4. cost              — observational unless cost-budget says fail_above_max
+l6_score_flow() {
+  local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
+  local total_fail=0
 
-  if [ -z "$actual" ]; then
-    printf "  ✗ no trajectory rows recorded — TMB_DEBUG_TRAJECTORY may not be wired\n" >&2
-    return 1
-  fi
+  l6_score_outcome              "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l6_score_trajectory_required  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l6_score_trajectory_forbidden "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l6_score_cost                 "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
 
-  # Walk both lists; expected must be a subset-in-order of actual.
-  local idx=0
-  local found=0
-  local expected_lines=()
-  while IFS= read -r line; do
-    [ -n "$line" ] && expected_lines+=("$line")
-  done < "$expected_file"
-
-  while IFS= read -r actual_line; do
-    if [ "$idx" -ge "${#expected_lines[@]}" ]; then
-      break
-    fi
-    if [[ "$actual_line" == *"${expected_lines[$idx]}"* ]]; then
-      idx=$((idx + 1))
-      found=$((found + 1))
-    fi
-  done <<< "$actual"
-
-  if [ "$idx" -eq "${#expected_lines[@]}" ]; then
-    printf "  ✓ matched %d/%d expected steps\n" "$found" "${#expected_lines[@]}"
-    return 0
-  else
-    printf "  ✗ matched %d/%d expected steps; missing: %s\n" \
-      "$found" "${#expected_lines[@]}" "${expected_lines[$idx]}" >&2
-    printf "  --- actual trajectory (first 30) ---\n" >&2
-    echo "$actual" | head -30 >&2
-    return 1
-  fi
+  return "$total_fail"
 }
 
 # l6_cleanup_project <project_dir>: removes the scratch directory.
@@ -112,3 +77,7 @@ l6_cleanup_project() {
 # Initialize globals used by helpers.
 L6_DOGFOOD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export L6_DOGFOOD_DIR
+
+# Source v2 scorers (issue #110).
+# shellcheck source=tests/dogfood/lib/scorers.sh
+. "$L6_DOGFOOD_DIR/lib/scorers.sh"
