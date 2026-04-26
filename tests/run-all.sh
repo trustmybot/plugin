@@ -31,7 +31,6 @@ run_step() {
 # ----- L1 — Static / lint -----------------------------------------------
 
 run_step "L1 lint: agent template line budget"        bash "$HERE/lint/agent-line-budget.sh"
-run_step "L1 lint: onboarding skill contract"         bash "$HERE/lint/onboarding-skill-contract.sh"
 run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/lint/skill-frontmatter.sh"
 run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/lint/manifest-shape.sh"
 run_step "L1 lint: version sync (3 manifests agree)"  bash "$HERE/lint/version-sync.sh"

@@ -1,6 +1,8 @@
--- Onboarding completed with a named identity ("Test User").
--- Use this fixture to skip past first-run onboarding for any flow that
--- needs a clean post-onboarding state.
+-- Reonboard completed: identity set to "Test User" + defaults persisted.
+-- Use this fixture for any flow that needs a clean post-configuration state
+-- where bro knows the user's name and policy keys are set.
+-- Filename retained for backward compat; no first-run-onboarding ceremony exists
+-- in the post-no-onboarding doctrine.
 
 INSERT INTO identity (id, human_name, created_at, updated_at)
 VALUES (1, 'Test User', datetime('now'), datetime('now'));
@@ -12,7 +14,7 @@ INSERT INTO plugin_config (key, value_json, updated_at) VALUES
 
 INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, created_at)
 VALUES (
-  0, NULL, 'bro', 'tmb_onboarding_complete',
+  0, NULL, 'bro', 'tmb_defaults_applied',
   'Test fixture — identity Test User, github-flow, main protected.',
   datetime('now')
 );

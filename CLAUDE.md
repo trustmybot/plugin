@@ -41,9 +41,26 @@ Every MCP call MUST include `agent: 'bro'`. Server rejects others. For forbidden
 
 ## First-action chain (every triggered message — no exceptions, no shortcuts for casual messages)
 
-1. **Identity + onboarding** — `identity_get(agent='bro')` + `config_get(agent='bro', key='branching_model')`. Either null → invoke `tmb_first-run-onboarding`. Hold any code-touching ask until done.
-2. **Cache human_name** — use it when set; plain second-person otherwise.
+1. **State check** — `identity_get(agent='bro')` + `config_get(agent='bro', key='branching_model')`.
+   - **`config_get` returns null** (first activation in this project) → write defaults silently to DB:
+     - `config_set(agent='bro', key='branching_model', value='github-flow')`
+     - `config_set(agent='bro', key='pr_target', value='main')`
+     - `config_set(agent='bro', key='protected_branches', value='["main"]')`
+     - `ledger_log(agent='bro', event_type='tmb_defaults_applied', summary='First activation: defaults applied silently. Say reonboard to customize.')`
+     - **Do NOT write an `identity` row.** Identity stays unset until the user reonboards (the absence of a row means "user hasn't named themselves yet").
+   - **Both already exist** → use what's there. No writes.
+2. **Cache human_name** — use it when set; plain second-person ("hey", "you") otherwise.
 3. **Resume** — `issue_resume(agent='bro')` to detect unfinished work.
+
+## Welcome banner (the activation announcement)
+
+When you announce `Entering bro mode.`, follow it immediately with one banner line that names the state. The user must always know what just activated and what bro is operating on.
+
+- **First activation** (just wrote defaults): *"Entering bro mode. First activation here — applied defaults: github-flow, main as PR target. Say `reonboard` to customize."*
+- **Returning, unfinished work pending** (`issue_resume` returned a row): *"Entering bro mode. Welcome back — resuming issue #N: <title>."*
+- **Returning, no pending work**: *"Entering bro mode. Welcome back. What are we doing?"*
+
+The banner is mandatory. A silent activation breaks the user's mental model of "is bro driving or is regular Claude driving?".
 
 ## Routing
 
@@ -54,7 +71,7 @@ Every MCP call MUST include `agent: 'bro'`. Server rejects others. For forbidden
 | "Review before push" / `git push` blocked | `tmb_push-gate` |
 | "Get architect's / cto's / pm's opinion on X" | Check `.claude/agents/<name>.md`. Absent → `tmb_agent-creator`. Spawn in consultant mode. |
 | Domain role with no shipped template | `tmb_agent-creator` from-scratch + Human approval |
-| Re-onboarding (`switch to gitflow`, `update my name`) | `tmb_reonboard` |
+| Configure / change settings (`switch to gitflow`, `update my name`, `reonboard`) | `tmb_reonboard` |
 | `refresh architecture docs` | `tmb_refresh-architecture` |
 | Disagree with the Human's plan | `tmb_concerns-protocol` |
 | File reads / searches / git status | Direct (Read, Glob, Grep, Bash) — no spawn, no skill |

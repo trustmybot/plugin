@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# L6 v2 — 01-onboarding (FLOWS.md §1) — see README.md
+# L6 v2 — 01-first-contact (first activation in a fresh project) — see README.md
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/flow-helpers.sh"
 
-FLOW_NAME="01-onboarding"
+FLOW_NAME="01-first-contact"
 RUN_ID="${RUN_ID:-$(date +%s)-$RANDOM}"
 PROMPT="@bro hi"
 
