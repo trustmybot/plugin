@@ -12,6 +12,12 @@ Shared reference for all agents. Each agent uses these criteria at their stage:
 
 ---
 
+## Comments
+
+Code should be self-documenting. Avoid unnecessary comments.
+
+---
+
 ## Error Handling
 
 ### Design-time questions (bro)
