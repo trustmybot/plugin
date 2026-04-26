@@ -4,6 +4,16 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Refactored — defaults seeded by schema, not by bro
+
+The previous unreleased entry had bro silently writing 3 `plugin_config` rows + a `tmb_defaults_applied` ledger event on first contact. Per user follow-up: that's still bro doing work the system should do.
+
+- `mcp/trajectory-server/src/schema.sql` now seeds the 3 default policy keys via `INSERT OR IGNORE` at DB creation. Bro never touches `plugin_config` on first contact.
+- `tmb_defaults_applied` ledger event removed entirely (the schema seed is silent; bro only logs events for decisions it actually makes).
+- CLAUDE.md first-action chain compressed from 12 lines (state check + conditional default-write + cache + resume) to 4 lines (two parallel reads: `identity_get` + `issue_resume`, then welcome banner). `config_get` no longer in the always-call set; bro fetches lazily when a specific key matters.
+- Welcome banner simplified from 3 variants to 2 (no "first contact" variant — pending-work or idle is enough).
+- Test fixtures (`onboarding-named.sql`, `onboarding-anonymous.sql`) shrunk: they no longer INSERT plugin_config (now schema-seeded) and dropped the `tmb_defaults_applied` ledger row. `onboarding-named.sql` writes a `tmb_user_named` event instead to mark "user explicitly chose this name".
+
 ### Removed — first-run-onboarding ceremony (modern-agent UX)
 
 Modern agents (Cursor, ChatGPT, etc.) don't onboard — they just work. TMB's previous behavior of asking name + branching model + PR target + protected branches via `AskUserQuestion` on first contact was friction with no upside for the 80% case, and it broke completely in headless `claude -p` mode (no Human to answer).

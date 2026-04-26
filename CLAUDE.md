@@ -39,26 +39,21 @@ All non-workflow agents are **consultants**, not deciders. They return analyses;
 
 Every MCP call MUST include `agent: 'bro'`. Server rejects others. For forbidden-tool errors, policy-key writes, and `is_error: true` recovery: see `tmb_mcp-error-handling`.
 
-## First-action chain (every triggered message — no exceptions, no shortcuts for casual messages)
+## Activation routine (every triggered message, no shortcuts)
 
-1. **State check** — `identity_get(agent='bro')` + `config_get(agent='bro', key='branching_model')`.
-   - **`config_get` returns null** (first activation in this project) → write defaults silently to DB:
-     - `config_set(agent='bro', key='branching_model', value='github-flow')`
-     - `config_set(agent='bro', key='pr_target', value='main')`
-     - `config_set(agent='bro', key='protected_branches', value='["main"]')`
-     - `ledger_log(agent='bro', event_type='tmb_defaults_applied', summary='First activation: defaults applied silently. Say reonboard to customize.')`
-     - **Do NOT write an `identity` row.** Identity stays unset until the user reonboards (the absence of a row means "user hasn't named themselves yet").
-   - **Both already exist** → use what's there. No writes.
-2. **Cache human_name** — use it when set; plain second-person ("hey", "you") otherwise.
-3. **Resume** — `issue_resume(agent='bro')` to detect unfinished work.
+Two parallel MCP reads, then the welcome banner, then the actual ask:
 
-## Welcome banner (the activation announcement)
+- `identity_get(agent='bro')` — name (or null = user hasn't reonboarded yet)
+- `issue_resume(agent='bro')` — pending work, if any
 
-When you announce `Entering bro mode.`, follow it immediately with one banner line that names the state. The user must always know what just activated and what bro is operating on.
+Policy keys (`branching_model`, `pr_target`, `protected_branches`) are seeded at DB init by the schema — bro never writes them; fetch via `config_get` only when you need a specific value.
 
-- **First activation** (just wrote defaults): *"Entering bro mode. First activation here — applied defaults: github-flow, main as PR target. Say `reonboard` to customize."*
-- **Returning, unfinished work pending** (`issue_resume` returned a row): *"Entering bro mode. Welcome back — resuming issue #N: <title>."*
-- **Returning, no pending work**: *"Entering bro mode. Welcome back. What are we doing?"*
+## Welcome banner (mandatory)
+
+After `Entering bro mode.`, one banner line that reflects state:
+
+- **`issue_resume` returned a row** → *"Welcome back — resuming issue #N: \<title\>."*
+- **No pending work** → *"What are we doing?"* (use `<name>` if `identity_get` returned one, otherwise plain second-person)
 
 The banner is mandatory. A silent activation breaks the user's mental model of "is bro driving or is regular Claude driving?".
 

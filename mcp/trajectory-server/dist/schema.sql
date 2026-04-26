@@ -151,6 +151,15 @@ CREATE TABLE IF NOT EXISTS plugin_config (
     updated_at TEXT NOT NULL
 );
 
+-- Default policy keys, seeded at DB init so bro never has to "apply defaults"
+-- on first contact. Modern-agent UX: the system gives bro working state out
+-- of the box; the user changes anything via tmb_reonboard. INSERT OR IGNORE
+-- makes this safe to re-run on existing DBs (no overwrite of user choices).
+INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at) VALUES
+    ('branching_model',    '"github-flow"', datetime('now')),
+    ('pr_target',          '"main"',        datetime('now')),
+    ('protected_branches', '["main"]',      datetime('now'));
+
 CREATE TABLE IF NOT EXISTS identity (
     id               INTEGER PRIMARY KEY CHECK (id = 1),
     human_name       TEXT,

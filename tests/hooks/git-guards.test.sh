@@ -55,15 +55,10 @@ setup_worktree_repo() {
     # Create a worktree on a feature branch
     git worktree add -b feat/cli-todo .claude/worktrees/task-1 -q
 
-    # Plant the trajectory DB with the standard onboarding config
+    # Plant the trajectory DB. Schema-seed already provides the 3 default
+    # policy keys (branching_model=github-flow, pr_target=main, protected=["main"]).
     mkdir -p .claude/tmb
     sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
-    sqlite3 .claude/tmb/trajectory.db <<SQL >/dev/null
-INSERT INTO plugin_config (key, value_json, updated_at) VALUES
-  ('branching_model', '"github-flow"', datetime('now')),
-  ('pr_target',       '"main"',         datetime('now')),
-  ('protected_branches', '["main"]',    datetime('now'));
-SQL
   )
   REPO_PATH="$dir"
 }
