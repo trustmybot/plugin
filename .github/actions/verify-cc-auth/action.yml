@@ -1,0 +1,84 @@
+name: 'Verify Claude Code auth'
+description: |
+  Prerequisite check for any workflow that needs to invoke `claude` in CI.
+  Inspects the OAuth token shape, installs Claude Code if needed, runs
+  `claude -p "say hi"` to confirm auth works END-TO-END.
+
+  Fail-fast pattern: if auth is broken (bad token, wrong format, network),
+  the consuming workflow's expensive steps (Docker builds, plugin
+  installs, multi-flow L6 runs) never start.
+
+  Usage:
+    - uses: ./.github/actions/verify-cc-auth
+      with:
+        token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+inputs:
+  token:
+    description: 'CLAUDE_CODE_OAUTH_TOKEN value (pass via secrets)'
+    required: true
+  install-cc:
+    description: 'Whether to install @anthropic-ai/claude-code first (default true)'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node 22 (if not already)
+      if: inputs.install-cc == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install Claude Code CLI
+      if: inputs.install-cc == 'true'
+      shell: bash
+      run: |
+        npm install -g @anthropic-ai/claude-code
+        claude --version
+
+    - name: Inspect token shape (no value exposure)
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: |
+        if [ -z "$TOKEN" ]; then
+          echo "::error::CLAUDE_CODE_OAUTH_TOKEN is empty"
+          exit 1
+        fi
+        LEN=${#TOKEN}
+        STRIPPED=$(printf '%s' "$TOKEN" | tr -d '\n\r\t ')
+        STRIPPED_LEN=${#STRIPPED}
+        DIFF=$((LEN - STRIPPED_LEN))
+        echo "Token length: $LEN bytes"
+        if [ "$DIFF" -gt 0 ]; then
+          echo "::error::Token contains $DIFF whitespace/newline char(s) — re-set with: TOKEN=\$(claude setup-token) && gh secret set CLAUDE_CODE_OAUTH_TOKEN --body \"\$TOKEN\""
+          exit 1
+        fi
+        # Sanity-check OAuth prefix
+        case "$TOKEN" in
+          sk-ant-oat-*) echo "Token has expected sk-ant-oat- prefix (OAuth)" ;;
+          sk-ant-api-*) echo "Token has sk-ant-api- prefix (API key — also valid)" ;;
+          *) echo "::warning::Token does not start with sk-ant-oat- or sk-ant-api- — unrecognized format" ;;
+        esac
+
+    - name: Smoke-test auth with claude -p
+      shell: bash
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.token }}
+      run: |
+        echo "Calling: claude -p 'say hi in one word'"
+        set +e
+        OUT=$(timeout 30 claude -p "say hi in one word" 2>&1)
+        RC=$?
+        set -e
+        echo "exit code: $RC"
+        echo "--- output ---"
+        echo "$OUT"
+        echo "--- end output ---"
+        if [ $RC -ne 0 ] || [ -z "$OUT" ]; then
+          echo "::error::Auth smoke test failed — see output above. Token may be revoked, format wrong, or network down."
+          exit 1
+        fi
+        echo "✓ Auth verified — claude -p produced output and exited 0"
