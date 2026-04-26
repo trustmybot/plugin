@@ -16,6 +16,14 @@ docs/trustmybot/
 # Node / build
 node_modules/
 dist/
+# Exception: ship the MCP server's built dist/ in the published artifact.
+# CC's marketplace install runs `bun install --ignore-scripts` (or equivalent)
+# — lifecycle scripts don't fire, so postinstall can't build dist/. Without
+# committed dist/, the MCP server can't spawn → bro can't onboard → silent
+# install failure (v0.2.0 and v0.3.0 both hit this class). v0.3.1 ships dist/
+# directly. Stale dist/ caught by tests/lint/dist-fresh.sh in CI.
+!mcp/trajectory-server/dist/
+!mcp/trajectory-server/dist/**
 
 # OS
 .DS_Store

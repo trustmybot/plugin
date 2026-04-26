@@ -40,6 +40,7 @@ run_step "L1 lint: link-check (relative md links)"    bash "$HERE/lint/link-chec
 run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/lint/shellcheck-hooks.sh"
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/lint/tsc-noemit.sh"
 run_step "L1 lint: release script safety guards"      bash "$HERE/lint/release-script-safety.sh"
+run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/lint/dist-fresh.sh"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 

@@ -1,24 +1,27 @@
 # Layer 5 — Manual Dogfood Checklist
 
-> **What this is:** a tight, ~10-item checklist of the things **only a human walking through Claude Code can verify**. The previous 785-line version of this file tried to enumerate every workflow path; that's now covered structurally by L0–L4 (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests). What remains here is the residue — Claude-side behaviors that have no automated test surface.
+> **What this is:** a tight, ~10-item checklist of the things **only a human walking through Claude Code can verify**. L0–L4 cover the rest structurally (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests).
 >
-> **When you must run this:** before tagging any release `v0.2.0` or higher. The release script (`scripts/release.sh`) blocks tagging until you set `MANUAL_DOGFOOD_PASSED=v<X.Y.Z>` in your environment, signed off after walking the checklist below.
+> **When you must run this:**
+> - **Before promoting a release candidate to stable** (the canonical RC validation step — see [`CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) Path 2).
+> - **Before tagging any release** ≥ v0.2.0. The release script (`scripts/release.sh`) refuses to tag until `MANUAL_DOGFOOD_PASSED=v<X.Y.Z>` matches the version being released.
+>
+> **Hotfixes** can bypass via `BYPASS_DOGFOOD=1`, with the bypass reason documented in the release commit. Acceptable when the change demonstrably can't affect Claude-side behavior (doc-only releases, CI-only fixes).
 
 ---
 
 ## Setup
 
-```bash
-# Fresh scratch project so no stale .claude/ contaminates the test
-mkdir -p /tmp/tmb-dogfood && cd /tmp/tmb-dogfood
-git init -q && git config user.email t@t.t && git config user.name T
-echo "init" > README.md && git add . && git commit -qm init
+Two test paths — see [`setup.md`](./setup.md) for the full instructions, including verify commands and reset procedures.
 
-# Run Claude Code with the plugin under test loaded
-claude --plugin-dir "$HOME/Git/GitHub/TMB/plugin"
-```
+| Path | Command | Use when |
+|---|---|---|
+| **A — Local dev** | `claude --plugin-dir <plugin-clone>` | Active development; fast iteration; hot reload via `/reload-plugins`. |
+| **B — Marketplace RC** | `/plugin install tmb-rc@trustmybot` (in CC) | **REQUIRED for RC validation** before promoting to stable. Exercises CC's actual install lifecycle. |
 
-Reset between scenarios: `rm -rf /tmp/tmb-dogfood && <re-run setup>`.
+**For RC validation: use Path B.** Path A bypasses the install lifecycle that broke v0.2.0 + v0.3.0 — it can't catch that bug class. Path B is the only manual path that does.
+
+For each scenario below: set up a fresh scratch project per [`setup.md`](./setup.md), run the trigger, verify against the expected behavior, then reset (`rm -rf .claude/tmb/`) before the next scenario.
 
 ---
 
