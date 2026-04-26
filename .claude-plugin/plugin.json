@@ -1,7 +1,7 @@
 {
-  "name": "tmb",
+  "name": "tmb-rc",
   "version": "0.3.2",
-  "description": "TMB multi-agent Claude Code plugin with SQLite trajectory MCP.",
+  "description": "TMB release-candidate channel — pre-release builds being validated. Same source as tmb but isolated as a separate plugin entry so the rc and stable can be installed/disabled independently in CC. See trustmybot/plugin#87 for full channel-isolation roadmap.",
   "author": {
     "name": "trustmybot",
     "url": "https://github.com/trustmybot"
