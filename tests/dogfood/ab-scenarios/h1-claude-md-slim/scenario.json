@@ -1,0 +1,7 @@
+{
+  "name": "h1-claude-md-slim",
+  "description": "Hypothesis 1 from #153: did the CLAUDE.md aggressive slim (PR #126, 142 → 99 lines) actually improve outcome pass-rate, or was it cosmetic? A-slim = current 99-line CLAUDE.md. B-pre-slim = 142-line snapshot from before PR #126 (extracted via `git show 2f5cc56^:CLAUDE.md`). Same flow, same prompt — measures whether the slim materially helped or was rearrangement.",
+  "flow": "02-simple-task",
+  "prompt": "@bro write a python cli todo with add and list commands",
+  "arms": ["A-slim", "B-pre-slim"]
+}

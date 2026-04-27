@@ -1,0 +1,7 @@
+{
+  "name": "h3-direct-mode-framing",
+  "description": "Hypothesis 3 from #153: did the strong 'NEVER SKIP THIS' / 'ALL FOUR STEPS ARE MANDATORY' framing on the Direct Mode protocol (PR #139, then expanded to 4 steps in #148) actually improve compliance with the audit-trail step (the ledger_log + file_registry_update_summaries calls), or are we still at the LLM ceiling where bro skips steps regardless?",
+  "flow": "D-direct-mode",
+  "prompt": "@bro fix the typo 'recieve' to 'receive' in README.md",
+  "arms": ["A-current-4step", "B-pre-pr139"]
+}
