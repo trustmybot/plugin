@@ -139,6 +139,28 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
+  it('eval_results has the A/B columns (#131) on a fresh DB', () => {
+    const db = tempDB();
+
+    const cols = db.all<{ name: string; type: string; dflt_value: string | null; notnull: number }>(
+      'PRAGMA table_info(eval_results)',
+    );
+    const byName = new Map(cols.map((c) => [c.name, c]));
+
+    const arm = byName.get('arm');
+    assert.ok(arm, 'arm column must exist');
+    assert.equal(arm!.type, 'TEXT');
+    assert.equal(arm!.notnull, 1, 'arm must be NOT NULL');
+    assert.equal(arm!.dflt_value, "'control'", 'arm must default to control');
+
+    const scenario = byName.get('scenario');
+    assert.ok(scenario, 'scenario column must exist');
+    assert.equal(scenario!.type, 'TEXT');
+    assert.equal(scenario!.notnull, 0, 'scenario is nullable');
+
+    db.close();
+  });
+
   it('last_verified_sha config key is NOT schema-seeded (#45 — initial null is correct)', () => {
     const db = tempDB();
 
@@ -201,6 +223,7 @@ describe('schema — current table set, default values, constraints', () => {
     const cols = db.all<{ name: string }>('PRAGMA table_info(eval_results)');
     const colNames = cols.map((c) => c.name).sort();
     assert.deepEqual(colNames, [
+      'arm',
       'created_at',
       'explanation',
       'flow_name',
@@ -208,6 +231,7 @@ describe('schema — current table set, default values, constraints', () => {
       'metadata_json',
       'pass',
       'run_id',
+      'scenario',
       'scorer_name',
       'value',
     ]);

@@ -73,11 +73,12 @@ export class TrajectoryDB {
     const sql = readFileSync(schemaPath, 'utf8');
     this.db.exec(sql);
 
-    // Migrate older DBs that pre-date the codebase-memory columns (#45).
-    // CREATE TABLE IF NOT EXISTS doesn't add new columns to existing tables,
-    // so we explicitly ALTER any missing ones. Idempotent — checks PRAGMA
-    // table_info first and only ALTERs the columns that aren't there yet.
+    // Migrate older DBs that pre-date the codebase-memory columns (#45)
+    // and the A/B columns (#131). CREATE TABLE IF NOT EXISTS doesn't add
+    // new columns to existing tables, so we explicitly ALTER any missing
+    // ones. Idempotent — checks PRAGMA table_info first.
     this.migrateFileRegistryCodebaseMemory();
+    this.migrateEvalResultsAbColumns();
 
     const row = this.db
       .prepare('SELECT schema_version FROM plugin_meta LIMIT 1')
@@ -87,6 +88,25 @@ export class TrajectoryDB {
       throw new Error(
         'TrajectoryDB: schema applied but plugin_meta has no rows — verify schema.sql seeds it.',
       );
+    }
+  }
+
+  private migrateEvalResultsAbColumns(): void {
+    const cols = this.db
+      .prepare('PRAGMA table_info(eval_results)')
+      .all() as Array<{ name: string }>;
+    const present = new Set(cols.map((c) => c.name));
+    // 'arm' is NOT NULL DEFAULT 'control' on fresh installs; on existing DBs
+    // we ALTER with the same default so old rows get backfilled. SQLite's
+    // ALTER ADD COLUMN with a literal DEFAULT applies the default to existing
+    // rows automatically.
+    if (!present.has('arm')) {
+      this.db.exec(
+        `ALTER TABLE eval_results ADD COLUMN arm TEXT NOT NULL DEFAULT 'control'`,
+      );
+    }
+    if (!present.has('scenario')) {
+      this.db.exec(`ALTER TABLE eval_results ADD COLUMN scenario TEXT`);
     }
   }
 
