@@ -124,6 +124,32 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
+  it('file_registry has the codebase-memory columns (#45) on a fresh DB', () => {
+    const db = tempDB();
+
+    const cols = db.all<{ name: string; type: string }>(
+      'PRAGMA table_info(file_registry)',
+    );
+    const byName = new Map(cols.map((c) => [c.name, c.type]));
+
+    assert.equal(byName.get('content_md5'), 'TEXT');
+    assert.equal(byName.get('summary'), 'TEXT');
+    assert.equal(byName.get('summary_updated_at'), 'TEXT');
+
+    db.close();
+  });
+
+  it('last_verified_sha config key is NOT schema-seeded (#45 — initial null is correct)', () => {
+    const db = tempDB();
+
+    const row = db.get<{ value_json: string } | undefined>(
+      "SELECT value_json FROM plugin_config WHERE key = 'last_verified_sha'",
+    );
+    assert.equal(row, undefined, 'last_verified_sha must start absent');
+
+    db.close();
+  });
+
   it('debug_trajectory has zero rows on init (issue #108)', () => {
     const db = tempDB();
 
