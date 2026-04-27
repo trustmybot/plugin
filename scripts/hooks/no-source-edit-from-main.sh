@@ -65,12 +65,18 @@ if ! grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null \
   exit 0
 fi
 
-case "$PWD" in
-  *.claude/worktrees/*) exit 0 ;;
-esac
-
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)
 [ -n "$TARGET" ] || exit 0
+
+# Worktree exemption: any write whose target path lives inside
+# `.claude/worktrees/<slug>/...` is a legitimate SWE edit in its task
+# worktree — allow regardless of bro/SWE distinction. This MUST be a
+# target-path check, not a $PWD check: CC subagents inherit the parent's
+# CWD, so $PWD is always the project root for every hook invocation
+# (the previous $PWD-based check never matched and silently blocked SWE).
+case "$TARGET" in
+  */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
+esac
 
 BASENAME=$(basename "$TARGET")
 
