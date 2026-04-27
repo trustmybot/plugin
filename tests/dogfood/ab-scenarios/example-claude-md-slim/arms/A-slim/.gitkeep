@@ -1,0 +1,2 @@
+# A-slim has no overrides — it uses the plugin's current CLAUDE.md as-is.
+# .gitkeep ensures the directory exists in git so the runner doesn't error.
