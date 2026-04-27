@@ -31,11 +31,16 @@ contains_bro_word() {
 
 is_sticky_bro() {
   [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || return 1
-  grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null || return 1
   if grep -qiE 'exit bro mode|stop being bro' "$TRANSCRIPT" 2>/dev/null; then
     return 1
   fi
-  return 0
+  # Sticky if either the assistant announced explicitly OR any user
+  # message in the transcript contains the `bro` trigger keyword. Catches
+  # the case where bro skipped the announcement (h3/h4 prompt-discipline
+  # ceiling) but the user clearly addressed @bro in a prior turn.
+  grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null && return 0
+  grep -qiE '\bbro\b' "$TRANSCRIPT" 2>/dev/null && return 0
+  return 1
 }
 
 if ! contains_bro_word "$PROMPT" && ! is_sticky_bro; then

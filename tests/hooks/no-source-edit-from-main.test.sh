@@ -26,6 +26,13 @@ echo '{"role":"user","content":"hi"}' > "$TRANSCRIPT_PLAIN"
 echo '{"role":"assistant","content":"Entering bro mode."}' > "$TRANSCRIPT_EXITED"
 echo '{"role":"user","content":"exit bro mode"}' >> "$TRANSCRIPT_EXITED"
 
+# Real-world headless case: user said @bro but assistant skipped the
+# announcement (the h3/h4 prompt-discipline ceiling). Hook must still
+# detect bro mode.
+TRANSCRIPT_BRO_NO_ANNOUNCE="$TMPDIR/bro-no-announce.jsonl"
+echo '{"role":"user","content":"@bro tiny typo fix needed in src/foo.ts: change recieve to receive."}' > "$TRANSCRIPT_BRO_NO_ANNOUNCE"
+echo '{"role":"assistant","content":"On it."}' >> "$TRANSCRIPT_BRO_NO_ANNOUNCE"
+
 input() {
   jq -n --arg tn "$1" --arg fp "$2" --arg t "${3:-}" '{
     tool_name: $tn,
@@ -116,6 +123,10 @@ assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 test_case "bro mode + tests/lib/assert.sh: BLOCK"
 out=$(run_hook "$(input 'Edit' 'tests/lib/assert.sh' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
+
+test_case "REGRESSION: user said @bro but assistant skipped announce → still BLOCK"
+out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_BRO_NO_ANNOUNCE")")
+assert_contains "$out" '"permissionDecision":"deny"' "deny even without 'Entering bro mode.' marker"
 
 # ---- worktree path: SWE allowed ----
 

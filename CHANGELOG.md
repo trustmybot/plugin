@@ -6,9 +6,39 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 **Headline: bro is now a structurally-enforced pure planner.** Direct Mode removed (#162) and 7 hard-enforcement hooks promote previously prompt-only doctrine to Layer 2 (deterministic shell scripts). New `docs/architecture/ENFORCEMENT.md` documents the 6-layer model (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` → prompts) and the per-agent × per-interaction coverage matrix.
 
-**Breaking changes (pre-1.0 minor bump per SemVer):**
-- Direct Mode is gone. Bro never edits source code; every code change routes through SWE. Trivial fixes go via the same chain (lighter spec, not a separate code path).
-- All plugin-shipped skills now use `tmb_*` prefix (was 7 un-prefixed defaults). Project-local skills with un-prefixed names are unaffected.
+### Fixed (post-rc.1)
+
+- **`no-source-edit-from-main.sh` bro-mode detection too narrow.** Previously required the assistant to emit `Entering bro mode.` in the transcript — but in `claude -p` headless mode bro routinely skips that announcement (the h3/h4 prompt-discipline ceiling). Hook now also detects bro mode by scanning the transcript for any user message containing the `bro` trigger word. Without this fix, bro shortcut source edits in 3 of 5 v0.5.0-rc.1 L5 dogfood flows. Adds a regression test case (`REGRESSION: user said @bro but assistant skipped announce → still BLOCK`) covering the real-world fixture instead of just the announce-emitted variant.
+- **Stale `tools-required.json` for cold-start flows.** `01-first-contact` and `95-anonymous-cold-restart` still asserted on `identity_get` / `config_get` / `issue_resume` MCP calls — but the activation-routine hook now performs those reads on bro's behalf and injects the data via `additionalContext`. Bro correctly skips the redundant calls per the injected instruction, which the test misread as failure. Cleared both flow assertion lists; the data flow is now verified by the hook's existence + outcome SQL, not by trajectory_required.
+
+### Breaking changes (pre-1.0 minor bump per SemVer)
+
+- **Direct Mode is gone.** Bro never edits source code; every code change routes through SWE. Trivial fixes go via the same chain (lighter spec, not a separate code path). Pushes that previously relied on bro-direct edits will fail; rewrite as task → SWE → bro verify → close.
+- **All plugin-shipped skills now use `tmb_*` prefix.** The 7 un-prefixed defaults (`code-quality`, `docs-conventions`, `git-conventions`, `naming-conventions`, `review-findings`, `review-protocol`, `swe-checklist`) are renamed to `tmb_*`. Project-local skills with un-prefixed names are unaffected; local skills can shadow plugin defaults by name resolution as before.
+
+### New hard-enforcement hooks
+
+The h3 + h4 A/B scenarios proved prompt-only doctrine compliance is 0/10 in both wording arms for high-frequency operations. These 7 hooks move load-bearing rules to deterministic Layer 2:
+
+| Hook | Event | Doctrine enforced |
+|---|---|---|
+| `activation-routine.sh` | UserPromptSubmit | Pre-fetches `identity` + pending issue from the trajectory DB on every bro-triggered message; injects as `additionalContext` so bro never has to remember to call `identity_get` / `issue_resume` |
+| `no-source-edit-from-main.sh` | PreToolUse on Edit/Write/MultiEdit/NotebookEdit | Blocks bro from editing source files outside an SWE worktree (allowlist: markdown, LICENSE, agent/skill prompts, plugin/hooks manifests, `.github/`). Bypass: `TMB_ALLOW_SOURCE_EDIT=1` |
+| `session-start-regen-check.sh` | SessionStart | Computes git drift vs `regen_state.last_seen_sha`; nudges bro to run `tmb_refresh-architecture` when drift > 25 commits (override: `TMB_REGEN_DRIFT_THRESHOLD`) |
+| `ensure-gitignore.sh` | SessionStart | Ensures `.claude/` is in the project's `.gitignore`. Creates `.gitignore` if missing; appends if rule absent; idempotent. Prevents the trajectory.db-leaking-into-worktrees footgun |
+| `no-worktree-branch-create.sh` | PreToolUse on Bash | Blocks `git worktree add -b/-B/--create-branch ...`. Branch authority is bro's: bro pre-creates `<task.branch_id>` from the latest origin, SWE attaches via `git worktree add <path> <branch>` (no creation, no abbreviation). Bypass: `TMB_ALLOW_WORKTREE_BRANCH_CREATE=1` |
+| `branch-up-to-date-with-remote.sh` | PreToolUse on Bash | Fetches `origin/<pr_target>`, denies worktree-add if `<branch>` is behind. Catches the stale-local-main bug. Bypass: `TMB_ALLOW_STALE_BRANCH=1` |
+| `cleanup-worktree-on-task-close.sh` | PostToolUse on `task_update_status` | When bro flips task to `closed`, removes the corresponding `.claude/worktrees/<slug>/`. Commits live on the branch and survive. Bypass: `TMB_KEEP_CLOSED_WORKTREES=1` |
+
+Plus structural improvements: `tmb_db_path` walks up to git root for DB resolution (was `$(pwd)`-relative — broke when bro `cd`'d into a worktree), `TMB_CLAUDE_TIMEOUT` env override for L5/A/B test runners, and `tests/dogfood/lib/flow-helpers.sh:l5_setup_scratch_project` writes `.gitignore` matching real-project behavior.
+
+### Other shipping in v0.5.0
+
+- **A/B framework matures (#131, #157, #160, #161):** runner + helpers + chi-squared stats; 4 backfill hypothesis scenarios (h1 CLAUDE.md slim, h2 Hybrid D' vs lazy, h4 first-action MANDATORY); shared substrate-health pre-flight (#161); `node_modules` symlinking + scenario fixture/setup_files framework fix.
+- **Activation routine hook proven necessary:** h4 A/B (5 paired runs × 2 wording arms) showed prompt-only `identity_get + issue_resume` compliance was 0/10 in both arms — the hook delivers 100% reliability.
+- **L6 → L5 helper namespace cleanup (#163):** `l6_*` shell functions in `tests/dogfood/lib/` renamed to `l5_*` to match the renamed test layer.
+- **GH Actions bumped to v5 (#165):** Node 24 internal runtime; CC-auth prefix check dropped (smoke test is the authoritative gate).
+- **Two CLAUDE.md cleanups (#168, #169):** verify-context decision tree → 2-column table; opaque issue refs dropped.
 
 ### Added — 4 hard-enforcement hooks (branch authority + worktree hygiene) (#170, #171)
 
