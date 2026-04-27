@@ -11,9 +11,9 @@ FLOW_NAME="02-simple-task"
 RUN_ID="${RUN_ID:-$(date +%s)-$RANDOM}"
 PROMPT="@bro write a python cli todo"
 
-PROJECT=$(l6_setup_scratch_project)
-trap 'l6_cleanup_project "$PROJECT"' EXIT
+PROJECT=$(l5_setup_scratch_project)
+trap 'l5_cleanup_project "$PROJECT"' EXIT
 
-l6_seed_db "$PROJECT" "onboarding-named"
-l6_run_claude "$PROJECT" "$PROMPT"
-l6_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"
+l5_seed_db "$PROJECT" "onboarding-named"
+l5_run_claude "$PROJECT" "$PROMPT"
+l5_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"

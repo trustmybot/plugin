@@ -12,10 +12,10 @@ FLOW_NAME="11-codebase-memory-verify-on-drift"
 RUN_ID="${RUN_ID:-$(date +%s)-$RANDOM}"
 PROMPT="@bro fix the bug in src/foo.py"
 
-PROJECT=$(l6_setup_scratch_project)
-trap 'l6_cleanup_project "$PROJECT"' EXIT
+PROJECT=$(l5_setup_scratch_project)
+trap 'l5_cleanup_project "$PROJECT"' EXIT
 
-l6_seed_db "$PROJECT" "onboarding-named"
+l5_seed_db "$PROJECT" "onboarding-named"
 mkdir -p "$PROJECT/src"
 echo "def foo(): return 'v1'" > "$PROJECT/src/foo.py"
 (cd "$PROJECT" && git add . && git commit -qm "v1" && git rev-parse HEAD > /tmp/seed_head.$$)
@@ -36,6 +36,6 @@ VALUES ('last_verified_sha', '\"$SEED_HEAD\"', datetime('now'));
 # Simulate drift: edit the file on disk, don't commit
 echo "def foo(): return 'v2-modified'" > "$PROJECT/src/foo.py"
 
-l6_run_claude "$PROJECT" "$PROMPT"
-l6_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"
+l5_run_claude "$PROJECT" "$PROMPT"
+l5_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"
 rm -f /tmp/seed_head.$$
