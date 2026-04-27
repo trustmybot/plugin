@@ -1,0 +1,7 @@
+{
+  "name": "h2-hybrid-d-vs-lazy",
+  "description": "Hypothesis 2 from #153: does Hybrid D' (#45 — AskUserQuestion at cold-start, lazy default in headless) beat the simpler 'always lazy, no question' alternative? A-hybrid-d = current tmb_project-prescan with Phase 4. B-always-lazy = pre-#148 prescan (no Phase 4 — codebase memory backfills purely lazy). Same flow, same prompt — measures whether the AskUserQuestion + headless_fallback machinery added value vs simpler skip.",
+  "flow": "10-codebase-memory-cold-start",
+  "prompt": "@bro implement a hello world function in src/hello.py",
+  "arms": ["A-hybrid-d", "B-always-lazy"]
+}

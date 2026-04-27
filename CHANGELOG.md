@@ -4,6 +4,17 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Added — 4 backfill A/B hypothesis scenarios (#153)
+
+Real hypothesis testing for the A/B framework, aligned with #131. Each scenario compares the current dev state against a snapshot from before the relevant doctrine PR (extracted via `git show <sha>^:<path>`).
+
+- **h1-claude-md-slim**: 99-line current vs 142-line pre-#126. Did the slim help, or was it cosmetic?
+- **h2-hybrid-d-vs-lazy**: current Phase 4 cold-start logic vs pre-#148 prescan. Did Hybrid D' add value vs always-lazy?
+- **h3-direct-mode-framing**: current 4-step "NEVER SKIP THIS" wording vs pre-#139 3-step softer framing. Did imperative tightening move compliance?
+- **h4-first-action-mandatory**: current `MANDATORY on every triggered message` body wording vs pre-#139. Does the strongest possible imperative break the LLM ceiling on greetings?
+
+Scenarios ship as configs only; running them is opt-in (~$2-8 in tokens for the full set with N=10). Results land as ADRs under `docs/trustmybot/architecture/manual/decisions/`.
+
 ### Added — A/B prompt-eval framework (#131)
 
 Reach-for tool when shipping doctrine changes whose value is hard to verify by reading the prompt alone. Replaces "this should help compliance" guesswork with paired-run data + chi-squared significance testing.
