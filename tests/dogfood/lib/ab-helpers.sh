@@ -36,6 +36,40 @@ l6_make_arm_plugin() {
   echo "$arm_plugin"
 }
 
+# l6_smoke_arm_plugin <arm_plugin_dir> — verifies the arm_plugin can spawn
+# the MCP trajectory server and respond to tools/list. Fail-fast guard so
+# A/B doesn't burn tokens against an arm_plugin where MCP is silently broken
+# (the failure mode that bug #131-A produced — empty trajectory.db, bro
+# reports 'no MCP', 10 wasted claude calls).
+#
+# Returns 0 if MCP responds with a tool definition list within 10 seconds,
+# 1 otherwise. On failure, prints diagnostic to stderr.
+l6_smoke_arm_plugin() {
+  local arm_plugin="$1"
+  local mcp_entry="$arm_plugin/mcp/trajectory-server/dist/index.js"
+  if [ ! -f "$mcp_entry" ]; then
+    printf "  ✗ smoke: MCP entrypoint missing at %s\n" "$mcp_entry" >&2
+    return 1
+  fi
+
+  # Send a tools/list JSON-RPC request and check for a response with tools.
+  # 10s timeout is generous — actual response is typically <1s.
+  local req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ab-smoke","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+  local resp
+  resp=$(printf '%s\n' "$req" | timeout 10 node --experimental-sqlite "$mcp_entry" 2>&1 || true)
+
+  if echo "$resp" | grep -q '"tools"'; then
+    return 0
+  fi
+
+  printf "  ✗ smoke: MCP did not respond with a tools list. Output:\n" >&2
+  printf '%s\n' "$resp" | head -10 | sed 's/^/      /' >&2
+  return 1
+}
+
 # l6_setup_scenario_state <project_dir> <scenario_dir> — applies fixture +
 # setup_files from scenario.json before claude runs. Each scenario can declare:
 #   - "fixture": "<name>"  → l6_seed_db with that fixture (e.g. "onboarding-named")

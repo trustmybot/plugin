@@ -75,6 +75,29 @@ printf "  Prompt: %s\n" "$PROMPT"
 printf "  Arms:   %s\n" "$(echo "$ARMS" | tr '\n' ' ')"
 printf "  N (pairs per arm): %s\n\n" "$N"
 
+# Pre-flight MCP smoke test on each arm's plugin tree. Catches the bug class
+# 'arm_plugin built but MCP server can't actually spawn' — which would
+# otherwise produce 0-byte trajectory.db files, no eval_results, and a
+# silent waste of tokens. Fail FAST before running any claude calls.
+printf "=== Pre-flight MCP smoke test per arm ===\n"
+SMOKE_FAIL=0
+for arm in $ARMS; do
+  printf "  arm=%s: " "$arm"
+  SMOKE_PLUGIN=$(l6_make_arm_plugin "$SCENARIO_DIR/arms/$arm")
+  if l6_smoke_arm_plugin "$SMOKE_PLUGIN"; then
+    printf "✓ MCP responds\n"
+  else
+    printf "✗ MCP smoke failed — see stderr\n"
+    SMOKE_FAIL=1
+  fi
+  l6_cleanup_arm_plugin "$SMOKE_PLUGIN"
+done
+if [ "$SMOKE_FAIL" -ne 0 ]; then
+  printf "\n❌ One or more arms failed MCP smoke. Aborting before token spend.\n"
+  exit 1
+fi
+printf "\n"
+
 # Run N pairs. Each pair runs all arms once.
 PAIR_ID=$(date +%s)
 for pair in $(seq 1 "$N"); do
