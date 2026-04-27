@@ -2,6 +2,20 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## Unreleased
+
+### Added — A/B prompt-eval framework (#131)
+
+Reach-for tool when shipping doctrine changes whose value is hard to verify by reading the prompt alone. Replaces "this should help compliance" guesswork with paired-run data + chi-squared significance testing.
+
+- **Schema** (#154): `eval_results.arm` (TEXT NOT NULL DEFAULT 'control') + `eval_results.scenario` (TEXT). Backward-compatible — existing single-arm L5 dogfood runs become 'control' rows automatically.
+- **Runner** `tests/dogfood/run-ab.sh`: takes a scenario name, runs N pairs (default 5), each pair runs every arm against the same flow + prompt + scratch project. Per-arm plugin trees built via rsync overlay (arm overrides layered on top of `$PLUGIN_ROOT`).
+- **Stats** `tests/dogfood/scripts/ab-report.sh`: per-arm × per-scorer pass-rate table + chi-squared (2x2 contingency, df=1) p-value. Pure awk math — no Python dep.
+- **Worked example** `tests/dogfood/ab-scenarios/example-claude-md-slim/`: current slim CLAUDE.md vs a padded variant on the 95-anonymous-cold-restart flow. Not a real hypothesis — proves the framework.
+- **Docs**: new `tests/README.md` row + section on when to write an A/B scenario; new `CONTRIBUTING.md` section with rule-of-thumb.
+
+Real hypothesis testing follows in #153 (CLAUDE.md slim, Hybrid D' vs lazy, Direct Mode 4-step framing, first-action chain MANDATORY).
+
 ## v0.4.2 — 2026-04-27
 
 ### Added — codebase memory (#45) — Hybrid D' design

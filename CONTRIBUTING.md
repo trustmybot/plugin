@@ -113,6 +113,16 @@ Stable `v*` tags from main do **not** fire token-heavy tests — that validation
 
 `verify-cc-auth` composite action runs as the first step of any CC-using workflow — fail-fast on broken token before Docker builds or multi-flow runs.
 
+## When to write an A/B prompt-eval scenario (#131)
+
+The A/B framework lives at `tests/dogfood/run-ab.sh`. Reach for it when shipping a doctrine change that's (a) prompt-only, (b) hard to verify by reading the prompt alone, and (c) you'd otherwise be guessing whether it helps.
+
+Rule of thumb: **if you find yourself writing "this should improve compliance" or "this should reduce token cost" in a PR description, write an A/B scenario instead of guessing.** Pre-existing examples of guesses worth measuring live in #153 (CLAUDE.md slim, Hybrid D' cold-start, Direct Mode 4-step framing, first-action chain MANDATORY).
+
+Skip A/B for: schema / MCP / hook changes (those land via L1–L4 with deterministic tests), small mechanical edits, or anything where the right outcome is obvious.
+
+Token cost: a scenario with 5 paired runs against 2 arms = 10 claude calls (~$0.50–$2 depending on flow size). Document the budget in the scenario's README.
+
 ## Writing code
 
 - Self-documenting code. Prefer deletion over addition.
