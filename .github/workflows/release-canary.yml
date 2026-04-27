@@ -29,6 +29,9 @@ on:
     tags:
       - 'v*-rc.*'
 
+permissions:
+  contents: read
+
 jobs:
   release-canary:
     if: |
