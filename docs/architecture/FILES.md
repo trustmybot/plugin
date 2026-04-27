@@ -114,10 +114,14 @@ plugin/
 │       │   └── README.md             # diagnostic usage guide
 │       ├── lib/
 │       │   └── query-task.sh         # shared sqlite helpers (tmb_db_path, tmb_task_spec_status, …)
+│       ├── activation-routine.sh    # UserPromptSubmit hook — pre-fetches identity + pending issue when bro mode active
 │       ├── create-worktree.sh        # WorktreeCreate hook (workaround CC #27134/#44965)
+│       ├── debug-trajectory.sh       # PostToolUse capture for non-MCP calls (TMB_DEBUG_TRAJECTORY=1)
 │       ├── git-guards.sh             # protected-branch block, force-push block, dual-tier dev→main exception (v0.1.1)
 │       ├── git-push-guard.sh         # blocks `git push` on unsigned commits — replaces require-review-sign.sh
-│       └── require-task-spec.sh      # block SWE spawn unless task_id references a valid DB row
+│       ├── no-source-edit-from-main.sh  # blocks bro from editing source files outside an SWE worktree
+│       ├── require-task-spec.sh      # block SWE spawn unless task_id references a valid DB row
+│       └── session-start-regen-check.sh  # SessionStart hook — nudges to run tmb_refresh-architecture when arch docs are stale
 │
 ├── # Bundled MCP server — SQLite trajectory persistence
 ├── mcp/
@@ -193,6 +197,7 @@ plugin/
 ├── docs/
 │   ├── multi-platform.md             # how the per-platform adapter pattern works
 │   └── architecture/                 # contributor-facing reference
+│       ├── ENFORCEMENT.md           # 6 enforcement layers + per-agent × per-interaction coverage matrix
 │       ├── ERD.md                    # SQLite schema: Mermaid ER diagram + FK + soft-ref tables
 │       ├── FILES.md                  # this file
 │       └── FLOWS.md                  # workflow flowcharts
