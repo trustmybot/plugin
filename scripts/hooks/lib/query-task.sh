@@ -4,16 +4,26 @@
 set -euo pipefail
 
 # tmb_db_path
-# Resolve the trajectory DB path the same way the MCP server does:
+# Resolve the trajectory DB path:
 #   1. TRAJECTORY_DB_PATH env override wins
-#   2. Otherwise default to <cwd>/.claude/tmb/trajectory.db
+#   2. Otherwise walk up from cwd to the git repo root and use
+#      <repo-root>/.claude/<plugin-name>/trajectory.db. Walking up matters
+#      because hooks fire from inside SWE worktrees too — without the walk,
+#      $(pwd)/.claude/tmb/trajectory.db points at a stale per-worktree DB
+#      copy that lacks the project's policy keys (#171).
+#   3. Fall back to <cwd>/.claude/tmb/trajectory.db when not in a repo.
 # Prints the path only if the file exists.
 tmb_db_path() {
-  local p
+  local p plugin_name="tmb"
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
+    plugin_name=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
+  fi
   if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
     p="$TRAJECTORY_DB_PATH"
   else
-    p="$(pwd)/.claude/tmb/trajectory.db"
+    local repo_root
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="$(pwd)"
+    p="$repo_root/.claude/$plugin_name/trajectory.db"
   fi
   [ -f "$p" ] && echo "$p"
 }

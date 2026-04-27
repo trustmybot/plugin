@@ -93,7 +93,7 @@ l5_run_arm() {
     echo "  cwd: $dir" >&2
     echo "  arm plugin-dir: $arm_plugin" >&2
     echo "  prompt: $prompt" >&2
-    timeout 180 claude --plugin-dir "$arm_plugin" --dangerously-skip-permissions -p "$prompt" 2>&1 \
+    timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude --plugin-dir "$arm_plugin" --dangerously-skip-permissions -p "$prompt" 2>&1 \
       | sed 's/^/  [arm] /' >&2 || true
     echo "  ── claude (arm) end ──" >&2
   )
