@@ -15,7 +15,7 @@ runs:
   steps:
     - name: Setup Node 22 (if not already)
       if: inputs.install-cc == 'true'
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: '22'
 
@@ -44,12 +44,6 @@ runs:
           echo "::error::Token contains $DIFF whitespace/newline char(s) — re-set with: TOKEN=\$(claude setup-token) && gh secret set CLAUDE_CODE_OAUTH_TOKEN --body \"\$TOKEN\""
           exit 1
         fi
-        # Sanity-check OAuth prefix
-        case "$TOKEN" in
-          sk-ant-oat-*) echo "Token has expected sk-ant-oat- prefix (OAuth)" ;;
-          sk-ant-api-*) echo "Token has sk-ant-api- prefix (API key — also valid)" ;;
-          *) echo "::warning::Token does not start with sk-ant-oat- or sk-ant-api- — unrecognized format" ;;
-        esac
 
     - name: Smoke-test auth with claude -p
       shell: bash
