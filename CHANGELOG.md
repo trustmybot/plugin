@@ -4,6 +4,18 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Added — activation-routine UserPromptSubmit hook (#108)
+
+Bro's activation routine (`identity_get` + `issue_resume` on every triggered message) is now fired deterministically by `scripts/hooks/activation-routine.sh` instead of relying on prompt discipline. The h4 A/B (5 paired runs × 2 wording arms) showed prompt compliance was 0/10 in *both* arms — the strongest possible imperative ("MANDATORY on every triggered message") still didn't move the needle. With prompt-only enforcement structurally unreliable for high-frequency operations, the only honest fix is to wire it into code.
+
+**The hook**:
+- Triggers on `UserPromptSubmit` when bro mode is active (current prompt contains `bro` case-insensitively, OR transcript shows a prior `Entering bro mode.` line with no later `exit bro mode`).
+- Reads `identity.human_name` + the latest open `issues` row from the trajectory DB (no MCP roundtrip — direct sqlite3 read).
+- Emits `additionalContext` JSON for CC's UserPromptSubmit hook protocol, pre-fetching the data into the model's context.
+- Silent no-op when the DB doesn't exist yet (first activation in a fresh project — bro falls back to calling MCP tools the old way; future messages in that project then have the DB available).
+
+**Doctrine consequence**: CLAUDE.md `## Activation routine` section reworded — bro now consumes the injected context instead of being told to call MCP tools first. Compliance becomes 10/10 mechanically.
+
 ### Removed — Direct Mode (#108)
 
 Bro is now a pure planner: every code change goes through SWE, no exceptions. The `tmb_direct-mode` skill, the matching L4 workflow-sim test, the L5 D-direct-mode flow, and the h3-direct-mode-framing A/B scenario are all gone. The `direct_mode_used` event_type is dropped from `ledger.event_type` enum.
