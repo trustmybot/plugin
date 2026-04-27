@@ -81,7 +81,7 @@ When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class,
 4. **If green** → promote: PR `dev → main`, merge, then run `bash scripts/release.sh` to tag `v0.4.0` on main.
 5. After stable release, `tmb-rc` users get the same code that stable users get (rc branch caught up to main). The `rc` branch stays at the validated commit until the next RC cycle starts.
 
-`scripts/release.sh` reads the version from `plugin.json`, validates that all 3 manifest versions agree, requires a matching `## v<version>` section in `CHANGELOG.md`, and asks for `y/N` confirmation at each step. It tags `main` HEAD, pushes the tag, creates a GitHub release with the CHANGELOG section as the body, and runs the L6 release canary. Re-running after a step succeeds is safe — already-done steps are skipped. The script also refuses to re-tag a published release (force-pushing tags would corrupt downstream caches; the only path forward is bump version + ship a new tag).
+`scripts/release.sh` reads the version from `plugin.json`, validates that all 3 manifest versions agree, requires a matching `## v<version>` section in `CHANGELOG.md`, and asks for `y/N` confirmation at each step. It tags `main` HEAD, pushes the tag, creates a GitHub release with the CHANGELOG section as the body, and runs the L5 release canary. Re-running after a step succeeds is safe — already-done steps are skipped. The script also refuses to re-tag a published release (force-pushing tags would corrupt downstream caches; the only path forward is bump version + ship a new tag).
 
 #### Why both paths exist
 
@@ -106,7 +106,7 @@ No required-approvals (solo dev). Once a second maintainer joins, flip `required
 | Workflow | Triggers | Branches/refs | Cost |
 |---|---|---|---|
 | `test.yml` (L0–L4) | `push` to `dev`/`main`, `pull_request` to `dev`/`main` | dev, main, PRs | free |
-| `l6-dogfood.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*`, `pull_request` labeled `L6` | RC tags + dev/rc dispatch | ~$1–3/run |
+| `l5-dogfood.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*`, `pull_request` labeled `L5` | RC tags + dev/rc dispatch | ~$1–3/run |
 | `release-canary.yml` (was `l5-l6-combined.yml`) | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*` | RC tags + dev/rc dispatch | ~$1–3/run |
 
 Stable `v*` tags from main do **not** fire token-heavy tests — that validation already happened on the matching `v*-rc.*` cut. Spending tokens on a known-good cut is waste.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 v2 scorers (issue #110). Each function takes a project_dir + flow name +
+# L5 v2 scorers (issue #110). Each function takes a project_dir + flow name +
 # (optional) scorer config path, returns 0 on pass / non-zero on fail, and
 # writes one row to the eval_results table.
 #

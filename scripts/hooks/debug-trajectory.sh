@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 trajectory capture for non-MCP tool calls (issue #108).
+# L5 trajectory capture for non-MCP tool calls (issue #108).
 #
 # Active only when env TMB_DEBUG_TRAJECTORY=1. Writes one row per tool
 # call (Bash/Read/Write/Edit/Task/Skill) to the debug_trajectory table.

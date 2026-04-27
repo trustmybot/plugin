@@ -1,5 +1,5 @@
 name: 'Verify Claude Code auth'
-description: 'Prerequisite check for any workflow that needs to invoke claude in CI. Inspects token shape, installs CC if needed, runs claude -p smoke test. Fail-fast — broken auth never reaches expensive Docker builds or multi-flow L6 runs. See action source for usage.'
+description: 'Prerequisite check for any workflow that needs to invoke claude in CI. Inspects token shape, installs CC if needed, runs claude -p smoke test. Fail-fast — broken auth never reaches expensive Docker builds or multi-flow L5 runs. See action source for usage.'
 
 inputs:
   token:

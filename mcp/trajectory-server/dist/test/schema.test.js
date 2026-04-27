@@ -114,7 +114,7 @@ describe('schema — current table set, default values, constraints', () => {
         ]);
         const indexes = db.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='debug_trajectory'");
         const indexNames = indexes.map((i) => i.name);
-        assert.ok(indexNames.includes('idx_debug_trajectory_session'), 'session-step index must exist for L6 reads');
+        assert.ok(indexNames.includes('idx_debug_trajectory_session'), 'session-step index must exist for L5 reads');
         db.close();
     });
     it('eval_results table exists with v2 multi-scorer schema (issue #110)', () => {

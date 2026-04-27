@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 v2 multi-scorer test runner (issue #110, supersedes #108 v1).
+# L5 v2 multi-scorer test runner (issue #110, supersedes #108 v1).
 #
 # Industry-standard agentic evals: each flow gets graded by multiple
 # scorers (outcome / trajectory / cost / optionally LLM-judge) instead
@@ -7,8 +7,8 @@
 # per-flow README.md files for details.
 #
 # Usage:
-#   bash tests/dogfood/run-l6.sh             # all flows
-#   bash tests/dogfood/run-l6.sh onboarding  # one flow by name
+#   bash tests/dogfood/run-l5.sh             # all flows
+#   bash tests/dogfood/run-l5.sh onboarding  # one flow by name
 #
 # Requirements:
 #   - CLAUDE_CODE_OAUTH_TOKEN env var (or active CC session in macOS keychain)
@@ -37,7 +37,7 @@ for cmd in claude sqlite3 jq; do
 done
 
 # ----- Pre-flight diagnostics (issue #116) -----
-# First L6 run on dev (run id 24963880924) showed all 4 wired flows
+# First L5 run on dev (run id 24963880924) showed all 4 wired flows
 # producing 0 trajectory rows + 0 tokens. Adding cheap diagnostics here
 # to identify which layer breaks (auth / -p mode / plugin load / bro
 # trigger) BEFORE running the expensive flow tests.
@@ -78,7 +78,7 @@ for flow_dir in "$HERE/flows"/*/; do
     continue
   fi
 
-  printf "\n=== L6 flow: %s ===\n" "$flow_name"
+  printf "\n=== L5 flow: %s ===\n" "$flow_name"
 
   if RUN_ID="${RUN_ID:-$(date +%s)-$$}-${flow_name}" \
      CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
@@ -93,7 +93,7 @@ for flow_dir in "$HERE/flows"/*/; do
 done
 
 printf "\n========================================\n"
-printf "L6 dogfood: %d passed, %d failed\n" "$PASS" "$FAIL"
+printf "L5 dogfood: %d passed, %d failed\n" "$PASS" "$FAIL"
 
 if [ "$FAIL" -gt 0 ]; then
   printf "Failed flows: %s\n" "${FAILED_FLOWS[*]}"

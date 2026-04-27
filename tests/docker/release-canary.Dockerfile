@@ -1,10 +1,10 @@
-# Release canary — install-smoke + workflow doctrine in one image (was L5+L6 combined, #112).
+# Release canary — install-smoke + workflow doctrine in one image (was L5+L5 combined, #112).
 #
 # Builds on top of the L0 install-smoke approach, then ALSO installs Claude
-# Code and runs the L6 deterministic-trajectory flows against the
+# Code and runs the L5 deterministic-trajectory flows against the
 # marketplace-installed plugin. Catches BOTH:
 #   - Install-path bugs (L0's job — bun install, dist/, MCP server cold spawn)
-#   - Workflow doctrine bugs (L6's job — does bro do the right thing?)
+#   - Workflow doctrine bugs (L5's job — does bro do the right thing?)
 #
 # Replaces manual L5 dogfood for everything except UX-only verification.
 #
@@ -24,7 +24,7 @@
 
 FROM node:22-slim
 
-# 1. Base tooling — same as L0 plus what L6 needs (jq for scorer JSON parsing,
+# 1. Base tooling — same as L0 plus what L5 needs (jq for scorer JSON parsing,
 #    timeout for capping individual flow runs).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -59,7 +59,7 @@ RUN test -f /root/.claude/plugins/cache/trustmybot/tmb/${PLUGIN_VERSION}/mcp/tra
 RUN npm install -g @anthropic-ai/claude-code \
  && claude --version
 
-# 5. Create a non-root user for the L6 step.
+# 5. Create a non-root user for the L5 step.
 #    Claude Code refuses `--dangerously-skip-permissions` when running as root
 #    ("cannot be used with root/sudo privileges for security reasons"). The flag
 #    is required in headless `-p` mode so MCP / Bash / Edit calls aren't blocked
@@ -69,8 +69,8 @@ RUN npm install -g @anthropic-ai/claude-code \
 RUN useradd -m -s /bin/bash -u 1000 tmb \
  && chown -R tmb:tmb /plugin
 
-# 6. Run L6 flows against the source tree (the marketplace cache layout was
-#    asserted in step 3; the L6 runner uses --plugin-dir /plugin).
+# 6. Run L5 flows against the source tree (the marketplace cache layout was
+#    asserted in step 3; the L5 runner uses --plugin-dir /plugin).
 USER tmb
 WORKDIR /plugin
 ENV TMB_DEBUG_TRAJECTORY=1
@@ -81,10 +81,10 @@ ENV HOME=/home/tmb
 RUN --mount=type=secret,id=cc_token,uid=1000 \
     if [ -f /run/secrets/cc_token ]; then \
       export CLAUDE_CODE_OAUTH_TOKEN="$(cat /run/secrets/cc_token)"; \
-      bash tests/dogfood/run-l6.sh \
-        || (echo "❌ FAIL: L6 flows failed against marketplace-installed plugin" && exit 1); \
+      bash tests/dogfood/run-l5.sh \
+        || (echo "❌ FAIL: L5 flows failed against marketplace-installed plugin" && exit 1); \
     else \
-      echo "⊘ skip: cc_token secret not provided — install-only smoke (L0 piece passed); L6 piece needs CLAUDE_CODE_OAUTH_TOKEN."; \
+      echo "⊘ skip: cc_token secret not provided — install-only smoke (L0 piece passed); L5 piece needs CLAUDE_CODE_OAUTH_TOKEN."; \
     fi
 
 # Final marker

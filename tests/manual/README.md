@@ -1,6 +1,6 @@
 # Manual tests — Layer 5
 
-Layers L0–L4 + L6 are automated (Docker install-smoke, lint, MCP unit + integration, workflow simulation, release canary). Layer 5 is the residue — Claude-side behaviors that have no automated test surface: trigger detection, AskUserQuestion radio rendering, agent spawn isolation, subagent prompt precedence, tone, real worktree creation.
+Layers L0–L4 + L5 are automated (Docker install-smoke, lint, MCP unit + integration, workflow simulation, release canary). Layer 5 is the residue — Claude-side behaviors that have no automated test surface: trigger detection, AskUserQuestion radio rendering, agent spawn isolation, subagent prompt precedence, tone, real worktree creation.
 
 ## Files
 

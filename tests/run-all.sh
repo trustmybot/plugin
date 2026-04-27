@@ -6,9 +6,10 @@
 #   L1 — Static / lint                  → tests/lint/*.sh (this file runs them)
 #   L2 — Unit (per-component)           → mcp/trajectory-server/src/test/*.ts
 #   L3 — Integration (cross-component)  → tests/mcp-integration/*.mjs + tests/hooks/*.sh
-#   L4 — Workflow simulation            → (planned for v0.2.0)
-#   L5 — Manual dogfood                 → tests/manual/scenarios.md (human-walked)
-#   L6 — Release canary                 → scripts/release.sh post-tag step
+#   L4 — Workflow simulation            → tests/workflow-sim/*.mjs
+#   L5 — Workflow-doctrine dogfood      → tests/dogfood/ (CI-only, .github/workflows/l5-dogfood.yml)
+#   Release canary — final automated gate → tests/docker/release-canary.Dockerfile (RC-only)
+#   Manual smoke (fallback)             → tests/manual/scenarios.md (human-walked, only when automated layers can't model the scenario)
 
 set -uo pipefail
 

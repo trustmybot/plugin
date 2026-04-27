@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 v2 scaffold — see README.md (or fill in scorers/ and remove this notice).
+# L5 v2 scaffold — see README.md (or fill in scorers/ and remove this notice).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/flow-helpers.sh"

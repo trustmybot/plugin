@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 v2 — 01-first-contact (first activation in a fresh project) — see README.md
+# L5 v2 — 01-first-contact (first activation in a fresh project) — see README.md
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/flow-helpers.sh"
