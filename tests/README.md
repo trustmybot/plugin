@@ -39,7 +39,6 @@ This applies to:
 Reach for the A/B framework when you're about to ship a doctrine change ("tightening this CLAUDE.md section, hope it helps") and want data instead of vibes. Examples:
 
 - Compare two CLAUDE.md slim variants on the same flow + prompt → which one actually improves outcome pass-rate?
-- Compare the current Direct Mode 4-step protocol against an alternative formulation → does the strong "NEVER SKIP THIS" framing matter?
 - Compare Hybrid D' (cold-start AskUserQuestion + lazy default) against pure-lazy → did the question add value?
 
 Skip A/B for: small mechanical fixes (typos, lint), schema/MCP changes (those land via L1–L4), or anything where the right outcome is obvious without measurement.

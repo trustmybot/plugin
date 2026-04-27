@@ -20,7 +20,6 @@ Cross-reference: [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md
 | 8 — SWE retry / escalation | `flow-08-swe-retry.test.mjs` | ✅ multiple validation_attempts + status='escalated' |
 | 9 — Roundtable | n/a | covered by ledger 'roundtable_summary' event in flow-03 + role-matrix |
 | C — Consultant invocation | n/a | covered by `tests/mcp-integration/role-matrix.test.mjs` |
-| D — Direct Mode | `flow-D-direct-mode.test.mjs` | ✅ ledger event_type='direct_mode_used' |
 
 ## What L4 does NOT test
 

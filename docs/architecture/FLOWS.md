@@ -36,7 +36,6 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer when at push gate) | `tmb_feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `git-push-guard` |
 | 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `discussions`, `ledger` (and reserved: `roundtables`, `roundtable_votes`) | — |
 | **C** | [Consultant invocation](#c-consultant-invocation) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / pm / domain) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
-| **D** | [Direct Mode](#d-direct-mode-narrow-bypass) | Trivial single-file change ≤3 lines, no public API / docs / tests | bro only (no spawn) | — | `ledger` (event_type='direct_mode_used') | `git-guards` (commit branch check) |
 
 ---
 
@@ -510,45 +509,6 @@ sequenceDiagram
 - **Server-side enforcement** (post `feat/bro-as-planner` cleanup): `requireRoles` rejects any consultant call to `task_create_batch`, `task_update_status`, `validation_record`, or `issue_create`. The decision chain is structurally protected, not just prompt-discipline.
 - For multi-consultant deliberation (cto + architect + ceo voting), see flow 9 (Roundtable). The voting protocol is tracked in [#57](https://github.com/trustmybot/plugin/issues/57).
 - The Human always decides; bro never auto-applies a consultant's recommendation.
-
----
-
-## D. Direct Mode (narrow bypass)
-
-**Trigger:** Bro receives a code-touching ask that meets ALL of:
-
-- Single file change.
-- ≤3 lines diff (typo fix, comment, constant bump, one-line README rewording).
-- No public API change, no new file, no test change required.
-- No `docs/trustmybot/architecture/` touched (architecture-touching is always difficult-triage → no Direct Mode).
-
-**Involved:**
-- Agent: `bro` only (no spawn)
-- Skills: none
-- MCP tools: `ledger_log` (event_type='direct_mode_used')
-- DB tables: `ledger`
-- Hooks: `git-guards` (commit branch check)
-
-```mermaid
-sequenceDiagram
-    participant H as Human
-    participant B as Bro
-    participant FS as Filesystem
-    participant DB as SQLite
-
-    H->>B: "@bro fix typo 'recieve' → 'receive' in README.md"
-    B->>B: triage → trivial; auto-engage Direct Mode
-    B->>FS: Edit README.md (single ≤3-line change)
-    B->>FS: Bash: git commit -m "chore: typo fix"
-    B->>DB: ledger_log(agent='bro', event_type='direct_mode_used', summary=...)
-    B-->>H: "fixed + committed."
-```
-
-**Notes:**
-- Direct Mode is the ONLY narrow exception to "every code change goes through SWE." It exists to make trivial fixes feel as fast as pure Claude (~10–20s).
-- If the change creeps past 3 lines or touches state bro can't reason about in one read, bro falls back to the default chain (flow 2 or 3 with task_create_batch + SWE spawn).
-- The discipline is the narrow scope. Resist extending Direct Mode "just for this one case" — that's the slippery slope this rule explicitly guards against.
-- Pre-push gate (flow 6) does NOT fire for Direct-Mode commits because no `tasks` row exists for them — they're recorded as `ledger.direct_mode_used` events instead.
 
 ---
 

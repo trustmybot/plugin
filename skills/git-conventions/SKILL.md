@@ -37,7 +37,7 @@ Use Conventional Commits with an emoji prefix. Emoji per [gitmoji.dev](https://g
 ### Rules
 
 - **SWE never commits to the main worktree** — only inside its own `.claude/worktrees/<task-slug>` worktree, which bro+pr-reviewer copy or merge into the main branch later.
-- **Bro never edits source code directly** unless Direct Mode applies (≤3 lines, single file, no API change — see CLAUDE.md `## Direct Mode`).
+- **Bro never edits source code directly.** Every code change goes through SWE.
 - **Never auto-merge.** Gate 3 applies to every PR with no exceptions.
 - **Never push to a protected branch** without the push gate passing. The hook makes it physically hard; respect the message.
 
@@ -46,8 +46,7 @@ Use Conventional Commits with an emoji prefix. Emoji per [gitmoji.dev](https://g
 PR-reviewer verifies at push time:
 
 - Every source code change (`src/`, `tests/`, `config/settings.toml`, `*.sql`) corresponds to a `tasks` row whose `commit_sha` matches one of the commits being pushed.
-- If a source-code commit has no matching task row, surface as a finding `untracked_source_change`. Either the change was made outside TMB (acceptable, but flag) or someone bypassed the planner (not acceptable).
-- Bro's Direct Mode commits are exceptions: they ARE source-code commits with no `tasks` row, but they have a `direct_mode_used` ledger event. Cross-check the ledger before flagging.
+- If a source-code commit has no matching task row, surface as a finding `untracked_source_change`. Either the change was made outside TMB (acceptable, but flag) or someone bypassed the planner (not acceptable — bro must never edit source directly).
 
 ## Branching Rules
 

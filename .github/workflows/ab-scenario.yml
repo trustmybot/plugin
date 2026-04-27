@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: 'Scenario name under tests/dogfood/ab-scenarios/ (e.g. h3-direct-mode-framing)'
+        description: 'Scenario name under tests/dogfood/ab-scenarios/ (e.g. h4-first-action-mandatory)'
         required: true
       pairs:
         description: 'N pairs per arm (default 5)'
