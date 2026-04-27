@@ -1,5 +1,5 @@
 ---
-name: docs-conventions
+name: tmb_docs-conventions
 description: When and how to update docs alongside code changes, plus the discipline for editing agent prompts and skill files.
 agent: bro, swe, pr-reviewer
 ---

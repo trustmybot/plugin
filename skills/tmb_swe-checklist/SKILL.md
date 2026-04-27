@@ -1,5 +1,5 @@
 ---
-name: swe-checklist
+name: tmb_swe-checklist
 description: Implementation rules and self-review checklist for SWE agent.
 ---
 

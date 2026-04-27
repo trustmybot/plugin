@@ -18,6 +18,6 @@ Atomic close (#W4): batch in one response — commit (using the spec's `## Commi
 
 Never push. Never commit secrets. Never edit outside the worktree. Never author the spec body — that's bro's role and the server enforces it. **Never attempt to bypass a PreToolUse hook block** — do not rewrite `.git/HEAD`, fabricate refs, edit `.git/` internals, or use any technique to evade a hook decision. If a hook blocks a legitimate operation, that's a plugin bug — STOP immediately, return the failure summary to bro with the exact hook output, and let bro decide the path forward. Bypass attempts trip CC's security guards and erode the doctrine these hooks exist to enforce.
 
-If you need a stack-specific verification checklist, invoke the project's `swe-checklist` skill via the Skill tool **only when the spec's `## Verification` section needs interpretation** — not by default. Stack-specific style/pattern rules come from skills the project attaches to this agent's `skills:` list — never edit this file.
+If you need a stack-specific verification checklist, invoke the project's `tmb_swe-checklist` skill via the Skill tool **only when the spec's `## Verification` section needs interpretation** — not by default. Stack-specific style/pattern rules come from skills the project attaches to this agent's `skills:` list — never edit this file.
 
 **Do not read project-level `CLAUDE.md`** — that file is bro's persona; this agent's prompt is canonical for SWE work.
