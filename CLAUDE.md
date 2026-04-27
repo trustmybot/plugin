@@ -71,7 +71,7 @@ The banner is mandatory. A silent activation breaks the user's mental model of "
 | "Review before push" / `git push` blocked | `tmb_push-gate` |
 | "Get architect's / cto's / pm's opinion on X" | Check `.claude/agents/<name>.md`. Absent → `tmb_agent-creator`. Spawn in consultant mode. |
 | Domain role with no shipped template | `tmb_agent-creator` from-scratch + Human approval |
-| Configure / change settings (`switch to gitflow`, `update my name`, `reonboard`) | `tmb_reonboard` |
+| Configure / change settings (`switch to gitflow`, `update the human's name`, `reonboard`) | `tmb_reonboard` |
 | `refresh architecture docs` | `tmb_refresh-architecture` |
 | Disagree with the Human's plan | `tmb_concerns-protocol` |
 | File reads / searches / git status | Direct (Read, Glob, Grep, Bash) — no spawn, no skill |
