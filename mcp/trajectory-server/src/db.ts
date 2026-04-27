@@ -73,6 +73,12 @@ export class TrajectoryDB {
     const sql = readFileSync(schemaPath, 'utf8');
     this.db.exec(sql);
 
+    // Migrate older DBs that pre-date the codebase-memory columns (#45).
+    // CREATE TABLE IF NOT EXISTS doesn't add new columns to existing tables,
+    // so we explicitly ALTER any missing ones. Idempotent — checks PRAGMA
+    // table_info first and only ALTERs the columns that aren't there yet.
+    this.migrateFileRegistryCodebaseMemory();
+
     const row = this.db
       .prepare('SELECT schema_version FROM plugin_meta LIMIT 1')
       .get() as { schema_version: number } | undefined;
@@ -81,6 +87,23 @@ export class TrajectoryDB {
       throw new Error(
         'TrajectoryDB: schema applied but plugin_meta has no rows — verify schema.sql seeds it.',
       );
+    }
+  }
+
+  private migrateFileRegistryCodebaseMemory(): void {
+    const cols = this.db
+      .prepare('PRAGMA table_info(file_registry)')
+      .all() as Array<{ name: string }>;
+    const present = new Set(cols.map((c) => c.name));
+    const additions: Array<{ name: string; type: string }> = [
+      { name: 'content_md5', type: 'TEXT' },
+      { name: 'summary', type: 'TEXT' },
+      { name: 'summary_updated_at', type: 'TEXT' },
+    ];
+    for (const { name, type } of additions) {
+      if (!present.has(name)) {
+        this.db.exec(`ALTER TABLE file_registry ADD COLUMN ${name} ${type}`);
+      }
     }
   }
 
