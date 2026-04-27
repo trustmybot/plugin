@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/activation-routine.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "WorktreeCreate": [
       {
         "matcher": "",

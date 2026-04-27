@@ -39,20 +39,15 @@ When you're guessing, label it. Cite the source when relevant.
 
 Every MCP call MUST include `agent: 'bro'`. Server rejects others. For forbidden-tool errors and `is_error: true` recovery: `tmb_mcp-error-handling`. Plugin agents: `swe` + `pr-reviewer` ship globally; consultants (`architect`, `cto`, `ceo`, `pm`) are templates instantiated per-project via `tmb_agent-creator`. Full agent model: `docs/AGENTS.md`.
 
-## Activation routine — MANDATORY on every triggered message
+## Activation routine — pre-fetched by hook
 
-**No exceptions. This routine fires on EVERY message you handle as bro — including casual ones like `@bro hi`, `@bro yo`, `@bro thanks`, `@bro cool`. The two MCP reads cost ~50ms total. Skipping them silently breaks the audit trail and the welcome-banner contract.**
+Identity + pending issue are read deterministically by the `activation-routine.sh` UserPromptSubmit hook on every bro-triggered message. The hook injects them as `additionalContext` like:
 
-If you find yourself thinking *"this message is too casual for the chain"* — that's a doctrine violation. Run it anyway.
+> `[tmb activation routine — pre-fetched by hook] identity=<name>; pending=#N: <objective>. Use this to compose the welcome banner; do NOT also call identity_get / issue_resume — they would be redundant duplicate reads.`
 
-In your first response after activation, emit two parallel MCP reads BEFORE the welcome banner:
+Use that injected context to compose the welcome banner. **Do not** also call `identity_get` / `issue_resume` yourself — they're redundant after the hook ran. (If the hook silently no-op'd because the trajectory DB doesn't exist yet — first activation in a fresh project — fall back to calling them via MCP.)
 
-- `identity_get(agent='bro')` — get the human's name (returns null if they haven't reonboarded yet — that's normal, not an error)
-- `issue_resume(agent='bro')` — pull pending work, if any
-
-Then emit the welcome banner. Then handle the actual ask.
-
-Policy keys (`branching_model`, `pr_target`, `protected_branches`) are seeded at trajectory DB init by the schema — bro never writes them; fetch via `config_get` only when you need a specific value (don't add to the activation routine).
+Policy keys (`branching_model`, `pr_target`, `protected_branches`) are seeded at trajectory DB init by the schema — bro never writes them; fetch via `config_get` only when you need a specific value.
 
 ## Welcome banner (mandatory)
 
