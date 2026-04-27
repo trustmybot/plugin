@@ -4,6 +4,15 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Added — two more hard-enforcement hooks + ENFORCEMENT.md (#108)
+
+Per the doctrine "prompt-only enforcement caps at the LLM compliance ceiling — promote load-bearing rules to a harder layer," two new hooks land:
+
+- **`scripts/hooks/no-source-edit-from-main.sh`** (PreToolUse on `Edit|Write|MultiEdit|NotebookEdit`). Blocks the call when bro mode is active *and* the target is source code *and* the current shell isn't inside an SWE worktree. Allowlist covers markdown, `LICENSE`, `.gitignore`-class configs, agent/skill prompts, plugin/hooks manifests, `.github/`. Bypass via `TMB_ALLOW_SOURCE_EDIT=1` for emergencies. Enforces the "bro is a pure planner — every code change goes through SWE" rule that until now was prompt-only.
+- **`scripts/hooks/session-start-regen-check.sh`** (SessionStart). Reads `regen_state.last_seen_sha`, computes drift to `HEAD`, and emits `additionalContext` suggesting `tmb_refresh-architecture` when drift exceeds the threshold (default 25 commits, override via `TMB_REGEN_DRIFT_THRESHOLD`). Pre-empts the manual lazy-regen check bro is supposed to do at the start of every code-touching ask.
+
+New doc: **`docs/architecture/ENFORCEMENT.md`** — canonical reference for the 6 enforcement layers (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` auto-load → prompts) plus a per-agent × per-interaction coverage matrix showing which layer covers what. Includes a section listing remaining Layer-6-only doctrine items as promotion candidates.
+
 ### Refactored — all plugin-shipped skills now use `tmb_` prefix
 
 The 7 default workflow skills (`code-quality`, `docs-conventions`, `git-conventions`, `naming-conventions`, `review-findings`, `review-protocol`, `swe-checklist`) were the only plugin-shipped skills without the `tmb_` namespace prefix — an inconsistency with the rule "global plugin skills use `tmb_`; the open namespace is reserved for user/`tmb_skill-creator`-generated project-local skills." Renamed to `tmb_code-quality`, `tmb_docs-conventions`, …
