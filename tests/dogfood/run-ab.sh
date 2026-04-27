@@ -56,6 +56,7 @@ for cmd in claude sqlite3 jq rsync; do
 done
 
 . "$HERE/lib/flow-helpers.sh"
+. "$HERE/lib/smoke-helpers.sh"
 . "$HERE/lib/ab-helpers.sh"
 
 # Parse scenario.json
@@ -75,22 +76,23 @@ printf "  Prompt: %s\n" "$PROMPT"
 printf "  Arms:   %s\n" "$(echo "$ARMS" | tr '\n' ' ')"
 printf "  N (pairs per arm): %s\n\n" "$N"
 
-# Pre-flight MCP smoke test on each arm's plugin tree. Catches the bug class
-# 'arm_plugin built but MCP server can't actually spawn' — which would
-# otherwise produce 0-byte trajectory.db files, no eval_results, and a
-# silent waste of tokens. Fail FAST before running any claude calls.
-printf "=== Pre-flight MCP smoke test per arm ===\n"
+# Pre-flight: substrate health on the SOURCE plugin first (catches L0–L4
+# class issues before we even build per-arm copies), then MCP smoke on
+# each arm's plugin tree (catches arm-specific overlay breakage).
+l5_pre_flight_or_abort "$PLUGIN_ROOT"
+
+printf "=== Per-arm MCP smoke (post-rsync overlay) ===\n"
 SMOKE_FAIL=0
 for arm in $ARMS; do
   printf "  arm=%s: " "$arm"
-  SMOKE_PLUGIN=$(l6_make_arm_plugin "$SCENARIO_DIR/arms/$arm")
-  if l6_smoke_arm_plugin "$SMOKE_PLUGIN"; then
+  SMOKE_PLUGIN=$(l5_make_arm_plugin "$SCENARIO_DIR/arms/$arm")
+  if l5_smoke_mcp "$SMOKE_PLUGIN"; then
     printf "✓ MCP responds\n"
   else
     printf "✗ MCP smoke failed — see stderr\n"
     SMOKE_FAIL=1
   fi
-  l6_cleanup_arm_plugin "$SMOKE_PLUGIN"
+  l5_cleanup_arm_plugin "$SMOKE_PLUGIN"
 done
 if [ "$SMOKE_FAIL" -ne 0 ]; then
   printf "\n❌ One or more arms failed MCP smoke. Aborting before token spend.\n"
@@ -104,24 +106,24 @@ for pair in $(seq 1 "$N"); do
   printf "--- Pair %d/%d ---\n" "$pair" "$N"
   for arm in $ARMS; do
     printf "  arm=%s: " "$arm"
-    PROJECT=$(l6_setup_scratch_project)
-    ARM_PLUGIN=$(l6_make_arm_plugin "$SCENARIO_DIR/arms/$arm")
+    PROJECT=$(l5_setup_scratch_project)
+    ARM_PLUGIN=$(l5_make_arm_plugin "$SCENARIO_DIR/arms/$arm")
     RUN_ID="ab-${SCENARIO_NAME}-pair${pair}-${arm}-${PAIR_ID}"
 
     # Apply scenario state (fixture + setup_files) BEFORE running claude.
     # Without this the scratch project lacks the files / DB rows the prompt
     # references — bro correctly responds 'nothing to do' and the test is moot.
-    l6_setup_scenario_state "$PROJECT" "$SCENARIO_DIR"
+    l5_setup_scenario_state "$PROJECT" "$SCENARIO_DIR"
 
-    l6_run_arm "$PROJECT" "$ARM_PLUGIN" "$PROMPT"
-    if PLUGIN_ROOT="$ARM_PLUGIN" l6_score_with_arm "$PROJECT" "$FLOW" "$SCORER_DIR" "$RUN_ID" "$arm" "$SCENARIO_NAME"; then
+    l5_run_arm "$PROJECT" "$ARM_PLUGIN" "$PROMPT"
+    if PLUGIN_ROOT="$ARM_PLUGIN" l5_score_with_arm "$PROJECT" "$FLOW" "$SCORER_DIR" "$RUN_ID" "$arm" "$SCENARIO_NAME"; then
       printf "    ✓ all scorers passed\n"
     else
       printf "    ✗ at least one scorer failed\n"
     fi
 
-    l6_cleanup_arm_plugin "$ARM_PLUGIN"
-    l6_cleanup_project "$PROJECT"
+    l5_cleanup_arm_plugin "$ARM_PLUGIN"
+    l5_cleanup_project "$PROJECT"
   done
 done
 
