@@ -39,6 +39,7 @@ The "enforcement" column names the **strongest layer currently deployed** for ea
 | Bro creates the task branch (SWE may not invent / abbreviate the name, #170) | Layer 2 (PreToolUse hook on Bash blocking `git worktree add -b/-B/--create-branch`) | `scripts/hooks/no-worktree-branch-create.sh` |
 | Branch is up-to-date with `origin/<pr_target>` before SWE attaches a worktree (no stale-local-main bug) | Layer 2 (PreToolUse hook on Bash, fetch + ancestry check) | `scripts/hooks/branch-up-to-date-with-remote.sh` |
 | Worktree cleanup on task close (no stale `.claude/worktrees/` accumulation) | Layer 2 (PostToolUse hook on `task_update_status`) | `scripts/hooks/cleanup-worktree-on-task-close.sh` |
+| **Bro must update file_registry summaries before closing the task** (#181 — bro has full task context, SWE doesn't) | Layer 1 (`requireRoles('file_registry_update_summaries', ['bro'])`) + Layer 2 (PreToolUse hook denies `task_update_status(closed)` when summaries are missing/stale) | `mcp/trajectory-server/src/tools/file-registry.ts` + `scripts/hooks/require-summaries-before-task-close.sh` |
 | MCP calls must include `agent: 'bro'` | Layer 1 (server `requireRoles`) | `mcp/trajectory-server/src/middleware/agent-scope.ts` |
 | Welcome banner phrasing | Layer 6 only | CLAUDE.md `## Welcome banner` |
 | Triage rule (`difficult` iff `docs/trustmybot/architecture/` touched) | Layer 6 only | CLAUDE.md `## Code-touching ask chain` |
@@ -55,6 +56,7 @@ The "enforcement" column names the **strongest layer currently deployed** for ea
 | Spawned only with valid `task_id` referencing a `pending`/`open` task with non-empty `spec_body` | Layer 2 (PreToolUse hook on Task) | `scripts/hooks/require-task-spec.sh` |
 | Runs in an isolated worktree | Layer 2 (WorktreeCreate hook) + Layer 3 (`isolation: worktree` frontmatter) | `scripts/hooks/create-worktree.sh`, `agents/swe.md` |
 | **Cannot create branches** — must attach worktree to bro-pre-created `<branch>` (#170) | Layer 2 (PreToolUse hook on Bash) | `scripts/hooks/no-worktree-branch-create.sh` |
+| **Cannot write file_registry summaries** — bro owns summaries (#181). SWE just commits + status='completed' | Layer 1 (`requireRoles('file_registry_update_summaries', ['bro'])`) | `mcp/trajectory-server/src/tools/file-registry.ts` |
 | **Cannot attach worktree to a stale branch** — branch must descend from `origin/<pr_target>` | Layer 2 (PreToolUse hook on Bash, fetch + ancestry) | `scripts/hooks/branch-up-to-date-with-remote.sh` |
 | `disallowedTools` keeps SWE off MCP-write tools intended for bro | Layer 3 (frontmatter) | `agents/swe.md` |
 | MCP calls must include `agent: 'swe'`, scope-restricted | Layer 1 (`requireRoles`) | `mcp/trajectory-server/src/middleware/agent-scope.ts` |

@@ -346,7 +346,7 @@ export function fileRegistryTools(db) {
             }
             return ok({ verdicts, count: verdicts.length });
         }),
-        file_registry_update_summaries: requireRoles('file_registry_update_summaries', ['bro', 'swe'], wrapHandler(async (args) => {
+        file_registry_update_summaries: requireRoles('file_registry_update_summaries', ['bro'], wrapHandler(async (args) => {
             const updates = args['updates'];
             if (!Array.isArray(updates) || updates.length === 0) {
                 return err('updates must be a non-empty array of { path, summary }');

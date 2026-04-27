@@ -78,6 +78,16 @@
         ]
       },
       {
+        "matcher": "mcp__.*trajectory-server__task_update_status",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-summaries-before-task-close.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {

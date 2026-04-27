@@ -18,11 +18,19 @@ SELECT
 FROM ledger
 WHERE event_type = 'planning_complete';
 
--- #45 + #181 codebase-memory assertions disabled: SWE skips
--- file_registry_update_summaries inconsistently (prompt-only doctrine,
--- same h3/h4 ceiling). Re-enable once #181's PostToolUse hook lands and
--- enforces the atomic-close protocol structurally.
---
--- Original assertions (kept commented for restoration):
---   file_registry-has-md5-and-summary-after-swe-close ≥ 1
---   last_verified_sha-was-set-after-close == 1
+-- #45 + #181: bro updates file_registry_update_summaries during verification,
+-- BEFORE flipping task to closed. Server-side requireRoles + a PreToolUse
+-- hook on task_update_status enforce the new ownership structurally
+-- (#181). If bro skips, the close call is denied — so any closed task in
+-- the DB implies fresh summaries for its touched paths.
+SELECT
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'file_registry-has-md5-and-summary-after-bro-close (got ' || COUNT(*) || ', expected ≥ 1)' AS description
+FROM file_registry
+WHERE content_md5 IS NOT NULL AND summary IS NOT NULL;
+
+SELECT
+  CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
+  'last_verified_sha-was-set-after-close (got ' || COUNT(*) || ', expected 1)' AS description
+FROM plugin_config
+WHERE key = 'last_verified_sha';

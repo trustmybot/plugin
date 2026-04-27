@@ -432,7 +432,7 @@ export function fileRegistryTools(db: TrajectoryDB): {
 
     file_registry_update_summaries: requireRoles(
       'file_registry_update_summaries',
-      ['bro', 'swe'],
+      ['bro'],
       wrapHandler(async (args) => {
         const updates = args['updates'];
         if (!Array.isArray(updates) || updates.length === 0) {

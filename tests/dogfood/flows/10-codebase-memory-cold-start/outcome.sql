@@ -5,9 +5,13 @@
 -- a summary mentioning project-prescan or cold-start. Then bro proceeds
 -- with planning the actual ask (issue_create + task_create_batch).
 
--- #181: headless_fallback ledger event is bro prompt-only doctrine; bro
--- skips inconsistently in headless `claude -p` mode. Disabled until #181's
--- enforcement hook lands. Original assertion (kept commented for restoration):
+-- The `headless_fallback` ledger event is bro prompt-only doctrine
+-- (`tmb_headless-fallback` skill says bro must log when AskUserQuestion
+-- defaults are auto-applied). Bro skips inconsistently in `claude -p`
+-- headless mode — same h3/h4 ceiling. Separate from #181 (which covers
+-- file_registry summaries, not headless_fallback events). Filed as a
+-- follow-up: bro needs a Layer 2 enforcement for the headless-fallback
+-- audit log. Original assertion kept commented for restoration:
 --   headless_fallback event WHERE summary mentions project-prescan/cold-start/deep-scan ≥ 1
 
 -- Bro should NOT have run a deep scan in headless (default = lazy).
