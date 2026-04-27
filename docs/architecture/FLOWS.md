@@ -14,7 +14,7 @@
 > and are instantiated per-project on demand via `tmb_agent-creator`.
 >
 > All skills — both `tmb_*` protocol skills and the default workflow
-> skills (`swe-checklist`, `code-quality`, `docs-conventions`, etc.) —
+> skills (`tmb_swe-checklist`, `tmb_code-quality`, `tmb_docs-conventions`, etc.) —
 > live in `plugin/skills/` and are globally discoverable. Project-local
 > `<project>/.claude/skills/<name>/SKILL.md` overrides by name.
 
@@ -27,11 +27,11 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
 | 1 | [First contact](#1-first-contact-defaults-applied-silently) | First activation in a project | bro | (none — inline default-write) | `plugin_config`, `ledger` | — |
-| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `swe-checklist` (lazy on demand) | `issues`, `tasks`, `ledger` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
+| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `tmb_swe-checklist` (lazy on demand) | `issues`, `tasks`, `ledger` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
 | 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion + ADR) → swe (pr-reviewer at push time) | + `tmb_planning-difficult` (env probe, Q+A, ADR) | + `discussions`, ADR file | same |
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → human | `tmb_agent-creator` | — | — |
 | 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | `tmb_skill-creator` | `skills` (optional, for tracking) | — |
-| 6 | [Push gate / PR review](#6-push-gate--pr-review) | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL) | `git-push-guard` |
+| 6 | [Push gate / PR review](#6-push-gate--pr-review) | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `tmb_review-protocol`, `tmb_review-findings`, `tmb_code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL) | `git-push-guard` |
 | 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture`, `tmb_lazy-regen-check` | `regen_state`, `file_registry` | — |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer when at push gate) | `tmb_feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `git-push-guard` |
 | 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `discussions`, `ledger` (and reserved: `roundtables`, `roundtable_votes`) | — |
@@ -88,7 +88,7 @@ sequenceDiagram
 **Involved:**
 - Agents: `bro` (planner + task gate), `swe` (executor)
 - Skills loaded by bro on demand: `tmb_planning-simple` or `tmb_planning-difficult` per triage, `tmb_swe-spawn-workflow` (right before SWE handoff)
-- Skills loaded by swe: `swe-checklist` **only on demand** (when spec verification needs interpretation; not eager)
+- Skills loaded by swe: `tmb_swe-checklist` **only on demand** (when spec verification needs interpretation; not eager)
 - MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `ledger_log` (no `validation_record` per task — that fires at push time)
 - DB tables: `issues`, `tasks`, `discussions`, `ledger`, `audit`
 - Hooks: `require-task-spec` (gates SWE spawn), `git-push-guard` (gates `git push`), `git-guards` (commit branch check)

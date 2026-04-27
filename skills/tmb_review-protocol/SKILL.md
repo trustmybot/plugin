@@ -1,5 +1,5 @@
 ---
-name: review-protocol
+name: tmb_review-protocol
 description: Review phases 1-7 for PR Reviewer. Progression from staged diff scan to full design compliance check.
 ---
 

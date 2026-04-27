@@ -13,7 +13,7 @@ Add a new capability to a project's agents without editing their body. The Lego 
 
 ## When invoked
 
-- Bro detects a project needs a new skill (e.g. Python-stack swe needs a Python-specific verification checklist that the default `swe-checklist` doesn't cover).
+- Bro detects a project needs a new skill (e.g. Python-stack swe needs a Python-specific verification checklist that the default `tmb_swe-checklist` doesn't cover).
 - Human asks bro to teach an agent a specific behavior (`@bro teach swe to also run mypy as part of verification`).
 - A consultant flagged that the project lacks a skill needed for a domain (e.g. cto says "you should have a perf-budget skill on swe").
 

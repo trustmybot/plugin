@@ -1,5 +1,5 @@
 ---
-name: review-findings
+name: tmb_review-findings
 description: Living list of patterns caught during code review. All agents internalize these before designing, implementing, or reviewing.
 ---
 

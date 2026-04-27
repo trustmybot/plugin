@@ -4,6 +4,16 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Refactored — all plugin-shipped skills now use `tmb_` prefix
+
+The 7 default workflow skills (`code-quality`, `docs-conventions`, `git-conventions`, `naming-conventions`, `review-findings`, `review-protocol`, `swe-checklist`) were the only plugin-shipped skills without the `tmb_` namespace prefix — an inconsistency with the rule "global plugin skills use `tmb_`; the open namespace is reserved for user/`tmb_skill-creator`-generated project-local skills." Renamed to `tmb_code-quality`, `tmb_docs-conventions`, …
+
+**Why it matters**: collision-free open namespace. Previously, if a user asked bro to create a `git-conventions` skill, it could collide with the plugin default. Now the open namespace is exclusively user-owned and the plugin-shipped namespace is fully claimed by `tmb_*`.
+
+**Override semantics unchanged**: a project-local `<project>/.claude/skills/tmb_git-conventions/SKILL.md` still shadows the plugin's by name resolution. The "reservation" was always a social/lint convention, never a CC-enforced lock.
+
+**Refs updated**: `agents/swe.md`, `docs/AGENTS.md`, `docs/architecture/FILES.md`, `docs/architecture/FLOWS.md`, and 6 cross-referencing SKILL.md files. `CHANGELOG.md` history entries left intact (accurate records of the un-prefixed era).
+
 ### Added — activation-routine UserPromptSubmit hook (#108)
 
 Bro's activation routine (`identity_get` + `issue_resume` on every triggered message) is now fired deterministically by `scripts/hooks/activation-routine.sh` instead of relying on prompt discipline. The h4 A/B (5 paired runs × 2 wording arms) showed prompt compliance was 0/10 in *both* arms — the strongest possible imperative ("MANDATORY on every triggered message") still didn't move the needle. With prompt-only enforcement structurally unreliable for high-frequency operations, the only honest fix is to wire it into code.

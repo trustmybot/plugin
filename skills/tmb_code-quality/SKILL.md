@@ -1,5 +1,5 @@
 ---
-name: code-quality
+name: tmb_code-quality
 description: Shared quality criteria for design, implementation, and review. Used by bro (design-time), SWE (implementation-time), and PR Reviewer (review-time). Covers error handling, edge cases, database safety, Python patterns, test isolation, and the self-review checklist.
 ---
 
@@ -195,4 +195,4 @@ Run before reporting COMPLETED. If any item fails, fix it.
 
 **CRITICAL: Every code change must be tested before reporting COMPLETED.** Untested code is rejected. Lint/build passing is necessary but NOT sufficient — you must run the corresponding unit tests and, for behavioral changes, verify the actual runtime behavior. If tests don't exist for the changed code, note that in your report.
 
-> Common review findings: `skills/review-findings/SKILL.md`
+> Common review findings: `skills/tmb_review-findings/SKILL.md`

@@ -73,13 +73,13 @@ plugin/
 │   ├── tmb_skill-creator/            # propose & write new skill files; appends to consuming agent's skills:
 │   ├── tmb_swe-spawn-workflow/       # bro's protocol for spawning SWE with task_id + spec
 │   ├── # Default workflow skills (used by global agents; project overrides per-name)
-│   ├── code-quality/                 # generic quality gates (error handling, security, edges)
-│   ├── docs-conventions/             # docs-update rules + prompt-editing discipline
-│   ├── git-conventions/              # emoji-prefixed commits, branch naming
-│   ├── naming-conventions/           # file/variable/test naming rules
-│   ├── review-findings/              # pr-reviewer output format
-│   ├── review-protocol/              # pr-reviewer full protocol
-│   └── swe-checklist/                # SWE pre-commit checklist (lazy-loaded by SWE on demand)
+│   ├── tmb_code-quality/                 # generic quality gates (error handling, security, edges)
+│   ├── tmb_docs-conventions/             # docs-update rules + prompt-editing discipline
+│   ├── tmb_git-conventions/              # emoji-prefixed commits, branch naming
+│   ├── tmb_naming-conventions/           # file/variable/test naming rules
+│   ├── tmb_review-findings/              # pr-reviewer output format
+│   ├── tmb_review-protocol/              # pr-reviewer full protocol
+│   └── tmb_swe-checklist/                # SWE pre-commit checklist (lazy-loaded by SWE on demand)
 │
 ├── # Consultant templates (opt-in — copied per-project on first request via tmb_agent-creator)
 ├── templates/

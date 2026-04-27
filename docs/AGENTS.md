@@ -42,12 +42,12 @@ Never confuse layers: a "more skilled SWE" means swe.md plus added skills, not a
 
 `skills/` holds both the `tmb_*` protocol skills (immutable, reserved by plugin) AND the default workflow skills used by global agents:
 
-- `swe-checklist`
-- `code-quality`
-- `docs-conventions`
-- `git-conventions`
-- `naming-conventions`
-- `review-protocol`
-- `review-findings`
+- `tmb_swe-checklist`
+- `tmb_code-quality`
+- `tmb_docs-conventions`
+- `tmb_git-conventions`
+- `tmb_naming-conventions`
+- `tmb_review-protocol`
+- `tmb_review-findings`
 
 All are globally discoverable. Project-local `<project>/.claude/skills/<name>/SKILL.md` overrides by name. Onboarding does NOT copy skills into projects — the global ones serve every project until a customization is needed.
