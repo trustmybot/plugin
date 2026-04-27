@@ -35,6 +35,9 @@ erDiagram
         TEXT  language
         TEXT  last_commit_sha
         TEXT  last_change_type
+        TEXT  content_md5
+        TEXT  summary
+        TEXT  summary_updated_at
     }
 
     skills {
