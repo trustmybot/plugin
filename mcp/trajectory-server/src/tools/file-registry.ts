@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
@@ -11,11 +12,34 @@ function md5OfPath(absPath: string): string {
   return createHash('md5').update(buf).digest('hex');
 }
 
+function md5OfBuffer(buf: Buffer): string {
+  return createHash('md5').update(buf).digest('hex');
+}
+
 function resolveProjectPath(path: string): string {
   // Paths are stored in file_registry as project-relative. Resolve against
   // the MCP server's cwd, which is the project root (claude spawns subprocesses
   // in its own working dir = the project).
   return isAbsolute(path) ? path : resolve(process.cwd(), path);
+}
+
+// Read file content from a specific git commit. Used when bro updates
+// file_registry from a SWE commit whose files live in a worktree (not at
+// the project root). The MCP server runs at the project root and can't see
+// worktree files via relative path; `git show <sha>:<path>` reads the
+// committed content directly from .git, regardless of working tree layout.
+// Returns null on any failure (path missing in commit, sha invalid, git
+// missing, etc.) — callers fall back to disk read.
+function readFromCommit(commitSha: string, path: string): Buffer | null {
+  try {
+    return execFileSync('git', ['show', `${commitSha}:${path}`], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
 }
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -459,19 +483,40 @@ export function fileRegistryTools(db: TrajectoryDB): {
         let updated = 0;
         const errors: Array<{ path: string; error: string }> = [];
 
+        const commitSha = typeof advance === 'string' && advance.length > 0 ? advance : null;
+
         for (const u of updates as Array<{ path: string; summary: string }>) {
           const abs = resolveProjectPath(u.path);
-          if (!existsSync(abs)) {
-            errors.push({ path: u.path, error: 'file not found on disk' });
+          let md5: string | null = null;
+
+          // Try the project-root disk path first (cheap; covers the steady
+          // state where the file has merged back to main).
+          if (existsSync(abs)) {
+            try {
+              md5 = md5OfPath(abs);
+            } catch {
+              // fall through to git-show below
+            }
+          }
+
+          // Fallback for worktree-only files (bro is updating from a SWE
+          // commit whose changes live in .claude/worktrees/<slug>/, not at
+          // the project root). Read the committed content via `git show`.
+          if (md5 === null && commitSha !== null) {
+            const buf = readFromCommit(commitSha, u.path);
+            if (buf !== null) md5 = md5OfBuffer(buf);
+          }
+
+          if (md5 === null) {
+            errors.push({
+              path: u.path,
+              error: commitSha
+                ? `file not found on disk and not in commit ${commitSha}`
+                : 'file not found on disk (pass advance_verified_sha to read from a git commit)',
+            });
             continue;
           }
-          let md5: string;
-          try {
-            md5 = md5OfPath(abs);
-          } catch (e) {
-            errors.push({ path: u.path, error: (e as Error).message });
-            continue;
-          }
+
           db.run(
             `INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
              VALUES (?, 'unknown', ?, ?, ?)

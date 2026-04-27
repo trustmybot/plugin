@@ -1,5 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { tempDB } from './helpers.js';
 import { fileRegistryTools } from '../tools/file-registry.js';
 async function call(handlers, name, args) {
@@ -559,6 +564,77 @@ describe('fileRegistryTools', () => {
                 assert.ok(result.isError, `${agent} should be forbidden`);
                 assert.match(parseResult(result).error, /forbidden/i);
                 db.close();
+            }
+        });
+        it('reads md5 from git commit when file lives in a worktree (not at project root)', async () => {
+            const dir = mkdtempSync(join(tmpdir(), 'frus-wt-'));
+            const cwdPrev = process.cwd();
+            process.chdir(dir);
+            try {
+                execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+                execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: dir });
+                execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });
+                writeFileSync(join(dir, 'README.md'), 'init\n');
+                execFileSync('git', ['add', '.'], { cwd: dir });
+                execFileSync('git', ['commit', '-qm', 'init'], { cwd: dir });
+                const wtDir = join(dir, '.claude', 'worktrees', 'task-99');
+                execFileSync('git', ['branch', 'fix/wt-task', 'HEAD'], { cwd: dir });
+                execFileSync('git', ['worktree', 'add', wtDir, 'fix/wt-task'], { cwd: dir });
+                const wtSrc = join(wtDir, 'src');
+                execFileSync('mkdir', ['-p', wtSrc]);
+                const fileContents = 'export const note = "from-worktree";\n';
+                writeFileSync(join(wtSrc, 'foo.ts'), fileContents);
+                execFileSync('git', ['add', '.'], { cwd: wtDir });
+                execFileSync('git', ['commit', '-qm', 'feat: add foo'], { cwd: wtDir });
+                const commitSha = execFileSync('git', ['-C', wtDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+                const db = tempDB();
+                const tools = fileRegistryTools(db);
+                const result = await call(tools.handlers, 'file_registry_update_summaries', {
+                    updates: [{ path: 'src/foo.ts', summary: 'note constant' }],
+                    advance_verified_sha: commitSha,
+                });
+                assert.ok(!result.isError);
+                const data = parseResult(result);
+                assert.equal(data.updated, 1, 'should have updated 1 row');
+                assert.deepEqual(data.errors, [], 'no errors expected');
+                const row = db.get('SELECT content_md5, summary FROM file_registry WHERE path = ?', ['src/foo.ts']);
+                assert.ok(row, 'row should exist');
+                assert.equal(row.content_md5.length, 32, 'md5 should be populated');
+                assert.equal(row.content_md5, createHash('md5').update(fileContents).digest('hex'), 'md5 should match worktree-committed content');
+                assert.equal(row.summary, 'note constant');
+                db.close();
+            }
+            finally {
+                process.chdir(cwdPrev);
+            }
+        });
+        it('reports error when file is in neither disk nor commit', async () => {
+            const dir = mkdtempSync(join(tmpdir(), 'frus-miss-'));
+            const cwdPrev = process.cwd();
+            process.chdir(dir);
+            try {
+                execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+                execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: dir });
+                execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });
+                writeFileSync(join(dir, 'README.md'), 'init\n');
+                execFileSync('git', ['add', '.'], { cwd: dir });
+                execFileSync('git', ['commit', '-qm', 'init'], { cwd: dir });
+                const headSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+                const db = tempDB();
+                const tools = fileRegistryTools(db);
+                const result = await call(tools.handlers, 'file_registry_update_summaries', {
+                    updates: [{ path: 'src/nonexistent.ts', summary: 'x' }],
+                    advance_verified_sha: headSha,
+                });
+                assert.ok(!result.isError);
+                const data = parseResult(result);
+                assert.equal(data.updated, 0, 'no rows inserted');
+                assert.equal(data.errors.length, 1);
+                assert.match(data.errors[0].error, /not found.*commit/i);
+                db.close();
+            }
+            finally {
+                process.chdir(cwdPrev);
             }
         });
     });
