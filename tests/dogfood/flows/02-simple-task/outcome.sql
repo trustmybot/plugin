@@ -18,13 +18,6 @@ SELECT
 FROM ledger
 WHERE event_type = 'planning_complete';
 
--- Negative: no Direct Mode marker should appear (this is a non-trivial task)
-SELECT
-  CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
-  'no-direct-mode-event (got ' || COUNT(*) || ', expected 0)' AS description
-FROM ledger
-WHERE event_type = 'direct_mode_used';
-
 -- #45: SWE atomic-close must update file_registry for the touched paths.
 -- After the task lands, at least one row should have a non-null content_md5
 -- AND a non-null summary (proves SWE called file_registry_update_summaries).

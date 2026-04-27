@@ -79,8 +79,8 @@ PR-reviewer flags architectural changes that don't update docs at push time. Bro
 
 When modifying `agents/*.md`, `skills/**/SKILL.md`, `CLAUDE.md`, or any
 workflow markdown, follow the discipline below. Any agent touching prompt
-files applies these rules. In TMB, that's bro (planning + Direct Mode docs)
-or SWE (when the task spec names a markdown file).
+files applies these rules. In TMB, that's SWE (when the task spec names a
+markdown file).
 
 ### Scope
 

@@ -92,7 +92,7 @@ Four structural innovations, in service of long-term engineering quality. Each c
 
 TMB separates two cognitive jobs into two contexts:
 
-- **`bro` — planner + gate.** Long-term, full-picture. Discusses with you, designs the breakdown, writes task specs to MCP, verifies SWE's work, drives retry loops. **Never writes source code itself** (one narrow exception: Direct Mode for ≤3-line typo fixes).
+- **`bro` — planner + gate.** Long-term, full-picture. Discusses with you, designs the breakdown, writes task specs to MCP, verifies SWE's work, drives retry loops. **Never writes source code itself** — every code change goes through SWE.
 - **`swe` — executor.** Short-term, single-task focus. Implements one task per spawn in an isolated git worktree. **Cannot self-approve** — bro re-runs the spec's verification before closing the task; pr-reviewer signs off before push.
 
 Memory is structurally split: bro carries strategy, swe carries only the task spec. No cross-contamination, no swe drifting into "while I'm here, let me also refactor X." Out-of-role calls are rejected at the wire — consultants can't write workflow state, swe can't close its own task.
@@ -140,7 +140,6 @@ Details: [`docs/architecture/FLOWS.md` § 6 (Push gate)](docs/architecture/FLOWS
 
 The harness + memory + evaluation compose into a workflow whose shape **scales by ask**:
 
-- **Trivial fix** (typo, ≤3 lines, single file) → **Direct Mode**. Bro edits, commits, logs. No SWE spawn. ~10–20s.
 - **Simple task** (a feature, no architecture impact) → bro picks defaults inline, spawns SWE, verifies, closes. ~2–3 min.
 - **Difficult task** (architecture change, ADR needed) → bro asks scope-clarifying questions, captures decisions to ADR, then runs the simple-task flow.
 - **Multi-task batch** → planning amortized across tasks; pr-reviewer's push gate fires once over the batch, not per task.
@@ -178,7 +177,7 @@ bash tests/run-all.sh
 ```
 
 Architecture reference for new contributors:
-- [`CLAUDE.md`](CLAUDE.md) — bro persona, first-action chain, push gate, Direct Mode
+- [`CLAUDE.md`](CLAUDE.md) — bro persona, first-action chain, push gate
 - [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) — workflow flowcharts
 - [`docs/architecture/FILES.md`](docs/architecture/FILES.md) — file-by-file map
 - [`docs/architecture/ERD.md`](docs/architecture/ERD.md) — SQLite schema

@@ -75,7 +75,6 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 |---|---|
 | `planning_complete` | Bro finishes planning, batched task_create + SWE spawn |
 | `scope_gate_waived` | Bro waives the scope gate with explicit reason |
-| `direct_mode_used` | Bro fixes ≤3 lines without SWE spawn |
 | `bro_verification_pass` | Bro task-gate V1/V2/V3 all passed |
 | `bro_verification_fail` | Bro task-gate found a check that failed |
 | `architecture_regen_complete` | docs/trustmybot/architecture/auto/ refreshed |

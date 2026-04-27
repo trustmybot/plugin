@@ -4,13 +4,27 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
-### Added — 4 backfill A/B hypothesis scenarios (#153)
+### Removed — Direct Mode (#108)
+
+Bro is now a pure planner: every code change goes through SWE, no exceptions. The `tmb_direct-mode` skill, the matching L4 workflow-sim test, the L5 D-direct-mode flow, and the h3-direct-mode-framing A/B scenario are all gone. The `direct_mode_used` event_type is dropped from `ledger.event_type` enum.
+
+**Why:** the h3 A/B run (5 paired arms × 2 wording variants) showed 0/5 compliance with the `ledger_log(direct_mode_used)` audit step in *both* arms — neither softer nor stronger imperative framing moved the needle. With the audit step structurally unenforceable through prompt discipline alone, the planner-only doctrine is the safer simplification: bro never gets a "fast lane" that requires self-policing.
+
+**Impact:**
+- CLAUDE.md role / routing / reactive-skills sections updated (no exception language).
+- `docs/architecture/FLOWS.md` Flow D removed; quick-index row dropped.
+- `docs/architecture/FILES.md` skill index entry removed.
+- `docs/contributing/ENUMS.md` `direct_mode_used` row removed.
+- `tests/dogfood/flows/02-simple-task/outcome.sql` no-direct-mode-event negative assertion removed (now a tautology).
+- `README.md` / `CONTRIBUTING.md` perf table & doctrine references reworded.
+- `skills/git-conventions/SKILL.md` + `skills/docs-conventions/SKILL.md` Direct Mode references reworded.
+
+### Added — 3 backfill A/B hypothesis scenarios (#153)
 
 Real hypothesis testing for the A/B framework, aligned with #131. Each scenario compares the current dev state against a snapshot from before the relevant doctrine PR (extracted via `git show <sha>^:<path>`).
 
 - **h1-claude-md-slim**: 99-line current vs 142-line pre-#126. Did the slim help, or was it cosmetic?
 - **h2-hybrid-d-vs-lazy**: current Phase 4 cold-start logic vs pre-#148 prescan. Did Hybrid D' add value vs always-lazy?
-- **h3-direct-mode-framing**: current 4-step "NEVER SKIP THIS" wording vs pre-#139 3-step softer framing. Did imperative tightening move compliance?
 - **h4-first-action-mandatory**: current `MANDATORY on every triggered message` body wording vs pre-#139. Does the strongest possible imperative break the LLM ceiling on greetings?
 
 Scenarios ship as configs only; running them is opt-in (~$2-8 in tokens for the full set with N=10). Results land as ADRs under `docs/trustmybot/architecture/manual/decisions/`.
@@ -25,7 +39,7 @@ Reach-for tool when shipping doctrine changes whose value is hard to verify by r
 - **Worked example** `tests/dogfood/ab-scenarios/example-claude-md-slim/`: current slim CLAUDE.md vs a padded variant on the 95-anonymous-cold-restart flow. Not a real hypothesis — proves the framework.
 - **Docs**: new `tests/README.md` row + section on when to write an A/B scenario; new `CONTRIBUTING.md` section with rule-of-thumb.
 
-Real hypothesis testing follows in #153 (CLAUDE.md slim, Hybrid D' vs lazy, Direct Mode 4-step framing, first-action chain MANDATORY).
+Real hypothesis testing follows in #153 (CLAUDE.md slim, Hybrid D' vs lazy, first-action chain MANDATORY).
 
 ## v0.4.2 — 2026-04-27
 

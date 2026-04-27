@@ -58,7 +58,6 @@ plugin/
 │   ├── tmb_branch-id-proposal/       # bro derives branch_id + opens MCP issue before loading planning skill
 │   ├── tmb_concerns-protocol/        # how bro raises a concern when doubting the Human's plan (surface or spawn consultant)
 │   ├── tmb_create-hook/              # how to add a new hook script safely
-│   ├── tmb_direct-mode/              # narrow bypass for ≤3-line single-file fixes (bro edits, commits, logs direct_mode_used)
 │   ├── tmb_feedback-loop/            # bro ↔ swe ↔ pr-reviewer retry/escalation protocol
 │   ├── tmb_headless-fallback/        # AskUserQuestion error / TMB_HEADLESS=1 fallback doctrine + per-skill defaults audit
 │   ├── tmb_lazy-regen-check/         # bro's session-start architecture-regen heuristic (25-commit threshold)
