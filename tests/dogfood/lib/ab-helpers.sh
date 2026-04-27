@@ -7,14 +7,14 @@
 
 set -uo pipefail
 
-# l6_make_arm_plugin <arm_overrides_dir> — copies $PLUGIN_ROOT to a temp dir
+# l5_make_arm_plugin <arm_overrides_dir> — copies $PLUGIN_ROOT to a temp dir
 # and overlays arm-specific overrides on top. Echoes the temp dir path.
 #
 # Overrides directory mirrors the plugin tree layout:
 #   arms/A/CLAUDE.md            -> overrides plugin/CLAUDE.md
 #   arms/A/skills/foo/SKILL.md  -> overrides plugin/skills/foo/SKILL.md
 # rsync -a is used so directory structure is preserved.
-l6_make_arm_plugin() {
+l5_make_arm_plugin() {
   local arm_overrides="$1"
   local arm_plugin
   arm_plugin=$(mktemp -d -t tmb-arm-plugin-XXXX)
@@ -36,47 +36,20 @@ l6_make_arm_plugin() {
   echo "$arm_plugin"
 }
 
-# l6_smoke_arm_plugin <arm_plugin_dir> — verifies the arm_plugin can spawn
-# the MCP trajectory server and respond to tools/list. Fail-fast guard so
-# A/B doesn't burn tokens against an arm_plugin where MCP is silently broken
-# (the failure mode that bug #131-A produced — empty trajectory.db, bro
-# reports 'no MCP', 10 wasted claude calls).
-#
-# Returns 0 if MCP responds with a tool definition list within 10 seconds,
-# 1 otherwise. On failure, prints diagnostic to stderr.
-l6_smoke_arm_plugin() {
-  local arm_plugin="$1"
-  local mcp_entry="$arm_plugin/mcp/trajectory-server/dist/index.js"
-  if [ ! -f "$mcp_entry" ]; then
-    printf "  ✗ smoke: MCP entrypoint missing at %s\n" "$mcp_entry" >&2
-    return 1
-  fi
-
-  # Send a tools/list JSON-RPC request and check for a response with tools.
-  # 10s timeout is generous — actual response is typically <1s.
-  local req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ab-smoke","version":"1"}}}
-{"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
-
-  local resp
-  resp=$(printf '%s\n' "$req" | timeout 10 node --experimental-sqlite "$mcp_entry" 2>&1 || true)
-
-  if echo "$resp" | grep -q '"tools"'; then
-    return 0
-  fi
-
-  printf "  ✗ smoke: MCP did not respond with a tools list. Output:\n" >&2
-  printf '%s\n' "$resp" | head -10 | sed 's/^/      /' >&2
-  return 1
+# MCP smoke-test — moved to lib/smoke-helpers.sh as l5_smoke_mcp so L5
+# dogfood and any other test runner can use the same defensive check.
+# Backward-compat alias preserved for any external caller.
+l5_smoke_arm_plugin() {
+  l5_smoke_mcp "$1"
 }
 
-# l6_setup_scenario_state <project_dir> <scenario_dir> — applies fixture +
+# l5_setup_scenario_state <project_dir> <scenario_dir> — applies fixture +
 # setup_files from scenario.json before claude runs. Each scenario can declare:
-#   - "fixture": "<name>"  → l6_seed_db with that fixture (e.g. "onboarding-named")
+#   - "fixture": "<name>"  → l5_seed_db with that fixture (e.g. "onboarding-named")
 #   - "setup_files": [{"path": "<rel-path>", "content": "<text>"}]
 #                    → write each file in the scratch project before claude runs
 # Both are optional. Defaults: no fixture (empty DB), no setup files.
-l6_setup_scenario_state() {
+l5_setup_scenario_state() {
   local project="$1" scenario_dir="$2"
   local config="$scenario_dir/scenario.json"
   [ -f "$config" ] || return 0
@@ -84,7 +57,7 @@ l6_setup_scenario_state() {
   local fixture
   fixture=$(jq -r '.fixture // empty' "$config")
   if [ -n "$fixture" ]; then
-    l6_seed_db "$project" "$fixture"
+    l5_seed_db "$project" "$fixture"
   fi
 
   # setup_files: array of {path, content}
@@ -107,10 +80,10 @@ l6_setup_scenario_state() {
   fi
 }
 
-# l6_run_arm <project_dir> <arm_plugin_dir> <prompt> — runs claude -p against
-# the arm-specific plugin. Echoes claude output to stderr (same as l6_run_claude
+# l5_run_arm <project_dir> <arm_plugin_dir> <prompt> — runs claude -p against
+# the arm-specific plugin. Echoes claude output to stderr (same as l5_run_claude
 # in flow-helpers.sh), masks exit code so scoring proceeds regardless.
-l6_run_arm() {
+l5_run_arm() {
   local dir="$1" arm_plugin="$2" prompt="$3"
   (
     cd "$dir" || exit 1
@@ -126,19 +99,19 @@ l6_run_arm() {
   )
 }
 
-# l6_score_with_arm <project_dir> <flow_name> <scorer_dir> <run_id> <arm_name>
-# <scenario_name> — runs the same scorers as l6_score_flow but tags every
+# l5_score_with_arm <project_dir> <flow_name> <scorer_dir> <run_id> <arm_name>
+# <scenario_name> — runs the same scorers as l5_score_flow but tags every
 # eval_results row with arm + scenario. Returns 0 only if all scorers pass.
-l6_score_with_arm() {
+l5_score_with_arm() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4" arm="$5" scenario="$6"
   local fail=0
   local db="$project/.claude/tmb/trajectory.db"
 
   # Run the existing scorers first (they write rows with arm='control').
-  l6_score_outcome              "$project" "$flow" "$scorer_dir" "$run_id" || fail=$((fail + 1))
-  l6_score_trajectory_required  "$project" "$flow" "$scorer_dir" "$run_id" || fail=$((fail + 1))
-  l6_score_trajectory_forbidden "$project" "$flow" "$scorer_dir" "$run_id" || fail=$((fail + 1))
-  l6_score_cost                 "$project" "$flow" "$scorer_dir" "$run_id" || fail=$((fail + 1))
+  l5_score_outcome              "$project" "$flow" "$scorer_dir" "$run_id" || fail=$((fail + 1))
+  l5_score_trajectory_required  "$project" "$flow" "$scorer_dir" "$run_id" || fail=$((fail + 1))
+  l5_score_trajectory_forbidden "$project" "$flow" "$scorer_dir" "$run_id" || fail=$((fail + 1))
+  l5_score_cost                 "$project" "$flow" "$scorer_dir" "$run_id" || fail=$((fail + 1))
 
   # Re-tag the rows just written for THIS run_id with the arm + scenario.
   # The scorer functions in lib/scorers.sh write arm='control' by default;
@@ -148,8 +121,8 @@ l6_score_with_arm() {
   return "$fail"
 }
 
-# l6_cleanup_arm_plugin <arm_plugin_dir> — removes the temp arm plugin.
-l6_cleanup_arm_plugin() {
+# l5_cleanup_arm_plugin <arm_plugin_dir> — removes the temp arm plugin.
+l5_cleanup_arm_plugin() {
   local dir="$1"
   [ "${L5_KEEP_ARTIFACTS:-0}" = "1" ] && return 0
   [ -n "$dir" ] && [ -d "$dir" ] && rm -rf "$dir"
