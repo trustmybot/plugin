@@ -2,7 +2,7 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
-## Unreleased
+## v0.4.2 — 2026-04-27
 
 ### Added — codebase memory (#45) — Hybrid D' design
 
