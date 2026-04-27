@@ -2,7 +2,7 @@
 name: tmb_direct-mode
 description: Narrow bypass for trivial single-file changes (≤3 lines, no API change, no docs/trustmybot/architecture/ touch) — bro edits the file directly, commits with chore message, logs direct_mode_used to ledger. Skips the planner-spawn-review chain. Loaded when bro recognizes a Direct Mode candidate.
 agent: bro
-allowed-tools: Read, Edit, Bash, mcp__plugin_tmb_trajectory-server__ledger_log
+allowed-tools: Read, Edit, Bash, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__file_registry_update_summaries
 ---
 
 # direct-mode
@@ -22,17 +22,18 @@ The narrow scope IS the discipline. If you find yourself extending Direct Mode "
 
 If any condition fails, **fall back to the default chain** — propose an issue + task + SWE spawn with a brief explanation to the Human.
 
-## Protocol — ALL THREE STEPS ARE MANDATORY
+## Protocol — ALL FOUR STEPS ARE MANDATORY
 
-The skill is exactly three steps. **You MUST emit all three. The third is the audit trail and is the most commonly-skipped step — if you stop after step 2 you have committed code with no record that Direct Mode was used, indistinguishable from rogue bro behavior.**
+The skill is exactly four steps. **You MUST emit all four.** The audit + registry steps are the most commonly-skipped — if you stop after step 2 you have committed code with no record Direct Mode was used (indistinguishable from rogue bro behavior) and a stale `file_registry` row that the next session will trust.
 
 1. `Edit` (the file) — the actual fix
 2. `Bash (git commit -m "chore: ...")` — atomic commit with conventional-commit message
-3. `ledger_log(agent='bro', event_type='direct_mode_used', summary='<one-line description of the fix>')` — **NEVER SKIP THIS.** This is what distinguishes "bro intentionally used Direct Mode" from "bro freelanced an edit"
+3. `ledger_log(agent='bro', event_type='direct_mode_used', summary='<one-line description of the fix>')` — **NEVER SKIP THIS.** Distinguishes "bro intentionally used Direct Mode" from "bro freelanced an edit".
+4. `file_registry_update_summaries(updates=[{path: '<file>', summary: '<refreshed summary including the change>'}], advance_verified_sha=<HEAD after the commit>)` — **NEVER SKIP THIS.** Updates `content_md5` so the registry isn't stale + the summary captures the new behavior. Without this, the next session's drift check trips on the file.
 
-Batch all three as parallel tool_use blocks in a single response when feasible (the ledger_log doesn't depend on the commit's exit code).
+Batch steps 2–4 as parallel tool_use blocks in a single response (none of them depend on each other's outcome).
 
-That's the whole skill. No `task_create_batch`. No `Task(subagent_type='swe', ...)`. No `planning_complete` ledger event. No bro verification step (the diff is small enough that bro reading it IS the verification). But the `direct_mode_used` ledger event is **non-negotiable**.
+That's the whole skill. No `task_create_batch`. No `Task(subagent_type='swe', ...)`. No `planning_complete` ledger event. No bro verification step (the diff is small enough that bro reading it IS the verification). But steps 3 and 4 are **non-negotiable**.
 
 ## Examples
 

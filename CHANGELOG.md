@@ -2,6 +2,37 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## Unreleased
+
+### Added — codebase memory (#45) — Hybrid D' design
+
+Bro now persists a per-file index in `file_registry`: md5 + summary + last-verified timestamp. The verify-context doctrine (CLAUDE.md, post v0.4.1) tells bro to "trust the trajectory DB's `file_registry` index" when git is clean — this PR makes that index real.
+
+**Doctrine — entry-state matrix in `tmb_project-prescan`**:
+
+- New project (empty repo) → no registry, no scan.
+- Existing repo + registry empty → **AskUserQuestion** "deep scan now or lazy fill?". Headless fallback = lazy.
+- Registry populated + clean tree + HEAD == `last_verified_sha` → trust, no scan.
+- Registry populated + drift → `file_registry_verify` pass; refresh mismatched rows.
+
+**Writers**:
+
+- **Bro** (CLAUDE.md addition): when bro Reads a file for context, follow with `file_registry_update_summaries` if the row's summary was null. Side-effect of work — no extra LLM cost.
+- **SWE** (atomic-close): batch `file_registry_update_summaries(touched_paths)` alongside `task_update_status` and the commit. SWE has fresh context for free.
+- **Direct Mode** (`tmb_direct-mode`): step 4 in the protocol — registry update is now mandatory alongside the `direct_mode_used` ledger event.
+
+**New skill `tmb_deep-scan`**: eager opt-in for cold-start when the Human says yes (or invokes via "@bro deep scan"). Filters binaries / lockfiles / generated dirs, batches Reads, single bulk update call.
+
+**Two new L5 dogfood flows**:
+
+- `10-codebase-memory-cold-start` — existing repo + empty registry → headless fallback fires + lazy default chosen + planning still proceeds
+- `11-codebase-memory-verify-on-drift` — populated registry + induced disk drift → verify pass refreshes the row
+
+**Updated outcome.sql for existing flows**:
+
+- `02-simple-task` — assert SWE atomic-close updated `file_registry` (md5 + summary set, `last_verified_sha` advanced)
+- `D-direct-mode` — assert step 4 fired (registry row refreshed, `last_verified_sha` set)
+
 ## v0.4.1 — 2026-04-27
 
 ### Refactored — `L6 dogfood` → `L5 dogfood` (close the L4→L6 numbering gap)
