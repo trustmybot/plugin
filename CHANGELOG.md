@@ -2,7 +2,7 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
-## Unreleased
+## v0.4.1 — 2026-04-27
 
 ### Refactored — `L6 dogfood` → `L5 dogfood` (close the L4→L6 numbering gap)
 
