@@ -1,8 +1,8 @@
 {
   "name": "example-claude-md-slim",
-  "description": "Worked example for the A/B framework. Tests whether the slim CLAUDE.md (current dev) outperforms a verbose stand-in (arm B has CLAUDE.md replaced with a 300-line padded version that contains the same instructions plus filler explanations and rationale). Run against 95-anonymous-cold-restart since it's the cheapest flow with a clean outcome scorer. NOT a real-world hypothesis — just shows the framework end-to-end. Use this as a copy-paste template for the real scenarios in #153.",
+  "description": "Worked example for the A/B framework — current slim CLAUDE.md vs a padded variant on the simplest flow. NOT a real hypothesis.",
   "flow": "95-anonymous-cold-restart",
+  "fixture": "onboarding-anonymous",
   "prompt": "@bro hi",
-  "arms": ["A-slim", "B-padded"],
-  "notes": "A-slim = current trim CLAUDE.md (no override needed beyond a placeholder). B-padded = same instructions but expanded with rationale paragraphs, examples, and cross-references — to test whether slim materially helps bro vs. just the same content with more words."
+  "arms": ["A-slim", "B-padded"]
 }

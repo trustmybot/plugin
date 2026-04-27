@@ -1,7 +1,8 @@
 {
   "name": "h4-first-action-mandatory",
-  "description": "Hypothesis 4 from #153: did PR #139's first-action chain tightening (header section moved 'no exceptions' rule into body, called out greetings explicitly, quantified cost) actually improve compliance with identity_get + issue_resume on greeting messages, or are we at the LLM ceiling where bro skips the chain on @bro hi regardless?",
+  "description": "Hypothesis 4 from #153: did PR #139's first-action-chain MANDATORY tightening improve compliance with identity_get + issue_resume on greeting messages, or are we at the LLM ceiling?",
   "flow": "95-anonymous-cold-restart",
+  "fixture": "onboarding-anonymous",
   "prompt": "@bro hi",
   "arms": ["A-current-mandatory", "B-pre-pr139"]
 }

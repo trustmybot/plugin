@@ -85,6 +85,11 @@ for pair in $(seq 1 "$N"); do
     ARM_PLUGIN=$(l6_make_arm_plugin "$SCENARIO_DIR/arms/$arm")
     RUN_ID="ab-${SCENARIO_NAME}-pair${pair}-${arm}-${PAIR_ID}"
 
+    # Apply scenario state (fixture + setup_files) BEFORE running claude.
+    # Without this the scratch project lacks the files / DB rows the prompt
+    # references — bro correctly responds 'nothing to do' and the test is moot.
+    l6_setup_scenario_state "$PROJECT" "$SCENARIO_DIR"
+
     l6_run_arm "$PROJECT" "$ARM_PLUGIN" "$PROMPT"
     if PLUGIN_ROOT="$ARM_PLUGIN" l6_score_with_arm "$PROJECT" "$FLOW" "$SCORER_DIR" "$RUN_ID" "$arm" "$SCENARIO_NAME"; then
       printf "    ✓ all scorers passed\n"
