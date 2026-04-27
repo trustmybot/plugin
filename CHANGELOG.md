@@ -2,7 +2,13 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
-## Unreleased
+## v0.5.0 — 2026-04-27
+
+**Headline: bro is now a structurally-enforced pure planner.** Direct Mode removed (#162) and 7 hard-enforcement hooks promote previously prompt-only doctrine to Layer 2 (deterministic shell scripts). New `docs/architecture/ENFORCEMENT.md` documents the 6-layer model (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` → prompts) and the per-agent × per-interaction coverage matrix.
+
+**Breaking changes (pre-1.0 minor bump per SemVer):**
+- Direct Mode is gone. Bro never edits source code; every code change routes through SWE. Trivial fixes go via the same chain (lighter spec, not a separate code path).
+- All plugin-shipped skills now use `tmb_*` prefix (was 7 un-prefixed defaults). Project-local skills with un-prefixed names are unaffected.
 
 ### Added — 4 hard-enforcement hooks (branch authority + worktree hygiene) (#170, #171)
 
