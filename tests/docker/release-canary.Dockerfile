@@ -76,6 +76,11 @@ USER node
 WORKDIR /plugin
 ENV TMB_DEBUG_TRAJECTORY=1
 ENV HOME=/home/node
+# Default 180s is too tight for code-touching flows that spawn SWE
+# (the full planning + SWE chain runs ~190s locally even on a clean path;
+# v0.5.0-rc.2 had 3 flows fail because runs hit the 180s cap mid-SWE).
+# 600s gives headroom without ballooning total CI time.
+ENV TMB_CLAUDE_TIMEOUT=600
 
 # The runner reads CLAUDE_CODE_OAUTH_TOKEN from env. BuildKit secrets are
 # mounted at /run/secrets/<id>; uid=1000 makes the file readable by node.
