@@ -59,25 +59,26 @@ RUN test -f /root/.claude/plugins/cache/trustmybot/tmb/${PLUGIN_VERSION}/mcp/tra
 RUN npm install -g @anthropic-ai/claude-code \
  && claude --version
 
-# 5. Create a non-root user for the L5 step.
+# 5. Switch to the existing non-root `node` user for the L5 step.
 #    Claude Code refuses `--dangerously-skip-permissions` when running as root
 #    ("cannot be used with root/sudo privileges for security reasons"). The flag
 #    is required in headless `-p` mode so MCP / Bash / Edit calls aren't blocked
-#    waiting on a Human approval that will never come. Switching to UID 1000
-#    sidesteps the safety check while keeping the rest of the install layout
-#    intact.
-RUN useradd -m -s /bin/bash -u 1000 tmb \
- && chown -R tmb:tmb /plugin
+#    waiting on a Human approval that will never come.
+#
+#    The `node:22-slim` base image already provides a `node` user at UID 1000
+#    (convention for node images); reuse it instead of creating a new user
+#    that would collide on the same UID.
+RUN chown -R node:node /plugin
 
 # 6. Run L5 flows against the source tree (the marketplace cache layout was
 #    asserted in step 3; the L5 runner uses --plugin-dir /plugin).
-USER tmb
+USER node
 WORKDIR /plugin
 ENV TMB_DEBUG_TRAJECTORY=1
-ENV HOME=/home/tmb
+ENV HOME=/home/node
 
 # The runner reads CLAUDE_CODE_OAUTH_TOKEN from env. BuildKit secrets are
-# mounted at /run/secrets/<id>; uid=1000 makes the file readable by tmb.
+# mounted at /run/secrets/<id>; uid=1000 makes the file readable by node.
 RUN --mount=type=secret,id=cc_token,uid=1000 \
     if [ -f /run/secrets/cc_token ]; then \
       export CLAUDE_CODE_OAUTH_TOKEN="$(cat /run/secrets/cc_token)"; \
