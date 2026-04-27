@@ -9,16 +9,17 @@
 --   - last_verified_sha advanced (or kept pointing at the new HEAD).
 -- The actual planning chain should still proceed (issue_create + task).
 
+-- #181: bro updates file_registry summaries during verification, before
+-- closing. The PreToolUse hook denies close if foo.py's row stays at the
+-- seeded sentinel md5, so a closed task implies bro refreshed it.
 SELECT
   CASE WHEN COUNT(*) = 1 AND content_md5 != '00000000000000000000000000000000' THEN 1 ELSE 0 END AS pass,
   'foo.py-md5-was-refreshed-after-verify (got ' || COALESCE(content_md5,'NULL') || ')' AS description
 FROM file_registry WHERE path = 'src/foo.py';
 
--- Bro should not silently leave the wrong md5. Either it refreshed via
--- update_summaries, or it deleted/marked stale (summary cleared).
 SELECT
-  CASE WHEN COUNT(*) = 0 OR (SELECT content_md5 FROM file_registry WHERE path='src/foo.py') != '00000000000000000000000000000000' THEN 1 ELSE 0 END AS pass,
-  'no-stale-md5-row-remains' AS description
+  CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
+  'no-stale-md5-row-remains (got ' || COUNT(*) || ', expected 0)' AS description
 FROM file_registry WHERE path = 'src/foo.py' AND content_md5 = '00000000000000000000000000000000';
 
 -- Planning chain still ran.

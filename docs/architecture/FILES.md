@@ -58,7 +58,6 @@ plugin/
 │   ├── tmb_branch-id-proposal/       # bro derives branch_id + opens MCP issue before loading planning skill
 │   ├── tmb_concerns-protocol/        # how bro raises a concern when doubting the Human's plan (surface or spawn consultant)
 │   ├── tmb_create-hook/              # how to add a new hook script safely
-│   ├── tmb_direct-mode/              # narrow bypass for ≤3-line single-file fixes (bro edits, commits, logs direct_mode_used)
 │   ├── tmb_feedback-loop/            # bro ↔ swe ↔ pr-reviewer retry/escalation protocol
 │   ├── tmb_headless-fallback/        # AskUserQuestion error / TMB_HEADLESS=1 fallback doctrine + per-skill defaults audit
 │   ├── tmb_lazy-regen-check/         # bro's session-start architecture-regen heuristic (25-commit threshold)
@@ -74,13 +73,13 @@ plugin/
 │   ├── tmb_skill-creator/            # propose & write new skill files; appends to consuming agent's skills:
 │   ├── tmb_swe-spawn-workflow/       # bro's protocol for spawning SWE with task_id + spec
 │   ├── # Default workflow skills (used by global agents; project overrides per-name)
-│   ├── code-quality/                 # generic quality gates (error handling, security, edges)
-│   ├── docs-conventions/             # docs-update rules + prompt-editing discipline
-│   ├── git-conventions/              # emoji-prefixed commits, branch naming
-│   ├── naming-conventions/           # file/variable/test naming rules
-│   ├── review-findings/              # pr-reviewer output format
-│   ├── review-protocol/              # pr-reviewer full protocol
-│   └── swe-checklist/                # SWE pre-commit checklist (lazy-loaded by SWE on demand)
+│   ├── tmb_code-quality/                 # generic quality gates (error handling, security, edges)
+│   ├── tmb_docs-conventions/             # docs-update rules + prompt-editing discipline
+│   ├── tmb_git-conventions/              # emoji-prefixed commits, branch naming
+│   ├── tmb_naming-conventions/           # file/variable/test naming rules
+│   ├── tmb_review-findings/              # pr-reviewer output format
+│   ├── tmb_review-protocol/              # pr-reviewer full protocol
+│   └── tmb_swe-checklist/                # SWE pre-commit checklist (lazy-loaded by SWE on demand)
 │
 ├── # Consultant templates (opt-in — copied per-project on first request via tmb_agent-creator)
 ├── templates/
@@ -115,10 +114,19 @@ plugin/
 │       │   └── README.md             # diagnostic usage guide
 │       ├── lib/
 │       │   └── query-task.sh         # shared sqlite helpers (tmb_db_path, tmb_task_spec_status, …)
+│       ├── activation-routine.sh    # UserPromptSubmit hook — pre-fetches identity + pending issue when bro mode active
+│       ├── branch-up-to-date-with-remote.sh  # PreToolUse Bash — denies worktree-add when branch is behind origin/<pr_target>
+│       ├── cleanup-worktree-on-task-close.sh # PostToolUse — removes worktree when bro flips task → closed
 │       ├── create-worktree.sh        # WorktreeCreate hook (workaround CC #27134/#44965)
+│       ├── debug-trajectory.sh       # PostToolUse capture for non-MCP calls (TMB_DEBUG_TRAJECTORY=1)
+│       ├── ensure-gitignore.sh       # SessionStart hook — ensures project .gitignore excludes .claude/
 │       ├── git-guards.sh             # protected-branch block, force-push block, dual-tier dev→main exception (v0.1.1)
 │       ├── git-push-guard.sh         # blocks `git push` on unsigned commits — replaces require-review-sign.sh
-│       └── require-task-spec.sh      # block SWE spawn unless task_id references a valid DB row
+│       ├── no-source-edit-from-main.sh  # blocks bro from editing source files outside an SWE worktree
+│       ├── no-worktree-branch-create.sh # PreToolUse Bash — blocks `git worktree add -b/-B` (branch authority is bro's)
+│       ├── require-summaries-before-task-close.sh # PreToolUse — denies bro task_update_status(closed) if file_registry summaries are missing/stale (#181)
+│       ├── require-task-spec.sh      # block SWE spawn unless task_id references a valid DB row
+│       └── session-start-regen-check.sh  # SessionStart hook — nudges to run tmb_refresh-architecture when arch docs are stale
 │
 ├── # Bundled MCP server — SQLite trajectory persistence
 ├── mcp/
@@ -194,6 +202,8 @@ plugin/
 ├── docs/
 │   ├── multi-platform.md             # how the per-platform adapter pattern works
 │   └── architecture/                 # contributor-facing reference
+│       ├── ENFORCEMENT.md           # 6 enforcement layers + per-agent × per-interaction coverage matrix
+│       ├── RESPONSIBILITIES.md      # what bro/swe/pr-reviewer/consultants are actually instructed to do (from prompts + hooks + Layer-1)
 │       ├── ERD.md                    # SQLite schema: Mermaid ER diagram + FK + soft-ref tables
 │       ├── FILES.md                  # this file
 │       └── FLOWS.md                  # workflow flowcharts

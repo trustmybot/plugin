@@ -15,6 +15,7 @@ Each layer catches a different class of bug; skipping any layer means shipping a
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | **Workflow-doctrine dogfood — multi-scorer (outcome + trajectory + cost)** against `--plugin-dir` source (issues #108, #110) | [`dogfood/`](./dogfood/) | Doctrine drift between FLOWS.md and reality, agent-prompt regressions, cold-start behavior |
 | **Release canary** | **Full marketplace install + workflow doctrine in one Docker image** — the final automated gate (was "L5+L5 combined", #112) | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches PLUS everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy). |
+| **A/B prompt eval** *(opt-in, #131)* | Head-to-head comparison of doctrine variants (e.g. CLAUDE.md slim vs padded). Runs N pairs per arm against an L5 flow, computes per-arm pass-rate + chi-squared p-value | [`dogfood/run-ab.sh`](./dogfood/run-ab.sh) + [`dogfood/ab-scenarios/`](./dogfood/ab-scenarios/) | Whether a doctrine change actually moves the needle vs is just rearrangement; data for #150 ingredient slicing |
 | **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session — only for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
 **Golden rule:** *Layer N green does not imply Layer N+1 green.* Layer 1 passed with 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. Layer 2 would have caught that at the wire level in milliseconds. Always run all three before tagging a release.
@@ -31,7 +32,26 @@ This applies to:
 
 **Why**: token cost matters (Release canary ≈ $1-3 per run; L5 light ≈ ~$0.20; L1-L4 ≈ free). Human time matters (manual smoke = 30-45 min; the rest is automated). Cheap signals first eliminates the need for expensive ones.
 
-**Insertion-friendly naming**: Release canary is non-numeric so future heavy layers (e.g. A/B prompt eval, perf canary) can slot in between L4 and Release canary without renumbering anything.
+**Insertion-friendly naming**: Release canary is non-numeric so heavy layers slot in between L4 and Release canary without renumbering. The A/B prompt-eval layer (#131) lives at this tier — opt-in, not part of the auto-escalation chain.
+
+## When to use A/B prompt eval (#131)
+
+Reach for the A/B framework when you're about to ship a doctrine change ("tightening this CLAUDE.md section, hope it helps") and want data instead of vibes. Examples:
+
+- Compare two CLAUDE.md slim variants on the same flow + prompt → which one actually improves outcome pass-rate?
+- Compare Hybrid D' (cold-start AskUserQuestion + lazy default) against pure-lazy → did the question add value?
+
+Skip A/B for: small mechanical fixes (typos, lint), schema/MCP changes (those land via L1–L4), or anything where the right outcome is obvious without measurement.
+
+Run:
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=<token>
+N=10 bash tests/dogfood/run-ab.sh <scenario-name>
+bash tests/dogfood/scripts/ab-report.sh <scenario-name> --db <persisted-trajectory.db>
+```
+
+See `tests/dogfood/ab-scenarios/example-claude-md-slim/README.md` for the worked-example scenario layout.
 
 **The escalation chain**:
 

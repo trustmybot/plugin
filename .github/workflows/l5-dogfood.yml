@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Verify CC auth (prerequisite — fail-fast on broken token)
         uses: ./.github/actions/verify-cc-auth
@@ -53,11 +53,16 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           L5_KEEP_ARTIFACTS: '1'
+          # Default 180s is too tight for code-touching flows that spawn SWE
+          # (the full planning + SWE chain runs ~190s locally even on a clean
+          # path; v0.5.0-rc.2 had 3 flows fail because runs hit the 180s cap
+          # mid-SWE). 600s gives headroom without ballooning total CI time.
+          TMB_CLAUDE_TIMEOUT: '600'
         run: bash tests/dogfood/run-l5.sh
 
       - name: Upload trajectory dumps on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: l6-trajectory-dumps
           path: /tmp/tmb-l5-*/

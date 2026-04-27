@@ -63,10 +63,11 @@ git diff <commit_sha>~1..<commit_sha>           # actual changes
 
 ### Step V3 — Decide
 
-- **All three pass** → batch THREE calls in the SAME response:
+- **All three pass** → batch FOUR calls in the SAME response:
   1. `ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands all passed. V3 success criteria visibly met. Closing.')`
-  2. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
-  3. `issue_close(agent='bro', issue_id=<I>)` IF this was the only task on the issue
+  2. **`file_registry_update_summaries(agent='bro', updates=[<one entry per touched path: {path, summary: '<your fresh 1-3 sentence summary based on the diff you just verified>'}], advance_verified_sha=<sha>)`** — you have the full task context (issue + spec + diff just reviewed); SWE doesn't. Server enforces this is bro-only (#181). A PreToolUse hook gates the next call: `task_update_status(closed)` will be DENIED if file_registry doesn't have fresh summaries for the touched paths.
+  3. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
+  4. `issue_close(agent='bro', issue_id=<I>)` IF this was the only task on the issue
 
   Then tell the Human "Trust me bro, it works." **Do NOT call `validation_record`** — that's pr-reviewer's tool and the server will reject the call as `forbidden`. Bro's task gate writes `bro_verification_pass` to the ledger; pr-reviewer's push gate writes `validation_record` later, over the batch.
 

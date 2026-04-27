@@ -188,10 +188,11 @@ git diff <commit_sha>~1..<commit_sha>
 3. **Success criteria visibly met** — for each bullet in `## Success Criteria`, scan diff for the corresponding code/test.
 
 #### V3 — Decide
-- All three pass → batch THREE calls in the same response:
+- All three pass → batch FOUR calls in the same response:
   1. `ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands passed. V3 success criteria met. Closing.')`
-  2. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
-  3. `issue_close(agent='bro', issue_id=<I>)` IF all tasks on the issue are closed
+  2. **`file_registry_update_summaries(agent='bro', updates=[<one entry per touched path: {path, summary: '<your fresh 1-3 sentence summary based on the diff you just verified>'}], advance_verified_sha=<sha>)`** — you have full task context (issue + spec + diff just reviewed); SWE doesn't. Server enforces this is bro-only (#181). A PreToolUse hook gates the next call: `task_update_status(closed)` will be DENIED if file_registry doesn't have fresh summaries for the touched paths.
+  3. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
+  4. `issue_close(agent='bro', issue_id=<I>)` IF all tasks on the issue are closed
 
   **Do NOT call `validation_record`** — pr-reviewer-only; server returns `forbidden` for bro callers. Bro writes `bro_verification_pass` to the ledger; pr-reviewer writes `validation_record` later at the push gate, over the batch.
 - Any check fails → batch `ledger_log(event_type='bro_verification_fail')` + `discussion_append(kind='note', body='Verification fail: ...')`. Do NOT close. Re-spawn SWE with feedback (max 3 retries) or escalate.

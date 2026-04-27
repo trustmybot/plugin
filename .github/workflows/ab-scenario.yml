@@ -12,11 +12,15 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: 'Scenario name under tests/dogfood/ab-scenarios/ (e.g. h3-direct-mode-framing)'
+        description: 'Scenario name under tests/dogfood/ab-scenarios/ (e.g. h4-first-action-mandatory)'
         required: true
       pairs:
         description: 'N pairs per arm (default 5)'
         default: '5'
+        required: false
+      timeout_per_call:
+        description: 'Per-claude-call timeout in seconds (default 180; raise for code-touching flows that spawn SWE)'
+        default: '180'
         required: false
 
 permissions:
@@ -31,7 +35,7 @@ jobs:
       AB_SCENARIO: ${{ github.event.inputs.scenario }}
       N_PAIRS: ${{ github.event.inputs.pairs }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Verify CC auth (prerequisite)
         uses: ./.github/actions/verify-cc-auth
@@ -49,6 +53,7 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           L5_KEEP_ARTIFACTS: '1'
           N: ${{ env.N_PAIRS }}
+          TMB_CLAUDE_TIMEOUT: ${{ github.event.inputs.timeout_per_call }}
         run: |
           bash tests/dogfood/run-ab.sh "$AB_SCENARIO"
 
@@ -82,7 +87,7 @@ jobs:
 
       - name: Upload trajectory artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ab-${{ github.event.inputs.scenario }}-trajectory
           path: |

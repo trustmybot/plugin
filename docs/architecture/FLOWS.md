@@ -14,7 +14,7 @@
 > and are instantiated per-project on demand via `tmb_agent-creator`.
 >
 > All skills — both `tmb_*` protocol skills and the default workflow
-> skills (`swe-checklist`, `code-quality`, `docs-conventions`, etc.) —
+> skills (`tmb_swe-checklist`, `tmb_code-quality`, `tmb_docs-conventions`, etc.) —
 > live in `plugin/skills/` and are globally discoverable. Project-local
 > `<project>/.claude/skills/<name>/SKILL.md` overrides by name.
 
@@ -27,16 +27,15 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
 | 1 | [First contact](#1-first-contact-defaults-applied-silently) | First activation in a project | bro | (none — inline default-write) | `plugin_config`, `ledger` | — |
-| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `swe-checklist` (lazy on demand) | `issues`, `tasks`, `ledger` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
+| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `tmb_swe-checklist` (lazy on demand) | `issues`, `tasks`, `ledger` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
 | 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion + ADR) → swe (pr-reviewer at push time) | + `tmb_planning-difficult` (env probe, Q+A, ADR) | + `discussions`, ADR file | same |
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → human | `tmb_agent-creator` | — | — |
 | 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | `tmb_skill-creator` | `skills` (optional, for tracking) | — |
-| 6 | [Push gate / PR review](#6-push-gate--pr-review) | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `review-protocol`, `review-findings`, `code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL) | `git-push-guard` |
+| 6 | [Push gate / PR review](#6-push-gate--pr-review) | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `tmb_review-protocol`, `tmb_review-findings`, `tmb_code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL) | `git-push-guard` |
 | 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture`, `tmb_lazy-regen-check` | `regen_state`, `file_registry` | — |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer when at push gate) | `tmb_feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `git-push-guard` |
 | 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `discussions`, `ledger` (and reserved: `roundtables`, `roundtable_votes`) | — |
 | **C** | [Consultant invocation](#c-consultant-invocation) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / pm / domain) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
-| **D** | [Direct Mode](#d-direct-mode-narrow-bypass) | Trivial single-file change ≤3 lines, no public API / docs / tests | bro only (no spawn) | — | `ledger` (event_type='direct_mode_used') | `git-guards` (commit branch check) |
 
 ---
 
@@ -89,7 +88,7 @@ sequenceDiagram
 **Involved:**
 - Agents: `bro` (planner + task gate), `swe` (executor)
 - Skills loaded by bro on demand: `tmb_planning-simple` or `tmb_planning-difficult` per triage, `tmb_swe-spawn-workflow` (right before SWE handoff)
-- Skills loaded by swe: `swe-checklist` **only on demand** (when spec verification needs interpretation; not eager)
+- Skills loaded by swe: `tmb_swe-checklist` **only on demand** (when spec verification needs interpretation; not eager)
 - MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `ledger_log` (no `validation_record` per task — that fires at push time)
 - DB tables: `issues`, `tasks`, `discussions`, `ledger`, `audit`
 - Hooks: `require-task-spec` (gates SWE spawn), `git-push-guard` (gates `git push`), `git-guards` (commit branch check)
@@ -510,45 +509,6 @@ sequenceDiagram
 - **Server-side enforcement** (post `feat/bro-as-planner` cleanup): `requireRoles` rejects any consultant call to `task_create_batch`, `task_update_status`, `validation_record`, or `issue_create`. The decision chain is structurally protected, not just prompt-discipline.
 - For multi-consultant deliberation (cto + architect + ceo voting), see flow 9 (Roundtable). The voting protocol is tracked in [#57](https://github.com/trustmybot/plugin/issues/57).
 - The Human always decides; bro never auto-applies a consultant's recommendation.
-
----
-
-## D. Direct Mode (narrow bypass)
-
-**Trigger:** Bro receives a code-touching ask that meets ALL of:
-
-- Single file change.
-- ≤3 lines diff (typo fix, comment, constant bump, one-line README rewording).
-- No public API change, no new file, no test change required.
-- No `docs/trustmybot/architecture/` touched (architecture-touching is always difficult-triage → no Direct Mode).
-
-**Involved:**
-- Agent: `bro` only (no spawn)
-- Skills: none
-- MCP tools: `ledger_log` (event_type='direct_mode_used')
-- DB tables: `ledger`
-- Hooks: `git-guards` (commit branch check)
-
-```mermaid
-sequenceDiagram
-    participant H as Human
-    participant B as Bro
-    participant FS as Filesystem
-    participant DB as SQLite
-
-    H->>B: "@bro fix typo 'recieve' → 'receive' in README.md"
-    B->>B: triage → trivial; auto-engage Direct Mode
-    B->>FS: Edit README.md (single ≤3-line change)
-    B->>FS: Bash: git commit -m "chore: typo fix"
-    B->>DB: ledger_log(agent='bro', event_type='direct_mode_used', summary=...)
-    B-->>H: "fixed + committed."
-```
-
-**Notes:**
-- Direct Mode is the ONLY narrow exception to "every code change goes through SWE." It exists to make trivial fixes feel as fast as pure Claude (~10–20s).
-- If the change creeps past 3 lines or touches state bro can't reason about in one read, bro falls back to the default chain (flow 2 or 3 with task_create_batch + SWE spawn).
-- The discipline is the narrow scope. Resist extending Direct Mode "just for this one case" — that's the slippery slope this rule explicitly guards against.
-- Pre-push gate (flow 6) does NOT fire for Direct-Mode commits because no `tasks` row exists for them — they're recorded as `ledger.direct_mode_used` events instead.
 
 ---
 

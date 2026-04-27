@@ -18,23 +18,17 @@ SELECT
 FROM ledger
 WHERE event_type = 'planning_complete';
 
--- Negative: no Direct Mode marker should appear (this is a non-trivial task)
-SELECT
-  CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
-  'no-direct-mode-event (got ' || COUNT(*) || ', expected 0)' AS description
-FROM ledger
-WHERE event_type = 'direct_mode_used';
-
--- #45: SWE atomic-close must update file_registry for the touched paths.
--- After the task lands, at least one row should have a non-null content_md5
--- AND a non-null summary (proves SWE called file_registry_update_summaries).
+-- #45 + #181: bro updates file_registry_update_summaries during verification,
+-- BEFORE flipping task to closed. Server-side requireRoles + a PreToolUse
+-- hook on task_update_status enforce the new ownership structurally
+-- (#181). If bro skips, the close call is denied — so any closed task in
+-- the DB implies fresh summaries for its touched paths.
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'file_registry-has-md5-and-summary-after-swe-close (got ' || COUNT(*) || ', expected ≥ 1)' AS description
+  'file_registry-has-md5-and-summary-after-bro-close (got ' || COUNT(*) || ', expected ≥ 1)' AS description
 FROM file_registry
 WHERE content_md5 IS NOT NULL AND summary IS NOT NULL;
 
--- #45: last_verified_sha should advance after the SWE atomic-close.
 SELECT
   CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
   'last_verified_sha-was-set-after-close (got ' || COUNT(*) || ', expected 1)' AS description

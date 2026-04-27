@@ -1,0 +1,8 @@
+{
+  "name": "example-claude-md-slim",
+  "description": "Worked example for the A/B framework — current slim CLAUDE.md vs a padded variant on the simplest flow. NOT a real hypothesis.",
+  "flow": "95-anonymous-cold-restart",
+  "fixture": "onboarding-anonymous",
+  "prompt": "@bro hi",
+  "arms": ["A-slim", "B-padded"]
+}

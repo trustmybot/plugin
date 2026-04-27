@@ -118,22 +118,7 @@ Run that:
 
 ---
 
-### ⑧ Direct Mode for trivial fix
-
-Reset (`rm -rf /tmp/tmb-dogfood/.claude/`). Re-onboard. Then:
-
-```
-@bro fix typo "recieve" → "receive" in README.md
-```
-
-✅ Pass criteria:
-- bro responds in **<30s** total (faster than full SWE spawn).
-- bro edits the file directly using the `Edit` tool, no SWE spawn.
-- A `direct_mode_used` event lands in `ledger`.
-
----
-
-### ⑨ Resume after kill
+### ⑧ Resume after kill
 
 Mid-task (during ④), kill Claude Code (`Ctrl-C`). Restart, re-enter the project. Type:
 
@@ -145,7 +130,7 @@ Mid-task (during ④), kill Claude Code (`Ctrl-C`). Restart, re-enter the projec
 
 ---
 
-### ⑩ Bro tone + catchphrase discipline
+### ⑨ Bro tone + catchphrase discipline
 
 Across all scenarios:
 

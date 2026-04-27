@@ -1,7 +1,1 @@
-[
-  "mcp__plugin_tmb_trajectory-server__file_registry_list",
-  "mcp__plugin_tmb_trajectory-server__ledger_log",
-  "mcp__plugin_tmb_trajectory-server__discussion_append",
-  "mcp__plugin_tmb_trajectory-server__issue_create",
-  "mcp__plugin_tmb_trajectory-server__task_create_batch"
-]
+[]

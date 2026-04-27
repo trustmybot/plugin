@@ -220,6 +220,11 @@ CREATE TABLE IF NOT EXISTS eval_results (
     value         TEXT,                        -- numeric or categorical detail
     explanation   TEXT,                        -- why pass/fail
     metadata_json TEXT    NOT NULL DEFAULT '{}',
+    -- A/B prompt-eval columns (#131). Default 'control' so existing single-arm
+    -- L5 dogfood runs continue to work unchanged. A/B scenarios set arm to
+    -- 'A' / 'B' / etc. and scenario to a stable identifier (e.g. 'claude-md-slim').
+    arm           TEXT    NOT NULL DEFAULT 'control',
+    scenario      TEXT,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

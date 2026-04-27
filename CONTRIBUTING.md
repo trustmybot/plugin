@@ -113,6 +113,16 @@ Stable `v*` tags from main do **not** fire token-heavy tests — that validation
 
 `verify-cc-auth` composite action runs as the first step of any CC-using workflow — fail-fast on broken token before Docker builds or multi-flow runs.
 
+## When to write an A/B prompt-eval scenario (#131)
+
+The A/B framework lives at `tests/dogfood/run-ab.sh`. Reach for it when shipping a doctrine change that's (a) prompt-only, (b) hard to verify by reading the prompt alone, and (c) you'd otherwise be guessing whether it helps.
+
+Rule of thumb: **if you find yourself writing "this should improve compliance" or "this should reduce token cost" in a PR description, write an A/B scenario instead of guessing.** Pre-existing examples of guesses worth measuring live in #153 (CLAUDE.md slim, Hybrid D' cold-start, first-action chain MANDATORY).
+
+Skip A/B for: schema / MCP / hook changes (those land via L1–L4 with deterministic tests), small mechanical edits, or anything where the right outcome is obvious.
+
+Token cost: a scenario with 5 paired runs against 2 arms = 10 claude calls (~$0.50–$2 depending on flow size). Document the budget in the scenario's README.
+
 ## Writing code
 
 - Self-documenting code. Prefer deletion over addition.
@@ -149,7 +159,7 @@ Every code change should add or update tests.
 If you're proposing a big change, check these first.
 
 1. **SQLite is canonical state.** Files are for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills, rules). Workflow state (issues, tasks, discussions, validation attempts) lives in the trajectory DB, never on disk.
-2. **No bypass in the workflow.** Every non-trivial code change routes Human → bro → SWE, with bro as the **task gate** (verifies after SWE returns) and pr-reviewer as the **push gate** (fires only at `git push`). The "fast path" is a lighter spec, not skipping a gate. Direct Mode is the single narrow exception (≤3 lines, single file, no API/test/docs change).
+2. **No bypass in the workflow.** Every code change routes Human → bro → SWE, with bro as the **task gate** (verifies after SWE returns) and pr-reviewer as the **push gate** (fires only at `git push`). Bro never edits source files directly; the "fast path" is a lighter spec, not skipping the SWE spawn or a gate.
 3. **Two-layer agent model.** Bro is a CLAUDE.md persona on main Claude. **Workflow backbone** (`swe`, `pr-reviewer`) ships globally in `agents/` and is always available — onboarding does NOT copy it into the project. **Consultants** (`architect`, `cto`, `ceo`, `pm`) ship as templates in `templates/agents/` and are instantiated per-project on demand. Domain agents (legal-reviewer, security-reviewer, …) are user-created via `tmb_agent-creator` with explicit Human approval. Resolution rule for backbone agents: `if <project>/.claude/agents/<name>.md exists → local; else → global`.
 4. **Lego layering.** Three layers, never confused: agent file = identity (immutable), `skills:` array on the project copy = capabilities (additive via `tmb_skill-creator`), spawn prompt = task context (per-call). Don't edit the template body to add behavior — extend `skills:`.
 5. **Override per project.** Any agent template can be overridden by editing the same-named file in the project's `.claude/agents/`. Local wins. Plugin-shipped protocol skills (`tmb_*` in `plugin/skills/`) are reserved and cannot be name-overridden.
@@ -161,7 +171,6 @@ The plugin's overhead vs pure Claude Code on the same ask should land in this ba
 
 | Ask shape | Pure Claude | TMB target | Acceptable ceiling |
 |---|---|---|---|
-| Trivial single-file (typo, comment) | ~10s | ~10–20s (Direct Mode) | 30s |
 | Simple task (single feature) | ~30s | ~2–3 min | 5 min |
 | Difficult task (architecture change + ADR) | ~2 min | ~5–8 min | 12 min |
 | Multi-task batch | n/a | ≤ 1.5× single-task per task | 2× per task |
@@ -169,7 +178,7 @@ The plugin's overhead vs pure Claude Code on the same ask should land in this ba
 **Doctrine — what's safe to trim, what isn't.** When proposing a perf change, classify the cost into one of three tiers:
 
 - **Tier 1 — pure waste, trim aggressively.** Sequential MCP writes that could batch in one assistant response; eager skill loading that fires on every spawn but is needed in <30% of spawns; forced chain-of-thought blocks for tasks that don't benefit; redundant approval prompts.
-- **Tier 2 — design overhead, trim with care.** Per-task gate spawns (justified for difficult-triage, not for every typo — hence the push-gate vs task-gate split); worktree creation; forced subagent cold-start when bro could just edit (hence Direct Mode).
+- **Tier 2 — design overhead, trim with care.** Per-task gate spawns (justified for difficult-triage; the push-gate vs task-gate split keeps the per-push cost paid once over a batch); worktree creation; forced subagent cold-start.
 - **Tier 3 — load-bearing overhead, do NOT trim.** The trajectory DB writes (the audit trail IS the product); `requireRoles` enforcement (~1ms, structural protection); worktree isolation (prevents cross-task corruption); the push gate (only structural defence against pushing unreviewed commits).
 
 **Re-evaluate** when (a) a SWE or pr-reviewer cold-start in a Layer 3 dogfood takes >2× the previous baseline, (b) a user reports a chain >12 min for a simple-triage task, (c) a new gate / hook / skill fires on the per-task path, (d) CC platform changes subagent cold-start cost, or (e) a new platform adapter (Codex, Cursor, …) gets implemented — re-baseline on that platform.

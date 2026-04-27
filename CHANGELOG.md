@@ -2,6 +2,144 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.5.0 — 2026-04-27
+
+**Headline: bro is now a structurally-enforced pure planner.** Direct Mode removed (#162) and 7 hard-enforcement hooks promote previously prompt-only doctrine to Layer 2 (deterministic shell scripts). New `docs/architecture/ENFORCEMENT.md` documents the 6-layer model (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` → prompts) and the per-agent × per-interaction coverage matrix.
+
+### Fixed — file_registry summary ownership: bro, not SWE (#181)
+
+The original #45 doctrine had SWE batching `file_registry_update_summaries` into its atomic close. **That was the wrong agent**: SWE only sees the task spec, not the broader issue/discussion that motivated the work. Bro has full task context (issue + spec + diff just verified during the V1/V2/V3 task gate) and is the natural author of summaries. Re-assigned ownership structurally:
+
+- **`agents/swe.md`** — drops `file_registry_update_summaries` from the atomic-close batch. SWE's atomic close is now 2 calls: commit + `task_update_status(completed)`.
+- **`skills/tmb_planning-simple/SKILL.md` + `tmb_planning-difficult/SKILL.md`** — bro's V3 close batch grows by one call: `file_registry_update_summaries(updates=[...], advance_verified_sha=<commit>)` BEFORE `task_update_status(closed)`.
+- **`mcp/trajectory-server/src/tools/file-registry.ts`** — `requireRoles('file_registry_update_summaries', ['bro'])` (was `['bro', 'swe']`). Layer 1 — server rejects SWE callers.
+- **`scripts/hooks/require-summaries-before-task-close.sh`** (NEW PreToolUse hook) — when bro tries `task_update_status(status='closed')`, walks the commit's touched files and DENIES the close if `file_registry` is missing summaries or has summaries older than the task's `created_at`. Bypass: `TMB_ALLOW_CLOSE_WITHOUT_SUMMARIES=1`. Layer 2 — bro can't close the task without doing the summary update first.
+
+Re-tightened L5 outcome assertions in `02-simple-task` and `11-codebase-memory-verify-on-drift` since the structural enforcement now guarantees fresh summaries on every closed task. `10-codebase-memory-cold-start`'s assertion stays disabled — that's `headless_fallback` ledger event compliance, a separate bro prompt-discipline issue requiring its own enforcement (filed as a separate follow-up).
+
+### Added — `docs/architecture/RESPONSIBILITIES.md`
+
+Codebase-derived (not architecture-doc-derived) listing of what bro / SWE / pr-reviewer / consultants are **actually** instructed to do — by reading the agent prompts, the skills they wire to, and the hook surface around them. Includes the role × tool matrix from `requireRoles`. Source of truth for what the plugin enforces vs what doctrine merely suggests.
+
+### Fixed (post-rc.1)
+
+- **`no-source-edit-from-main.sh` + `activation-routine.sh` bro-mode detection too narrow.** Previously required the assistant to emit `Entering bro mode.` in the transcript — but in `claude -p` headless mode bro routinely skips that announcement (the h3/h4 prompt-discipline ceiling). Hooks now also detect bro mode by scanning the transcript for any user message containing the `bro` trigger word. Without this fix, bro shortcut source edits in 3 of 5 v0.5.0-rc.1 L5 dogfood flows. Adds regression test cases for both hooks covering the real-world fixture instead of just the announce-emitted variant.
+- **`TMB_CLAUDE_TIMEOUT=600` wired into `l5-dogfood.yml` + `release-canary.Dockerfile`.** The env override was added in #172 but missed both L5-runner workflows; runs hit the default 180s cap mid-SWE chain.
+- **Stale `tools-required.json` for cold-start + code-touching flows.** Cleared assertion lists for `01-first-contact`, `02-simple-task`, `10-codebase-memory-cold-start`, `11-codebase-memory-verify-on-drift`, `12-source-edit-attempt`, `95-anonymous-cold-restart`. These asserted on MCP tool calls captured in `debug_trajectory` — but the table isn't populated because of #164 (env propagation bug + UNIQUE merge bug). Once #179 (stream-json refactor) lands, the trajectory scoring is re-implemented end-to-end and these lists get re-populated against the new capture format.
+- **Disabled chronic #45 codebase-memory outcome assertions.** `02-simple-task`, `10-codebase-memory-cold-start`, `11-codebase-memory-verify-on-drift` had assertions on `file_registry`'s `content_md5` / `summary` / `last_verified_sha` columns that depend on SWE/bro reliably calling `file_registry_update_summaries` — a prompt-only doctrine that hits the same h3/h4 ceiling. Tracked in #181 as a deferred Layer 2 PostToolUse hook. Original assertions kept commented-out for restoration once #181 ships.
+
+### Breaking changes (pre-1.0 minor bump per SemVer)
+
+- **Direct Mode is gone.** Bro never edits source code; every code change routes through SWE. Trivial fixes go via the same chain (lighter spec, not a separate code path). Pushes that previously relied on bro-direct edits will fail; rewrite as task → SWE → bro verify → close.
+- **All plugin-shipped skills now use `tmb_*` prefix.** The 7 un-prefixed defaults (`code-quality`, `docs-conventions`, `git-conventions`, `naming-conventions`, `review-findings`, `review-protocol`, `swe-checklist`) are renamed to `tmb_*`. Project-local skills with un-prefixed names are unaffected; local skills can shadow plugin defaults by name resolution as before.
+
+### New hard-enforcement hooks
+
+The h3 + h4 A/B scenarios proved prompt-only doctrine compliance is 0/10 in both wording arms for high-frequency operations. These 7 hooks move load-bearing rules to deterministic Layer 2:
+
+| Hook | Event | Doctrine enforced |
+|---|---|---|
+| `activation-routine.sh` | UserPromptSubmit | Pre-fetches `identity` + pending issue from the trajectory DB on every bro-triggered message; injects as `additionalContext` so bro never has to remember to call `identity_get` / `issue_resume` |
+| `no-source-edit-from-main.sh` | PreToolUse on Edit/Write/MultiEdit/NotebookEdit | Blocks bro from editing source files outside an SWE worktree (allowlist: markdown, LICENSE, agent/skill prompts, plugin/hooks manifests, `.github/`). Bypass: `TMB_ALLOW_SOURCE_EDIT=1` |
+| `session-start-regen-check.sh` | SessionStart | Computes git drift vs `regen_state.last_seen_sha`; nudges bro to run `tmb_refresh-architecture` when drift > 25 commits (override: `TMB_REGEN_DRIFT_THRESHOLD`) |
+| `ensure-gitignore.sh` | SessionStart | Ensures `.claude/` is in the project's `.gitignore`. Creates `.gitignore` if missing; appends if rule absent; idempotent. Prevents the trajectory.db-leaking-into-worktrees footgun |
+| `no-worktree-branch-create.sh` | PreToolUse on Bash | Blocks `git worktree add -b/-B/--create-branch ...`. Branch authority is bro's: bro pre-creates `<task.branch_id>` from the latest origin, SWE attaches via `git worktree add <path> <branch>` (no creation, no abbreviation). Bypass: `TMB_ALLOW_WORKTREE_BRANCH_CREATE=1` |
+| `branch-up-to-date-with-remote.sh` | PreToolUse on Bash | Fetches `origin/<pr_target>`, denies worktree-add if `<branch>` is behind. Catches the stale-local-main bug. Bypass: `TMB_ALLOW_STALE_BRANCH=1` |
+| `cleanup-worktree-on-task-close.sh` | PostToolUse on `task_update_status` | When bro flips task to `closed`, removes the corresponding `.claude/worktrees/<slug>/`. Commits live on the branch and survive. Bypass: `TMB_KEEP_CLOSED_WORKTREES=1` |
+
+Plus structural improvements: `tmb_db_path` walks up to git root for DB resolution (was `$(pwd)`-relative — broke when bro `cd`'d into a worktree), `TMB_CLAUDE_TIMEOUT` env override for L5/A/B test runners, and `tests/dogfood/lib/flow-helpers.sh:l5_setup_scratch_project` writes `.gitignore` matching real-project behavior.
+
+### Other shipping in v0.5.0
+
+- **A/B framework matures (#131, #157, #160, #161):** runner + helpers + chi-squared stats; 4 backfill hypothesis scenarios (h1 CLAUDE.md slim, h2 Hybrid D' vs lazy, h4 first-action MANDATORY); shared substrate-health pre-flight (#161); `node_modules` symlinking + scenario fixture/setup_files framework fix.
+- **Activation routine hook proven necessary:** h4 A/B (5 paired runs × 2 wording arms) showed prompt-only `identity_get + issue_resume` compliance was 0/10 in both arms — the hook delivers 100% reliability.
+- **L6 → L5 helper namespace cleanup (#163):** `l6_*` shell functions in `tests/dogfood/lib/` renamed to `l5_*` to match the renamed test layer.
+- **GH Actions bumped to v5 (#165):** Node 24 internal runtime; CC-auth prefix check dropped (smoke test is the authoritative gate).
+- **Two CLAUDE.md cleanups (#168, #169):** verify-context decision tree → 2-column table; opaque issue refs dropped.
+
+### Added — 4 hard-enforcement hooks (branch authority + worktree hygiene) (#170, #171)
+
+Local h5 dogfood surfaced two doctrine bugs that were prompt-only and unreliable. Promoted both to Layer 2:
+
+- **`scripts/hooks/ensure-gitignore.sh`** (SessionStart). Ensures the project's `.gitignore` excludes `.claude/`. Creates the file if missing; appends if the rule is absent; idempotent. Without this, the trajectory.db gets committed to the project, then `git worktree add` checks it out inside every worktree — a stale per-worktree DB poisons every hook that resolves DB path via `$(pwd)`. Fixes the root cause behind #171.
+- **`scripts/hooks/no-worktree-branch-create.sh`** (PreToolUse on `Bash`). Blocks `git worktree add -b/-B/--create-branch ...`. Branch authority belongs to bro: bro creates `<task.branch_id>` first (`git branch <name> origin/<pr_target>`), then SWE attaches via `git worktree add <path> <branch>` — no creation, no abbreviation. Fixes #170 where SWE invented `fix/typo-foo-ts` for spec `fix/foo-typo-receive`. Bypass: `TMB_ALLOW_WORKTREE_BRANCH_CREATE=1`.
+- **`scripts/hooks/branch-up-to-date-with-remote.sh`** (PreToolUse on `Bash`). When SWE attaches a worktree to `<branch>`, fetches `origin/<pr_target>` (best-effort, offline-friendly) and verifies `<branch>` descends from it. Catches the "stale local main" bug where bro creates a task branch from yesterday's pointer, then the SWE commit conflicts on push. Bypass: `TMB_ALLOW_STALE_BRANCH=1`.
+- **`scripts/hooks/cleanup-worktree-on-task-close.sh`** (PostToolUse on `mcp__*trajectory-server__task_update_status`). When bro flips a task to `closed`, removes the corresponding `.claude/worktrees/<slug>/` (the commits live on the branch and survive). Keeps the worktree dir tidy and prevents disk bloat over many tasks. Bypass: `TMB_KEEP_CLOSED_WORKTREES=1`.
+
+Also:
+- `tmb_db_path` (in `scripts/hooks/lib/query-task.sh`) now walks up to git root for DB resolution — was falling back to `$(pwd)/.claude/tmb/trajectory.db` which broke every hook when bro `cd`'d into a worktree (#171 part 2).
+- `tests/dogfood/lib/flow-helpers.sh:l5_setup_scratch_project` writes `.gitignore` containing `.claude/` before the initial commit (test-framework parity with the new SessionStart hook's behavior in real projects).
+- `TMB_CLAUDE_TIMEOUT` env var (default 180s) now overrides the per-call timeout in both `l5_run_claude` (L5 dogfood) and `l5_run_arm` (A/B). Lets local + CI runs cap at higher values when the chain genuinely needs longer than the default.
+- `agents/swe.md` and `skills/tmb_swe-spawn-workflow/SKILL.md` updated: SWE drops `-B` from `git worktree add` (uses pre-existing branch); bro fetches origin + ff-merges `pr_target` before creating the task branch.
+
+### Added — two more hard-enforcement hooks + ENFORCEMENT.md (#108)
+
+Per the doctrine "prompt-only enforcement caps at the LLM compliance ceiling — promote load-bearing rules to a harder layer," two new hooks land:
+
+- **`scripts/hooks/no-source-edit-from-main.sh`** (PreToolUse on `Edit|Write|MultiEdit|NotebookEdit`). Blocks the call when bro mode is active *and* the target is source code *and* the current shell isn't inside an SWE worktree. Allowlist covers markdown, `LICENSE`, `.gitignore`-class configs, agent/skill prompts, plugin/hooks manifests, `.github/`. Bypass via `TMB_ALLOW_SOURCE_EDIT=1` for emergencies. Enforces the "bro is a pure planner — every code change goes through SWE" rule that until now was prompt-only.
+- **`scripts/hooks/session-start-regen-check.sh`** (SessionStart). Reads `regen_state.last_seen_sha`, computes drift to `HEAD`, and emits `additionalContext` suggesting `tmb_refresh-architecture` when drift exceeds the threshold (default 25 commits, override via `TMB_REGEN_DRIFT_THRESHOLD`). Pre-empts the manual lazy-regen check bro is supposed to do at the start of every code-touching ask.
+
+New doc: **`docs/architecture/ENFORCEMENT.md`** — canonical reference for the 6 enforcement layers (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` auto-load → prompts) plus a per-agent × per-interaction coverage matrix showing which layer covers what. Includes a section listing remaining Layer-6-only doctrine items as promotion candidates.
+
+### Refactored — all plugin-shipped skills now use `tmb_` prefix
+
+The 7 default workflow skills (`code-quality`, `docs-conventions`, `git-conventions`, `naming-conventions`, `review-findings`, `review-protocol`, `swe-checklist`) were the only plugin-shipped skills without the `tmb_` namespace prefix — an inconsistency with the rule "global plugin skills use `tmb_`; the open namespace is reserved for user/`tmb_skill-creator`-generated project-local skills." Renamed to `tmb_code-quality`, `tmb_docs-conventions`, …
+
+**Why it matters**: collision-free open namespace. Previously, if a user asked bro to create a `git-conventions` skill, it could collide with the plugin default. Now the open namespace is exclusively user-owned and the plugin-shipped namespace is fully claimed by `tmb_*`.
+
+**Override semantics unchanged**: a project-local `<project>/.claude/skills/tmb_git-conventions/SKILL.md` still shadows the plugin's by name resolution. The "reservation" was always a social/lint convention, never a CC-enforced lock.
+
+**Refs updated**: `agents/swe.md`, `docs/AGENTS.md`, `docs/architecture/FILES.md`, `docs/architecture/FLOWS.md`, and 6 cross-referencing SKILL.md files. `CHANGELOG.md` history entries left intact (accurate records of the un-prefixed era).
+
+### Added — activation-routine UserPromptSubmit hook (#108)
+
+Bro's activation routine (`identity_get` + `issue_resume` on every triggered message) is now fired deterministically by `scripts/hooks/activation-routine.sh` instead of relying on prompt discipline. The h4 A/B (5 paired runs × 2 wording arms) showed prompt compliance was 0/10 in *both* arms — the strongest possible imperative ("MANDATORY on every triggered message") still didn't move the needle. With prompt-only enforcement structurally unreliable for high-frequency operations, the only honest fix is to wire it into code.
+
+**The hook**:
+- Triggers on `UserPromptSubmit` when bro mode is active (current prompt contains `bro` case-insensitively, OR transcript shows a prior `Entering bro mode.` line with no later `exit bro mode`).
+- Reads `identity.human_name` + the latest open `issues` row from the trajectory DB (no MCP roundtrip — direct sqlite3 read).
+- Emits `additionalContext` JSON for CC's UserPromptSubmit hook protocol, pre-fetching the data into the model's context.
+- Silent no-op when the DB doesn't exist yet (first activation in a fresh project — bro falls back to calling MCP tools the old way; future messages in that project then have the DB available).
+
+**Doctrine consequence**: CLAUDE.md `## Activation routine` section reworded — bro now consumes the injected context instead of being told to call MCP tools first. Compliance becomes 10/10 mechanically.
+
+### Removed — Direct Mode (#108)
+
+Bro is now a pure planner: every code change goes through SWE, no exceptions. The `tmb_direct-mode` skill, the matching L4 workflow-sim test, the L5 D-direct-mode flow, and the h3-direct-mode-framing A/B scenario are all gone. The `direct_mode_used` event_type is dropped from `ledger.event_type` enum.
+
+**Why:** the h3 A/B run (5 paired arms × 2 wording variants) showed 0/5 compliance with the `ledger_log(direct_mode_used)` audit step in *both* arms — neither softer nor stronger imperative framing moved the needle. With the audit step structurally unenforceable through prompt discipline alone, the planner-only doctrine is the safer simplification: bro never gets a "fast lane" that requires self-policing.
+
+**Impact:**
+- CLAUDE.md role / routing / reactive-skills sections updated (no exception language).
+- `docs/architecture/FLOWS.md` Flow D removed; quick-index row dropped.
+- `docs/architecture/FILES.md` skill index entry removed.
+- `docs/contributing/ENUMS.md` `direct_mode_used` row removed.
+- `tests/dogfood/flows/02-simple-task/outcome.sql` no-direct-mode-event negative assertion removed (now a tautology).
+- `README.md` / `CONTRIBUTING.md` perf table & doctrine references reworded.
+- `skills/git-conventions/SKILL.md` + `skills/docs-conventions/SKILL.md` Direct Mode references reworded.
+
+### Added — 3 backfill A/B hypothesis scenarios (#153)
+
+Real hypothesis testing for the A/B framework, aligned with #131. Each scenario compares the current dev state against a snapshot from before the relevant doctrine PR (extracted via `git show <sha>^:<path>`).
+
+- **h1-claude-md-slim**: 99-line current vs 142-line pre-#126. Did the slim help, or was it cosmetic?
+- **h2-hybrid-d-vs-lazy**: current Phase 4 cold-start logic vs pre-#148 prescan. Did Hybrid D' add value vs always-lazy?
+- **h4-first-action-mandatory**: current `MANDATORY on every triggered message` body wording vs pre-#139. Does the strongest possible imperative break the LLM ceiling on greetings?
+
+Scenarios ship as configs only; running them is opt-in (~$2-8 in tokens for the full set with N=10). Results land as ADRs under `docs/trustmybot/architecture/manual/decisions/`.
+
+### Added — A/B prompt-eval framework (#131)
+
+Reach-for tool when shipping doctrine changes whose value is hard to verify by reading the prompt alone. Replaces "this should help compliance" guesswork with paired-run data + chi-squared significance testing.
+
+- **Schema** (#154): `eval_results.arm` (TEXT NOT NULL DEFAULT 'control') + `eval_results.scenario` (TEXT). Backward-compatible — existing single-arm L5 dogfood runs become 'control' rows automatically.
+- **Runner** `tests/dogfood/run-ab.sh`: takes a scenario name, runs N pairs (default 5), each pair runs every arm against the same flow + prompt + scratch project. Per-arm plugin trees built via rsync overlay (arm overrides layered on top of `$PLUGIN_ROOT`).
+- **Stats** `tests/dogfood/scripts/ab-report.sh`: per-arm × per-scorer pass-rate table + chi-squared (2x2 contingency, df=1) p-value. Pure awk math — no Python dep.
+- **Worked example** `tests/dogfood/ab-scenarios/example-claude-md-slim/`: current slim CLAUDE.md vs a padded variant on the 95-anonymous-cold-restart flow. Not a real hypothesis — proves the framework.
+- **Docs**: new `tests/README.md` row + section on when to write an A/B scenario; new `CONTRIBUTING.md` section with rule-of-thumb.
+
+Real hypothesis testing follows in #153 (CLAUDE.md slim, Hybrid D' vs lazy, first-action chain MANDATORY).
+
 ## v0.4.2 — 2026-04-27
 
 ### Added — codebase memory (#45) — Hybrid D' design

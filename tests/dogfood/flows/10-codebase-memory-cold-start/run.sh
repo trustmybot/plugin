@@ -12,15 +12,15 @@ FLOW_NAME="10-codebase-memory-cold-start"
 RUN_ID="${RUN_ID:-$(date +%s)-$RANDOM}"
 PROMPT="@bro implement a hello world function in src/hello.py"
 
-PROJECT=$(l6_setup_scratch_project)
-trap 'l6_cleanup_project "$PROJECT"' EXIT
+PROJECT=$(l5_setup_scratch_project)
+trap 'l5_cleanup_project "$PROJECT"' EXIT
 
 # Seed an existing-repo state: identity exists (so onboarding doesn't fire),
 # git ls-files non-empty (so cold-start trigger fires), file_registry empty.
-l6_seed_db "$PROJECT" "onboarding-named"
+l5_seed_db "$PROJECT" "onboarding-named"
 mkdir -p "$PROJECT/src"
 echo "# placeholder" > "$PROJECT/src/existing.py"
 (cd "$PROJECT" && git add . && git commit -qm "seed existing files")
 
-l6_run_claude "$PROJECT" "$PROMPT"
-l6_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"
+l5_run_claude "$PROJECT" "$PROMPT"
+l5_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"
