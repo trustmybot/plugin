@@ -31,7 +31,7 @@ jobs:
       AB_SCENARIO: ${{ github.event.inputs.scenario }}
       N_PAIRS: ${{ github.event.inputs.pairs }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Verify CC auth (prerequisite)
         uses: ./.github/actions/verify-cc-auth
@@ -82,7 +82,7 @@ jobs:
 
       - name: Upload trajectory artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ab-${{ github.event.inputs.scenario }}-trajectory
           path: |
