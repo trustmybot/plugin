@@ -202,6 +202,17 @@ rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<broken-version>
 # then in CC: /plugin install tmb-rc@trustmybot
 ```
 
+**Full cache nuke (when `/plugin uninstall` left orphans):**
+
+CC's `/plugin uninstall` and `/plugin marketplace remove` only update `installed_plugins.json`; the cached payloads at `~/.claude/plugins/cache/<vendor>/<plugin>/<version>/` stay on disk and may be picked up by old sessions or shadow newer installs. Cache *should* auto-clean after 7 days but [often doesn't](https://github.com/anthropics/claude-code/issues/29074) — see also [#15369](https://github.com/anthropics/claude-code/issues/15369), [#35691](https://github.com/anthropics/claude-code/issues/35691), [#37865](https://github.com/anthropics/claude-code/issues/37865). Manual nuke:
+
+```bash
+rm -rf ~/.claude/plugins/cache/trustmybot/
+# then in CC: /plugin install tmb@trustmybot   (or tmb-rc@trustmybot)
+```
+
+**⚠️ Channel isolation caveat (upstream CC limitation):** `tmb` (stable) and `tmb-rc` are distinct marketplace entries but the activated plugin name in both cases is `tmb` (per `plugin.json`'s `name` field) — so installing both simultaneously means **both write to `.claude/tmb/trajectory.db` in your project**, sharing state. CC matches install on plugin name, ignoring the marketplace qualifier ([#20593](https://github.com/anthropics/claude-code/issues/20593)). Until proper isolation lands (TMB-side: would need separate marketplaces or templated plugin name), pick one channel and stick with it.
+
 ---
 
 ## Path C — Docker install-smoke (CI's L0 — also runnable locally)
