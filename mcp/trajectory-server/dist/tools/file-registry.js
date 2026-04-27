@@ -1,4 +1,18 @@
+import { createHash } from 'node:crypto';
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { resolve, isAbsolute } from 'node:path';
+import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+function md5OfPath(absPath) {
+    const buf = readFileSync(absPath);
+    return createHash('md5').update(buf).digest('hex');
+}
+function resolveProjectPath(path) {
+    // Paths are stored in file_registry as project-relative. Resolve against
+    // the MCP server's cwd, which is the project root (claude spawns subprocesses
+    // in its own working dir = the project).
+    return isAbsolute(path) ? path : resolve(process.cwd(), path);
+}
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -126,6 +140,46 @@ export function fileRegistryTools(db) {
                 required: ['path'],
             },
         },
+        {
+            name: 'file_registry_verify',
+            description: 'Per-path drift check (#45): re-md5 each file from disk, compare against stored content_md5. Returns { verdicts: [{ path, verdict, current_md5? }] } where verdict is "match" | "mismatch" | "missing" | "new". If `paths` is provided, also flags any registry rows whose path is NOT in the list as "missing" and any input path not in the registry as "new". If `paths` is absent, verifies every registry row (no "new" detection). Read-only; safe for any caller.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    paths: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Optional: project-relative paths to check (typically from `git ls-files`). When omitted, verifies every registry row.',
+                    },
+                },
+            },
+        },
+        {
+            name: 'file_registry_update_summaries',
+            description: 'Atomic-close write path (#45): for each {path, summary}, read the file from disk, md5 it, INSERT OR REPLACE the row with content_md5 + summary + summary_updated_at = now. Optionally advance plugin_config.last_verified_sha so the next session can trust the index. Bro + SWE only.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    updates: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                path: { type: 'string' },
+                                summary: { type: 'string' },
+                            },
+                            required: ['path', 'summary'],
+                        },
+                        description: 'List of path + summary pairs. Server reads each path from disk to compute md5.',
+                    },
+                    advance_verified_sha: {
+                        type: 'string',
+                        description: 'Optional: also UPSERT plugin_config.last_verified_sha to this git SHA (the HEAD at which the registry was made consistent).',
+                    },
+                },
+                required: ['updates'],
+            },
+        },
     ];
     const handlers = {
         file_registry_upsert: requireRoles('file_registry_upsert', ['architect', 'bro'], wrapHandler(async (args) => {
@@ -238,6 +292,114 @@ export function fileRegistryTools(db) {
             const path = args['path'];
             const result = db.run(`DELETE FROM file_registry WHERE path = ?`, [path]);
             return ok({ deleted: result.changes > 0 ? 1 : 0 });
+        })),
+        file_registry_verify: wrapHandler(async (args) => {
+            const inputPaths = args['paths'];
+            let pathFilter = null;
+            if (inputPaths !== undefined && inputPaths !== null) {
+                if (!Array.isArray(inputPaths) || inputPaths.some((p) => typeof p !== 'string')) {
+                    return err('paths must be an array of strings');
+                }
+                for (const p of inputPaths) {
+                    const e = validatePath(p);
+                    if (e)
+                        return err(`Invalid path ${JSON.stringify(p)}: ${e}`);
+                }
+                pathFilter = new Set(inputPaths);
+            }
+            const rows = db.all(`SELECT path, content_md5 FROM file_registry`);
+            const registryPaths = new Set(rows.map((r) => r.path));
+            const verdicts = [];
+            for (const row of rows) {
+                const abs = resolveProjectPath(row.path);
+                if (!existsSync(abs)) {
+                    verdicts.push({ path: row.path, verdict: 'missing' });
+                    continue;
+                }
+                try {
+                    const stat = statSync(abs);
+                    if (!stat.isFile()) {
+                        verdicts.push({ path: row.path, verdict: 'missing' });
+                        continue;
+                    }
+                    const currentMd5 = md5OfPath(abs);
+                    if (row.content_md5 === null) {
+                        verdicts.push({ path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
+                    }
+                    else if (currentMd5 === row.content_md5) {
+                        verdicts.push({ path: row.path, verdict: 'match' });
+                    }
+                    else {
+                        verdicts.push({ path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
+                    }
+                }
+                catch (e) {
+                    verdicts.push({ path: row.path, verdict: 'missing' });
+                }
+            }
+            if (pathFilter !== null) {
+                for (const p of pathFilter) {
+                    if (!registryPaths.has(p)) {
+                        verdicts.push({ path: p, verdict: 'new' });
+                    }
+                }
+            }
+            return ok({ verdicts, count: verdicts.length });
+        }),
+        file_registry_update_summaries: requireRoles('file_registry_update_summaries', ['bro', 'swe'], wrapHandler(async (args) => {
+            const updates = args['updates'];
+            if (!Array.isArray(updates) || updates.length === 0) {
+                return err('updates must be a non-empty array of { path, summary }');
+            }
+            for (const u of updates) {
+                if (typeof u !== 'object' || u === null) {
+                    return err('each update must be an object with { path, summary }');
+                }
+                const update = u;
+                const pathErr = validatePath(update.path);
+                if (pathErr)
+                    return err(pathErr);
+                if (typeof update.summary !== 'string') {
+                    return err('each update.summary must be a string');
+                }
+            }
+            const advance = args['advance_verified_sha'];
+            if (advance !== undefined && advance !== null && typeof advance !== 'string') {
+                return err('advance_verified_sha must be a string SHA');
+            }
+            const now = nowISO();
+            let updated = 0;
+            const errors = [];
+            for (const u of updates) {
+                const abs = resolveProjectPath(u.path);
+                if (!existsSync(abs)) {
+                    errors.push({ path: u.path, error: 'file not found on disk' });
+                    continue;
+                }
+                let md5;
+                try {
+                    md5 = md5OfPath(abs);
+                }
+                catch (e) {
+                    errors.push({ path: u.path, error: e.message });
+                    continue;
+                }
+                db.run(`INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
+             VALUES (?, 'unknown', ?, ?, ?)
+             ON CONFLICT(path) DO UPDATE SET
+               content_md5        = excluded.content_md5,
+               summary            = excluded.summary,
+               summary_updated_at = excluded.summary_updated_at`, [u.path, md5, u.summary, now]);
+                updated += 1;
+            }
+            if (typeof advance === 'string' && advance.length > 0) {
+                db.run(`INSERT INTO plugin_config (key, value_json, updated_at)
+             VALUES ('last_verified_sha', ?, ?)
+             ON CONFLICT(key) DO UPDATE SET
+               value_json = excluded.value_json,
+               updated_at = excluded.updated_at`, [JSON.stringify(advance), now]);
+            }
+            return ok({ updated, errors, advance_verified_sha: typeof advance === 'string' ? advance : null });
         })),
     };
     return { definitions, handlers };
