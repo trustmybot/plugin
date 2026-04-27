@@ -50,8 +50,18 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
 if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
   exit 0
 fi
-grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null || exit 0
+# Bro mode active when:
+#   - Assistant announced "Entering bro mode." (explicit), OR
+#   - Any user message in the transcript contains the word "bro" (the
+#     trigger keyword — same logic CLAUDE.md specifies for activation).
+# The latter catches the real-world case where bro skips the announcement
+# in headless `claude -p` mode (the h3/h4 prompt-discipline ceiling).
+# Sticky-exit: a later "exit bro mode" / "stop being bro" deactivates.
 if grep -qiE 'exit bro mode|stop being bro' "$TRANSCRIPT" 2>/dev/null; then
+  exit 0
+fi
+if ! grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null \
+   && ! grep -qiE '\bbro\b' "$TRANSCRIPT" 2>/dev/null; then
   exit 0
 fi
 

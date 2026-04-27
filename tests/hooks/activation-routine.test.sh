@@ -88,6 +88,13 @@ out=$(run_hook "$(input 'what about pyproject.toml' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"hookEventName":"UserPromptSubmit"' "sticky bro fires hook"
 assert_contains "$out" 'identity=Zax' "still pre-fetches identity"
 
+test_case "REGRESSION: user said @bro in prior turn but assistant skipped announce → sticky still fires"
+TRANSCRIPT_NO_ANNOUNCE="$TMPDIR/transcript-no-announce.jsonl"
+echo '{"role":"user","content":"@bro implement the cli"}' > "$TRANSCRIPT_NO_ANNOUNCE"
+echo '{"role":"assistant","content":"On it. What scope?"}' >> "$TRANSCRIPT_NO_ANNOUNCE"
+out=$(run_hook "$(input 'small, single-file' "$TRANSCRIPT_NO_ANNOUNCE")")
+assert_contains "$out" '"hookEventName":"UserPromptSubmit"' "sticky fires without announce marker"
+
 # ---- DB-missing graceful path ----
 
 test_case "bro trigger but DB doesn't exist: silent no-op (graceful first-activation)"
