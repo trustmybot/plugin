@@ -218,7 +218,7 @@ else
   fi
 fi
 
-# ---------- step 4: L6 release canary (post-tag verify) ----------
+# ---------- step 4: L5 release canary (post-tag verify) ----------
 #
 # Re-clones the freshly-tagged release into a temp dir and runs the
 # install-smoke Dockerfile against it. Catches "the published artifact
@@ -228,7 +228,7 @@ fi
 # Skipped if Docker is unavailable; warning instead of failure since the
 # release is already public at this point.
 
-if confirm "Step 4: Run L6 release canary (re-clone tag in Docker, run install-smoke)?"; then
+if confirm "Step 4: Run L5 release canary (re-clone tag in Docker, run install-smoke)?"; then
   if ! command -v docker >/dev/null 2>&1; then
     printf "  ⊘ docker not available — skipping canary. Run manually before announcing the release:\n"
     printf "      bash tests/docker/run-install-smoke.sh\n"

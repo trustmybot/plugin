@@ -239,5 +239,5 @@ plugin/
 - **23 skills total** in `skills/`: 16 protocol skills (`tmb_*`, plugin-owned) + 7 default workflow skills (overridable by name in `<project>/.claude/skills/`).
 - **5 hook scripts** (`git-guards`, `git-push-guard`, `require-task-spec`, `create-worktree`, `diagnostic/probe-bash`)
 - **14-table SQLite schema** via `node:sqlite` (Node stdlib, no native deps; Node ≥22 required) — see [`ERD.md`](ERD.md).
-- **Test layers (L0-L6)**: see [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`../../tests/run-all.sh`](../../tests/run-all.sh). 10 lint scripts + 245 MCP unit + 43 MCP integration + 27 hook unit + 10-item manual checklist + Docker install-smoke + post-tag canary.
+- **Test layers (L0-L5)**: see [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`../../tests/run-all.sh`](../../tests/run-all.sh). 10 lint scripts + 245 MCP unit + 43 MCP integration + 27 hook unit + 10-item manual checklist + Docker install-smoke + post-tag canary.
 - **Multi-platform structure** present as placeholders; only `.claude-plugin/` is implemented (see [`../multi-platform.md`](../multi-platform.md)).

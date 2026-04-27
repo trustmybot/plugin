@@ -160,7 +160,7 @@ describe('schema — current table set, default values, constraints', () => {
     const indexNames = indexes.map((i) => i.name);
     assert.ok(
       indexNames.includes('idx_debug_trajectory_session'),
-      'session-step index must exist for L6 reads',
+      'session-step index must exist for L5 reads',
     );
 
     db.close();

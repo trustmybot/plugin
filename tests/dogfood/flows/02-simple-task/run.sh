@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 v2 — 02-simple-task (FLOWS.md §2)
+# L5 v2 — 02-simple-task (FLOWS.md §2)
 # Industry-standard multi-scorer: outcome + trajectory_required +
 # trajectory_forbidden + cost. See README.md in this directory.
 

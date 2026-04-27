@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Inspect a debug_trajectory dump in the format L6 expects.
+# Inspect a debug_trajectory dump in the format L5 expects.
 #
 # Use this when authoring an expected-trajectory file for a new flow:
 #   1. Run the flow once with TMB_DEBUG_TRAJECTORY=1
@@ -8,7 +8,7 @@
 #
 # Usage:
 #   bash tests/dogfood/inspect-trajectory.sh <project-dir>
-#   bash tests/dogfood/inspect-trajectory.sh /tmp/tmb-l6-XXXX
+#   bash tests/dogfood/inspect-trajectory.sh /tmp/tmb-l5-XXXX
 #   bash tests/dogfood/inspect-trajectory.sh                  # uses $PWD
 
 set -uo pipefail

@@ -242,6 +242,6 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 ## Related
 
 - [`scenarios.md`](./scenarios.md) — the 10-item L5 checklist (what to test during Path B RC validation)
-- [`../README.md`](../README.md) — automated test suites (L0–L4 + L6) and `bash tests/run-all.sh`
+- [`../README.md`](../README.md) — automated test suites (L0–L4 + L5) and `bash tests/run-all.sh`
 - [`../../CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) — Path 1 hotfix vs Path 2 RC, with explicit promotion sequence
 - [`../../docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md) — workflow flowcharts the scenarios exercise

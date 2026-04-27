@@ -15,7 +15,7 @@ registerTools(server, db);
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolDefinitions,
 }));
-// L6 trajectory capture (issue #108). Active only when TMB_DEBUG_TRAJECTORY=1.
+// L5 trajectory capture (issue #108). Active only when TMB_DEBUG_TRAJECTORY=1.
 // Session ID is per-server-spawn — covers a single `claude -p` invocation.
 const debugTrajectoryEnabled = process.env['TMB_DEBUG_TRAJECTORY'] === '1';
 const debugSessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 v2 — D-direct-mode (FLOWS.md §D) — see README.md
+# L5 v2 — D-direct-mode (FLOWS.md §D) — see README.md
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/flow-helpers.sh"

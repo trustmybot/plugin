@@ -4,6 +4,20 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Refactored — `L6 dogfood` → `L5 dogfood` (close the L4→L6 numbering gap)
+
+The previous rename (L5+L6 combined → Release canary) demoted the standalone manual L5 to an unnumbered "Manual smoke" fallback, which left a gap between L4 and L6. This rename closes the gap: L6 dogfood is now L5 dogfood. The pyramid is contiguous L0–L5 again, with Release canary and Manual smoke as the non-numbered layers above.
+
+Renamed:
+
+- `.github/workflows/l6-dogfood.yml` → `.github/workflows/l5-dogfood.yml` (workflow `name:` updated, PR-label trigger now `L5`)
+- `tests/dogfood/run-l6.sh` → `tests/dogfood/run-l5.sh`
+- Env var: `L6_KEEP_ARTIFACTS` → `L5_KEEP_ARTIFACTS`
+- Docker scratch dirs: `/tmp/tmb-l6-XXXX` → `/tmp/tmb-l5-XXXX`
+- Internal globals: `L6_DOGFOOD_DIR` → `L5_DOGFOOD_DIR`
+
+Updated docs: `tests/README.md` (pyramid table), `CONTRIBUTING.md` (workflow scope), `tests/manual/{setup,README}.md`, `docs/contributing/LABELS.md`, `docs/architecture/FILES.md`, `scripts/release.sh`, `scripts/hooks/debug-trajectory.sh`, `mcp/trajectory-server/src/{index,test/schema.test}.ts`.
+
 ### Refactored — testing framework: `L5+L6 combined` → `Release canary`, `L5 manual dogfood` → `Manual smoke` (fallback)
 
 The numeric "L5+L6 combined" name was awkward (not a real layer, just a Docker-bundled superset) and constrained future insertion of heavy layers. Renamed to a non-numeric **Release canary** so future layers (e.g. A/B prompt eval — issue #131, perf canary, etc.) can slot in between L4 and Release canary without renumbering.

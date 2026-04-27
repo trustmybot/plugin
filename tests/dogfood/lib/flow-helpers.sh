@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for L6 flow scripts. Source this from tests/dogfood/flows/*.test.sh.
+# Shared helpers for L5 flow scripts. Source this from tests/dogfood/flows/*.test.sh.
 
 set -uo pipefail
 
@@ -7,12 +7,12 @@ set -uo pipefail
 # initializes git, sets test identity. Returns the absolute path on stdout.
 l6_setup_scratch_project() {
   local dir
-  dir=$(mktemp -d -t tmb-l6-XXXX)
+  dir=$(mktemp -d -t tmb-l5-XXXX)
   (
     cd "$dir" || exit 1
     git init -q -b main
     git config user.email l6@l6.test
-    git config user.name "L6 Test"
+    git config user.name "L5 Test"
     echo "init" > README.md
     git add . && git commit -qm init
     mkdir -p .claude/tmb
@@ -24,7 +24,7 @@ l6_setup_scratch_project() {
 # project's trajectory.db. Fixture must exist at tests/dogfood/fixtures/<name>.sql.
 l6_seed_db() {
   local dir="$1" fixture="$2"
-  local fixture_path="$L6_DOGFOOD_DIR/fixtures/${fixture}.sql"
+  local fixture_path="$L5_DOGFOOD_DIR/fixtures/${fixture}.sql"
   if [ ! -f "$fixture_path" ]; then
     printf "  ✗ fixture not found: %s\n" "$fixture_path" >&2
     return 1
@@ -82,18 +82,18 @@ l6_score_flow() {
 }
 
 # l6_cleanup_project <project_dir>: removes the scratch directory.
-# When L6_KEEP_ARTIFACTS=1, becomes a no-op so the workflow's
+# When L5_KEEP_ARTIFACTS=1, becomes a no-op so the workflow's
 # upload-artifact step can collect the trajectory DB after a failure.
 l6_cleanup_project() {
   local dir="$1"
-  [ "${L6_KEEP_ARTIFACTS:-0}" = "1" ] && return 0
+  [ "${L5_KEEP_ARTIFACTS:-0}" = "1" ] && return 0
   [ -n "$dir" ] && [ -d "$dir" ] && rm -rf "$dir"
 }
 
 # Initialize globals used by helpers.
-L6_DOGFOOD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export L6_DOGFOOD_DIR
+L5_DOGFOOD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export L5_DOGFOOD_DIR
 
 # Source v2 scorers (issue #110).
 # shellcheck source=tests/dogfood/lib/scorers.sh
-. "$L6_DOGFOOD_DIR/lib/scorers.sh"
+. "$L5_DOGFOOD_DIR/lib/scorers.sh"

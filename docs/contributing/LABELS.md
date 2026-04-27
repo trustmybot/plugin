@@ -34,7 +34,7 @@ Linear ships the first three by default; we add `Docs`.
 | **Roundtable** | Multi-agent roundtable feature |
 | **Multi-platform** | Codex / Cursor / OpenCode / Gemini adapters |
 | **Performance** | Latency / token cost |
-| **Tests** | Test infrastructure (L0–L6) |
+| **Tests** | Test infrastructure (L0–L5) |
 
 New area labels are added when a genuinely new surface emerges. Adding one is a doctrine change.
 
