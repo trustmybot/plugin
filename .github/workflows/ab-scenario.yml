@@ -18,6 +18,10 @@ on:
         description: 'N pairs per arm (default 5)'
         default: '5'
         required: false
+      timeout_per_call:
+        description: 'Per-claude-call timeout in seconds (default 180; raise for code-touching flows that spawn SWE)'
+        default: '180'
+        required: false
 
 permissions:
   contents: read
@@ -49,6 +53,7 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           L5_KEEP_ARTIFACTS: '1'
           N: ${{ env.N_PAIRS }}
+          TMB_CLAUDE_TIMEOUT: ${{ github.event.inputs.timeout_per_call }}
         run: |
           bash tests/dogfood/run-ab.sh "$AB_SCENARIO"
 
