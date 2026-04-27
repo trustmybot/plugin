@@ -26,6 +26,12 @@ How to stand up a TMB scratch project and verify it works end-to-end. Two distin
 
 **Do NOT use for RC validation** — `--plugin-dir` bypasses CC's marketplace install lifecycle and silently sidesteps the bug class that broke v0.2.0 + v0.3.0.
 
+> ⚠️ **Don't try to "add a local marketplace" with `/plugin marketplace add --local <path>` or `/plugin marketplace add /absolute/path/to/plugin`.**
+> CC has no `--local` flag for marketplace add; both forms get silently mangled into a stale marketplace named something like `"--local -Users"` that pollutes `~/.claude/plugins/marketplaces/` and confuses CC's UI for future installs.
+> The ONLY two correct local-dev paths are:
+> - **Path A (this section):** `claude --plugin-dir <path>` — direct local-tree load, no marketplace involved.
+> - **Path B (next section):** the GitHub-source marketplace, `/plugin marketplace add trustmybot/plugin`. For testing your own fork, push to a GitHub branch and add `your-org/your-fork`.
+
 ### Setup (one-time per checkout)
 
 ```bash
@@ -60,7 +66,7 @@ Inside CC, type `@bro hello` (or anything addressing bro). Onboarding should fir
 
 ```bash
 # In another terminal, from the scratch dir:
-sqlite3 .claude/tmb/trajectory.db <<'SQL'
+sqlite3 .claude/tmb/trajectory.db <<'SQL'   # for tmb-rc installs use .claude/tmb-rc/trajectory.db
 .headers on
 SELECT human_name, created_at FROM identity;
 SELECT key, value_json FROM plugin_config ORDER BY key;
@@ -68,7 +74,7 @@ SELECT id, event_type, summary FROM ledger ORDER BY id DESC LIMIT 3;
 SQL
 ```
 
-Expected: 1 identity row, 3 config rows (`branching_model`, `pr_target`, `protected_branches`), and a `tmb_onboarding_complete` ledger event.
+Expected: 1 identity row (set via `tmb_reonboard`), 3 config rows from the schema seed (`branching_model`, `pr_target`, `protected_branches`), and an empty ledger if no decisions have fired yet.
 
 ### Hot reload (apply edits without restart)
 
@@ -96,7 +102,7 @@ Then `/reload-plugins`. The `dist-fresh` lint will fail if you commit a src/ cha
 **DB-only (keeps scratch project, fastest):**
 ```bash
 cd /tmp/tmb-dev-test
-rm -rf .claude/tmb/   # next @bro will re-trigger onboarding
+rm -rf .claude/tmb .claude/tmb-rc   # cover both channels; next @bro will re-trigger onboarding
 ```
 
 **Full wipe (true cold-start, includes scratch git history):**
@@ -226,7 +232,7 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 |---|---|---|
 | Bro responds but says "MCP tools not available" | dist/ missing in install | Path A: `bun run build`. Path B: file `vX.Y.Z-rc.N+1` to fix the artifact. |
 | Bro doesn't trigger on `@bro hello` | Plugin not loaded | Check `claude --plugin-dir <path>` resolved correctly OR `/plugin install tmb@trustmybot` succeeded |
-| Onboarding asks but doesn't persist | MCP server can't open DB | Check `TRAJECTORY_DB_PATH` env, write permissions on `<scratch>/.claude/tmb/` |
+| Onboarding asks but doesn't persist | MCP server can't open DB | Check `TRAJECTORY_DB_PATH` env, write permissions on `<scratch>/.claude/<plugin-name>/` (`tmb` for stable, `tmb-rc` for the RC channel) |
 | `/reload-plugins` doesn't pick up TS edit | TS source needs build | `bun run build` from plugin repo root, then `/reload-plugins` |
 | `git-guards.sh` blocks legitimate commit | On a configured protected branch | Switch to feature branch OR `config_set` `protected_branches` |
 | Multiple installed versions in cache | CC keeps old caches per version | Safe to leave OR `rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<old-version>` |
@@ -236,6 +242,6 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 ## Related
 
 - [`scenarios.md`](./scenarios.md) — the 10-item L5 checklist (what to test during Path B RC validation)
-- [`../README.md`](../README.md) — automated test suites (L0–L4 + L6) and `bash tests/run-all.sh`
+- [`../README.md`](../README.md) — automated test suites (L0–L4 + L5) and `bash tests/run-all.sh`
 - [`../../CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) — Path 1 hotfix vs Path 2 RC, with explicit promotion sequence
 - [`../../docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md) — workflow flowcharts the scenarios exercise

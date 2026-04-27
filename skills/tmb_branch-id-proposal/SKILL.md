@@ -42,6 +42,50 @@ Format: `<type>/<slug>` where `<slug>` is lowercase alphanumeric + hyphens, max 
 
 ## Protocol
 
+### Step 0 — Base branch confirm + pull (only if git remote is configured)
+
+Before deriving the branch name, confirm the **base** the new branch should be created from. This is the #92 fix: when a remote exists, branching off whatever HEAD happens to point at silently breaks team workflows.
+
+1. Probe for a remote:
+   ```bash
+   REMOTES=$(git remote -v 2>/dev/null | awk '{print $1}' | sort -u)
+   ```
+   If empty → skip Step 0 entirely (no remote, no concern about being behind origin).
+
+2. Read the configured `pr_target` via `config_get(agent='bro', key='pr_target')` and the current branch via `git branch --show-current`.
+
+3. Render this `AskUserQuestion`:
+
+   ```
+   AskUserQuestion({
+     questions: [{
+       question: "Which branch should I create the new feature branch from?",
+       header: "Base branch",
+       multiSelect: false,
+       options: [
+         { label: `${pr_target} (pull origin/${pr_target} first)`,
+           description: `Default — matches your branching model.` },
+         // If current_branch != pr_target, include this option:
+         { label: `${current_branch} (stay on current branch)`,
+           description: `Branch from where you are now.` },
+         // Detect 1-3 other prominent local branches via:
+         //   git for-each-ref --format='%(refname:short)' refs/heads --sort=-committerdate | head -5
+         // Skip if the branch equals pr_target or current_branch (no duplicates).
+       ]
+       // Other lets the Human type any branch name (must exist locally or be fetchable).
+     }]
+   })
+   ```
+
+4. On the answer:
+   - If the chosen base is `${pr_target}` → run `git fetch origin ${pr_target} && git checkout ${pr_target} && git pull origin ${pr_target} --ff-only` before proceeding. This guarantees the new branch is created from latest origin/pr_target, not stale local state.
+   - If a non-pr_target base → switch to it but do NOT auto-pull (the Human picked it deliberately; bro asks before any pull).
+   - On any git error (merge conflict, dirty tree, network) → halt, surface the error to the Human, ask how to proceed. **Do not silently proceed.**
+
+5. Log the base-branch decision: `discussion_append(kind='note', body='Base branch: <chosen_base> (pulled: yes|no)')`.
+
+### Step 1 — Derive + propose branch_id
+
 1. Derive a candidate `branch_id` from the intent using the table above.
 2. Present both the candidate branch_id and the triage label to the Human via `AskUserQuestion` **before bro starts planning**.
 
@@ -115,3 +159,12 @@ AskUserQuestion({
      ```
 
 5. Load `tmb_planning-simple` (if triage=simple) or `tmb_planning-difficult` (if triage=difficult) and proceed with planning. The `issue_id` and confirmed `branch_id` carry forward into `task_create_batch` when the spec is ready.
+
+## Headless fallback
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, accept the proposed branch_id without Human confirmation. Per CLAUDE.md doctrine, record both:
+
+- `ledger_log(agent='bro', event_type='headless_fallback', summary='tmb_branch-id-proposal: confirm "<proposed_id>" → auto-accepted')`
+- `discussion_append(agent='bro', kind='note', body='Headless fallback: branch-id-proposal asked to confirm <proposed_id>, no Human in loop, auto-accepted. Reason: bro already chose intelligently from project context.')`
+
+Then proceed with the planning chain as if the Human had typed "Yes, proceed". Do NOT auto-pick "Upgrade to difficult" or "Suggest different branch_id" — those require Human intent.

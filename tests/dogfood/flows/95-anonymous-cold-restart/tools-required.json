@@ -1,0 +1,5 @@
+[
+  "mcp__plugin_tmb_trajectory-server__identity_get",
+  "mcp__plugin_tmb_trajectory-server__config_get",
+  "mcp__plugin_tmb_trajectory-server__issue_resume"
+]

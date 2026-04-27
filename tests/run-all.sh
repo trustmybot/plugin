@@ -6,9 +6,10 @@
 #   L1 — Static / lint                  → tests/lint/*.sh (this file runs them)
 #   L2 — Unit (per-component)           → mcp/trajectory-server/src/test/*.ts
 #   L3 — Integration (cross-component)  → tests/mcp-integration/*.mjs + tests/hooks/*.sh
-#   L4 — Workflow simulation            → (planned for v0.2.0)
-#   L5 — Manual dogfood                 → tests/manual/scenarios.md (human-walked)
-#   L6 — Release canary                 → scripts/release.sh post-tag step
+#   L4 — Workflow simulation            → tests/workflow-sim/*.mjs
+#   L5 — Workflow-doctrine dogfood      → tests/dogfood/ (CI-only, .github/workflows/l5-dogfood.yml)
+#   Release canary — final automated gate → tests/docker/release-canary.Dockerfile (RC-only)
+#   Manual smoke (fallback)             → tests/manual/scenarios.md (human-walked, only when automated layers can't model the scenario)
 
 set -uo pipefail
 
@@ -31,7 +32,6 @@ run_step() {
 # ----- L1 — Static / lint -----------------------------------------------
 
 run_step "L1 lint: agent template line budget"        bash "$HERE/lint/agent-line-budget.sh"
-run_step "L1 lint: onboarding skill contract"         bash "$HERE/lint/onboarding-skill-contract.sh"
 run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/lint/skill-frontmatter.sh"
 run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/lint/manifest-shape.sh"
 run_step "L1 lint: version sync (3 manifests agree)"  bash "$HERE/lint/version-sync.sh"
@@ -41,6 +41,8 @@ run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/lint/shellchec
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/lint/tsc-noemit.sh"
 run_step "L1 lint: release script safety guards"      bash "$HERE/lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/lint/dist-fresh.sh"
+run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/lint/labels-stable.sh"
+run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/lint/enums-stable.sh"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh DB contains all 14 tables', () => {
+  it('fresh DB contains all 16 tables', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -21,6 +21,8 @@ describe('schema — current table set, default values, constraints', () => {
       'plugin_config',
       'identity',
       'regen_state',
+      'debug_trajectory',
+      'eval_results',
     ];
 
     const rows = db.all<{ name: string }>(
@@ -86,11 +88,20 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('plugin_config has zero rows on init', () => {
+  it('plugin_config has the 3 schema-seeded default policy keys on init', () => {
     const db = tempDB();
 
-    const rows = db.all('SELECT * FROM plugin_config');
-    assert.equal(rows.length, 0);
+    const rows = db.all<{ key: string; value_json: string }>(
+      "SELECT key, value_json FROM plugin_config ORDER BY key",
+    );
+    // node:sqlite returns rows as null-prototype objects; map to plain objects
+    // so assert.deepEqual matches the literal expected shape.
+    const plain = rows.map((r) => ({ key: r.key, value_json: r.value_json }));
+    assert.deepEqual(plain, [
+      { key: 'branching_model', value_json: '"github-flow"' },
+      { key: 'pr_target', value_json: '"main"' },
+      { key: 'protected_branches', value_json: '["main"]' },
+    ]);
 
     db.close();
   });
@@ -109,6 +120,78 @@ describe('schema — current table set, default values, constraints', () => {
 
     const rows = db.all('SELECT * FROM file_registry');
     assert.equal(rows.length, 0);
+
+    db.close();
+  });
+
+  it('debug_trajectory has zero rows on init (issue #108)', () => {
+    const db = tempDB();
+
+    const rows = db.all('SELECT * FROM debug_trajectory');
+    assert.equal(rows.length, 0);
+
+    db.close();
+  });
+
+  it('debug_trajectory has expected columns + index (issue #108, extended for #110)', () => {
+    const db = tempDB();
+
+    const cols = db.all<{ name: string }>('PRAGMA table_info(debug_trajectory)');
+    const colNames = cols.map((c) => c.name).sort();
+    assert.deepEqual(colNames, [
+      'agent',
+      'args_json',
+      'created_at',
+      'id',
+      'is_error',
+      'kind',
+      'latency_ms',
+      'result_json',
+      'session_id',
+      'step_n',
+      'tokens_in',
+      'tokens_out',
+      'tool_or_mcp_name',
+    ]);
+
+    const indexes = db.all<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='debug_trajectory'",
+    );
+    const indexNames = indexes.map((i) => i.name);
+    assert.ok(
+      indexNames.includes('idx_debug_trajectory_session'),
+      'session-step index must exist for L5 reads',
+    );
+
+    db.close();
+  });
+
+  it('eval_results table exists with v2 multi-scorer schema (issue #110)', () => {
+    const db = tempDB();
+
+    const rows = db.all('SELECT * FROM eval_results');
+    assert.equal(rows.length, 0, 'eval_results must be empty on init');
+
+    const cols = db.all<{ name: string }>('PRAGMA table_info(eval_results)');
+    const colNames = cols.map((c) => c.name).sort();
+    assert.deepEqual(colNames, [
+      'created_at',
+      'explanation',
+      'flow_name',
+      'id',
+      'metadata_json',
+      'pass',
+      'run_id',
+      'scorer_name',
+      'value',
+    ]);
+
+    const indexes = db.all<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='eval_results'",
+    );
+    const indexNames = indexes.map((i) => i.name).sort();
+    assert.ok(indexNames.includes('idx_eval_results_run'), 'run_id index required');
+    assert.ok(indexNames.includes('idx_eval_results_flow'), 'flow_name index required');
 
     db.close();
   });

@@ -2,32 +2,72 @@
 
 Everything test-related for the plugin — how to run, what each layer covers, when to add a test where, and the full manual-test catalog.
 
-## Three layers
+## Layered test pyramid
 
-Each catches a different class of bug; skipping any layer means shipping a bug the others cannot see.
+Each layer catches a different class of bug; skipping any layer means shipping a bug the others cannot see.
 
 | Layer | What | Where | Catches |
 |---|---|---|---|
-| **1 — Unit** | Handler logic, synthetic args; no LLM, no protocol | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
-| **2 — Integration** | Real server subprocess + JSON-RPC stdio; schema contract, role matrix, per-agent workflow | [`mcp-integration/*.test.mjs`](./mcp-integration/) | Schema drift, missing `agent` param, protocol plumbing, role-enforcement gaps, cross-tool workflow bugs |
-| **3 — Dogfood** | Human-driven interactive Claude Code session | [`manual/`](./manual/) | UX regressions, agent prompt drift, routing decisions, anything that depends on real LLM judgment |
+| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`docker/install-smoke.Dockerfile`](./docker/) | dist/ shipping, prebuild, MCP server cold-spawn — caught v0.2.0 + v0.3.0 |
+| **L1** | Lint (version sync, link check, dist freshness, etc.) | [`lint/*.sh`](./lint/) | Stale CHANGELOG, broken links, version drift, doctrine doc parity |
+| **L2** | Unit — handler logic, synthetic args; no LLM, no protocol | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
+| **L3** | Integration — real server subprocess + JSON-RPC stdio | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement |
+| **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
+| **L5** | **Workflow-doctrine dogfood — multi-scorer (outcome + trajectory + cost)** against `--plugin-dir` source (issues #108, #110) | [`dogfood/`](./dogfood/) | Doctrine drift between FLOWS.md and reality, agent-prompt regressions, cold-start behavior |
+| **Release canary** | **Full marketplace install + workflow doctrine in one Docker image** — the final automated gate (was "L5+L5 combined", #112) | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches PLUS everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy). |
+| **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session — only for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
 **Golden rule:** *Layer N green does not imply Layer N+1 green.* Layer 1 passed with 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. Layer 2 would have caught that at the wire level in milliseconds. Always run all three before tagging a release.
+
+## Testing philosophy — light to heavy, fail fast
+
+**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L5 (light, `--plugin-dir`) → Release canary (heavy, marketplace simulation in Docker) → Manual smoke (last resort, fallback only).
+
+This applies to:
+
+- **PR review**: PRs that fail L1 don't pay the L2 cost. PRs that pass L1-L4 trigger L5 only when labeled. Release canary runs on RC tag pushes only.
+- **Release validation**: cut an RC tag → L0 + L1-L4 (every PR did this already) → L5 light → if green, Release canary → if green, promote dev → main → cut stable.
+- **Investigating a regression**: bisect at the lightest layer that fails. If L1 catches it, don't run L4. If L2 catches it, don't run L5.
+
+**Why**: token cost matters (Release canary ≈ $1-3 per run; L5 light ≈ ~$0.20; L1-L4 ≈ free). Human time matters (manual smoke = 30-45 min; the rest is automated). Cheap signals first eliminates the need for expensive ones.
+
+**Insertion-friendly naming**: Release canary is non-numeric so future heavy layers (e.g. A/B prompt eval, perf canary) can slot in between L4 and Release canary without renumbering anything.
+
+**The escalation chain**:
+
+```
+PR opened → L0 + L1-L4 in CI (free, < 2 min)
+   ↓ green
+PR labeled `L5` (optional) → L5 light in CI (~$0.20, ~3 min)
+   ↓ green
+RC tag pushed → Release canary in CI (~$1-3, ~10 min)
+   ↓ green
+Promote RC → main → tag stable. Manual smoke only when an automated layer
+  genuinely can't model the scenario (very rare; document why).
+```
 
 ## Layout
 
 ```
 tests/
 ├── README.md                ← (you are here) framework + operational
-├── run-all.sh               ← orchestrator — runs every automated suite
-├── mcp-integration/         ← Layer 2 — real server subprocess + JSON-RPC
-├── hooks/                   ← hook script tests
-├── lint/                    ← agent-prompt budget + related linters
+├── run-all.sh               ← orchestrator — runs L0-L4
+├── docker/                  ← L0 install-smoke
+├── lint/                    ← L1 lints (version sync, links, doctrine docs)
+├── mcp-integration/         ← L3 real server subprocess + JSON-RPC
+├── hooks/                   ← L3 hook script tests
+├── workflow-sim/            ← L4 MCP-only multi-step workflow tests
 ├── lib/                     ← shared shell-assert helpers
-└── manual/                  ← Layer 3 — human-run against a real Claude Code session
-    ├── README.md
-    ├── setup.md
-    └── scenarios.md
+├── manual/                  ← L5 human-run against a real Claude Code session
+│   ├── README.md
+│   ├── setup.md
+│   └── scenarios.md
+└── dogfood/                 ← L5 deterministic-trajectory tests (issue #108)
+    ├── run-l5.sh
+    ├── lib/flow-helpers.sh
+    ├── flows/<name>.test.sh
+    ├── fixtures/<name>.sql
+    └── expected/<name>.txt
 ```
 
 Layer 1 (MCP unit tests) lives at `mcp/trajectory-server/src/test/` — colocated with the source it tests, following the convention used elsewhere in that package.
@@ -57,9 +97,30 @@ bash tests/hooks/run.sh
 bash tests/lint/agent-line-budget.sh
 ```
 
-## Run the manual suite (Layer 3)
+## Run the manual suite (L5)
 
 See [`manual/README.md`](./manual/README.md) — setup, scenarios, and what to do when a scenario fails.
+
+## Run L5 dogfood (deterministic-trajectory tests)
+
+L5 drives real Claude Code through pre-seeded TMB workflows and asserts the MCP/tool sequence matches FLOWS.md. Issue #108.
+
+```bash
+# One-time: set the headless auth token
+export CLAUDE_CODE_OAUTH_TOKEN="<your-cc-oauth-token>"
+
+# Run all flows
+bash tests/dogfood/run-l5.sh
+
+# Run a single flow by name substring
+bash tests/dogfood/run-l5.sh onboarding
+```
+
+Each flow lives in `tests/dogfood/flows/<name>.test.sh`. Expected trajectories are `tests/dogfood/expected/<name>.txt` (one MCP/tool call per line, prefixed `mcp_call:` or `tool_use:`). Pre-seed SQL fixtures live in `tests/dogfood/fixtures/<name>.sql`.
+
+To add a new flow: copy an existing `flows/*.test.sh`, name a fixture (or write one), capture the expected sequence by running once with `TMB_DEBUG_TRAJECTORY=1` and reading the `debug_trajectory` table.
+
+CI runs L5 on tag pushes and on PRs labeled `L5`. The workflow at `.github/workflows/l5-dogfood.yml` skips silently if the secret is unset.
 
 ## Which layer does a new test belong in?
 

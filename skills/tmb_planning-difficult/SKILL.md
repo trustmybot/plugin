@@ -188,8 +188,16 @@ git diff <commit_sha>~1..<commit_sha>
 3. **Success criteria visibly met** — for each bullet in `## Success Criteria`, scan diff for the corresponding code/test.
 
 #### V3 — Decide
-- All three pass → `task_update_status(agent='bro', task_id=<N>, status='closed')`. If all tasks on the issue are closed, also `issue_close(agent='bro', issue_id=<I>)`. Both in same response.
-- Any check fails → `discussion_append(kind='note', body='Verification fail: <which check> — <details>')`. Do NOT close. Re-spawn SWE with feedback (max 3 retries) or escalate.
+- All three pass → batch THREE calls in the same response:
+  1. `ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands passed. V3 success criteria met. Closing.')`
+  2. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
+  3. `issue_close(agent='bro', issue_id=<I>)` IF all tasks on the issue are closed
+
+  **Do NOT call `validation_record`** — pr-reviewer-only; server returns `forbidden` for bro callers. Bro writes `bro_verification_pass` to the ledger; pr-reviewer writes `validation_record` later at the push gate, over the batch.
+- Any check fails → batch `ledger_log(event_type='bro_verification_fail')` + `discussion_append(kind='note', body='Verification fail: ...')`. Do NOT close. Re-spawn SWE with feedback (max 3 retries) or escalate.
+
+#### Halt-on-MCP-error
+If any close-related MCP call returns `is_error: true`, STOP. Do not emit a success message. Surface the exact error to the Human — usually means the call signature is wrong.
 
 ### Step 8 — Loop
 
@@ -208,3 +216,12 @@ If the difficult triage was wrong (e.g. the ask doesn't actually touch architect
 discussion_append(kind='note', body='Triage: simple (downgraded from difficult; reason: <why>)')
 # Then load tmb_planning-simple skill instead.
 ```
+
+## Headless fallback
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, proceed with the spec bro has drafted as if the Human had said "proceed as proposed". Record both:
+
+- `ledger_log(agent='bro', event_type='headless_fallback', summary='tmb_planning-difficult: scope confirmation → auto-accepted')`
+- `discussion_append(agent='bro', kind='note', body='Headless fallback: planning-difficult sought scope confirmation, no Human in loop, auto-accepted. Reason: spec was drafted from project context; SWE will surface scope drift if it occurs.')`
+
+Then run the full planning chain (architecture probe, ADR draft, batched task_create_batch + spawn swe + ledger_log). Do NOT skip the ADR — that's the difficult-triage's primary deliverable.

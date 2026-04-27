@@ -52,24 +52,27 @@ plugin/
 │   └── swe.md                        # executor — one task per spawn, isolated worktree, atomic close
 │
 ├── # Plugin runtime — skills (all global; project can override per-name)
-├── skills/                           # 16 protocol skills (tmb_*) + 7 default workflow skills
+├── skills/                           # tmb_* protocol skills + default workflow skills (lazy-loaded)
 │   ├── # Protocol skills (immutable, plugin-owned, can't be overridden by name)
 │   ├── tmb_agent-creator/            # propose & write new agent files on user approval (template-copy or from-scratch)
 │   ├── tmb_branch-id-proposal/       # bro derives branch_id + opens MCP issue before loading planning skill
+│   ├── tmb_concerns-protocol/        # how bro raises a concern when doubting the Human's plan (surface or spawn consultant)
 │   ├── tmb_create-hook/              # how to add a new hook script safely
+│   ├── tmb_direct-mode/              # narrow bypass for ≤3-line single-file fixes (bro edits, commits, logs direct_mode_used)
 │   ├── tmb_feedback-loop/            # bro ↔ swe ↔ pr-reviewer retry/escalation protocol
-│   ├── tmb_first-run-onboarding/     # bro's identity + branching capture (no file copy in v0.3.0+)
+│   ├── tmb_headless-fallback/        # AskUserQuestion error / TMB_HEADLESS=1 fallback doctrine + per-skill defaults audit
 │   ├── tmb_lazy-regen-check/         # bro's session-start architecture-regen heuristic (25-commit threshold)
+│   ├── tmb_mcp-error-handling/       # is_error halt rule + forbidden-tools list + policy-key writes
 │   ├── tmb_planning-difficult/       # bro's planning protocol when triage=difficult (env probe + Q+A + ADR + verification)
 │   ├── tmb_planning-simple/          # bro's planning protocol when triage=simple (defaults table + batched handoff + verification)
 │   ├── tmb_project-prescan/          # bro's deterministic inventory pass on first code-touching ask
+│   ├── tmb_push-gate/                # push-gate orchestration: spawn pr-reviewer per unsigned task at git push time
 │   ├── tmb_refresh-architecture/     # user-facing "regenerate architecture docs" entry
-│   ├── tmb_reonboard/                # re-run onboarding flow + mid-session identity rename
+│   ├── tmb_reonboard/                # configure or change branching model / PR target / protected branches / identity name
 │   ├── tmb_roundtable/               # multi-agent debate coordinator (≥2 planning-capable consultants required)
 │   ├── tmb_roundtable-cleanup/       # post-roundtable archive + DB cleanup
 │   ├── tmb_skill-creator/            # propose & write new skill files; appends to consuming agent's skills:
 │   ├── tmb_swe-spawn-workflow/       # bro's protocol for spawning SWE with task_id + spec
-│   ├── tmb_validate-swe-output/      # fork-Explore verification helper used by bro's verification step
 │   ├── # Default workflow skills (used by global agents; project overrides per-name)
 │   ├── code-quality/                 # generic quality gates (error handling, security, edges)
 │   ├── docs-conventions/             # docs-update rules + prompt-editing discipline
@@ -236,5 +239,5 @@ plugin/
 - **23 skills total** in `skills/`: 16 protocol skills (`tmb_*`, plugin-owned) + 7 default workflow skills (overridable by name in `<project>/.claude/skills/`).
 - **5 hook scripts** (`git-guards`, `git-push-guard`, `require-task-spec`, `create-worktree`, `diagnostic/probe-bash`)
 - **14-table SQLite schema** via `node:sqlite` (Node stdlib, no native deps; Node ≥22 required) — see [`ERD.md`](ERD.md).
-- **Test layers (L0-L6)**: see [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`../../tests/run-all.sh`](../../tests/run-all.sh). 10 lint scripts + 245 MCP unit + 43 MCP integration + 27 hook unit + 10-item manual checklist + Docker install-smoke + post-tag canary.
+- **Test layers (L0-L5)**: see [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`../../tests/run-all.sh`](../../tests/run-all.sh). 10 lint scripts + 245 MCP unit + 43 MCP integration + 27 hook unit + 10-item manual checklist + Docker install-smoke + post-tag canary.
 - **Multi-platform structure** present as placeholders; only `.claude-plugin/` is implemented (see [`../multi-platform.md`](../multi-platform.md)).

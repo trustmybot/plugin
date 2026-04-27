@@ -85,24 +85,33 @@ describe('configTools', () => {
         assert.equal(parseResult(result), null);
         db.close();
     });
-    it('config_list with 0 entries returns empty object', async () => {
+    it('config_list returns the schema-seeded defaults on a fresh DB', async () => {
         const db = tempDB();
         const tools = configTools(db);
         const result = await call(tools.handlers, 'config_list', {});
         assert.ok(!result.isError);
-        assert.deepEqual(parseResult(result), {});
+        assert.deepEqual(parseResult(result), {
+            branching_model: 'github-flow',
+            pr_target: 'main',
+            protected_branches: ['main'],
+        });
         db.close();
     });
-    it('config_list with 1 entry returns correct shape', async () => {
+    it('config_list returns schema-seeded defaults plus 1 user-set entry', async () => {
         const db = tempDB();
         const tools = configTools(db);
         await call(tools.handlers, 'config_set', { agent: 'bro', key: 'alpha', value: 'one' });
         const result = await call(tools.handlers, 'config_list', {});
         assert.ok(!result.isError);
-        assert.deepEqual(parseResult(result), { alpha: 'one' });
+        assert.deepEqual(parseResult(result), {
+            branching_model: 'github-flow',
+            pr_target: 'main',
+            protected_branches: ['main'],
+            alpha: 'one',
+        });
         db.close();
     });
-    it('config_list with 3 entries returns correct shape', async () => {
+    it('config_list returns schema-seeded defaults plus 3 user-set entries', async () => {
         const db = tempDB();
         const tools = configTools(db);
         await call(tools.handlers, 'config_set', { agent: 'bro', key: 'alpha', value: 1 });
@@ -110,7 +119,14 @@ describe('configTools', () => {
         await call(tools.handlers, 'config_set', { agent: 'bro', key: 'gamma', value: 3 });
         const result = await call(tools.handlers, 'config_list', {});
         assert.ok(!result.isError);
-        assert.deepEqual(parseResult(result), { alpha: 1, beta: 2, gamma: 3 });
+        assert.deepEqual(parseResult(result), {
+            branching_model: 'github-flow',
+            pr_target: 'main',
+            protected_branches: ['main'],
+            alpha: 1,
+            beta: 2,
+            gamma: 3,
+        });
         db.close();
     });
     it('config_set called twice on same key updates value and bumps updated_at', async () => {

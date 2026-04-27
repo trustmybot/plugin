@@ -1,6 +1,6 @@
 ---
 name: tmb_reonboard
-description: Re-run the TMB onboarding flow on demand. Shows current values as the pre-selected default in an AskUserQuestion radio UI. Handles branching model changes, PR target updates, and identity rename.
+description: Configure or change bro's per-project state — branching model, PR target, protected branches, identity name. The plugin has no first-run onboarding; bro applies defaults silently on first activation, and this skill is the only path to override them. Shows current values as the pre-selected option in an AskUserQuestion radio UI.
 agent: bro
 allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
 ---
@@ -9,7 +9,7 @@ allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identit
 
 ## Purpose
 
-Let a user update branching model, PR target, protected branches, or their name after first-run onboarding completed. Reads current state, shows it as the `Keep "<current>"` first option in a radio form, writes changes via MCP.
+Let a user configure or update branching model, PR target, protected branches, or their name. The plugin has no first-run onboarding ceremony — bro applies defaults silently on first activation. This skill is the **only** path to write `identity` rows or change policy keys; everything else reads what bro has either defaulted or the user has previously set. Reads current state, shows it as the `Keep "<current>"` first option in a radio form, writes changes via MCP.
 
 ## When Invoked
 
@@ -102,7 +102,7 @@ For each answer:
   |---|---|
   | `github-flow` | `[<pr_target>]` |
   | `gitflow` | `["main", <pr_target>]` deduped |
-  | `custom` | ask separately (second AskUserQuestion round, multiSelect=true like first-run-onboarding Step 3a) |
+  | `custom` | ask separately (second AskUserQuestion round, multiSelect=true) |
 
   Then `config_set(agent='bro', key='protected_branches', value=<new list>)`.
 
@@ -125,3 +125,13 @@ After writes, `config_list(agent='bro')` + `identity_get(agent='bro')` to confir
 | `config_list()` or `identity_get()` fails | Report the exact error, offer to retry or abort. Do NOT proceed with stale state. |
 | `config_set` or `identity_set` fails | Report the exact error, retry the same call. Do NOT skip and continue. |
 | Invalid answer (e.g. unparseable Other for branching) | Re-ask via a second `AskUserQuestion` round, omit the invalid answer. |
+
+## Headless fallback
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, **do not silently overwrite policy keys with defaults** — re-onboard is by definition a Human-driven re-confirmation. Instead:
+
+1. Halt the skill cleanly.
+2. Record `ledger_log(agent='bro', event_type='headless_reonboard_blocked', summary='tmb_reonboard cannot run headless: policy keys (branching_model, pr_target, protected_branches) require explicit Human re-confirmation.')`.
+3. Surface a clear message: "Re-onboarding requires interactive input. Re-run with a Human in the loop, or use `config_set` directly if you know the values."
+
+Rationale: re-onboarding flips policy keys that drive `git-guards.sh` and other hooks. A silent fallback here could break the project's git workflow with no audit trace pointing to the cause.

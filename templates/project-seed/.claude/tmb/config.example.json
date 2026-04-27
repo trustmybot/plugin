@@ -1,0 +1,6 @@
+{
+  "_comment": "Commit this file as .claude/tmb/config.json to share team defaults across all developers. Onboarding pre-selects matching options for each new dev. Per-developer DBs (.claude/tmb/trajectory.db) remain gitignored. See plugin docs for the full key registry.",
+  "branching_model": "github-flow",
+  "pr_target": "main",
+  "protected_branches": ["main"]
+}

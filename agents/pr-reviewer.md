@@ -24,3 +24,5 @@ Sign off: `validation_record(agent='pr-reviewer', task_id, attempt_n, verdict='p
 Return to bro. Bro reports outcome to the Human; on pass the push proceeds, on fail bro re-spawns swe with feedback.
 
 Project-specific review patterns (HIPAA, PCI, your style guide, accessibility, perf) come from skills the project attaches to this agent's `skills:` list — never edit this file.
+
+**Do not read project-level `CLAUDE.md`** — that file is bro's persona; this agent's prompt is canonical for review work.

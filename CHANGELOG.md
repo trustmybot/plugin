@@ -2,6 +2,288 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.4.1 — 2026-04-27
+
+### Refactored — `L6 dogfood` → `L5 dogfood` (close the L4→L6 numbering gap)
+
+The previous rename (L5+L6 combined → Release canary) demoted the standalone manual L5 to an unnumbered "Manual smoke" fallback, which left a gap between L4 and L6. This rename closes the gap: L6 dogfood is now L5 dogfood. The pyramid is contiguous L0–L5 again, with Release canary and Manual smoke as the non-numbered layers above.
+
+Renamed:
+
+- `.github/workflows/l6-dogfood.yml` → `.github/workflows/l5-dogfood.yml` (workflow `name:` updated, PR-label trigger now `L5`)
+- `tests/dogfood/run-l6.sh` → `tests/dogfood/run-l5.sh`
+- Env var: `L6_KEEP_ARTIFACTS` → `L5_KEEP_ARTIFACTS`
+- Docker scratch dirs: `/tmp/tmb-l6-XXXX` → `/tmp/tmb-l5-XXXX`
+- Internal globals: `L6_DOGFOOD_DIR` → `L5_DOGFOOD_DIR`
+
+Updated docs: `tests/README.md` (pyramid table), `CONTRIBUTING.md` (workflow scope), `tests/manual/{setup,README}.md`, `docs/contributing/LABELS.md`, `docs/architecture/FILES.md`, `scripts/release.sh`, `scripts/hooks/debug-trajectory.sh`, `mcp/trajectory-server/src/{index,test/schema.test}.ts`.
+
+### Refactored — testing framework: `L5+L6 combined` → `Release canary`, `L5 manual dogfood` → `Manual smoke` (fallback)
+
+The numeric "L5+L6 combined" name was awkward (not a real layer, just a Docker-bundled superset) and constrained future insertion of heavy layers. Renamed to a non-numeric **Release canary** so future layers (e.g. A/B prompt eval — issue #131, perf canary, etc.) can slot in between L4 and Release canary without renumbering.
+
+Standalone "L5 manual dogfood" demoted to **Manual smoke** — a fallback used only for UX scenarios the automated layers can't model (e.g. live `AskUserQuestion` interactivity). The Release canary handles everything else automatically.
+
+Renamed files:
+
+- `.github/workflows/l5-l6-combined.yml` → `.github/workflows/release-canary.yml`
+- `tests/docker/l5-l6-combined.Dockerfile` → `tests/docker/release-canary.Dockerfile`
+- `tests/docker/run-l5-l6-combined.sh` → `tests/docker/run-release-canary.sh`
+- Workflow `name:` and job ID updated to `Release canary` / `release-canary`.
+- Image tag: `tmb-l5-l6-combined:<v>` → `tmb-release-canary:<v>`.
+
+Updated docs: `tests/README.md` (test pyramid + escalation chain), `CONTRIBUTING.md` ("CI scope" workflow table), `scripts/release.sh` (manual smoke gate framing).
+
+### Refactored — defaults seeded by schema, not by bro
+
+The previous unreleased entry had bro silently writing 3 `plugin_config` rows + a `tmb_defaults_applied` ledger event on first contact. Per user follow-up: that's still bro doing work the system should do.
+
+- `mcp/trajectory-server/src/schema.sql` now seeds the 3 default policy keys via `INSERT OR IGNORE` at DB creation. Bro never touches `plugin_config` on first contact.
+- `tmb_defaults_applied` ledger event removed entirely (the schema seed is silent; bro only logs events for decisions it actually makes).
+- CLAUDE.md first-action chain compressed from 12 lines (state check + conditional default-write + cache + resume) to 4 lines (two parallel reads: `identity_get` + `issue_resume`, then welcome banner). `config_get` no longer in the always-call set; bro fetches lazily when a specific key matters.
+- Welcome banner simplified from 3 variants to 2 (no "first contact" variant — pending-work or idle is enough).
+- Test fixtures (`onboarding-named.sql`, `onboarding-anonymous.sql`) shrunk: they no longer INSERT plugin_config (now schema-seeded) and dropped the `tmb_defaults_applied` ledger row. `onboarding-named.sql` writes a `tmb_user_named` event instead to mark "user explicitly chose this name".
+
+### Removed — first-run-onboarding ceremony (modern-agent UX)
+
+Modern agents (Cursor, ChatGPT, etc.) don't onboard — they just work. TMB's previous behavior of asking name + branching model + PR target + protected branches via `AskUserQuestion` on first contact was friction with no upside for the 80% case, and it broke completely in headless `claude -p` mode (no Human to answer).
+
+- **Deleted**: `skills/tmb_first-run-onboarding/` (entire skill).
+- **Deleted**: `tests/lint/onboarding-skill-contract.sh` (no skill to lint).
+- **Deleted**: `tests/dogfood/flows/01-onboarding/` (no ceremony to test).
+- **New**: `tests/dogfood/flows/01-first-contact/` — asserts the inverse: empty DB → `@bro hi` → bro applies defaults silently + welcome banner mentions them; `AskUserQuestion` and `identity_set` are explicitly forbidden tools.
+- **CLAUDE.md first-action chain rewritten**: on first contact (`config_get` returns null), bro silently writes `branching_model=github-flow`, `pr_target=main`, `protected_branches=["main"]` plus a `tmb_defaults_applied` ledger event. **No `identity` row** — its absence means "user hasn't named themselves yet."
+- **Welcome banner is now mandatory** (also new in CLAUDE.md): bro must announce activation explicitly with state context — three variants for first contact / returning with pending work / returning idle.
+- **Ledger event renamed**: `tmb_onboarding_complete` → `tmb_defaults_applied`. Pre-1.0, no migration shim — fixtures and outcome assertions updated in lockstep.
+- **`tmb_reonboard` repositioned** as the only path to write identity rows or change policy keys (was: "re-run onboarding"). Same skill, same UI, clearer framing.
+
+To set your name post-first-contact: say `@bro reonboard` or `@bro update my name`.
+
+## v0.4.1 — 2026-04-25
+
+**Cluster of bugs found during cold-session marketplace dogfood by [@ZaxShen](https://github.com/ZaxShen).** All four were doctrine drift, not infra: bro had stale instructions, server enforcement was working but invisible.
+
+### Fixed — Anonymous identity now persists (issue #95)
+
+`tmb_first-run-onboarding` previously skipped `identity_set` when the Human chose Anonymous. The DB row never existed, so every cold session saw `identity_get().created_at == null` and re-triggered the full onboarding flow — even though configs and ledger events confirmed onboarding had already run.
+
+`identity_set` MCP tool now accepts `anonymous: true` to write a row with `human_name=NULL`. Onboarding always calls `identity_set` (named OR anonymous). Cold-restart-after-Anonymous regression covered by `tests/workflow-sim/flow-09-anonymous-cold-restart.test.mjs`.
+
+### Fixed — Bro now writes `bro_verification_pass` ledger event (issue #91)
+
+The planning skills' V3 step (close path) jumped straight from "verification passed" to `task_update_status(closed)` with no ledger anchor. The trajectory had no record of bro's task-gate verdict — only the absence of a `validation_record` row, which was indistinguishable from "pr-reviewer hasn't gotten there yet."
+
+V3 now batches `ledger_log(event_type='bro_verification_pass')` + `task_update_status(closed)` + `issue_close` (when applicable) in one response. The ledger is the source of truth for bro's task-gate verdict; `validation_attempts` is exclusively pr-reviewer's table.
+
+### Fixed — Bro halts on MCP errors instead of silently proceeding (issue #96)
+
+Trace from cold-session test: bro called `validation_record(agent='bro', verdict='pass')` at task close. Server middleware correctly returned `{"error": "forbidden", "caller_role": "bro", "allowed_roles": ["pr-reviewer"]}`. Bro **ignored the error** and proceeded to `task_update_status(closed)` + `issue_close` + emit "Trust me bro, it works." From the Human's view the task closed cleanly; in reality no verification trace existed.
+
+Two doctrine clauses added to plugin `CLAUDE.md`:
+
+1. **MCP error handling — halt and surface.** Any tool result with `is_error: true` halts the flow. No silent continuation.
+2. **Tools bro must NEVER call.** `validation_record` is pr-reviewer-only. Bro's task-gate uses `ledger_log(bro_verification_pass)`. Server-side rejection now backed by client-side discipline.
+
+### Fixed — Policy-key writes route through `tmb_reonboard` (issue #93)
+
+`branching_model`, `pr_target`, and `protected_branches` are policy keys that drive `git-guards.sh` and skill defaults. Bro could previously call `config_set` on them directly mid-session, bypassing the explicit-confirm UX of the onboarding flow.
+
+`CLAUDE.md` now requires bro to invoke `tmb_reonboard` for policy-key changes — never direct `config_set`. The skill renders an `AskUserQuestion` with current values pre-selected and persists only on explicit confirmation.
+
+### Removed — `tmb_validate-swe-output` skill
+
+Obsolete under bro-as-planner doctrine. Bro's task-gate verification is inline (V1/V2/V3 in the planning skills); pr-reviewer's push-gate verification is its own agent. The forked-Explore validation skill served the old "pr-reviewer signs at task close" flow that v0.3.0 retired.
+
+### Versioning
+
+No schema migration; new column-less `anonymous` flag on `identity_set` is additive. Schema version stays at 1. Tests added: 4 new identity-tool tests + 3 new workflow-sim tests (flow-09 a/b/c).
+
+### Added — Label + ENUM doctrine (issue #38)
+
+Two new doctrine docs codify the controlled vocabularies the project relies on:
+
+- **`docs/contributing/LABELS.md`** — canonical GH issue label list. Adopts GitHub's 9 default labels, K8s `area/<name>` + `priority/<level>` + `lifecycle/<state>` namespaces, and 2 documented TMB-specific labels (`doctrine`, `discussion`). Replaces the previously-invented `area:*`, `p:*`, `stale`, `superseded` labels with their K8s equivalents.
+- **`docs/contributing/ENUMS.md`** — every ENUM in `schema.sql` is listed with its canonical values + source convention (GH / K8s / TMB-specific with rationale).
+
+Two new lints enforce drift prevention:
+
+- **`tests/lint/labels-stable.sh`** — fails if a GH label exists that's not in `LABELS.md`, or vice versa. Skipped on dev machines without `gh` auth; always runs in CI.
+- **`tests/lint/enums-stable.sh`** — parses `ENUMS.md` and the code, fails if a hardcoded value isn't documented.
+
+GH label migration applied: 17 labels → 25 (renames + 9 new K8s `area/*`). All 18 open issues' labels auto-renamed in place via `gh label edit --name`. The `superseded` label was dropped — when a issue is replaced, close with a `superseded by #N` comment.
+
+This is the doctrine half of #38. The DB-side half (`issue_labels` table + 4 MCP tools to mirror GH labels into the trajectory DB) is gated on schema review and ships in a follow-up.
+
+### Workflow ergonomics — three small fixes
+
+#### Bro asks base branch + pulls before branching when remote exists (issue #92)
+
+`tmb_branch-id-proposal` now adds a Step 0: detect `git remote -v` non-empty → `AskUserQuestion` for base branch (pre-selecting `pr_target`) → `git pull origin <base> --ff-only` → then proceed to branch_id derivation. Prevents silently branching off stale `origin/main` in multi-developer repos. No remote configured → step skipped (no concern).
+
+#### Architecture docs bootstrap on small projects (issue #94)
+
+`tmb_lazy-regen-check` previously did nothing on first-ever session, waiting for the Human to manually request `/tmb refresh-architecture`. Tiny dogfood projects rarely cross the 25-commit threshold, so they never got `docs/trustmybot/architecture/auto/` populated.
+
+New behavior: on first-ever session, count source files (`git ls-files | exclude .claude/, node_modules/, dist/, etc.`):
+- 0 files → skip (empty repo)
+- ≤200 files → silent initial bootstrap (cheap, ensures docs/ exists for the first contributor)
+- >200 files → one-line nudge (full bootstrap on a large project can be slow; let Human opt in)
+
+#### Committed team config defaults (issue #32)
+
+Onboarding now reads `.claude/tmb/config.json` if committed:
+
+```json
+{
+  "branching_model": "github-flow",
+  "pr_target": "main",
+  "protected_branches": ["main"]
+}
+```
+
+Values pre-select matching radio options in `AskUserQuestion`, so each new dev confirms team conventions with a single click instead of answering from scratch. The committed file shares team defaults; per-developer DBs still store actual answers locally. Identity (`human_name`) is per-developer and never read from the file.
+
+Template at `templates/project-seed/.claude/tmb/config.example.json`.
+
+### Channel isolation — DB path per plugin name (issue #87)
+
+Stable (`tmb`) and RC (`tmb-rc`) channels can now be installed simultaneously without colliding on the SQLite trajectory DB.
+
+`resolveDbPath()` previously hardcoded `<cwd>/.claude/tmb/trajectory.db`. Now it derives the path segment from the installed plugin's manifest (`CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json.name`), so:
+
+- `tmb` install → `.claude/tmb/trajectory.db`
+- `tmb-rc` install → `.claude/tmb-rc/trajectory.db`
+
+Different filesystems, different state, no cross-contamination. Backward-compatible — existing tmb installs see no path change. Fallback to `tmb` when `CLAUDE_PLUGIN_ROOT` is unset (local `--plugin-dir` dev outside CC).
+
+Other channel-isolation surfaces called out in #87:
+
+- **plugin.json.name** — already differentiated in v0.3.2 (rc branch maintained as `tmb-rc`).
+- **MCP server names** — CC already namespaces by plugin (`mcp__plugin_tmb-rc_trajectory-server__*` vs `mcp__plugin_tmb_trajectory-server__*`); no change needed.
+- **Agent + skill names** — same name on both sides (`swe`, `pr-reviewer`, `tmb_*`). When both channels are enabled, CC picks one; documented as known limitation in `tests/manual/setup.md`. Suffix-rename is deferred — agents only call their own MCP server, so the worst case is "the other channel's prompt was used" (annoying, not data-corrupting).
+
+8 new unit tests covering `resolvePluginName` + `resolveDbPath` channel-isolation paths.
+
+### Labels — second migration to Linear-native style (issue #101)
+
+The K8s convention adopted earlier in v0.4.1 (PR #98) proved opaque to readers (*"area (idk wtf it is)"*). Pivoted to Linear-native flat style which is self-explanatory at a glance.
+
+Renames (preserves issue → label links via `gh label edit --name`):
+
+| Before | After |
+|---|---|
+| `area/install`, `area/workflow`, `area/mcp`, `area/hooks`, `area/roundtable`, `area/multi-platform`, `area/perf`, `area/tests` | `Install`, `Workflow`, `MCP`, `Hooks`, `Roundtable`, `Multi-platform`, `Performance`, `Tests` |
+| `priority/critical`, `priority/high`, `priority/medium`, `priority/low` | `Priority: Urgent`, `Priority: High`, `Priority: Medium`, `Priority: Low` (matches Linear's display) |
+| `bug` | `Bug` (capitalized) |
+| `enhancement` | `Feature` (renamed to match Linear default) |
+| `doctrine`, `discussion` | `Doctrine`, `Discussion` |
+
+Added: `Improvement` (Linear default — refactor/polish), `Docs` (doc-only changes — Linear's `Improvement` is too generic).
+
+Dropped: `lifecycle/stale` (use `gh issue list --updated` instead; Linear has native auto-stale), `area/docs` (collapses into the new `Docs` type label), 6 unused GH defaults (`good first issue`, `help wanted`, `invalid`, `question`, `wontfix`, `duplicate`, `documentation`).
+
+Net: 25 labels → 18. All open issues auto-relabeled in place.
+
+`docs/contributing/LABELS.md` rewritten. `tests/lint/labels-stable.sh` updated to parse the new doc structure (bold-wrapped names instead of backtick-wrapped).
+
+This is the **second** label migration in the v0.4.1 pre-stable window. Acceptable because no public consumers depend on the names yet — the rc channel hasn't promoted to stable.
+
+### Added — L6 deterministic-trajectory tests + opt-in debug_trajectory schema (issue #108)
+
+Manual L5 dogfood was the release bottleneck. L6 automates it by pre-seeding DB state, running real `claude -p`, and asserting the resulting MCP/tool trajectory matches the expected sequence from `FLOWS.md`. New layer in the test pyramid; existing L0–L5 unchanged.
+
+**New schema table** `debug_trajectory` (15th table):
+- Columns: `session_id`, `step_n`, `kind` (`mcp_call`/`tool_use`), `agent`, `tool_or_mcp_name`, `args_json`, `result_json`, `is_error`, `created_at`
+- **Off by default — populated only when env `TMB_DEBUG_TRAJECTORY=1`.** Zero overhead in production.
+- Schema version stays at 1 (additive change).
+
+**Capture wiring**:
+- MCP server (`src/index.ts`) writes a row per MCP tool call when env is set
+- New PreToolUse hook `scripts/hooks/debug-trajectory.sh` (`matcher: "*"`) writes a row per non-MCP tool call (Bash/Read/Write/Edit/Task/Skill)
+
+**Test infrastructure**:
+- `tests/dogfood/run-l6.sh` runner — checks env + tools, dispatches to flow scripts
+- `tests/dogfood/lib/flow-helpers.sh` — shared helpers (`l6_setup_scratch_project`, `l6_seed_db`, `l6_run_claude`, `l6_assert_trajectory`)
+- `tests/dogfood/flows/` — 16 flow scripts (4 fully wired, 12 scaffold)
+- `tests/dogfood/fixtures/` — pre-seed SQL (empty, onboarding-named, onboarding-anonymous)
+- `tests/dogfood/expected/` — expected-trajectory files (one MCP/tool call per line)
+
+**4 fully wired flows** (have expected-trajectory files):
+- `01-onboarding` — first-run identity + config writes
+- `02-simple-task` — code-touching ask → triage simple → SWE spawn
+- `D-direct-mode` — ≤3-line typo fix → Edit + commit, no SWE spawn (with hard invariant assertions)
+- `95-anonymous-cold-restart` — regression for #95; cold session must skip re-onboarding
+
+**12 scaffolded flows** (auto-skip until expected-trajectory authored): `03-difficult-task`, `04-agent-creator`, `05-skill-creation`, `06-push-gate`, `07-architecture-regen`, `08-swe-retry`, `09-roundtable`, `C-consultant`, `32-team-config`, `92-base-branch`, `94-arch-bootstrap`, `96-halt-on-error`.
+
+**CI workflow** `.github/workflows/l6-dogfood.yml`:
+- Triggers: tag pushes, PRs labeled `L6`, manual dispatch
+- Soft-fails when `CLAUDE_CODE_OAUTH_TOKEN` secret is absent (forks won't break red)
+- Uploads trajectory dumps as artifacts on failure
+
+**Stale doctrine cleanup** (per the migration audit):
+- Onboarding skill: fixed event_type from stale `tmb_bootstrap_complete` → `tmb_defaults_applied`; dropped reference to "file copies" (swe + pr-reviewer ship globally)
+- Agent-creator skill: dropped `tmb_bootstrap` reference (skill is gone in v0.3.0+)
+- Plugin CLAUDE.md: removed the "tmb_bootstrap is being retired" sentence (it's already retired)
+
+**Unverified assumption flagged in the issue**: `claude -p` mode behavior with `AskUserQuestion`. If the form auto-fails in headless mode, that surfaces as a trajectory-shorter-than-expected failure on the onboarding flow — a real signal to address.
+
+2 new schema tests (table presence + columns + index). All L1-L4 green.
+
+### Added — L6 evals v2: outcome-first multi-scorer architecture (issue #110)
+
+L6 v1 (PR #109) used strict trajectory matching, which Anthropic explicitly warns against as too brittle (*"agents regularly find valid approaches that eval designers didn't anticipate"*). v2 replaces that with the industry-standard multi-scorer pattern (Inspect AI / AgentEvals).
+
+**Schema additions** (additive, schema_version stays at 1):
+- `debug_trajectory`: 3 new columns — `tokens_in`, `tokens_out`, `latency_ms` (default 0)
+- New `eval_results` table — one row per `(flow, scorer)` per run, with `run_id`, `pass`, `value`, `explanation`, `metadata_json`. Indexed on `(run_id, scorer_name)` and `(flow_name, created_at)`.
+
+**4 scorer types** (per `tests/dogfood/lib/scorers.sh`):
+- **Outcome** (primary, deterministic) — SQL assertions on final DB state. Replaces strict trajectory match. *Grade what was produced, not the path.*
+- **trajectory_required** (secondary) — listed tools must have been called (any order; superset semantics)
+- **trajectory_forbidden** (secondary) — listed tools must NOT have been called (subset/safety semantics)
+- **cost** (observational) — tokens + p99 latency tracked vs per-flow budget; warns on overage but doesn't fail unless `fail_above_max: true`
+
+**Per-flow directory layout** (replaces `expected/<name>.txt`):
+```
+tests/dogfood/flows/<name>/
+├── README.md
+├── outcome.sql
+├── tools-required.json
+├── tools-forbidden.json
+├── cost-budget.json
+└── run.sh
+```
+
+**4 wired flows fully converted** to v2 (01-onboarding, 02-simple-task, D-direct-mode, 95-anonymous-cold-restart). 12 scaffolds preserved with v2 entry points; auto-skip until their `outcome.sql` is authored.
+
+**Stale L6 v1 artifacts removed**: `tests/dogfood/expected/` directory, `l6_assert_trajectory` helper.
+
+**Citations** (new `docs/contributing/EVALS.md` and PR body): Anthropic's [Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents), LangSmith's [trajectory-evals docs](https://docs.langchain.com/langsmith/trajectory-evals) (4 match modes), [Inspect AI](https://inspect.aisi.org.uk/) (Dataset / Solver / Scorer / Task primitives), [AgentEvals](https://github.com/langchain-ai/agentevals), and the [LLM Agent Evaluation Survey](https://arxiv.org/html/2507.21504v1).
+
+3 new schema unit tests (debug_trajectory cost columns + eval_results structure). All L1-L4 green.
+
+### Added — L5+L6 combined Docker harness (issue #112)
+
+Replaces manual L5 dogfood for everything except UX-only verification. Builds a Docker image that simulates CC's marketplace install path (`bun install --ignore-scripts` → place at `~/.claude/plugins/cache/trustmybot/tmb/<version>/`), then runs L6 deterministic-trajectory flows against the marketplace-installed plugin.
+
+Catches BOTH bug classes in one run:
+- **Install path** (L0's job — dist/ shipping, MCP server cold spawn, native bindings)
+- **Workflow doctrine** (L6's job — does bro do the right thing against the as-shipped artifact?)
+
+Files:
+- `tests/docker/l5-l6-combined.Dockerfile` — combined install + claude install + L6 flows
+- `tests/docker/run-l5-l6-combined.sh` — local convenience wrapper (BuildKit secret for token)
+- `.github/workflows/l5-l6-combined.yml` — release-only CI (tag pushes + manual dispatch)
+
+**Per user policy: token-heavy tests run on tag pushes only, NOT on every PR.** Each full L5+L6 run is ~$1-3 in real Claude tokens. The cost is amortized across releases (one run per tag), trading per-run cost for elimination of manual L5 dogfood (~30-45 min human time per release).
+
+Token security: `CLAUDE_CODE_OAUTH_TOKEN` passed via Docker BuildKit secret (mounted at `/run/secrets/cc_token`), NOT baked into image layers.
+
+The workflow soft-fails when the secret is absent — the L0 install piece still runs, the L6 piece skips with a notice.
+
+---
+
 ## v0.3.2 — 2026-04-25
 
 **Hook + agent-prompt hotfix.** Two real bugs in `git-guards.sh` that broke every SWE commit-from-worktree, plus a SWE doctrine violation. Found by [@ZaxShen](https://github.com/ZaxShen) during v0.3.1 marketplace test — bro spent 12 minutes hitting the same hook-block before reporting.
@@ -127,7 +409,7 @@ Same for skills. Projects that need custom backbone behavior drop a project-loca
 | Branching model + PR target capture | ✓ | ✓ |
 | Persist via `identity_set` + 3 × `config_set` | ✓ | ✓ |
 | **Copy `swe.md` + 5 default skills into `<project>/.claude/`** | required (8+ filesystem ops) | **eliminated** |
-| Log onboarding audit row | ✓ (`tmb_bootstrap_complete`) | ✓ (renamed `tmb_onboarding_complete`) |
+| Log onboarding audit row | ✓ (`tmb_bootstrap_complete`) | ✓ (renamed `tmb_defaults_applied`) |
 | Required `/reload-plugins` after install? | yes | **no** (plugin already serves agents + skills globally) |
 
 ### Removed
