@@ -16,11 +16,14 @@ branching behavior (branch from HEAD instead).
 **Pre-spawn checklist:**
 1. **Commit all prerequisite changes first.** Worktrees branch from the latest
    commit, not uncommitted changes.
-2. **Verify after spawn.** Run `git worktree list` and confirm the worktree
+2. **Sync local with remote pr_target.** Read `pr_target` from `config_get` (default `main`). Run `git fetch origin <pr_target> --quiet` then `git merge --ff-only origin/<pr_target>` on your local `<pr_target>` branch (or `git pull --ff-only` if you're on it). Catches the "stale local main" bug where bro creates a task branch from yesterday's pointer; the `branch-up-to-date-with-remote.sh` PreToolUse hook will deny SWE's worktree-add if you skip this.
+3. **Bro creates the branch BEFORE spawning SWE.** Run `git branch <task.branch_id> origin/<pr_target>` from your session (use `origin/<pr_target>` after the fetch above so the branch is born up-to-date). The branch name MUST match `tasks.branch_id` exactly. SWE then attaches the worktree with `git worktree add <path> <branch>` (no `-b`/`-B` — a PreToolUse hook rejects branch creation by SWE; #170). This makes branch authority structurally bro's, eliminating the SWE-renames-the-branch class of bug.
+4. **Override base when explicit.** If the task spec's `parent_branch_id` names a non-`pr_target` base (feature stack), use that base instead of `origin/<pr_target>`. Bro must still fetch + verify the alternative base.
+5. **Verify after spawn.** Run `git worktree list` and confirm the worktree
    commit matches HEAD. If it doesn't, kill the SWE and respawn.
-3. If parallel SWEs touch the same file, run them sequentially.
-4. **NEVER copy a worktree's file to the main repo without `git diff` first.**
-5. After copying worktree output, verify with lint + tests before committing.
+6. If parallel SWEs touch the same file, run them sequentially.
+7. **NEVER copy a worktree's file to the main repo without `git diff` first.**
+8. After copying worktree output, verify with lint + tests before committing.
 
 ## Task Spec Body Template (Markdown stored in `tasks.spec_body`)
 

@@ -115,11 +115,15 @@ plugin/
 │       ├── lib/
 │       │   └── query-task.sh         # shared sqlite helpers (tmb_db_path, tmb_task_spec_status, …)
 │       ├── activation-routine.sh    # UserPromptSubmit hook — pre-fetches identity + pending issue when bro mode active
+│       ├── branch-up-to-date-with-remote.sh  # PreToolUse Bash — denies worktree-add when branch is behind origin/<pr_target>
+│       ├── cleanup-worktree-on-task-close.sh # PostToolUse — removes worktree when bro flips task → closed
 │       ├── create-worktree.sh        # WorktreeCreate hook (workaround CC #27134/#44965)
 │       ├── debug-trajectory.sh       # PostToolUse capture for non-MCP calls (TMB_DEBUG_TRAJECTORY=1)
+│       ├── ensure-gitignore.sh       # SessionStart hook — ensures project .gitignore excludes .claude/
 │       ├── git-guards.sh             # protected-branch block, force-push block, dual-tier dev→main exception (v0.1.1)
 │       ├── git-push-guard.sh         # blocks `git push` on unsigned commits — replaces require-review-sign.sh
 │       ├── no-source-edit-from-main.sh  # blocks bro from editing source files outside an SWE worktree
+│       ├── no-worktree-branch-create.sh # PreToolUse Bash — blocks `git worktree add -b/-B` (branch authority is bro's)
 │       ├── require-task-spec.sh      # block SWE spawn unless task_id references a valid DB row
 │       └── session-start-regen-check.sh  # SessionStart hook — nudges to run tmb_refresh-architecture when arch docs are stale
 │

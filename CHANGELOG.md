@@ -4,6 +4,21 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Added — 4 hard-enforcement hooks (branch authority + worktree hygiene) (#170, #171)
+
+Local h5 dogfood surfaced two doctrine bugs that were prompt-only and unreliable. Promoted both to Layer 2:
+
+- **`scripts/hooks/ensure-gitignore.sh`** (SessionStart). Ensures the project's `.gitignore` excludes `.claude/`. Creates the file if missing; appends if the rule is absent; idempotent. Without this, the trajectory.db gets committed to the project, then `git worktree add` checks it out inside every worktree — a stale per-worktree DB poisons every hook that resolves DB path via `$(pwd)`. Fixes the root cause behind #171.
+- **`scripts/hooks/no-worktree-branch-create.sh`** (PreToolUse on `Bash`). Blocks `git worktree add -b/-B/--create-branch ...`. Branch authority belongs to bro: bro creates `<task.branch_id>` first (`git branch <name> origin/<pr_target>`), then SWE attaches via `git worktree add <path> <branch>` — no creation, no abbreviation. Fixes #170 where SWE invented `fix/typo-foo-ts` for spec `fix/foo-typo-receive`. Bypass: `TMB_ALLOW_WORKTREE_BRANCH_CREATE=1`.
+- **`scripts/hooks/branch-up-to-date-with-remote.sh`** (PreToolUse on `Bash`). When SWE attaches a worktree to `<branch>`, fetches `origin/<pr_target>` (best-effort, offline-friendly) and verifies `<branch>` descends from it. Catches the "stale local main" bug where bro creates a task branch from yesterday's pointer, then the SWE commit conflicts on push. Bypass: `TMB_ALLOW_STALE_BRANCH=1`.
+- **`scripts/hooks/cleanup-worktree-on-task-close.sh`** (PostToolUse on `mcp__*trajectory-server__task_update_status`). When bro flips a task to `closed`, removes the corresponding `.claude/worktrees/<slug>/` (the commits live on the branch and survive). Keeps the worktree dir tidy and prevents disk bloat over many tasks. Bypass: `TMB_KEEP_CLOSED_WORKTREES=1`.
+
+Also:
+- `tmb_db_path` (in `scripts/hooks/lib/query-task.sh`) now walks up to git root for DB resolution — was falling back to `$(pwd)/.claude/tmb/trajectory.db` which broke every hook when bro `cd`'d into a worktree (#171 part 2).
+- `tests/dogfood/lib/flow-helpers.sh:l5_setup_scratch_project` writes `.gitignore` containing `.claude/` before the initial commit (test-framework parity with the new SessionStart hook's behavior in real projects).
+- `TMB_CLAUDE_TIMEOUT` env var (default 180s) now overrides the per-call timeout in both `l5_run_claude` (L5 dogfood) and `l5_run_arm` (A/B). Lets local + CI runs cap at higher values when the chain genuinely needs longer than the default.
+- `agents/swe.md` and `skills/tmb_swe-spawn-workflow/SKILL.md` updated: SWE drops `-B` from `git worktree add` (uses pre-existing branch); bro fetches origin + ff-merges `pr_target` before creating the task branch.
+
 ### Added — two more hard-enforcement hooks + ENFORCEMENT.md (#108)
 
 Per the doctrine "prompt-only enforcement caps at the LLM compliance ceiling — promote load-bearing rules to a harder layer," two new hooks land:

@@ -14,6 +14,7 @@ l5_setup_scratch_project() {
     git config user.email l6@l6.test
     git config user.name "L5 Test"
     echo "init" > README.md
+    printf '.claude/\n' > .gitignore
     git add . && git commit -qm init
     mkdir -p .claude/tmb
   )
@@ -54,7 +55,7 @@ l5_run_claude() {
     echo "  cwd: $dir" >&2
     echo "  plugin-dir: $PLUGIN_ROOT" >&2
     echo "  prompt: $prompt" >&2
-    timeout 180 claude --plugin-dir "$PLUGIN_ROOT" --dangerously-skip-permissions -p "$prompt" 2>&1 \
+    timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude --plugin-dir "$PLUGIN_ROOT" --dangerously-skip-permissions -p "$prompt" 2>&1 \
       | sed 's/^/  [claude] /' >&2 || true
     echo "  ── claude invocation end (exit was masked) ──" >&2
   )
