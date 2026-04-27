@@ -130,14 +130,24 @@ assert_contains "$out" '"permissionDecision":"deny"' "deny even without 'Enterin
 
 # ---- worktree path: SWE allowed ----
 
-test_case "in worktree: pass even for source"
+test_case "REGRESSION: target inside .claude/worktrees/<slug>/ : PASS (SWE in worktree)"
+out=$(run_hook "$(input 'Edit' '.claude/worktrees/task-42/src/foo.ts' "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "worktree-targeted source edit allowed"
+
+test_case "REGRESSION: target with absolute worktree path: PASS"
+out=$(run_hook "$(input 'Write' '/tmp/proj/.claude/worktrees/task-42/src/index.ts' "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "absolute worktree path allowed"
+
+test_case "REGRESSION: target outside any worktree, even when CWD pretends: BLOCK"
 PWD_ORIG=$PWD
 WORKTREE_DIR="$TMPDIR/.claude/worktrees/task-42"
 mkdir -p "$WORKTREE_DIR"
 cd "$WORKTREE_DIR"
+# CWD is a worktree, but TARGET is outside → must still block (the previous
+# $PWD-based check would have allowed; the new target-based check correctly blocks)
 out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_BRO")")
 cd "$PWD_ORIG"
-assert_eq "" "$out" "worktree edits pass"
+assert_contains "$out" '"permissionDecision":"deny"' "non-worktree target blocked even from worktree CWD"
 
 # ---- DB-missing graceful path ----
 
