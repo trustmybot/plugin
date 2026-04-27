@@ -6,6 +6,21 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 **Headline: bro is now a structurally-enforced pure planner.** Direct Mode removed (#162) and 7 hard-enforcement hooks promote previously prompt-only doctrine to Layer 2 (deterministic shell scripts). New `docs/architecture/ENFORCEMENT.md` documents the 6-layer model (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` → prompts) and the per-agent × per-interaction coverage matrix.
 
+### Fixed — file_registry summary ownership: bro, not SWE (#181)
+
+The original #45 doctrine had SWE batching `file_registry_update_summaries` into its atomic close. **That was the wrong agent**: SWE only sees the task spec, not the broader issue/discussion that motivated the work. Bro has full task context (issue + spec + diff just verified during the V1/V2/V3 task gate) and is the natural author of summaries. Re-assigned ownership structurally:
+
+- **`agents/swe.md`** — drops `file_registry_update_summaries` from the atomic-close batch. SWE's atomic close is now 2 calls: commit + `task_update_status(completed)`.
+- **`skills/tmb_planning-simple/SKILL.md` + `tmb_planning-difficult/SKILL.md`** — bro's V3 close batch grows by one call: `file_registry_update_summaries(updates=[...], advance_verified_sha=<commit>)` BEFORE `task_update_status(closed)`.
+- **`mcp/trajectory-server/src/tools/file-registry.ts`** — `requireRoles('file_registry_update_summaries', ['bro'])` (was `['bro', 'swe']`). Layer 1 — server rejects SWE callers.
+- **`scripts/hooks/require-summaries-before-task-close.sh`** (NEW PreToolUse hook) — when bro tries `task_update_status(status='closed')`, walks the commit's touched files and DENIES the close if `file_registry` is missing summaries or has summaries older than the task's `created_at`. Bypass: `TMB_ALLOW_CLOSE_WITHOUT_SUMMARIES=1`. Layer 2 — bro can't close the task without doing the summary update first.
+
+Re-tightened L5 outcome assertions in `02-simple-task` and `11-codebase-memory-verify-on-drift` since the structural enforcement now guarantees fresh summaries on every closed task. `10-codebase-memory-cold-start`'s assertion stays disabled — that's `headless_fallback` ledger event compliance, a separate bro prompt-discipline issue requiring its own enforcement (filed as a separate follow-up).
+
+### Added — `docs/architecture/RESPONSIBILITIES.md`
+
+Codebase-derived (not architecture-doc-derived) listing of what bro / SWE / pr-reviewer / consultants are **actually** instructed to do — by reading the agent prompts, the skills they wire to, and the hook surface around them. Includes the role × tool matrix from `requireRoles`. Source of truth for what the plugin enforces vs what doctrine merely suggests.
+
 ### Fixed (post-rc.1)
 
 - **`no-source-edit-from-main.sh` + `activation-routine.sh` bro-mode detection too narrow.** Previously required the assistant to emit `Entering bro mode.` in the transcript — but in `claude -p` headless mode bro routinely skips that announcement (the h3/h4 prompt-discipline ceiling). Hooks now also detect bro mode by scanning the transcript for any user message containing the `bro` trigger word. Without this fix, bro shortcut source edits in 3 of 5 v0.5.0-rc.1 L5 dogfood flows. Adds regression test cases for both hooks covering the real-world fixture instead of just the announce-emitted variant.

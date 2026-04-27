@@ -124,6 +124,7 @@ plugin/
 │       ├── git-push-guard.sh         # blocks `git push` on unsigned commits — replaces require-review-sign.sh
 │       ├── no-source-edit-from-main.sh  # blocks bro from editing source files outside an SWE worktree
 │       ├── no-worktree-branch-create.sh # PreToolUse Bash — blocks `git worktree add -b/-B` (branch authority is bro's)
+│       ├── require-summaries-before-task-close.sh # PreToolUse — denies bro task_update_status(closed) if file_registry summaries are missing/stale (#181)
 │       ├── require-task-spec.sh      # block SWE spawn unless task_id references a valid DB row
 │       └── session-start-regen-check.sh  # SessionStart hook — nudges to run tmb_refresh-architecture when arch docs are stale
 │
@@ -202,6 +203,7 @@ plugin/
 │   ├── multi-platform.md             # how the per-platform adapter pattern works
 │   └── architecture/                 # contributor-facing reference
 │       ├── ENFORCEMENT.md           # 6 enforcement layers + per-agent × per-interaction coverage matrix
+│       ├── RESPONSIBILITIES.md      # what bro/swe/pr-reviewer/consultants are actually instructed to do (from prompts + hooks + Layer-1)
 │       ├── ERD.md                    # SQLite schema: Mermaid ER diagram + FK + soft-ref tables
 │       ├── FILES.md                  # this file
 │       └── FLOWS.md                  # workflow flowcharts

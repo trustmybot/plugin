@@ -669,16 +669,18 @@ describe('fileRegistryTools', () => {
       }
     });
 
-    it('is forbidden for non-bro/swe agents (e.g. pr-reviewer)', async () => {
-      const db = tempDB();
-      const tools = fileRegistryTools(db);
-      const result = await call(tools.handlers, 'file_registry_update_summaries', {
-        agent: 'pr-reviewer',
-        updates: [{ path: 'a.ts', summary: 'x' }],
-      });
-      assert.ok(result.isError);
-      assert.match(parseResult(result).error, /forbidden/i);
-      db.close();
+    it('is forbidden for non-bro agents (pr-reviewer + swe — #181 reassigned ownership to bro alone)', async () => {
+      for (const agent of ['pr-reviewer', 'swe']) {
+        const db = tempDB();
+        const tools = fileRegistryTools(db);
+        const result = await call(tools.handlers, 'file_registry_update_summaries', {
+          agent,
+          updates: [{ path: 'a.ts', summary: 'x' }],
+        });
+        assert.ok(result.isError, `${agent} should be forbidden`);
+        assert.match(parseResult(result).error, /forbidden/i);
+        db.close();
+      }
     });
   });
 });
