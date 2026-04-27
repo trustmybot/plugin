@@ -524,4 +524,161 @@ describe('fileRegistryTools', () => {
       db.close();
     });
   });
+
+  describe('file_registry_verify (#45)', () => {
+    it('returns "match" for a row whose md5 matches disk', async () => {
+      const { mkdtempSync, writeFileSync } = await import('node:fs');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const dir = mkdtempSync(join(tmpdir(), 'frv-'));
+      const cwdPrev = process.cwd();
+      process.chdir(dir);
+      try {
+        writeFileSync(join(dir, 'a.ts'), 'export const x = 1;\n');
+        const db = tempDB();
+        const tools = fileRegistryTools(db);
+        await call(tools.handlers, 'file_registry_update_summaries', {
+          updates: [{ path: 'a.ts', summary: 'one export' }],
+        });
+        const result = await call(tools.handlers, 'file_registry_verify', {});
+        assert.ok(!result.isError);
+        const data = parseResult(result);
+        assert.equal(data.verdicts.length, 1);
+        assert.equal(data.verdicts[0].path, 'a.ts');
+        assert.equal(data.verdicts[0].verdict, 'match');
+        db.close();
+      } finally {
+        process.chdir(cwdPrev);
+      }
+    });
+
+    it('returns "mismatch" when disk content drifts from stored md5', async () => {
+      const { mkdtempSync, writeFileSync } = await import('node:fs');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const dir = mkdtempSync(join(tmpdir(), 'frv-'));
+      const cwdPrev = process.cwd();
+      process.chdir(dir);
+      try {
+        writeFileSync(join(dir, 'a.ts'), 'v1');
+        const db = tempDB();
+        const tools = fileRegistryTools(db);
+        await call(tools.handlers, 'file_registry_update_summaries', {
+          updates: [{ path: 'a.ts', summary: 's' }],
+        });
+        writeFileSync(join(dir, 'a.ts'), 'v2-different');
+        const result = await call(tools.handlers, 'file_registry_verify', {});
+        const data = parseResult(result);
+        assert.equal(data.verdicts[0].verdict, 'mismatch');
+        assert.ok(typeof data.verdicts[0].current_md5 === 'string');
+        db.close();
+      } finally {
+        process.chdir(cwdPrev);
+      }
+    });
+
+    it('returns "missing" when registry row exists but file is gone', async () => {
+      const { mkdtempSync, writeFileSync, unlinkSync } = await import('node:fs');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const dir = mkdtempSync(join(tmpdir(), 'frv-'));
+      const cwdPrev = process.cwd();
+      process.chdir(dir);
+      try {
+        writeFileSync(join(dir, 'a.ts'), 'x');
+        const db = tempDB();
+        const tools = fileRegistryTools(db);
+        await call(tools.handlers, 'file_registry_update_summaries', {
+          updates: [{ path: 'a.ts', summary: 's' }],
+        });
+        unlinkSync(join(dir, 'a.ts'));
+        const result = await call(tools.handlers, 'file_registry_verify', {});
+        const data = parseResult(result);
+        assert.equal(data.verdicts[0].verdict, 'missing');
+        db.close();
+      } finally {
+        process.chdir(cwdPrev);
+      }
+    });
+
+    it('returns "new" when input paths include a file not in registry', async () => {
+      const { mkdtempSync, writeFileSync } = await import('node:fs');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const dir = mkdtempSync(join(tmpdir(), 'frv-'));
+      const cwdPrev = process.cwd();
+      process.chdir(dir);
+      try {
+        writeFileSync(join(dir, 'a.ts'), 'x');
+        writeFileSync(join(dir, 'b.ts'), 'y');
+        const db = tempDB();
+        const tools = fileRegistryTools(db);
+        await call(tools.handlers, 'file_registry_update_summaries', {
+          updates: [{ path: 'a.ts', summary: 's' }],
+        });
+        const result = await call(tools.handlers, 'file_registry_verify', {
+          paths: ['a.ts', 'b.ts'],
+        });
+        const data = parseResult(result);
+        const byPath = Object.fromEntries(
+          data.verdicts.map((v: { path: string; verdict: string }) => [v.path, v.verdict]),
+        );
+        assert.equal(byPath['a.ts'], 'match');
+        assert.equal(byPath['b.ts'], 'new');
+        db.close();
+      } finally {
+        process.chdir(cwdPrev);
+      }
+    });
+  });
+
+  describe('file_registry_update_summaries (#45)', () => {
+    it('writes content_md5 + summary + summary_updated_at and advances last_verified_sha', async () => {
+      const { mkdtempSync, writeFileSync } = await import('node:fs');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const dir = mkdtempSync(join(tmpdir(), 'frus-'));
+      const cwdPrev = process.cwd();
+      process.chdir(dir);
+      try {
+        writeFileSync(join(dir, 'a.ts'), 'export const x = 1;\n');
+        const db = tempDB();
+        const tools = fileRegistryTools(db);
+        const result = await call(tools.handlers, 'file_registry_update_summaries', {
+          updates: [{ path: 'a.ts', summary: 'one export' }],
+          advance_verified_sha: 'abc123',
+        });
+        assert.ok(!result.isError);
+        const data = parseResult(result);
+        assert.equal(data.updated, 1);
+        assert.equal(data.advance_verified_sha, 'abc123');
+        const row = db.get<{ content_md5: string; summary: string; summary_updated_at: string }>(
+          'SELECT content_md5, summary, summary_updated_at FROM file_registry WHERE path = ?',
+          ['a.ts'],
+        );
+        assert.ok(row);
+        assert.ok(row!.content_md5.length === 32);
+        assert.equal(row!.summary, 'one export');
+        const cfg = db.get<{ value_json: string }>(
+          "SELECT value_json FROM plugin_config WHERE key = 'last_verified_sha'",
+        );
+        assert.equal(cfg?.value_json, '"abc123"');
+        db.close();
+      } finally {
+        process.chdir(cwdPrev);
+      }
+    });
+
+    it('is forbidden for non-bro/swe agents (e.g. pr-reviewer)', async () => {
+      const db = tempDB();
+      const tools = fileRegistryTools(db);
+      const result = await call(tools.handlers, 'file_registry_update_summaries', {
+        agent: 'pr-reviewer',
+        updates: [{ path: 'a.ts', summary: 'x' }],
+      });
+      assert.ok(result.isError);
+      assert.match(parseResult(result).error, /forbidden/i);
+      db.close();
+    });
+  });
 });
