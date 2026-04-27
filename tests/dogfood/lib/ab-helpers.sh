@@ -18,11 +18,93 @@ l6_make_arm_plugin() {
   local arm_overrides="$1"
   local arm_plugin
   arm_plugin=$(mktemp -d -t tmb-arm-plugin-XXXX)
+  # Exclude node_modules from rsync — we'll symlink them after for speed.
+  # Without symlinks the MCP server can't import @modelcontextprotocol/sdk
+  # and silently fails to start (0-byte trajectory.db, bro reports 'no MCP').
   rsync -a --exclude='.git' --exclude='node_modules' "$PLUGIN_ROOT/" "$arm_plugin/"
+  # Symlink the heavy node_modules from the source. Both the root one and the
+  # MCP server's nested one (if they exist).
+  if [ -d "$PLUGIN_ROOT/node_modules" ]; then
+    ln -sfn "$PLUGIN_ROOT/node_modules" "$arm_plugin/node_modules"
+  fi
+  if [ -d "$PLUGIN_ROOT/mcp/trajectory-server/node_modules" ]; then
+    ln -sfn "$PLUGIN_ROOT/mcp/trajectory-server/node_modules" "$arm_plugin/mcp/trajectory-server/node_modules"
+  fi
   if [ -d "$arm_overrides" ]; then
     rsync -a "$arm_overrides/" "$arm_plugin/"
   fi
   echo "$arm_plugin"
+}
+
+# l6_smoke_arm_plugin <arm_plugin_dir> — verifies the arm_plugin can spawn
+# the MCP trajectory server and respond to tools/list. Fail-fast guard so
+# A/B doesn't burn tokens against an arm_plugin where MCP is silently broken
+# (the failure mode that bug #131-A produced — empty trajectory.db, bro
+# reports 'no MCP', 10 wasted claude calls).
+#
+# Returns 0 if MCP responds with a tool definition list within 10 seconds,
+# 1 otherwise. On failure, prints diagnostic to stderr.
+l6_smoke_arm_plugin() {
+  local arm_plugin="$1"
+  local mcp_entry="$arm_plugin/mcp/trajectory-server/dist/index.js"
+  if [ ! -f "$mcp_entry" ]; then
+    printf "  ✗ smoke: MCP entrypoint missing at %s\n" "$mcp_entry" >&2
+    return 1
+  fi
+
+  # Send a tools/list JSON-RPC request and check for a response with tools.
+  # 10s timeout is generous — actual response is typically <1s.
+  local req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ab-smoke","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+  local resp
+  resp=$(printf '%s\n' "$req" | timeout 10 node --experimental-sqlite "$mcp_entry" 2>&1 || true)
+
+  if echo "$resp" | grep -q '"tools"'; then
+    return 0
+  fi
+
+  printf "  ✗ smoke: MCP did not respond with a tools list. Output:\n" >&2
+  printf '%s\n' "$resp" | head -10 | sed 's/^/      /' >&2
+  return 1
+}
+
+# l6_setup_scenario_state <project_dir> <scenario_dir> — applies fixture +
+# setup_files from scenario.json before claude runs. Each scenario can declare:
+#   - "fixture": "<name>"  → l6_seed_db with that fixture (e.g. "onboarding-named")
+#   - "setup_files": [{"path": "<rel-path>", "content": "<text>"}]
+#                    → write each file in the scratch project before claude runs
+# Both are optional. Defaults: no fixture (empty DB), no setup files.
+l6_setup_scenario_state() {
+  local project="$1" scenario_dir="$2"
+  local config="$scenario_dir/scenario.json"
+  [ -f "$config" ] || return 0
+
+  local fixture
+  fixture=$(jq -r '.fixture // empty' "$config")
+  if [ -n "$fixture" ]; then
+    l6_seed_db "$project" "$fixture"
+  fi
+
+  # setup_files: array of {path, content}
+  local count
+  count=$(jq -r '.setup_files | length // 0' "$config")
+  local i=0
+  while [ "$i" -lt "$count" ]; do
+    local rel content
+    rel=$(jq -r ".setup_files[$i].path" "$config")
+    content=$(jq -r ".setup_files[$i].content" "$config")
+    mkdir -p "$(dirname "$project/$rel")"
+    printf '%s' "$content" > "$project/$rel"
+    i=$((i + 1))
+  done
+
+  # If setup_files were created, commit them so the scratch repo is "clean"
+  # — flows that test git-clean behavior depend on this.
+  if [ "$count" -gt 0 ]; then
+    (cd "$project" && git add . && git commit -qm "scenario setup files" 2>/dev/null || true)
+  fi
 }
 
 # l6_run_arm <project_dir> <arm_plugin_dir> <prompt> — runs claude -p against
