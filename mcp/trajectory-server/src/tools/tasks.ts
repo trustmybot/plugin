@@ -99,6 +99,13 @@ export function taskTools(db: TrajectoryDB): {
                   description:
                     'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 64000 chars.',
                 },
+                repo: {
+                  type: 'string',
+                  description:
+                    'Optional relative path to the git repo for this task (e.g. "inner", "repos/backend"). ' +
+                    'Must not contain ".." or start with "/". Null/omitted for single-repo CC. ' +
+                    'Used by the WorktreeCreate hook to route worktree creation to the right repo.',
+                },
               },
               required: ['branch_id', 'description', 'success_criteria'],
             },
@@ -260,14 +267,30 @@ export function taskTools(db: TrajectoryDB): {
             }
           }
 
+          let repoValue: string | null = null;
+          if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
+            const repo = t.repo as string;
+            if (repo.includes('..')) {
+              throw new Error(
+                `Invalid repo "${repo}": must not contain "..". Use a relative path like "inner" or "repos/backend".`,
+              );
+            }
+            if (repo.startsWith('/')) {
+              throw new Error(
+                `Invalid repo "${repo}": must not start with "/". Use a relative path like "inner" or "repos/backend".`,
+              );
+            }
+            repoValue = repo;
+          }
+
           void genId('task');
 
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
                 tools_required, skills_required, success_criteria,
-                status, attempts, spec_body, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
+                status, attempts, spec_body, repo, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
@@ -278,6 +301,7 @@ export function taskTools(db: TrajectoryDB): {
               JSON.stringify(t.skills_required ?? []),
               t.success_criteria,
               t.spec_body ?? '',
+              repoValue,
               now,
               now,
             ],

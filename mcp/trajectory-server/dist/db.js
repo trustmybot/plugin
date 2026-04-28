@@ -63,6 +63,7 @@ export class TrajectoryDB {
         this.db.exec('PRAGMA busy_timeout = 5000');
         this.applySchema();
         this.migratePluginMetaDuplicates();
+        this.migrateTasksRepo();
         this.syncPluginVersion();
     }
     applySchema() {
@@ -112,6 +113,15 @@ export class TrajectoryDB {
             if (!present.has(name)) {
                 this.db.exec(`ALTER TABLE file_registry ADD COLUMN ${name} ${type}`);
             }
+        }
+    }
+    migrateTasksRepo() {
+        const cols = this.db
+            .prepare('PRAGMA table_info(tasks)')
+            .all();
+        const present = new Set(cols.map((c) => c.name));
+        if (!present.has('repo')) {
+            this.db.exec(`ALTER TABLE tasks ADD COLUMN repo TEXT`);
         }
     }
     migratePluginMetaDuplicates() {

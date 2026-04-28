@@ -643,4 +643,162 @@ describe('taskTools', () => {
 
     db.close();
   });
+
+  it('task_create_batch stores repo and task_get returns it verbatim', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/repo-test',
+          description: 'Task with repo set',
+          success_criteria: 'repo stored',
+          repo: 'inner',
+        },
+      ],
+    });
+    const inserted = parseResult(batchResult);
+    assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].repo, 'inner');
+
+    const getResult = await call(tools.handlers, 'task_get', {
+      agent: 'bro',
+      task_id: String(inserted[0].id),
+    });
+    const task = parseResult(getResult);
+    assert.ok(!getResult.isError);
+    assert.equal(task.repo, 'inner');
+
+    db.close();
+  });
+
+  it('task_create_batch stores nested repo path', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/nested-repo',
+          description: 'Task with nested repo path',
+          success_criteria: 'stored correctly',
+          repo: 'repos/backend',
+        },
+      ],
+    });
+    const inserted = parseResult(batchResult);
+    assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].repo, 'repos/backend');
+
+    db.close();
+  });
+
+  it('task_create_batch defaults repo to null when omitted', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/no-repo',
+          description: 'Task without repo',
+          success_criteria: 'repo is null',
+        },
+      ],
+    });
+    const inserted = parseResult(batchResult);
+    assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].repo, null);
+
+    db.close();
+  });
+
+  it('task_create_batch treats empty string repo as null', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/empty-repo',
+          description: 'Task with empty repo string',
+          success_criteria: 'repo is null',
+          repo: '',
+        },
+      ],
+    });
+    const inserted = parseResult(batchResult);
+    assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].repo, null);
+
+    db.close();
+  });
+
+  it('task_create_batch rejects repo containing ".."', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/bad-repo',
+          description: 'Task with bad repo path',
+          success_criteria: 'rejected',
+          repo: '../escape',
+        },
+      ],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid repo/);
+    assert.match(data.error, /\.\./);
+
+    db.close();
+  });
+
+  it('task_create_batch rejects repo starting with "/"', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/abs-repo',
+          description: 'Task with absolute repo path',
+          success_criteria: 'rejected',
+          repo: '/absolute/path',
+        },
+      ],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid repo/);
+
+    db.close();
+  });
 });
