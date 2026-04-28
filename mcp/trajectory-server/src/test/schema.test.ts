@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
+import { TrajectoryDB } from '../db.js';
 
 describe('schema — current table set, default values, constraints', () => {
   it('fresh DB contains all 16 tables', () => {
@@ -248,6 +252,24 @@ describe('schema — current table set, default values, constraints', () => {
     assert.ok(indexNames.includes('idx_eval_results_flow'), 'flow_name index required');
 
     db.close();
+  });
+
+  it('plugin_meta has exactly 1 row after 10 sequential opens of the same file-backed DB (GL #23)', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-schema-test-'));
+    try {
+      const dbPath = join(tmpDir, 'trajectory.db');
+      for (let i = 0; i < 10; i++) {
+        const db = new TrajectoryDB(dbPath);
+        db.close();
+      }
+      const db = new TrajectoryDB(dbPath);
+      const row = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM plugin_meta');
+      assert.ok(row !== undefined);
+      assert.equal(row.cnt, 1, 'plugin_meta must have exactly 1 row after 10 opens');
+      db.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('identity CHECK constraint rejects a second row with id != 1', () => {
