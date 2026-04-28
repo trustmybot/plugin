@@ -534,6 +534,12 @@ The hook is a **defensive safety net only** — it does not remove or replace th
 
 ---
 
+## Linear backfill workflow
+
+When Linear-imported issues have truncated descriptions, bro can backfill them using the `issue_update_description` tool. The workflow is: (1) bro fetches the full description via the Linear MCP (`mcp__linear-server__get_issue` or equivalent); (2) bro calls `issue_update_description(agent='bro', issue_id='<N>', description='<full>')` to overwrite the truncated row; (3) bro verifies via `issue_get(include_description=true)` that the row reflects the new description. The tool is gated to the bro role via `requireRoles` — SWE, pr-reviewer, and architect cannot rewrite issue descriptions, preserving the audit trail of who changed what and when.
+
+---
+
 ## How to add a new flow to this doc
 
 1. Add a row to the **Quick index** table.
