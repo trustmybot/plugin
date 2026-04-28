@@ -339,6 +339,15 @@ export function taskTools(db: TrajectoryDB): {
         );
       }
 
+      const SWE_ALLOWED_STATUSES = new Set(['running', 'completed', 'failed']);
+      if (args['agent'] === 'swe' && !SWE_ALLOWED_STATUSES.has(status)) {
+        throw new Error(
+          `task_update_status rejected: SWE may only set status to 'running', 'completed', or 'failed' (got '${status}'). ` +
+          `Pre-execution states (pending, escalated) are bro-managed; 'closed' is bro's atomic-close transition; ` +
+          `'needs_validation' is not a valid SWE terminal state — use 'failed' instead if the work blocked. See #114.`
+        );
+      }
+
       if (rawCommitSha !== undefined) {
         if (rawCommitSha.length < 7 || !/^[0-9a-fA-F]+$/.test(rawCommitSha)) {
           throw new Error(

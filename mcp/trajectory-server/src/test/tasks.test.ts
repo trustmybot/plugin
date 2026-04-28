@@ -509,6 +509,117 @@ describe('taskTools', () => {
     db.close();
   });
 
+  it('task_update_status rejects SWE writes of non-terminal status (needs_validation, pending, closed, escalated)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        { branch_id: 'feat/swe-guard-test', description: 'SWE guard test', success_criteria: 'ok' },
+      ],
+    });
+    const tasks = parseResult(batchResult);
+    const taskId = String(tasks[0].id);
+
+    const forbiddenStatuses = ['needs_validation', 'pending', 'closed', 'escalated'];
+    for (const status of forbiddenStatuses) {
+      const result = await call(tools.handlers, 'task_update_status', {
+        agent: 'swe',
+        task_id: taskId,
+        status,
+      });
+      const data = parseResult(result);
+      assert.ok(result.isError, `Expected isError=true for SWE + status='${status}'`);
+      assert.match(data.error, /task_update_status rejected/, `Expected rejection message for status='${status}'`);
+      assert.match(data.error, /#114/, `Expected #114 reference for status='${status}'`);
+    }
+
+    db.close();
+  });
+
+  it('task_update_status allows SWE writes of running, completed, and failed', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        { branch_id: 'feat/swe-running-test', description: 'SWE running test', success_criteria: 'ok' },
+        { branch_id: 'feat/swe-completed-test', description: 'SWE completed test', success_criteria: 'ok' },
+        { branch_id: 'feat/swe-failed-test', description: 'SWE failed test', success_criteria: 'ok' },
+      ],
+    });
+    const tasks = parseResult(batchResult);
+
+    const runningResult = await call(tools.handlers, 'task_update_status', {
+      agent: 'swe',
+      task_id: String(tasks[0].id),
+      status: 'running',
+    });
+    assert.ok(!runningResult.isError, `Expected no error for SWE + status='running': ${JSON.stringify(parseResult(runningResult))}`);
+    assert.equal(parseResult(runningResult).status, 'running');
+
+    const completedResult = await call(tools.handlers, 'task_update_status', {
+      agent: 'swe',
+      task_id: String(tasks[1].id),
+      status: 'completed',
+    });
+    assert.ok(!completedResult.isError, `Expected no error for SWE + status='completed': ${JSON.stringify(parseResult(completedResult))}`);
+    assert.equal(parseResult(completedResult).status, 'completed');
+
+    const failedResult = await call(tools.handlers, 'task_update_status', {
+      agent: 'swe',
+      task_id: String(tasks[2].id),
+      status: 'failed',
+    });
+    assert.ok(!failedResult.isError, `Expected no error for SWE + status='failed': ${JSON.stringify(parseResult(failedResult))}`);
+    assert.equal(parseResult(failedResult).status, 'failed');
+
+    db.close();
+  });
+
+  it('task_update_status allows bro to set any status including closed and needs_validation', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        { branch_id: 'feat/bro-closed-test', description: 'Bro closed test', success_criteria: 'ok' },
+        { branch_id: 'feat/bro-needs-validation-test', description: 'Bro needs_validation test', success_criteria: 'ok' },
+      ],
+    });
+    const tasks = parseResult(batchResult);
+
+    const closedResult = await call(tools.handlers, 'task_update_status', {
+      agent: 'bro',
+      task_id: String(tasks[0].id),
+      status: 'closed',
+    });
+    assert.ok(!closedResult.isError, `Expected no error for bro + status='closed': ${JSON.stringify(parseResult(closedResult))}`);
+    assert.equal(parseResult(closedResult).status, 'closed');
+
+    const nvResult = await call(tools.handlers, 'task_update_status', {
+      agent: 'bro',
+      task_id: String(tasks[1].id),
+      status: 'needs_validation',
+    });
+    assert.ok(!nvResult.isError, `Expected no error for bro + status='needs_validation': ${JSON.stringify(parseResult(nvResult))}`);
+    assert.equal(parseResult(nvResult).status, 'needs_validation');
+
+    db.close();
+  });
+
   it('task_create_batch accepts spec_body exactly at 8000 chars (boundary)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
