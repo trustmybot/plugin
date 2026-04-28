@@ -250,6 +250,21 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 
 ---
 
+## MCP recovery smoke recipe
+
+> Full doctrine (Tier 1 / Tier 2 / Tier 3): `docs/SELF_DEV.md § MCP recovery procedure`
+
+Run this after any suspected MCP disconnect during a test session:
+
+1. `pkill -f 'trajectory-server/dist/index.js'`
+2. In CC: type `/reload-plugins`
+3. Verify with `/mcp` that trajectory-server shows green
+4. Run any `mcp__plugin_tmb_*` tool, observe success
+
+If step 3 still shows red, escalate to Tier 2: exit CC fully and relaunch.
+
+---
+
 ## Related
 
 - [`scenarios.md`](./scenarios.md) — the 10-item L5 checklist (what to test during Path B RC validation)
@@ -257,3 +272,4 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 - [`../README.md`](../README.md) — automated test suites (L0–L4 + L5) and `bash tests/run-all.sh`
 - [`../../CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) — Path 1 hotfix vs Path 2 RC, with explicit promotion sequence
 - [`../../docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md) — workflow flowcharts the scenarios exercise
+- [`../../docs/SELF_DEV.md` § MCP recovery procedure](../../docs/SELF_DEV.md#mcp-recovery-procedure) — three-tier MCP recovery doctrine
