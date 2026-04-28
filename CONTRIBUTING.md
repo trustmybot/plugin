@@ -10,6 +10,23 @@ Thanks for the interest. Public MIT-licensed plugin for Claude Code. Contributio
 4. `bash tests/run-all.sh` — full suite must be green.
 5. Open a PR targeting `dev`. Reference the issue with `Closes #N`.
 
+### Submitting via GitLab (primary host since 2026-04-28)
+
+The primary repo is now `gitlab.com/trustmybot/plugin`. To submit changes:
+
+1. Fork or clone the GitLab repo:
+   ```bash
+   git clone git@gitlab.com:trustmybot/plugin.git
+   ```
+2. Branch off `dev`, make your change, run `bash tests/run-all.sh` (L1–L4 must pass)
+3. Push and open a merge request:
+   ```bash
+   glab mr create --target-branch dev --title "<emoji> <type>(<scope>): <summary>"
+   ```
+4. Address review feedback; merge happens via GitLab UI or `glab mr merge`.
+
+The GitHub mirror (`github.com/trustmybot/plugin`, account currently suspended) remains as a backup. Once restored we may switch primary host back — the contribution flow stays the same shape.
+
 ## Label vocabulary
 
 This project uses Linear-native flat labels (`Bug`, `Feature`, `Install`, `Workflow`, `Priority: High`, etc.) — see [`docs/contributing/LABELS.md`](docs/contributing/LABELS.md) for the canonical list and [`docs/contributing/ENUMS.md`](docs/contributing/ENUMS.md) for the matching DB ENUM vocabulary. The label set is enforced by `tests/lint/labels-stable.sh`. When filing an issue, pick from the existing labels — adding a new label is a doctrine change.
