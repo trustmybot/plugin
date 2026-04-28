@@ -9,7 +9,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
 import { TrajectoryDB, resolveDbPath } from './db.js';
-import { serverLog } from './logger.js';
+import { serverLog, serverLogSync } from './logger.js';
 
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
@@ -67,8 +67,18 @@ function maybeRecordTrajectory(
   }
 }
 
+let shuttingDown = false;
+
+function shutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  serverLogSync({ kind: 'shutdown', signal, pid: process.pid });
+  db.close();
+  process.exit(0);
+}
+
 process.on('uncaughtException', (err: Error) => {
-  serverLog({ kind: 'error', error_message: err.message, stack: err.stack });
+  serverLogSync({ kind: 'uncaughtException', error_message: err.message, stack: err.stack, pid: process.pid });
   process.stderr.write(`uncaughtException: ${err.message}\n${err.stack ?? ''}\n`);
   process.exit(1);
 });
@@ -76,7 +86,7 @@ process.on('uncaughtException', (err: Error) => {
 process.on('unhandledRejection', (reason: unknown) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
   const stack = reason instanceof Error ? reason.stack : undefined;
-  serverLog({ kind: 'error', error_message: msg, stack });
+  serverLogSync({ kind: 'unhandledRejection', error_message: msg, stack, pid: process.pid });
   process.stderr.write(`unhandledRejection: ${msg}\n`);
   process.exit(1);
 });
@@ -117,17 +127,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   return result;
 });
 
-process.on('SIGINT', () => {
-  serverLog({ kind: 'shutdown', signal: 'SIGINT' });
-  db.close();
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  serverLog({ kind: 'shutdown', signal: 'SIGTERM' });
-  db.close();
-  process.exit(0);
-});
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
