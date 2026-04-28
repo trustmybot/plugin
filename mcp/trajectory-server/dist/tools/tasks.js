@@ -1,12 +1,20 @@
 import { genId, nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 export const BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
+const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
 function validateBranchId(branchId) {
     if (!BRANCH_ID_RE.test(branchId)) {
         throw new Error(`Invalid branch_id "${branchId}". Must match git-convention format: <type>/<slug> ` +
             `where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
             `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`);
     }
+}
+function validateParentBranchId(branchId) {
+    if (BASE_BRANCH_ALLOWLIST.has(branchId) || BRANCH_ID_RE.test(branchId))
+        return;
+    throw new Error(`Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention ` +
+        `format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
+        `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`);
 }
 const VALID_STATUSES = new Set([
     'pending',
@@ -194,7 +202,7 @@ export function taskTools(db) {
                         throw new Error('Missing required arg: branch_id');
                     validateBranchId(t.branch_id);
                     if (t.parent_branch_id != null)
-                        validateBranchId(t.parent_branch_id);
+                        validateParentBranchId(t.parent_branch_id);
                     if (!t.description)
                         throw new Error('Missing required arg: description');
                     if (!t.success_criteria)
