@@ -154,7 +154,6 @@ SWE is allowed to call:
 | Hook | When | Effect |
 |---|---|---|
 | `require-task-spec.sh` | PreToolUse Agent | Denies SWE spawn without valid `task_id` referencing a `pending`/`open` task with non-empty spec |
-| `create-worktree.sh` | WorktreeCreate | Branches from HEAD (workaround CC #27134/#44965) |
 | `git-guards.sh`, `git-push-guard.sh` | PreToolUse Bash | Universal git safety (no force-push to protected branches, no push without signed validation_attempts) |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Denies `git worktree add -b/-B` from anyone (SWE included) |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Denies SWE attaching worktree to a stale branch |

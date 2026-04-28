@@ -54,7 +54,7 @@ The "enforcement" column names the **strongest layer currently deployed** for ea
 | Interaction | Enforcement | Where |
 |---|---|---|
 | Spawned only with valid `task_id` referencing a `pending`/`open` task with non-empty `spec_body` | Layer 2 (PreToolUse hook on Task) | `scripts/hooks/require-task-spec.sh` |
-| Runs in an isolated worktree | Layer 2 (WorktreeCreate hook) + Layer 3 (`isolation: worktree` frontmatter) | `scripts/hooks/create-worktree.sh`, `agents/swe.md` |
+| Runs in an isolated worktree | Layer 3 (`isolation: worktree` frontmatter) + Layer 2 (PreToolUse Bash hooks: `no-worktree-branch-create.sh`, `branch-up-to-date-with-remote.sh`) | `agents/swe.md` + the two Bash hooks |
 | **Cannot create branches** — must attach worktree to bro-pre-created `<branch>` (#170) | Layer 2 (PreToolUse hook on Bash) | `scripts/hooks/no-worktree-branch-create.sh` |
 | **Cannot write file_registry summaries** — bro owns summaries (#181). SWE just commits + status='completed' | Layer 1 (`requireRoles('file_registry_update_summaries', ['bro'])`) | `mcp/trajectory-server/src/tools/file-registry.ts` |
 | **Cannot attach worktree to a stale branch** — branch must descend from `origin/<pr_target>` | Layer 2 (PreToolUse hook on Bash, fetch + ancestry) | `scripts/hooks/branch-up-to-date-with-remote.sh` |
@@ -87,7 +87,7 @@ The "enforcement" column names the **strongest layer currently deployed** for ea
 |---|---|---|
 | Force-push to protected branches blocked | Layer 2 (PreToolUse hook on Bash) | `scripts/hooks/git-guards.sh` |
 | Direct commits to `dev`/`main` from outside dev→main PR flow blocked | Layer 2 | `scripts/hooks/git-guards.sh` |
-| Worktree branch creation safety (CC bug workaround) | Layer 2 (WorktreeCreate hook) | `scripts/hooks/create-worktree.sh` |
+| Worktree branch creation safety | Layer 2 (PreToolUse Bash hooks) | `scripts/hooks/no-worktree-branch-create.sh`, `scripts/hooks/branch-up-to-date-with-remote.sh` |
 | Push gate (see pr-reviewer section) | Layer 2 | `scripts/hooks/git-push-guard.sh` |
 
 ## Open Layer-6-only items — promotion candidates

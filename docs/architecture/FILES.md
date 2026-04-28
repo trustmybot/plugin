@@ -104,7 +104,7 @@ plugin/
 │       │   └── README.md             # auto vs manual rules
 │       └── snapshots/.gitkeep        # for issue_snapshot_md output
 │
-├── # Hooks (PreToolUse / WorktreeCreate)
+├── # Hooks (PreToolUse / PostToolUse / SessionStart / UserPromptSubmit)
 ├── hooks/
 │   └── hooks.json                    # CC hooks manifest (matchers + script paths)
 ├── scripts/
@@ -117,7 +117,6 @@ plugin/
 │       ├── activation-routine.sh    # UserPromptSubmit hook — pre-fetches identity + pending issue when bro mode active
 │       ├── branch-up-to-date-with-remote.sh  # PreToolUse Bash — denies worktree-add when branch is behind origin/<pr_target>
 │       ├── cleanup-worktree-on-task-close.sh # PostToolUse — removes worktree when bro flips task → closed
-│       ├── create-worktree.sh        # WorktreeCreate hook (workaround CC #27134/#44965)
 │       ├── debug-trajectory.sh       # PostToolUse capture for non-MCP calls (TMB_DEBUG_TRAJECTORY=1)
 │       ├── ensure-gitignore.sh       # SessionStart hook — ensures project .gitignore excludes .claude/
 │       ├── git-guards.sh             # protected-branch block, force-push block, dual-tier dev→main exception (v0.1.1)
@@ -247,7 +246,7 @@ plugin/
 
 - **Two-layer agent model.** Bro is a CLAUDE.md persona. Backbone agents (`swe`, `pr-reviewer`) ship globally in `agents/`. Consultants (`architect`, `cto`, `ceo`, `pm`) ship as templates in `templates/agents/`, instantiated per-project on demand.
 - **23 skills total** in `skills/`: 16 protocol skills (`tmb_*`, plugin-owned) + 7 default workflow skills (overridable by name in `<project>/.claude/skills/`).
-- **5 hook scripts** (`git-guards`, `git-push-guard`, `require-task-spec`, `create-worktree`, `diagnostic/probe-bash`)
+- **4 hook scripts** (`git-guards`, `git-push-guard`, `require-task-spec`, `diagnostic/probe-bash`)
 - **14-table SQLite schema** via `node:sqlite` (Node stdlib, no native deps; Node ≥22 required) — see [`ERD.md`](ERD.md).
 - **Test layers (L0-L5)**: see [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`../../tests/run-all.sh`](../../tests/run-all.sh). 10 lint scripts + 245 MCP unit + 43 MCP integration + 27 hook unit + 10-item manual checklist + Docker install-smoke + post-tag canary.
 - **Multi-platform structure** present as placeholders; only `.claude-plugin/` is implemented (see [`../multi-platform.md`](../multi-platform.md)).
