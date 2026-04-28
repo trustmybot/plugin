@@ -33,6 +33,7 @@ run_step() {
 
 run_step "L1 lint: agent template line budget"        bash "$HERE/lint/agent-line-budget.sh"
 run_step "L1 lint: agent template byte-identity (swe + pr-reviewer)"  bash "$HERE/lint/agent-template-byte-identity.sh"
+run_step "L1 lint: local agent overrides retain workflow primitives"   bash "$HERE/lint/local-agent-primitives.sh"
 run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/lint/skill-frontmatter.sh"
 run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/lint/manifest-shape.sh"
 run_step "L1 lint: version sync (3 manifests agree)"  bash "$HERE/lint/version-sync.sh"
