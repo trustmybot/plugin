@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -8,6 +9,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
 import { TrajectoryDB, resolveDbPath } from './db.js';
+import { serverLog } from './logger.js';
 
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
@@ -65,28 +67,70 @@ function maybeRecordTrajectory(
   }
 }
 
+process.on('uncaughtException', (err: Error) => {
+  serverLog({ kind: 'error', error_message: err.message, stack: err.stack });
+  process.stderr.write(`uncaughtException: ${err.message}\n${err.stack ?? ''}\n`);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason: unknown) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : undefined;
+  serverLog({ kind: 'error', error_message: msg, stack });
+  process.stderr.write(`unhandledRejection: ${msg}\n`);
+  process.exit(1);
+});
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const handler = toolHandlers[name];
   if (!handler) {
     throw new Error(`Unknown tool: ${name}`);
   }
-  const result = await handler(args ?? {});
+  const start = performance.now();
+  const agent = (args as Record<string, unknown> | undefined)?.agent ?? null;
+  serverLog({ kind: 'tool_entry', tool: name, agent });
+  let result: Awaited<ReturnType<typeof handler>>;
+  try {
+    result = await handler(args ?? {});
+  } catch (err) {
+    const duration_ms = Math.round(performance.now() - start);
+    serverLog({
+      kind: 'tool_exit',
+      tool: name,
+      agent,
+      is_error: true,
+      error_message: err instanceof Error ? err.message : String(err),
+      duration_ms,
+    });
+    throw err;
+  }
+  const duration_ms = Math.round(performance.now() - start);
+  serverLog({
+    kind: 'tool_exit',
+    tool: name,
+    agent,
+    is_error: result.isError ?? false,
+    duration_ms,
+  });
   maybeRecordTrajectory(name, args, result);
   return result;
 });
 
 process.on('SIGINT', () => {
+  serverLog({ kind: 'shutdown', signal: 'SIGINT' });
   db.close();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
+  serverLog({ kind: 'shutdown', signal: 'SIGTERM' });
   db.close();
   process.exit(0);
 });
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+serverLog({ kind: 'startup', pid: process.pid, version: '0.5.0', db_path: dbPath });
 
 process.stderr.write(`server started (db: ${dbPath})\n`);

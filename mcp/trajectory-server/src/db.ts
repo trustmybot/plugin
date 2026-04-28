@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
+import { sqlLog } from './logger.js';
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -150,22 +152,85 @@ export class TrajectoryDB {
     sql: string,
     params?: unknown[],
   ): { changes: number; lastInsertRowid: number | bigint } {
-    const stmt = this.db.prepare(sql);
-    const result = stmt.run(...((params ?? []) as never[]));
-    return {
-      changes: Number(result.changes),
-      lastInsertRowid: result.lastInsertRowid,
-    };
+    const start = performance.now();
+    try {
+      const stmt = this.db.prepare(sql);
+      const result = stmt.run(...((params ?? []) as never[]));
+      const out = { changes: Number(result.changes), lastInsertRowid: result.lastInsertRowid };
+      sqlLog({
+        kind: 'run',
+        sql,
+        params: params ?? [],
+        duration_ms: Math.round(performance.now() - start),
+        rows_affected: out.changes,
+        ok: true,
+      });
+      return out;
+    } catch (err) {
+      sqlLog({
+        kind: 'run',
+        sql,
+        params: params ?? [],
+        duration_ms: Math.round(performance.now() - start),
+        ok: false,
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
   }
 
   get<T>(sql: string, params?: unknown[]): T | undefined {
-    const stmt = this.db.prepare(sql);
-    return stmt.get(...((params ?? []) as never[])) as T | undefined;
+    const start = performance.now();
+    try {
+      const stmt = this.db.prepare(sql);
+      const row = stmt.get(...((params ?? []) as never[])) as T | undefined;
+      sqlLog({
+        kind: 'get',
+        sql,
+        params: params ?? [],
+        duration_ms: Math.round(performance.now() - start),
+        row_count: row === undefined ? 0 : 1,
+        ok: true,
+      });
+      return row;
+    } catch (err) {
+      sqlLog({
+        kind: 'get',
+        sql,
+        params: params ?? [],
+        duration_ms: Math.round(performance.now() - start),
+        ok: false,
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
   }
 
   all<T>(sql: string, params?: unknown[]): T[] {
-    const stmt = this.db.prepare(sql);
-    return stmt.all(...((params ?? []) as never[])) as T[];
+    const start = performance.now();
+    try {
+      const stmt = this.db.prepare(sql);
+      const rows = stmt.all(...((params ?? []) as never[])) as T[];
+      sqlLog({
+        kind: 'all',
+        sql,
+        params: params ?? [],
+        duration_ms: Math.round(performance.now() - start),
+        row_count: rows.length,
+        ok: true,
+      });
+      return rows;
+    } catch (err) {
+      sqlLog({
+        kind: 'all',
+        sql,
+        params: params ?? [],
+        duration_ms: Math.round(performance.now() - start),
+        ok: false,
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
   }
 
   /**
