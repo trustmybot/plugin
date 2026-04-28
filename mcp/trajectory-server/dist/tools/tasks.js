@@ -1,5 +1,6 @@
 import { genId, nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { spawnSync } from 'node:child_process';
 export const BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
 const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
 function validateBranchId(branchId) {
@@ -15,6 +16,20 @@ function validateParentBranchId(branchId) {
     throw new Error(`Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention ` +
         `format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
         `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`);
+}
+function validateBranchExistsInRepo(branchId, repo) {
+    const result = spawnSync('git', ['-C', repo, 'rev-parse', '--verify', branchId], { encoding: 'utf8' });
+    if (result.status === 0)
+        return;
+    const stderr = (result.stderr ?? '');
+    if (stderr.includes('not a git repository') || stderr.includes('cannot change to')) {
+        console.warn(`[task_create_batch] repo '${repo}' is not a resolvable git repository; skipping branch-existence check for '${branchId}'.`);
+        return;
+    }
+    throw new Error(`task_create_batch rejected: branch '${branchId}' does not exist in repo '${repo}'. ` +
+        `Pre-create the branch before filing the task: ` +
+        `'git -C ${repo} branch ${branchId} <parent>'. ` +
+        `Bro is responsible for branch creation — SWE never creates branches (#11, #102).`);
 }
 const VALID_STATUSES = new Set([
     'pending',
@@ -198,6 +213,14 @@ export function taskTools(db) {
                             },
                         ],
                     };
+                }
+            }
+            for (const t of taskInputs) {
+                if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
+                    const repo = t.repo;
+                    if (!repo.includes('..') && !repo.startsWith('/')) {
+                        validateBranchExistsInRepo(t.branch_id, repo);
+                    }
                 }
             }
             const inserted = db.transaction(() => {

@@ -3,6 +3,7 @@ import type { TrajectoryDB } from '../db.js';
 import { genId, nowISO } from '../db.js';
 import type { Task, TaskInput } from '../types.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { spawnSync } from 'node:child_process';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -27,6 +28,24 @@ function validateParentBranchId(branchId: string): void {
     `Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention ` +
       `format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
       `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`,
+  );
+}
+
+function validateBranchExistsInRepo(branchId: string, repo: string): void {
+  const result = spawnSync('git', ['-C', repo, 'rev-parse', '--verify', branchId], { encoding: 'utf8' });
+  if (result.status === 0) return;
+  const stderr = (result.stderr ?? '') as string;
+  if (stderr.includes('not a git repository') || stderr.includes('cannot change to')) {
+    console.warn(
+      `[task_create_batch] repo '${repo}' is not a resolvable git repository; skipping branch-existence check for '${branchId}'.`,
+    );
+    return;
+  }
+  throw new Error(
+    `task_create_batch rejected: branch '${branchId}' does not exist in repo '${repo}'. ` +
+      `Pre-create the branch before filing the task: ` +
+      `'git -C ${repo} branch ${branchId} <parent>'. ` +
+      `Bro is responsible for branch creation — SWE never creates branches (#11, #102).`,
   );
 }
 
@@ -234,6 +253,15 @@ export function taskTools(db: TrajectoryDB): {
               },
             ],
           };
+        }
+      }
+
+      for (const t of taskInputs) {
+        if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
+          const repo = t.repo as string;
+          if (!repo.includes('..') && !repo.startsWith('/')) {
+            validateBranchExistsInRepo(t.branch_id, repo);
+          }
         }
       }
 
