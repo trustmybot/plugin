@@ -117,6 +117,18 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-atomic-close.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
