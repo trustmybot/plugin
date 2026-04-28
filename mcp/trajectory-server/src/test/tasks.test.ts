@@ -317,6 +317,114 @@ describe('taskTools', () => {
     db.close();
   });
 
+  it('task_create_batch accepts parent_branch_id="dev"', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/from-dev', parent_branch_id: 'dev', description: 'branches off dev', success_criteria: 'ok' }],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].parent_branch_id, 'dev');
+
+    db.close();
+  });
+
+  it('task_create_batch accepts parent_branch_id="main"', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/from-main', parent_branch_id: 'main', description: 'branches off main', success_criteria: 'ok' }],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].parent_branch_id, 'main');
+
+    db.close();
+  });
+
+  it('task_create_batch accepts parent_branch_id="master"', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/from-master', parent_branch_id: 'master', description: 'branches off master', success_criteria: 'ok' }],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].parent_branch_id, 'master');
+
+    db.close();
+  });
+
+  it('task_create_batch accepts parent_branch_id="feat/foo" (git-convention still works)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/child-task', parent_branch_id: 'feat/foo', description: 'child of feat/foo', success_criteria: 'ok' }],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].parent_branch_id, 'feat/foo');
+
+    db.close();
+  });
+
+  it('task_create_batch rejects parent_branch_id="random-junk"', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/foo', parent_branch_id: 'random-junk', description: 'bad parent', success_criteria: 'n/a' }],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid branch_id/);
+
+    db.close();
+  });
+
+  it('task_create_batch rejects branch_id="dev" (own branch must stay strict-format)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'dev', description: 'bad branch_id', success_criteria: 'n/a' }],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Expected isError=true');
+    assert.match(data.error, /Invalid branch_id/);
+
+    db.close();
+  });
+
   it('task_create_batch stores spec_body and task_get returns it verbatim', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
