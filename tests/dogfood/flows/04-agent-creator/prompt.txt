@@ -1,0 +1,1 @@
+@bro get the architect's read on whether SQLite WAL mode is sufficient for our concurrency model or whether we should move to a dedicated DB process
