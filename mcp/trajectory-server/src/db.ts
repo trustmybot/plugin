@@ -65,6 +65,7 @@ export class TrajectoryDB {
     this.db.exec('PRAGMA foreign_keys = ON');
     this.db.exec('PRAGMA busy_timeout = 5000');
     this.applySchema();
+    this.migratePluginMetaDuplicates();
     this.syncPluginVersion();
   }
 
@@ -128,6 +129,12 @@ export class TrajectoryDB {
         this.db.exec(`ALTER TABLE file_registry ADD COLUMN ${name} ${type}`);
       }
     }
+  }
+
+  private migratePluginMetaDuplicates(): void {
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM plugin_meta WHERE id != 1').run();
+    });
   }
 
   private syncPluginVersion(env: NodeJS.ProcessEnv = process.env): void {
