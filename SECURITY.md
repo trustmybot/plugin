@@ -14,7 +14,10 @@ This project is pre-1.0 and ships from a single trunk. Only the latest stable re
 
 **Please do not file public issues for security vulnerabilities.**
 
-Use GitHub's [private vulnerability reporting](https://github.com/trustmybot/plugin/security/advisories/new) — this opens a private advisory thread with the maintainer.
+For security issues:
+- **GitLab (primary):** Use GitLab's confidential issues feature on `gitlab.com/trustmybot/plugin` — mark as confidential when creating
+- **GitHub (mirror, currently suspended):** When restored, use GitHub's private vulnerability reporting at `github.com/trustmybot/plugin/security/advisories/new`
+- **Email fallback:** zax.shen@gmail.com
 
 Expected response: acknowledgement within 7 days, fix or disposition within 30 days for confirmed vulnerabilities. Coordinated disclosure timeline negotiated case-by-case.
 
