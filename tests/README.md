@@ -142,6 +142,20 @@ To add a new flow: copy an existing `flows/*.test.sh`, name a fixture (or write 
 
 CI runs L5 on tag pushes and on PRs labeled `L5`. The workflow at `.github/workflows/l5-dogfood.yml` skips silently if the secret is unset.
 
+## Debug modes
+
+Three opt-in / always-on surfaces produce diagnostic output. Used together they cover the "what was the system doing right before it failed?" question.
+
+| Mode | Surface | Trigger | Purpose |
+|---|---|---|---|
+| Trajectory capture | `debug_trajectory` SQL table inside the trajectory DB | `TMB_DEBUG_TRAJECTORY=1` | Capture canonical L5 expected-sequence; A/B prompt eval input |
+| MCP server log | `~/.claude/tmb/logs/mcp-server.log` (JSONL, file-based) | always-on | Forensics: lifecycle (startup/shutdown/error) + per-tool entry/exit; survives MCP/CC crash |
+| SQL query log | `~/.claude/tmb/logs/sql.log` (JSONL, file-based) | `TMB_DEBUG_SQL=1` | Every `run`/`get`/`all` with sql, params, duration_ms; verbose, off by default |
+
+`mcp-server.log` and `sql.log` are file-based by design — they survive MCP-child or CC-host death, which is the exact failure mode where the SQL `debug_trajectory` table becomes unreadable. See [`manual/debug-mode-expand.md`](./manual/debug-mode-expand.md) for the reproducible recipe.
+
+**Privacy note** — `TMB_DEBUG_SQL=1` logs every SQL parameter verbatim (task descriptions, identity names, discussion content, spec bodies). Enable only when investigating; disable immediately after; don't commit `sql.log` or paste it unredacted.
+
 ## Which layer does a new test belong in?
 
 ```
