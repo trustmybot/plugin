@@ -2,6 +2,10 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## Unreleased
+
+- **Removed:** `scripts/hooks/create-worktree.sh` (#4 / TRU-80) — redundant since SWE explicitly creates its own task-branch worktree per #170/#171. Eliminates the orphan-worktree side effect (one stray `.claude/worktrees/agent-*` per SWE spawn).
+
 ## v0.5.0 — 2026-04-27
 
 **Headline: bro is now a structurally-enforced pure planner.** Direct Mode removed (#162) and 7 hard-enforcement hooks promote previously prompt-only doctrine to Layer 2 (deterministic shell scripts). New `docs/architecture/ENFORCEMENT.md` documents the 6-layer model (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` → prompts) and the per-agent × per-interaction coverage matrix.
