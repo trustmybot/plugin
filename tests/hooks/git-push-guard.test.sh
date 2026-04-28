@@ -199,4 +199,51 @@ assert_contains "$out" "task_id=2"           "should list ONLY the unsigned task
 assert_not_contains "$out" "task_id=1 "      "signed task 1 should not appear in block list"
 cleanup
 
+# SWE-context run_hook helper: injects agent_type into the top-level payload.
+run_hook_as_swe() {
+  local cmd="$1"
+  local db="${2:-/nonexistent.db}"
+  local agent_type="${3:-tmb:swe}"
+  local payload
+  payload=$(jq -cn --arg c "$cmd" --arg a "$agent_type" '{agent_type:$a,tool_input:{command:$c}}')
+  (cd "$REPO_PATH" && echo "$payload" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true)
+}
+
+test_case "SWE caller (tmb:swe): git push BLOCKED regardless of unsigned status"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook_as_swe "git push origin main" "$db" "tmb:swe")
+assert_contains "$out" '"decision":"block"' "SWE push must be blocked even with all-signed commits"
+assert_contains "$out" "SWE must never push"  "block message must reference swe.md rule"
+cleanup
+
+test_case "SWE caller (swe): git push BLOCKED (bare agent_type variant)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+out=$(run_hook_as_swe "git push origin main" "/nonexistent.db" "swe")
+assert_contains "$out" '"decision":"block"' "bare swe agent_type must also be blocked"
+cleanup
+
+test_case "SWE caller: git push --force still exits early (force delegated to git-guards before SWE check)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+out=$(run_hook_as_swe "git push --force origin main" "$db" "tmb:swe")
+assert_not_contains "$out" '"decision":"block"' "force push exits before SWE check (git-guards handles it)"
+cleanup
+
+test_case "non-SWE caller: git push NOT blocked by SWE check (bro/regular-claude)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook "git push origin main" "$db")
+assert_not_contains "$out" '"decision":"block"' "non-SWE caller with all-signed should not be blocked"
+cleanup
+
 summarize
