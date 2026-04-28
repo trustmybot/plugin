@@ -120,6 +120,19 @@ export function issueTools(db: TrajectoryDB): {
         required: ['agent'],
       },
     },
+    {
+      name: 'issue_update_description',
+      description: "Update an issue's description. Used by bro to backfill issues whose descriptions were truncated on import (e.g., from Linear).",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
+          issue_id: { type: 'string', description: 'Issue ID as string' },
+          description: { type: 'string', description: 'Full markdown description (no length cap)' },
+        },
+        required: ['agent', 'issue_id', 'description'],
+      },
+    },
   ];
 
   const handlers: Record<string, Fn> = {
@@ -281,6 +294,30 @@ export function issueTools(db: TrajectoryDB): {
       }
       return ok(rows);
     }),
+
+    issue_update_description: requireRoles('issue_update_description', ['bro'], wrapHandler(async (args) => {
+      const issueId = requireArg(args, 'issue_id') as string;
+      const description = requireArg(args, 'description') as string;
+
+      const MAX_DESCRIPTION_BYTES = 1024 * 1024; // 1MB
+      if (Buffer.byteLength(description, 'utf8') > MAX_DESCRIPTION_BYTES) {
+        return err('description exceeds 1MB limit');
+      }
+
+      const existing = db.get<{ id: number }>('SELECT id FROM issues WHERE id = ?', [issueId]);
+      if (!existing) {
+        return err(`not_found: issue ${issueId}`);
+      }
+
+      const now = nowISO();
+      db.run(
+        'UPDATE issues SET description = ?, updated_at = ? WHERE id = ?',
+        [description, now, issueId],
+      );
+
+      const updated = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      return ok(updated);
+    })),
 
   };
 
