@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 const logDir = join(homedir(), '.claude', 'tmb', 'logs');
@@ -19,6 +19,17 @@ export function serverLog(entry) {
     try {
         const line = JSON.stringify({ ...entry, ts: new Date().toISOString() }) + '\n';
         appendFileSync(serverLogPath, line);
+    }
+    catch {
+        // Swallow all errors — logging must never break the server.
+    }
+}
+export function serverLogSync(entry) {
+    if (!logDirReady)
+        return;
+    try {
+        const line = JSON.stringify({ ...entry, ts: new Date().toISOString() }) + '\n';
+        writeFileSync(serverLogPath, line, { flag: 'a' });
     }
     catch {
         // Swallow all errors — logging must never break the server.
