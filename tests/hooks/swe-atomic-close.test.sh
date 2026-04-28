@@ -167,4 +167,44 @@ if ! echo "$LAST_LINE" | grep -q '"agent_type_resolved":"architect"'; then
 fi
 echo '  ok'
 
+# ---- Test: real CC payload shape with agent_type field (regression for #103) ----
+echo '--- Test: hook recognizes real CC payload (.agent_type=tmb:swe) ---'
+
+# Real CC SubagentStop payload shape captured 2026-04-28T17:07:31Z (#94's diagnostic).
+real_cc_swe_input() {
+  jq -n '{
+    agent_id: "test-id",
+    agent_transcript_path: "/tmp/t",
+    agent_type: "tmb:swe",
+    cwd: "'"$REPO"'",
+    hook_event_name: "SubagentStop",
+    last_assistant_message: "",
+    permission_mode: "default",
+    session_id: "test-session",
+    transcript_path: "/tmp/t"
+  }'
+}
+
+# Reset task #42 to pending and ensure branch is checked out + has commits + pushed
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+git checkout -q fix/test-branch 2>/dev/null || git checkout -q -b fix/test-branch
+echo "$RANDOM-103" >> work-103.txt && git add work-103.txt && git commit -qm 'feat: 103 work'
+git push -q origin fix/test-branch 2>/dev/null || true
+
+out=$(run_hook "$(real_cc_swe_input)")
+# Hook should now ACT on this payload (not silently exit) — auto-complete the pending task.
+NEW_STATUS=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")
+assert_eq "completed" "$NEW_STATUS" "hook should auto-complete pending task with real CC payload (.agent_type=tmb:swe)"
+echo '  ok'
+
+# Also test bare 'swe' value still works
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+bare_swe_input() {
+  jq -n '{agent_type: "swe", hook_event_name: "SubagentStop"}'
+}
+out=$(run_hook "$(bare_swe_input)")
+NEW_STATUS=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")
+assert_eq "completed" "$NEW_STATUS" "hook should also accept bare 'swe' agent_type value"
+echo '  ok'
+
 summarize
