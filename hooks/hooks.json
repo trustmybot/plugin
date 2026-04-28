@@ -129,6 +129,18 @@
           }
         ]
       }
+    ],
+    "WorktreeCreate": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   }
 }

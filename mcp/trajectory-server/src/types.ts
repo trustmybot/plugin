@@ -28,6 +28,8 @@ export interface Task {
   attempts: number;
   spec_body: string;
   commit_sha: string | null;
+  /** Relative path to the git repo for this task (e.g. "inner" or "repos/backend"). Null for single-repo CC. */
+  repo: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -82,6 +84,8 @@ export interface TaskInput {
   skills_required?: string[];
   success_criteria: string;
   spec_body?: string;
+  /** Optional relative path to the git repo for this task. Must not contain ".." or start with "/". */
+  repo?: string;
 }
 
 export interface FileRegistryRow {

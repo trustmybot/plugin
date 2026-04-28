@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     attempts          INTEGER NOT NULL DEFAULT 0,
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
+    repo              TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     completed_at      TEXT
