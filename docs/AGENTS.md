@@ -15,6 +15,10 @@ How the plugin's agent set is layered, distributed, and overridden. Reference do
 
 **Resolution rule:** when bro spawns `swe` or `pr-reviewer`, CC dispatches by name — local wins if present, global serves as fallback. The global prompts are deliberately the smallest sufficient prompt for general work; projects with specific demands (medical-device review checklists, finance-compliance gates, etc.) drop in a custom local file that overrides only what they need.
 
+**Canonical override creation path:** use `tmb_agent-creator` Template-copy mode — the user is asked to confirm, and the copy is verbatim from `plugin/templates/agents/<name>.md`. After copy, the user can extend by attaching skills (`tmb_skill-creator`) or hand-editing the local file.
+
+**Defense-in-depth:** an optional L1 lint (`tests/lint/local-agent-primitives.sh`, #106) catches hand-edits that accidentally drop critical workflow primitives.
+
 **Local creation triggers:** bro creates a project-local agent only if (a) the Human explicitly asks for one, OR (b) bro determines the global default genuinely doesn't fit the project's tasks. Both cases route through `tmb_agent-creator` with explicit Human approval. The global file is **never edited** — overrides are additive at the project level.
 
 ### Layer 2 — Consultants (templates, opt-in per project)
@@ -27,6 +31,8 @@ How the plugin's agent set is layered, distributed, and overridden. Reference do
 | `cto.md` | Human asks for cto opinion |
 | `ceo.md` | Human asks for ceo opinion |
 | `pm.md` | Human asks for pm opinion |
+
+> **Note:** `swe` and `pr-reviewer` also ship as templates at `plugin/templates/agents/` in addition to their live globals at `plugin/agents/`. Byte-identity between the two is enforced by the `agent-template-byte-identity.sh` lint (#104). This means Template-copy mode for override creation always produces an exact-match starting point.
 
 User-created project consultants (via `tmb_agent-creator` from-scratch flow) follow the same pattern.
 
