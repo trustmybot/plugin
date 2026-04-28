@@ -64,4 +64,4 @@ where `<type>` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `pe
 
 Single baseline — `schema_version = 1`. The plugin has no users in the wild, so there is no migration machinery; `schema.sql` is applied on every open with `CREATE TABLE IF NOT EXISTS` semantics. When a future change warrants a breaking upgrade, a `v1 → v2` migration path will land in the same release that ships the new schema.
 
-`plugin_meta` tracks `schema_version` + `plugin_version` so the migration path, when it arrives, has somewhere to look.
+`plugin_meta` tracks `schema_version` + `plugin_version` so the migration path, when it arrives, has somewhere to look. `plugin_version` is synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — fresh and existing DBs auto-update without a migration; the schema placeholder `'0.0.0'` applies only when `CLAUDE_PLUGIN_ROOT` is unset (e.g. test runs).

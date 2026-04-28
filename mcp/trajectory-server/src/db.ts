@@ -63,6 +63,7 @@ export class TrajectoryDB {
     this.db.exec('PRAGMA foreign_keys = ON');
     this.db.exec('PRAGMA busy_timeout = 5000');
     this.applySchema();
+    this.syncPluginVersion();
   }
 
   private applySchema(): void {
@@ -124,6 +125,24 @@ export class TrajectoryDB {
       if (!present.has(name)) {
         this.db.exec(`ALTER TABLE file_registry ADD COLUMN ${name} ${type}`);
       }
+    }
+  }
+
+  private syncPluginVersion(env: NodeJS.ProcessEnv = process.env): void {
+    const root = env['CLAUDE_PLUGIN_ROOT'];
+    if (!root) return;
+    try {
+      const manifest = JSON.parse(
+        readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'),
+      );
+      if (typeof manifest.version !== 'string' || manifest.version.length === 0) return;
+      this.db
+        .prepare(
+          `UPDATE plugin_meta SET plugin_version = ?, updated_at = datetime('now') WHERE id = 1`,
+        )
+        .run(manifest.version);
+    } catch {
+      // Silent skip — leave existing value unchanged.
     }
   }
 

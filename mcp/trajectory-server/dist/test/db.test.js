@@ -1,7 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
-import { nowISO, genId } from '../db.js';
+import { nowISO, genId, TrajectoryDB } from '../db.js';
 describe('TrajectoryDB', () => {
     it('opens an in-memory DB and verifies all 16 tables exist with schema_version=1', () => {
         const db = tempDB();
@@ -74,6 +77,65 @@ describe('TrajectoryDB', () => {
         }
         const unique = new Set(ids);
         assert.equal(unique.size, 100, 'All 100 IDs must be unique');
+    });
+    it('syncs plugin_version from CLAUDE_PLUGIN_ROOT manifest on init', () => {
+        const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-test-'));
+        try {
+            mkdirSync(join(tmpDir, '.claude-plugin'), { recursive: true });
+            writeFileSync(join(tmpDir, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'tmb', version: '9.9.9' }), 'utf8');
+            const saved = process.env['CLAUDE_PLUGIN_ROOT'];
+            process.env['CLAUDE_PLUGIN_ROOT'] = tmpDir;
+            try {
+                const db = new TrajectoryDB(':memory:');
+                const row = db.get('SELECT plugin_version FROM plugin_meta WHERE id = 1');
+                assert.ok(row !== undefined, 'plugin_meta row must exist');
+                assert.equal(row.plugin_version, '9.9.9');
+                db.close();
+            }
+            finally {
+                if (saved === undefined) {
+                    delete process.env['CLAUDE_PLUGIN_ROOT'];
+                }
+                else {
+                    process.env['CLAUDE_PLUGIN_ROOT'] = saved;
+                }
+            }
+        }
+        finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+    it('updates plugin_version on next init when manifest version changes', () => {
+        const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-test-'));
+        try {
+            mkdirSync(join(tmpDir, '.claude-plugin'), { recursive: true });
+            const manifestPath = join(tmpDir, '.claude-plugin', 'plugin.json');
+            writeFileSync(manifestPath, JSON.stringify({ name: 'tmb', version: '9.9.9' }), 'utf8');
+            const dbPath = join(tmpDir, 'trajectory.db');
+            const saved = process.env['CLAUDE_PLUGIN_ROOT'];
+            process.env['CLAUDE_PLUGIN_ROOT'] = tmpDir;
+            try {
+                const db1 = new TrajectoryDB(dbPath);
+                db1.close();
+                writeFileSync(manifestPath, JSON.stringify({ name: 'tmb', version: '9.9.10' }), 'utf8');
+                const db2 = new TrajectoryDB(dbPath);
+                const row = db2.get('SELECT plugin_version FROM plugin_meta WHERE id = 1');
+                assert.ok(row !== undefined, 'plugin_meta row must exist');
+                assert.equal(row.plugin_version, '9.9.10');
+                db2.close();
+            }
+            finally {
+                if (saved === undefined) {
+                    delete process.env['CLAUDE_PLUGIN_ROOT'];
+                }
+                else {
+                    process.env['CLAUDE_PLUGIN_ROOT'] = saved;
+                }
+            }
+        }
+        finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
     });
 });
 //# sourceMappingURL=db.test.js.map
