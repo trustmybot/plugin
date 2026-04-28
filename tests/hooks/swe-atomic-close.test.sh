@@ -143,4 +143,28 @@ git push -q origin fix/test-branch
 out=$(run_hook "$(swe_input)")
 assert_eq "" "$out" "silent when task already completed"
 
+# ---- Test: entry-log fires for non-swe subagent (regression for #94) ----
+echo '--- Test: entry-log fires regardless of subagent_type ---'
+
+LOG="$HOME/.claude/tmb/logs/mcp-health.log"
+LOG_BEFORE=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+
+run_hook "$(non_swe_input)" >/dev/null
+
+LOG_AFTER=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+DIFF=$((LOG_AFTER - LOG_BEFORE))
+
+assert_eq "1" "$DIFF" "non-swe input should write exactly 1 entry-log line"
+
+LAST_LINE=$(tail -1 "$LOG")
+if ! echo "$LAST_LINE" | grep -q '"kind":"swe-atomic-close-entry"'; then
+  echo "FAIL: last log line is not entry-log: $LAST_LINE" >&2
+  exit 1
+fi
+if ! echo "$LAST_LINE" | grep -q '"agent_type_resolved":"architect"'; then
+  echo "FAIL: entry-log missing resolved agent_type architect: $LAST_LINE" >&2
+  exit 1
+fi
+echo '  ok'
+
 summarize

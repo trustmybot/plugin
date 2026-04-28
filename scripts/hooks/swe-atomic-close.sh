@@ -28,6 +28,15 @@ mkdir -p "${HOME}/.claude/tmb/logs" 2>/dev/null || true
 
 INPUT=$(cat)
 
+# Diagnostic entry-log (#94): record every invocation regardless of subagent_type
+# so we can separate "hook ran at all" from "hook decided X".
+ENTRY_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+ENTRY_KEYS=$(echo "$INPUT" | jq -rc '[paths(scalars) | join(".")] | unique // []' 2>/dev/null || echo '[]')
+ENTRY_AGENT=$(echo "$INPUT" | jq -r '.subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
+printf '{"ts":"%s","kind":"swe-atomic-close-entry","keys":%s,"agent_type_resolved":"%s"}\n' \
+  "$ENTRY_TS" "$ENTRY_KEYS" "$ENTRY_AGENT" \
+  >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+
 # Only act on SWE subagent stops.
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
 if [ "$AGENT_TYPE" != "swe" ]; then
