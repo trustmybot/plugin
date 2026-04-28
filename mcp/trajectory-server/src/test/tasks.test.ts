@@ -1,8 +1,23 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
+
+function makeGitSubdir(name: string): { name: string; cleanup: () => void } {
+  const dir = join(process.cwd(), name);
+  mkdirSync(dir, { recursive: true });
+  spawnSync('git', ['init'], { cwd: dir, stdio: 'pipe' });
+  spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, stdio: 'pipe' });
+  spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, stdio: 'pipe' });
+  spawnSync('git', ['commit', '--allow-empty', '-m', 'init'], { cwd: dir, stdio: 'pipe' });
+  return { name, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -798,6 +813,130 @@ describe('taskTools', () => {
     const data = parseResult(result);
     assert.ok(result.isError, 'Expected isError=true');
     assert.match(data.error, /Invalid repo/);
+
+    db.close();
+  });
+
+  it('task_create_batch accepts task when branch exists in explicit repo (#102)', async () => {
+    const { name, cleanup } = makeGitSubdir('test-git-fixture-branch-exists');
+    try {
+      const repoDir = join(process.cwd(), name);
+      spawnSync('git', ['branch', 'feat/my-feature'], { cwd: repoDir, stdio: 'pipe' });
+      const db = tempDB();
+      const issueId = await createIssue(db);
+      const tools = taskTools(db);
+
+      const result = await call(tools.handlers, 'task_create_batch', {
+        waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+        agent: 'bro',
+        issue_id: String(issueId),
+        tasks: [
+          {
+            branch_id: 'feat/my-feature',
+            description: 'Feature task',
+            success_criteria: 'branch exists',
+            repo: name,
+          },
+        ],
+      });
+      const inserted = parseResult(result);
+      assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+      assert.equal(inserted[0].branch_id, 'feat/my-feature');
+      assert.equal(inserted[0].repo, name);
+
+      db.close();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_create_batch rejects task when branch does not exist in explicit repo (#102)', async () => {
+    const { name, cleanup } = makeGitSubdir('test-git-fixture-branch-missing');
+    try {
+      const db = tempDB();
+      const issueId = await createIssue(db);
+      const tools = taskTools(db);
+
+      const result = await call(tools.handlers, 'task_create_batch', {
+        waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+        agent: 'bro',
+        issue_id: String(issueId),
+        tasks: [
+          {
+            branch_id: 'feat/nonexistent-branch',
+            description: 'Feature task',
+            success_criteria: 'should be rejected',
+            repo: name,
+          },
+        ],
+      });
+      const data = parseResult(result);
+      assert.ok(result.isError, 'Expected isError=true');
+      assert.match(data.error, /task_create_batch rejected/);
+      assert.match(data.error, /feat\/nonexistent-branch/);
+      assert.match(data.error, /#102/);
+
+      db.close();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_create_batch uses subdir repo for branch check, not parent repo (#102)', async () => {
+    const { name: repoA, cleanup: cleanupA } = makeGitSubdir('test-git-fixture-repo-a');
+    const { name: repoB, cleanup: cleanupB } = makeGitSubdir('test-git-fixture-repo-b');
+    try {
+      const repoADir = join(process.cwd(), repoA);
+      spawnSync('git', ['branch', 'feat/exists-in-a-only'], { cwd: repoADir, stdio: 'pipe' });
+
+      const db = tempDB();
+      const issueId = await createIssue(db);
+      const tools = taskTools(db);
+
+      const acceptedResult = await call(tools.handlers, 'task_create_batch', {
+        waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+        agent: 'bro',
+        issue_id: String(issueId),
+        tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo A', success_criteria: 'accepted', repo: repoA }],
+      });
+      assert.ok(!acceptedResult.isError, `Expected accepted for repoA: ${JSON.stringify(parseResult(acceptedResult))}`);
+
+      const rejectedResult = await call(tools.handlers, 'task_create_batch', {
+        waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+        agent: 'bro',
+        issue_id: String(issueId),
+        tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo B (branch absent)', success_criteria: 'rejected', repo: repoB }],
+      });
+      assert.ok(rejectedResult.isError, 'Expected rejection when branch absent in repoB');
+      assert.match(parseResult(rejectedResult).error, /task_create_batch rejected/);
+
+      db.close();
+    } finally {
+      cleanupA();
+      cleanupB();
+    }
+  });
+
+  it('task_create_batch skips branch-existence check when repo is unset (backward compat) (#102)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        {
+          branch_id: 'feat/no-repo-set',
+          description: 'Task without explicit repo',
+          success_criteria: 'no branch check performed',
+        },
+      ],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error when repo is unset: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].branch_id, 'feat/no-repo-set');
 
     db.close();
   });
