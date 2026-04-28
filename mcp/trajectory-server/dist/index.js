@@ -77,6 +77,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const start = performance.now();
     const agent = args?.agent ?? null;
     serverLog({ kind: 'tool_entry', tool: name, agent });
+    if (name === 'task_create_batch') {
+        const typedArgs = args;
+        const tasks = (typedArgs?.['tasks'] ?? []);
+        const total_bytes = JSON.stringify(args ?? {}).length;
+        const max_spec_bytes = tasks.length > 0
+            ? Math.max(...tasks.map((t) => (t.spec_body ?? '').length))
+            : 0;
+        const n_tasks = tasks.length;
+        serverLog({ kind: 'tool_size', tool: 'task_create_batch', total_bytes, max_spec_bytes, n_tasks, agent });
+        if (max_spec_bytes > 8192) {
+            serverLog({
+                kind: 'oversize_warning',
+                tool: 'task_create_batch',
+                total_bytes,
+                max_spec_bytes,
+                n_tasks,
+                agent,
+                threshold: 8192,
+                upstream_ref: 'anthropics/claude-code#36319',
+            });
+        }
+    }
     let result;
     try {
         result = await handler(args ?? {});
