@@ -35,8 +35,8 @@ User-created agents default to **consultant** scope: they advise, return analysi
 | `cto.md` | Technical strategy consultant — scaling, dependency posture, build/CI direction | ~21 |
 | `ceo.md` | Product-scope consultant — prioritization, business framing | ~21 |
 | `pm.md` | Product-strategy consultant — user-need framing, success metrics | ~21 |
-
-(`swe.md` and `pr-reviewer.md` ship globally in the plugin's `agents/` dir — no template copy needed. This skill handles consultants only.)
+| `swe.md` | Executor — implements task specs in isolated worktree, atomic close | ~23 |
+| `pr-reviewer.md` | Push-time gate — reviews unsigned tasks against spec, records validation_record | ~28 |
 
 If the Human's request matches a shipped template name → **template-copy mode**. Otherwise → **from-scratch mode**.
 
@@ -45,10 +45,8 @@ If the Human's request matches a shipped template name → **template-copy mode*
 These names map to plugin protocol roles. If the user requests one, refuse and ask for a different name:
 
 - `bro`
-- `swe`
-- `pr-reviewer`
 
-Other names — including `architect`, `cto`, `ceo`, `pm`, `legal-reviewer`, anything else — are allowed. Shipped templates exist for the first four; the rest use from-scratch mode.
+Other names — including `architect`, `cto`, `ceo`, `pm`, `swe`, `pr-reviewer`, `legal-reviewer`, anything else — are allowed. Shipped templates exist for `swe`, `pr-reviewer`, `architect`, `cto`, `ceo`, `pm`; everything else uses from-scratch mode.
 
 ## E. Execution — template-copy mode
 
@@ -170,7 +168,7 @@ Tell the Human: file landed at `<path>`. Return control.
 - **Verbatim copy in template-copy mode.** Never transform a template's body. Project customization happens via `tmb_skill-creator` extending `skills:`, never by editing the agent body.
 - **Never write to `plugin/agents/`** or any path inside the plugin install. The plugin is read-only at runtime.
 - **Approval is non-negotiable** — both modes require an explicit Yes.
-- **Reserved names refused** — `bro`, `swe`, `pr-reviewer` always refused.
+- **Reserved names refused** — `bro` always refused.
 - **Existing files never overwritten silently.** Show diff or refuse, depending on mode (Section H).
 
 ## H. Error handling
