@@ -5,27 +5,40 @@ set -euo pipefail
 
 # tmb_db_path
 # Resolve the trajectory DB path:
-#   1. TRAJECTORY_DB_PATH env override wins
-#   2. Otherwise walk up from cwd to the git repo root and use
-#      <repo-root>/.claude/<plugin-name>/trajectory.db. Walking up matters
-#      because hooks fire from inside SWE worktrees too — without the walk,
-#      $(pwd)/.claude/tmb/trajectory.db points at a stale per-worktree DB
-#      copy that lacks the project's policy keys (#171).
-#   3. Fall back to <cwd>/.claude/tmb/trajectory.db when not in a repo.
-# Prints the path only if the file exists.
+#   1. TRAJECTORY_DB_PATH env override wins (tests + advanced setups).
+#   2. Otherwise: walk up from cwd to filesystem root, looking for
+#      <dir>/.claude/<plugin-name>/trajectory.db at each level. First hit wins.
+#      This handles uniformly:
+#        - single-repo CC (CC inside a git repo): DB at git-root, found early.
+#        - workspace pattern (CC outside a git repo, with one or more product
+#          repos as siblings): DB at workspace launch dir, found above git-root.
+#        - submodule monorepo (root + nested submodule repos): DB at parent
+#          repo, found via walk-up from inside any submodule.
+#        - SWE worktrees (.claude/worktrees/<slug>/): walks past the worktree
+#          to find the DB at the repo or workspace level.
+#   3. Tests with per-worktree DB fixtures should set TRAJECTORY_DB_PATH
+#      explicitly to pin the resolution.
+# Prints the path only if the file exists; non-zero exit if no DB found.
 tmb_db_path() {
-  local p plugin_name="tmb"
+  local plugin_name="tmb"
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
     plugin_name=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
   fi
   if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
-    p="$TRAJECTORY_DB_PATH"
-  else
-    local repo_root
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="$(pwd)"
-    p="$repo_root/.claude/$plugin_name/trajectory.db"
+    [ -f "$TRAJECTORY_DB_PATH" ] && echo "$TRAJECTORY_DB_PATH"
+    return 0
   fi
-  [ -f "$p" ] && echo "$p"
+  local dir
+  dir="$(pwd)"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    local candidate="$dir/.claude/$plugin_name/trajectory.db"
+    if [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
 }
 
 tmb_have_sqlite() {
