@@ -512,6 +512,28 @@ sequenceDiagram
 
 ---
 
+---
+
+## SWE Atomic-Close Safety Net
+
+**Doctrine:** SWE is expected to call `task_update_status(agent='swe', status='completed', commit_sha)` as the last step of every task (#W4 atomic close). Three documented occurrences (#87) showed SWE silently skipping this step without an error, leaving tasks stuck in `pending` after the subagent stopped.
+
+**Safety net — `swe-atomic-close.sh` SubagentStop hook (additive, non-blocking):**
+
+On every SWE `SubagentStop` event, the hook:
+1. Reads the current branch name via `git rev-parse --abbrev-ref HEAD`.
+2. Looks up the most-recent `pending` task for that branch in the trajectory DB.
+3. If none, exits silently.
+4. Checks git state: any commits beyond merge-base with `dev`? Is `origin/<branch>` at the same SHA as `HEAD`?
+5. Decision:
+   - **Committed + pushed** → writes `status='completed'` and `commit_sha` directly via `sqlite3` (hooks operate at a lower trust layer than agents and may write directly; the `readonly-fallback` constraint applies only to bro in degraded mode). Logs the action to `mcp-health.log`.
+   - **Committed + not pushed** → emits `additionalContext` to bro: "SWE for task #N committed but did not push."
+   - **No commits** → emits `additionalContext` to bro: "SWE for task #N stopped without committing."
+
+The hook is a **defensive safety net only** — it does not remove or replace the atomic-close step in `agents/swe.md`. SWE is still required to call `task_update_status` itself; this hook catches the rare failure mode where it doesn't. Reference: issue #87 and memory `feedback_swe_atomic_close_unreliable.md`.
+
+---
+
 ## How to add a new flow to this doc
 
 1. Add a row to the **Quick index** table.
