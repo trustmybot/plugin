@@ -59,11 +59,20 @@ fi
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/mcp-integration/run.sh"
 run_step "L3 integration: hook script tests"                         bash "$HERE/hooks/run.sh"
 
+# ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
+
+run_step "L4 workflow-sim: flow-02 simple-task"            bun test "$HERE/workflow-sim/flow-02-simple-task.test.mjs"
+run_step "L4 workflow-sim: flow-03 difficult-task"          bun test "$HERE/workflow-sim/flow-03-difficult-task.test.mjs"
+run_step "L4 workflow-sim: flow-06 push-gate"               bun test "$HERE/workflow-sim/flow-06-push-gate.test.mjs"
+run_step "L4 workflow-sim: flow-07 architecture-regen"      bun test "$HERE/workflow-sim/flow-07-architecture-regen.test.mjs"
+run_step "L4 workflow-sim: flow-08 swe-retry"               bun test "$HERE/workflow-sim/flow-08-swe-retry.test.mjs"
+run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test "$HERE/workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
+
 # ----- summary -----------------------------------------------------------
 
 printf "\n========================================\n"
 if [ "$FAIL" -eq 0 ]; then
-  printf "All test layers passed (L1 + L2 + L3).\n"
+  printf "All test layers passed (L1 + L2 + L3 + L4).\n"
   printf "L0 install-smoke runs separately in CI (docker required).\n"
   exit 0
 else
