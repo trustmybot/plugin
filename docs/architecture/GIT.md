@@ -2,35 +2,39 @@
 
 Where each actor's git state lives at every stage of a TMB self-dev task. Helps you answer "what branch am I on?" / "what is bro looking at?" / "where did SWE put the work?" without spelunking.
 
+> **Implementation status:** the model below is the intended workflow. The current SWE doctrine still creates a branch-held worktree (which blocks the Human's main checkout from following the feature branch). Issue #126 tracks the alignment work — when it lands, this doc will match the running code.
+
 ## Actors
 
 - **You** — your shell + IDE on `plugin/` (the main checkout)
-- **Bro** — the persona on the main Claude thread. Operates on the main checkout via `git -C plugin …`. May create a verification worktree under `/tmp/`.
-- **SWE** — subagent. Always works from a private worktree at `plugin/.claude/worktrees/<slug>/`.
+- **Bro** — the persona on the main Claude thread. Operates on the main checkout via `git -C plugin …`.
+- **SWE** — subagent. Always works from a private worktree at `plugin/.claude/worktrees/<slug>/`, in **detached HEAD**, never holding the branch ref.
 - **Origin** — `origin/dev` and any feature branches on GitLab.
 
 ## Stage table
 
-| Actor | Idle | Issue + task filed, branch pre-created | SWE working | SWE committed + pushed (MR open) | Push gate / bro verify | After merge |
+| Actor | Idle | Issue + task filed, branch pre-created | SWE working | SWE pushed (MR open) | Push gate / bro verify | After merge |
 |---|---|---|---|---|---|---|
-| **You** (`plugin/` main) | `dev` | `dev` (feature ref exists locally but you stay on dev) | `dev` — **cannot `git checkout <feature>` because SWE worktree holds it** (issue #126) | `dev` (still blocked) | `dev` | `dev` (after `git pull`, includes the feature) |
-| **Bro** | main checkout on `dev` | main checkout on `dev`; created `<type>/<slug>` ref via `git branch <slug> origin/dev` | main checkout on `dev`; can read SWE worktree files via path | main checkout on `dev`; fetches + diffs `origin/<branch>` | optional second worktree at `/tmp/tmb-XXX-verify` from `origin/<branch>` for a clean diff view | main checkout on `dev`; cleans up worktrees |
-| **SWE** | not spawned | not spawned | `.claude/worktrees/<slug>/` on `<type>/<slug>` — dirty edits | `.claude/worktrees/<slug>/` on `<type>/<slug>` — committed | (idle, worktree still around) | worktree cleanup pending per issue #126 |
-| **Origin** | `dev` | `dev` only — `<type>/<slug>` not pushed yet | same | `dev`; `<type>/<slug>` now on remote; MR open | same | `dev` advanced (merge commit + feature commits); `<type>/<slug>` removed (`--remove-source-branch`) |
+| **You** + **Bro** (`plugin/` main) | `dev` | `<feature>` — bro creates the branch from `origin/dev` and switches the main checkout to it | `<feature>` (run `git fetch && git merge --ff-only origin/<feature>` to see SWE's commits as they land) | `<feature>` (fast-forwarded after fetch) | `<feature>` | `dev` — bro switches back and `git pull --ff-only` |
+| **SWE** | not spawned | not spawned | `.claude/worktrees/<slug>/` in **detached HEAD** off `<feature>`; commits to detached HEAD; pushes via `git push origin HEAD:refs/heads/<feature>` | (idle, worktree still around) | (idle) | worktree removed |
+| **Origin** | `dev` | `dev` | same | `dev`; `<feature>` updated by SWE's push | same | `dev` advanced (merge commit + feature commits); `<feature>` removed (`--remove-source-branch`) |
 
 ## Key handoffs
 
-- **Bro pre-creates the branch from `origin/dev`** so SWE never invents one. SWE's worktree-add command uses the existing ref.
-- **SWE never works in the main checkout.** The `.claude/worktrees/<slug>/` isolation prevents accidental pollution and lets parallel SWEs run on different branches simultaneously.
-- **You're always on `dev`** during a task. Your IDE keeps showing dev's content. To inspect in-flight work: `git show origin/<branch>:<path>`, or open `plugin/.claude/worktrees/<slug>/` in a second editor window.
-- **Workflow gap (issue #126):** there is currently no clean path for your main checkout to follow the active feature branch — the SWE worktree holds the ref. Three solutions tracked there.
+- **Bro pre-creates the branch from `origin/dev` AND switches the main checkout to it.** This is what makes the feature branch live in the main checkout — so You and Bro share the same view.
+- **SWE never holds a branch ref.** The worktree is created with `git worktree add --detach`, so the `<feature>` ref stays free for the main checkout. SWE commits to detached HEAD and pushes via `HEAD:refs/heads/<feature>`.
+- **You see SWE's commits after each fetch.** While SWE works, your main checkout doesn't auto-update; run `git fetch && git merge --ff-only origin/<feature>` (or just `git pull --ff-only`) to pull each push as it lands.
+- **After merge, bro switches the main checkout back to `dev`.** No manual cleanup on your side.
+
+## Why detached HEAD for SWE
+
+A git branch can only be checked out in one worktree at a time. If SWE's worktree held the `<feature>` ref, your main checkout couldn't switch to it — exactly the bug in #126. Detaching HEAD in SWE's worktree decouples the worktree from the branch ref: SWE commits go to detached HEAD, and `git push origin HEAD:refs/heads/<feature>` updates the remote branch directly. The local branch ref (held by main checkout) catches up via `git fetch` + fast-forward.
 
 ## Where files live, at a glance
 
 | Path | Belongs to | Lifetime |
 |---|---|---|
-| `plugin/` (main checkout) | You + bro | Permanent; stays on `dev` |
-| `plugin/.claude/worktrees/<slug>/` | SWE | Per-task; created on spawn, removed on cleanup (issue #126) |
-| `/tmp/tmb-<slug>-verify/` | Bro (verification) | Per-task review; manually removed |
+| `plugin/` (main checkout) | You + bro | Permanent; switches between `dev` and `<feature>` per task |
+| `plugin/.claude/worktrees/<slug>/` | SWE (detached HEAD) | Per-task; created on spawn, removed after merge |
 | `origin/dev` | Shared | Permanent; advances on merges |
 | `origin/<type>/<slug>` | Shared | Per-task; removed by `glab mr merge --remove-source-branch` |
