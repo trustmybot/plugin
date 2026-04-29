@@ -28,6 +28,19 @@ tmb_db_path() {
     [ -f "$TRAJECTORY_DB_PATH" ] && echo "$TRAJECTORY_DB_PATH"
     return 0
   fi
+  # NEW: check sentinel from #113 — subagents inherit cwd=~ and lack env vars
+  local sentinel="$HOME/.claude/tmb-active-workspace"
+  if [ -f "$sentinel" ]; then
+    local ws
+    ws=$(head -1 "$sentinel" 2>/dev/null)
+    if [ -n "$ws" ]; then
+      local sentinel_db="$ws/.claude/$plugin_name/trajectory.db"
+      if [ -f "$sentinel_db" ]; then
+        echo "$sentinel_db"
+        return 0
+      fi
+    fi
+  fi
   local dir
   dir="$(pwd)"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do

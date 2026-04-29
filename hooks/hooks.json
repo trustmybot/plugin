@@ -23,6 +23,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/deferred-tools-drift-warn.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/write-active-workspace-sentinel.sh",
+            "timeout": 3
           }
         ]
       }
