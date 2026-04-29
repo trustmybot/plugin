@@ -14,6 +14,7 @@ import { identityTools } from './identity.js';
 import { regenStateTools } from './regen-state.js';
 import { fileRegistryTools } from './file-registry.js';
 import { architectureRegenTools } from './architecture-regen.js';
+import { branchReportMdTools } from './branch_report_md.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 
 export let toolDefinitions: Tool[] = [];
@@ -59,6 +60,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
   const regenState = regenStateTools(db);
   const fileRegistry = fileRegistryTools(db);
   const architectureRegen = architectureRegenTools(db);
+  const branchReport = branchReportMdTools(db);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
@@ -74,6 +76,7 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...regenState.definitions,
     ...fileRegistry.definitions,
     ...architectureRegen.definitions,
+    ...branchReport.definitions,
   ]);
 
   toolHandlers = {
@@ -90,5 +93,6 @@ export function registerTools(server: Server, db: TrajectoryDB): void {
     ...wrapAll(regenState.handlers),
     ...wrapAll(fileRegistry.handlers),
     ...wrapAll(architectureRegen.handlers),
+    ...wrapAll(branchReport.handlers),
   };
 }
