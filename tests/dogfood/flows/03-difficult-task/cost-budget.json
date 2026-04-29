@@ -1,0 +1,6 @@
+{
+  "max_tokens_total": 80000,
+  "max_latency_ms_p99": 90000,
+  "fail_above_max": false,
+  "_comment": "Soft budget — difficult path is heavier than simple (Q+A discussions)."
+}
