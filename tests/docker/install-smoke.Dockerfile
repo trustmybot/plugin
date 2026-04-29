@@ -82,9 +82,10 @@ RUN bash tests/lint/agent-line-budget.sh \
  || (echo "❌ FAIL: agent-line-budget lint failed in clean install" && exit 1)
 
 # A5: hook scripts are executable + syntactically valid
-RUN for h in scripts/hooks/*.sh; do \
-      test -x "$h" || (echo "❌ FAIL: $h not executable" && exit 1); \
-      bash -n "$h" || (echo "❌ FAIL: $h has syntax error" && exit 1); \
+RUN set -e && \
+    for h in scripts/hooks/*.sh; do \
+      test -x "$h" || { echo "❌ FAIL: $h not executable" >&2; exit 1; }; \
+      bash -n "$h" || { echo "❌ FAIL: $h has syntax error" >&2; exit 1; }; \
     done
 
 # A6: every path-shaped arg in .mcp.json resolves in the installed tree.
