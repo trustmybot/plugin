@@ -20,7 +20,7 @@ UPDATE plugin_config SET value_json = '"dev"' WHERE key = 'pr_target';
 SQL
 
 (
-  cd "$PROJECT"
+  cd "$PROJECT" || exit 1
   git checkout -q -b dev
   git checkout -q main
 ) >/dev/null

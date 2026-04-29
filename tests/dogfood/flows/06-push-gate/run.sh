@@ -17,7 +17,7 @@ trap 'l5_cleanup_project "$PROJECT"' EXIT
 l5_seed_db "$PROJECT" "onboarding-named"
 
 (
-  cd "$PROJECT"
+  cd "$PROJECT" || exit 1
   git checkout -q -b feat/seed-todo
   echo 'print("todo")' > todo.py
   git add todo.py
