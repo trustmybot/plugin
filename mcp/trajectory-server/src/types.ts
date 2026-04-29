@@ -7,6 +7,22 @@ export interface Issue {
   post_commit_hash: string | null;
   status: string;
   current_task_id: number | null;
+  labels?: string[];
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+}
+
+export interface IssueRow {
+  id: number;
+  parent_issue_id: number | null;
+  objective: string;
+  description: string;
+  pre_commit_hash: string;
+  post_commit_hash: string | null;
+  status: string;
+  current_task_id: number | null;
+  labels: string | null;
   created_at: string;
   updated_at: string;
   closed_at: string | null;

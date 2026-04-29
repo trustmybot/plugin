@@ -64,6 +64,7 @@ export class TrajectoryDB {
         this.applySchema();
         this.migratePluginMetaDuplicates();
         this.migrateTasksRepo();
+        this.migrateIssuesLabels();
         this.syncPluginVersion();
     }
     applySchema() {
@@ -122,6 +123,14 @@ export class TrajectoryDB {
         const present = new Set(cols.map((c) => c.name));
         if (!present.has('repo')) {
             this.db.exec(`ALTER TABLE tasks ADD COLUMN repo TEXT`);
+        }
+    }
+    migrateIssuesLabels() {
+        const cols = this.db
+            .prepare('PRAGMA table_info(issues)')
+            .all();
+        if (!cols.find((c) => c.name === 'labels')) {
+            this.db.exec('ALTER TABLE issues ADD COLUMN labels TEXT;');
         }
     }
     migratePluginMetaDuplicates() {

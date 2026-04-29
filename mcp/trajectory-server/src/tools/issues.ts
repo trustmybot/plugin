@@ -1,10 +1,19 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
-import type { Issue, Task } from '../types.js';
+import type { Issue, IssueRow, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
+import { decodeLabels } from './labels.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
+
+function decodeIssue(row: IssueRow): Issue {
+  const labels = decodeLabels(row.labels);
+  return {
+    ...row,
+    labels: labels.length > 0 ? labels : undefined,
+  };
+}
 
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -159,8 +168,9 @@ export function issueTools(db: TrajectoryDB): {
         throw new Error('issue_create: failed to retrieve inserted row');
       }
 
-      const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [rowId.id]);
-      const redacted = redactIssue(issue!, agent, { include_description: true });
+      const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [rowId.id]);
+      const issue = decodeIssue(row!);
+      const redacted = redactIssue(issue, agent, { include_description: true });
       return ok(redacted);
     })),
 
@@ -169,10 +179,11 @@ export function issueTools(db: TrajectoryDB): {
       const issueId = requireArg(args, 'issue_id') as string;
       const includeDescription = (args['include_description'] as boolean | undefined) ?? false;
 
-      const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      if (!issue) {
+      const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      if (!row) {
         throw new Error(`Not found: ${issueId}`);
       }
+      const issue = decodeIssue(row);
 
       return ok(redactIssue(issue, agent, { include_description: includeDescription }));
     }),
@@ -181,10 +192,11 @@ export function issueTools(db: TrajectoryDB): {
       const agent = normalizeAgent(args['agent'] as string | undefined);
       const issueId = requireArg(args, 'issue_id') as string;
 
-      const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      if (!issue) {
+      const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      if (!row) {
         throw new Error(`Not found: ${issueId}`);
       }
+      const issue = decodeIssue(row);
 
       const task = db.get<Task>(
         `SELECT * FROM tasks
@@ -204,8 +216,8 @@ export function issueTools(db: TrajectoryDB): {
       const postGitSha = (args['post_git_sha'] as string | undefined) ?? null;
       const now = nowISO();
 
-      const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      if (!issue) {
+      const existing = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      if (!existing) {
         throw new Error(`Not found: ${issueId}`);
       }
 
@@ -225,18 +237,19 @@ export function issueTools(db: TrajectoryDB): {
         );
       }
 
-      const updated = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      return ok(updated);
+      const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      return ok(decodeIssue(updated!));
     })),
 
     issue_get_phase: wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
 
-      const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      if (!issue) {
+      const issueRow = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      if (!issueRow) {
         throw new Error(`Not found: ${issueId}`);
       }
+      const issue = decodeIssue(issueRow);
 
       const counts = db.get<{
         tasks_total: number;
@@ -280,19 +293,25 @@ export function issueTools(db: TrajectoryDB): {
         );
       }
 
-      let rows: Array<{ id: number; objective: string; status: string; created_at: string; updated_at: string }>;
+      let rows: Array<{ id: number; objective: string; status: string; labels: string | null; created_at: string; updated_at: string }>;
       if (rawStatus !== undefined) {
         rows = db.all(
-          `SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+          `SELECT id, objective, status, labels, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
           [rawStatus, limit, offset],
         );
       } else {
         rows = db.all(
-          `SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+          `SELECT id, objective, status, labels, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
           [limit, offset],
         );
       }
-      return ok(rows);
+      const decoded = rows.map((r) => {
+        const labels = decodeLabels(r.labels);
+        const { labels: _raw, ...rest } = r;
+        void _raw;
+        return labels.length > 0 ? { ...rest, labels } : rest;
+      });
+      return ok(decoded);
     }),
 
     issue_update_description: requireRoles('issue_update_description', ['bro'], wrapHandler(async (args) => {
@@ -315,8 +334,8 @@ export function issueTools(db: TrajectoryDB): {
         [description, now, issueId],
       );
 
-      const updated = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      return ok(updated);
+      const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      return ok(decodeIssue(updated!));
     })),
 
   };
