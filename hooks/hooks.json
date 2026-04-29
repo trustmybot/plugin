@@ -18,6 +18,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/mcp-health-check.sh",
             "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/deferred-tools-drift-warn.sh",
+            "timeout": 5
           }
         ]
       }
