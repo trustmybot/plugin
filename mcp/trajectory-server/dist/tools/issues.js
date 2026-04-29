@@ -1,5 +1,13 @@
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
+import { decodeLabels } from './labels.js';
+function decodeIssue(row) {
+    const labels = decodeLabels(row.labels);
+    return {
+        ...row,
+        labels: labels.length > 0 ? labels : undefined,
+    };
+}
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -136,7 +144,8 @@ export function issueTools(db) {
             if (!rowId) {
                 throw new Error('issue_create: failed to retrieve inserted row');
             }
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [rowId.id]);
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [rowId.id]);
+            const issue = decodeIssue(row);
             const redacted = redactIssue(issue, agent, { include_description: true });
             return ok(redacted);
         })),
@@ -144,19 +153,21 @@ export function issueTools(db) {
             const agent = normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
             const includeDescription = args['include_description'] ?? false;
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            if (!issue) {
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!row) {
                 throw new Error(`Not found: ${issueId}`);
             }
+            const issue = decodeIssue(row);
             return ok(redactIssue(issue, agent, { include_description: includeDescription }));
         }),
         issue_resume: wrapHandler(async (args) => {
             const agent = normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            if (!issue) {
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!row) {
                 throw new Error(`Not found: ${issueId}`);
             }
+            const issue = decodeIssue(row);
             const task = db.get(`SELECT * FROM tasks
          WHERE issue_id = ? AND status IN ('pending', 'failed')
          ORDER BY branch_id ASC
@@ -168,8 +179,8 @@ export function issueTools(db) {
             const issueId = requireArg(args, 'issue_id');
             const postGitSha = args['post_git_sha'] ?? null;
             const now = nowISO();
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            if (!issue) {
+            const existing = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!existing) {
                 throw new Error(`Not found: ${issueId}`);
             }
             if (postGitSha !== null) {
@@ -183,15 +194,16 @@ export function issueTools(db) {
            WHERE id = ?`, [now, now, issueId]);
             }
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            return ok(updated);
+            return ok(decodeIssue(updated));
         })),
         issue_get_phase: wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            if (!issue) {
+            const issueRow = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!issueRow) {
                 throw new Error(`Not found: ${issueId}`);
             }
+            const issue = decodeIssue(issueRow);
             const counts = db.get(`SELECT
            COUNT(*) as tasks_total,
            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_completed,
@@ -225,12 +237,18 @@ export function issueTools(db) {
             }
             let rows;
             if (rawStatus !== undefined) {
-                rows = db.all(`SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`, [rawStatus, limit, offset]);
+                rows = db.all(`SELECT id, objective, status, labels, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`, [rawStatus, limit, offset]);
             }
             else {
-                rows = db.all(`SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?`, [limit, offset]);
+                rows = db.all(`SELECT id, objective, status, labels, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?`, [limit, offset]);
             }
-            return ok(rows);
+            const decoded = rows.map((r) => {
+                const labels = decodeLabels(r.labels);
+                const { labels: _raw, ...rest } = r;
+                void _raw;
+                return labels.length > 0 ? { ...rest, labels } : rest;
+            });
+            return ok(decoded);
         }),
         issue_update_description: requireRoles('issue_update_description', ['bro'], wrapHandler(async (args) => {
             const issueId = requireArg(args, 'issue_id');
@@ -246,7 +264,7 @@ export function issueTools(db) {
             const now = nowISO();
             db.run('UPDATE issues SET description = ?, updated_at = ? WHERE id = ?', [description, now, issueId]);
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            return ok(updated);
+            return ok(decodeIssue(updated));
         })),
     };
     return { definitions, handlers };

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS issues (
     post_commit_hash  TEXT,
     status            TEXT    NOT NULL DEFAULT 'open',
     current_task_id   INTEGER REFERENCES tasks(id),
+    labels            TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     closed_at         TEXT
