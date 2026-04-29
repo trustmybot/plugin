@@ -82,11 +82,13 @@ echo "  sentinel=$SESSION_ID"
 
 test_case "silent no-op when workspace not detected (no DB)"
 unset TRAJECTORY_DB_PATH
-WORKSPACE_NO_DB="$TMPDIR/ws-no-db"
-mkdir -p "$WORKSPACE_NO_DB"
+isolated_home=$(mktemp -d)
+isolated_cwd=$(mktemp -d)
+trap 'rm -rf "$isolated_home" "$isolated_cwd"' RETURN
 
-# Run from directory that has no DB in the walk-up chain
-out=$(cd "$WORKSPACE_NO_DB" && echo '{"prompt":"lost"}' | bash "$HOOK" 2>&1 || true)
+out=$(HOME="$isolated_home" bash -c "cd '$isolated_cwd' && echo '{\"prompt\":\"lost\"}' | bash '$HOOK' 2>&1 || true")
 assert_eq "" "$out" "no output when no workspace detected"
+
+unset isolated_home isolated_cwd
 
 summarize
