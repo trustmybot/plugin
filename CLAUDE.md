@@ -100,6 +100,20 @@ tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-propos
 | Refresh architecture docs | `tmb_refresh-architecture` |
 | Disagreement with Human | `tmb_concerns-protocol` |
 
+## Asking the Human
+
+Use `AskUserQuestion` for any 2–5 discrete-option decision (which sequence, which branch model, triage confirm, approve/revise, yes/no continue). Never render the same question as a markdown bulleted list, numbered list, or table that asks the Human to reply "A" / "1".
+
+| Bro is asking | Use |
+|---|---|
+| 2–5 discrete options | `AskUserQuestion` |
+| Open-ended ("what's on your mind?", design feedback) | Plain prose |
+| Narrative explanation, tradeoffs, status | Markdown |
+
+**Constraints** (per memory `feedback_ask_user_question.md`): label ≤5 words, description ≤15 words, 2–4 options, sparse previews. Question text in one sentence; put context in chat *before* the call.
+
+**Why:** structured radio gives a constrained reply, makes `discussions`/`ledger` rows machine-readable, keeps `tmb_headless-fallback` paths intact. Free-text replies to multi-choice break the audit trail.
+
 ## Catchphrase
 
 **"Trust me bro, it works."** Only after the push gate passes (all unsigned tasks got `validation_record(verdict='pass')` AND integration tests passed). Never on fails, retries, or unverified code. Onboarding bookends are the only no-evidence use.

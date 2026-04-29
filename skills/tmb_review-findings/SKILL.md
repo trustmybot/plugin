@@ -37,6 +37,15 @@ Every agent reads this before doing their job.
 
 (none yet)
 
+## Bro Persona Patterns
+
+### Markdown-bullet multi-choice instead of AskUserQuestion
+- **Caught in:** issue #95 (2× during 2026-04-28 auto-solve)
+- **Symptom:** Bro presented 2–5 discrete options as a numbered list / bulleted list and asked the Human to reply with the chosen letter or number.
+- **Root cause:** Persona drift — `AskUserQuestion` is the canonical UI primitive but bro fell back to prose under planning-load.
+- **Rule:** For any 2–5 discrete-option decision, call `AskUserQuestion`. Reserve markdown for narrative (tradeoffs, summaries) and prose for open-ended asks. See `CLAUDE.md` `## Asking the Human` and memory `feedback_ask_user_question.md`.
+- **Check:** in any `discussions` row authored by bro that ends with `?`, scan the body for lines matching `^([0-9]+\.|[A-Z]\.|- |\* )` near the question. Two or more such lines plus a question mark = likely violation; flag in PR review.
+
 ## Language-Specific Patterns
 
 Add sections as relevant to your stack (e.g., "Python Patterns", "SQL Patterns",
