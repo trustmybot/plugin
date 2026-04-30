@@ -40,6 +40,7 @@ run_step "L1 lint: version sync (3 manifests agree)"  bash "$HERE/lint/version-s
 run_step "L1 lint: changelog top section current"     bash "$HERE/lint/changelog-current.sh"
 run_step "L1 lint: link-check (relative md links)"    bash "$HERE/lint/link-check.sh"
 run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/lint/shellcheck-hooks.sh"
+run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/lint/no-destructive-sql.sh"
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/lint/tsc-noemit.sh"
 run_step "L1 lint: release script safety guards"      bash "$HERE/lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/lint/dist-fresh.sh"
