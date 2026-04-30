@@ -13,7 +13,7 @@ TMB turns Claude Code from a clever code-generator into a disciplined engineerin
 ## Install
 
 ```bash
-/plugin marketplace add trustmybot/plugin
+/plugin marketplace add trustmybot/marketplace
 /plugin install tmb@trustmybot
 ```
 
@@ -21,28 +21,28 @@ The plugin sits dormant until you address `@bro` in a message. No auto-takeover,
 
 ### Channels
 
-The `trustmybot` marketplace currently ships two channels of the `tmb` plugin:
+TMB ships two release channels via two separate marketplaces (CC's canonical release-channel pattern — see [Set up release channels](https://code.claude.com/docs/en/plugin-marketplaces#set-up-release-channels)).
 
-| Channel | Install | Tracks | Audience |
+| Channel | Install | Plugin source ref | When to pick |
 |---|---|---|---|
-| **`tmb`** (stable) | `/plugin install tmb@trustmybot` | `main` branch (latest tag) | Production users — only validated releases land here |
-| **`tmb-rc`** (release candidate) | `/plugin install tmb-rc@trustmybot` | `rc` branch (currently-testing build) | Beta testers — help validate risky changes pre-promotion. Tolerate occasional breakage. |
+| **Stable** | `/plugin marketplace add trustmybot/marketplace` then `/plugin install tmb@trustmybot` | `plugin@main` (validated tags) | Production users — only validated releases land here |
+| **RC** | `/plugin marketplace add trustmybot/marketplace-rc` then `/plugin install tmb@trustmybot-rc` | `plugin@rc` (currently-testing build) | Beta testers — help validate risky changes pre-promotion. Tolerate occasional breakage. |
 
-The RC channel exists because v0.2.0 and v0.3.0 both shipped install-path bugs that broke every stable user. Now anything risky goes through `tmb-rc` first; stable users only get validated releases. See [`CONTRIBUTING.md` § Release ritual](CONTRIBUTING.md#release-ritual).
+The plugin name is the same (`tmb`) in both marketplaces; the marketplace name (`trustmybot` vs `trustmybot-rc`) is the @qualifier. Pick **one channel per Claude Code installation** — the marketplace qualifier doesn't disambiguate at install time today (CC bug [#20593](https://github.com/anthropics/claude-code/issues/20593)). To switch channels: `/plugin uninstall tmb` first, then add + install the other channel.
 
 ### Manage the marketplace from CC
 
 In Claude Code, navigate the plugin UI:
 
 ```
-/plugin    →    Marketplaces    →    trustmybot    →    Browse plugins
+/plugin    →    Marketplaces    →    trustmybot (or trustmybot-rc)    →    Browse plugins
 ```
 
-You'll see one entry per channel (`tmb`, `tmb-rc`). Future channels and add-on plugins from the trustmybot org will appear here as new entries.
+You'll see one entry per channel (`tmb`). Future add-on plugins from the trustmybot org will appear here as new entries.
 
 ### Refresh after upstream marketplace changes
 
-`/plugin marketplace add trustmybot/plugin` is **idempotent** — it won't re-fetch if the marketplace was already added in a previous session. If new channels (or new plugins) were added upstream after you first added the marketplace, refresh:
+`/plugin marketplace add trustmybot/marketplace` is **idempotent** — it won't re-fetch if the marketplace was already added in a previous session. If new channels (or new plugins) were added upstream after you first added the marketplace, refresh:
 
 ```
 /plugin marketplace update trustmybot
@@ -52,7 +52,7 @@ If `update` isn't supported in your CC version:
 
 ```
 /plugin marketplace remove trustmybot
-/plugin marketplace add trustmybot/plugin
+/plugin marketplace add trustmybot/marketplace
 ```
 
 ### Coming later — pinned versions + add-ons

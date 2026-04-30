@@ -6,7 +6,7 @@ Layers L0–L4 + L5 are automated (Docker install-smoke, lint, MCP unit + integr
 
 | File | Purpose |
 |---|---|
-| [`setup.md`](./setup.md) | **Read this first.** Two test paths explained: Path A (local `claude --plugin-dir`, fast iteration) vs Path B (marketplace `/plugin install tmb-rc@trustmybot`, REQUIRED for RC validation). Plus reset, hot reload, common errors, the Docker install-smoke fallback (Path C). |
+| [`setup.md`](./setup.md) | **Read this first.** Two test paths explained: Path A (local `claude --plugin-dir`, fast iteration) vs Path B (marketplace `/plugin install tmb@trustmybot-rc`, REQUIRED for RC validation). Plus reset, hot reload, common errors, the Docker install-smoke fallback (Path C). |
 | [`scenarios.md`](./scenarios.md) | The 10-item L5 checklist. Walk every item against the install you're validating. |
 
 ## When to run

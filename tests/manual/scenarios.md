@@ -17,11 +17,11 @@ Two test paths — see [`setup.md`](./setup.md) for the full instructions, inclu
 | Path | Command | Use when |
 |---|---|---|
 | **A — Local dev** | `claude --plugin-dir <plugin-clone>` | Active development; fast iteration; hot reload via `/reload-plugins`. |
-| **B — Marketplace RC** | `/plugin install tmb-rc@trustmybot` (in CC) | **REQUIRED for RC validation** before promoting to stable. Exercises CC's actual install lifecycle. |
+| **B — Marketplace RC** | `/plugin install tmb@trustmybot-rc` (in CC) | **REQUIRED for RC validation** before promoting to stable. Exercises CC's actual install lifecycle. |
 
 **For RC validation: use Path B.** Path A bypasses the install lifecycle that broke v0.2.0 + v0.3.0 — it can't catch that bug class. Path B is the only manual path that does.
 
-For each scenario below: set up a fresh scratch project per [`setup.md`](./setup.md), run the trigger, verify against the expected behavior, then reset (`rm -rf .claude/tmb .claude/tmb-rc`) before the next scenario.
+For each scenario below: set up a fresh scratch project per [`setup.md`](./setup.md), run the trigger, verify against the expected behavior, then reset (`rm -rf .claude/tmb`) before the next scenario.
 
 ---
 
