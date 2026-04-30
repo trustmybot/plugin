@@ -129,4 +129,57 @@ out=$(run_hook_in_repo "git checkout -b feat/new-from-main")
 assert_not_contains "$out" "is behind origin" "no-remote repo must not falsely report behind-origin"
 cleanup_repo
 
+# ---- v0.3.3+ detached-HEAD DB-lookup tests (audit item 5) ----------------
+#
+# When the worktree is in detached-HEAD mode, git branch --show-current returns
+# empty and Rule 2 previously silently disabled. cmd_effective_branch now does
+# a DB lookup: worktree basename → tasks.branch_id → check if protected.
+
+setup_detached_worktree_repo() {
+  local dir
+  dir=$(mktemp -d -t tmb-guards-detached-XXXX)
+  (
+    cd "$dir" || exit 1
+    git init -q -b main
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md
+    git add . && git commit -qm init
+
+    # Create a detached-HEAD worktree (SWE pattern post-!45).
+    # Slug = "cli-todo" (basename of worktree dir = everything after last /).
+    git worktree add -q --detach .claude/worktrees/cli-todo
+
+    # Plant trajectory DB with:
+    #   - branching_model, pr_target, protected_branches (schema defaults to github-flow/main/[main])
+    #   - a task whose branch_id = 'feat/cli-todo' (non-protected, commit should pass)
+    mkdir -p .claude/tmb
+    sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "
+      INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+        VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
+      INSERT INTO tasks (id, issue_id, branch_id, title, description, success_criteria, status, spec_body, created_at, updated_at)
+        VALUES (1, 1, 'feat/cli-todo', 'test task', 'd', 'sc', 'pending', '', datetime('now'), datetime('now'));
+    " >/dev/null
+  )
+  REPO_PATH="$dir"
+}
+
+test_case "v0.3.3: detached-HEAD worktree on feature branch: commit ALLOWED via DB lookup"
+setup_detached_worktree_repo
+# SWE issues: cd <detached-worktree> && git commit
+# cmd_branch returns empty (detached HEAD); cmd_effective_branch resolves via DB:
+# slug=cli-todo → branch_id=feat/cli-todo → not protected → allow.
+out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/cli-todo && git commit -m 'feat: add x'")
+assert_not_contains "$out" '"decision":"block"' "detached worktree on feature branch must not block"
+cleanup_repo
+
+test_case "v0.3.3: detached-HEAD worktree with no DB match: commit allowed (fail-open)"
+setup_detached_worktree_repo
+# Remove the task row so DB lookup finds nothing — hook should fail-open (no block).
+sqlite3 "$REPO_PATH/.claude/tmb/trajectory.db" "DELETE FROM tasks WHERE id=1;" >/dev/null
+out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/cli-todo && git commit -m 'feat: add x'")
+assert_not_contains "$out" '"decision":"block"' "no DB match must not block (fail-open)"
+cleanup_repo
+
 summarize

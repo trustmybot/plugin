@@ -23,14 +23,28 @@ Two triggers:
 
 ## Protocol
 
-1. **Query MCP** for tasks with `commit_sha NOT NULL` AND no passing `validation_attempts.verdict='pass'` row. These are the unsigned-task batch.
-2. **For each task in the batch, spawn `pr-reviewer`** with `task_id=N`. Run them in parallel where possible — they're independent.
+1. **Reap each unsigned task's detached-HEAD worktree commits into the local feature branch.** For each unsigned task, look up `tasks.branch_id` and the slug, then from the main checkout:
+   ```bash
+   git fetch ./.claude/worktrees/<slug> HEAD:<branch_id>
+   ```
+   This fast-forwards the local branch ref to the worktree's detached HEAD. The branch now reflects the work; the worktree's commits are preserved.
+2. **Query MCP** for tasks with `commit_sha NOT NULL` AND no passing `validation_attempts.verdict='pass'` row. These are the unsigned-task batch.
+3. **For each task in the batch, spawn `pr-reviewer`** with `task_id=N`. Run them in parallel where possible — they're independent.
    - `pr-reviewer` ships globally with the plugin. **No file copy needed.** CC's agent dispatcher discovers it automatically.
-3. **Each pr-reviewer signs off** with `validation_record(verdict='pass'|'fail', ...)`.
-4. **On all-pass:** tell the Human the push is unblocked. They re-run `git push`.
-5. **On any fail:** surface the failure verbatim. The Human chooses:
+4. **Each pr-reviewer signs off** with `validation_record(verdict='pass'|'fail', ...)`.
+5. **On all-pass:** push the local branch (`git push origin <feature>`), open the MR, then tell the Human the gate is clear. After the MR merges, run the **Post-merge cleanup** below.
+6. **On any fail:** surface the failure verbatim. The Human chooses:
    - Accept the fix scope → bro spawns swe to address.
    - Abort the push.
+
+## Post-merge cleanup
+
+After the MR merges (whether bro or Human merges it):
+
+1. Switch the main checkout back to the configured base: `git switch <base>` (where `<base>` is the value of `pr_target` from `config_get`).
+2. Fast-forward the base: `git pull --ff-only`.
+3. Delete the now-merged feature branch locally: `git branch -d <feature>`.
+4. Cleanup hook removes the SWE worktree on task close (no manual action needed).
 
 ## Why this design
 

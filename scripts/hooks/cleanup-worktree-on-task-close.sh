@@ -60,9 +60,12 @@ BRANCH_ID=$(sqlite3 "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=$TASK_ID LI
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
-WORKTREE_PATH=$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | awk -v b="refs/heads/$BRANCH_ID" '
-  /^worktree / { wt=substr($0, 10) }
-  /^branch / && $2 == b { print wt; exit }
+SLUG="${BRANCH_ID#*/}"
+WORKTREE_PATH=$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | awk -v slug="$SLUG" '
+  /^worktree / {
+    wt = substr($0, 10);
+    if (wt ~ ("/\\.claude/worktrees/" slug "$")) { print wt; exit }
+  }
 ')
 
 [ -n "$WORKTREE_PATH" ] || exit 0
