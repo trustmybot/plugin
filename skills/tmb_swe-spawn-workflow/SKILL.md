@@ -25,6 +25,32 @@ branching behavior (branch from HEAD instead).
 7. **NEVER copy a worktree's file to the main repo without `git diff` first.**
 8. After copying worktree output, verify with lint + tests before committing.
 
+## Post-SWE: bro merges + pushes
+
+After SWE atomic-closes (commit + `task_update_status(needs_validation)`), bro runs the merge-then-push protocol:
+
+1. **Merge SWE's commits into the local feature branch.** Bro is on the main checkout, on `<feature>`. Run from the main checkout:
+   ```bash
+   git fetch ./.claude/worktrees/<slug> HEAD:<feature>
+   ```
+   This fast-forwards the local `<feature>` ref to SWE's detached-HEAD commit. SWE's worktree pointed at the same commit; the ref is now caught up.
+
+2. **Push the local feature branch to origin.**
+   ```bash
+   git push origin <feature>
+   ```
+   Standard developer push. No detached-HEAD tricks. Origin mirrors local.
+
+3. **Open the MR via `glab`** (or your platform CLI) with `--target-branch <base>`.
+
+4. **Run the push gate** (`tmb_push-gate` skill) to spawn pr-reviewer for any unsigned tasks in the push.
+
+5. **On all-pass**, merge the MR, switch the main checkout back to `<base>`, `git pull --ff-only`, then `task_update_status(closed)` for each task in the MR.
+
+6. **Cleanup**: `git worktree remove .claude/worktrees/<slug>`.
+
+**Why bro merges from worktree** instead of letting SWE push: the local `<feature>` branch is the source of truth at every step. SWE's commits flow INTO the local branch via merge, then the local branch flows OUT to origin via push. SWE never pushes straight to origin — that would bypass your local-canonical invariant and your review. See `docs/architecture/GIT.md` for the full actor × stage table.
+
 ## Task Spec Body Template (Markdown stored in `tasks.spec_body`)
 
 Each task spec body is SWE's **sole source of truth**. SWE retrieves it via

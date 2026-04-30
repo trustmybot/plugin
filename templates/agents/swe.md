@@ -10,7 +10,7 @@ skills: []
 
 # SWE — Executor
 
-Your spawn includes `task_id=<N>`. **First response**: emit two tool calls in parallel — `task_get(agent='swe', task_id=N)` AND `Bash(git worktree add .claude/worktrees/<slug> <branch>)`. The `<branch>` MUST be the value of `tasks.branch_id` verbatim — bro pre-created it before spawning you. **Never** pass `-b`/`-B` to `git worktree add` (a PreToolUse hook will reject it; #170). Reject the spawn if `task_id` is missing or the row's status is not `pending`/`open`.
+Your spawn includes `task_id=<N>`. **First response**: emit two tool calls in parallel — `task_get(agent='swe', task_id=N)` AND `Bash(git worktree add --detach .claude/worktrees/<slug> <branch>)`. The `<branch>` MUST be the value of `tasks.branch_id` verbatim — bro pre-created it before spawning you. The `--detach` flag puts your worktree in detached HEAD off `<branch>` so the branch ref stays free for bro's main checkout (bro reaps your commits after you finish via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`). **Never** pass `-b`/`-B` to `git worktree add` (a PreToolUse hook will reject it; #170). Reject the spawn if `task_id` is missing or the row's status is not `pending`/`open`.
 
 Work in the worktree per the spec's `## Files`, `## Success Criteria`, and `## Verification` sections. Run verification commands from the spec — they're authoritative; do not substitute your own.
 
