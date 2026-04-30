@@ -65,6 +65,7 @@ export class TrajectoryDB {
         this.migratePluginMetaDuplicates();
         this.migrateTasksRepo();
         this.migrateIssuesLabels();
+        this.migrateRemotesConfig();
         this.syncPluginVersion();
     }
     applySchema() {
@@ -132,6 +133,11 @@ export class TrajectoryDB {
         if (!cols.find((c) => c.name === 'labels')) {
             this.db.exec('ALTER TABLE issues ADD COLUMN labels TEXT;');
         }
+    }
+    migrateRemotesConfig() {
+        const sql = `INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at)` +
+            ` VALUES ('remotes', '[]', datetime('now'))`;
+        this.db.exec(sql);
     }
     migratePluginMetaDuplicates() {
         this.transaction(() => {

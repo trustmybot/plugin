@@ -166,7 +166,8 @@ CREATE TABLE IF NOT EXISTS plugin_config (
 INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at) VALUES
     ('branching_model',    '"github-flow"', datetime('now')),
     ('pr_target',          '"main"',        datetime('now')),
-    ('protected_branches', '["main"]',      datetime('now'));
+    ('protected_branches', '["main"]',      datetime('now')),
+    ('remotes',            '[]',            datetime('now'));
 
 CREATE TABLE IF NOT EXISTS identity (
     id               INTEGER PRIMARY KEY CHECK (id = 1),

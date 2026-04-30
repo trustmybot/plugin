@@ -7,6 +7,7 @@
 | `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | (none — first-run prompt sets it) | `git-guards.sh`, bro routing | bro onboarding |
 | `pr_target` | string | any valid branch name | derived from `branching_model` when first-run sets it | `git-guards.sh` PR rule | bro onboarding |
 | `protected_branches` | string[] (JSON) | array of branch names | derived from `branching_model` | `git-guards.sh` commit rule | bro onboarding |
+| `remotes` | object[] (JSON) | array of `{name, provider, url}` — see `ENUMS.md` for `provider` values | `[]` | tmb_reonboard, tmb_push-gate (future) | bro onboarding (auto-detect or AUQ) |
 
 ## 2. Default Derivation
 
