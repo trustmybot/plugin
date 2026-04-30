@@ -37,12 +37,42 @@ esac
 # Detect "push from worktree". Pushes only happen from the main checkout
 # (where bro reaped the detached commits). Any push originating from
 # .claude/worktrees/ is by definition SWE attempting to push directly.
+#
+# Three signals, in priority order:
+#   1. The command itself does `git -C <worktree-path> push` — explicit.
+#   2. The command starts with `cd <path> && ...` — trust the cd target;
+#      $PWD is stale (PreToolUse hooks fire BEFORE the embedded cd runs).
+#   3. Fall back to $PWD when neither (1) nor (2) match.
 WT_CWD=""
+CD_OVERRIDE=""
+
+# Signal 1: explicit `git -C <worktree-path>`
 case "$CMD" in
-  *"cd "*"/.claude/worktrees/"*) WT_CWD="yes" ;;
-  *"git -C "*"/.claude/worktrees/"*) WT_CWD="yes" ;;
+  *"git -C "*"/.claude/worktrees/"*" push"*) WT_CWD="yes" ;;
 esac
-if [ -z "$WT_CWD" ] && echo "$PWD" | grep -q "/.claude/worktrees/"; then
+
+# Signal 2: leading `cd <path> && ...` overrides $PWD.
+#   Match shapes: `cd /abs/path && git push`, `cd ./rel && git push`,
+#                 `cd /p ; git push`, etc.
+#   Don't match: `git push && cd /elsewhere` (post-push cd is not relevant).
+if [ -z "$WT_CWD" ]; then
+  case "$CMD" in
+    "cd "*"&&"*"git push"*|"cd "*";"*"git push"*)
+      CD_TARGET=$(printf '%s' "$CMD" | sed -nE 's/^cd[[:space:]]+([^[:space:]&;]+).*/\1/p')
+      if [ -n "$CD_TARGET" ]; then
+        CD_OVERRIDE="yes"
+        case "$CD_TARGET" in
+          *"/.claude/worktrees/"*) WT_CWD="yes" ;;
+        esac
+      fi
+      ;;
+  esac
+fi
+
+# Signal 3: $PWD fallback (only when neither cd nor git -C in command).
+if [ -z "$WT_CWD" ] && [ -z "$CD_OVERRIDE" ] && \
+   ! echo "$CMD" | grep -q 'git -C ' && \
+   echo "$PWD" | grep -q "/.claude/worktrees/"; then
   WT_CWD="yes"
 fi
 
