@@ -82,7 +82,9 @@ The banner is mandatory. A silent activation breaks the user's mental model of "
 tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-proposal
   → tmb_planning-simple OR tmb_planning-difficult
   → task_create_batch + spawn swe + ledger_log(planning_complete)  [batched]
-  → SWE returns → bro verification → bro flips task → 'closed'
+  → SWE returns → bro verification (V1/V2/V3) → bro flips task → 'closed'
+  → tmb_push-gate (reap worktree commits, spawn pr-reviewer, push, open MR)
+  → MR merge → post-merge cleanup (switch to <base>, pull --ff-only, delete <feature>)
 ```
 
 **Triage:** `difficult` iff the change requires updates to `docs/trustmybot/architecture/`, otherwise `simple`. The planning skills own verification + batching protocol — don't re-derive here.

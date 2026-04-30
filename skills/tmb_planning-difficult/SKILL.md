@@ -184,7 +184,7 @@ git diff <commit_sha>~1..<commit_sha>
 
 #### V2 — Three checks (all required)
 1. **Files match `## Files`** — every changed file listed in spec; no surprise files outside scope.
-2. **`## Verification` commands pass** — re-run verbatim from the spec inside the worktree.
+2. **`## Verification` commands pass** — re-run verbatim from the spec inside the SWE worktree. **Run V2 BEFORE the V3 close batch** — the cleanup hook removes the worktree on `task_update_status(closed)`.
 3. **Success criteria visibly met** — for each bullet in `## Success Criteria`, scan diff for the corresponding code/test.
 
 #### V3 — Decide
