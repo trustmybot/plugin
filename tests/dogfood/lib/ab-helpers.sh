@@ -7,6 +7,9 @@
 
 set -uo pipefail
 
+# shellcheck source=tests/dogfood/lib/timeout-shim.sh
+source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
+
 # l5_make_arm_plugin <arm_overrides_dir> — copies $PLUGIN_ROOT to a temp dir
 # and overlays arm-specific overrides on top. Echoes the temp dir path.
 #
@@ -93,7 +96,7 @@ l5_run_arm() {
     echo "  cwd: $dir" >&2
     echo "  arm plugin-dir: $arm_plugin" >&2
     echo "  prompt: $prompt" >&2
-    timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude --plugin-dir "$arm_plugin" --dangerously-skip-permissions -p "$prompt" 2>&1 \
+    _l5_timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude --plugin-dir "$arm_plugin" --dangerously-skip-permissions -p "$prompt" 2>&1 \
       | sed 's/^/  [arm] /' >&2 || true
     echo "  ── claude (arm) end ──" >&2
   )

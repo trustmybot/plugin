@@ -3,6 +3,9 @@
 
 set -uo pipefail
 
+# shellcheck source=tests/dogfood/lib/timeout-shim.sh
+source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
+
 # l5_setup_scratch_project: creates a fresh Docker-isolated scratch dir,
 # initializes git, sets test identity. Returns the absolute path on stdout.
 l5_setup_scratch_project() {
@@ -55,7 +58,7 @@ l5_run_claude() {
     echo "  cwd: $dir" >&2
     echo "  plugin-dir: $PLUGIN_ROOT" >&2
     echo "  prompt: $prompt" >&2
-    timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude --plugin-dir "$PLUGIN_ROOT" --dangerously-skip-permissions -p "$prompt" 2>&1 \
+    _l5_timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude --plugin-dir "$PLUGIN_ROOT" --dangerously-skip-permissions -p "$prompt" 2>&1 \
       | sed 's/^/  [claude] /' >&2 || true
     echo "  ── claude invocation end (exit was masked) ──" >&2
   )
