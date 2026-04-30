@@ -246,4 +246,49 @@ out=$(run_hook "git push origin main" "$db")
 assert_not_contains "$out" '"decision":"block"' "non-SWE caller with all-signed should not be blocked"
 cleanup
 
+# ----- worktree-path push detection tests (audit item 14) ----------------
+#
+# Any push whose command or PWD involves .claude/worktrees/ must be blocked
+# regardless of agent_type (defense-in-depth for CC quirk #97 field drop).
+
+run_hook_from_worktree_cmd() {
+  local cmd="$1"
+  local db="${2:-/nonexistent.db}"
+  local payload
+  payload=$(jq -cn --arg c "$cmd" '{tool_input:{command:$c}}')
+  (cd "$REPO_PATH" && echo "$payload" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true)
+}
+
+test_case "push via 'cd .claude/worktrees/...' prefix: BLOCKED (no agent_type field)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook_from_worktree_cmd "cd $REPO_PATH/.claude/worktrees/feat-x && git push origin feat/x" "$db")
+assert_contains "$out" '"decision":"block"' "push from worktree cd prefix must block even without agent_type"
+assert_contains "$out" ".claude/worktrees/" "block message must reference worktree path"
+cleanup
+
+test_case "push via 'git -C .claude/worktrees/...' flag: BLOCKED (no agent_type field)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+out=$(run_hook_from_worktree_cmd "git -C $REPO_PATH/.claude/worktrees/feat-x push origin feat/x" "$db")
+assert_contains "$out" '"decision":"block"' "push via git -C worktree path must block"
+cleanup
+
+test_case "normal push from main checkout (no worktree in cmd): NOT blocked by worktree check"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook_from_worktree_cmd "git push origin main" "$db")
+assert_not_contains "$out" '"decision":"block"' "normal push from main checkout must not be blocked by worktree check"
+cleanup
+
 summarize

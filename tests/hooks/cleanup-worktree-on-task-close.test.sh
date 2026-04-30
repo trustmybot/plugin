@@ -2,7 +2,11 @@
 # Tests for scripts/hooks/cleanup-worktree-on-task-close.sh.
 # Hook contract: PostToolUse on task_update_status. When agent='bro' AND
 # status='closed' AND task has a worktree, remove the worktree. Silent
-# no-op for any unmet condition.
+# no-op for any unmet condition. Worktree match is path/slug-based so it
+# works for both branch-attached and detached-HEAD worktrees.
+#
+# Slug convention: SLUG="${BRANCH_ID#*/}" (strips first <type>/ prefix).
+# fix/foo → slug=foo → worktree at .claude/worktrees/foo
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,12 +29,17 @@ sqlite3 "$DB" "
   CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT NOT NULL, status TEXT);
   INSERT INTO tasks (id, branch_id, status) VALUES (1, 'fix/foo', 'completed');
   INSERT INTO tasks (id, branch_id, status) VALUES (2, 'fix/bar', 'completed');
+  INSERT INTO tasks (id, branch_id, status) VALUES (3, 'fix/detached', 'completed');
 "
 export TRAJECTORY_DB_PATH="$DB"
 
-# Create a worktree for task 1's branch.
+# Create a branch-attached worktree for task 1 (slug = "foo" from "fix/foo").
 git branch fix/foo HEAD
-git worktree add -q .claude/worktrees/fix-foo fix/foo
+git worktree add -q .claude/worktrees/foo fix/foo
+
+# Create a detached-HEAD worktree for task 3 (slug = "detached" from "fix/detached").
+# This is the post-!45 SWE pattern: worktree uses detached HEAD.
+git worktree add -q --detach .claude/worktrees/detached
 
 input() {
   local tool="$1" agent="$2" status="$3" task_id="$4"
@@ -45,7 +54,7 @@ run_hook() {
 }
 
 worktree_exists() {
-  [ -d "$REPO/.claude/worktrees/fix-foo" ]
+  [ -d "$REPO/.claude/worktrees/foo" ]
 }
 
 test_case "wrong tool name: silent no-op, worktree intact"
@@ -73,15 +82,25 @@ test_case "task without worktree: silent no-op"
 out=$(run_hook "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 2)")
 worktree_exists || { echo "FAIL: task 1 worktree gone"; exit 1; }
 
-test_case "bro closes task 1: worktree removed"
+test_case "detached-HEAD worktree: removed by slug match (not branch ref)"
+[ -d "$REPO/.claude/worktrees/detached" ] || { echo "FAIL: detached worktree missing before test"; exit 1; }
+out=$(run_hook "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 3)")
+assert_contains "$out" 'cleaned up worktree' "report message for detached worktree"
+[ ! -d "$REPO/.claude/worktrees/detached" ] || { echo "FAIL: detached worktree still present"; exit 1; }
+echo "  detached-HEAD worktree removed"
+
+test_case "bro closes task 1: worktree removed (slug-based path match)"
 out=$(run_hook "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 1)")
 assert_contains "$out" 'cleaned up worktree' "report message"
 worktree_exists && { echo "FAIL: worktree still present"; exit 1; }
-echo "  ✓ worktree removed"
+echo "  worktree removed"
 
 test_case "RC channel tool name also matches"
+# bar slug = "bar" from "fix/bar"
 git branch fix/bar HEAD
-git worktree add -q .claude/worktrees/fix-bar fix/bar
+git worktree add -q .claude/worktrees/bar fix/bar
 out=$(run_hook "$(input 'mcp__plugin_tmb-rc_trajectory-server__task_update_status' 'bro' 'closed' 2)")
-[ ! -d "$REPO/.claude/worktrees/fix-bar" ] || { echo "FAIL: rc-channel match didn't fire"; exit 1; }
-echo "  ✓ rc-channel tool name handled"
+[ ! -d "$REPO/.claude/worktrees/bar" ] || { echo "FAIL: rc-channel match didn't fire"; exit 1; }
+echo "  rc-channel tool name handled"
+
+summarize

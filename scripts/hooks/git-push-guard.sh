@@ -21,13 +21,40 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
 
 # Only fire for git push (not push --force; that's git-guards's job).
+# Matches both `git push ...` and `git -C <path> push ...` forms.
+IS_PUSH=""
+IS_FORCE=""
 case "$CMD" in
-  *"git push"*"--force"*|*"git push"*"-f "*) exit 0 ;;
-  *"git push"*) ;;
-  *) exit 0 ;;
+  *"git push"*|*"git -C "*" push"*) IS_PUSH="yes" ;;
 esac
+case "$CMD" in
+  *"git push"*"--force"*|*"git push"*"-f "*|\
+  *"git -C "*" push"*"--force"*|*"git -C "*" push"*"-f "*) IS_FORCE="yes" ;;
+esac
+[ "$IS_PUSH" = "yes" ] || exit 0
+[ "$IS_FORCE" = "yes" ] && exit 0
+
+# Detect "push from worktree". Pushes only happen from the main checkout
+# (where bro reaped the detached commits). Any push originating from
+# .claude/worktrees/ is by definition SWE attempting to push directly.
+WT_CWD=""
+case "$CMD" in
+  *"cd "*"/.claude/worktrees/"*) WT_CWD="yes" ;;
+  *"git -C "*"/.claude/worktrees/"*) WT_CWD="yes" ;;
+esac
+if [ -z "$WT_CWD" ] && echo "$PWD" | grep -q "/.claude/worktrees/"; then
+  WT_CWD="yes"
+fi
+
+if [ "$WT_CWD" = "yes" ]; then
+  REASON=$(jq -Rn '"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`."')
+  printf '{"decision":"block","reason":%s}\n' "$REASON"
+  exit 0
+fi
 
 # Block any git push from SWE context (swe.md "Never push" rule enforced structurally).
+# Defense-in-depth fallback: catches non-worktree SWE pushes and cases where
+# CC #97 might strip the agent_type field from the payload.
 if [ "$AGENT_TYPE" = "tmb:swe" ] || [ "$AGENT_TYPE" = "swe" ]; then
   REASON=$(jq -Rn '"BLOCKED: SWE must never push (swe.md). Bro handles the push gate at MR-open time. If this push was intended, the calling agent identity (.agent_type) is misconfigured."')
   printf '{"decision":"block","reason":%s}\n' "$REASON"
