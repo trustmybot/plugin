@@ -94,6 +94,31 @@ On **yes**:
 On **revise**: ask what to change, redraft, re-show.
 On **no** / silence / ambiguous: abort, write nothing.
 
+## Pre-write check — no noise-citations
+
+Before writing the skill file, scan the body for these patterns. Strip or rewrite each match before saving:
+
+| Pattern | Why it's noise |
+|---|---|
+| Issue numbers — `#\d+`, `(#W4)`, `[bro #1]` | Skill loads every turn; agent can't fetch issues at runtime; IDs decay. |
+| Memory file paths — `feedback_*.md`, `~/.claude/projects/<proj>/memory/...` | Memory is per-session and mutable. It is NOT canonical. Note: `~/.claude/` paths that point to runtime artifacts (logs, settings) are fine — only the memory dir is forbidden. |
+| Origin attributions — `caught in`, `prior incident`, `regression during X`, `2× during Y` | Non-actionable noise. |
+| Dates — `2026-04-XX` | Decay. |
+| PR/MR URLs — `!\d+`, `gitlab.com/.../merge_requests/...` | Same as issue numbers. |
+| Tombstones — `previously`, `no longer`, `deprecated`, `do not`, `was` as migration commentary | Pre-release means delete cleanly. |
+
+Allowed:
+
+- The rule itself, stated inline.
+- Cross-references to other prompt surfaces: `see CLAUDE.md ## <Section>`, `see agents/<name>.md`, `see skills/<name>/SKILL.md`.
+- MCP-DB references via tool name: "consult `discussion_list`", "see `ledger_log` for X events".
+
+### Why this rule exists
+
+Skill files load into the LLM context every turn an agent fires. Anything cited there must be either (a) inline, (b) in another canonical SE source loaded the same way, or (c) in the MCP DB referenced by tool name. Issue numbers, memory paths, "caught in", origin attributions — none of these are things the LLM can act on at runtime; they cost tokens and decay into outright misinformation.
+
+Citations belong in commits, MRs, and issue bodies. Different surface, different economics.
+
 ## Step 5 — Log + report
 
 ```

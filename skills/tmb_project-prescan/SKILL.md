@@ -1,6 +1,6 @@
 ---
 name: tmb_project-prescan
-description: Deterministic, non-LLM scan of the project at the first code-touching ask of a session. Enumerates git state, top-level layout, stack indicators, agents present, open MCP issues, AND the codebase-memory check (#45). Branches per entry-state matrix — asks the Human about deep scan on cold-start in an existing repo, runs verify pass on drift, trusts the registry when clean. Skipped on greetings and read-only asks.
+description: Deterministic, non-LLM scan of the project at the first code-touching ask of a session. Enumerates git state, top-level layout, stack indicators, agents present, open MCP issues, AND the codebase-memory check. Branches per entry-state matrix — asks the Human about deep scan on cold-start in an existing repo, runs verify pass on drift, trusts the registry when clean. Skipped on greetings and read-only asks.
 agent: bro
 allowed-tools: Bash, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__config_get, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__file_registry_list, mcp__plugin_tmb_trajectory-server__file_registry_verify, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
@@ -124,7 +124,7 @@ Proposed branch_id: <e.g. feat/foo-bar — only when request is a code change>
 =========================
 ```
 
-### Phase 4 — codebase-memory check (#45)
+### Phase 4 — codebase-memory check
 
 Branch per the entry-state matrix using `git ls-files` + `file_registry_list` + `config_get('last_verified_sha')` + `git rev-parse HEAD`.
 

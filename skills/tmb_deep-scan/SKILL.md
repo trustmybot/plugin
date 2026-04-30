@@ -1,6 +1,6 @@
 ---
 name: tmb_deep-scan
-description: Eager opt-in mode for #45 codebase memory — read every tracked source file, generate per-file summaries, bulk-write to file_registry. Triggered when the Human says yes to the cold-start AskUserQuestion in tmb_project-prescan, or directly via "@bro deep scan" / "@bro index everything" / "@bro fully understand the project". Token-heavy by design.
+description: Eager opt-in mode for codebase memory — read every tracked source file, generate per-file summaries, bulk-write to file_registry. Triggered when the Human says yes to the cold-start AskUserQuestion in tmb_project-prescan, or directly via "@bro deep scan" / "@bro index everything" / "@bro fully understand the project". Token-heavy by design.
 agent: bro
 allowed-tools: Bash, Read, mcp__plugin_tmb_trajectory-server__file_registry_update_summaries, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
