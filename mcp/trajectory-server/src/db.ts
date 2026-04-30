@@ -188,6 +188,7 @@ export class TrajectoryDB {
 
   private migratePluginMetaDuplicates(): void {
     this.transaction(() => {
+      // LINT-ALLOW: dedup of singleton plugin_meta row (#89). Targets only id != 1.
       this.db.prepare('DELETE FROM plugin_meta WHERE id != 1').run();
     });
   }
