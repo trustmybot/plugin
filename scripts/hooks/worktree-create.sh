@@ -13,7 +13,7 @@
 #                          inside the resolved repo directory. Detached HEAD
 #                          keeps the branch ref free for the main checkout.
 #
-# Worktree path: <repo>/.claude/worktrees/<slug>
+# Worktree path: <workspace_root>/.claude/worktrees/<slug>
 # where slug strips the <type>/ prefix (fix/123-foo → 123-foo).
 #
 # Resolves <repo> relative to the workspace root (dir containing
@@ -65,7 +65,11 @@ fi
 
 SLUG="${BRANCH_NAME#*/}"
 
-WORKTREE_PATH="$REPO_ABS/.claude/worktrees/$SLUG"
+# Worktree path is workspace-rooted (not repo-rooted) so .claude/ state stays
+# out of inner git repos. The worktree is still git-attached to <repo> via
+# `git -C <repo>` — git tracks it in <repo>/.git/worktrees/<slug>; the checkout
+# files live at <workspace_root>/.claude/worktrees/<slug>/.
+WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
 
 mkdir -p "$(dirname "$WORKTREE_PATH")"
 
