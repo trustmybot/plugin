@@ -149,21 +149,27 @@ l5_score_trajectory_forbidden() {
 
 # l5_score_cost <project_dir> <flow> <scorer_dir> <run_id>
 # Reads scorer_dir/cost-budget.json with {max_tokens_total, max_latency_ms_p99,
-# fail_above_max}. Reports tokens + latency from debug_trajectory; fails only
+# fail_above_max}. Reports tokens + latency from agent_runs; fails only
 # if hard cap exceeded AND fail_above_max=true.
 l5_score_cost() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local db="$project/.claude/tmb/trajectory.db"
   local budget_path="$scorer_dir/cost-budget.json"
 
+  # Read tokens + duration from agent_runs (post-#131). The SubagentStop hook
+  # parses the spawning subagent's transcript JSONL and inserts a row per spawn.
+  # CAVEAT: this captures SUBAGENT runs only — the CC main-thread (the top-level
+  # `claude -p <prompt>` invocation) is not captured. Sum-of-agent_runs is
+  # therefore a lower bound. For A/B comparison the bias is symmetric across
+  # arms, so still useful as a relative signal.
   local total_in total_out total_tokens p99_latency
-  total_in=$(sqlite3 "$db" "SELECT COALESCE(SUM(tokens_in), 0) FROM debug_trajectory" 2>/dev/null || echo 0)
-  total_out=$(sqlite3 "$db" "SELECT COALESCE(SUM(tokens_out), 0) FROM debug_trajectory" 2>/dev/null || echo 0)
+  total_in=$(sqlite3 "$db" "SELECT COALESCE(SUM(tokens_in), 0) FROM agent_runs" 2>/dev/null || echo 0)
+  total_out=$(sqlite3 "$db" "SELECT COALESCE(SUM(tokens_out), 0) FROM agent_runs" 2>/dev/null || echo 0)
   total_tokens=$((total_in + total_out))
-  # Approximate p99 as max for small N; the trajectory rarely has >100 rows.
-  p99_latency=$(sqlite3 "$db" "SELECT COALESCE(MAX(latency_ms), 0) FROM debug_trajectory" 2>/dev/null || echo 0)
+  # Approximate p99 as max for small N; one row per subagent spawn.
+  p99_latency=$(sqlite3 "$db" "SELECT COALESCE(MAX(duration_ms), 0) FROM agent_runs" 2>/dev/null || echo 0)
 
-  local explanation="tokens_total=$total_tokens (in=$total_in out=$total_out) p99_latency_ms=$p99_latency"
+  local explanation="tokens_total=$total_tokens (in=$total_in out=$total_out subagent only — main-thread not captured) p99_latency_ms=$p99_latency"
 
   if [ ! -f "$budget_path" ]; then
     # No budget config — purely observational.

@@ -65,15 +65,25 @@ jobs:
           sqlite3 "$REPORT_DB" < mcp/trajectory-server/src/schema.sql
           find /tmp -name 'trajectory.db' -path '*/.claude/tmb/*' 2>/dev/null | while read DB; do
             echo "merging $DB"
-            sqlite3 "$DB" ".dump eval_results" 2>/dev/null \
-              | grep -E '^INSERT INTO eval_results' \
-              | sqlite3 "$REPORT_DB" || true
-            sqlite3 "$DB" ".dump file_registry" 2>/dev/null \
-              | grep -E '^INSERT INTO file_registry' \
-              | sqlite3 "$REPORT_DB" || true
-            sqlite3 "$DB" ".dump ledger" 2>/dev/null \
-              | grep -E '^INSERT INTO ledger' \
-              | sqlite3 "$REPORT_DB" || true
+            sqlite3 "$REPORT_DB" <<SQL || true
+ATTACH DATABASE '$DB' AS src;
+INSERT INTO eval_results
+  (run_id, flow_name, scorer_name, pass, value, explanation, metadata_json, arm, scenario, created_at)
+  SELECT
+    run_id, flow_name, scorer_name, pass, value, explanation, metadata_json, arm, scenario, created_at
+  FROM src.eval_results;
+INSERT OR REPLACE INTO file_registry
+  (path, type, language, size_bytes, content_md5, summary, summary_updated_at, last_commit_sha, last_change_type, last_change_at, imports_json, exports_json, metadata_json)
+  SELECT
+    path, type, language, size_bytes, content_md5, summary, summary_updated_at, last_commit_sha, last_change_type, last_change_at, imports_json, exports_json, metadata_json
+  FROM src.file_registry;
+INSERT INTO ledger
+  (issue_id, branch_id, from_node, event_type, summary, content, is_truncated, created_at)
+  SELECT
+    issue_id, branch_id, from_node, event_type, summary, content, is_truncated, created_at
+  FROM src.ledger;
+DETACH DATABASE src;
+SQL
           done
           echo ""
           echo "=== A/B report ==="
