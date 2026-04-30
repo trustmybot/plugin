@@ -52,6 +52,19 @@ sqlite3 "$DB" "
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
   );
+  CREATE TABLE agent_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    issue_id INTEGER,
+    agent_type TEXT NOT NULL DEFAULT 'swe',
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    tokens_total INTEGER NOT NULL DEFAULT 0,
+    tool_uses INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    exit_status TEXT NOT NULL DEFAULT 'completed'
+  );
   CREATE TABLE plugin_config (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL DEFAULT '\"\"'
@@ -192,5 +205,125 @@ out=$(run_hook "$(bare_swe_input)")
 NEW_STATUS=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")
 assert_eq "completed" "$NEW_STATUS" "hook should also accept bare 'swe' agent_type value"
 echo '  ok'
+
+# ========================================================
+# transcript parsing: real values populated in agent_runs
+# ========================================================
+
+echo '--- Test: transcript parsed → agent_runs has real token/duration values ---'
+
+TRANSCRIPT="$TMPDIR/synthetic-transcript.jsonl"
+# Two assistant messages: known usage + one tool_use block; timestamps 1500ms apart.
+cat > "$TRANSCRIPT" <<'JSONL'
+{"timestamp":"2026-04-01T00:00:00.000Z","message":{"role":"assistant","usage":{"input_tokens":100,"output_tokens":50},"content":[{"type":"tool_use","id":"t1","name":"bash","input":{}}]}}
+{"timestamp":"2026-04-01T00:00:01.500Z","message":{"role":"assistant","usage":{"input_tokens":200,"output_tokens":75},"content":[]}}
+JSONL
+
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+(cd "$WT_PATH" && echo "$RANDOM-transcript" >> work-transcript.txt && git add work-transcript.txt && git commit -qm 'feat: transcript work')
+
+transcript_input() {
+  local path="$1"
+  jq -n --arg tp "$path" '{subagent_type: "swe", agent_transcript_path: $tp}'
+}
+
+out=$(run_hook "$(transcript_input "$TRANSCRIPT")")
+
+AR_ROW=$(sqlite3 "$DB" "SELECT tokens_in, tokens_out, tokens_total, tool_uses, duration_ms FROM agent_runs ORDER BY id DESC LIMIT 1;")
+AR_TI=$(echo "$AR_ROW" | cut -d'|' -f1)
+AR_TO=$(echo "$AR_ROW" | cut -d'|' -f2)
+AR_TT=$(echo "$AR_ROW" | cut -d'|' -f3)
+AR_TU=$(echo "$AR_ROW" | cut -d'|' -f4)
+AR_DM=$(echo "$AR_ROW" | cut -d'|' -f5)
+
+test_case "transcript parsed: tokens_in=300"
+assert_eq "300" "$AR_TI" "tokens_in"
+
+test_case "transcript parsed: tokens_out=125"
+assert_eq "125" "$AR_TO" "tokens_out"
+
+test_case "transcript parsed: tokens_total=425"
+assert_eq "425" "$AR_TT" "tokens_total"
+
+test_case "transcript parsed: tool_uses=1"
+assert_eq "1" "$AR_TU" "tool_uses"
+
+test_case "transcript parsed: duration_ms close to 1500"
+if [ "$AR_DM" -ge 1490 ] && [ "$AR_DM" -le 1510 ]; then
+  _pass
+else
+  _fail "duration_ms expected ~1500, got $AR_DM"
+fi
+
+# ========================================================
+# edge case: no agent_transcript_path → zeros
+# ========================================================
+
+echo '--- Test: no agent_transcript_path → agent_runs zeros ---'
+
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+(cd "$WT_PATH" && echo "$RANDOM-nopath" >> work-nopath.txt && git add work-nopath.txt && git commit -qm 'feat: nopath work')
+
+no_transcript_input() {
+  jq -n '{subagent_type: "swe"}'
+}
+
+run_hook "$(no_transcript_input)" >/dev/null
+
+AR_ROW2=$(sqlite3 "$DB" "SELECT tokens_in, tokens_out, tokens_total, tool_uses, duration_ms FROM agent_runs ORDER BY id DESC LIMIT 1;")
+AR_TI2=$(echo "$AR_ROW2" | cut -d'|' -f1)
+AR_TO2=$(echo "$AR_ROW2" | cut -d'|' -f2)
+AR_TT2=$(echo "$AR_ROW2" | cut -d'|' -f3)
+
+test_case "no transcript path: tokens_in=0"
+assert_eq "0" "$AR_TI2" "tokens_in when no transcript"
+
+test_case "no transcript path: tokens_out=0"
+assert_eq "0" "$AR_TO2" "tokens_out when no transcript"
+
+test_case "no transcript path: tokens_total=0"
+assert_eq "0" "$AR_TT2" "tokens_total when no transcript"
+
+# ========================================================
+# edge case: agent_transcript_path points to missing file → zeros + parse-failed log
+# ========================================================
+
+echo '--- Test: missing transcript file → zeros + parse-failed log entry ---'
+
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+(cd "$WT_PATH" && echo "$RANDOM-missing" >> work-missing.txt && git add work-missing.txt && git commit -qm 'feat: missing file work')
+
+missing_transcript_input() {
+  jq -n '{subagent_type: "swe", agent_transcript_path: "/tmp/does-not-exist-tmb-test.jsonl"}'
+}
+
+LOG="$HOME/.claude/tmb/logs/mcp-health.log"
+LOG_BEFORE=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+
+run_hook "$(missing_transcript_input)" >/dev/null
+
+AR_ROW3=$(sqlite3 "$DB" "SELECT tokens_in, tokens_out, tokens_total FROM agent_runs ORDER BY id DESC LIMIT 1;")
+AR_TI3=$(echo "$AR_ROW3" | cut -d'|' -f1)
+AR_TO3=$(echo "$AR_ROW3" | cut -d'|' -f2)
+AR_TT3=$(echo "$AR_ROW3" | cut -d'|' -f3)
+
+test_case "missing file: tokens_in=0"
+assert_eq "0" "$AR_TI3" "tokens_in when file missing"
+
+test_case "missing file: tokens_out=0"
+assert_eq "0" "$AR_TO3" "tokens_out when file missing"
+
+test_case "missing file: tokens_total=0"
+assert_eq "0" "$AR_TT3" "tokens_total when file missing"
+
+LOG_AFTER=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+PARSE_FAILED_LINES=$(grep '"kind":"agent-runs-stats-parse-failed"' "$LOG" 2>/dev/null | wc -l | tr -d ' ')
+
+test_case "missing file: parse-failed diagnostic written to log"
+if [ "$PARSE_FAILED_LINES" -ge 1 ]; then
+  _pass
+else
+  _fail "expected at least 1 agent-runs-stats-parse-failed log line, got $PARSE_FAILED_LINES"
+fi
 
 summarize

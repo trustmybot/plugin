@@ -25,6 +25,36 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "${HOME}/.claude/tmb/logs" 2>/dev/null || true
 
+# Parse a JSONL transcript file and return pipe-separated stats:
+#   tokens_in|tokens_out|tool_uses|duration_ms
+# On any error or missing file, prints 0|0|0|0.
+tmb_parse_transcript_stats() {
+  local transcript_path="$1"
+  if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
+    echo "0|0|0|0"
+    return 0
+  fi
+  local result
+  result=$(jq -rsc '
+    (map(select(.message.usage != null) | .message.usage.input_tokens // 0) | add // 0) as $ti |
+    (map(select(.message.usage != null) | .message.usage.output_tokens // 0) | add // 0) as $to |
+    (map(.message.content // [] | arrays | .[]) | map(select(.type == "tool_use")) | length) as $tu |
+    ( map(select(.timestamp != null) |
+        .timestamp |
+        capture("(?<sec>[^.]+)(?:\\.(?<ms>[0-9]+))?Z$") |
+        ((.sec + "Z") | fromdateiso8601) * 1000 + ((.ms // "0")[0:3] | tonumber)
+      ) |
+      if length < 2 then 0 else (max - min) end
+    ) as $dm |
+    [$ti, $to, $tu, $dm] | join("|")
+  ' "$transcript_path" 2>/dev/null) || true
+  if [ -z "$result" ]; then
+    echo "0|0|0|0"
+  else
+    echo "$result"
+  fi
+}
+
 INPUT=$(cat)
 
 # Diagnostic entry-log (#94): record every invocation regardless of subagent_type
@@ -115,29 +145,43 @@ if [ "$HAS_COMMITS" = "true" ]; then
     2>/dev/null || DECISION="auto-complete-failed"
 
   # Capture per-spawn resource metrics into agent_runs (#131).
-  # CC's SubagentStop payload does not yet expose token/duration fields;
-  # we probe every known candidate and default to 0 for any missing field.
+  # CC's SubagentStop payload omits token/duration at the top level but
+  # DOES include agent_transcript_path — the JSONL with per-message usage.
   # This never fails the hook — a diagnostic line is written on any parse error.
   ISSUE_ID=$(sqlite3 "$DB" "SELECT issue_id FROM tasks WHERE id=${TASK_ID} LIMIT 1;" 2>/dev/null || true)
   ISSUE_ID="${ISSUE_ID:-}"
 
-  TOKENS_IN=$(echo "$INPUT" | jq -r '.total_input_tokens // .input_tokens // 0' 2>/dev/null || echo "0")
-  TOKENS_OUT=$(echo "$INPUT" | jq -r '.total_output_tokens // .output_tokens // 0' 2>/dev/null || echo "0")
-  TOKENS_TOTAL=$(echo "$INPUT" | jq -r '.total_tokens // 0' 2>/dev/null || echo "0")
-  TOOL_USES=$(echo "$INPUT" | jq -r '.tool_use_count // 0' 2>/dev/null || echo "0")
-  DURATION_MS=$(echo "$INPUT" | jq -r '.duration_ms // 0' 2>/dev/null || echo "0")
+  TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
+  TRANSCRIPT_PATH="${TRANSCRIPT_PATH:-}"
+
+  TOKENS_IN=0
+  TOKENS_OUT=0
+  TOOL_USES=0
+  DURATION_MS=0
+
+  if [ -n "$TRANSCRIPT_PATH" ]; then
+    STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
+    if [ "$STATS" = "0|0|0|0" ] && [ ! -f "$TRANSCRIPT_PATH" ]; then
+      printf '{"ts":"%s","kind":"agent-runs-stats-parse-failed","reason":"transcript file not found","transcript":"%s"}\n' \
+        "$ts" "$TRANSCRIPT_PATH" >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+    else
+      TOKENS_IN=$(echo "$STATS" | cut -d'|' -f1)
+      TOKENS_OUT=$(echo "$STATS" | cut -d'|' -f2)
+      TOOL_USES=$(echo "$STATS" | cut -d'|' -f3)
+      DURATION_MS=$(echo "$STATS" | cut -d'|' -f4)
+      printf '{"ts":"%s","kind":"agent-runs-stats-parsed","task_id":%s,"tokens_total":%s,"tool_uses":%s,"duration_ms":%s,"transcript":"%s"}\n' \
+        "$ts" "$TASK_ID" "$((TOKENS_IN + TOKENS_OUT))" "$TOOL_USES" "$DURATION_MS" "$TRANSCRIPT_PATH" \
+        >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+    fi
+  fi
 
   # Sanitize: ensure all values are integers (default 0 if not)
   TOKENS_IN=$(printf '%d' "${TOKENS_IN}" 2>/dev/null || echo "0")
   TOKENS_OUT=$(printf '%d' "${TOKENS_OUT}" 2>/dev/null || echo "0")
-  TOKENS_TOTAL=$(printf '%d' "${TOKENS_TOTAL}" 2>/dev/null || echo "0")
   TOOL_USES=$(printf '%d' "${TOOL_USES}" 2>/dev/null || echo "0")
   DURATION_MS=$(printf '%d' "${DURATION_MS}" 2>/dev/null || echo "0")
 
-  # If total is 0 but in+out are known, derive total.
-  if [ "$TOKENS_TOTAL" -eq 0 ] && [ "$((TOKENS_IN + TOKENS_OUT))" -gt 0 ]; then
-    TOKENS_TOTAL=$((TOKENS_IN + TOKENS_OUT))
-  fi
+  TOKENS_TOTAL=$((TOKENS_IN + TOKENS_OUT))
 
   # Resolve issue_id column (NULL-safe).
   if [ -n "$ISSUE_ID" ]; then
