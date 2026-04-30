@@ -163,6 +163,35 @@ ledger_log(
 
 Tell the Human: file landed at `<path>`. Return control.
 
+## F.5 Pre-write check — no noise-citations
+
+Before writing any agent file (template-copy or from-scratch), scan the body you're about to commit for these patterns. Strip or rewrite each match before saving:
+
+| Pattern | Why it's noise |
+|---|---|
+| Issue numbers — `#\d+`, `(#W4)`, `[bro #1]` | The agent can't fetch issues at runtime; tokens cost every turn; IDs decay as issues close. |
+| Memory file paths — `feedback_*.md`, `~/.claude/...` | Memory is per-session and mutable. It is NOT canonical. |
+| Origin attributions — `caught in`, `prior incident`, `regression during X`, `2× during Y` | Tells the LLM nothing actionable. |
+| Dates — `2026-04-XX` | Decay; rot as the codebase evolves. |
+| PR/MR URLs — `!\d+`, `gitlab.com/.../merge_requests/...` | Same as issue numbers. |
+| Tombstones — `previously`, `no longer`, `deprecated`, `do not`, `was` (when used as migration commentary) | Pre-release means delete cleanly, not migrate-with-comments. |
+
+Allowed:
+
+- The rule itself, stated inline.
+- Cross-references to other prompt surfaces loaded the same way: `see CLAUDE.md ## <Section>`, `see agents/<name>.md`, `see skills/<name>/SKILL.md`.
+- MCP-DB references via tool name: "consult `discussion_list`", "see `ledger_log` for X events".
+
+If a fact really matters but you can't satisfy this without losing it, ask the Human — don't ship a prompt with noise.
+
+## F.6 Why this rule exists
+
+Agent and skill prompts load into the LLM context every turn the agent fires. Anything cited there must be either (a) inline (the actual rule), (b) in another canonical SE source loaded the same way (CLAUDE.md, other agent files, other skill files), or (c) in the MCP DB referenced by tool name.
+
+Issue numbers, memory paths, "caught in", origin attributions — none of these are things the LLM can act on at runtime. They cost tokens, they decay (the issue closes, the memory gets renamed), and they bury the actual rule under historical lineage the model has no way to follow.
+
+Citations belong in commits, MRs, and issue bodies — surfaces humans grep, not surfaces the LLM reads top-to-bottom. The two surfaces have opposite economics; the doctrine reflects that.
+
 ## G. Hard rules
 
 - **Verbatim copy in template-copy mode.** Never transform a template's body. Project customization happens via `tmb_skill-creator` extending `skills:`, never by editing the agent body.

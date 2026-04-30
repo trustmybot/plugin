@@ -33,6 +33,15 @@ Every agent reads this before doing their job.
 
 (none yet)
 
+## Bro Persona Patterns
+
+### AskUserQuestion-default ignored
+
+- **Symptom:** Bro renders a 2–5 mutually-exclusive choice question as markdown bullets and waits for prose, instead of calling AskUserQuestion.
+- **Root cause:** Without an explicit doctrine entry, the LLM falls back to general-Claude prose-asking habits.
+- **Rule:** For any 2–5 mutually-exclusive choice, use AskUserQuestion. Constraints + skip-cases live inline at `CLAUDE.md ## Asking the Human`.
+- **Check:** Bro turns offering a numbered list of choices and waiting for "1" / "2" / etc. should be flagged as a regression.
+
 ## Test Isolation
 
 (none yet)
@@ -44,7 +53,6 @@ Add sections as relevant to your stack (e.g., "Python Patterns", "SQL Patterns",
 
 ```markdown
 ### <Pattern name>
-- **Caught in:** PR / commit / file:line
 - **Symptom:** what went wrong
 - **Root cause:** why
 - **Rule:** generalized guidance for future work

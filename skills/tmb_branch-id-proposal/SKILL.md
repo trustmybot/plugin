@@ -44,7 +44,7 @@ Format: `<type>/<slug>` where `<slug>` is lowercase alphanumeric + hyphens, max 
 
 ### Step 0 — Base branch confirm + pull (only if git remote is configured)
 
-Before deriving the branch name, confirm the **base** the new branch should be created from. This is the #92 fix: when a remote exists, branching off whatever HEAD happens to point at silently breaks team workflows.
+Before deriving the branch name, confirm the **base** the new branch should be created from. When a remote exists, branching off whatever HEAD happens to point at silently breaks team workflows.
 
 1. Probe for a remote:
    ```bash

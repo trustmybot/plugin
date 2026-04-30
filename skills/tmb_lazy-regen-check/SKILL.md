@@ -24,7 +24,7 @@ Bro invokes this skill once per session — immediately before the pre-scan on t
    N=$(git ls-files | grep -vE '^(\.claude/|node_modules/|dist/|build/|\.git/|docs/)' | wc -l | tr -d ' ')
    ```
    - If `N == 0` (empty repo) → do nothing, log skip to ledger.
-   - If `N <= 200` (small project, e.g. fresh dogfood scratch) → invoke `tmb_refresh-architecture` with `scope:'initial'` silently. The bootstrap is cheap on small projects and ensures `docs/trustmybot/architecture/auto/` exists for the first contributor / cold session. This addresses #94: tiny projects rarely cross the 25-commit threshold, so they used to never get docs.
+   - If `N <= 200` (small project, e.g. fresh dogfood scratch) → invoke `tmb_refresh-architecture` with `scope:'initial'` silently. The bootstrap is cheap on small projects and ensures `docs/trustmybot/architecture/auto/` exists for the first contributor / cold session. Tiny projects rarely cross the 25-commit threshold, so without this fallback they would never get docs.
    - If `N > 200` → emit the one-line nudge: *"This project has N source files but no architecture docs yet. Run `/tmb refresh-architecture` to bootstrap them."* Don't auto-regen — full bootstrap on a 1000-file project can be slow.
 
 3. Otherwise (regen has run before), take the SHA from whichever `regen_state` row has the more recent `last_regen_at` timestamp and run:

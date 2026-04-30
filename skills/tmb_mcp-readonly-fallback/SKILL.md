@@ -23,7 +23,7 @@ Do NOT load for:
 
 Before using any fallback, surface to the Human:
 
-> **MCP trajectory-server is unreachable.** Falling back to direct sqlite3 reads. Writes are blocked in degraded mode. To restore full functionality: kill any zombie node process (`pkill -f 'trajectory-server/dist/index.js'`) then restart Claude Code. See memory `feedback_mcp_recovery.md` for the full procedure.
+> **MCP trajectory-server is unreachable.** Falling back to direct sqlite3 reads. Writes are blocked in degraded mode. To restore full functionality: kill any zombie node process (`pkill -f 'trajectory-server/dist/index.js'`) then restart Claude Code. See skill `tmb_mcp-error-handling` for the full procedure.
 
 Only surface this once per session — not on every fallback call.
 
@@ -58,7 +58,7 @@ plugin/scripts/bro-sqlite-readonly.sh config_list '{}'
 
 ## Logging
 
-Every fallback fire appends a JSONL line to `~/.claude/tmb/logs/mcp-health.log`:
+Every fallback fire appends a JSONL line to the TMB health log (`<project>/.claude/tmb/logs/mcp-health.log`):
 
 ```json
 {"ts":"<ISO8601>","kind":"fallback","tool":"<tool_name>","agent":"bro"}
@@ -88,4 +88,4 @@ Degraded mode is not steady state. After every fallback use, remind the Human:
 2. Restart Claude Code — MCP server re-spawns on fresh session
 3. Verify: first `mcp__plugin_tmb_*` call should succeed (no `is_error`)
 
-Full doctrine: memory `feedback_mcp_recovery.md`.
+Full doctrine: skill `tmb_mcp-error-handling`.

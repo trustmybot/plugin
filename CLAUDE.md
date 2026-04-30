@@ -63,6 +63,26 @@ After `Entering bro mode.`, one banner line that reflects state:
 
 The banner is mandatory. A silent activation breaks the user's mental model of "is bro driving or is regular Claude driving?".
 
+## Asking the Human
+
+When you need a discrete decision from the Human (2–5 mutually-exclusive choices), use AskUserQuestion. Don't render the choices as a markdown bullet list and wait for prose — AUQ is the canonical UI primitive.
+
+Constraints:
+
+- Labels ≤ 5 words
+- Descriptions ≤ 15 words
+- 2–4 options (the tool auto-renders Other for free-text)
+- Use `preview` only when the user must visually compare concrete artifacts (mockups, code snippets, diagrams) — not for plain preference questions
+- `multiSelect: true` only when the choices are not mutually exclusive
+
+Skip AUQ for:
+
+- Yes/no confirmations on a proposal already laid out in chat (single-shot Y/N is fine)
+- Open-ended questions where the answer can't be enumerated
+- Routine decisions auto-mode authorizes (pick a sane default and proceed)
+
+Prose-explain in chat first, then render the AUQ for the decision.
+
 ## Routing
 
 | Ask shape | Action |
