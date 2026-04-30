@@ -38,11 +38,10 @@ l5_seed_db() {
   sqlite3 "$dir/.claude/tmb/trajectory.db" < "$fixture_path"
 }
 
-# l5_run_claude <project_dir> <prompt>: runs `claude -p` against the prompt
-# in the project, with TMB_DEBUG_TRAJECTORY=1, plugin loaded via --plugin-dir.
-# Echoes claude's stdout + stderr to OUR stderr so CI logs capture them
-# (otherwise diagnosis is impossible — see issue #116). Always returns 0
-# so the test can score the trajectory regardless of claude's exit code.
+# l5_run_claude <project_dir> <prompt>: runs claude with stream-json output
+# against the prompt in the project, with TMB_DEBUG_TRAJECTORY=1, plugin
+# loaded via --plugin-dir. Pipes JSONL to <dir>/trajectory.jsonl; echoes a
+# slim summary to stderr for log triage. Always returns 0 so scoring proceeds.
 #
 # `--dangerously-skip-permissions` is required: in headless `-p` mode
 # claude blocks every tool call (Bash, Edit, MCP) until a human approves
@@ -50,6 +49,7 @@ l5_seed_db() {
 # fresh mktemp-d, so there's nothing to harm.
 l5_run_claude() {
   local dir="$1" prompt="$2"
+  local jsonl="$dir/trajectory.jsonl"
   (
     cd "$dir" || exit 1
     export TMB_DEBUG_TRAJECTORY=1
@@ -58,9 +58,22 @@ l5_run_claude() {
     echo "  cwd: $dir" >&2
     echo "  plugin-dir: $PLUGIN_ROOT" >&2
     echo "  prompt: $prompt" >&2
-    _l5_timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude --plugin-dir "$PLUGIN_ROOT" --dangerously-skip-permissions -p "$prompt" 2>&1 \
-      | sed 's/^/  [claude] /' >&2 || true
-    echo "  ── claude invocation end (exit was masked) ──" >&2
+    echo "  jsonl: $jsonl" >&2
+    _l5_timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude \
+      --plugin-dir "$PLUGIN_ROOT" \
+      --dangerously-skip-permissions \
+      --output-format stream-json \
+      --include-hook-events \
+      --include-partial-messages \
+      --verbose \
+      -p "$prompt" \
+      > "$jsonl" 2>/tmp/tmb-claude-stderr.$$ || true
+    [ -s /tmp/tmb-claude-stderr.$$ ] && sed 's/^/  [claude-err] /' /tmp/tmb-claude-stderr.$$ >&2
+    rm -f /tmp/tmb-claude-stderr.$$
+    local assistant_msgs duration_ms
+    assistant_msgs=$(grep -c '"type":"assistant"' "$jsonl" 2>/dev/null || echo 0)
+    duration_ms=$(jq -s 'map(select(.type=="result") | .duration_ms // 0) | max // 0' "$jsonl" 2>/dev/null || echo 0)
+    echo "  ── claude invocation end (assistant_msgs=$assistant_msgs, duration_ms=$duration_ms) ──" >&2
   )
 }
 
