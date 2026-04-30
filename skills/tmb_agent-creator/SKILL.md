@@ -170,7 +170,7 @@ Before writing any agent file (template-copy or from-scratch), scan the body you
 | Pattern | Why it's noise |
 |---|---|
 | Issue numbers — `#\d+`, `(#W4)`, `[bro #1]` | The agent can't fetch issues at runtime; tokens cost every turn; IDs decay as issues close. |
-| Memory file paths — `feedback_*.md`, `~/.claude/...` | Memory is per-session and mutable. It is NOT canonical. |
+| Memory file paths — `feedback_*.md`, `~/.claude/projects/<proj>/memory/...` | Memory is per-session and mutable. It is NOT canonical. Note: `~/.claude/` paths that point to runtime artifacts (logs, settings) are fine — only the memory dir is forbidden. |
 | Origin attributions — `caught in`, `prior incident`, `regression during X`, `2× during Y` | Tells the LLM nothing actionable. |
 | Dates — `2026-04-XX` | Decay; rot as the codebase evolves. |
 | PR/MR URLs — `!\d+`, `gitlab.com/.../merge_requests/...` | Same as issue numbers. |

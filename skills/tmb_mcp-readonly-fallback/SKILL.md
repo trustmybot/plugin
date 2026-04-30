@@ -58,7 +58,7 @@ plugin/scripts/bro-sqlite-readonly.sh config_list '{}'
 
 ## Logging
 
-Every fallback fire appends a JSONL line to the TMB health log (`<project>/.claude/tmb/logs/mcp-health.log`):
+Every fallback fire appends a JSONL line to `~/.claude/tmb/logs/mcp-health.log` (the user's home log dir):
 
 ```json
 {"ts":"<ISO8601>","kind":"fallback","tool":"<tool_name>","agent":"bro"}
