@@ -61,6 +61,11 @@ BRANCH_ID=$(sqlite3 "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=$TASK_ID LI
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 SLUG="${BRANCH_ID#*/}"
+# The regex tolerates both repo-rooted (legacy: <repo>/.claude/worktrees/<slug>)
+# and workspace-rooted (current: <workspace>/.claude/worktrees/<slug>) paths
+# because both end in `/.claude/worktrees/<slug>`. After all stale repo-rooted
+# worktrees are pruned (see scripts/maintenance/cleanup-stale-worktrees.sh),
+# only workspace-rooted ones remain.
 WORKTREE_PATH=$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | awk -v slug="$SLUG" '
   /^worktree / {
     wt = substr($0, 10);

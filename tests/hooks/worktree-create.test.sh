@@ -70,17 +70,28 @@ test_case "branch matching task with repo=NULL: continue=true"
 out=$(run_hook "$(input_event 'feat/456-no-repo')")
 assert_contains "$out" '"continue":true' "null repo → no-op"
 
-test_case "branch matching task with repo set: worktree created in inner repo"
+test_case "branch matching task with repo set: worktree created at workspace-rooted path"
 out=$(run_hook "$(input_event 'fix/123-with-repo')")
 assert_not_contains "$out" '"continue":true' "repo set → not a no-op"
 assert_contains "$out" '"continue":false' "repo set → continue=false"
 assert_contains "$out" '123-with-repo' "worktree path contains slug"
 
-WORKTREE_PATH="$INNER_REPO/.claude/worktrees/123-with-repo"
+WORKTREE_PATH="$WORKSPACE/.claude/worktrees/123-with-repo"
 if [ -d "$WORKTREE_PATH" ]; then
   _pass
 else
   _fail "worktree directory not created at $WORKTREE_PATH"
+fi
+
+test_case "worktree path is workspace-rooted, not repo-rooted, when workspace != repo"
+# Workspace at $WORKSPACE, inner repo at $WORKSPACE/inner.
+# tasks.repo='inner' → worktree must land at $WORKSPACE/.claude/worktrees/<slug>,
+# NOT at $WORKSPACE/inner/.claude/worktrees/<slug>.
+REPO_ROOTED_PATH="$INNER_REPO/.claude/worktrees/123-with-repo"
+if [ -d "$REPO_ROOTED_PATH" ]; then
+  _fail "worktree must NOT be created inside inner repo at $REPO_ROOTED_PATH"
+else
+  _pass
 fi
 
 test_case "worktree is a valid git worktree"

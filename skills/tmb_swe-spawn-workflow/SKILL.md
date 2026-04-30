@@ -9,22 +9,32 @@ Rules for the planner (bro by default) when spawning SWE agents. PR Reviewer als
 
 ## Worktree Isolation
 
-Each SWE runs in an isolated git worktree so concurrent tasks don't collide.
-If available, use the WorktreeCreate hook to fix CC's default `origin/HEAD`
-branching behavior (branch from HEAD instead).
+Each SWE runs in an isolated git worktree at workspace-rooted path `<workspace_root>/.claude/worktrees/<slug>` so concurrent tasks don't collide and `.claude/` state stays out of the inner git repos.
 
-**Pre-spawn checklist:**
-1. **Commit all prerequisite changes first.** Worktrees branch from the latest
-   commit, not uncommitted changes.
-2. **Fetch remote pr_target so the new branch is born up-to-date.** Read `pr_target` from `config_get` (default `main`). Run `git fetch origin <pr_target> --quiet`. Do NOT advance your local `<pr_target>` branch — that happens only after MR merge (see push-gate's Post-merge cleanup). The `branch-up-to-date-with-remote.sh` PreToolUse hook will deny SWE's worktree-add if `origin/<pr_target>` is unfetched.
-3. **Bro creates the feature branch AND switches the main checkout to it.** Run `git switch -c <task.branch_id> origin/<pr_target>` from your session (or `git branch <task.branch_id> origin/<pr_target> && git switch <task.branch_id>`). The branch name MUST match `tasks.branch_id` exactly. The main checkout is now on `<feature>` so You and bro share the same view while SWE works.
-4. **SWE attaches a detached-HEAD worktree.** SWE runs `git worktree add --detach <path> <branch>` (no `-b`/`-B` — a PreToolUse hook rejects branch creation by SWE; the `--detach` flag keeps the branch ref free for the main checkout). SWE commits to detached HEAD.
-5. **Override base when explicit.** If the task spec's `parent_branch_id` names a non-`pr_target` base (feature stack), use that base instead of `origin/<pr_target>`. Bro must still fetch + verify the alternative base.
-6. **Verify after spawn.** Run `git worktree list` and confirm the worktree
-   commit matches HEAD. If it doesn't, kill the SWE and respawn.
+**Bro pre-creates the worktree** (parallels the existing branch pre-creation). The flow:
+
+1. **Commit all prerequisite changes first.** Worktrees branch from the latest commit, not uncommitted changes.
+2. **Fetch remote pr_target so the new branch is born up-to-date.** Read `pr_target` from `config_get` (default `main`). Run `git -C <repo> fetch origin <pr_target> --quiet`. Do NOT advance your local `<pr_target>` — that happens only after MR merge (see push-gate's Post-merge cleanup).
+3. **Bro creates the feature branch AND switches the main checkout to it.** From the main checkout: `git switch -c <task.branch_id> origin/<pr_target>`. The branch name MUST match `tasks.branch_id` exactly.
+4. **Bro pre-creates the worktree** at the workspace-rooted path:
+   ```bash
+   # Compute workspace_root: dirname × 3 from the trajectory DB path.
+   #   $TRAJECTORY_DB_PATH = <ws>/.claude/<plugin>/trajectory.db
+   #   workspace_root      = <ws>
+   WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$TRAJECTORY_DB_PATH")")")"
+   SLUG="${task.branch_id#*/}"   # strip the type/ prefix (fix/110-foo → 110-foo)
+   WORKTREE="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
+   git -C <repo> worktree add --detach "$WORKTREE" "<task.branch_id>"
+   ```
+   The `--detach` flag keeps the branch ref free for the main checkout. `<repo>` is the relative path from `tasks.repo` (defaults to the project root for single-repo CC).
+5. **Spawn SWE with `worktree=<WORKTREE>`** in the prompt context, alongside `task_id=<N>`. SWE's first response is `cd <worktree>` + `task_get` in parallel.
+6. **Verify after spawn.** Run `git worktree list` and confirm the worktree commit matches the branch HEAD. If it doesn't, halt the SWE and respawn.
 7. If parallel SWEs touch the same file, run them sequentially.
-8. **NEVER copy a worktree's file to the main repo without `git diff` first.**
-9. After copying worktree output, verify with lint + tests before committing.
+8. **Override base when explicit.** If the task spec's `parent_branch_id` names a non-`pr_target` base (feature stack), use that base instead of `origin/<pr_target>`. Bro must still fetch + verify the alternative base.
+
+**For single-repo CC users:** workspace_root == git_root, so the worktree lands at `<git_root>/.claude/worktrees/<slug>` — same as the previous behavior, zero migration needed.
+
+**For workspace pattern** (TMB shape, fullstack `root/{api,app}`, etc.): workspace_root is the launch dir, distinct from each inner git repo. Worktrees land outside any inner repo, keeping inner repos clean.
 
 ## Post-SWE: bro merges + pushes
 
@@ -32,9 +42,9 @@ After SWE atomic-closes (commit + `task_update_status(needs_validation)`), bro r
 
 1. **Merge SWE's commits into the local feature branch.** Bro is on the main checkout, on `<feature>`. Run from the main checkout:
    ```bash
-   git fetch ./.claude/worktrees/<slug> HEAD:<feature>
+   git fetch <worktree_path> HEAD:<feature>
    ```
-   This fast-forwards the local `<feature>` ref to SWE's detached-HEAD commit. SWE's worktree pointed at the same commit; the ref is now caught up.
+   Where `<worktree_path>` is the absolute path bro pre-created (`<workspace_root>/.claude/worktrees/<slug>`). This fast-forwards the local `<feature>` ref to SWE's detached-HEAD commit.
 
 2. **Push the local feature branch to origin.**
    ```bash
@@ -48,7 +58,7 @@ After SWE atomic-closes (commit + `task_update_status(needs_validation)`), bro r
 
 5. **On all-pass**, merge the MR, switch the main checkout back to `<base>`, `git pull --ff-only`, then `task_update_status(closed)` for each task in the MR.
 
-6. **Cleanup**: `git worktree remove .claude/worktrees/<slug>`.
+6. **Cleanup**: `git worktree remove <worktree_path>` (absolute path; the on-task-close hook also handles this automatically when bro flips the task to `closed`).
 
 **Why bro merges from worktree** instead of letting SWE push: the local `<feature>` branch is the source of truth at every step. SWE's commits flow INTO the local branch via merge, then the local branch flows OUT to origin via push. SWE never pushes straight to origin — that would bypass your local-canonical invariant and your review. See `docs/architecture/GIT.md` for the full actor × stage table.
 
@@ -139,6 +149,6 @@ message. Use `task_id=<N>` in each Task-tool prompt (decimal integer primary
 key of the tasks row). Example: `swe, execute task_id=42 for issue 7`.
 
 - Annotate: `depends_on: []` or `depends_on: [feat/other-task]` in the task row (`tasks.parent_branch_id`)
-- Each SWE runs in `isolation: worktree`
+- Each SWE works in its bro-pre-created worktree at `<workspace_root>/.claude/worktrees/<slug>`
 - **Do NOT parallelize when:** tasks share files, migrations pending, output
   dependencies exist
