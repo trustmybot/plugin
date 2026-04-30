@@ -1,7 +1,7 @@
 {
   "name": "trustmybot",
   "metadata": {
-    "description": "Public marketplace for trustmybot plugins. Two channels — 'tmb' tracks main (production-ready releases), 'tmb-rc' tracks the rc branch (release candidates under active testing). Install whichever you want."
+    "description": "LEGACY marketplace catalog — kept for backward compat. New installs should use trustmybot/marketplace (stable) or trustmybot/marketplace-rc (RC) instead. See https://gitlab.com/trustmybot/marketplace for the canonical stable channel."
   },
   "owner": {
     "name": "trustmybot",
