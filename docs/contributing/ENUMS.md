@@ -106,6 +106,30 @@ Inspired by typical lifecycle states; not from a single named convention.
 
 Currently `1`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration script.
 
+### `plugin_config.remotes[].provider` — git host provider per remote
+
+| Value | Meaning |
+|---|---|
+| `github` | github.com or GitHub Enterprise |
+| `gitlab` | gitlab.com or self-hosted GitLab |
+| `bitbucket` | Atlassian's git host (bitbucket.org) |
+| `codeberg` | codeberg.org (Forgejo-based public forge) |
+| `gitea` | Self-hosted Gitea instance |
+| `forgejo` | Self-hosted Forgejo instance |
+| `azuredev` | Azure DevOps (dev.azure.com) |
+| `other` | Unrecognised or custom host |
+
+URL-pattern auto-detection rules:
+
+- `github.com` → `github`
+- `gitlab.com` or `gitlab.<corp>.<tld>` → `gitlab`
+- `bitbucket.org` → `bitbucket`
+- `codeberg.org` → `codeberg`
+- `dev.azure.com` → `azuredev`
+- everything else → `other`
+
+`remotes` is a `plugin_config` key whose value is a JSON array of `{ name, provider, url }` objects (e.g. `[{ "name": "origin", "provider": "gitlab", "url": "git@gitlab.com:org/repo.git" }]`). An empty array means no remote is configured.
+
 ---
 
 ## How to add a new ENUM value

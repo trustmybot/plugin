@@ -67,7 +67,7 @@ describe('schema — current table set, default values, constraints', () => {
         assert.equal(rows.length, 0);
         db.close();
     });
-    it('plugin_config has the 3 schema-seeded default policy keys on init', () => {
+    it('plugin_config has the 4 schema-seeded default policy keys on init', () => {
         const db = tempDB();
         const rows = db.all("SELECT key, value_json FROM plugin_config ORDER BY key");
         // node:sqlite returns rows as null-prototype objects; map to plain objects
@@ -77,6 +77,7 @@ describe('schema — current table set, default values, constraints', () => {
             { key: 'branching_model', value_json: '"github-flow"' },
             { key: 'pr_target', value_json: '"main"' },
             { key: 'protected_branches', value_json: '["main"]' },
+            { key: 'remotes', value_json: '[]' },
         ]);
         db.close();
     });

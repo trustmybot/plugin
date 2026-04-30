@@ -94,6 +94,7 @@ describe('configTools', () => {
             branching_model: 'github-flow',
             pr_target: 'main',
             protected_branches: ['main'],
+            remotes: [],
         });
         db.close();
     });
@@ -107,6 +108,7 @@ describe('configTools', () => {
             branching_model: 'github-flow',
             pr_target: 'main',
             protected_branches: ['main'],
+            remotes: [],
             alpha: 'one',
         });
         db.close();
@@ -123,6 +125,7 @@ describe('configTools', () => {
             branching_model: 'github-flow',
             pr_target: 'main',
             protected_branches: ['main'],
+            remotes: [],
             alpha: 1,
             beta: 2,
             gamma: 3,

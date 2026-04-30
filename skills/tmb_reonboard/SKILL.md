@@ -23,7 +23,8 @@ Bro invokes this skill directly (no subagent spawn) on these trigger phrases or 
 
 ONLY:
 - `AskUserQuestion` (collect answers)
-- `config_list`, `config_set` (keys `branching_model`, `pr_target`, `protected_branches` only)
+- `Bash` (read-only `git remote -v` only)
+- `config_list`, `config_set` (keys `branching_model`, `pr_target`, `protected_branches`, `remotes` only)
 - `identity_get`, `identity_set`, `identity_reset`
 
 NEVER: `issue_create`, `task_create_batch`, `task_update_status`, `validation_record`, or anything outside the list above.
@@ -41,6 +42,30 @@ Extract (use "(unset)" display for `null`):
 
 - `current_human_name` — from `identity_get().human_name`
 - `current_branching_model`, `current_pr_target`, `current_protected_branches` — from `config_list()`.
+
+## Step 1.5 — Auto-detect git remotes
+
+Run from the project root:
+
+```bash
+git remote -v
+```
+
+`git remote -v` outputs two lines per remote (fetch + push). De-duplicate by remote name — keep only unique names. For each unique remote, extract the URL from the fetch line and apply the URL-pattern → provider mapping:
+
+| URL pattern | provider |
+|---|---|
+| contains `github.com` | `github` |
+| contains `gitlab.com` or matches `gitlab\.<corp>\.<tld>` | `gitlab` |
+| contains `bitbucket.org` | `bitbucket` |
+| contains `codeberg.org` | `codeberg` |
+| contains `dev.azure.com` | `azuredev` |
+| anything else | `other` |
+
+Build `detected_remotes` — an array of `{ name, provider, url }` objects, one per unique remote name.
+
+- If `detected_remotes` is non-empty AND every detection is unambiguous (no provider is `other`): call `config_set(agent='bro', key='remotes', value=detected_remotes)` and skip the Remotes AUQ tab in Step 2.
+- Otherwise fall through to Step 2 — the Remotes tab will fire.
 
 ## Step 2 — Collect new values via AskUserQuestion
 
@@ -81,12 +106,26 @@ AskUserQuestion({
         { label: "master", description: "Older repos." }
       ]
       // Other for any alternative.
+    },
+    {
+      question: "Which git remotes does this project use?",
+      header: "Remotes",
+      multiSelect: true,
+      options: [
+        { label: "GitHub", description: "github.com or GitHub Enterprise." },
+        { label: "GitLab", description: "gitlab.com or self-hosted GitLab." },
+        { label: "Bitbucket", description: "Atlassian's git host." },
+        { label: "None / not pushed yet", description: "No remote configured." }
+      ]
+      // AskUserQuestion auto-renders an Other free-text option for self-hosted / Codeberg / Gitea / etc.
     }
   ]
 })
 ```
 
 Dedupe: if `current_<field>` already matches a static option (e.g. `current_pr_target == "main"`), collapse the `Keep "main"` entry with the "main" option to avoid a duplicate.
+
+Re-onboard hint for the Remotes tab: read `current_remotes` from `config_list()`. For each Remotes option whose provider matches a `current_remotes` entry, append `" (in current config)"` to that option's description. Mapping: `GitHub` → `github`, `GitLab` → `gitlab`, `Bitbucket` → `bitbucket`. For example, if `current_remotes` includes `{ provider: "gitlab" }`, the `GitLab` option becomes `{ label: "GitLab", description: "gitlab.com or self-hosted GitLab. (in current config)" }`.
 
 ## Step 3 — Persist via MCP
 
@@ -106,6 +145,20 @@ For each answer:
 
   Then `config_set(agent='bro', key='protected_branches', value=<new list>)`.
 
+### Remotes answer
+
+- If Step 1.5 already wrote `remotes`, this block is a no-op (the AUQ tab did not render).
+- **Conflict check**: if the user selected `None / not pushed yet` AND any of `GitHub`, `GitLab`, `Bitbucket`, or `Other`, surface the conflict and re-ask. Sample re-ask wording: "You picked both 'None' and a provider. Did you mean: have a remote (drop 'None'), or no remote (drop the others)?" Re-render the same AUQ tab; loop until coherent.
+- **Map selections to canonical providers**:
+  - `GitHub` → `github`
+  - `GitLab` → `gitlab`
+  - `Bitbucket` → `bitbucket`
+  - `None / not pushed yet` → empty array (no further processing)
+  - `Other` (free-text) → lowercase + alphanumeric-only normalize; treat as `other` if not in the canonical enum (`github`, `gitlab`, `bitbucket`, `codeberg`, `gitea`, `forgejo`, `azuredev`)
+- **Build the new `remotes` array**: for each selected provider (in selection order), emit `{ name, provider, url }`. The `name` defaults to `"origin"` for the first selection, then `<provider>` for additional. The `url` is empty string until first push.
+  - Example: user picks `[GitHub, GitLab]` → `[{ name: "origin", provider: "github", url: "" }, { name: "gitlab", provider: "gitlab", url: "" }]`
+- **Persist**: `config_set(agent='bro', key='remotes', value=<new array>)`.
+
 ## Step 4 — Verify and close
 
 After writes, `config_list(agent='bro')` + `identity_get(agent='bro')` to confirm. Emit:
@@ -115,6 +168,7 @@ After writes, `config_list(agent='bro')` + `identity_get(agent='bro')` to confir
 > - Branching model: `<final_branching_model>`
 > - PR target: `<final_pr_target>`
 > - Protected branches: `<final_protected_branches>`
+> - Remotes: `<name> → <provider>` (one per line; or "none" if empty)
 >
 > Tell me what you want to work on.
 
@@ -131,7 +185,7 @@ After writes, `config_list(agent='bro')` + `identity_get(agent='bro')` to confir
 When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, **do not silently overwrite policy keys with defaults** — re-onboard is by definition a Human-driven re-confirmation. Instead:
 
 1. Halt the skill cleanly.
-2. Record `ledger_log(agent='bro', event_type='headless_reonboard_blocked', summary='tmb_reonboard cannot run headless: policy keys (branching_model, pr_target, protected_branches) require explicit Human re-confirmation.')`.
+2. Record `ledger_log(agent='bro', event_type='headless_reonboard_blocked', summary='tmb_reonboard cannot run headless: policy keys (branching_model, pr_target, protected_branches, remotes) require explicit Human re-confirmation.')`.
 3. Surface a clear message: "Re-onboarding requires interactive input. Re-run with a Human in the loop, or use `config_set` directly if you know the values."
 
 Rationale: re-onboarding flips policy keys that drive `git-guards.sh` and other hooks. A silent fallback here could break the project's git workflow with no audit trace pointing to the cause.
