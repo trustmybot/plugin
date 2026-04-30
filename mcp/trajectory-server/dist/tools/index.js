@@ -13,6 +13,7 @@ import { fileRegistryTools } from './file-registry.js';
 import { architectureRegenTools } from './architecture-regen.js';
 import { branchReportMdTools } from './branch_report_md.js';
 import { labelTools } from './labels.js';
+import { statsTools } from './stats.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
@@ -51,6 +52,7 @@ export function registerTools(server, db) {
     const architectureRegen = architectureRegenTools(db);
     const branchReport = branchReportMdTools(db);
     const labels = labelTools(db);
+    const stats = statsTools(db);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
@@ -67,6 +69,7 @@ export function registerTools(server, db) {
         ...architectureRegen.definitions,
         ...branchReport.definitions,
         ...labels.definitions,
+        ...stats.definitions,
     ]);
     toolHandlers = {
         ...wrapAll(discussions.handlers),
@@ -84,6 +87,7 @@ export function registerTools(server, db) {
         ...wrapAll(architectureRegen.handlers),
         ...wrapAll(branchReport.handlers),
         ...wrapAll(labels.handlers),
+        ...wrapAll(stats.handlers),
     };
 }
 //# sourceMappingURL=index.js.map

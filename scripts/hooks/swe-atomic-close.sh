@@ -113,6 +113,44 @@ if [ "$HAS_COMMITS" = "true" ]; then
   sqlite3 "$DB" \
     "UPDATE tasks SET status='completed', commit_sha='${WT_HEAD}', updated_at=datetime('now'), completed_at=datetime('now') WHERE id=${TASK_ID};" \
     2>/dev/null || DECISION="auto-complete-failed"
+
+  # Capture per-spawn resource metrics into agent_runs (#131).
+  # CC's SubagentStop payload does not yet expose token/duration fields;
+  # we probe every known candidate and default to 0 for any missing field.
+  # This never fails the hook — a diagnostic line is written on any parse error.
+  ISSUE_ID=$(sqlite3 "$DB" "SELECT issue_id FROM tasks WHERE id=${TASK_ID} LIMIT 1;" 2>/dev/null || true)
+  ISSUE_ID="${ISSUE_ID:-}"
+
+  TOKENS_IN=$(echo "$INPUT" | jq -r '.total_input_tokens // .input_tokens // 0' 2>/dev/null || echo "0")
+  TOKENS_OUT=$(echo "$INPUT" | jq -r '.total_output_tokens // .output_tokens // 0' 2>/dev/null || echo "0")
+  TOKENS_TOTAL=$(echo "$INPUT" | jq -r '.total_tokens // 0' 2>/dev/null || echo "0")
+  TOOL_USES=$(echo "$INPUT" | jq -r '.tool_use_count // 0' 2>/dev/null || echo "0")
+  DURATION_MS=$(echo "$INPUT" | jq -r '.duration_ms // 0' 2>/dev/null || echo "0")
+
+  # Sanitize: ensure all values are integers (default 0 if not)
+  TOKENS_IN=$(printf '%d' "${TOKENS_IN}" 2>/dev/null || echo "0")
+  TOKENS_OUT=$(printf '%d' "${TOKENS_OUT}" 2>/dev/null || echo "0")
+  TOKENS_TOTAL=$(printf '%d' "${TOKENS_TOTAL}" 2>/dev/null || echo "0")
+  TOOL_USES=$(printf '%d' "${TOOL_USES}" 2>/dev/null || echo "0")
+  DURATION_MS=$(printf '%d' "${DURATION_MS}" 2>/dev/null || echo "0")
+
+  # If total is 0 but in+out are known, derive total.
+  if [ "$TOKENS_TOTAL" -eq 0 ] && [ "$((TOKENS_IN + TOKENS_OUT))" -gt 0 ]; then
+    TOKENS_TOTAL=$((TOKENS_IN + TOKENS_OUT))
+  fi
+
+  # Resolve issue_id column (NULL-safe).
+  if [ -n "$ISSUE_ID" ]; then
+    AR_ISSUE_FRAGMENT="${ISSUE_ID}"
+  else
+    AR_ISSUE_FRAGMENT="NULL"
+  fi
+
+  AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at, exit_status) VALUES (${TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'), 'completed');"
+  sqlite3 "$DB" "$AR_INSERT" 2>/dev/null || \
+    printf '{"ts":"%s","kind":"agent-runs-capture-skipped","reason":"sqlite3 insert failed","task_id":%s}\n' \
+      "$ts" "$TASK_ID" >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+
   # Log decision.
   printf '{"ts":"%s","kind":"swe-atomic-close","task_id":%s,"branch":"%s","decision":"%s","commit_sha":"%s"}\n' \
     "$ts" "$TASK_ID" "$BRANCH" "$DECISION" "$WT_HEAD" \
