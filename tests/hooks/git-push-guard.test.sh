@@ -291,4 +291,60 @@ out=$(run_hook_from_worktree_cmd "git push origin main" "$db")
 assert_not_contains "$out" '"decision":"block"' "normal push from main checkout must not be blocked by worktree check"
 cleanup
 
+# ----- $PWD vs `cd` override tests --------------------------------------
+#
+# When a Bash session's persistent cwd is a worktree (left over from a
+# previous tool call) but the current command starts with `cd <main> && ...`,
+# the hook must trust the cd target rather than stale $PWD.
+
+run_hook_with_pwd() {
+  local cmd="$1"
+  local db="${2:-/nonexistent.db}"
+  local pwd_dir="${3:-$REPO_PATH}"
+  local payload
+  payload=$(jq -cn --arg c "$cmd" '{tool_input:{command:$c}}')
+  ( cd "$pwd_dir" && echo "$payload" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true )
+}
+
+test_case "PWD in worktree but command does 'cd <main> && git push': NOT blocked (cd overrides stale PWD)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+mkdir -p "$REPO_PATH/.claude/worktrees/feat-x"
+out=$(run_hook_with_pwd \
+  "cd $REPO_PATH && git push origin main" \
+  "$db" \
+  "$REPO_PATH/.claude/worktrees/feat-x")
+assert_not_contains "$out" '"decision":"block"' \
+  "cd to non-worktree path should override stale worktree PWD"
+cleanup
+
+test_case "PWD in worktree, plain 'git push' (no cd, no -C): BLOCKED via PWD fallback"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+mkdir -p "$REPO_PATH/.claude/worktrees/feat-x"
+out=$(run_hook_with_pwd "git push origin main" "$db" "$REPO_PATH/.claude/worktrees/feat-x")
+assert_contains "$out" '"decision":"block"' \
+  "plain push with PWD-in-worktree must still block (legitimate worktree push)"
+cleanup
+
+test_case "PWD in main, command 'cd <worktree> && git push': BLOCKED (cd target is worktree)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+mkdir -p "$REPO_PATH/.claude/worktrees/feat-x"
+out=$(run_hook_with_pwd \
+  "cd $REPO_PATH/.claude/worktrees/feat-x && git push origin feat/x" \
+  "$db" \
+  "$REPO_PATH")
+assert_contains "$out" '"decision":"block"' \
+  "cd into worktree should block even when PWD is main"
+cleanup
+
 summarize
