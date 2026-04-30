@@ -69,6 +69,7 @@ export class TrajectoryDB {
     this.migrateTasksRepo();
     this.migrateIssuesLabels();
     this.migrateRemotesConfig();
+    this.migrateAgentRuns();
     this.syncPluginVersion();
   }
 
@@ -158,6 +159,31 @@ export class TrajectoryDB {
       `INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at)` +
       ` VALUES ('remotes', '[]', datetime('now'))`;
     this.db.exec(sql);
+  }
+
+  private migrateAgentRuns(): void {
+    const createTable =
+      'CREATE TABLE IF NOT EXISTS agent_runs (' +
+      '  id           INTEGER PRIMARY KEY AUTOINCREMENT,' +
+      '  task_id      INTEGER REFERENCES tasks(id),' +
+      '  issue_id     INTEGER REFERENCES issues(id),' +
+      '  agent_type   TEXT    NOT NULL,' +
+      '  tokens_in    INTEGER NOT NULL DEFAULT 0,' +
+      '  tokens_out   INTEGER NOT NULL DEFAULT 0,' +
+      '  tokens_total INTEGER NOT NULL DEFAULT 0,' +
+      '  tool_uses    INTEGER NOT NULL DEFAULT 0,' +
+      '  duration_ms  INTEGER NOT NULL DEFAULT 0,' +
+      '  started_at   TEXT,' +
+      "  completed_at TEXT    NOT NULL," +
+      "  exit_status  TEXT    NOT NULL DEFAULT 'completed'" +
+      ')';
+    this.db.exec(createTable);
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id)',
+    );
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id)',
+    );
   }
 
   private migratePluginMetaDuplicates(): void {

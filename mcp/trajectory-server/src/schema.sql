@@ -236,3 +236,24 @@ CREATE INDEX IF NOT EXISTS idx_eval_results_run
 
 CREATE INDEX IF NOT EXISTS idx_eval_results_flow
     ON eval_results(flow_name, created_at);
+
+-- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
+-- via swe-atomic-close.sh on every SWE completion. Zero overhead when the
+-- hook fires for non-task agents — graceful fallback to all-zero fields.
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id      INTEGER REFERENCES tasks(id),
+    issue_id     INTEGER REFERENCES issues(id),
+    agent_type   TEXT    NOT NULL,
+    tokens_in    INTEGER NOT NULL DEFAULT 0,
+    tokens_out   INTEGER NOT NULL DEFAULT 0,
+    tokens_total INTEGER NOT NULL DEFAULT 0,
+    tool_uses    INTEGER NOT NULL DEFAULT 0,
+    duration_ms  INTEGER NOT NULL DEFAULT 0,
+    started_at   TEXT,
+    completed_at TEXT    NOT NULL,
+    exit_status  TEXT    NOT NULL DEFAULT 'completed'
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
