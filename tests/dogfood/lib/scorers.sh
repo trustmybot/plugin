@@ -79,24 +79,31 @@ l5_score_outcome() {
 # l5_score_trajectory_required <project_dir> <flow> <scorer_dir> <run_id>
 # Reads scorer_dir/tools-required.json (a JSON array of tool/MCP names).
 # Asserts every listed tool was called at least once (superset semantics
-# per LangSmith docs). Order-agnostic.
+# per LangSmith docs). Order-agnostic. Reads tool_use names from trajectory.jsonl.
 l5_score_trajectory_required() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local db="$project/.claude/tmb/trajectory.db"
+  local jsonl="$project/trajectory.jsonl"
   local req_path="$scorer_dir/tools-required.json"
 
   if [ ! -f "$req_path" ]; then
-    return 0  # no config = no scorer; not a failure
+    return 0
   fi
+  if [ ! -f "$jsonl" ]; then
+    echo "  ✗ trajectory_required: $jsonl not found (run_arm must produce stream-json)" >&2
+    l5_record_score "$db" "$run_id" "$flow" "trajectory_required" 0 "no-jsonl" "trajectory.jsonl missing"
+    return 1
+  fi
+
+  local tools_called
+  tools_called=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
 
   local required missing=""
   required=$(jq -r '.[]' "$req_path")
 
   while IFS= read -r tool; do
     [ -z "$tool" ] && continue
-    local count
-    count=$(sqlite3 "$db" "SELECT COUNT(*) FROM debug_trajectory WHERE tool_or_mcp_name = '$tool'" 2>/dev/null || echo 0)
-    if [ "$count" = "0" ]; then
+    if ! echo "$tools_called" | grep -qFx "$tool"; then
       missing="${missing}; $tool"
     fi
   done <<< "$required"
@@ -114,65 +121,69 @@ l5_score_trajectory_required() {
 
 # l5_score_trajectory_forbidden <project_dir> <flow> <scorer_dir> <run_id>
 # Reads scorer_dir/tools-forbidden.json. Asserts none of the listed tools
-# were called (subset/safety check).
+# were called (subset/safety check). Reads tool_use names from trajectory.jsonl.
 l5_score_trajectory_forbidden() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local db="$project/.claude/tmb/trajectory.db"
+  local jsonl="$project/trajectory.jsonl"
   local forb_path="$scorer_dir/tools-forbidden.json"
 
   if [ ! -f "$forb_path" ]; then
     return 0
   fi
+  if [ ! -f "$jsonl" ]; then
+    echo "  ✗ trajectory_forbidden: $jsonl not found" >&2
+    l5_record_score "$db" "$run_id" "$flow" "trajectory_forbidden" 0 "no-jsonl" "trajectory.jsonl missing"
+    return 1
+  fi
 
-  local forbidden present=""
+  local tools_called
+  tools_called=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
+
+  local forbidden violation=""
   forbidden=$(jq -r '.[]' "$forb_path")
 
   while IFS= read -r tool; do
     [ -z "$tool" ] && continue
-    local count
-    count=$(sqlite3 "$db" "SELECT COUNT(*) FROM debug_trajectory WHERE tool_or_mcp_name = '$tool'" 2>/dev/null || echo 0)
-    if [ "$count" != "0" ]; then
-      present="${present}; ${tool}(${count}x)"
+    if echo "$tools_called" | grep -qFx "$tool"; then
+      violation="${violation}; $tool"
     fi
   done <<< "$forbidden"
 
-  if [ -z "$present" ]; then
+  if [ -z "$violation" ]; then
     echo "  ✓ trajectory_forbidden: no forbidden tools called"
     l5_record_score "$db" "$run_id" "$flow" "trajectory_forbidden" 1 "" "no forbidden tools present"
     return 0
   else
-    echo "  ✗ trajectory_forbidden: forbidden tools called: $present" >&2
-    l5_record_score "$db" "$run_id" "$flow" "trajectory_forbidden" 0 "violations" "$present"
+    echo "  ✗ trajectory_forbidden: forbidden tools called: $violation" >&2
+    l5_record_score "$db" "$run_id" "$flow" "trajectory_forbidden" 0 "violation" "$violation"
     return 1
   fi
 }
 
 # l5_score_cost <project_dir> <flow> <scorer_dir> <run_id>
 # Reads scorer_dir/cost-budget.json with {max_tokens_total, max_latency_ms_p99,
-# fail_above_max}. Reports tokens + latency from agent_runs; fails only
-# if hard cap exceeded AND fail_above_max=true.
+# fail_above_max}. Reports tokens + latency from trajectory.jsonl (stream-json);
+# fails only if hard cap exceeded AND fail_above_max=true.
 l5_score_cost() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local db="$project/.claude/tmb/trajectory.db"
+  local jsonl="$project/trajectory.jsonl"
   local budget_path="$scorer_dir/cost-budget.json"
 
-  # Read tokens + duration from agent_runs (post-#131). The SubagentStop hook
-  # parses the spawning subagent's transcript JSONL and inserts a row per spawn.
-  # CAVEAT: this captures SUBAGENT runs only — the CC main-thread (the top-level
-  # `claude -p <prompt>` invocation) is not captured. Sum-of-agent_runs is
-  # therefore a lower bound. For A/B comparison the bias is symmetric across
-  # arms, so still useful as a relative signal.
   local total_in total_out total_tokens p99_latency
-  total_in=$(sqlite3 "$db" "SELECT COALESCE(SUM(tokens_in), 0) FROM agent_runs" 2>/dev/null || echo 0)
-  total_out=$(sqlite3 "$db" "SELECT COALESCE(SUM(tokens_out), 0) FROM agent_runs" 2>/dev/null || echo 0)
+  if [ -f "$jsonl" ]; then
+    total_in=$(jq -s 'map(select(.type=="assistant") | .message.usage.input_tokens // 0) | add // 0' "$jsonl" 2>/dev/null || echo 0)
+    total_out=$(jq -s 'map(select(.type=="assistant") | .message.usage.output_tokens // 0) | add // 0' "$jsonl" 2>/dev/null || echo 0)
+    p99_latency=$(jq -s 'map(select(.type=="result") | .duration_ms // 0) | max // 0' "$jsonl" 2>/dev/null || echo 0)
+  else
+    total_in=0; total_out=0; p99_latency=0
+  fi
   total_tokens=$((total_in + total_out))
-  # Approximate p99 as max for small N; one row per subagent spawn.
-  p99_latency=$(sqlite3 "$db" "SELECT COALESCE(MAX(duration_ms), 0) FROM agent_runs" 2>/dev/null || echo 0)
 
-  local explanation="tokens_total=$total_tokens (in=$total_in out=$total_out subagent only — main-thread not captured) p99_latency_ms=$p99_latency"
+  local explanation="tokens_total=$total_tokens (in=$total_in out=$total_out) p99_latency_ms=$p99_latency"
 
   if [ ! -f "$budget_path" ]; then
-    # No budget config — purely observational.
     echo "  ⊘ cost (observational): $explanation"
     l5_record_score "$db" "$run_id" "$flow" "cost" 1 "$total_tokens" "$explanation"
     return 0

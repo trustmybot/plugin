@@ -60,6 +60,12 @@ jobs:
           TMB_CLAUDE_TIMEOUT: '600'
         run: bash tests/dogfood/run-l5.sh
 
+      - name: Verify trajectory.jsonl files exist
+        if: always()
+        run: |
+          echo "trajectory.jsonl files captured:"
+          find /tmp -name 'trajectory.jsonl' -path '*/tmb-l5-*/*' 2>/dev/null
+
       - name: Upload trajectory dumps on failure
         if: failure()
         uses: actions/upload-artifact@v5

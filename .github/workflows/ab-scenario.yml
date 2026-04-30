@@ -95,6 +95,12 @@ SQL
           echo "=== ledger events (audit trail) ==="
           sqlite3 -separator '|' "$REPORT_DB" "SELECT event_type, substr(summary, 1, 80) FROM ledger ORDER BY id" || true
 
+      - name: Verify trajectory.jsonl files exist
+        if: always()
+        run: |
+          echo "trajectory.jsonl files captured:"
+          find /tmp -name 'trajectory.jsonl' -path '*/tmb-l5-*/*' 2>/dev/null
+
       - name: Upload trajectory artifacts
         if: always()
         uses: actions/upload-artifact@v5
