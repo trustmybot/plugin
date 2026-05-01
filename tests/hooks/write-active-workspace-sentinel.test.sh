@@ -108,4 +108,19 @@ printf '%s\n' "$WS3" > "$FAKE_HOME4/.claude/tmb-active-workspace"
 result=$(cd "/" && HOME="$FAKE_HOME4" TRAJECTORY_DB_PATH="$OVERRIDE_DB" bash -c ". '$QUERY_LIB'; tmb_db_path" 2>/dev/null)
 assert_eq "$OVERRIDE_DB" "$result" "TRAJECTORY_DB_PATH takes precedence over sentinel"
 
+test_case "tmb_db_path: walk-up returns outermost when sibling DBs exist (#134)"
+OUTER_ROOT=$(mktemp -d)
+trap 'rm -rf "$OUTER_ROOT"' EXIT
+OUTER_DB_DIR="$OUTER_ROOT/outer/.claude/tmb"
+INNER_DB_DIR="$OUTER_ROOT/outer/inner/.claude/tmb"
+mkdir -p "$OUTER_DB_DIR" "$INNER_DB_DIR"
+touch "$OUTER_DB_DIR/trajectory.db"
+touch "$INNER_DB_DIR/trajectory.db"
+FAKE_HOME_NOSENTINEL="$TMPDIR/fakehome_nosentinel"
+mkdir -p "$FAKE_HOME_NOSENTINEL/.claude"
+SUB_DIR="$OUTER_ROOT/outer/inner/some/sub/dir"
+mkdir -p "$SUB_DIR"
+result=$(cd "$SUB_DIR" && HOME="$FAKE_HOME_NOSENTINEL" bash -c ". '$QUERY_LIB'; tmb_db_path" 2>/dev/null)
+assert_eq "$OUTER_DB_DIR/trajectory.db" "$result" "outermost DB wins over inner sibling"
+
 summarize
