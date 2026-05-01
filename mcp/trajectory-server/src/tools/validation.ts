@@ -42,6 +42,7 @@ interface ValidationAttempt {
   agent: string;
   verdict: string;
   feedback: string;
+  subagent_session_id: string | null;
   created_at: string;
 }
 
@@ -71,6 +72,7 @@ export function validationTools(db: TrajectoryDB): {
           attempt_n: { type: 'number' },
           verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
           feedback: { type: 'string' },
+          subagent_session_id: { type: 'string', description: 'Required when agent="pr-reviewer": the spawned pr-reviewer subagent\'s session ID.' },
         },
         required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
       },
@@ -98,6 +100,14 @@ export function validationTools(db: TrajectoryDB): {
       const verdict = requireArg(args, 'verdict') as string;
       requireArg(args, 'feedback');
 
+      const subagentSessionId = (args['subagent_session_id'] ?? null) as string | null;
+
+      if (agent === 'pr-reviewer' && !subagentSessionId) {
+        throw new Error(
+          'precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent\'s session ID). This prevents bro from self-authoring pr-reviewer verdicts.',
+        );
+      }
+
       if (!VALID_VERDICTS.has(verdict)) {
         throw new Error(
           `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`,
@@ -118,14 +128,15 @@ export function validationTools(db: TrajectoryDB): {
 
       db.run(
         `INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+           (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_id, attempt_n) DO UPDATE SET
            agent = excluded.agent,
            verdict = excluded.verdict,
            feedback = excluded.feedback,
+           subagent_session_id = excluded.subagent_session_id,
            created_at = excluded.created_at`,
-        [taskId, attemptN, agent, verdict, feedback, now],
+        [taskId, attemptN, agent, verdict, feedback, subagentSessionId, now],
       );
 
       const row = db.get<ValidationAttempt>(

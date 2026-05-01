@@ -73,6 +73,7 @@ describe('branchReportMdTools', () => {
             attempt_n: 1,
             verdict: 'pass',
             feedback: 'Looks good',
+            subagent_session_id: 'test-session-abc',
         });
         const tools = branchReportMdTools(db);
         const result = await call(tools.handlers, 'branch_report_md', {

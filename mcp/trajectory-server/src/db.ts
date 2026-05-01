@@ -75,6 +75,7 @@ export class TrajectoryDB {
     this.migrateIssuesRemoteSync();
     this.migrateIssueSyncConfig();
     this.migratePrReviewRuns();
+    this.migrateValidationSubagentSessionId();
     this.syncPluginVersion();
   }
 
@@ -272,6 +273,16 @@ export class TrajectoryDB {
           `CREATE INDEX idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo)`,
         )
         .run();
+    }
+  }
+
+  private migrateValidationSubagentSessionId(): void {
+    const cols = this.db
+      .prepare('PRAGMA table_info(validation_attempts)')
+      .all() as Array<{ name: string }>;
+    const present = new Set(cols.map((c) => c.name));
+    if (!present.has('subagent_session_id')) {
+      this.db.exec(`ALTER TABLE validation_attempts ADD COLUMN subagent_session_id TEXT`);
     }
   }
 
