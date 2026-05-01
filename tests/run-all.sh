@@ -36,6 +36,7 @@ run_step "L1 lint: agent template byte-identity (swe + pr-reviewer)"  bash "$HER
 run_step "L1 lint: agent tmb_owner frontmatter"  bash "$HERE/lint/agent-tmb-owner-frontmatter.sh"
 run_step "L1 lint: local agent overrides retain workflow primitives"   bash "$HERE/lint/local-agent-primitives.sh"
 run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/lint/skill-frontmatter.sh"
+run_step "L1 lint: command frontmatter (description + argument-hint)"  bash "$HERE/lint/command-frontmatter.sh"
 run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/lint/manifest-shape.sh"
 run_step "L1 lint: version sync (3 manifests agree)"  bash "$HERE/lint/version-sync.sh"
 run_step "L1 lint: changelog top section current"     bash "$HERE/lint/changelog-current.sh"
