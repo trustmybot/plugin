@@ -137,6 +137,16 @@ discussion_append(kind='decision', body=<architectural plan: what changes, why, 
 
 Co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` when the change is significant enough to warrant durable documentation.
 
+### Blast-radius review (for features with external side effects)
+
+When the spec introduces a feature that performs external side effects — network calls, real API mutations, billing operations, file writes outside the worktree, message-sending — bro MUST verify the following BEFORE creating the SWE task:
+
+1. **Default value**: is the default config value the **safe** state? Side-effecting features must default to OFF; users opt in explicitly.
+2. **Test invocation surface**: trace whether ANY test (L2/L3/L4) can hit the live external service. In particular, fresh `:memory:` test DBs inherit the default. If the default would cause tests to make real external calls, the spec is unsafe — flip the default OR add a kill-switch.
+3. **Pre-merge verification**: spec must require a pre-merge verification step that confirms `bash tests/run-all.sh` produces zero external mutations. SWE explicitly checks pre/post external state. If delta > 0, ship is blocked.
+
+If any of these three checks fail, send the spec back for revision before SWE dispatches.
+
 ### Step 5 — Author the spec body (standard template)
 
 Standard difficult-path template. ≤8000 chars. Cite existing code; don't restate.

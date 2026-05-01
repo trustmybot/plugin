@@ -361,6 +361,52 @@ After all SWE tasks close, run `git push` — verify push gate requires pr-revie
 
 ---
 
+## S-27: Onboarding issue-sync opt-in end-to-end
+
+Validates the `tmb_reonboard` issue-sync opt-in phase added in #147.
+
+**Setup:**
+1. Fresh scratch project with TMB plugin active.
+2. Authenticate `glab` only (`gh auth logout` if needed), so the phase detects exactly one backend.
+3. Ensure `config_get('issue_sync')` returns `'off'` (the default).
+
+**Run:**
+- Trigger `tmb_reonboard` (e.g. `@bro re-onboard`).
+
+**Expect — Issue-sync opt-in phase:**
+- Skill runs `gh auth status` (exits non-zero) and `glab auth status` (exits 0).
+- Because only GitLab is authenticated, exactly two options appear:
+  - "Mirror to GitLab"
+  - "Skip — keep local-only"
+- Header is "Issue sync"; text mentions "Detected: glab".
+- User picks **"Mirror to GitLab"**.
+- `config_set('issue_sync', 'glab')` is called.
+
+**Verify state after:**
+```bash
+# config_get via MCP or sqlite3:
+sqlite3 .claude/tmb/trajectory.db "SELECT value FROM config WHERE key='issue_sync';"
+# → glab
+```
+
+**Verify log entries after issue_create:**
+1. Create a new issue: `@bro create issue: test blast-radius`.
+2. Inspect the log:
+```bash
+tail -5 ~/.claude/tmb/logs/issue-sync.log | jq 'select(.kind == "issue_sync_active")'
+```
+Expected: an entry with `kind=issue_sync_active`, `backend=glab`, and the new issue's id + title.
+
+**Headless variant:** with `TMB_HEADLESS=1`, skip the AUQ; `issue_sync` remains `'off'` — no config write occurs.
+
+✅ Pass criteria:
+- `tmb_reonboard` detects `glab` authenticated; shows two-option AUQ (Mirror to GitLab / Skip).
+- After picking "Mirror to GitLab": `config_get('issue_sync')` returns `'glab'`.
+- Subsequent `issue_create` triggers `syncIssueCreate`; `issue_sync_active` entry appears in `~/.claude/tmb/logs/issue-sync.log`.
+- Headless mode leaves `issue_sync='off'` unchanged.
+
+---
+
 ## How to sign off
 
 Once every checkbox passes for the version you're about to release:

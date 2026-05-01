@@ -102,6 +102,12 @@ export async function syncIssueCreate(opts) {
     if (!backend) {
         return null;
     }
+    syncLog({
+        kind: 'issue_sync_active',
+        backend,
+        issue_id: opts.issueId,
+        title: opts.title,
+    });
     if (backend === 'gh') {
         return createOnBackend('gh', opts, spawnFn);
     }

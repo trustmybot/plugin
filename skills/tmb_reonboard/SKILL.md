@@ -159,6 +159,26 @@ For each answer:
   - Example: user picks `[GitHub, GitLab]` → `[{ name: "origin", provider: "github", url: "" }, { name: "gitlab", provider: "gitlab", url: "" }]`
 - **Persist**: `config_set(agent='bro', key='remotes', value=<new array>)`.
 
+## Step 3.5 — Issue-sync opt-in (when remote available)
+
+1. Run `gh auth status` and `glab auth status` (Bash, capture exit codes).
+2. If neither is authenticated: skip this phase silently.
+3. Compose options:
+   - GitHub authenticated → "Mirror to GitHub"
+   - GitLab authenticated → "Mirror to GitLab"
+   - Both authenticated → "Mirror to both"
+   - Always: "Skip — keep local-only"
+4. Emit ONE AskUserQuestion:
+   - Header: "Issue sync"
+   - Text: "Mirror new MCP issues to your remote? Detected: <gh|glab|both>."
+   - Options: per the available backends + "Skip"
+5. On answer:
+   - "Mirror to GitHub" → `config_set('issue_sync', 'gh')`
+   - "Mirror to GitLab" → `config_set('issue_sync', 'glab')`
+   - "Mirror to both" → `config_set('issue_sync', 'both')`
+   - "Skip" → `config_set('issue_sync', 'off')` (explicit; reaffirms safe-default)
+6. Headless mode (TMB_HEADLESS=1 or AUQ errors) → leave at 'off' silently.
+
 ## Step 4 — Verify and close
 
 After writes, `config_list(agent='bro')` + `identity_get(agent='bro')` to confirm. Emit:
