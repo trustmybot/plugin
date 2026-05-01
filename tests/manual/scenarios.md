@@ -278,6 +278,89 @@ git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing trac
 
 ---
 
+## S-26: /monitor end-to-end — 5 mocked comments → 3 tasks → 1 arch-impact → SWE dispatch → arch regen → push gate
+
+**Setup:**
+1. Fresh scratch project with TMB plugin active.
+2. Create a carrier issue: `@bro let's work on feature X`.
+3. Create a task and branch off it so `tasks.branch_id` maps to the current branch.
+4. Patch `PATH` to inject mock `gh` and `glab` binaries that return a fixed 5-comment payload:
+   - Comment A (human): "This function should be extracted into a helper." (file: `src/utils.ts:42`)
+   - Comment B (human): "src/utils.ts line 55 also has the same issue." (file: `src/utils.ts:55`)
+   - Comment C (human): "The schema needs a new index for performance." (file: `mcp/trajectory-server/src/schema.sql`)
+   - Comment D (bot, dependabot[bot]): "Bump lodash to 4.17.21."
+   - Comment E (human): "LGTM overall, nice work!"
+
+**Run:**
+```
+/monitor 42
+```
+(or `/monitor` with the current branch having an open PR)
+
+**Expect — Phase 3 (fetch):**
+- `pr_comments_get` returns all 5 comments.
+- `remote_kind` matches the backend (gh or glab).
+
+**Expect — Phase 5 (classify):**
+- Comment D filtered as `author_kind='bot'`.
+- Comment E filtered as informational (`LGTM` pattern).
+- 3 comments remain task-worthy: A, B, C.
+
+**Expect — Phase 6 (group):**
+- Comments A + B grouped into one task (same file: `src/utils.ts`).
+- Comment C becomes a separate task.
+- 2 tasks total (or 3 if the model didn't group A+B).
+
+**Expect — Phase 7 (arch-impact):**
+- The `schema.sql` task is flagged `(arch-impact)`.
+
+**Expect — Phase 8 (AUQ):**
+- AskUserQuestion renders with `multiSelect:true`.
+- Options include the 2 (or 3) tasks; the schema task has `(arch-impact)` suffix.
+- Select all tasks.
+
+**Expect — Phase 9 (dispatch):**
+- `task_create_batch` called once per task.
+- SWE spawned for each.
+- After SWE completes the arch-impact task: `tmb_refresh-architecture` is invoked before moving to the next task or push gate.
+
+**Expect — Phase 10 (state update):**
+```sql
+SELECT pr_number, comments_processed, tasks_created, last_comment_id
+FROM pr_review_runs
+WHERE pr_number = 42;
+```
+- `comments_processed` = 5 (all fetched, including bot and informational).
+- `tasks_created` = 2 or 3 (matching dispatched count).
+- `last_comment_id` is non-null.
+
+**DB verification:**
+```sql
+-- pr_review_runs state
+SELECT * FROM pr_review_runs WHERE pr_number = 42;
+
+-- discussion entries from Phase 4
+SELECT author, kind, body FROM discussions
+WHERE kind = 'note' AND body LIKE '[PR #42%'
+ORDER BY id;
+
+-- tasks created
+SELECT title, status FROM tasks ORDER BY id DESC LIMIT 5;
+```
+
+**Push gate:**
+After all SWE tasks close, run `git push` — verify push gate requires pr-reviewer sign-off per the normal `tmb_push-gate` flow.
+
+✅ Pass criteria:
+- 5 comments fetched, 3 remain after bot + informational filter.
+- Tasks grouped by file (A+B merged if grouping works).
+- AUQ shows tasks with `(arch-impact)` suffix on the schema task.
+- `tmb_refresh-architecture` invoked after the arch-impact task's SWE returns.
+- `pr_review_runs` row has correct counts.
+- Discussion entries created for all 5 fetched comments.
+
+---
+
 ## How to sign off
 
 Once every checkbox passes for the version you're about to release:

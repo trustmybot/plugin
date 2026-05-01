@@ -7,7 +7,7 @@ import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh DB contains all 17 tables', () => {
+  it('fresh DB contains all 18 tables', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -28,6 +28,7 @@ describe('schema — current table set, default values, constraints', () => {
       'debug_trajectory',
       'eval_results',
       'agent_runs',
+      'pr_review_runs',
     ];
 
     const rows = db.all<{ name: string }>(
