@@ -178,7 +178,7 @@ INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at) VALUES
     ('pr_target',          '"main"',        datetime('now')),
     ('protected_branches', '["main"]',      datetime('now')),
     ('remotes',            '[]',            datetime('now')),
-    ('issue_sync',         '"auto"',        datetime('now'));
+    ('issue_sync',         '"off"',         datetime('now'));
 
 CREATE TABLE IF NOT EXISTS identity (
     id               INTEGER PRIMARY KEY CHECK (id = 1),

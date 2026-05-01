@@ -16,8 +16,7 @@ describe('syncIssueCreate', () => {
             title: 'Test',
             body: 'Body',
         });
-        // Without a backend set, defaults to gh attempt — allow null or non-null depending on env
-        assert.ok(result === null || typeof result.remote_iid === 'number');
+        assert.equal(result, null);
     });
     it('parses github URL from gh stdout', async () => {
         const spawnFn = makeSpawnFn([

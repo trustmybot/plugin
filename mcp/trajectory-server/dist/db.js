@@ -210,7 +210,9 @@ export class TrajectoryDB {
     }
     migrateIssueSyncConfig() {
         this.db.exec(`INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at)
-       VALUES ('issue_sync', '"auto"', datetime('now'))`);
+       VALUES ('issue_sync', '"off"', datetime('now'))`);
+        this.db.exec(`UPDATE plugin_config SET value_json = '"off"', updated_at = datetime('now')
+       WHERE key = 'issue_sync' AND value_json = '"auto"'`);
     }
     migratePrReviewRuns() {
         const tables = this.db

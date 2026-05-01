@@ -109,7 +109,7 @@ describe('schema — current table set, default values, constraints', () => {
     const plain = rows.map((r) => ({ key: r.key, value_json: r.value_json }));
     assert.deepEqual(plain, [
       { key: 'branching_model', value_json: '"github-flow"' },
-      { key: 'issue_sync', value_json: '"auto"' },
+      { key: 'issue_sync', value_json: '"off"' },
       { key: 'pr_target', value_json: '"main"' },
       { key: 'protected_branches', value_json: '["main"]' },
       { key: 'remotes', value_json: '[]' },

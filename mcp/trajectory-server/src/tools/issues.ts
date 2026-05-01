@@ -192,7 +192,7 @@ export function issueTools(db: TrajectoryDB): {
       );
       const syncConfig: string = syncConfigRow
         ? (JSON.parse(syncConfigRow.value_json) as string)
-        : 'auto';
+        : 'off';
 
       if (syncConfig !== 'off') {
         const backend = resolveBackend(syncConfig);
@@ -414,7 +414,7 @@ export function issueTools(db: TrajectoryDB): {
       );
       const syncConfig: string = syncConfigRow
         ? (JSON.parse(syncConfigRow.value_json) as string)
-        : 'auto';
+        : 'off';
 
       if (syncConfig === 'off') {
         return ok({ skipped: true, reason: 'issue_sync is off' });
