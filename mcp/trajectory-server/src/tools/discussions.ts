@@ -57,6 +57,11 @@ export function discussionTools(db: TrajectoryDB): {
             description: 'Entry kind. Default: note',
           },
           body: { type: 'string', description: 'Markdown body of the discussion entry' },
+          verified_human: {
+            type: 'boolean',
+            description:
+              'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries.',
+          },
         },
         required: ['agent', 'issue_id', 'author', 'body'],
       },
@@ -112,6 +117,14 @@ export function discussionTools(db: TrajectoryDB): {
           throw new Error('author must be a non-empty string');
         }
 
+        const verifiedHuman = Boolean(args['verified_human']);
+
+        if (author === 'human' && !verifiedHuman) {
+          throw new Error(
+            'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.',
+          );
+        }
+
         const issue = db.get<Issue>('SELECT id FROM issues WHERE id = ?', [issueId]);
         if (!issue) {
           throw new Error(`Not found: issue ${issueId}`);
@@ -119,9 +132,9 @@ export function discussionTools(db: TrajectoryDB): {
 
         const now = nowISO();
         db.run(
-          `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [issueId, author, kind, body, now],
+          `INSERT INTO discussions (issue_id, author, kind, body, created_at, verified_human)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [issueId, author, kind, body, now, verifiedHuman ? 1 : 0],
         );
 
         const row = db.get<Discussion>(

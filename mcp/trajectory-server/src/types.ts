@@ -64,6 +64,7 @@ export interface Discussion {
   kind: string;
   body: string;
   created_at: string;
+  verified_human: number;
 }
 
 export interface LedgerEntry {

@@ -394,3 +394,134 @@ describe('discussions + snapshot integration', () => {
     assert.ok(taskFields.includes('title'), 'Task must have title');
   });
 });
+
+describe('discussion_append verified_human gate (#145)', () => {
+  let db: TrajectoryDB;
+  let issueId: string;
+
+  before(async () => {
+    db = new TrajectoryDB(':memory:');
+    const issues = issueTools(db);
+
+    async function call(
+      handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+      name: string,
+      args: Record<string, unknown>,
+    ) {
+      const handler = handlers[name];
+      return handler(args) as unknown as RawResult;
+    }
+
+    const result = await call(issues.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'verified_human gate test issue',
+      description: 'Isolated issue for gate tests.',
+    });
+    const created = JSON.parse((result as RawResult).content[0].text);
+    issueId = String(created.id);
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  async function call(
+    handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<RawResult> {
+    const handler = handlers[name];
+    assert.ok(handler, `Handler not found: ${name}`);
+    return handler(args) as unknown as RawResult;
+  }
+
+  it('rejects author="human" without verified_human', async () => {
+    const disc = discussionTools(db);
+
+    const result = await call(disc.handlers, 'discussion_append', {
+      agent: 'bro',
+      issue_id: issueId,
+      author: 'human',
+      kind: 'intent',
+      body: 'This should be rejected',
+    });
+    assert.ok(result.isError, 'Should be error when author="human" without verified_human');
+    const data = parseResult(result);
+    assert.ok(
+      data.error.includes('precondition_failed'),
+      `Error must cite precondition_failed: ${data.error}`,
+    );
+    assert.ok(
+      data.error.includes('verified_human=true'),
+      `Error must mention verified_human=true: ${data.error}`,
+    );
+  });
+
+  it('accepts author="human" with verified_human=true; stores verified_human=1', async () => {
+    const disc = discussionTools(db);
+
+    const result = await call(disc.handlers, 'discussion_append', {
+      agent: 'bro',
+      issue_id: issueId,
+      author: 'human',
+      kind: 'intent',
+      body: 'Verified human prompt capture',
+      verified_human: true,
+    });
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const data = parseResult(result);
+    assert.equal(data.author, 'human');
+    assert.equal(data.verified_human, 1, 'verified_human must be stored as 1');
+  });
+
+  it('accepts author="bro" without verified_human; stores verified_human=0', async () => {
+    const disc = discussionTools(db);
+
+    const result = await call(disc.handlers, 'discussion_append', {
+      agent: 'bro',
+      issue_id: issueId,
+      author: 'bro',
+      kind: 'note',
+      body: 'Per Human in chat: "@bro do the thing"',
+    });
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const data = parseResult(result);
+    assert.equal(data.author, 'bro');
+    assert.equal(data.verified_human, 0);
+  });
+
+  it('accepts consultant authors (ceo, cto, pm) without verified_human; stores verified_human=0', async () => {
+    const disc = discussionTools(db);
+
+    for (const consultantAuthor of ['ceo', 'cto', 'pm']) {
+      const result = await call(disc.handlers, 'discussion_append', {
+        agent: 'bro',
+        issue_id: issueId,
+        author: consultantAuthor,
+        kind: 'analysis',
+        body: `${consultantAuthor} analysis entry`,
+      });
+      assert.ok(
+        !result.isError,
+        `author="${consultantAuthor}" must be accepted: ${JSON.stringify(parseResult(result))}`,
+      );
+      const data = parseResult(result);
+      assert.equal(data.verified_human, 0);
+    }
+  });
+
+  it('backward compat: direct INSERT without verified_human column defaults to 0', () => {
+    const now = new Date().toISOString();
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+      [issueId, 'bro', 'note', 'Legacy row omitting verified_human in INSERT', now],
+    );
+
+    const rows = db.all<{ verified_human: number }>(
+      `SELECT verified_human FROM discussions WHERE body = ? LIMIT 1`,
+      ['Legacy row omitting verified_human in INSERT'],
+    );
+    assert.equal(rows.length, 1, 'Legacy row must be present');
+    assert.equal(rows[0].verified_human, 0, 'verified_human must default to 0');
+  });
+});

@@ -46,7 +46,7 @@ test('discussion_append chronology: answer rows have a preceding question row', 
   for (const entry of [
     { kind: 'note',     author: 'architect', body: 'Triage' },
     { kind: 'question', author: 'architect', body: 'Which lib?\n1. argparse\n2. click' },
-    { kind: 'answer',   author: 'human',     body: '1' },
+    { kind: 'answer',   author: 'human',     body: '1', verified_human: true },
     { kind: 'decision', author: 'architect', body: 'Going with argparse' },
   ]) {
     const res = await call(client, 'discussion_append', {
@@ -141,6 +141,7 @@ test('task_create_batch — accepts when a kind=question row exists', async (t) 
     kind: 'answer',
     author: 'human',
     body: 'argparse',
+    verified_human: true,
   });
 
   const attempt = await call(client, 'task_create_batch', {

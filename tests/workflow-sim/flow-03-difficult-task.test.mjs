@@ -32,7 +32,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   // 2. Intent + triage note
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'human', kind: 'intent',
-    body: '@bro switch us to JWT auth',
+    body: '@bro switch us to JWT auth', verified_human: true,
   });
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'bro', kind: 'note',
@@ -48,7 +48,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
 
   const a1 = await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'human', kind: 'answer',
-    body: 'RS256 with rotation; we need this for compliance.',
+    body: 'RS256 with rotation; we need this for compliance.', verified_human: true,
   });
   assert.equal(a1.ok, true);
 
@@ -60,7 +60,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
 
   const a2 = await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'human', kind: 'answer',
-    body: 'Force re-login; cleaner cutover, acceptable UX cost.',
+    body: 'Force re-login; cleaner cutover, acceptable UX cost.', verified_human: true,
   });
   assert.equal(a2.ok, true);
 
