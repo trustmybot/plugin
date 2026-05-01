@@ -146,6 +146,7 @@ describe('validationTools', () => {
       attempt_n: 1,
       verdict: 'maybe',
       feedback: '# Notes',
+      subagent_session_id: 'test-session-abc',
     });
 
     assert.ok(result.isError, 'Expected error result');
@@ -165,6 +166,7 @@ describe('validationTools', () => {
       attempt_n: 1,
       verdict: 'fail',
       feedback: '# Notes',
+      subagent_session_id: 'test-session-abc',
     });
 
     assert.ok(result.isError, 'Expected error result');
@@ -187,6 +189,7 @@ describe('validationTools', () => {
       attempt_n: 1,
       verdict: 'pass',
       feedback: '# Notes',
+      subagent_session_id: 'test-session-abc',
     });
 
     assert.ok(result.isError);
@@ -211,6 +214,7 @@ describe('validationTools', () => {
       attempt_n: 3,
       verdict: 'fail',
       feedback: '# Third attempt',
+      subagent_session_id: 'session-3',
     });
 
     await call(tools.handlers, 'validation_record', {
@@ -219,6 +223,7 @@ describe('validationTools', () => {
       attempt_n: 1,
       verdict: 'fail',
       feedback: '# First attempt',
+      subagent_session_id: 'session-1',
     });
 
     await call(tools.handlers, 'validation_record', {
@@ -227,6 +232,7 @@ describe('validationTools', () => {
       attempt_n: 2,
       verdict: 'pass',
       feedback: '# Second attempt',
+      subagent_session_id: 'session-2',
     });
 
     const result = await call(tools.handlers, 'validation_history', {

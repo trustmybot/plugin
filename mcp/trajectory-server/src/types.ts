@@ -142,3 +142,14 @@ export interface RegenStateRow {
   last_seen_sha: string | null;
   notes: string;
 }
+
+export interface ValidationAttemptsRow {
+  id: number;
+  task_id: number;
+  attempt_n: number;
+  agent: string;
+  verdict: string;
+  feedback: string;
+  subagent_session_id: string | null;
+  created_at: string;
+}

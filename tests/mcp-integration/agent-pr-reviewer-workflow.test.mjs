@@ -50,6 +50,7 @@ test('pr-reviewer — happy path: read task → record pass → history reflects
     attempt_n: 1,
     verdict: 'pass',
     feedback: 'LGTM — tests pass, no smells.',
+    subagent_session_id: 'integration-test-session-pass',
   });
   assert.equal(record.ok, true, `validation_record: ${JSON.stringify(record)}`);
 
@@ -75,6 +76,7 @@ test('pr-reviewer — fail path: record fail → bro sees it in history', async 
     attempt_n: 1,
     verdict: 'fail',
     feedback: 'missing test for edge case X',
+    subagent_session_id: 'integration-test-session-fail',
   });
   assert.equal(fail.ok, true);
 
@@ -102,6 +104,7 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
       attempt_n: n,
       verdict: 'fail',
       feedback: `attempt ${n} — still broken`,
+      subagent_session_id: `integration-test-session-retry-${n}`,
     });
     assert.equal(fail.ok, true);
   }
@@ -111,6 +114,7 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
     attempt_n: 3,
     verdict: 'pass',
     feedback: 'finally green',
+    subagent_session_id: 'integration-test-session-retry-3',
   });
   assert.equal(pass.ok, true);
 

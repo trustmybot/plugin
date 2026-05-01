@@ -73,6 +73,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   const recordA = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskA, attempt_n: 1, verdict: 'pass',
     feedback: 'Gate 2 review: tests pass; diff matches spec; LGTM.',
+    subagent_session_id: 'flow06-session-A',
   });
   assert.equal(recordA.ok, true, `pr-reviewer→A: ${JSON.stringify(recordA)}`);
 
@@ -80,6 +81,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   const recordB = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskB, attempt_n: 1, verdict: 'pass',
     feedback: 'Gate 2 review: clean.',
+    subagent_session_id: 'flow06-session-B',
   });
   assert.equal(recordB.ok, true);
 
@@ -120,6 +122,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   const fail1 = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail',
     feedback: 'Tests reference removed module; please fix.',
+    subagent_session_id: 'flow06-fail-session-1',
   });
   assert.equal(fail1.ok, true);
 
@@ -127,6 +130,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   const pass2 = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass',
     feedback: 'Fixed; LGTM.',
+    subagent_session_id: 'flow06-pass-session-2',
   });
   assert.equal(pass2.ok, true);
 

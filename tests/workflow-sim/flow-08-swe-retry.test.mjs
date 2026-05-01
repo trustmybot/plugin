@@ -38,6 +38,7 @@ test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts
     const r = await call(client, 'validation_record', {
       agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail',
       feedback: `Attempt ${n}: still has the bug.`,
+      subagent_session_id: `flow08-retry-session-${n}`,
     });
     assert.equal(r.ok, true, `attempt ${n} fail: ${JSON.stringify(r)}`);
   }
@@ -46,6 +47,7 @@ test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts
   const pass = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 3, verdict: 'pass',
     feedback: 'Fixed; LGTM.',
+    subagent_session_id: 'flow08-retry-session-3',
   });
   assert.equal(pass.ok, true);
 
@@ -67,6 +69,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   // attempt 1: pass
   await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: 'first',
+    subagent_session_id: 'flow08-upsert-session-1',
   });
 
   // attempt 1 again with different verdict — upsert overwrites the row in place
@@ -74,6 +77,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   // before the push happens). UNIQUE(task_id, attempt_n) is enforced via ON CONFLICT.
   const overwrite = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', feedback: 'second',
+    subagent_session_id: 'flow08-upsert-session-1-revised',
   });
   assert.equal(overwrite.ok, true, 'upsert must succeed (latest write wins)');
 
@@ -93,6 +97,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
     const r = await call(client, 'validation_record', {
       agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail',
       feedback: `Attempt ${n} still broken.`,
+      subagent_session_id: `flow08-escalate-session-${n}`,
     });
     assert.equal(r.ok, true);
   }

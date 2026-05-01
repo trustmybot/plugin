@@ -68,13 +68,14 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 
 CREATE TABLE IF NOT EXISTS validation_attempts (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id         INTEGER NOT NULL REFERENCES tasks(id),
-    attempt_n       INTEGER NOT NULL,
-    agent           TEXT    NOT NULL DEFAULT '',
-    verdict         TEXT    NOT NULL,
-    feedback         TEXT    NOT NULL DEFAULT '',
-    created_at      TEXT    NOT NULL,
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id             INTEGER NOT NULL REFERENCES tasks(id),
+    attempt_n           INTEGER NOT NULL,
+    agent               TEXT    NOT NULL DEFAULT '',
+    verdict             TEXT    NOT NULL,
+    feedback            TEXT    NOT NULL DEFAULT '',
+    subagent_session_id TEXT,
+    created_at          TEXT    NOT NULL,
     UNIQUE(task_id, attempt_n)
 );
 
