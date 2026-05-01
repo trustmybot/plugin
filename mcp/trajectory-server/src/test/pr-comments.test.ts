@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SpawnSyncOptions } from 'node:child_process';
 import { tempDB } from './helpers.js';
@@ -195,6 +195,21 @@ describe('pr_comments_get — GitHub backend', () => {
 });
 
 describe('pr_comments_get — GitLab backend', () => {
+  let savedEnv: string | undefined;
+
+  before(() => {
+    savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
+    delete process.env.TMB_DISABLE_REMOTE_SYNC;
+  });
+
+  after(() => {
+    if (savedEnv !== undefined) {
+      process.env.TMB_DISABLE_REMOTE_SYNC = savedEnv;
+    } else {
+      delete process.env.TMB_DISABLE_REMOTE_SYNC;
+    }
+  });
+
   it('returns structured comments from glab mr view output', async () => {
     const db = tempDB();
     db.run(

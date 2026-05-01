@@ -1,7 +1,20 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveBackend } from '../sync/backend.js';
 describe('resolveBackend', () => {
+    let savedEnv;
+    before(() => {
+        savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
+        delete process.env.TMB_DISABLE_REMOTE_SYNC;
+    });
+    after(() => {
+        if (savedEnv !== undefined) {
+            process.env.TMB_DISABLE_REMOTE_SYNC = savedEnv;
+        }
+        else {
+            delete process.env.TMB_DISABLE_REMOTE_SYNC;
+        }
+    });
     it('returns off when config is off', () => {
         const result = resolveBackend('off');
         assert.equal(result, 'off');

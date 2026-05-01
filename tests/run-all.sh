@@ -13,6 +13,8 @@
 
 set -uo pipefail
 
+export TMB_DISABLE_REMOTE_SYNC=1
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/.." && pwd)"
 FAIL=0

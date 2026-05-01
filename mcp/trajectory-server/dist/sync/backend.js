@@ -34,6 +34,10 @@ export function detectPreferred() {
     }
 }
 export function resolveBackend(configValue) {
+    if (process.env.TMB_DISABLE_REMOTE_SYNC === '1' ||
+        process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === 'true') {
+        return null;
+    }
     if (configValue === 'off')
         return 'off';
     if (configValue === 'gh')
