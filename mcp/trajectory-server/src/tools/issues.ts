@@ -4,6 +4,9 @@ import { nowISO } from '../db.js';
 import type { Issue, IssueRow, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { decodeLabels } from './labels.js';
+import { resolveBackend } from '../sync/backend.js';
+import { syncIssueCreate, syncIssueClose } from '../sync/issue_sync.js';
+import { serverLog } from '../logger.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -57,6 +60,7 @@ export function issueTools(db: TrajectoryDB): {
           agent: { type: 'string', description: 'Caller agent name' },
           objective: { type: 'string', description: 'Short one-liner summary' },
           description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
+          labels: { type: 'array', items: { type: 'string' }, description: 'Optional labels to apply to the remote issue.' },
         },
         required: ['agent', 'objective'],
       },
@@ -142,6 +146,18 @@ export function issueTools(db: TrajectoryDB): {
         required: ['agent', 'issue_id', 'description'],
       },
     },
+    {
+      name: 'issue_sync_retry',
+      description: 'Manually retry remote sync for an issue where auto-sync failed. Bro only.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
+          issue_id: { type: 'string', description: 'Issue ID as string' },
+        },
+        required: ['agent', 'issue_id'],
+      },
+    },
   ];
 
   const handlers: Record<string, Fn> = {
@@ -151,6 +167,7 @@ export function issueTools(db: TrajectoryDB): {
 
       const objective = args['objective'] as string;
       const description = (args['description'] as string | undefined) ?? '';
+      const labels = (args['labels'] as string[] | undefined) ?? [];
       const now = nowISO();
       const preGitSha = process.env['PRE_GIT_SHA'] ?? '';
 
@@ -168,7 +185,39 @@ export function issueTools(db: TrajectoryDB): {
         throw new Error('issue_create: failed to retrieve inserted row');
       }
 
-      const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [rowId.id]);
+      const issueId = rowId.id;
+
+      const syncConfigRow = db.get<{ value_json: string }>(
+        `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`,
+      );
+      const syncConfig: string = syncConfigRow
+        ? (JSON.parse(syncConfigRow.value_json) as string)
+        : 'auto';
+
+      if (syncConfig !== 'off') {
+        const backend = resolveBackend(syncConfig);
+        if (backend === null) {
+          serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
+        } else if (backend !== 'off') {
+          const syncResult = await syncIssueCreate({
+            issueId,
+            title: objective,
+            body: description,
+            labels,
+            _backend: backend,
+          });
+          if (syncResult) {
+            db.run(
+              `UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`,
+              [syncResult.remote_iid, syncResult.remote_kind, issueId],
+            );
+          } else {
+            serverLog({ event: 'issue_sync_failed', issueId, backend });
+          }
+        }
+      }
+
+      const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
       const issue = decodeIssue(row!);
       const redacted = redactIssue(issue, agent, { include_description: true });
       return ok(redacted);
@@ -235,6 +284,20 @@ export function issueTools(db: TrajectoryDB): {
            WHERE id = ?`,
           [now, now, issueId],
         );
+      }
+
+      const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null }>(
+        `SELECT remote_iid, remote_kind FROM issues WHERE id = ?`,
+        [issueId],
+      );
+      if (remoteRow?.remote_iid != null && remoteRow.remote_kind != null) {
+        const success = await syncIssueClose({
+          remote_iid: remoteRow.remote_iid,
+          remote_kind: remoteRow.remote_kind as 'github' | 'gitlab',
+        });
+        if (!success) {
+          serverLog({ event: 'issue_close_sync_failed', issueId, remote_iid: remoteRow.remote_iid });
+        }
       }
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
@@ -336,6 +399,59 @@ export function issueTools(db: TrajectoryDB): {
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
       return ok(decodeIssue(updated!));
+    })),
+
+    issue_sync_retry: requireRoles('issue_sync_retry', ['bro'], wrapHandler(async (args) => {
+      const issueId = requireArg(args, 'issue_id') as string;
+
+      const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+      if (!row) {
+        return err(`not_found: issue ${issueId}`);
+      }
+
+      const syncConfigRow = db.get<{ value_json: string }>(
+        `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`,
+      );
+      const syncConfig: string = syncConfigRow
+        ? (JSON.parse(syncConfigRow.value_json) as string)
+        : 'auto';
+
+      if (syncConfig === 'off') {
+        return ok({ skipped: true, reason: 'issue_sync is off' });
+      }
+
+      const backend = resolveBackend(syncConfig);
+      if (backend === null || backend === 'off') {
+        return ok({ skipped: true, reason: 'no remote backend configured' });
+      }
+
+      const issue = decodeIssue(row);
+
+      if (row.status === 'closed' && row.remote_iid != null && row.remote_kind != null) {
+        const success = await syncIssueClose({
+          remote_iid: row.remote_iid,
+          remote_kind: row.remote_kind,
+        });
+        return ok({ action: 'close', success });
+      }
+
+      const syncResult = await syncIssueCreate({
+        issueId: row.id,
+        title: issue.objective,
+        body: row.description,
+        labels: issue.labels ?? [],
+        _backend: backend,
+      });
+
+      if (syncResult) {
+        db.run(
+          `UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`,
+          [syncResult.remote_iid, syncResult.remote_kind, issueId],
+        );
+        return ok({ action: 'create', success: true, remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind });
+      }
+
+      return ok({ action: 'create', success: false });
     })),
 
   };

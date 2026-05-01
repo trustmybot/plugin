@@ -92,6 +92,7 @@ describe('configTools', () => {
         assert.ok(!result.isError);
         assert.deepEqual(parseResult(result), {
             branching_model: 'github-flow',
+            issue_sync: 'auto',
             pr_target: 'main',
             protected_branches: ['main'],
             remotes: [],
@@ -105,11 +106,12 @@ describe('configTools', () => {
         const result = await call(tools.handlers, 'config_list', {});
         assert.ok(!result.isError);
         assert.deepEqual(parseResult(result), {
+            alpha: 'one',
             branching_model: 'github-flow',
+            issue_sync: 'auto',
             pr_target: 'main',
             protected_branches: ['main'],
             remotes: [],
-            alpha: 'one',
         });
         db.close();
     });
@@ -122,13 +124,14 @@ describe('configTools', () => {
         const result = await call(tools.handlers, 'config_list', {});
         assert.ok(!result.isError);
         assert.deepEqual(parseResult(result), {
+            alpha: 1,
+            beta: 2,
             branching_model: 'github-flow',
+            gamma: 3,
+            issue_sync: 'auto',
             pr_target: 'main',
             protected_branches: ['main'],
             remotes: [],
-            alpha: 1,
-            beta: 2,
-            gamma: 3,
         });
         db.close();
     });

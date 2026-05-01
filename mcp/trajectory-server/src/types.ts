@@ -11,6 +11,9 @@ export interface Issue {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  remote_iid?: number | null;
+  remote_kind?: 'github' | 'gitlab' | null;
+  remote_synced_at?: string | null;
 }
 
 export interface IssueRow {
@@ -26,6 +29,9 @@ export interface IssueRow {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  remote_iid: number | null;
+  remote_kind: 'github' | 'gitlab' | null;
+  remote_synced_at: string | null;
 }
 
 export interface Task {
