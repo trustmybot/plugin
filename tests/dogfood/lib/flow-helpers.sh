@@ -86,6 +86,7 @@ l5_run_claude() {
 #   2. trajectory_required — required tools were called (any order)
 #   3. trajectory_forbidden — forbidden tools were NOT called
 #   4. cost              — observational unless cost-budget says fail_above_max
+#   5. files             — filesystem assertions (opt-in via outcome-files.json)
 l5_score_flow() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local total_fail=0
@@ -94,6 +95,7 @@ l5_score_flow() {
   l5_score_trajectory_required  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_trajectory_forbidden "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_cost                 "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l5_score_files                "$scorer_dir" "$project"                   || total_fail=$((total_fail + 1))
 
   return "$total_fail"
 }

@@ -218,3 +218,64 @@ l5_score_cost() {
     return 0
   fi
 }
+
+# l5_score_files <flow_dir> <workspace_dir>
+# Reads flow_dir/outcome-files.json. Asserts file existence, absence, and
+# minimum byte size for each entry. Opt-in: silently returns 0 when no
+# outcome-files.json is present. Returns 0 if all assertions pass, 1 if any fail.
+l5_score_files() {
+  local flow_dir="$1"
+  local workspace_dir="$2"
+  local budget_file="$flow_dir/outcome-files.json"
+
+  [ -f "$budget_file" ] || return 0
+
+  local fail=0
+
+  local entries
+  entries=$(jq -c '.files[]' "$budget_file" 2>/dev/null) || {
+    echo "  ✗ files: invalid JSON in $budget_file" >&2
+    return 1
+  }
+
+  while IFS= read -r entry; do
+    local path must_exist must_not_exist min_bytes
+    path=$(echo "$entry" | jq -r '.path')
+    must_exist=$(echo "$entry" | jq -r '.must_exist // false')
+    must_not_exist=$(echo "$entry" | jq -r '.must_not_exist // false')
+    min_bytes=$(echo "$entry" | jq -r '.min_bytes // 0')
+
+    local full_path="$workspace_dir/$path"
+
+    if [ "$must_exist" = "true" ]; then
+      if [ ! -f "$full_path" ]; then
+        echo "  ✗ files: $path does not exist" >&2
+        fail=1
+        continue
+      fi
+      if [ "$min_bytes" -gt 0 ]; then
+        local actual_bytes
+        actual_bytes=$(wc -c < "$full_path" | tr -d ' ')
+        if [ "$actual_bytes" -lt "$min_bytes" ]; then
+          echo "  ✗ files: $path is $actual_bytes bytes, expected >=$min_bytes" >&2
+          fail=1
+          continue
+        fi
+        echo "  ✓ files: $path exists (>=$min_bytes bytes)"
+      else
+        echo "  ✓ files: $path exists"
+      fi
+    fi
+
+    if [ "$must_not_exist" = "true" ]; then
+      if [ -f "$full_path" ]; then
+        echo "  ✗ files: $path exists but should not" >&2
+        fail=1
+      else
+        echo "  ✓ files: $path does not exist"
+      fi
+    fi
+  done <<< "$entries"
+
+  return $fail
+}

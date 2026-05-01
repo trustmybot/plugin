@@ -23,8 +23,6 @@
 | `tools-forbidden.json` | Workflow state tools (`task_update_status`, `validation_record`, `task_create_batch`) NOT called — agent-creator is metadata-only |
 | `cost-budget.json` | Soft budget 80K tokens / 90s p99 — skill-invocation + agent spawn is heavier than a bare SWE task; warn on overage, don't fail |
 
-## Filesystem assertion — scoped down (follow-up filed)
+## Filesystem assertion
 
-The primary disk outcome — `.claude/agents/architect.md` existing on the scratch project — cannot be expressed in `outcome.sql` (which queries the trajectory DB only). No existing `outcome-files.json` convention or filesystem-scorer hook was found in `tests/dogfood/lib/scorers.sh` or any other flow. Rather than inventing new infrastructure in this PR, the scaffold ships with DB-only assertions.
-
-A follow-up issue should be filed for filesystem-scorer infrastructure so future flows can assert on disk state post-run (e.g. `outcome-files.json` listing expected paths). This scaffold is intentionally conservative: the three DB assertions give strong signal that the skill executed correctly even without the disk check.
+`outcome-files.json` asserts that `.claude/agents/architect.md` exists with at least 100 bytes after the flow runs. This is the first use of the opt-in `outcome-files.json` convention (see `tests/dogfood/flows/README.md`).
