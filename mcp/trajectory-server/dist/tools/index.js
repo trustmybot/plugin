@@ -14,6 +14,7 @@ import { architectureRegenTools } from './architecture-regen.js';
 import { branchReportMdTools } from './branch_report_md.js';
 import { labelTools } from './labels.js';
 import { statsTools } from './stats.js';
+import { roundtableTools } from './roundtable.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
@@ -53,6 +54,7 @@ export function registerTools(server, db) {
     const branchReport = branchReportMdTools(db);
     const labels = labelTools(db);
     const stats = statsTools(db);
+    const roundtable = roundtableTools(db);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
@@ -70,6 +72,7 @@ export function registerTools(server, db) {
         ...branchReport.definitions,
         ...labels.definitions,
         ...stats.definitions,
+        ...roundtable.definitions,
     ]);
     toolHandlers = {
         ...wrapAll(discussions.handlers),
@@ -88,6 +91,7 @@ export function registerTools(server, db) {
         ...wrapAll(branchReport.handlers),
         ...wrapAll(labels.handlers),
         ...wrapAll(stats.handlers),
+        ...wrapAll(roundtable.handlers),
     };
 }
 //# sourceMappingURL=index.js.map

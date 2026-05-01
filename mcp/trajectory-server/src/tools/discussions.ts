@@ -6,7 +6,7 @@ import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note']);
+const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -53,7 +53,7 @@ export function discussionTools(db: TrajectoryDB): {
           author: { type: 'string', description: 'Author of this entry (agent name or human)' },
           kind: {
             type: 'string',
-            enum: ['intent', 'question', 'answer', 'decision', 'note'],
+            enum: ['intent', 'question', 'answer', 'decision', 'note', 'analysis'],
             description: 'Entry kind. Default: note',
           },
           body: { type: 'string', description: 'Markdown body of the discussion entry' },
