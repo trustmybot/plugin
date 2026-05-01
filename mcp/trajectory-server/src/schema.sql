@@ -266,3 +266,17 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+
+CREATE TABLE IF NOT EXISTS pr_review_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pr_number INTEGER NOT NULL,
+  repo TEXT NOT NULL,
+  remote_kind TEXT NOT NULL CHECK(remote_kind IN ('github','gitlab')),
+  last_fetched_at DATETIME NOT NULL,
+  last_comment_id TEXT,
+  comments_processed INTEGER NOT NULL DEFAULT 0,
+  tasks_created INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo);

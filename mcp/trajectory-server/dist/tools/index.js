@@ -15,6 +15,7 @@ import { branchReportMdTools } from './branch_report_md.js';
 import { labelTools } from './labels.js';
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
+import { prCommentsTools } from './pr_comments.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
@@ -55,6 +56,7 @@ export function registerTools(server, db) {
     const labels = labelTools(db);
     const stats = statsTools(db);
     const roundtable = roundtableTools(db);
+    const prComments = prCommentsTools(db);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
@@ -73,6 +75,7 @@ export function registerTools(server, db) {
         ...labels.definitions,
         ...stats.definitions,
         ...roundtable.definitions,
+        ...prComments.definitions,
     ]);
     toolHandlers = {
         ...wrapAll(discussions.handlers),
@@ -92,6 +95,7 @@ export function registerTools(server, db) {
         ...wrapAll(labels.handlers),
         ...wrapAll(stats.handlers),
         ...wrapAll(roundtable.handlers),
+        ...wrapAll(prComments.handlers),
     };
 }
 //# sourceMappingURL=index.js.map

@@ -74,6 +74,7 @@ export class TrajectoryDB {
     this.migrateRoundtableVotesParticipant();
     this.migrateIssuesRemoteSync();
     this.migrateIssueSyncConfig();
+    this.migratePrReviewRuns();
     this.syncPluginVersion();
   }
 
@@ -244,6 +245,34 @@ export class TrajectoryDB {
       `INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at)
        VALUES ('issue_sync', '"auto"', datetime('now'))`,
     );
+  }
+
+  private migratePrReviewRuns(): void {
+    const tables = this.db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='pr_review_runs'`)
+      .all() as Array<{ name: string }>;
+    if (tables.length === 0) {
+      this.db
+        .prepare(
+          `CREATE TABLE pr_review_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pr_number INTEGER NOT NULL,
+            repo TEXT NOT NULL,
+            remote_kind TEXT NOT NULL CHECK(remote_kind IN ('github','gitlab')),
+            last_fetched_at DATETIME NOT NULL,
+            last_comment_id TEXT,
+            comments_processed INTEGER NOT NULL DEFAULT 0,
+            tasks_created INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+          )`,
+        )
+        .run();
+      this.db
+        .prepare(
+          `CREATE INDEX idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo)`,
+        )
+        .run();
+    }
   }
 
   private migratePluginMetaDuplicates(): void {
