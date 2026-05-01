@@ -10,6 +10,18 @@ TMB turns Claude Code from a clever code-generator into a disciplined engineerin
 
 ---
 
+## Who is TMB for?
+
+TMB is for **solo developers and small engineering teams** running Claude Code on real production code. If you're shipping non-trivial work through CC and want:
+
+- Structural gates that catch agent drift before it reaches your repo
+- Persistent state across sessions — issues, decisions, audit trails survive session compaction
+- A doctrine for multi-agent deliberation when one voice isn't enough
+
+… you're the target user. The friction from TMB's gates filters the wrong-fit cases naturally; we don't need an anti-persona block.
+
+---
+
 ## Install
 
 ```bash
@@ -165,6 +177,12 @@ The plugin ships **zero subagents**. Bro is a CLAUDE.md persona on main Claude. 
 Domain consultants outside this set (`legal-reviewer`, `security-reviewer`, …) are drafted on demand via the `tmb_agent-creator` skill — bro proposes a tailored prompt, you approve, the file gets written. No canned company-org-chart pretending to know your domain.
 
 Override any agent by editing the project-local file. Local wins.
+
+---
+
+## Support TMB
+
+TMB is a free MIT-licensed plugin maintained part-time. If it saves you hours of CC drift cleanup or unblocks a doctrine you couldn't have built alone, [Sponsor on GitHub](https://github.com/sponsors/trustmybot) helps it stay maintained.
 
 ---
 
