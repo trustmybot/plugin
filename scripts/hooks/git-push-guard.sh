@@ -25,11 +25,17 @@ AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input
 IS_PUSH=""
 IS_FORCE=""
 case "$CMD" in
-  *"git push"*|*"git -C "*" push"*) IS_PUSH="yes" ;;
+  "git push"*|"git -C "*" push"*) IS_PUSH="yes" ;;
+  *"; git push"*|*"&& git push"*|*"|| git push"*|*"| git push"*) IS_PUSH="yes" ;;
+  *"; git -C "*" push"*|*"&& git -C "*" push"*|*"|| git -C "*" push"*) IS_PUSH="yes" ;;
 esac
 case "$CMD" in
-  *"git push"*"--force"*|*"git push"*"-f "*|\
-  *"git -C "*" push"*"--force"*|*"git -C "*" push"*"-f "*) IS_FORCE="yes" ;;
+  "git push"*"--force"*|"git push"*"-f "*) IS_FORCE="yes" ;;
+  "git -C "*" push"*"--force"*|"git -C "*" push"*"-f "*) IS_FORCE="yes" ;;
+  *"; git push"*"--force"*|*"&& git push"*"--force"*|*"|| git push"*"--force"*) IS_FORCE="yes" ;;
+  *"; git push"*"-f "*|*"&& git push"*"-f "*|*"|| git push"*"-f "*) IS_FORCE="yes" ;;
+  *"; git -C "*" push"*"--force"*|*"&& git -C "*" push"*"--force"*|*"|| git -C "*" push"*"--force"*) IS_FORCE="yes" ;;
+  *"; git -C "*" push"*"-f "*|*"&& git -C "*" push"*"-f "*|*"|| git -C "*" push"*"-f "*) IS_FORCE="yes" ;;
 esac
 [ "$IS_PUSH" = "yes" ] || exit 0
 [ "$IS_FORCE" = "yes" ] && exit 0

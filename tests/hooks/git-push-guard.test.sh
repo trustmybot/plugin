@@ -347,4 +347,80 @@ assert_contains "$out" '"decision":"block"' \
   "cd into worktree should block even when PWD is main"
 cleanup
 
+# ----- false-positive tests (IS_PUSH should NOT trigger) ----------------
+#
+# Commands that merely mention "git push" in a non-push context must not
+# be blocked. These catch the over-broad glob patterns that matched any
+# string containing "git push".
+
+test_case "false-positive: grep for 'git push' in a file — NOT blocked"
+setup_repo
+out=$(run_hook "grep \"git push\" tests/lint/something.sh")
+assert_not_contains "$out" '"decision":"block"' "grep for 'git push' must not be detected as a push"
+cleanup
+
+test_case "false-positive: echo mentioning 'git push' — NOT blocked"
+setup_repo
+out=$(run_hook "echo \"Don't forget to git push\"")
+assert_not_contains "$out" '"decision":"block"' "echo mentioning 'git push' must not be detected as a push"
+cleanup
+
+test_case "false-positive: cat pipe grep for 'git push' — NOT blocked"
+setup_repo
+out=$(run_hook "cat docs/git-conventions.md | grep \"git push\"")
+assert_not_contains "$out" '"decision":"block"' "cat|grep 'git push' must not be detected as a push"
+cleanup
+
+test_case "false-positive: git log --grep='git push' — NOT blocked"
+setup_repo
+out=$(run_hook "git log --grep=\"git push\"")
+assert_not_contains "$out" '"decision":"block"' "git log --grep='git push' must not be detected as a push"
+cleanup
+
+test_case "false-positive: git commit -m mentioning 'git push' — NOT blocked"
+setup_repo
+out=$(run_hook "git commit -m \"fix: make git push idempotent\"")
+assert_not_contains "$out" '"decision":"block"' "commit message mentioning 'git push' must not be detected as a push"
+cleanup
+
+# ----- positive regression tests (IS_PUSH MUST trigger) -----------------
+#
+# Real push commands — with or without a TMB DB — must still be detected.
+# We use /nonexistent.db so the hook exits at the "no DB" check (after IS_PUSH
+# triggers), not at the unsigned-commit check. We verify the hook did NOT
+# silently pass without seeing IS_PUSH (i.e. it at least reached the DB
+# check rather than bailing at exit 0 from "not a push").
+# For SWE-identity positive cases we use run_hook_as_swe to get a definitive
+# BLOCK decision regardless of DB state.
+
+test_case "positive: 'git push origin main' — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe "git push origin main" "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"decision":"block"' "plain git push must be detected as a push and blocked for SWE"
+cleanup
+
+test_case "positive: 'git -C /some/path push origin feature' — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe "git -C /some/path push origin feature" "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"decision":"block"' "git -C push must be detected as a push and blocked for SWE"
+cleanup
+
+test_case "positive: 'cd /repo && git push' — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe "cd /repo && git push" "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"decision":"block"' "cd && git push must be detected as a push and blocked for SWE"
+cleanup
+
+test_case "positive: 'git status; git push' — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe "git status; git push" "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"decision":"block"' "semicolon-separated git push must be detected and blocked for SWE"
+cleanup
+
+test_case "positive: 'make build || git push' — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe "make build || git push" "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"decision":"block"' "|| git push must be detected as a push and blocked for SWE"
+cleanup
+
 summarize
