@@ -182,6 +182,10 @@ If you're proposing a big change, check these first.
 5. **Override per project.** Any agent template can be overridden by editing the same-named file in the project's `.claude/agents/`. Local wins. Plugin-shipped protocol skills (`tmb_*` in `plugin/skills/`) are reserved and cannot be name-overridden.
 6. **Server-enforced decision chain.** `requireRoles` middleware in `mcp/trajectory-server/src/middleware/agent-scope.ts` rejects calls that violate the chain (e.g. consultants trying to write `task_create_batch`). Doctrine isn't just prompt discipline — it's wire-enforced.
 
+## Out of scope
+
+**Enterprise features** (SSO, RBAC, SOC2, audit export, multi-tenant role boundaries) are intentionally deferred until at least 3 unsolicited paying-customer inquiries land in the inbox. Until then, optimization stays focused on the solo/small-team workflow.
+
 ## Performance
 
 The plugin's overhead vs pure Claude Code on the same ask should land in this band:
