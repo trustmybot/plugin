@@ -1,6 +1,6 @@
 {
   "max_tokens_total": 60000,
-  "max_latency_ms_p99": 90000,
+  "max_duration_ms": 90000,
   "fail_above_max": false,
   "_comment": "Soft budget — skill-creator may short-circuit on headless block."
 }

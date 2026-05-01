@@ -25,7 +25,7 @@ VALUES (
   '$scorer',
   $pass,
   $(if [ -z "$value" ]; then echo "NULL"; else echo "'$value'"; fi),
-  $(if [ -z "$explanation" ]; then echo "NULL"; else echo "'$(echo "$explanation" | sed "s/'/''/g")'"; fi),
+  $(if [ -z "$explanation" ]; then echo "NULL"; else echo "'${explanation//\'/\'\'}'"; fi),
   datetime('now')
 );
 SQL
@@ -162,8 +162,8 @@ l5_score_trajectory_forbidden() {
 }
 
 # l5_score_cost <project_dir> <flow> <scorer_dir> <run_id>
-# Reads scorer_dir/cost-budget.json with {max_tokens_total, max_latency_ms_p99,
-# fail_above_max}. Reports tokens + latency from trajectory.jsonl (stream-json);
+# Reads scorer_dir/cost-budget.json with {max_tokens_total, max_duration_ms,
+# fail_above_max}. Reports tokens + duration from trajectory.jsonl (stream-json);
 # fails only if hard cap exceeded AND fail_above_max=true.
 l5_score_cost() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
@@ -171,17 +171,17 @@ l5_score_cost() {
   local jsonl="$project/trajectory.jsonl"
   local budget_path="$scorer_dir/cost-budget.json"
 
-  local total_in total_out total_tokens p99_latency
+  local total_in total_out total_tokens duration_ms
   if [ -f "$jsonl" ]; then
     total_in=$(jq -s 'map(select(.type=="assistant") | .message.usage.input_tokens // 0) | add // 0' "$jsonl" 2>/dev/null || echo 0)
     total_out=$(jq -s 'map(select(.type=="assistant") | .message.usage.output_tokens // 0) | add // 0' "$jsonl" 2>/dev/null || echo 0)
-    p99_latency=$(jq -s 'map(select(.type=="result") | .duration_ms // 0) | max // 0' "$jsonl" 2>/dev/null || echo 0)
+    duration_ms=$(jq -s 'map(select(.type=="result") | .duration_ms // 0) | max // 0' "$jsonl" 2>/dev/null || echo 0)
   else
-    total_in=0; total_out=0; p99_latency=0
+    total_in=0; total_out=0; duration_ms=0
   fi
   total_tokens=$((total_in + total_out))
 
-  local explanation="tokens_total=$total_tokens (in=$total_in out=$total_out) p99_latency_ms=$p99_latency"
+  local explanation="tokens_total=$total_tokens (in=$total_in out=$total_out) duration_ms=$duration_ms"
 
   if [ ! -f "$budget_path" ]; then
     echo "  ⊘ cost (observational): $explanation"
@@ -191,15 +191,15 @@ l5_score_cost() {
 
   local max_tokens max_latency fail_above
   max_tokens=$(jq -r '.max_tokens_total // 0' "$budget_path")
-  max_latency=$(jq -r '.max_latency_ms_p99 // 0' "$budget_path")
+  max_latency=$(jq -r '.max_duration_ms // 0' "$budget_path")
   fail_above=$(jq -r '.fail_above_max // false' "$budget_path")
 
   local violation=""
   if [ "$max_tokens" != "0" ] && [ "$total_tokens" -gt "$max_tokens" ]; then
     violation="${violation}; tokens($total_tokens > $max_tokens)"
   fi
-  if [ "$max_latency" != "0" ] && [ "$p99_latency" -gt "$max_latency" ]; then
-    violation="${violation}; p99_latency_ms($p99_latency > $max_latency)"
+  if [ "$max_latency" != "0" ] && [ "$duration_ms" -gt "$max_latency" ]; then
+    violation="${violation}; duration_ms($duration_ms > $max_latency)"
   fi
 
   if [ -z "$violation" ]; then

@@ -1,6 +1,6 @@
 {
   "max_tokens_total": 120000,
-  "max_latency_ms_p99": 150000,
+  "max_duration_ms": 150000,
   "fail_above_max": false,
   "_comment": "Bootstrap regen + planning chain on the same ask."
 }

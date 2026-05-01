@@ -1,5 +1,5 @@
 {
   "max_tokens_total": 80000,
-  "max_latency_ms_p99": 120000,
+  "max_duration_ms": 120000,
   "fail_above_max": false
 }
