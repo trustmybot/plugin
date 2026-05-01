@@ -76,6 +76,7 @@ export class TrajectoryDB {
     this.migrateIssueSyncConfig();
     this.migratePrReviewRuns();
     this.migrateValidationSubagentSessionId();
+    this.migrateDiscussionsVerifiedHuman();
     this.syncPluginVersion();
   }
 
@@ -283,6 +284,18 @@ export class TrajectoryDB {
     const present = new Set(cols.map((c) => c.name));
     if (!present.has('subagent_session_id')) {
       this.db.exec(`ALTER TABLE validation_attempts ADD COLUMN subagent_session_id TEXT`);
+    }
+  }
+
+  private migrateDiscussionsVerifiedHuman(): void {
+    const cols = this.db
+      .prepare('PRAGMA table_info(discussions)')
+      .all() as Array<{ name: string }>;
+    const present = new Set(cols.map((c) => c.name));
+    if (!present.has('verified_human')) {
+      this.db
+        .prepare(`ALTER TABLE discussions ADD COLUMN verified_human INTEGER NOT NULL DEFAULT 0`)
+        .run();
     }
   }
 

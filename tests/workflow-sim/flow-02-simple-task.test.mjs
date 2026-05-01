@@ -31,7 +31,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   // 2. bro logs intent + triage discussion
   const intent = await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'human', kind: 'intent',
-    body: '@bro add /hello endpoint',
+    body: '@bro add /hello endpoint', verified_human: true,
   });
   assert.equal(intent.ok, true);
 

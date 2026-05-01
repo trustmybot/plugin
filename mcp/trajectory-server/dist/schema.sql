@@ -123,12 +123,13 @@ CREATE TABLE IF NOT EXISTS roundtable_votes (
 );
 
 CREATE TABLE IF NOT EXISTS discussions (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id    INTEGER NOT NULL REFERENCES issues(id),
-    author      TEXT    NOT NULL,
-    kind        TEXT    NOT NULL DEFAULT 'note',
-    body        TEXT    NOT NULL,
-    created_at  TEXT    NOT NULL
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id       INTEGER NOT NULL REFERENCES issues(id),
+    author         TEXT    NOT NULL,
+    kind           TEXT    NOT NULL DEFAULT 'note',
+    body           TEXT    NOT NULL,
+    created_at     TEXT    NOT NULL,
+    verified_human INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
