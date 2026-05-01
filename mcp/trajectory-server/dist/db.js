@@ -69,6 +69,8 @@ export class TrajectoryDB {
         this.migrateAgentRuns();
         this.migrateRoundtablesState();
         this.migrateRoundtableVotesParticipant();
+        this.migrateIssuesRemoteSync();
+        this.migrateIssueSyncConfig();
         this.syncPluginVersion();
     }
     applySchema() {
@@ -186,6 +188,26 @@ export class TrajectoryDB {
             this.db.exec(`ALTER TABLE roundtable_votes ADD COLUMN participant TEXT`);
             this.db.exec(`UPDATE roundtable_votes SET participant = agent WHERE participant IS NULL`);
         }
+    }
+    migrateIssuesRemoteSync() {
+        const cols = this.db
+            .prepare('PRAGMA table_info(issues)')
+            .all();
+        const present = new Set(cols.map((c) => c.name));
+        const additions = [
+            { name: 'remote_iid', type: 'INTEGER' },
+            { name: 'remote_kind', type: "TEXT CHECK(remote_kind IN ('github','gitlab'))" },
+            { name: 'remote_synced_at', type: 'DATETIME' },
+        ];
+        for (const { name, type } of additions) {
+            if (!present.has(name)) {
+                this.db.exec(`ALTER TABLE issues ADD COLUMN ${name} ${type}`);
+            }
+        }
+    }
+    migrateIssueSyncConfig() {
+        this.db.exec(`INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at)
+       VALUES ('issue_sync', '"auto"', datetime('now'))`);
     }
     migratePluginMetaDuplicates() {
         this.transaction(() => {

@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 import { issueTools } from '../tools/issues.js';
+import { configTools } from '../tools/config.js';
 async function call(handlers, name, args) {
     const handler = handlers[name];
     assert.ok(handler, `Handler not found: ${name}`);
@@ -178,6 +179,152 @@ describe('issueTools', () => {
         const data = parseResult(result);
         assert.ok(result.isError, 'Should be an error result');
         assert.match(data.error, /Not found/);
+        db.close();
+    });
+});
+describe('issueTools — remote sync', () => {
+    it('issue_create with issue_sync=off skips sync, no remote fields set', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'off',
+        });
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Test off sync',
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync is off');
+        assert.equal(created.remote_kind ?? null, null, 'remote_kind should be null when sync is off');
+        db.close();
+    });
+    it('issue_create with issue_sync=gh, remote fails → local insert succeeds', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'gh',
+        });
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Test gh sync failure fallback',
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, 'Local insert must succeed even when remote fails');
+        assert.equal(created.objective, 'Test gh sync failure fallback');
+        assert.equal(created.status, 'open');
+        db.close();
+    });
+    it('issue_create with issue_sync=glab, remote fails → local insert succeeds', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'glab',
+        });
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Test glab sync failure fallback',
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, 'Local insert must succeed even when remote fails');
+        assert.equal(created.objective, 'Test glab sync failure fallback');
+        db.close();
+    });
+    it('issue_create with issue_sync=auto and nothing available → null sync, local insert succeeds', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'auto',
+        });
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Test auto with no remote',
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, 'Local insert must succeed even when no backend available');
+        assert.equal(created.objective, 'Test auto with no remote');
+        db.close();
+    });
+    it('issue_close with no remote_iid skips remote close', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const createResult = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Close without remote',
+        });
+        const issue = parseResult(createResult);
+        const closeResult = await call(tools.handlers, 'issue_close', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const closed = parseResult(closeResult);
+        assert.ok(!closeResult.isError, 'issue_close should succeed when no remote_iid');
+        assert.equal(closed.status, 'closed');
+        db.close();
+    });
+    it('issue_close mirrors to remote when remote_iid is set', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const createResult = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Close with remote',
+        });
+        const issue = parseResult(createResult);
+        db.run(`UPDATE issues SET remote_iid = 99, remote_kind = 'github', remote_synced_at = datetime('now') WHERE id = ?`, [issue.id]);
+        const closeResult = await call(tools.handlers, 'issue_close', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const closed = parseResult(closeResult);
+        assert.ok(!closeResult.isError, 'issue_close should be non-fatal even if remote close fails');
+        assert.equal(closed.status, 'closed');
+        db.close();
+    });
+    it('issue_sync_retry is forbidden to swe', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_sync_retry', {
+            agent: 'swe',
+            issue_id: '1',
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'swe should be forbidden from issue_sync_retry');
+        assert.equal(data.error, 'forbidden');
+        db.close();
+    });
+    it('issue_sync_retry returns skipped when issue_sync=off', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'off',
+        });
+        const tools = issueTools(db);
+        const createResult = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Retry test off',
+        });
+        const issue = parseResult(createResult);
+        const retryResult = await call(tools.handlers, 'issue_sync_retry', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const data = parseResult(retryResult);
+        assert.ok(!retryResult.isError);
+        assert.equal(data.skipped, true);
         db.close();
     });
 });

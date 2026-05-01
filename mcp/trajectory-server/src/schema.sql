@@ -13,7 +13,10 @@ CREATE TABLE IF NOT EXISTS issues (
     labels            TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
-    closed_at         TEXT
+    closed_at         TEXT,
+    remote_iid        INTEGER,
+    remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+    remote_synced_at  DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -172,7 +175,8 @@ INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at) VALUES
     ('branching_model',    '"github-flow"', datetime('now')),
     ('pr_target',          '"main"',        datetime('now')),
     ('protected_branches', '["main"]',      datetime('now')),
-    ('remotes',            '[]',            datetime('now'));
+    ('remotes',            '[]',            datetime('now')),
+    ('issue_sync',         '"auto"',        datetime('now'));
 
 CREATE TABLE IF NOT EXISTS identity (
     id               INTEGER PRIMARY KEY CHECK (id = 1),

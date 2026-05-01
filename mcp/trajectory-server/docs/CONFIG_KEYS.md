@@ -8,6 +8,7 @@
 | `pr_target` | string | any valid branch name | derived from `branching_model` when first-run sets it | `git-guards.sh` PR rule | bro onboarding |
 | `protected_branches` | string[] (JSON) | array of branch names | derived from `branching_model` | `git-guards.sh` commit rule | bro onboarding |
 | `remotes` | object[] (JSON) | array of `{name, provider, url}` — see `ENUMS.md` for `provider` values | `[]` | tmb_reonboard, tmb_push-gate (future) | bro onboarding (auto-detect or AUQ) |
+| `issue_sync` | string | `auto` \| `gh` \| `glab` \| `both` \| `off` | `auto` | `issue_create`, `issue_close`, `issue_sync_retry` | bro |
 
 ## 2. Default Derivation
 
