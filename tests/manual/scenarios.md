@@ -260,6 +260,24 @@ git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing trac
 
 ---
 
+## S-25: /roundtable slash command end-to-end
+
+1. User types `/roundtable Should we adopt feature flags?`
+2. Verify: tmb_roundtable skill invokes with topic
+3. Skill runs Phase 1-7 per the deterministic flow
+4. Verify all 5 DB capture surfaces populated
+5. Verify carrier issue closes (one-shot pattern)
+
+## S-25b: /roundtable (no args) — prompts for topic
+
+1. User types `/roundtable` with no arguments
+2. Verify: Claude Code prompts for the topic via AskUserQuestion
+3. User provides topic; skill invokes with the supplied topic
+4. Skill runs Phase 1-7 per the deterministic flow
+5. Verify all 5 DB capture surfaces populated
+
+---
+
 ## How to sign off
 
 Once every checkbox passes for the version you're about to release:
