@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { SpawnSyncOptions } from 'node:child_process';
 import { syncIssueCreate, syncIssueClose } from '../sync/issue_sync.js';
 
@@ -158,6 +161,37 @@ describe('syncIssueCreate', () => {
     assert.ok(ghCall.args.includes('--label'));
     assert.ok(ghCall.args.includes('bug'));
     assert.ok(ghCall.args.includes('feature'));
+  });
+
+  it('syncIssueCreate emits issue_sync_active warning before spawn', async () => {
+    const syncLogPath = join(homedir(), '.claude', 'tmb', 'logs', 'issue-sync.log');
+    const priorSize = existsSync(syncLogPath) ? readFileSync(syncLogPath, 'utf8').length : 0;
+
+    const spawnFn: SpawnFn = (_cmd, _args, _opts) => ({
+      status: 0,
+      stdout: 'https://github.com/x/y/issues/42\n',
+      stderr: '',
+    });
+
+    await syncIssueCreate({
+      issueId: 99,
+      title: 'Blast-radius test issue',
+      body: 'Body',
+      _backend: 'gh',
+      _spawnFn: spawnFn,
+    });
+
+    assert.ok(existsSync(syncLogPath), 'issue-sync.log should exist after syncIssueCreate');
+    const newContent = readFileSync(syncLogPath, 'utf8').slice(priorSize);
+    const newLines = newContent.trim().split('\n').filter(Boolean);
+    assert.ok(newLines.length > 0, 'at least one new log line should be written');
+    const warningEntry = newLines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((entry) => entry['kind'] === 'issue_sync_active');
+    assert.ok(warningEntry !== undefined, 'issue_sync_active entry should be present');
+    assert.equal(warningEntry['backend'], 'gh');
+    assert.equal(warningEntry['issue_id'], 99);
+    assert.equal(warningEntry['title'], 'Blast-radius test issue');
   });
 });
 
