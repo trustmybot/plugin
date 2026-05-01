@@ -1,37 +1,38 @@
 ---
 name: tmb_roundtable-cleanup
-description: Post-roundtable cleanup steps.
+description: Post-roundtable cleanup steps. Invoked by bro after tmb_roundtable completes to verify DB capture surfaces are populated and optionally trim any stale workspace artifacts.
 agent: bro
 ---
 
-# Roundtable Cleanup Rule
+# Roundtable Cleanup
 
-After every roundtable meeting completes:
+After every roundtable completes, verify the five DB capture surfaces are
+populated and clean up any stale workspace artifacts.
 
-1. **Summarize** — Write a concise summary (max 1 page) capturing decisions, key arguments, and action items
-2. **Save summary** — Replace the raw discussion file in `docs/trustmybot/roundtable/` with the summary
-3. **Delete raw content** — The full meeting transcript must NOT be kept. Other agents should never have to read a full roundtable discussion — it's too long and wastes context.
+## Verification checklist
 
-## Why
+Confirm the following are present in the trajectory DB for the carrier issue:
 
-- Raw roundtable files grow unbounded and bloat the repo
-- Other agents reading full meetings wastes context window on repetitive debate
-- Only decisions and rationale matter after the meeting ends
+1. `discussions` rows with `kind='analysis'` — one per participant
+2. `discussions` rows with `kind='answer'` and `kind='decision'` — one per
+   ratified agreement
+3. `roundtables` row with `status='closed'` and a non-empty `outcome`
+4. `roundtable_votes` rows — one per participant + ratification entries
+5. `ledger` row with `event_type='roundtable_summary'`
 
-## Format for summaries
+If any surface is missing, log a warning to the Human before proceeding.
 
-```markdown
-# [Topic] — Roundtable Summary
+## Local rollup file
 
-**Date:** YYYY-MM-DD
-**Participants:** [agents]
-**Decision:** [one-line verdict]
+The optional local mirror at
+`<workspace>/.claude/tmb/roundtables/<YYYY-MM-DD>-<topic-slug>.md`
+is workspace-local and gitignored. No action needed beyond confirming it
+is NOT under `plugin/` and NOT git-tracked. If it is absent, that is fine —
+the DB rows are authoritative.
 
-## Key Arguments
-- [bullet points, max 5]
+## Why the DB is canonical
 
-## Action Items
-- [ ] [concrete next steps]
-```
-
-Keep summaries under 50 lines. If a roundtable produced a separate deliverable (e.g., DESIGN-PLAN.md), reference it instead of duplicating content.
+The DB captures all five surfaces with full attribution and timestamps.
+Per-roundtable markdown files bloat PR diffs and are unnecessary for any
+downstream automation. Bro stores summaries in the DB; the optional local
+file is a human-readable convenience only.

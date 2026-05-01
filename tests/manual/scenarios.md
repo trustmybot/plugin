@@ -168,6 +168,91 @@ Validates the `tmb_agent-creator` collision flow.
 
 ---
 
+---
+
+### S-24: Roundtable capture — MCP tools + checkbox/radio UX (#24 / TRU-63)
+
+Validates the full roundtable flow end-to-end: five DB capture surfaces, AUQ
+batch with checkbox agreements + radio disagreements, dissent preservation, and
+follow-up issue creation.
+
+**Setup:**
+1. Fresh scratch project with at least 3 consultant agents available under
+   `.claude/agents/` (e.g., ceo, cto, pm — or trigger bro to create them via
+   `tmb_agent-creator` first).
+2. Create a carrier issue via `@bro let's hold a roundtable on <topic>`.
+
+**Run:**
+- Ask `@bro hold a roundtable on <topic> — participants: ceo, cto, pm`.
+
+**Expect — during the meeting:**
+- Each participant spawned in parallel (one `Task` call per agent).
+- After each participant responds, bro writes `discussion_append(kind='analysis')`
+  and `roundtable_vote` for that participant — BEFORE synthesis, not at the end.
+- `roundtable_create` is called at the start; `roundtable_id` is used for all
+  subsequent vote calls.
+
+**Expect — synthesis + AUQ:**
+- Bro emits ONE `AskUserQuestion` call with:
+  - Question 1: multi-select, header "Agreements", ≥1 option.
+  - Questions 2–4 (if disagreements exist): radio per disagreement, short header.
+- Headless variant (`TMB_HEADLESS=1`): bro halts per `tmb_headless-fallback`;
+  does NOT auto-pick.
+
+**Expect — after Human ratifies:**
+- For each ratified agreement: `discussion_append(kind='answer')` +
+  `discussion_append(kind='decision')` + `roundtable_vote(participant='human',
+  vote='ratified')`.
+- For each unratified agreement: `discussion_append(kind='note',
+  body='not ratified: <agreement>')`.
+- For each disagreement resolved: `discussion_append(kind='decision')` recording
+  winning stance AND dissenter name; `roundtable_vote(participant='human',
+  vote=<winning_stance>)`.
+- `roundtable_close` called with a one-sentence outcome.
+- `ledger_log(event_type='roundtable_summary')` written.
+
+**Expect — follow-up AUQ:**
+- Second separate `AskUserQuestion` call: "Open follow-up issues for ratified
+  actions?" (multi-select, one option per ratified agreement).
+- For each checked: `issue_create` with objective referencing the carrier issue.
+- Carrier issue closed if it was a one-shot roundtable carrier.
+
+**DB verification (via sqlite3 or MCP):**
+```sql
+-- 1. kind='analysis' rows (one per participant)
+SELECT author, kind, body FROM discussions WHERE issue_id = <N> AND kind = 'analysis';
+
+-- 2. answer + decision rows (per Human ratification)
+SELECT author, kind, body FROM discussions WHERE issue_id = <N> AND kind IN ('answer','decision');
+
+-- 3. roundtable record
+SELECT id, topic, status, outcome, closed_at FROM roundtables WHERE issue_id = <N>;
+
+-- 4. vote attribution
+SELECT participant, vote, rationale FROM roundtable_votes WHERE roundtable_id = <id>;
+
+-- 5. ledger summary
+SELECT event_type, summary FROM ledger WHERE issue_id = <N> AND event_type = 'roundtable_summary';
+```
+
+All five surfaces must have data.
+
+**Optional local mirror:**
+```bash
+ls <workspace>/.claude/tmb/roundtables/  # file exists if dir was writable
+# Confirm the file is NOT under plugin/ and NOT git-tracked:
+git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # should show nothing
+```
+
+✅ Pass criteria:
+- All five DB surfaces populated.
+- AUQ rendered as checkbox (agreements) + radio (disagreements), not plain text.
+- Dissent explicitly recorded in `kind='decision'` row.
+- Follow-up issues created for ratified actions.
+- Local mirror file (if present) is outside any git-tracked path.
+
+---
+
 ## How to sign off
 
 Once every checkbox passes for the version you're about to release:
