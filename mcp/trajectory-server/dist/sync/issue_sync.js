@@ -99,7 +99,10 @@ async function createOnBackend(backend, opts, spawnFn) {
 export async function syncIssueCreate(opts) {
     const spawnFn = opts._spawnFn ?? defaultSpawnFn;
     const backend = opts._backend;
-    if (!backend || backend === 'gh') {
+    if (!backend) {
+        return null;
+    }
+    if (backend === 'gh') {
         return createOnBackend('gh', opts, spawnFn);
     }
     if (backend === 'glab') {

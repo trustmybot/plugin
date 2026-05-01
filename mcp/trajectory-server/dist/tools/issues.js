@@ -165,7 +165,7 @@ export function issueTools(db) {
             const syncConfigRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
             const syncConfig = syncConfigRow
                 ? JSON.parse(syncConfigRow.value_json)
-                : 'auto';
+                : 'off';
             if (syncConfig !== 'off') {
                 const backend = resolveBackend(syncConfig);
                 if (backend === null) {
@@ -328,7 +328,7 @@ export function issueTools(db) {
             const syncConfigRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
             const syncConfig = syncConfigRow
                 ? JSON.parse(syncConfigRow.value_json)
-                : 'auto';
+                : 'off';
             if (syncConfig === 'off') {
                 return ok({ skipped: true, reason: 'issue_sync is off' });
             }
