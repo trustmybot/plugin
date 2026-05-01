@@ -36,6 +36,24 @@ How the plugin's agent set is layered, distributed, and overridden. Reference do
 
 User-created project consultants (via `tmb_agent-creator` from-scratch flow) follow the same pattern.
 
+## Agent ownership states
+
+Every agent file in `<project>/.claude/agents/` is in one of three ownership states, declared via the `tmb_owner` field in YAML frontmatter:
+
+| Marker | Meaning | Plugin behavior |
+|---|---|---|
+| `tmb_owner: bro` | Plugin-managed | `tmb_agent-creator` may update freely. User hand-edits will be overwritten on next plugin update. |
+| `tmb_owner: user-adopted` | User-authored, opted in for plugin management | `tmb_agent-creator` may update. Initial content was preserved at adoption time. |
+| (no field) | User-owned | Plugin never touches. Resolution rule still applies (local file wins over shipped templates). |
+
+### Adopting an existing agent
+
+If you've hand-rolled `.claude/agents/<name>.md` and want bro to manage it going forward, run `tmb_agent-creator` with the same name. The collision dialog offers an "Adopt + manage" option that preserves your content and adds `tmb_owner: user-adopted` to the frontmatter.
+
+### Plugin-shipped agents
+
+The plugin's globally-shipped agents (`agents/swe.md`, `agents/pr-reviewer.md`) and consultant templates (`templates/agents/{architect,cto,ceo,pm,swe,pr-reviewer}.md`) all carry `tmb_owner: bro` for convention consistency. The `agent-tmb-owner-frontmatter` L1 lint enforces this.
+
 ## Composition rule (three layers, never confused)
 
 - **Agent file = identity** — immutable for global; project-local overrides allowed for backbone, project-local creation required for consultants.

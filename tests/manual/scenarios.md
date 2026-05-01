@@ -141,6 +141,33 @@ Across all scenarios:
 
 ---
 
+### S-22: Agent collision dialog (TRU-72 / #22)
+
+Validates the `tmb_agent-creator` collision flow.
+
+**Setup:**
+1. Fresh scratch project (or any project without `.claude/agents/legal-reviewer.md`).
+2. Hand-create `<project>/.claude/agents/legal-reviewer.md` with minimal content + no `tmb_owner` field:
+   ```yaml
+   ---
+   name: legal-reviewer
+   description: User-authored legal reviewer (test fixture)
+   ---
+   ```
+
+**Run:**
+- In CC, ask `@bro create a legal-reviewer agent` (or otherwise trigger `tmb_agent-creator` with the same name).
+
+**Expect:**
+- bro detects the collision, shows a unified diff, calls AskUserQuestion with 3 options (Skip / Adopt+manage / Overwrite).
+- **Pick Skip** → file unchanged, no `tmb_owner` added; ledger has `tmb_agent_collision_skipped` event.
+- **Pick Adopt + manage** → file content unchanged BUT frontmatter now has `tmb_owner: user-adopted`; ledger has `tmb_agent_adopted` event.
+- **Pick Overwrite** → file content replaced with template/from-scratch; frontmatter has `tmb_owner: bro`; ledger has `tmb_agent_overwritten` event.
+
+**Headless variant:** with `TMB_HEADLESS=1`, the same flow halts before any of the three writes.
+
+---
+
 ## How to sign off
 
 Once every checkbox passes for the version you're about to release:

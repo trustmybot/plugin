@@ -61,8 +61,8 @@ Read the template via `Read` (do not transform). Present it in a fenced code blo
 ### Step 2 — Copy on approval
 
 On **yes**:
-1. Write the template content unmodified to `<project>/.claude/agents/<name>.md`. **No transformations** — preserve frontmatter, body, line endings.
-2. If the destination exists, refuse + report. Human resolves the collision.
+1. Write the template content unmodified to `<project>/.claude/agents/<name>.md`. **No transformations** — preserve frontmatter, body, line endings. The template already contains `tmb_owner: bro` in its frontmatter; do not strip it.
+2. If the destination exists, switch to the collision flow (Section H.1) rather than refusing outright.
 3. Verify by reading the first 5 lines of the destination.
 
 On **no** / silence / ambiguous: abort, write nothing.
@@ -110,6 +110,7 @@ Standard frontmatter:
 ---
 name: <kebab-case>
 description: <one sentence: role and primary capability>
+tmb_owner: bro
 model: opus                   # default for consultants
 tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server
 skills: []
@@ -147,7 +148,7 @@ Do NOT write anything until the user responds.
 
 ### Step 5 — Write on approval
 
-On **yes**: write the file. Verify by reading the first 5 lines.
+On **yes**: write the file with `tmb_owner: bro` included in the YAML frontmatter. Verify by reading the first 5 lines.
 On **no** / silence / ambiguous: abort, write nothing.
 
 ### Step 6 — Log + report
@@ -205,9 +206,40 @@ Citations belong in commits, MRs, and issue bodies — surfaces humans grep, not
 | Trigger | Response |
 |---|---|
 | User answer is ambiguous (can't determine role/name) | Do NOT proceed. Ask again with a concrete yes/no or fill-in-the-blank prompt. |
-| Target `.claude/agents/<name>.md` already exists | Read the existing file. Show a unified diff vs proposed (template or from-scratch). Ask: "This agent already exists. Overwrite? (yes/no)" |
+| Target `.claude/agents/<name>.md` already exists | See H.1 — read the file, check `tmb_owner`, follow the appropriate collision path. |
 | User requests a reserved name | Refuse: "The name `<name>` is reserved for a plugin core agent. Please choose a different name." Re-ask. |
 | User attempts to skip the approval step | Refuse: "Explicit approval is required before writing any agent file. I cannot skip this step." |
+
+### H.1 Existing-file dialog (file collision)
+
+When the target `.claude/agents/<name>.md` already exists, do NOT silently overwrite. First, read the existing file and check its `tmb_owner` field:
+
+- `tmb_owner: bro` (plugin-managed): refuse overwrite by default — show a unified diff, then ask whether to proceed (yes/no), since the user almost never wants to clobber a plugin-managed file. Treat as a special case; not the common collision path.
+- `tmb_owner: user-adopted` (managed via prior adoption): treat exactly like `tmb_owner: bro` — show diff, ask before overwriting.
+- No `tmb_owner` field (user-authored, untouched): show the unified diff vs proposed content, then call AskUserQuestion with three options:
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "I found .claude/agents/<name>.md already. What do you want?",
+    header: "Collision",
+    multiSelect: false,
+    options: [
+      { label: "Skip (Recommended)", description: "Keep your file unchanged; abort the skill" },
+      { label: "Adopt + manage", description: "Mark file managed; future updates via this skill" },
+      { label: "Overwrite", description: "Replace your file with the new content (DESTRUCTIVE)" }
+    ]
+  }]
+})
+```
+
+Behavior per choice:
+
+- **Skip** — write nothing; ledger event `tmb_agent_collision_skipped`. Report aborted, return control.
+- **Adopt + manage** — preserve user's file content. Use Edit to insert `tmb_owner: user-adopted` into the YAML frontmatter (after the opening `---` line, before the closing `---`). Ledger event `tmb_agent_adopted`. Report adopted, return control.
+- **Overwrite** — write the proposed (template or from-scratch) content with `tmb_owner: bro` in the frontmatter. Ledger event `tmb_agent_overwritten`. Report overwritten, return control.
+
+In headless mode (`AskUserQuestion errors / TMB_HEADLESS=1`): HALT per the existing `## Headless mode — HALT, do not auto-approve` section. Never silently choose any of the three.
 
 ## I. Edge case — code-writing consultant
 

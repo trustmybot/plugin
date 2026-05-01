@@ -1,6 +1,7 @@
 ---
 name: swe
 description: Executor. One task per spawn, isolated worktree, atomic close. Implements task spec exactly; never authors specs, never spawns reviews.
+tmb_owner: bro
 model: sonnet
 maxTurns: 150
 tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server
