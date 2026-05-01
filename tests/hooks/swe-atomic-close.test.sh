@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/swe-atomic-close.sh.
 # Hook contract: SubagentStop for swe agents. Inspects git state for the
-# most-recent pending task, reads the task's detached-HEAD worktree HEAD,
-# and either auto-closes it (worktree has commits beyond local branch ref)
-# or emits an additionalContext warning (no worktree commits).
-# Silent no-op when subagent is not swe, no pending tasks, or DB/git unavailable.
+# most-recent task in (pending, needs_validation, completed), reads the task's
+# detached-HEAD worktree HEAD, and either auto-closes pending tasks or records
+# metrics-only for pre-flipped tasks. Always writes agent_runs.
+# Silent no-op when subagent is not swe, no matching tasks, or DB/git unavailable.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,17 +69,23 @@ sqlite3 "$DB" "
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL DEFAULT '\"\"'
   );
-  INSERT INTO tasks (id, branch_id, status) VALUES (42, 'fix/test-branch', 'pending');
-  INSERT INTO tasks (id, branch_id, status) VALUES (43, 'fix/other-branch', 'completed');
+  INSERT INTO tasks (id, branch_id, status, updated_at) VALUES (42, 'fix/test-branch', 'pending', datetime('now', '+10 seconds'));
+  INSERT INTO tasks (id, branch_id, status, updated_at) VALUES (43, 'fix/other-branch', 'completed', datetime('now'));
+  INSERT INTO tasks (id, branch_id, status, updated_at) VALUES (44, 'fix/nv-branch', 'needs_validation', datetime('now'));
   INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 export TRAJECTORY_DB_PATH="$DB"
 
-# Create the SWE detached-HEAD worktree under .claude/worktrees/test-branch
-# (slug = everything after the last '/' in branch_id = "test-branch").
+# Create the SWE detached-HEAD worktrees.
+# Slug = everything after the last '/' in branch_id.
 WT_PATH="$REPO/.claude/worktrees/test-branch"
 git branch fix/test-branch HEAD
 git worktree add -q --detach "$WT_PATH"
+
+# Worktree for task 44 (needs_validation, slug = nv-branch).
+WT_NV_PATH="$REPO/.claude/worktrees/nv-branch"
+git branch fix/nv-branch HEAD
+git worktree add -q --detach "$WT_NV_PATH"
 
 swe_input() {
   jq -n '{subagent_type: "swe"}'
@@ -111,6 +117,7 @@ assert_eq "" "$out" "no output for non-swe"
 # ========================================================
 
 test_case "swe + pending task + no worktree commits → warn no-commits"
+AR_COUNT_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=42;")
 out=$(run_hook "$(swe_input)")
 assert_contains "$out" "stopped without committing" "warn body"
 assert_contains "$out" "additionalContext" "additionalContext key present"
@@ -118,6 +125,10 @@ assert_not_contains "$out" "auto-completed" "should not auto-complete"
 
 status_after=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=42;")
 assert_eq "pending" "$status_after" "task status unchanged"
+
+test_case "swe + pending task + no worktree commits → agent_runs row written"
+AR_COUNT_AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=42;")
+assert_eq "$((AR_COUNT_BEFORE + 1))" "$AR_COUNT_AFTER" "agent_runs row written even on warn-no-commits"
 
 # ========================================================
 # pending task + worktree has commits (detached HEAD) → auto-close
@@ -136,13 +147,69 @@ sha_after=$(sqlite3 "$DB" "SELECT commit_sha FROM tasks WHERE id=42;")
 assert_eq "$WT_HEAD" "$sha_after" "commit_sha written from worktree HEAD"
 
 # ========================================================
-# task already 'completed' → silent no-op
+# task already 'completed' → metrics-only (no stdout, writes agent_runs)
 # ========================================================
 
-test_case "swe + no pending tasks → silent no-op"
-# Task 42 is now 'completed'. Task 43 was already completed. No pending tasks.
+test_case "swe + completed task → metrics-only, no additionalContext"
+# Task 42 is now 'completed'. Ensure it's the most-recently-updated so the hook selects it.
+sqlite3 "$DB" "UPDATE tasks SET updated_at=datetime('now', '+20 seconds') WHERE id=42;"
+AR_COUNT_BEFORE_COMPLETED=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=42;")
 out=$(run_hook "$(swe_input)")
-assert_eq "" "$out" "silent when no pending tasks"
+assert_eq "" "$out" "no additionalContext on metrics-only"
+
+test_case "swe + completed task → agent_runs row written"
+AR_COUNT_AFTER_COMPLETED=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=42;")
+assert_eq "$((AR_COUNT_BEFORE_COMPLETED + 1))" "$AR_COUNT_AFTER_COMPLETED" "agent_runs row written for completed task"
+
+# ========================================================
+# NEW: needs_validation + worktree has commit → metrics-only, status preserved
+# ========================================================
+
+echo '--- Test: needs_validation + worktree commit → metrics-only ---'
+
+make_nv_commit() {
+  (cd "$WT_NV_PATH" && echo "$RANDOM" >> nv-work.txt && git add nv-work.txt && git commit -qm "feat: nv work")
+}
+
+# Reset task 44 freshness so it's the most-recently-updated.
+sqlite3 "$DB" "UPDATE tasks SET updated_at=datetime('now', '+30 seconds') WHERE id=44;"
+make_nv_commit
+
+test_case "needs_validation + worktree commit → no additionalContext"
+AR_COUNT_NV_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=44;")
+out=$(run_hook "$(swe_input)")
+assert_eq "" "$out" "no additionalContext for metrics-only"
+
+test_case "needs_validation + worktree commit → status stays needs_validation"
+nv_status=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=44;")
+assert_eq "needs_validation" "$nv_status" "status not flipped by hook"
+
+test_case "needs_validation + worktree commit → agent_runs row written"
+AR_COUNT_NV_AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=44;")
+assert_eq "$((AR_COUNT_NV_BEFORE + 1))" "$AR_COUNT_NV_AFTER" "agent_runs row inserted"
+
+# ========================================================
+# NEW: needs_validation + no worktree commit → metrics-only, agent_runs written
+# ========================================================
+
+echo '--- Test: needs_validation + no worktree commit → metrics-only ---'
+
+# Reset nv-branch local ref so WT_HEAD == LOCAL_FEATURE → HAS_COMMITS=false.
+git -C "$REPO" branch -f fix/nv-branch "$(git -C "$WT_NV_PATH" rev-parse HEAD)"
+sqlite3 "$DB" "UPDATE tasks SET updated_at=datetime('now', '+35 seconds') WHERE id=44;"
+
+test_case "needs_validation + no commit → no additionalContext"
+AR_COUNT_NV2_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=44;")
+out=$(run_hook "$(swe_input)")
+assert_eq "" "$out" "no additionalContext even with no commits"
+
+test_case "needs_validation + no commit → status stays needs_validation"
+nv_status2=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=44;")
+assert_eq "needs_validation" "$nv_status2" "status unchanged"
+
+test_case "needs_validation + no commit → agent_runs row written"
+AR_COUNT_NV2_AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=44;")
+assert_eq "$((AR_COUNT_NV2_BEFORE + 1))" "$AR_COUNT_NV2_AFTER" "agent_runs written for no-commit needs_validation spawn"
 
 # ---- Test: entry-log fires for non-swe subagent (regression for #94) ----
 echo '--- Test: entry-log fires regardless of subagent_type ---'
@@ -186,8 +253,9 @@ real_cc_swe_input() {
   }'
 }
 
-# Reset task #42 to pending and make a new commit in the worktree.
-sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+# Reset task #42 to pending and make it the most-recently-updated task.
+# Use +60s to guarantee task 42 sorts above task 44 (whose NV-test update used +5s).
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
 (cd "$WT_PATH" && echo "$RANDOM-103" >> work-103.txt && git add work-103.txt && git commit -qm 'feat: 103 work')
 
 out=$(run_hook "$(real_cc_swe_input)")
@@ -196,7 +264,7 @@ assert_eq "completed" "$NEW_STATUS" "hook should auto-complete pending task with
 echo '  ok'
 
 # Also test bare 'swe' value still works
-sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
 (cd "$WT_PATH" && echo "$RANDOM-bare" >> work-bare.txt && git add work-bare.txt && git commit -qm 'feat: bare swe work')
 bare_swe_input() {
   jq -n '{agent_type: "swe", hook_event_name: "SubagentStop"}'
@@ -219,7 +287,7 @@ cat > "$TRANSCRIPT" <<'JSONL'
 {"timestamp":"2026-04-01T00:00:01.500Z","message":{"role":"assistant","usage":{"input_tokens":200,"output_tokens":75},"content":[]}}
 JSONL
 
-sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
 (cd "$WT_PATH" && echo "$RANDOM-transcript" >> work-transcript.txt && git add work-transcript.txt && git commit -qm 'feat: transcript work')
 
 transcript_input() {
@@ -261,7 +329,7 @@ fi
 
 echo '--- Test: no agent_transcript_path → agent_runs zeros ---'
 
-sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
 (cd "$WT_PATH" && echo "$RANDOM-nopath" >> work-nopath.txt && git add work-nopath.txt && git commit -qm 'feat: nopath work')
 
 no_transcript_input() {
@@ -290,7 +358,7 @@ assert_eq "0" "$AR_TT2" "tokens_total when no transcript"
 
 echo '--- Test: missing transcript file → zeros + parse-failed log entry ---'
 
-sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL WHERE id=42;"
+sqlite3 "$DB" "UPDATE tasks SET status='pending', commit_sha=NULL, completed_at=NULL, updated_at=datetime('now', '+60 seconds') WHERE id=42;"
 (cd "$WT_PATH" && echo "$RANDOM-missing" >> work-missing.txt && git add work-missing.txt && git commit -qm 'feat: missing file work')
 
 missing_transcript_input() {
