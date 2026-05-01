@@ -67,6 +67,8 @@ export class TrajectoryDB {
         this.migrateIssuesLabels();
         this.migrateRemotesConfig();
         this.migrateAgentRuns();
+        this.migrateRoundtablesState();
+        this.migrateRoundtableVotesParticipant();
         this.syncPluginVersion();
     }
     applySchema() {
@@ -158,6 +160,32 @@ export class TrajectoryDB {
         this.db.exec(createTable);
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id)');
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id)');
+    }
+    migrateRoundtablesState() {
+        const cols = this.db
+            .prepare('PRAGMA table_info(roundtables)')
+            .all();
+        const present = new Set(cols.map((c) => c.name));
+        if (!present.has('state')) {
+            this.db.exec(`ALTER TABLE roundtables ADD COLUMN state TEXT NOT NULL DEFAULT 'collecting'` +
+                ` CHECK (state IN ('collecting','awaiting_human','closed','skipped'))`);
+            this.db.exec(`UPDATE roundtables SET state = 'closed' WHERE status = 'closed' AND state = 'collecting'`);
+        }
+        if (!present.has('expected_participants')) {
+            this.db.exec(`ALTER TABLE roundtables ADD COLUMN expected_participants INTEGER`);
+        }
+        if (!present.has('ratification_received_at')) {
+            this.db.exec(`ALTER TABLE roundtables ADD COLUMN ratification_received_at DATETIME`);
+        }
+    }
+    migrateRoundtableVotesParticipant() {
+        const cols = this.db
+            .prepare('PRAGMA table_info(roundtable_votes)')
+            .all();
+        if (!cols.find((c) => c.name === 'participant')) {
+            this.db.exec(`ALTER TABLE roundtable_votes ADD COLUMN participant TEXT`);
+            this.db.exec(`UPDATE roundtable_votes SET participant = agent WHERE participant IS NULL`);
+        }
     }
     migratePluginMetaDuplicates() {
         this.transaction(() => {

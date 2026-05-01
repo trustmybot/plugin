@@ -170,86 +170,93 @@ Validates the `tmb_agent-creator` collision flow.
 
 ---
 
-### S-24: Roundtable capture — MCP tools + checkbox/radio UX (#24 / TRU-63)
+### S-24: Roundtable deterministic workflow (#141 / TRU-63)
 
-Validates the full roundtable flow end-to-end: five DB capture surfaces, AUQ
-batch with checkbox agreements + radio disagreements, dissent preservation, and
-follow-up issue creation.
+Validates the full roundtable flow end-to-end: state machine enforcement,
+AUQ shape hook, atomic `roundtable_finalize_decisions`, five DB capture
+surfaces, and follow-up issue creation.
 
 **Setup:**
-1. Fresh scratch project with at least 3 consultant agents available under
-   `.claude/agents/` (e.g., ceo, cto, pm — or trigger bro to create them via
-   `tmb_agent-creator` first).
+1. Fresh scratch project with at least 3 consultant agents under `.claude/agents/`
+   (ceo, cto, pm — or trigger `tmb_agent-creator` first).
 2. Create a carrier issue via `@bro let's hold a roundtable on <topic>`.
 
 **Run:**
 - Ask `@bro hold a roundtable on <topic> — participants: ceo, cto, pm`.
 
-**Expect — during the meeting:**
-- Each participant spawned in parallel (one `Task` call per agent).
-- After each participant responds, bro writes `discussion_append(kind='analysis')`
-  and `roundtable_vote` for that participant — BEFORE synthesis, not at the end.
-- `roundtable_create` is called at the start; `roundtable_id` is used for all
-  subsequent vote calls.
+**Expect — Phase 1:**
+- `roundtable_create(expected_participants=3)` called at the start;
+  server rejects if `expected_participants` is missing or outside 2–5.
+- Initial `state='collecting'` returned.
 
-**Expect — synthesis + AUQ:**
-- Bro emits ONE `AskUserQuestion` call with:
-  - Question 1: multi-select, header "Agreements", ≥1 option.
-  - Questions 2–4 (if disagreements exist): radio per disagreement, short header.
-- Headless variant (`TMB_HEADLESS=1`): bro halts per `tmb_headless-fallback`;
-  does NOT auto-pick.
+**Expect — Phase 2 (collect):**
+- Each participant spawned in parallel (one `Task` per agent).
+- After each responds: `discussion_append(kind='analysis')` + `roundtable_vote`.
+- After the 3rd distinct non-human vote: server auto-flips `state → awaiting_human`.
 
-**Expect — after Human ratifies:**
-- For each ratified agreement: `discussion_append(kind='answer')` +
-  `discussion_append(kind='decision')` + `roundtable_vote(participant='human',
-  vote='ratified')`.
-- For each unratified agreement: `discussion_append(kind='note',
-  body='not ratified: <agreement>')`.
-- For each disagreement resolved: `discussion_append(kind='decision')` recording
-  winning stance AND dissenter name; `roundtable_vote(participant='human',
-  vote=<winning_stance>)`.
-- `roundtable_close` called with a one-sentence outcome.
-- `ledger_log(event_type='roundtable_summary')` written.
+**Expect — Phase 4 (AUQ):**
+- ONE `AskUserQuestion` with Q1 `multiSelect:true` (agreements) + Q2–Q4 radio
+  (disagreements). The `roundtable-auq-shape` hook blocks any other shape while
+  `state=awaiting_human` and no human vote is recorded yet.
+- Headless variant (`TMB_HEADLESS=1`): bro halts per `tmb_headless-fallback`.
 
-**Expect — follow-up AUQ:**
-- Second separate `AskUserQuestion` call: "Open follow-up issues for ratified
-  actions?" (multi-select, one option per ratified agreement).
-- For each checked: `issue_create` with objective referencing the carrier issue.
-- Carrier issue closed if it was a one-shot roundtable carrier.
+**Expect — Phase 5 (finalize):**
+- ONE `roundtable_finalize_decisions(ratified=[...], unratified=[...], resolutions=[...])`
+  call. Server writes all discussion + vote rows atomically; sets `ratification_received_at`.
+- Attempting `roundtable_close` BEFORE `roundtable_finalize_decisions` results
+  in `precondition_failed` (no human votes yet).
+
+**Expect — Phase 6 (close):**
+- `roundtable_close` succeeds only after `roundtable_finalize_decisions` has
+  recorded ≥1 human vote.
+- `roundtable_summarize` assembles the canonical summary; passed to `ledger_log`.
+
+**Expect — Phase 7 (follow-ups):**
+- Second `AskUserQuestion` (multiSelect, one option per ratified agreement).
+- `issue_create` per checked item.
+- Carrier issue closed if one-shot.
 
 **DB verification (via sqlite3 or MCP):**
 ```sql
+-- State machine columns
+SELECT id, topic, state, status, expected_participants, ratification_received_at, closed_at
+FROM roundtables WHERE issue_id = <N>;
+
 -- 1. kind='analysis' rows (one per participant)
 SELECT author, kind, body FROM discussions WHERE issue_id = <N> AND kind = 'analysis';
 
 -- 2. answer + decision rows (per Human ratification)
 SELECT author, kind, body FROM discussions WHERE issue_id = <N> AND kind IN ('answer','decision');
 
--- 3. roundtable record
-SELECT id, topic, status, outcome, closed_at FROM roundtables WHERE issue_id = <N>;
+-- 3. roundtable record state
+SELECT id, topic, state, status, outcome, closed_at FROM roundtables WHERE issue_id = <N>;
 
--- 4. vote attribution
+-- 4. vote attribution (participant column)
 SELECT participant, vote, rationale FROM roundtable_votes WHERE roundtable_id = <id>;
 
 -- 5. ledger summary
 SELECT event_type, summary FROM ledger WHERE issue_id = <N> AND event_type = 'roundtable_summary';
 ```
 
-All five surfaces must have data.
+All five surfaces must have data; `state='closed'`, `ratification_received_at` non-null.
 
 **Optional local mirror:**
 ```bash
 ls <workspace>/.claude/tmb/roundtables/  # file exists if dir was writable
-# Confirm the file is NOT under plugin/ and NOT git-tracked:
-git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # should show nothing
+git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing tracked
 ```
 
 ✅ Pass criteria:
+- `roundtable_create` rejected without `expected_participants`.
+- Server auto-flips `state → awaiting_human` after Nth vote.
+- AUQ shape hook blocks malformed batches; valid shape passes.
+- ONE `roundtable_finalize_decisions` call writes all ratification rows atomically.
+- `roundtable_close` before finalize → `precondition_failed`.
+- `roundtable_close` after finalize → `state='closed'`.
 - All five DB surfaces populated.
-- AUQ rendered as checkbox (agreements) + radio (disagreements), not plain text.
-- Dissent explicitly recorded in `kind='decision'` row.
+- AUQ rendered as checkbox (agreements) + radio (disagreements).
+- Dissent explicitly in `kind='decision'` row.
 - Follow-up issues created for ratified actions.
-- Local mirror file (if present) is outside any git-tracked path.
 
 ---
 

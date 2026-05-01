@@ -95,19 +95,24 @@ CREATE TABLE IF NOT EXISTS skills (
 );
 
 CREATE TABLE IF NOT EXISTS roundtables (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id    INTEGER NOT NULL REFERENCES issues(id),
-    topic       TEXT    NOT NULL,
-    status      TEXT    NOT NULL DEFAULT 'open',
-    outcome     TEXT    NOT NULL DEFAULT '',
-    created_at  TEXT    NOT NULL,
-    closed_at   TEXT
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id                INTEGER NOT NULL REFERENCES issues(id),
+    topic                   TEXT    NOT NULL,
+    status                  TEXT    NOT NULL DEFAULT 'open',
+    outcome                 TEXT    NOT NULL DEFAULT '',
+    created_at              TEXT    NOT NULL,
+    closed_at               TEXT,
+    state                   TEXT    NOT NULL DEFAULT 'collecting'
+                              CHECK (state IN ('collecting','awaiting_human','closed','skipped')),
+    expected_participants   INTEGER,
+    ratification_received_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS roundtable_votes (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     roundtable_id  INTEGER NOT NULL REFERENCES roundtables(id),
     agent          TEXT    NOT NULL,
+    participant    TEXT,
     vote           TEXT    NOT NULL,
     rationale      TEXT    NOT NULL DEFAULT '',
     created_at     TEXT    NOT NULL

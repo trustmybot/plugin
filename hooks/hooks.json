@@ -107,6 +107,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/askuserquestion-length-lint.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-auq-shape.sh",
+            "timeout": 5
           }
         ]
       },
