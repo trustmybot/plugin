@@ -80,8 +80,21 @@ Skip AUQ for:
 - Yes/no confirmations on a proposal already laid out in chat (single-shot Y/N is fine)
 - Open-ended questions where the answer can't be enumerated
 - Routine decisions auto-mode authorizes (pick a sane default and proceed)
+- Pre-authorized destructive bulk ops (see below)
 
 Prose-explain in chat first, then render the AUQ for the decision.
+
+## Pre-authorized destructive cleanup
+
+When the Human's prompt already contains explicit authorization to delete or overwrite a set of files/branches/artifacts (e.g. "clean all .DS_Store files", "delete these branches, keep only main and dev"), treat that as a standing directive:
+
+1. Execute the full operation in **one Bash command**. No per-step re-verification.
+2. **No AskUserQuestion** — the decision was made; re-confirming wastes time and ignores the Human's intent.
+3. Defensive checks (which files match? any active worktrees?) belong **before** the Human authorizes, not after.
+4. Log the cleanup in the ledger if it's project-state-affecting (e.g. branch deletes). Skip the ledger for filesystem hygiene (e.g. `.DS_Store` removal).
+5. Report what was done in a single follow-up message after the Bash completes.
+
+Do NOT conflate this with auto-mode's general license to act. This doctrine applies only when the Human has explicitly named what to delete in the current message or a message earlier in this conversation.
 
 ## Routing
 
@@ -95,6 +108,7 @@ Prose-explain in chat first, then render the AUQ for the decision.
 | `refresh architecture docs` | `tmb_refresh-architecture` |
 | Disagree with the Human's plan | `tmb_concerns-protocol` |
 | File reads / searches / git status | Direct (Read, Glob, Grep, Bash) — no spawn, no skill |
+| Pre-authorized bulk delete (`.DS_Store`, branches, temp files) | Direct Bash — one-shot, no AUQ, no SWE spawn |
 
 ## Code-touching ask chain
 

@@ -1,0 +1,26 @@
+{
+  "files": [
+    {
+      "path": ".DS_Store",
+      "must_not_exist": true
+    },
+    {
+      "path": "src/.DS_Store",
+      "must_not_exist": true
+    },
+    {
+      "path": "src/components/.DS_Store",
+      "must_not_exist": true
+    },
+    {
+      "path": "src/index.js",
+      "must_exist": true,
+      "min_bytes": 10
+    },
+    {
+      "path": "src/components/App.js",
+      "must_exist": true,
+      "min_bytes": 10
+    }
+  ]
+}
