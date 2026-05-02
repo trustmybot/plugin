@@ -33,6 +33,7 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
   // 3. Create a task
   const batch = await call(client, 'task_create_batch', {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+    waive_branch_gate: true, waive_branch_gate_reason: 'integration-test fixture; branch gate not under test',
     agent: 'bro',
     issue_id: issueId,
     tasks: [{

@@ -6,6 +6,8 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Added
 
+- **Enforcement:** New PreToolUse hook `require-feature-branch-active.sh` blocks SWE spawn when the main checkout is not on the task's `branch_id`. New MCP gate in `task_create_batch` requires a prior `branch_id_proposed` ledger event. `tmb_branch-id-proposal` skill now runs `git switch -c` itself instead of only logging intent. (#155)
+
 - **Doctrine:** Positive-prompt enforcement integrated into `tmb_skill-creator`, `tmb_agent-creator`, and `tmb_review-findings`. New L1 lint `no-negative-directives.sh` scans skills + agents + CLAUDE.md. Audit pass converted 12 negations to positive directives; 10 load-bearing safety rules retained with inline justification. (#148, GL#21)
 
 - **Roundtable MCP tools — deterministic state machine (#141):** `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`. Server auto-flips `roundtables.state` from `collecting → awaiting_human` when all expected votes are in. AUQ shape validated by new `roundtable-auq-shape.sh` PreToolUse hook. New columns: `roundtables.state`, `roundtables.expected_participants`, `roundtables.ratification_received_at`, `roundtable_votes.participant`.

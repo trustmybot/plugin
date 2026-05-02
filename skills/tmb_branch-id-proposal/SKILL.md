@@ -82,7 +82,7 @@ Before deriving the branch name, confirm the **base** the new branch should be c
    - If a non-pr_target base → switch to it but do NOT auto-pull (the Human picked it deliberately; bro asks before any pull).
    - On any git error (merge conflict, dirty tree, network) → halt, surface the error to the Human, ask how to proceed. **Do not silently proceed.**
 
-5. Log the base-branch decision: `discussion_append(kind='note', body='Base branch: <chosen_base> (pulled: yes|no)')`.
+5. Log the base-branch decision and the base SHA: `discussion_append(kind='note', body='Base branch: ${base} pulled to HEAD ${sha}')`.
 
 ### Step 1 — Derive + propose branch_id
 
@@ -157,6 +157,26 @@ AskUserQuestion({
      discussion_append(issue_id, author='bro', kind='note',
        body='Beginning planning on branch_id <the branch_id>, triage: <simple|difficult>')
      ```
+
+### Step 2 — Atomically create + switch to the feature branch
+
+After the Human confirms the branch_id (Step 1), bro creates and switches in the main checkout BEFORE handing off to planning. The new branch must come from the just-pulled base (Step 0 already pulled).
+
+```bash
+git switch -c "${branch_id}"
+```
+
+Then verify and log:
+
+```bash
+git branch --show-current  # MUST equal ${branch_id}
+```
+
+`ledger_log(agent='bro', issue_id=<I>, branch_id=<branch_id>, event_type='branch_id_proposed', summary='Branch <branch_id> created from origin/<base>. Main checkout switched.')`
+
+If `git switch -c` fails (branch already exists, dirty tree, etc.) — halt and surface the error verbatim. Do NOT proceed to planning. The Human resolves manually.
+
+This guarantees the invariant in `docs/architecture/GIT.md`: bro and the Human share the same view on `<feature>` before SWE spawns.
 
 5. Load `tmb_planning-simple` (if triage=simple) or `tmb_planning-difficult` (if triage=difficult) and proceed with planning. The `issue_id` and confirmed `branch_id` carry forward into `task_create_batch` when the spec is ready.
 

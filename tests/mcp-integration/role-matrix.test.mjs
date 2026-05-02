@@ -192,6 +192,8 @@ test('task_create_batch — bro only; architect/swe/pr-reviewer all forbidden', 
   const taskInput = {
     waive_scope_gate: true,
     waive_scope_gate_reason: 'role-matrix test; gate not under test here',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'role-matrix test; branch gate not under test here',
     issue_id: issueId,
     tasks: [{
       branch_id: 'feat/role-matrix-task',
@@ -220,6 +222,7 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro',
     waive_scope_gate: true, waive_scope_gate_reason: 'role-matrix test seed',
+    waive_branch_gate: true, waive_branch_gate_reason: 'role-matrix test; branch gate not under test',
     issue_id: seed.data.id,
     tasks: [{ branch_id: 'feat/tus-test', title: 't', description: 'd', success_criteria: 'ok', spec_body: '# spec' }],
   });
@@ -246,6 +249,7 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro',
     waive_scope_gate: true, waive_scope_gate_reason: 'role-matrix test seed',
+    waive_branch_gate: true, waive_branch_gate_reason: 'role-matrix test; branch gate not under test',
     issue_id: seed.data.id,
     tasks: [{ branch_id: 'feat/vr-test', title: 't', description: 'd', success_criteria: 'ok', spec_body: '# spec' }],
   });

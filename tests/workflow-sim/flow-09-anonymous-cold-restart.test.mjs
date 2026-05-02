@@ -59,6 +59,8 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
     issue_id: issue.data.id,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'test fixture',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     tasks: [{
       branch_id: 'feat/role-test',
       title: 'role test',
@@ -108,6 +110,8 @@ test('Flow 09c — Bro task-gate uses ledger_log(bro_verification_pass), not val
     issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'test fixture',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     tasks: [{
       branch_id: 'feat/ledger-event-test',
       title: 'ledger event test',
