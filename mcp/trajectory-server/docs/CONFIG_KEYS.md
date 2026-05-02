@@ -4,11 +4,11 @@
 
 | Key | Type | Allowed values | Default | Read by | Written by |
 |-----|------|----------------|---------|---------|------------|
-| `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | (none — first-run prompt sets it) | `git-guards.sh`, bro routing | bro onboarding |
-| `pr_target` | string | any valid branch name | derived from `branching_model` when first-run sets it | `git-guards.sh` PR rule | bro onboarding |
-| `protected_branches` | string[] (JSON) | array of branch names | derived from `branching_model` | `git-guards.sh` commit rule | bro onboarding |
-| `remotes` | object[] (JSON) | array of `{name, provider, url}` — see `ENUMS.md` for `provider` values | `[]` | tmb_reonboard, tmb_push-gate (future) | bro onboarding (auto-detect or AUQ) |
-| `issue_sync` | string | `auto` \| `gh` \| `glab` \| `both` \| `off` | `off` | `issue_create`, `issue_close`, `issue_sync_retry` | bro |
+| `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `"github-flow"` (schema-seeded at DB init) | `git-guards.sh`, bro routing | `tmb_reonboard` |
+| `pr_target` | string | any valid branch name | `"main"` (schema-seeded at DB init) | `git-guards.sh` PR rule | `tmb_reonboard` |
+| `protected_branches` | string[] (JSON) | array of branch names | `["main"]` (schema-seeded at DB init) | `git-guards.sh` commit rule | `tmb_reonboard` |
+| `remotes` | object[] (JSON) | array of `{name, provider, url}` — see `ENUMS.md` for `provider` values | `[]` (schema-seeded at DB init) | `tmb_reonboard`, `tmb_push-gate` | bro onboarding (auto-detect or AUQ) |
+| `issue_sync` | string | `auto` \| `gh` \| `glab` \| `both` \| `off` | `"off"` (schema-seeded; safe default — no remote sync without opt-in) | `issue_create`, `issue_close`, `issue_sync_retry` | bro; overridden by `TMB_DISABLE_REMOTE_SYNC=1` env var |
 
 ## 2. Default Derivation
 
@@ -26,7 +26,7 @@ Additional keys can be added to `plugin_config` without schema migration; the ta
 
 ## 4. Reading-the-Config Policy
 
-Readers MUST treat a missing key as "uninitialized; trigger onboarding flow" — NOT as "default to a safe value". Silent defaults hide configuration drift and mask missing onboarding steps. This is a deliberate design choice.
+All 5 keys above are seeded at DB creation via `INSERT OR IGNORE`, so they are always present in a properly-initialised DB. Readers MUST treat a missing key as "DB corruption or pre-seed install — trigger `tmb_reonboard`" — NOT as "silently default". Silent defaults hide configuration drift. Any key added after DB init (e.g. `last_verified_sha`, written on-demand by `file_registry_update_summaries`) may legitimately be absent until the triggering operation runs; readers of such dynamic keys must handle `NULL`/absent gracefully.
 
 ## 5. Committed team config (optional, issue #32)
 

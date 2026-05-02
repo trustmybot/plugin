@@ -190,6 +190,8 @@ If `task_update_status` or `issue_close` returns `is_error: true`, STOP. Surface
 | Re-onboarding | `tmb_reonboard` |
 | Refresh architecture docs | `tmb_refresh-architecture` |
 | Disagreement with Human | `tmb_concerns-protocol` |
+| `/roundtable <topic>` | `tmb_roundtable` |
+| `/monitor <PR_number>` | `tmb_pr-review-handler` |
 
 ## Catchphrase
 

@@ -13,8 +13,8 @@ SELECT
 FROM identity;
 
 SELECT
-  CASE WHEN COUNT(*) = 3 THEN 1 ELSE 0 END AS pass,
-  'three-config-keys-still-present (schema-seeded; got ' || COUNT(*) || ', expected 3)' AS description
+  CASE WHEN COUNT(*) >= 5 THEN 1 ELSE 0 END AS pass,
+  'five-config-keys-still-present (schema-seeded; got ' || COUNT(*) || ', expected ≥5)' AS description
 FROM plugin_config;
 
 -- Bro must not write any ledger events on a casual greeting.

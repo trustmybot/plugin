@@ -70,6 +70,7 @@ plugin/
 │   ├── tmb_reonboard/                # configure or change branching model / PR target / protected branches / identity name
 │   ├── tmb_roundtable/               # multi-agent debate coordinator (≥2 planning-capable consultants required)
 │   ├── tmb_roundtable-cleanup/       # post-roundtable archive + DB cleanup
+│   ├── tmb_pr-review-handler/        # /monitor slash command — fetches PR comments, ratifies clusters, dispatches SWE
 │   ├── tmb_skill-creator/            # propose & write new skill files; appends to consuming agent's skills:
 │   ├── tmb_swe-spawn-workflow/       # bro's protocol for spawning SWE with task_id + spec
 │   ├── # Default workflow skills (used by global agents; project overrides per-name)
@@ -104,7 +105,7 @@ plugin/
 │       │   └── README.md             # auto vs manual rules
 │       └── snapshots/.gitkeep        # for issue_snapshot_md output
 │
-├── # Hooks (PreToolUse / PostToolUse / SessionStart / UserPromptSubmit)
+├── # Hooks (PreToolUse / PostToolUse / SessionStart / UserPromptSubmit / SubagentStop / WorktreeCreate)
 ├── hooks/
 │   └── hooks.json                    # CC hooks manifest (matchers + script paths)
 ├── scripts/
@@ -114,18 +115,26 @@ plugin/
 │       │   └── README.md             # diagnostic usage guide
 │       ├── lib/
 │       │   └── query-task.sh         # shared sqlite helpers (tmb_db_path, tmb_task_spec_status, …)
-│       ├── activation-routine.sh    # UserPromptSubmit hook — pre-fetches identity + pending issue when bro mode active
+│       ├── activation-routine.sh     # UserPromptSubmit hook — pre-fetches identity + pending issue when bro mode active
+│       ├── askuserquestion-length-lint.sh # PreToolUse AskUserQuestion — caps label (≤5 words) and description (≤15 words)
 │       ├── branch-up-to-date-with-remote.sh  # PreToolUse Bash — denies worktree-add when branch is behind origin/<pr_target>
 │       ├── cleanup-worktree-on-task-close.sh # PostToolUse — removes worktree when bro flips task → closed
-│       ├── debug-trajectory.sh       # PostToolUse capture for non-MCP calls (TMB_DEBUG_TRAJECTORY=1)
+│       ├── debug-trajectory.sh       # PreToolUse capture (TMB_DEBUG_TRAJECTORY=1) — populates debug_trajectory table
+│       ├── deferred-tools-drift-warn.sh # SessionStart — warns when MCP tools on disk are newer than running server
 │       ├── ensure-gitignore.sh       # SessionStart hook — ensures project .gitignore excludes .claude/
 │       ├── git-guards.sh             # protected-branch block, force-push block, dual-tier dev→main exception (v0.1.1)
-│       ├── git-push-guard.sh         # blocks `git push` on unsigned commits — replaces require-review-sign.sh
-│       ├── no-source-edit-from-main.sh  # blocks bro from editing source files outside an SWE worktree
+│       ├── git-push-guard.sh         # PreToolUse Bash — blocks `git push` on unsigned commits
+│       ├── mcp-health-check.sh       # UserPromptSubmit (periodic) — MCP server liveness probe
+│       ├── no-source-edit-from-main.sh  # PreToolUse Edit/Write — blocks bro from editing source outside an SWE worktree
 │       ├── no-worktree-branch-create.sh # PreToolUse Bash — blocks `git worktree add -b/-B` (branch authority is bro's)
-│       ├── require-summaries-before-task-close.sh # PreToolUse — denies bro task_update_status(closed) if file_registry summaries are missing/stale (#181)
-│       ├── require-task-spec.sh      # block SWE spawn unless task_id references a valid DB row
-│       └── session-start-regen-check.sh  # SessionStart hook — nudges to run tmb_refresh-architecture when arch docs are stale
+│       ├── require-summaries-before-task-close.sh # PreToolUse task_update_status — denies close if file_registry summaries missing/stale (#181)
+│       ├── require-task-spec.sh      # PreToolUse Agent — block SWE spawn unless task_id references a valid DB row
+│       ├── roundtable-auq-shape.sh   # PreToolUse AskUserQuestion — validates AUQ shape during roundtable awaiting_human (#141)
+│       ├── session-log-capture.sh    # UserPromptSubmit — tracks current cc.log path for diagnostics
+│       ├── session-start-regen-check.sh # SessionStart hook — nudges tmb_refresh-architecture when arch docs are stale
+│       ├── swe-atomic-close.sh       # SubagentStop — safety net: auto-completes pending task if SWE stopped without calling task_update_status
+│       ├── worktree-create.sh        # WorktreeCreate — worktree-creation safety checks
+│       └── write-active-workspace-sentinel.sh # SessionStart — writes sentinel for cross-session workspace resolution
 │
 ├── # Bundled MCP server — SQLite trajectory persistence
 ├── mcp/
@@ -142,7 +151,7 @@ plugin/
 │       └── src/
 │           ├── db.ts                 # opens DB, applies schema.sql
 │           ├── index.ts              # MCP server entrypoint (stdio transport)
-│           ├── schema.sql            # authoritative schema DDL (14 tables, schema_version=1 baseline)
+│           ├── schema.sql            # authoritative schema DDL (18 tables, schema_version=1 baseline)
 │           ├── types.ts              # shared TS types (Issue, Task, Discussion, …)
 │           │
 │           ├── middleware/
@@ -184,18 +193,23 @@ plugin/
 │           └── tools/                # MCP tool families (one file per domain)
 │               ├── architecture-regen.ts  # orchestrator: file-registry scan + 4 renderers
 │               ├── audit.ts          # audit_log, audit_list
+│               ├── branch_report_md.ts # branch_report_md — branch-level narrative builder
 │               ├── config.ts         # plugin_config get/set/list
-│               ├── discussions.ts    # discussion_append, discussion_list (requireRoles on append)
-│               ├── file-registry.ts  # file_registry_scan_commits, file_registry_list
-│               ├── identity.ts       # identity_get, identity_set
+│               ├── discussions.ts    # discussion_append (verified_human gate), discussion_list
+│               ├── file-registry.ts  # file_registry_upsert/list/verify/delete/update_summaries (bro-only)
+│               ├── identity.ts       # identity_get, identity_set, identity_reset
 │               ├── index.ts          # registerTools() — wires every family into server
-│               ├── issues.ts         # issue_create/get/resume/close/snapshot_md (requireRoles on writes)
+│               ├── issues.ts         # issue_create/get/resume/close/update_description/sync_retry (requireRoles)
+│               ├── labels.ts         # issue_add_labels, issue_remove_labels, issue_set_labels
 │               ├── ledger.ts         # ledger_log, ledger_list
-│               ├── regen-state.ts    # regen_state_get/update — cursor for lazy regen
-│               ├── reports.ts        # issue_report_md — full-issue narrative builder
-│               ├── skills.ts         # skill registry + effectiveness tracking
+│               ├── pr_comments.ts    # pr_comments_get (gh + glab backends, bot-filtered)
+│               ├── regen-state.ts    # regen_state_get/set — cursor for lazy regen
+│               ├── reports.ts        # issue_report_md, issue_snapshot_md
+│               ├── roundtable.ts     # roundtable_create/vote/close/finalize_decisions/summarize (state machine)
+│               ├── skills.ts         # skill_register, skill_promote, skill_record_outcome
+│               ├── stats.ts          # task_stats, task_first_actionable
 │               ├── tasks.ts          # task_create_batch, task_get, task_update_status (requireRoles)
-│               └── validation.ts     # validation_record (requireRoles=['pr-reviewer']), validation_history
+│               └── validation.ts     # validation_record (requireRoles=['pr-reviewer'] + subagent_session_id), validation_history
 │
 ├── # Cross-platform strategy doc
 ├── docs/
@@ -240,13 +254,12 @@ plugin/
 
 - **#14** — subagent Bash may bypass PreToolUse hooks (diagnostic harness shipped at `scripts/hooks/diagnostic/`)
 - **#51** — `tests/manual/scenarios.md` template-rewrite for the bro-as-planner chain
-- **#57 / #67 / #68** — roundtable persistence: skill writes summaries to `ledger`; structured `roundtables` + `roundtable_votes` tables exist in schema but no MCP tool wrappers yet
 
 ## Summary
 
 - **Two-layer agent model.** Bro is a CLAUDE.md persona. Backbone agents (`swe`, `pr-reviewer`) ship globally in `agents/`. Consultants (`architect`, `cto`, `ceo`, `pm`) ship as templates in `templates/agents/`, instantiated per-project on demand.
-- **23 skills total** in `skills/`: 16 protocol skills (`tmb_*`, plugin-owned) + 7 default workflow skills (overridable by name in `<project>/.claude/skills/`).
-- **4 hook scripts** (`git-guards`, `git-push-guard`, `require-task-spec`, `diagnostic/probe-bash`)
-- **14-table SQLite schema** via `node:sqlite` (Node stdlib, no native deps; Node ≥22 required) — see [`ERD.md`](ERD.md).
+- **28 skills total** in `skills/`: 21 protocol skills (`tmb_*`, plugin-owned) + 7 default workflow skills (overridable by name in `<project>/.claude/skills/`).
+- **20 hook scripts** under `scripts/hooks/` (see hooks table in `docs/REFERENCE.md`)
+- **18-table SQLite schema** via `node:sqlite` (Node stdlib, no native deps; Node ≥22 required) — see [`ERD.md`](ERD.md).
 - **Test layers (L0-L5)**: see [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`../../tests/run-all.sh`](../../tests/run-all.sh). 10 lint scripts + 245 MCP unit + 43 MCP integration + 27 hook unit + 10-item manual checklist + Docker install-smoke + post-tag canary.
 - **Multi-platform structure** present as placeholders; only `.claude-plugin/` is implemented (see [`../multi-platform.md`](../multi-platform.md)).

@@ -42,6 +42,35 @@ Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`fail
 
 We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded.
 
+### `roundtables.state` — roundtable state machine
+
+| Value | Source | Meaning |
+|---|---|---|
+| `collecting` | TMB | Votes being gathered from participants |
+| `awaiting_human` | TMB | All expected votes received; pending Human ratification |
+| `closed` | TMB | Human ratified; decisions finalized |
+| `skipped` | TMB | Roundtable cancelled or consensus reached without full vote |
+
+Server enforces valid transitions: `collecting → awaiting_human → closed | skipped`. Other transitions return `is_error: true`.
+
+### `roundtables.status` — legacy open/close state (pre-#141)
+
+| Value | Source | Meaning |
+|---|---|---|
+| `open` | TMB | Roundtable active (not yet closed) |
+| `closed` | TMB | Roundtable archived |
+
+`status` predates the `state` field. `state` is the authoritative state-machine column; `status` is retained for backward compat. **TMB-specific**.
+
+### `issues.remote_kind` — git remote host for issue sync
+
+| Value | Source | Meaning |
+|---|---|---|
+| `github` | TMB | GitHub (github.com or GHE) |
+| `gitlab` | TMB | GitLab (gitlab.com or self-hosted) |
+
+Mirrors `plugin_config.remotes[].provider` (see `ENUMS.md#pluginconfigremotesprovider`). Only these two values supported for issue sync (#132). Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
+
 ### `discussions.kind` — narrative kind in issue discussions
 
 | Value | Source | Meaning |
@@ -51,6 +80,8 @@ We considered aligning to GH PR review states (`approved`/`changes_requested`/`c
 | `question` | TMB | Open question raised by an agent or the Human |
 | `answer` | TMB | Resolution to a `question` |
 | `concern` | TMB | An agent's surfaced concern about the plan |
+| `analysis` | TMB | Consultant's structured analysis on a topic |
+| `decision` | TMB | Bro's architectural decision record (narrative form) |
 
 K8s Events have a `reason` field with a similar shape but different semantics. **TMB-specific** — these mirror our agent communication patterns.
 

@@ -8,6 +8,36 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 - **Doctrine:** Positive-prompt enforcement integrated into `tmb_skill-creator`, `tmb_agent-creator`, and `tmb_review-findings`. New L1 lint `no-negative-directives.sh` scans skills + agents + CLAUDE.md. Audit pass converted 12 negations to positive directives; 10 load-bearing safety rules retained with inline justification. (#148, GL#21)
 
+- **Roundtable MCP tools — deterministic state machine (#141):** `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`. Server auto-flips `roundtables.state` from `collecting → awaiting_human` when all expected votes are in. AUQ shape validated by new `roundtable-auq-shape.sh` PreToolUse hook. New columns: `roundtables.state`, `roundtables.expected_participants`, `roundtables.ratification_received_at`, `roundtable_votes.participant`.
+
+- **Roundtable MCP tools — initial 3 tools (#24 / TRU-63):** `roundtable_create`, `roundtable_vote`, `roundtable_close` (state-machine-free predecessors, superseded by #141).
+
+- **PR comments fetching (#142):** `pr_comments_get` tool (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS). New `pr_review_runs` table tracks per-PR fetch state. New skill `tmb_pr-review-handler` drives the `/monitor` slash command flow.
+
+- **Issue sync retry (#132):** `issue_sync_retry` tool for retrying failed remote syncs. New columns: `issues.remote_iid`, `issues.remote_kind`, `issues.remote_synced_at`. New log: `~/.claude/tmb/logs/issue-sync.log`.
+
+- **Issue sync kill-switch (#146):** `issue_sync` config key (values: `gh|glab|both|off|auto`; safe default `off`). `TMB_DISABLE_REMOTE_SYNC=1` env var overrides config at the handler level (defense-in-depth). Bro no longer syncs issues to any remote without explicit opt-in.
+
+- **Validation gate — pr-reviewer session tracking (#144):** `validation_record` now requires `subagent_session_id` when `agent='pr-reviewer'`. New column: `validation_attempts.subagent_session_id`. MCP tool handler rejects missing `subagent_session_id` for pr-reviewer role.
+
+- **Discussion gate — Human author verification (#145):** `discussion_append(author='human')` requires `verified_human=true`. New column: `discussions.verified_human` (DEFAULT 0). Guards against agents impersonating the Human in discussion history.
+
+- **Slash commands (#143):** `/roundtable <topic>` and `/monitor <PR_number>` ship as explicit-trigger commands in `commands/`. Catalog at `docs/commands/README.md`.
+
+- **New L5 flow — 13-bulk-cleanup (#99):** Proves bro executes pre-authorized bulk deletes via single Bash call without AskUserQuestion or SWE spawn.
+
+- **Workflow-violation tracking (#144, #145, #146, #147):** Bro logs workflow violations to ledger when agents attempt forbidden operations. Basis for future Layer 2 enforcement.
+
+- **Doctrine — pre-authorized destructive cleanup (#99):** CLAUDE.md `## Pre-authorized destructive cleanup` section. When the Human's prompt contains explicit authorization for bulk deletion, bro executes in one Bash call — no per-step re-confirmation, no SWE spawn.
+
+- **Doctrine — V1/V2/V3 verification (#121-02):** CLAUDE.md `## Bro verification (task gate)` formalizes the three-step gate (V1: files match, V2: verification commands pass, V3: success criteria met) as non-negotiable before closing any task.
+
+- **Doctrine — positive-prompt + LOAD-BEARING-SAFETY annotation (#148):** All remaining negative directives in agent prompts and skills converted to positive alternatives. Load-bearing safety rules kept with explicit `<!-- LOAD-BEARING-SAFETY: reason -->` annotation. New ENFORCEMENT.md section.
+
+- **Doctrine — blast-radius review checklist (#147):** `tmb_planning-difficult` updated with blast-radius review step before SWE spawn for high-risk changes.
+
+- **Doctrine — onboarding sync opt-in (#147):** `tmb_reonboard` updated to present `issue_sync` config option during re-onboarding.
+
 ### Fixed
 
 - 🐛 (mcp): `plugin_meta` seed no longer re-inserts on every MCP boot; one-time migration collapses any pre-existing duplicates to a single `id=1` row. (GL #23)
