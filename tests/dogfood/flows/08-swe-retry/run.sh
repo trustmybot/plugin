@@ -19,13 +19,15 @@ sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
 INSERT INTO issues (id, objective, description, status, created_at, updated_at)
 VALUES (1, 'Seed todo CLI', 'pre-seed for swe-retry flow', 'open',
         datetime('now'), datetime('now'));
-INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, objective, spec,
-                   status, created_at, updated_at)
+INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, title, description,
+                   tools_required, skills_required, success_criteria, status,
+                   created_at, updated_at)
 VALUES (1, 1, 'feat/seed-todo', 'main', 'Seed todo CLI',
-        '## Files\ntodo.py\n', 'failed',
+        'Implement todo.py CLI', '[]', '[]',
+        'python3 -m pytest tests/ passes', 'failed',
         datetime('now'), datetime('now'));
-INSERT INTO discussions (issue_id, branch_id, kind, body, created_at)
-VALUES (1, 'feat/seed-todo', 'concern',
+INSERT INTO discussions (issue_id, author, kind, body, created_at)
+VALUES (1, 'bro', 'concern',
         'verification failed: tests crashed on import — module path is wrong',
         datetime('now'));
 SQL
