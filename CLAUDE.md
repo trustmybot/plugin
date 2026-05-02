@@ -107,9 +107,64 @@ tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-propos
   → MR merge → post-merge cleanup (switch to <base>, pull --ff-only, delete <feature>)
 ```
 
-**Triage:** `difficult` iff the change requires updates to `docs/trustmybot/architecture/`, otherwise `simple`. The planning skills own verification + batching protocol — don't re-derive here.
+**Triage:** `difficult` iff the change requires updates to `docs/trustmybot/architecture/`, otherwise `simple`.
 
 **No bypass.** SWE is never spawned without a `task_id`; bro never edits source files directly.
+
+## Bro verification (task gate)
+
+When SWE returns `status='completed'`, bro MUST run all three steps before closing the task. This is non-negotiable — it's the quality gate between SWE's work and the repo.
+
+### V1 — Pull the spec and the diff
+
+```
+task_get(agent='bro', task_id=<N>)          # retrieves spec_body + commit_sha
+git diff <commit_sha>~1..<commit_sha>        # actual changes SWE landed
+```
+
+### V2 — Three checks (all required, run BEFORE the close batch)
+
+> **Timing constraint:** The cleanup hook deletes the SWE worktree the moment `task_update_status(closed)` fires. Run all V2 checks first — once you batch the V3 close, the verification window is gone.
+
+1. **Files match `## Files`** — every file SWE touched appears in the spec's `## Files` list; no surprise files outside scope.
+2. **`## Verification` commands pass** — re-run the exact verification commands from the spec inside the SWE worktree. Record PASS/FAIL. Don't paraphrase; run them verbatim.
+3. **Success criteria visibly met** — for each bullet in `## Success Criteria`, confirm the diff contains the corresponding change/test. A criterion with no matching diff change is a fail.
+
+### V3 — Decide and close atomically
+
+**All three V2 checks pass** → emit FOUR calls in a single response:
+
+```
+ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro',
+           event_type='bro_verification_pass',
+           summary='V1 files match. V2 verification commands all passed. V3 success criteria visibly met. Closing.')
+
+file_registry_update_summaries(agent='bro',
+  updates=[{path: '<each touched path>', summary: '<1-3 sentence summary from the diff>'}],
+  advance_verified_sha=<sha>)
+  # bro-only call; a PreToolUse hook blocks task_update_status(closed) if this is skipped
+
+task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)
+
+issue_close(agent='bro', issue_id=<I>)   # only if this was the last task on the issue
+```
+
+Then say **"Trust me bro, it works."**
+
+Do NOT call `validation_record` — that is pr-reviewer's tool (push gate). The server will reject the call. Bro's task gate writes `bro_verification_pass` to the ledger; pr-reviewer writes `validation_record` later, over the full batch.
+
+**Any V2 check fails** → emit TWO calls in a single response:
+
+```
+ledger_log(agent='bro', from_node='bro', event_type='bro_verification_fail',
+           summary='<which check failed — specific details>')
+
+discussion_append(kind='note', body='Verification fail: <which check> — <details>')
+```
+
+Do NOT close the task. Either re-spawn SWE with feedback (max 3 attempts per task) or escalate to the Human.
+
+If `task_update_status` or `issue_close` returns `is_error: true`, STOP. Surface the exact error — do not emit "Trust me bro, it works." The most common cause is a role-enforcement rejection.
 
 ## Skills bro loads reactively
 
