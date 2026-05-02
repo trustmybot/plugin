@@ -116,6 +116,20 @@ These currently rely on prompt discipline. Each is a candidate for promotion to 
 4. **Update this matrix** with the new row.
 5. **If demoting from a harder layer to a softer one (e.g. removing a hook), justify in the PR**: what changed about the failure mode that makes the softer layer acceptable?
 
+## Promotion path: positive prompts as the floor (#21)
+
+Layer 6 (positive prompt) is the floor of TMB's enforcement stack. Negative directives (`don't X`, `never Y`) are anti-pattern: they force the model to first process the forbidden concept (Pink Elephant Problem).
+
+When a behavior matters, promote it to a deterministic layer:
+- **Layer 1** (lint): static check before commit
+- **Layer 2** (hook): runtime gate at tool-use time
+- **Layer 3** (MCP server): server-side validation with `requireRoles` / state machines
+- **Layer 4** (schema): DB CHECK constraints
+- **Layer 5** (CC native): permissions, sandbox, role enforcement
+- **Layer 6** (prompt): positive directives as the soft floor
+
+Research basis: pink elephant problem (arxiv 2503.22395), NeQA inverse scaling (Jang 2023, MLR), compliance gap analysis (Gadlet 2026).
+
 ## See also
 
 - [`FLOWS.md`](FLOWS.md) — workflow flowcharts; cross-references which hook fires when in each flow.

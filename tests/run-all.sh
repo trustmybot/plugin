@@ -50,6 +50,7 @@ run_step "L1 lint: release script safety guards"      bash "$HERE/lint/release-s
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/lint/dist-fresh.sh"
 run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/lint/labels-stable.sh"
 run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/lint/enums-stable.sh"
+run_step "L1 lint: no negative directives in prompts" bash "$HERE/lint/no-negative-directives.sh"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 

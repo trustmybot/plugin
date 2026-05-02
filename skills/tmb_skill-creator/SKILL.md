@@ -119,6 +119,20 @@ Skill files load into the LLM context every turn an agent fires. Anything cited 
 
 Citations belong in commits, MRs, and issue bodies. Different surface, different economics.
 
+## Pink-elephant check (mandatory before approval)
+
+Before presenting the draft to the Human for approval, scan the body for negation patterns:
+
+- `^Don't `, `^Never `, `^Do not ` — start-of-line negative imperatives
+- `MUST NOT`, mid-sentence `do not`/`don't`/`never`
+
+For each match:
+1. Surface to the Human via the approval AskUserQuestion: "Found N negation patterns. Convert to positive directives?"
+2. If Human accepts: rewrite each as positive (`Don't include emojis` → `Use plain text only`)
+3. If Human declines a specific one: add `<!-- LOAD-BEARING-SAFETY: <reason> -->` inline so the lint exempts it
+
+Rationale: negation forces the model to process the forbidden concept first (pink elephant problem). Positive directives boost desired-token probability more than negatives suppress unwanted ones.
+
 ## Step 5 — Log + report
 
 ```

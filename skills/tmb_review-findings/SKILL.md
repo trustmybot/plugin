@@ -42,6 +42,17 @@ Every agent reads this before doing their job.
 - **Rule:** For any 2–5 mutually-exclusive choice, use AskUserQuestion. Constraints + skip-cases live inline at `CLAUDE.md ## Asking the Human`.
 - **Check:** Bro turns offering a numbered list of choices and waiting for "1" / "2" / etc. should be flagged as a regression.
 
+## Prompt Authoring
+
+### Negative directive in prompt
+
+**Trigger:** PR introduces a `Don't` / `Never` / `Do not` clause to a prompt or skill body.
+
+**Action:**
+- Propose the positive alternative inline ("Use X" instead of "Don't use Y")
+- Or recommend promotion to Layer 2 (hook/requireRoles) for structural enforcement
+- If load-bearing safety: require `<!-- LOAD-BEARING-SAFETY: <reason> -->` justification
+
 ## Test Isolation
 
 (none yet)
