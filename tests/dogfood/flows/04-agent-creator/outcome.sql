@@ -12,11 +12,11 @@ SELECT
   'ledger-event-has-architect-name (got ' || COUNT(*) || ')' AS description
 FROM ledger
 WHERE event_type = 'tmb_agent_created'
-  AND content_json LIKE '%"name":"architect"%';
+  AND content LIKE '%"name":"architect"%';
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
   'ledger-event-has-template-copy-mode (got ' || COUNT(*) || ')' AS description
 FROM ledger
 WHERE event_type = 'tmb_agent_created'
-  AND content_json LIKE '%"mode":"template-copy"%';
+  AND content LIKE '%"mode":"template-copy"%';
