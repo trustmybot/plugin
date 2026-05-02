@@ -11,3 +11,11 @@ SELECT
   'pr-reviewer-attempt-on-task-1 (got ' || COUNT(*) || ', expected ≥ 1)' AS description
 FROM validation_attempts
 WHERE task_id = 1;
+
+-- Assert: pr-reviewer announced MCP availability on first response (#97)
+SELECT
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'pr-reviewer-announced-mcp-availability (got ' || COUNT(*) || ', expected ≥ 1)' AS description
+FROM validation_attempts
+WHERE agent = 'pr-reviewer'
+  AND (feedback LIKE 'MCP available: yes%' OR feedback LIKE 'MCP available: no%');

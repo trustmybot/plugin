@@ -31,7 +31,9 @@ Two triggers:
 2. **Query MCP** for tasks with `commit_sha NOT NULL` AND no passing `validation_attempts.verdict='pass'` row. These are the unsigned-task batch.
 3. **For each task in the batch, spawn `pr-reviewer`** with `task_id=N`. Run them in parallel where possible — they're independent.
    - `pr-reviewer` ships globally with the plugin. **No file copy needed.** CC's agent dispatcher discovers it automatically.
-4. **Each pr-reviewer signs off** with `validation_record(verdict='pass'|'fail', ...)`.
+4. **Read the first line of pr-reviewer's response.** It will be one of:
+   - `MCP available: yes` → pr-reviewer called `validation_record` directly; proceed.
+   - `MCP available: no — honor-system fallback` → pr-reviewer could not call `validation_record`. Read pr-reviewer's stated verdict from its response. Then record on pr-reviewer's behalf using sqlite3 directly into the trajectory DB (`sqlite3 $PROJECT/.claude/tmb/trajectory.db`): insert into `validation_attempts` with `agent='pr-reviewer'`, `feedback` starting with `MCP available: no — honor-system fallback\n` followed by pr-reviewer's verbatim verdict text, and `subagent_session_id` from the agentId in pr-reviewer's response. Honor-system caveat: the row's `agent` will show `pr-reviewer` but was bro-authored — this is the authorized audit exception (#97).
 5. **On all-pass:** push the local branch (`git push origin <feature>`), open the MR, then tell the Human the gate is clear. After the MR merges, run the **Post-merge cleanup** below.
 6. **On any fail:** surface the failure verbatim. The Human chooses:
    - Accept the fix scope → bro spawns swe to address.
