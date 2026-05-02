@@ -77,6 +77,8 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro',
     issue_id: issueId,
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     tasks: [{
       branch_id: 'refactor/jwt-auth',
       title: 'Replace session middleware with JWT (RS256)',

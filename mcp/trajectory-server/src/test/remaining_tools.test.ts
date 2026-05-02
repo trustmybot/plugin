@@ -40,6 +40,7 @@ async function createTask(
   const tools = taskTools(db);
   const result = await call(tools.handlers, 'task_create_batch', {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+    waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
     agent: 'bro',
     issue_id: String(issueId),
     tasks: [

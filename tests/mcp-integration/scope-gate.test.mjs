@@ -147,6 +147,8 @@ test('task_create_batch — accepts when a kind=question row exists', async (t) 
   const attempt = await call(client, 'task_create_batch', {
     agent: 'bro',
     issue_id: issueId,
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'scope-gate test; branch gate not under test in this case',
     tasks: [{ branch_id: 'feat/gate-ok', description: 'd', success_criteria: 'x' }],
   });
 
@@ -169,6 +171,8 @@ test('task_create_batch — accepts with waiver + reason ≥10 chars', async (t)
     issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'typo in README line 12; no interpretation needed',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'scope-gate test; branch gate not under test in this case',
     tasks: [{ branch_id: 'fix/readme-typo', description: 'fix recieve', success_criteria: 'green spellcheck' }],
   });
 

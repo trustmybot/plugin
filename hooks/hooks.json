@@ -87,6 +87,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-task-spec.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-feature-branch-active.sh",
+            "timeout": 5
           }
         ]
       },

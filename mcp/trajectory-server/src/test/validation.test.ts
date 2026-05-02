@@ -37,6 +37,8 @@ async function createTask(db: TrajectoryDB, issueId: number): Promise<number> {
   const result = await call(tasks.handlers, 'task_create_batch', {
     waive_scope_gate: true,
     waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
     agent: 'bro',
     issue_id: String(issueId),
     tasks: [{ branch_id: 'fix/validation-test', description: 'Test task', success_criteria: 'passes' }],

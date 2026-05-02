@@ -139,6 +139,12 @@ export function taskTools(db: TrajectoryDB): {
             description:
               "Required when waive_scope_gate=true. Min 10 chars. Explain why this task has no Human-reviewed scope (e.g. 'typo fix in README line 12; no interpretation needed').",
           },
+          waive_branch_gate: {
+            type: 'boolean',
+          },
+          waive_branch_gate_reason: {
+            type: 'string',
+          },
         },
         required: ['agent', 'issue_id', 'tasks'],
       },
@@ -249,6 +255,43 @@ export function taskTools(db: TrajectoryDB): {
                     `doc), pass waive_scope_gate=true with waive_scope_gate_reason="<why trivial>".`,
                   issue_id: issueId,
                   questions_found: 0,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      // --- Branch-id-proposal gate (MCP-level enforcement, #155) ---
+      // task_create_batch must be preceded by a ledger event 'branch_id_proposed'
+      // for this issue. Stops bro from spawning SWE without first running
+      // tmb_branch-id-proposal (which creates the feature branch and switches
+      // the main checkout to it).
+      const ledgerWaived = args['waive_branch_gate'] === true;
+      const ledgerWaiverReason = (args['waive_branch_gate_reason'] ?? '') as string;
+
+      if (ledgerWaived) {
+        if (typeof ledgerWaiverReason !== 'string' || ledgerWaiverReason.trim().length < 10) {
+          return err('waive_branch_gate_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const proposed = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM ledger WHERE issue_id = ? AND event_type = 'branch_id_proposed'`,
+          [issueId],
+        );
+        if ((proposed?.c ?? 0) === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'branch_state_violation',
+                  message:
+                    `branch_state_violation: issue ${issueId} has zero ledger events with event_type='branch_id_proposed'. ` +
+                    `Run tmb_branch-id-proposal first (it creates the feature branch and switches the main checkout). ` +
+                    `For exceptional cases, pass waive_branch_gate=true with waive_branch_gate_reason="<why>".`,
+                  issue_id: issueId,
                 }),
               },
             ],

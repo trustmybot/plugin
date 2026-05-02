@@ -47,6 +47,8 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
     issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'simple-triage personal endpoint; defaults named in triage note (single file, stdlib router)',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     tasks: [{
       branch_id: 'feat/hello',
       title: 'Add /hello endpoint',
