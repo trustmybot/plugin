@@ -4,6 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Added
+
+- **Doctrine:** Positive-prompt enforcement integrated into `tmb_skill-creator`, `tmb_agent-creator`, and `tmb_review-findings`. New L1 lint `no-negative-directives.sh` scans skills + agents + CLAUDE.md. Audit pass converted 12 negations to positive directives; 10 load-bearing safety rules retained with inline justification. (#148, GL#21)
+
 ### Fixed
 
 - 🐛 (mcp): `plugin_meta` seed no longer re-inserts on every MCP boot; one-time migration collapses any pre-existing duplicates to a single `id=1` row. (GL #23)

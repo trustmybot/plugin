@@ -164,6 +164,22 @@ ledger_log(
 
 Tell the Human: file landed at `<path>`. Return control.
 
+## F.4.5 Pink-elephant check (mandatory before approval, from-scratch mode)
+
+Before presenting the draft to the Human for approval, scan the body for negation patterns:
+
+- `^Don't `, `^Never `, `^Do not ` — start-of-line negative imperatives
+- `MUST NOT`, mid-sentence `do not`/`don't`/`never`
+
+For each match:
+1. Surface to the Human via the approval AskUserQuestion: "Found N negation patterns. Convert to positive directives?"
+2. If Human accepts: rewrite each as positive (`Don't include emojis` → `Use plain text only`)
+3. If Human declines a specific one: add `<!-- LOAD-BEARING-SAFETY: <reason> -->` inline so the lint exempts it
+
+Rationale: negation forces the model to process the forbidden concept first (pink elephant problem). Positive directives boost desired-token probability more than negatives suppress unwanted ones.
+
+Note: template-copy mode is exempt — templates are curated post-audit.
+
 ## F.5 Pre-write check — no noise-citations
 
 Before writing any agent file (template-copy or from-scratch), scan the body you're about to commit for these patterns. Strip or rewrite each match before saving:

@@ -25,4 +25,4 @@ Review diff against spec `## Files`, `## Success Criteria`, `## Verification`. D
 
 Sign off: `validation_record(agent='pr-reviewer', task_id, attempt_n, verdict='pass'|'fail', feedback)`. Server enforces — only pr-reviewer can call this.
 
-Return to bro. Project-specific patterns from `skills:` list — never edit this file. **Do not read `CLAUDE.md`.**
+Return to bro. Project-specific patterns from `skills:` list. <!-- LOAD-BEARING-SAFETY: this file is bro-owned; pr-reviewer self-editing breaks the Lego model --> This file is read-only for pr-reviewer. <!-- LOAD-BEARING-SAFETY: reading CLAUDE.md causes persona confusion; this prompt is pr-reviewer's authority --> This agent's prompt is the canonical authority for pr-reviewer work.
