@@ -38,6 +38,18 @@ l5_seed_db() {
   sqlite3 "$dir/.claude/tmb/trajectory.db" < "$fixture_path"
 }
 
+# l5_preserve_trajectory <project_dir> <flow_name> <run_id>: copies
+# trajectory.jsonl and trajectory.db to ~/.claude/tmb/l5-trajectories/<flow>/<run_id>/
+# before the scratch dir is removed. Always returns 0 (best-effort).
+l5_preserve_trajectory() {
+  local project="$1" flow="$2" run_id="$3"
+  local dest="${HOME}/.claude/tmb/l5-trajectories/${flow}/${run_id}"
+  mkdir -p "$dest" 2>/dev/null || return 0
+  [ -f "$project/trajectory.jsonl" ] && cp "$project/trajectory.jsonl" "$dest/trajectory.jsonl" 2>/dev/null || true
+  [ -f "$project/.claude/tmb/trajectory.db" ] && cp "$project/.claude/tmb/trajectory.db" "$dest/trajectory.db" 2>/dev/null || true
+  return 0
+}
+
 # l5_run_claude <project_dir> <prompt>: runs claude with stream-json output
 # against the prompt in the project, with TMB_DEBUG_TRAJECTORY=1, plugin
 # loaded via --plugin-dir. Pipes JSONL to <dir>/trajectory.jsonl; echoes a
@@ -74,6 +86,9 @@ l5_run_claude() {
     assistant_msgs=$(grep -c '"type":"assistant"' "$jsonl" 2>/dev/null || echo 0)
     duration_ms=$(jq -s 'map(select(.type=="result") | .duration_ms // 0) | max // 0' "$jsonl" 2>/dev/null || echo 0)
     echo "  ── claude invocation end (assistant_msgs=$assistant_msgs, duration_ms=$duration_ms) ──" >&2
+    if [ -n "${FLOW_NAME:-}" ] && [ -n "${RUN_ID:-}" ]; then
+      l5_preserve_trajectory "$dir" "$FLOW_NAME" "$RUN_ID"
+    fi
   )
 }
 

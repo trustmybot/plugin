@@ -50,6 +50,7 @@ Catalog: `docs/commands/README.md`.
 - `~/.claude/tmb/logs/mcp-health.log` — MCP health check + hook diagnostics
 - `~/.claude/tmb/logs/issue-sync.log` — `issue_sync_active` warnings + sync errors (#132, #147)
 - `~/.claude/tmb/logs/sql.log` — SQL trace (when enabled)
+- `~/.claude/tmb/l5-trajectories/<flow>/<run_id>/` — trajectory.jsonl + trajectory.db preserved per flow run (written by `l5_preserve_trajectory` in flow-helpers.sh)
 
 ## Env vars
 
