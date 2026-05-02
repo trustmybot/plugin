@@ -36,6 +36,7 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
 - **Verify context before answering** — query trajectory DB first; branch by git-clean state; use `tmb_project-prescan` for first-time onboarding; web for upstream specs; flag training-data fallbacks.
 - **Standards check** — propose `tmb_agent-creator` to spawn a domain specialist when the question is outside general SWE.
 - **MCP `agent: 'bro'` parameter** on every MCP call — server rejects others.
+- **Pre-authorized destructive cleanup** — when the Human's prompt already names what to delete (branches, temp files, etc.), bro executes in one Bash command with no AUQ and no re-confirmation. Defensive checks happen before authorization, not after.
 
 ### Routing (CLAUDE.md ## Routing table)
 
@@ -49,12 +50,14 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
 | `refresh architecture docs` | `tmb_refresh-architecture` |
 | Disagree with Human's plan | `tmb_concerns-protocol` |
 | File reads / searches / git status | Direct (Read, Glob, Grep, Bash) |
+| `/roundtable <topic>` | `tmb_roundtable` (explicit-trigger entry; see `docs/commands/`) |
+| `/monitor <PR_number>` | `tmb_pr-review-handler` (explicit-trigger entry; see `docs/commands/`) |
 
 ### Code-touching chain (single source of truth: `tmb_planning-simple` / `tmb_planning-difficult`)
 
 1. `tmb_project-prescan` → `tmb_lazy-regen-check` → triage
 2. `tmb_branch-id-proposal` (open MCP issue + propose branch_id)
-3. `tmb_planning-simple` OR `tmb_planning-difficult`
+3. `tmb_planning-simple` OR `tmb_planning-difficult` — specs that introduce external side effects (network calls, API mutations) get a blast-radius review before finalizing
 4. **bro pre-creates the task branch from `origin/<pr_target>`** (after fetching) — `git fetch origin && git branch <task.branch_id> origin/<pr_target>`
 5. `task_create_batch` + spawn SWE with `task_id=<N>` + `ledger_log(planning_complete)` [batched]
 6. SWE returns
@@ -75,6 +78,8 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
 | Re-onboarding | `tmb_reonboard` |
 | Refresh arch docs | `tmb_refresh-architecture` |
 | Disagreement | `tmb_concerns-protocol` |
+| `/roundtable <topic>` | `tmb_roundtable` |
+| `/monitor <PR_number>` | `tmb_pr-review-handler` |
 
 ### Server-enforced bro privileges (Layer 1)
 
@@ -87,6 +92,9 @@ Bro is the only agent allowed to call:
 - `identity_set`, `identity_reset`
 - `discussion_append` for `kind='intent'/'note'`
 - `regen_state_set` (shared with architect, pr-reviewer)
+- `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
+- `pr_comments_get` (shared with pr-reviewer)
+- `issue_sync_retry`
 
 ### Hooks fired on bro's behalf
 
@@ -174,6 +182,7 @@ Frontmatter: `model: opus`, `tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tm
 - Fires at **push time** over a batch of unsigned tasks, NOT at every individual task close.
 - Bro spawns one pr-reviewer per unsigned `task_id=<N>` (parallel siblings when the push contains multiple).
 - First action: `task_get(agent='pr-reviewer', task_id=N)`. Reject spawn if `task_id` missing.
+- **MCP availability self-test** — first output line is `MCP available: yes` or `MCP available: no — honor-system fallback`. Bro greps the trajectory log for this line when making routing decisions. If `no`, pr-reviewer falls back to diff-only review without DB writes.
 
 ### Review work
 
@@ -196,6 +205,7 @@ For each task:
 - **`validation_record`** — pr-reviewer is the ONLY agent allowed to write this. Bro/swe/consultants get rejected.
 - `regen_state_set` (shared with architect, bro)
 - `issue_snapshot_md` (shared with architect)
+- `pr_comments_get` (shared with bro)
 - `audit_log`, `discussion_append`
 
 ### Hooks fired against pr-reviewer actions
