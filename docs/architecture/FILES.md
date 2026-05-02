@@ -2,7 +2,7 @@
 
 Every tracked file in `plugin/` with its purpose. Regenerate after any restructure.
 
-Last refresh: 2026-04-24 on `chore/multi-platform-placeholders` (v0.1.2).
+Last refresh: 2026-05-02 on `docs/151-architecture-cleanup`.
 
 > **Bro-as-planner doctrine + Lego templates + multi-platform placeholders.**
 > The plugin ships ZERO subagents. `bro` is a CLAUDE.md persona on main
