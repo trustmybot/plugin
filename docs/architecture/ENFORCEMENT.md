@@ -41,6 +41,11 @@ The "enforcement" column names the **strongest layer currently deployed** for ea
 | Worktree cleanup on task close (no stale `.claude/worktrees/` accumulation) | Layer 2 (PostToolUse hook on `task_update_status`) | `scripts/hooks/cleanup-worktree-on-task-close.sh` |
 | **Bro must update file_registry summaries before closing the task** (#181 — bro has full task context, SWE doesn't) | Layer 1 (`requireRoles('file_registry_update_summaries', ['bro'])`) + Layer 2 (PreToolUse hook denies `task_update_status(closed)` when summaries are missing/stale) | `mcp/trajectory-server/src/tools/file-registry.ts` + `scripts/hooks/require-summaries-before-task-close.sh` |
 | MCP calls must include `agent: 'bro'` | Layer 1 (server `requireRoles`) | `mcp/trajectory-server/src/middleware/agent-scope.ts` |
+| `validation_record(agent='pr-reviewer')` requires `subagent_session_id` (#144) | Layer 1 (tool handler rejects missing `subagent_session_id` when agent='pr-reviewer') | `mcp/trajectory-server/src/tools/validation.ts` |
+| `discussion_append(author='human')` requires `verified_human=true` (#145) | Layer 1 (tool handler rejects human-authored appends without the gate flag) | `mcp/trajectory-server/src/tools/discussions.ts` |
+| AUQ shape during roundtable `awaiting_human` (#141) | Layer 2 (PreToolUse hook validates checkbox/radio structure before AUQ renders) | `scripts/hooks/roundtable-auq-shape.sh` |
+| Issue-sync default-off + env-var kill-switch (#146) | Layer 1 (config default `issue_sync='off'` in schema seed) + env override (`TMB_DISABLE_REMOTE_SYNC=1` short-circuits `resolveBackend()` before any CLI spawn) | `mcp/trajectory-server/src/schema.sql` + `mcp/trajectory-server/src/sync/backend.ts` |
+| Roundtable state machine (#141) | Layer 1 (server rejects state-transition violations — e.g. `roundtable_vote` on a closed roundtable returns `is_error: true`) | `mcp/trajectory-server/src/tools/roundtable.ts` |
 | Welcome banner phrasing | Layer 6 only | CLAUDE.md `## Welcome banner` |
 | Triage rule (`difficult` iff `docs/trustmybot/architecture/` touched) | Layer 6 only | CLAUDE.md `## Code-touching ask chain` |
 | Verify-context check before answering | Layer 6 only | CLAUDE.md `## Before answering — verify context` |

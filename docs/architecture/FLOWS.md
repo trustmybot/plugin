@@ -34,8 +34,10 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | 6 | [Push gate / PR review](#6-push-gate--pr-review) | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `tmb_review-protocol`, `tmb_review-findings`, `tmb_code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL) | `git-push-guard` |
 | 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture`, `tmb_lazy-regen-check` | `regen_state`, `file_registry` | — |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer when at push gate) | `tmb_feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `git-push-guard` |
-| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `discussions`, `ledger` (and reserved: `roundtables`, `roundtable_votes`) | — |
+| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `roundtables`, `roundtable_votes`, `discussions`, `ledger` | `roundtable-auq-shape` |
+| 13 | [Bulk cleanup](#13-bulk-cleanup-pre-authorized-destructive-ops) | Human pre-authorizes a bulk delete in the prompt | bro (direct Bash, no SWE spawn) | — | none (filesystem hygiene) | — |
 | **C** | [Consultant invocation](#c-consultant-invocation) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / pm / domain) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
+| **M** | [Monitor PR comments](#m-monitor-pr-comments) | `/monitor <PR_number>` | bro → pr-reviewer (one per actionable comment batch) | `tmb_pr-review-handler` | `pr_review_runs`, `issues`, `tasks`, `ledger` | `git-push-guard` |
 
 ---
 
@@ -437,31 +439,80 @@ If the skill finds < 2 suitable participants, it escalates back to bro — round
 - Convener: `bro` (loads the `tmb_roundtable` skill)
 - Participants: 2-4 project-local consultants. SWE + pr-reviewer always excluded.
 - Skills: `tmb_roundtable` (mechanics), `tmb_roundtable-cleanup` (post-synthesis archive)
-- MCP tools: `ledger_log` (records the summary as `event_type='roundtable_summary'`); `discussion_list` to inspect prior conflicting positions; `discussion_append(kind='analysis')` per consultant
-- DB tables: `discussions` (one `kind='analysis'` row per consultant), `ledger` (summary). Reserved-but-unused: `roundtables` + `roundtable_votes` (schema exists; no MCP tool wrappers yet — tracked in [#57](https://github.com/trustmybot/plugin/issues/57) / [#67](https://github.com/trustmybot/plugin/issues/67) / [#68](https://github.com/trustmybot/plugin/issues/68))
-- Hooks: none
+- MCP tools: `roundtable_create({ expected_participants })`, `roundtable_vote` (per participant), `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_summarize`, `ledger_log`, `discussion_list`, `discussion_append(kind='analysis')`
+- DB tables: `roundtables` (state machine row), `roundtable_votes` (one per participant), `discussions` (one `kind='analysis'` row per consultant), `ledger` (summary)
+- Hooks: `roundtable-auq-shape.sh` (PreToolUse AskUserQuestion — validates AUQ shape during `awaiting_human` state)
 
 ```mermaid
-flowchart TD
-    A[Trigger:<br/>cross-domain decision OR<br/>conflicting positions OR<br/>Human request for deliberation] --> B{Glob .claude/agents/<br/>+ read frontmatter:<br/>≥2 consultants?<br/>SWE + pr-reviewer excluded}
-    B -->|no| C[Bro escalates to Human:<br/>'roundtable needs ≥2 consultants —<br/>want me to create &lt;X&gt; via tmb_agent-creator?']
-    B -->|yes| D[Bro picks 2-4 participants<br/>whose frontmatter description<br/>best matches the topic]
-    D --> E[Parallel spawn via Task<br/>multiple calls in one message]
-    E --> F[Each consultant runs in own context:<br/>state position + reasoning<br/>+ discussion_append kind='analysis']
-    F --> G[Bro synthesizes:<br/>convergence, tensions,<br/>recommendation, open questions]
-    G --> H["ledger_log<br/>event_type='roundtable_summary'<br/>topic, participants, recommendation"]
-    H --> I[Invoke tmb_roundtable-cleanup:<br/>archive raw positions, tidy workspace]
-    I --> J[Bro relays synthesis to Human;<br/>Human decides]
+sequenceDiagram
+    participant H as Human
+    participant B as Bro
+    participant C1 as Consultant 1
+    participant C2 as Consultant 2
+    participant DB as SQLite
+
+    B->>DB: roundtable_create({ topic, expected_participants: 2 })
+    Note over DB: state = collecting
+    par parallel spawns
+        B->>C1: spawn(analysis task)
+    and
+        B->>C2: spawn(analysis task)
+    end
+    C1->>DB: roundtable_vote(position + rationale)
+    C2->>DB: roundtable_vote(position + rationale)
+    Note over DB: state auto-flips to awaiting_human when count met
+    B->>H: AskUserQuestion (checkbox — ratify decisions)
+    Note over H,B: roundtable-auq-shape.sh validates AUQ shape
+    H-->>B: ratified selections
+    B->>DB: roundtable_finalize_decisions(decisions[])
+    B->>DB: roundtable_close()
+    B->>DB: roundtable_summarize() → ledger_log(roundtable_summary)
+    B->>H: AskUserQuestion — downstream issues to create?
+    H-->>B: selections
+    B->>DB: issue_create per approved downstream
 ```
 
 **Notes:**
 
+- **Deterministic state machine.** `roundtable_create` sets `state='collecting'`; each `roundtable_vote` increments the count; server auto-flips to `awaiting_human` when all expected votes are in. Bro cannot proceed to ratification until the state transitions.
+- **AUQ shape enforced.** The `roundtable-auq-shape.sh` hook validates that the ratification AUQ uses checkbox (multi-select) for compound decisions and radio for single-option ratification. Malformed AUQ is denied.
+- **`roundtable_finalize_decisions` is atomic.** Decision rows are written in a single call; partial writes are rejected.
 - **Parallel spawn, sequential synthesis.** Consultants are spawned in one message (multiple `Task` calls); each runs in its own context window so there's no cross-contamination. Bro waits for all responses, then synthesizes.
 - **No groupthink.** If all participants agree immediately, the skill instructs bro to probe the weakest shared assumption before accepting consensus.
 - **Protect dissent.** A lone dissenter may be right — dissenting views get explicit airtime in the synthesis's `<tensions>` section.
-- **Ledger is the current record store.** `roundtables` + `roundtable_votes` tables in the schema are reserved structure; today the skill writes summaries to `ledger`. A future schema-uplift task can migrate to the structured tables when there's reason to query roundtable history independently.
 - **One voice ≠ roundtable.** If the project only has one consultant (or none), the skill refuses. Bro surfaces it as "I'd need a `pm` (or similar) for this — want me to create one?" and routes through flow #4.
 - **Bro never auto-applies the synthesis.** Even when consultants converge unanimously, the recommendation goes to the Human, not into a task spec.
+
+---
+
+## 13. Bulk Cleanup (pre-authorized destructive ops)
+
+**Trigger:** Human's prompt contains explicit authorization to delete or overwrite a set of files/branches/artifacts (e.g. "clean all .DS_Store files", "delete these branches, keep only main and dev").
+
+**Doctrine:** When the Human pre-authorizes bulk deletion, bro executes in one Bash call, no AskUserQuestion, no SWE spawn. This is filesystem hygiene, not a code change — it doesn't warrant the issue→task→SWE chain.
+
+**Involved:**
+- Agent: `bro` only (direct Bash — no SWE spawn, no issue/task created)
+- Skills: none
+- MCP tools: `ledger_log` (if project-state-affecting, e.g. branch deletes; skip for filesystem hygiene)
+- DB tables: none (for `.DS_Store` removal; `ledger` for branch deletes)
+- Hooks: none specific to this flow
+
+```mermaid
+flowchart TD
+    A["Human: 'clean all .DS_Store files'<br/>(or 'delete these branches…')"] --> B{Pre-authorized in<br/>current message?}
+    B -->|no| C[Bro asks for explicit authorization<br/>before destructive op]
+    B -->|yes| D[Bro: one-shot Bash<br/>find . -name '.DS_Store' -delete]
+    D --> E{Project-state-affecting?<br/>e.g. branch deletes}
+    E -->|yes| F[ledger_log the cleanup]
+    E -->|no – filesystem hygiene| G[Done — report what was removed]
+    F --> G
+```
+
+**Notes:**
+- No re-confirmation after the Human has authorized. Re-asking treats a standing directive as a question — wastes time and ignores intent.
+- Defensive checks (which files match? any active worktrees?) belong *before* the Human authorizes, not after.
+- AskUserQuestion is explicitly forbidden for this flow (see `tools-forbidden.json` in the L5 flow fixture).
 
 ---
 
@@ -537,6 +588,53 @@ The hook is a **defensive safety net only** — it does not remove or replace th
 ## Linear backfill workflow
 
 When Linear-imported issues have truncated descriptions, bro can backfill them using the `issue_update_description` tool. The workflow is: (1) bro fetches the full description via the Linear MCP (`mcp__linear-server__get_issue` or equivalent); (2) bro calls `issue_update_description(agent='bro', issue_id='<N>', description='<full>')` to overwrite the truncated row; (3) bro verifies via `issue_get(include_description=true)` that the row reflects the new description. The tool is gated to the bro role via `requireRoles` — SWE, pr-reviewer, and architect cannot rewrite issue descriptions, preserving the audit trail of who changed what and when.
+
+---
+
+---
+
+## M. Monitor PR comments
+
+**Trigger:** Human runs `/monitor <PR_number>` (or `@bro monitor PR N`). The `/monitor` slash command wraps the `tmb_pr-review-handler` skill.
+
+**Purpose:** Fetch open review comments from a PR/MR, cluster them by theme, present them to the Human for ratification, then dispatch SWE tasks to address each ratified comment batch.
+
+**Involved:**
+- Agent: `bro` (orchestrator), `swe` (one per ratified comment task)
+- Skill: `tmb_pr-review-handler`
+- MCP tools: `pr_comments_get` (gh + glab backends), `roundtable_create` / `roundtable_vote` / `roundtable_finalize_decisions` / `roundtable_close` (for structured ratification), `issue_create`, `task_create_batch`, `ledger_log`
+- DB tables: `pr_review_runs` (tracks last fetched comment per PR+repo), `issues`, `tasks`, `ledger`
+- External: `gh`/`glab` CLI (via `pr_comments_get` backend)
+- Hooks: `git-push-guard` (usual push gate when SWE commits land)
+
+```mermaid
+sequenceDiagram
+    participant H as Human
+    participant B as Bro
+    participant P as pr_comments_get
+    participant DB as SQLite
+    participant S as SWE
+
+    H->>B: /monitor 42
+    B->>P: pr_comments_get(pr_number=42, repo, remote_kind)
+    P-->>B: comments[] (bot-filtered, deduped)
+    B->>DB: pr_review_runs upsert (last_fetched_at, last_comment_id)
+    B->>B: cluster comments by theme / file / concern
+    B->>H: AskUserQuestion (checkbox — which comment clusters to address?)
+    H-->>B: ratified clusters
+    loop per ratified cluster
+        B->>DB: issue_create + task_create_batch
+        B->>S: spawn(task_id=N)
+    end
+    B->>DB: ledger_log(event_type='monitor_complete', pr=42, tasks_created=N)
+    B-->>H: "N tasks created for PR #42 comments."
+```
+
+**Notes:**
+- `pr_comments_get` auto-detects `remote_kind` from `plugin_config.remotes`; falls back to gh CLI if glab is absent.
+- Bot comments are filtered via DEFAULT_BOT_PATTERNS (Dependabot, Renovate, GitHub Actions, etc.) before presentation.
+- `pr_review_runs` tracks `last_comment_id` so repeated `/monitor` calls on the same PR only surface new comments since the last run.
+- The Human always decides which clusters to address — bro never auto-creates tasks without ratification.
 
 ---
 

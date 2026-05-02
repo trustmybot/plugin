@@ -75,3 +75,16 @@ Never confuse layers: a "more skilled SWE" means swe.md plus added skills, not a
 - `tmb_review-findings`
 
 All are globally discoverable. Project-local `<project>/.claude/skills/<name>/SKILL.md` overrides by name. Onboarding does NOT copy skills into projects — the global ones serve every project until a customization is needed.
+
+## Slash commands
+
+The plugin ships explicit-trigger slash commands that wrap skills:
+
+- `/roundtable <topic>` → invokes `tmb_roundtable` skill
+- `/monitor <PR_number>` → invokes `tmb_pr-review-handler` skill
+
+Runtime location: `plugin/commands/<name>.md`. Public design docs: `plugin/docs/commands/<name>.md`. Catalog index: `plugin/docs/commands/README.md`. L1 lint: `tests/lint/command-frontmatter.sh`.
+
+## pr-reviewer MCP availability self-test (#97)
+
+The pr-reviewer subagent's first output line is `MCP available: yes` or `MCP available: no — honor-system fallback`. Bro greps the announcement to route validation recording deterministically. Detail in `agents/pr-reviewer.md`.
