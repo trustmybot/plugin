@@ -1,7 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { SpawnSyncOptions } from 'node:child_process';
-import { dirname, join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
+import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
@@ -55,15 +55,7 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 }
 
 function resolveSpawnCwd(db: TrajectoryDB, dbPath: string): string | undefined {
-  if (!dbPath) return undefined;
-  const defaultRepoRow = db.get<{ value_json: string }>(
-    `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
-  );
-  if (!defaultRepoRow?.value_json) return undefined;
-  const defaultRepo = JSON.parse(defaultRepoRow.value_json) as unknown;
-  if (typeof defaultRepo !== 'string' || defaultRepo.length === 0) return undefined;
-  const workspaceRoot = dirname(dirname(dirname(dbPath)));
-  return join(workspaceRoot, defaultRepo);
+  return resolveDefaultRepoPath(db, dbPath);
 }
 
 export function issueTools(db: TrajectoryDB, dbPath = ''): {

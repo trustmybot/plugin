@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path';
+import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { decodeLabels } from './labels.js';
@@ -38,16 +38,7 @@ function wrapHandler(fn) {
     };
 }
 function resolveSpawnCwd(db, dbPath) {
-    if (!dbPath)
-        return undefined;
-    const defaultRepoRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
-    if (!defaultRepoRow?.value_json)
-        return undefined;
-    const defaultRepo = JSON.parse(defaultRepoRow.value_json);
-    if (typeof defaultRepo !== 'string' || defaultRepo.length === 0)
-        return undefined;
-    const workspaceRoot = dirname(dirname(dirname(dbPath)));
-    return join(workspaceRoot, defaultRepo);
+    return resolveDefaultRepoPath(db, dbPath);
 }
 export function issueTools(db, dbPath = '') {
     const definitions = [

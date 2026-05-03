@@ -637,6 +637,34 @@ describe('fileRegistryTools', () => {
     });
   });
 
+  describe('file_registry_update_summaries workspace-pattern regression (#177)', () => {
+    it('resolves relative paths via tmb_default_repo when dbPath is provided (workspace pattern)', async () => {
+      const tmpDir = mkdtempSync(join(tmpdir(), 'frws-'));
+      const pluginDir = join(tmpDir, 'plugin');
+      const fooDir = join(pluginDir, 'foo');
+      execFileSync('mkdir', ['-p', fooDir]);
+      writeFileSync(join(fooDir, 'bar.txt'), 'workspace-content\n');
+
+      const dbPath = join(tmpDir, '.claude', 'tmb', 'trajectory.db');
+      execFileSync('mkdir', ['-p', join(tmpDir, '.claude', 'tmb')]);
+
+      const db = tempDB();
+      db.run(
+        `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"plugin"', datetime('now'))`,
+      );
+
+      const tools = fileRegistryTools(db, dbPath);
+      const result = await call(tools.handlers, 'file_registry_update_summaries', {
+        updates: [{ path: 'foo/bar.txt', summary: 'test' }],
+      });
+      assert.ok(!result.isError);
+      const data = parseResult(result);
+      assert.equal(data.updated, 1);
+      assert.deepEqual(data.errors, []);
+      db.close();
+    });
+  });
+
   describe('file_registry_update_summaries (#45)', () => {
     it('writes content_md5 + summary + summary_updated_at and advances last_verified_sha', async () => {
       const { mkdtempSync, writeFileSync } = await import('node:fs');
