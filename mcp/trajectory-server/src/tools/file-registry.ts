@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 
 function md5OfPath(absPath: string): string {
   const buf = readFileSync(absPath);
@@ -16,13 +17,6 @@ function md5OfBuffer(buf: Buffer): string {
   return createHash('md5').update(buf).digest('hex');
 }
 
-function resolveProjectPath(path: string): string {
-  // Paths are stored in file_registry as project-relative. Resolve against
-  // the MCP server's cwd, which is the project root (claude spawns subprocesses
-  // in its own working dir = the project).
-  return isAbsolute(path) ? path : resolve(process.cwd(), path);
-}
-
 // Read file content from a specific git commit. Used when bro updates
 // file_registry from a SWE commit whose files live in a worktree (not at
 // the project root). The MCP server runs at the project root and can't see
@@ -30,16 +24,18 @@ function resolveProjectPath(path: string): string {
 // committed content directly from .git, regardless of working tree layout.
 // Returns null on any failure (path missing in commit, sha invalid, git
 // missing, etc.) — callers fall back to disk read.
-function readFromCommit(commitSha: string, path: string): Buffer | null {
-  try {
-    return execFileSync('git', ['show', `${commitSha}:${path}`], {
-      cwd: process.cwd(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: 64 * 1024 * 1024,
-    });
-  } catch {
-    return null;
-  }
+function makeReadFromCommit(projectRoot: string) {
+  return function readFromCommit(commitSha: string, path: string): Buffer | null {
+    try {
+      return execFileSync('git', ['show', `${commitSha}:${path}`], {
+        cwd: projectRoot,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 64 * 1024 * 1024,
+      });
+    } catch {
+      return null;
+    }
+  };
 }
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -118,10 +114,19 @@ function decodeRow(row: FileRegistryRow): Record<string, unknown> {
   };
 }
 
-export function fileRegistryTools(db: TrajectoryDB): {
+export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
+  function resolveProjectPath(path: string): string {
+    if (isAbsolute(path)) return path;
+    const projectRoot = resolveDefaultRepoPath(db, dbPath);
+    if (projectRoot) return resolve(projectRoot, path);
+    return resolve(process.cwd(), path);
+  }
+
+  const readFromCommit = makeReadFromCommit(resolveDefaultRepoPath(db, dbPath) ?? process.cwd());
+
   const definitions: Tool[] = [
     {
       name: 'file_registry_upsert',

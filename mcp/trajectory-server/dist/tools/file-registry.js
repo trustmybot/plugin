@@ -4,18 +4,13 @@ import { resolve, isAbsolute } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 function md5OfPath(absPath) {
     const buf = readFileSync(absPath);
     return createHash('md5').update(buf).digest('hex');
 }
 function md5OfBuffer(buf) {
     return createHash('md5').update(buf).digest('hex');
-}
-function resolveProjectPath(path) {
-    // Paths are stored in file_registry as project-relative. Resolve against
-    // the MCP server's cwd, which is the project root (claude spawns subprocesses
-    // in its own working dir = the project).
-    return isAbsolute(path) ? path : resolve(process.cwd(), path);
 }
 // Read file content from a specific git commit. Used when bro updates
 // file_registry from a SWE commit whose files live in a worktree (not at
@@ -24,17 +19,19 @@ function resolveProjectPath(path) {
 // committed content directly from .git, regardless of working tree layout.
 // Returns null on any failure (path missing in commit, sha invalid, git
 // missing, etc.) — callers fall back to disk read.
-function readFromCommit(commitSha, path) {
-    try {
-        return execFileSync('git', ['show', `${commitSha}:${path}`], {
-            cwd: process.cwd(),
-            stdio: ['ignore', 'pipe', 'ignore'],
-            maxBuffer: 64 * 1024 * 1024,
-        });
-    }
-    catch {
-        return null;
-    }
+function makeReadFromCommit(projectRoot) {
+    return function readFromCommit(commitSha, path) {
+        try {
+            return execFileSync('git', ['show', `${commitSha}:${path}`], {
+                cwd: projectRoot,
+                stdio: ['ignore', 'pipe', 'ignore'],
+                maxBuffer: 64 * 1024 * 1024,
+            });
+        }
+        catch {
+            return null;
+        }
+    };
 }
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -91,7 +88,16 @@ function decodeRow(row) {
         metadata: JSON.parse(row.metadata_json),
     };
 }
-export function fileRegistryTools(db) {
+export function fileRegistryTools(db, dbPath = '') {
+    function resolveProjectPath(path) {
+        if (isAbsolute(path))
+            return path;
+        const projectRoot = resolveDefaultRepoPath(db, dbPath);
+        if (projectRoot)
+            return resolve(projectRoot, path);
+        return resolve(process.cwd(), path);
+    }
+    const readFromCommit = makeReadFromCommit(resolveDefaultRepoPath(db, dbPath) ?? process.cwd());
     const definitions = [
         {
             name: 'file_registry_upsert',
