@@ -182,9 +182,16 @@ This guarantees the invariant in `docs/architecture/GIT.md`: bro and the Human s
 
 ## Headless fallback
 
-When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, accept the proposed branch_id without Human confirmation. Per CLAUDE.md doctrine, record both:
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, accept the proposed branch_id without Human confirmation. Emit both writes **immediately and proceed — do not halt**:
 
-- `ledger_log(agent='bro', event_type='headless_fallback', summary='tmb_branch-id-proposal: confirm "<proposed_id>" → auto-accepted')`
-- `discussion_append(agent='bro', kind='note', body='Headless fallback: branch-id-proposal asked to confirm <proposed_id>, no Human in loop, auto-accepted. Reason: bro already chose intelligently from project context.')`
+```
+ledger_log(agent='bro', event_type='headless_fallback',
+           summary='tmb_branch-id-proposal: confirm "<proposed_id>" → auto-accepted')
+
+discussion_append(agent='bro', kind='note',
+                  body='Headless fallback: branch-id-proposal asked to confirm <proposed_id>, no Human in loop, auto-accepted. Reason: bro already chose intelligently from project context.')
+```
+
+**Critical:** `parent_branch_id` in `task_create_batch` MUST use the value from `config_get(key='pr_target')`, not hard-code `'main'`. Bro reads `pr_target` during Step 0 — carry that value into the planning skill. If `pr_target` is not set, default to `'main'`.
 
 Then proceed with the planning chain as if the Human had typed "Yes, proceed". Do NOT auto-pick "Upgrade to difficult" or "Suggest different branch_id" — those require Human intent.

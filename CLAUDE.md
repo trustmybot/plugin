@@ -102,7 +102,7 @@ This doctrine applies only when the Human has explicitly named what to delete in
 |---|---|
 | "Implement this" / any code change | Code-touching chain (below) |
 | "Review before push" / `git push` blocked | `tmb_push-gate` |
-| "Get architect's / cto's / pm's opinion on X" | Check `.claude/agents/<name>.md`. Absent → `tmb_agent-creator`. Spawn in consultant mode. |
+| "Get architect's / cto's / pm's opinion on X" | Check `.claude/agents/<name>.md`. Present → spawn via `Agent` immediately. Absent → `tmb_agent-creator` (template-copy). Always spawn; never answer inline as the consultant. Spawn even if the project tree appears empty — the consultant decides what it can analyze. |
 | Domain role with no shipped template | `tmb_agent-creator` from-scratch + Human approval |
 | Configure / change settings (`switch to gitflow`, `update the human's name`, `reonboard`) | `tmb_reonboard` |
 | `refresh architecture docs` | `tmb_refresh-architecture` |
@@ -113,7 +113,7 @@ This doctrine applies only when the Human has explicitly named what to delete in
 ## Code-touching ask chain
 
 ```text
-tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-proposal
+tmb_lazy-regen-check → tmb_project-prescan → triage → tmb_branch-id-proposal
   → tmb_planning-simple OR tmb_planning-difficult
   → task_create_batch + spawn swe + ledger_log(planning_complete)  [batched]
   → SWE returns → bro verification (V1/V2/V3) → bro flips task → 'closed'
@@ -176,7 +176,7 @@ ledger_log(agent='bro', from_node='bro', event_type='bro_verification_fail',
 discussion_append(kind='note', body='Verification fail: <which check> — <details>')
 ```
 
-Hold the task open. Either re-spawn SWE with feedback (max 3 attempts per task) or escalate to the Human.
+Hold the task open. Re-spawn SWE with feedback (max 3 attempts per task) or escalate to the Human. When the Human explicitly asks bro to retry a failed task: call `discussion_append` to document the retry rationale, then call `task_create_batch` to create a NEW task on the same issue with a corrected spec — do NOT just reset the existing task's status to pending.
 
 If `task_update_status` or `issue_close` returns `is_error: true`, STOP. Surface the exact error. <!-- LOAD-BEARING-SAFETY: "Trust me bro, it works." on a failed/errored close misleads the Human; catchphrase is reserved for confirmed-pass only --> The most common cause is a role-enforcement rejection.
 

@@ -135,7 +135,17 @@ Branch per the entry-state matrix using `git ls-files` + `file_registry_list` + 
 | **Registry populated + clean tree + HEAD == last_verified_sha** | Trust. No scan, no verify. |
 | **Registry populated + any drift** (dirty tree / branch behind / HEAD moved) | Call `file_registry_verify(paths=<git-ls-files output>)`. For each `mismatch` verdict: `file_registry_upsert` clearing `summary` (mark stale). For each `missing`: `file_registry_delete`. For each `new`: leave for lazy fill (next time bro Reads it). Then `config_set('last_verified_sha', <current HEAD>)`. |
 
-**Headless mode** (`AskUserQuestion` errors / `TMB_HEADLESS=1`): default to lazy-fill. Per `tmb_headless-fallback`, record both `ledger_log(event_type='headless_fallback', summary='tmb_project-prescan: cold-start scan question → defaulted to lazy')` AND `discussion_append(kind='note', body='Headless fallback: prescan asked about deep scan, no Human in loop, defaulted to lazy. Reason: cold-start scan is token-heavy; lazy is safer in CI.')`.
+**Headless mode** (`AskUserQuestion` errors / `TMB_HEADLESS=1`): default to lazy-fill. Call both writes **immediately** — do not wait for the rest of the planning chain:
+
+```
+ledger_log(agent='bro', event_type='headless_fallback',
+           summary='tmb_project-prescan: cold-start scan question → defaulted to lazy')
+
+discussion_append(agent='bro', kind='note',
+                  body='Headless fallback: prescan asked about deep scan, no Human in loop, defaulted to lazy. Reason: cold-start scan is token-heavy; lazy is safer in CI.')
+```
+
+Then **return from this skill immediately** and continue the planning chain. The cold-start question is the ONLY thing that was headless-deferred — bro must proceed with triage, branch-id-proposal, and planning as normal. A prescan that halts after a headless fallback is a bug.
 
 **Drift verify cost budget**: ≤100ms for a 500-file repo. The MCP tool reads each file from disk + md5; pure I/O.
 
