@@ -57,7 +57,7 @@ export function branchReportMdTools(db: TrajectoryDB): {
     {
       name: 'branch_report_md',
       description:
-        'Assemble a markdown summary scoped to a single (issue_id, branch_id) pair: tasks, ledger events, validation attempts, and file_registry entries touched on that branch.',
+        'Assemble a markdown summary scoped to a single (issue_id, branch_id) pair: tasks, audit events, validation attempts, and file_registry entries touched on that branch.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -145,10 +145,10 @@ export function branchReportMdTools(db: TrajectoryDB): {
         }
         lines.push('');
 
-        lines.push('## Ledger events');
+        lines.push('## Audit events');
         lines.push('');
         if (ledgerEntries.length === 0) {
-          lines.push('_No ledger events._');
+          lines.push('_No audit events._');
         } else {
           lines.push('| Time | Event | From | Summary |');
           lines.push('|---|---|---|---|');

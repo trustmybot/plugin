@@ -9,7 +9,7 @@ allowed-tools: Task, Bash, mcp__plugin_tmb_trajectory-server__task_get, mcp__plu
 
 ## Purpose
 
-PR-Reviewer is **the push gate**, not a per-task reviewer. It runs only at `git push` time, over a batch of unsigned tasks, so its cost is amortized. Bro alone gates each individual task at close (via `bro_verification_pass` ledger event); pr-reviewer's deeper review fires only when commits are about to leave the developer's machine.
+PR-Reviewer is **the push gate**, not a per-task reviewer. It runs only at `git push` time, over a batch of unsigned tasks, so its cost is amortized. Bro alone gates each individual task at close (via `bro_verification_pass` audit event); pr-reviewer's deeper review fires only when commits are about to leave the developer's machine.
 
 ## When invoked
 
@@ -56,6 +56,6 @@ After the MR merges (whether bro or Human merges it):
 
 ## Never
 
-- Spawn pr-reviewer at task close. That's bro's job (verification + ledger event).
+- Spawn pr-reviewer at task close. That's bro's job (verification + write to audit_log).
 - Spawn pr-reviewer outside the push gate. There's no other moment it should fire.
 - Skip a pr-reviewer fail because "the push is urgent". Either accept the fix or abort. Surfacing-and-shipping-anyway corrupts the audit trail.

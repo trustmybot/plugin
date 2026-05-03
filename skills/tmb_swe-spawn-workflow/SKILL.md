@@ -134,7 +134,7 @@ REJECTED: Task status is "[status]", not pending/open. Only pending tasks can be
 
 **bro closes tasks** by running its own task-gate verification (the V1/V2/V3
 protocol in `tmb_planning-simple` and `tmb_planning-difficult`), writing a
-`bro_verification_pass` ledger event, then calling `task_update_status(closed)`.
+`bro_verification_pass` audit event, then calling `task_update_status(closed)`.
 
 **pr-reviewer is NOT involved at task close.** PR-reviewer is the **push gate**
 — it runs at `git push` time over the batch of unsigned commits, signs them

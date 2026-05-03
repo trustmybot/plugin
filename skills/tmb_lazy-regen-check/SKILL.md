@@ -25,7 +25,7 @@ Bro invokes this skill once per session — immediately before the pre-scan on t
    # Detect hand-curated arch docs (any .md under docs/trustmybot/architecture at depth 1)
    HAS_HANDCURATED=$(find docs/trustmybot/architecture -maxdepth 1 -type f -name '*.md' 2>/dev/null | head -1)
    ```
-   - If `N == 0` (empty repo) → do nothing, log skip to ledger.
+   - If `N == 0` (empty repo) → do nothing, log skip to audit_log.
    - If `N <= 200` AND `HAS_HANDCURATED` is empty → invoke `tmb_refresh-architecture` with `scope:'full'` silently. The bootstrap is cheap on small projects and ensures `docs/trustmybot/architecture/auto/` exists for the first contributor / cold session. Tiny projects rarely cross the 25-commit threshold, so without this fallback they would never get docs.
    - If `N <= 200` AND `HAS_HANDCURATED` is non-empty → SKIP. The project maintains arch docs by hand; auto-regen is user opt-in only.
    - If `N > 200` AND `HAS_HANDCURATED` is empty → emit the one-line nudge: *"This project has N source files but no architecture docs yet. Run `/tmb refresh-architecture` to bootstrap them."* Don't auto-regen — full bootstrap on a 1000-file project can be slow.
@@ -35,13 +35,13 @@ Bro invokes this skill once per session — immediately before the pre-scan on t
    ```bash
    git log --oneline <last_seen_sha>..HEAD | wc -l
    ```
-4. If the delta is **≤ 25 commits**, invoke the `tmb_refresh-architecture` skill with `scope:'incremental'` silently. Produce no user-facing output unless the tool errors. On error, log to the ledger and skip — do not surface the error to the user unless it persists across sessions.
+4. If the delta is **≤ 25 commits**, invoke the `tmb_refresh-architecture` skill with `scope:'incremental'` silently. Produce no user-facing output unless the tool errors. On error, write to audit_log and skip — do not surface the error to the user unless it persists across sessions.
 5. If the delta is **> 25 commits**, emit exactly this one line (substituting the real number):
 
    > "Architecture docs are N commits behind. Run `/tmb refresh-architecture` when convenient."
 
    Do NOT auto-regen — an incremental regen over many commits can be slow; let the Human opt in.
-6. If the commit count cannot be computed (git error, detached HEAD, etc.), skip silently and log the failure to the ledger. Do not surface the error to the user.
+6. If the commit count cannot be computed (git error, detached HEAD, etc.), skip silently and write the failure to audit_log. Do not surface the error to the user.
 
 ## Constraints
 
