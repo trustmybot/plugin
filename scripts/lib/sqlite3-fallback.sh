@@ -3,7 +3,7 @@
 # Each wrapper:
 #   1. Validates the agent has the role required for the underlying MCP tool
 #   2. Performs the equivalent INSERT/UPDATE via sqlite3 directly
-#   3. Synthesizes a ledger row event_type=mcp_unavailable_fallback_invoked
+#   3. Synthesizes an audit row (kind='event', event_type=mcp_unavailable_fallback_invoked)
 #      capturing operation + agent + timestamp
 # All wrappers fail-loud (echo error to stderr + return non-zero) when:
 #   - DB cannot be located
@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _TMB_FALLBACK_ROLES_validation_record='pr-reviewer'
 _TMB_FALLBACK_ROLES_task_update_status='bro,swe'
 _TMB_FALLBACK_ROLES_discussion_append='bro,architect,swe,pr-reviewer'
-_TMB_FALLBACK_ROLES_ledger_log='bro,architect,swe,pr-reviewer'
+_TMB_FALLBACK_ROLES_audit_log='bro,architect,swe,pr-reviewer'
 _TMB_FALLBACK_ROLES_issue_close='bro'
 _TMB_FALLBACK_ROLES_file_registry_update_summaries='bro'
 
@@ -51,8 +51,8 @@ _tmb_fallback_audit_log() {
   local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
   local extra_json_esc; extra_json_esc=$(printf '%s' "$extra_json" | sed "s/'/''/g")
   sqlite3 "$db" <<SQL 2>/dev/null || true
-INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, content, created_at)
-VALUES (0, '', '$agent', 'mcp_unavailable_fallback_invoked', 'sqlite3 fallback used for $tool', '$extra_json_esc', '$ts');
+INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
+VALUES (0, '', '$agent', 'event', 'mcp_unavailable_fallback_invoked', 'sqlite3 fallback used for $tool', '$extra_json_esc', '$ts');
 SQL
 }
 
@@ -107,21 +107,21 @@ SQL
   _tmb_fallback_audit_log "$db" discussion_append "$agent" "{\"issue_id\":$issue_id,\"kind\":\"$kind\"}"
 }
 
-# tmb_fallback_ledger_log <issue_id> <branch_id> <from_node> <event_type> <summary> <content> <agent>
-tmb_fallback_ledger_log() {
+# tmb_fallback_audit_log <issue_id> <branch_id> <from_node> <event_type> <summary> <content> <agent>
+tmb_fallback_audit_log() {
   local issue_id="$1" branch_id="$2" from_node="$3" event_type="$4" summary="$5" content="$6" agent="$7"
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
-  _tmb_fallback_check_role ledger_log "$agent" || return 1
+  _tmb_fallback_check_role audit_log "$agent" || return 1
   local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
   local summary_esc; summary_esc=$(printf '%s' "$summary" | sed "s/'/''/g")
   local content_esc; content_esc=$(printf '%s' "$content" | sed "s/'/''/g")
   local branch_esc; branch_esc=$(printf '%s' "$branch_id" | sed "s/'/''/g")
   sqlite3 "$db" <<SQL
-INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, content, created_at)
-VALUES ($issue_id, '$branch_esc', '$from_node', '$event_type', '$summary_esc', '$content_esc', '$ts');
+INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
+VALUES ($issue_id, '$branch_esc', '$from_node', 'event', '$event_type', '$summary_esc', '$content_esc', '$ts');
 SQL
-  _tmb_fallback_audit_log "$db" ledger_log "$agent" "{\"issue_id\":$issue_id,\"event_type\":\"$event_type\"}"
+  _tmb_fallback_audit_log "$db" audit_log "$agent" "{\"issue_id\":$issue_id,\"event_type\":\"$event_type\"}"
 }
 
 # tmb_fallback_issue_close <issue_id> <agent> [post_git_sha]

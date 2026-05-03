@@ -23,7 +23,7 @@ When the Human requests a retry on a failed task:
 2. Append a retry-rationale discussion: `discussion_append(kind='decision', body='Retry rationale: <root cause> → <corrected approach>')`.
 3. Create a **new** task via `task_create_batch` with a corrected spec that explicitly addresses the failure. The old failed task stays as evidence; the new task carries the corrected spec. Do NOT reset the old task's status.
 4. Spawn SWE on the new task.
-5. Log `ledger_log(event_type='planning_complete', summary='Retry task created with corrected spec.')`.
+5. Log `audit_log(kind='event', event_type='planning_complete', summary='Retry task created with corrected spec.')`.
 
 Then run the 3-question learning protocol below to capture the lesson.
 

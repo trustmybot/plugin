@@ -11,15 +11,15 @@
 2. Bro invokes `tmb_agent-creator` skill with `name=architect`
 3. Skill reads `templates/agents/architect.md` and asks Human for approval
 4. On approval: writes `templates/agents/architect.md` → `.claude/agents/architect.md` verbatim
-5. Skill calls `ledger_log(event_type='tmb_agent_created', content_json={"name":"architect","mode":"template-copy"})`
+5. Skill calls `audit_log(kind='event', event_type='tmb_agent_created', content_json={"name":"architect","mode":"template-copy"})`
 6. Bro spawns architect agent for the original ask
 
 ## Scorers
 
 | Scorer | What it asserts |
 |---|---|
-| `outcome.sql` | Ledger has `tmb_agent_created` event; event content_json contains `"name":"architect"` and `"mode":"template-copy"` |
-| `tools-required.json` | `Write` (for agent file copy) and `ledger_log` MCP tool both called at least once |
+| `outcome.sql` | Audit has `tmb_agent_created` event (kind='event'); event content_json contains `"name":"architect"` and `"mode":"template-copy"` |
+| `tools-required.json` | `Write` (for agent file copy) and `audit_log` MCP tool both called at least once |
 | `tools-forbidden.json` | Workflow state tools (`task_update_status`, `validation_record`, `task_create_batch`) NOT called — agent-creator is metadata-only |
 | `cost-budget.json` | Soft budget 80K tokens / 90s p99 — skill-invocation + agent spawn is heavier than a bare SWE task; warn on overage, don't fail |
 

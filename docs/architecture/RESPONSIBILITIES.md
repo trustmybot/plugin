@@ -59,7 +59,7 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
 2. `tmb_branch-id-proposal` (open MCP issue + propose branch_id)
 3. `tmb_planning-simple` OR `tmb_planning-difficult` — specs that introduce external side effects (network calls, API mutations) get a blast-radius review before finalizing
 4. **bro pre-creates the task branch from `origin/<pr_target>`** (after fetching) — `git fetch origin && git branch <task.branch_id> origin/<pr_target>`
-5. `task_create_batch` + spawn SWE with `task_id=<N>` + `ledger_log(planning_complete)` [batched]
+5. `task_create_batch` + spawn SWE with `task_id=<N>` + `audit_log(kind='event', event_type='planning_complete')` [batched]
 6. SWE returns
 7. **bro verification (V1/V2/V3)**:
    - V1 — files match the spec's `## Files`
@@ -154,7 +154,7 @@ Batch in one response:
 SWE is allowed to call:
 - `task_get` (shared with all agents)
 - `task_update_status` for `completed` / `failed` (bro owns `closed`)
-- `audit_log`, `ledger_log`
+- `audit_log`
 - `discussion_append` for `kind='note'/'concern'`
 
 ### Hooks fired against SWE actions
@@ -240,7 +240,7 @@ Consultants **cannot write workflow state**:
 
 They **can write analyses**:
 - ✅ `discussion_append(kind='analysis'|'concern')`
-- ✅ `ledger_log` (audit only)
+- ✅ `audit_log(kind='event')`
 - ✅ Some get `regen_state_set` and `issue_snapshot_md` (architect specifically)
 
 ### Spawn pattern
@@ -263,7 +263,7 @@ The authoritative source is `mcp/trajectory-server/src/middleware/agent-scope.ts
 | `file_registry_update_summaries` | ✓ | | | |
 | `identity_set` / `identity_reset` | ✓ | | | |
 | `discussion_append` | ✓ (any kind) | ✓ (note/concern) | ✓ (any) | ✓ (analysis/concern) |
-| `ledger_log`, `audit_log`, `task_get` | ✓ | ✓ | ✓ | ✓ |
+| `audit_log`, `task_get` | ✓ | ✓ | ✓ | ✓ |
 
 ---
 

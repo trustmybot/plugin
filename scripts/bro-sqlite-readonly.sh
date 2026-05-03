@@ -38,7 +38,7 @@ KNOWN_WRITE_TOOLS=(
   task_update_status
   config_set
   discussion_append
-  ledger_log
+  audit_log
   validation_record
   file_registry_update_summaries
   identity_set

@@ -41,28 +41,28 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
 
-CREATE TABLE IF NOT EXISTS ledger (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id     INTEGER NOT NULL REFERENCES issues(id),
-    branch_id    TEXT,
-    from_node    TEXT    NOT NULL,
-    event_type   TEXT    NOT NULL,
-    summary      TEXT    NOT NULL DEFAULT '',
-    content      TEXT    NOT NULL DEFAULT '{}',
-    is_truncated INTEGER NOT NULL DEFAULT 0,
-    created_at   TEXT    NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS audit (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id     INTEGER NOT NULL REFERENCES issues(id),
     branch_id    TEXT,
     from_node    TEXT    NOT NULL DEFAULT 'executor',
+
+    -- Discriminator
+    kind         TEXT    NOT NULL DEFAULT 'event' CHECK(kind IN ('event', 'tool_call')),
+
+    -- Event fields (kind='event')
+    event_type   TEXT,
+    summary      TEXT,
+    content_json TEXT    NOT NULL DEFAULT '{}',
+
+    -- Tool-call fields (kind='tool_call')
     round        INTEGER NOT NULL DEFAULT 0,
-    tool_name    TEXT    NOT NULL,
+    tool_name    TEXT,
     tool_args    TEXT    NOT NULL DEFAULT '{}',
     output       TEXT    NOT NULL DEFAULT '',
     output_chars INTEGER NOT NULL DEFAULT 0,
+
+    -- Common
     is_truncated INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL
 );

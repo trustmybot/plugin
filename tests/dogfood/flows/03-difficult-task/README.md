@@ -17,7 +17,7 @@
 
 | Scorer | What it asserts |
 |---|---|
-| `outcome.sql` | Issue + task created; ≥1 discussion row (difficult-path differentiator); ledger has `planning_complete` |
-| `tools-required.json` | `issue_create`, `task_create_batch`, `discussion_append`, `ledger_log` |
+| `outcome.sql` | Issue + task created; ≥1 discussion row (difficult-path differentiator); audit has `planning_complete` event (kind='event') |
+| `tools-required.json` | `issue_create`, `task_create_batch`, `discussion_append`, `audit_log` |
 | `tools-forbidden.json` | `validation_record` (pr-reviewer scope, not bro at planning time) |
 | `cost-budget.json` | Soft 80K / 90s |

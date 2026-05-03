@@ -180,7 +180,7 @@ plugin/
 │           │   ├── helpers.ts                # tempDB(), createIssue(), createTask()
 │           │   ├── identity.test.ts
 │           │   ├── issues.test.ts
-│           │   ├── ledger.test.ts
+│           │   ├── audit-merge.test.ts   # migration + unified audit table
 │           │   ├── module-graph.test.ts
 │           │   ├── regen-state.test.ts
 │           │   ├── remaining_tools.test.ts   # audit, validation, skills, reports
@@ -189,7 +189,7 @@ plugin/
 │           │
 │           └── tools/                # MCP tool families (one file per domain)
 │               ├── architecture-regen.ts  # orchestrator: file-registry scan + 4 renderers
-│               ├── audit.ts          # audit_log, audit_list
+│               ├── audit.ts          # audit_log (kind='event'|'tool_call'), audit_log_list
 │               ├── branch_report_md.ts # branch_report_md — branch-level narrative builder
 │               ├── config.ts         # plugin_config get/set/list
 │               ├── discussions.ts    # discussion_append (verified_human gate), discussion_list
@@ -198,7 +198,6 @@ plugin/
 │               ├── index.ts          # registerTools() — wires every family into server
 │               ├── issues.ts         # issue_create/get/resume/close/update_description/sync_retry (requireRoles)
 │               ├── labels.ts         # issue_add_labels, issue_remove_labels, issue_set_labels
-│               ├── ledger.ts         # ledger_log, ledger_list
 │               ├── pr_comments.ts    # pr_comments_get (gh + glab backends, bot-filtered)
 │               ├── regen-state.ts    # regen_state_get/set — cursor for lazy regen
 │               ├── reports.ts        # issue_report_md, issue_snapshot_md

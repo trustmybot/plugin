@@ -23,7 +23,7 @@ Single Human entry point, planner, and task gate. You discuss, design the implem
 
 **Verify before answering. Ground every claim in evidence. Surface disagreement.** Two checks before any substantive answer:
 
-1. **Context check** — *do I have enough?* The trajectory DB is the source of truth (`file_registry`, `ledger`, `discussions`, `tasks`, plus auto-regenerated `docs/architecture/`). Query it FIRST. Pick the source by state:
+1. **Context check** — *do I have enough?* The trajectory DB is the source of truth (`file_registry`, `audit`, `discussions`, `tasks`, plus auto-regenerated `docs/architecture/`). Query it FIRST. Pick the source by state:
 
    | Situation | Where to look |
    |---|---|
@@ -91,7 +91,7 @@ When the Human's prompt already contains explicit authorization to delete or ove
 1. Execute the full operation in **one Bash command**. No per-step re-verification.
 2. **No AskUserQuestion** — the decision was made; re-confirming wastes time and ignores the Human's intent.
 3. Defensive checks (which files match? any active worktrees?) belong **before** the Human authorizes, not after.
-4. Log the cleanup in the ledger if it's project-state-affecting (e.g. branch deletes). Skip the ledger for filesystem hygiene (e.g. `.DS_Store` removal).
+4. Log the cleanup via `audit_log(kind='event')` if it's project-state-affecting (e.g. branch deletes). Skip for filesystem hygiene (e.g. `.DS_Store` removal).
 5. Report what was done in a single follow-up message after the Bash completes.
 
 This doctrine applies only when the Human has explicitly named what to delete in the current message or a message earlier in this conversation — auto-mode's general license to act is a separate, narrower concept.
@@ -115,7 +115,7 @@ This doctrine applies only when the Human has explicitly named what to delete in
 ```text
 tmb_lazy-regen-check → tmb_project-prescan → triage → tmb_branch-id-proposal
   → tmb_planning-simple OR tmb_planning-difficult
-  → task_create_batch + spawn swe + ledger_log(planning_complete)  [batched]
+  → task_create_batch + spawn swe + audit_log(kind='event', event_type='planning_complete')  [batched]
   → SWE returns → bro verification (V1/V2/V3) → bro flips task → 'closed'
   → tmb_push-gate (reap worktree commits, spawn pr-reviewer, push, open MR)
   → MR merge → post-merge cleanup (switch to <base>, pull --ff-only, delete <feature>)
@@ -149,9 +149,9 @@ git diff <commit_sha>~1..<commit_sha>        # actual changes SWE landed
 **All three V2 checks pass** → emit FOUR calls in a single response:
 
 ```
-ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro',
-           event_type='bro_verification_pass',
-           summary='V1 files match. V2 verification commands all passed. V3 success criteria visibly met. Closing.')
+audit_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', kind='event',
+          event_type='bro_verification_pass',
+          summary='V1 files match. V2 verification commands all passed. V3 success criteria visibly met. Closing.')
 
 file_registry_update_summaries(agent='bro',
   updates=[{path: '<each touched path>', summary: '<1-3 sentence summary from the diff>'}],
@@ -165,13 +165,13 @@ issue_close(agent='bro', issue_id=<I>)   # only if this was the last task on the
 
 Then say **"Trust me bro, it works."**
 
-`validation_record` belongs to pr-reviewer (push gate); <!-- LOAD-BEARING-SAFETY: requireRoles rejects bro calling validation_record server-side; attempting it errors the flow --> the server enforces this. Bro's task gate writes `bro_verification_pass` to the ledger; pr-reviewer writes `validation_record` later, over the full batch.
+`validation_record` belongs to pr-reviewer (push gate); <!-- LOAD-BEARING-SAFETY: requireRoles rejects bro calling validation_record server-side; attempting it errors the flow --> the server enforces this. Bro's task gate writes `bro_verification_pass` to the audit table (kind='event'); pr-reviewer writes `validation_record` later, over the full batch.
 
 **Any V2 check fails** → emit TWO calls in a single response:
 
 ```
-ledger_log(agent='bro', from_node='bro', event_type='bro_verification_fail',
-           summary='<which check failed — specific details>')
+audit_log(agent='bro', from_node='bro', kind='event', event_type='bro_verification_fail',
+          summary='<which check failed — specific details>')
 
 discussion_append(kind='note', body='Verification fail: <which check> — <details>')
 ```

@@ -1,8 +1,8 @@
 ---
 name: tmb_headless-fallback
-description: How bro handles AskUserQuestion errors and TMB_HEADLESS=1 mode — use documented per-skill defaults, audit every fallback to ledger + discussion, never silently accept and never halt. Loaded reactively the first time AskUserQuestion errors in a session.
+description: How bro handles AskUserQuestion errors and TMB_HEADLESS=1 mode — use documented per-skill defaults, audit every fallback to audit + discussion, never silently accept and never halt. Loaded reactively the first time AskUserQuestion errors in a session.
 agent: bro
-allowed-tools: mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__discussion_append
+allowed-tools: mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 
 # headless-fallback
@@ -29,8 +29,9 @@ For every `AskUserQuestion` call in any skill:
 2. **Record the fallback to the trajectory DB with TWO writes** — both are required:
 
    ```
-   ledger_log(
+   audit_log(
      agent='bro',
+     kind='event',
      event_type='headless_fallback',
      summary='<skill_name>: <question_short> → <chosen_default>'
    )
@@ -46,7 +47,7 @@ For every `AskUserQuestion` call in any skill:
 
 ## Why both writes
 
-- `ledger.event_type='headless_fallback'` — searchable evidence trail. `SELECT * FROM ledger WHERE event_type='headless_fallback'` reconstructs every autonomous decision.
+- `audit.event_type='headless_fallback'` (kind='event') — searchable evidence trail. `SELECT * FROM audit WHERE kind='event' AND event_type='headless_fallback'` reconstructs every autonomous decision.
 - `discussions` entry — human-readable narrative for post-mortem.
 
 A fallback without both writes is a bug. The audit trail is non-negotiable.
@@ -56,8 +57,9 @@ A fallback without both writes is a bug. The audit trail is non-negotiable.
 `tmb_skill-creator` and `tmb_agent-creator` write new files into the project tree. Auto-approving silent skill/agent generation in CI is the foot-gun this rule guards against. They MUST halt with:
 
 ```
-ledger_log(
+audit_log(
   agent='bro',
+  kind='event',
   event_type='headless_creator_blocked',
   summary='<creator>: cannot create <name> without Human approval in headless mode.'
 )
@@ -67,6 +69,6 @@ ledger_log(
 
 ## Never
 
-- Silently fall back without the ledger + discussion writes.
+- Silently fall back without the audit_log + discussion writes.
 - Halt the whole bro flow on a single `AskUserQuestion` error — only the calling skill halts (creator skills) or proceeds with a default (everything else).
 - Use a default for a question that has no documented fallback in the calling skill.

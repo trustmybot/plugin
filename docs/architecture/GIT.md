@@ -74,7 +74,7 @@ plugin/
     ├── issues.ts                                     # issue_create
     ├── tasks.ts                                      # task_create_batch
     ├── discussions.ts                                # discussion_append (intent + triage note)
-    └── ledger.ts                                     # ledger_log (planning_complete)
+    └── audit.ts                                      # audit_log(kind='event', planning_complete)
 ```
 
 **SWE working**
@@ -114,7 +114,7 @@ plugin/
 │   └── branch-up-to-date-with-remote.sh              # verifies local branch is current
 └── mcp/trajectory-server/src/tools/
     ├── tasks.ts                                      # task_update_status(closed) by bro
-    ├── ledger.ts                                     # ledger_log(bro_verification_pass)
+    ├── audit.ts                                      # audit_log(kind='event', bro_verification_pass)
     ├── file-registry.ts                              # file_registry_update_summaries (advance sha)
     └── issues.ts                                     # issue_close
 ```
@@ -143,6 +143,6 @@ plugin/
 ├── scripts/hooks/cleanup-worktree-on-task-close.sh   # removes SWE worktree (already done at close)
 ├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
-    ├── ledger.ts                                     # ledger_log (post-merge state)
+    ├── audit.ts                                      # audit_log(kind='event', post-merge state)
     └── regen-state.ts                                # regen_state_update after merge contents
 ```

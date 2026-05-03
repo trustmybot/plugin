@@ -160,9 +160,9 @@ Validates the `tmb_agent-creator` collision flow.
 
 **Expect:**
 - bro detects the collision, shows a unified diff, calls AskUserQuestion with 3 options (Skip / Adopt+manage / Overwrite).
-- **Pick Skip** → file unchanged, no `tmb_owner` added; ledger has `tmb_agent_collision_skipped` event.
-- **Pick Adopt + manage** → file content unchanged BUT frontmatter now has `tmb_owner: user-adopted`; ledger has `tmb_agent_adopted` event.
-- **Pick Overwrite** → file content replaced with template/from-scratch; frontmatter has `tmb_owner: bro`; ledger has `tmb_agent_overwritten` event.
+- **Pick Skip** → file unchanged, no `tmb_owner` added; audit has `tmb_agent_collision_skipped` event.
+- **Pick Adopt + manage** → file content unchanged BUT frontmatter now has `tmb_owner: user-adopted`; audit has `tmb_agent_adopted` event.
+- **Pick Overwrite** → file content replaced with template/from-scratch; frontmatter has `tmb_owner: bro`; audit has `tmb_agent_overwritten` event.
 
 **Headless variant:** with `TMB_HEADLESS=1`, the same flow halts before any of the three writes.
 
@@ -209,7 +209,7 @@ surfaces, and follow-up issue creation.
 **Expect — Phase 6 (close):**
 - `roundtable_close` succeeds only after `roundtable_finalize_decisions` has
   recorded ≥1 human vote.
-- `roundtable_summarize` assembles the canonical summary; passed to `ledger_log`.
+- `roundtable_summarize` assembles the canonical summary; passed to `audit_log(kind='event')`.
 
 **Expect — Phase 7 (follow-ups):**
 - Second `AskUserQuestion` (multiSelect, one option per ratified agreement).
@@ -234,8 +234,8 @@ SELECT id, topic, state, status, outcome, closed_at FROM roundtables WHERE issue
 -- 4. vote attribution (participant column)
 SELECT participant, vote, rationale FROM roundtable_votes WHERE roundtable_id = <id>;
 
--- 5. ledger summary
-SELECT event_type, summary FROM ledger WHERE issue_id = <N> AND event_type = 'roundtable_summary';
+-- 5. audit event summary
+SELECT event_type, summary FROM audit WHERE issue_id = <N> AND kind = 'event' AND event_type = 'roundtable_summary';
 ```
 
 All five surfaces must have data; `state='closed'`, `ratification_received_at` non-null.

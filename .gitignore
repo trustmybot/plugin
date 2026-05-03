@@ -36,3 +36,4 @@ dist/
 *.swp
 .idea/
 .vscode/
+.env

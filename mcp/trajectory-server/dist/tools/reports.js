@@ -30,7 +30,7 @@ export function reportTools(db) {
     const definitions = [
         {
             name: 'issue_report_md',
-            description: 'Assemble a markdown narrative for an issue including tasks, validation, and ledger timeline.',
+            description: 'Assemble a markdown narrative for an issue including tasks, validation, and audit event timeline.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -72,7 +72,7 @@ export function reportTools(db) {
                 const placeholders = taskIds.map(() => '?').join(', ');
                 validationAttempts = db.all(`SELECT * FROM validation_attempts WHERE task_id IN (${placeholders}) ORDER BY task_id ASC, attempt_n ASC`, taskIds);
             }
-            const ledgerEntries = db.all(`SELECT * FROM ledger WHERE issue_id = ? ORDER BY id ASC`, [issueId]);
+            const ledgerEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? AND kind = 'event' ORDER BY id ASC`, [issueId]);
             const skillsUsed = db.all(`SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`);
             const lines = [];
             lines.push(`# Issue Report: ${issue.id}`);
@@ -113,10 +113,10 @@ export function reportTools(db) {
                 }
             }
             lines.push('');
-            lines.push('## Ledger Timeline');
+            lines.push('## Audit Event Timeline');
             lines.push('');
             if (ledgerEntries.length === 0) {
-                lines.push('_No ledger entries._');
+                lines.push('_No audit events._');
             }
             else {
                 for (const e of ledgerEntries) {

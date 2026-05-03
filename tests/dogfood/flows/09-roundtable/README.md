@@ -12,13 +12,13 @@
 3. Skill globs `.claude/agents/`, finds architect + pm
 4. Spawns each via `Task` in parallel
 5. Each consultant writes `discussion_append(kind='analysis')`
-6. Skill records `ledger_log(event_type='roundtable_summary')`
+6. Skill records `audit_log(kind='event', event_type='roundtable_summary')`
 
 ## Scorers
 
 | Scorer | What it asserts |
 |---|---|
-| `outcome.sql` | Ledger has `roundtable_summary`; ≥2 `analysis` discussion rows |
-| `tools-required.json` | `Task`, `discussion_append`, `ledger_log` |
+| `outcome.sql` | Audit has `roundtable_summary` event (kind='event'); ≥2 `analysis` discussion rows |
+| `tools-required.json` | `Task`, `discussion_append`, `audit_log` |
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` |
 | `cost-budget.json` | Soft 120K / 180s |

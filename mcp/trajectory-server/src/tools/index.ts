@@ -4,7 +4,6 @@ import type { TrajectoryDB } from '../db.js';
 import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
 import { taskTools } from './tasks.js';
-import { ledgerTools } from './ledger.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
@@ -54,7 +53,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
   const discussions = discussionTools(db);
   const issues = issueTools(db, dbPath);
   const tasks = taskTools(db);
-  const ledger = ledgerTools(db);
   const audit = auditTools(db);
   const validation = validationTools(db);
   const skills = skillTools(db);
@@ -74,7 +72,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...discussions.definitions,
     ...issues.definitions,
     ...tasks.definitions,
-    ...ledger.definitions,
     ...audit.definitions,
     ...validation.definitions,
     ...skills.definitions,
@@ -95,7 +92,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...wrapAll(discussions.handlers),
     ...wrapAll(issues.handlers),
     ...wrapAll(tasks.handlers),
-    ...wrapAll(ledger.handlers),
     ...wrapAll(audit.handlers),
     ...wrapAll(validation.handlers),
     ...wrapAll(skills.handlers),

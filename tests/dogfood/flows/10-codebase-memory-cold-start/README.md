@@ -5,7 +5,7 @@ Regression test for the Hybrid D' cold-start branch in `tmb_project-prescan` (#4
 1. Run the prescan
 2. Detect "files exist + registry empty" (cold start)
 3. Try `AskUserQuestion` ("deep scan or lazy?")
-4. Fail in headless → invoke `tmb_headless-fallback` → default = lazy → log `headless_fallback` ledger event
+4. Fail in headless → invoke `tmb_headless-fallback` → default = lazy → log `headless_fallback` audit event
 5. Continue with the actual ask (planning chain → issue_create → task_create_batch)
 
 ## Pre-state
@@ -21,7 +21,7 @@ Regression test for the Hybrid D' cold-start branch in `tmb_project-prescan` (#4
 ## Scorers
 
 - `outcome.sql`: headless_fallback event present + mentions cold-start scope; deep_scan_completed NOT present (default = lazy); issues + tasks created (planning chain ran)
-- `tools-required.json`: file_registry_list (prescan check), ledger_log + discussion_append (fallback audit), issue_create + task_create_batch (planning)
+- `tools-required.json`: file_registry_list (prescan check), audit_log + discussion_append (fallback audit), issue_create + task_create_batch (planning)
 - `cost-budget.json`: soft
 
 ## Why this matters

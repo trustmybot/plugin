@@ -24,7 +24,6 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_report_md`, `issue_snapshot_md`, `issue_add_labels`, `issue_remove_labels`, `issue_set_labels`
 - **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`, `task_stats`
 - **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `issue_get_with_discussions`
-- **ledger**: `ledger_log`, `ledger_list`
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
 - **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS)
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
@@ -34,7 +33,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **regen**: `regen_state_get`, `regen_state_set`, `architecture_regen`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
 - **skills**: `skill_register`, `skill_promote`, `skill_record_outcome`
-- **audit**: `audit_log`
+- **audit**: `audit_log`, `audit_log_list`
 
 ## Slash commands
 

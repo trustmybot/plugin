@@ -52,6 +52,7 @@ run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/lint/labels-st
 run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/lint/enums-stable.sh"
 run_step "L1 lint: no negative directives in prompts" bash "$HERE/lint/no-negative-directives.sh"
 run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/lint/issue-sync-test-isolation.sh"
+run_step "L1 lint: no ledger_log/ledger_list refs"    bash "$HERE/lint/no-ledger-references.sh"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 
