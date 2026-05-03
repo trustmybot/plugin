@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { nowISO, genId, TrajectoryDB } from '../db.js';
 describe('TrajectoryDB', () => {
-    it('opens an in-memory DB and verifies all 18 tables exist with schema_version=1', () => {
+    it('opens an in-memory DB and verifies all 16 prod tables exist with schema_version=1', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -23,8 +23,6 @@ describe('TrajectoryDB', () => {
             'plugin_config',
             'identity',
             'regen_state',
-            'debug_trajectory',
-            'eval_results',
             'agent_runs',
             'pr_review_runs',
         ];

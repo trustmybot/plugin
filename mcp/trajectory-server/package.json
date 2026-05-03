@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && cp src/schema.sql dist/schema.sql",
+    "build": "tsc && cp src/schema*.sql dist/",
     "start": "node --experimental-sqlite dist/index.js",
     "test": "node --experimental-sqlite --test dist/test/*.test.js",
     "pretest": "bun run build"

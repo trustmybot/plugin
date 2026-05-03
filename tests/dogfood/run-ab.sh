@@ -24,6 +24,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 export PLUGIN_ROOT
+export TMB_EVAL_MODE=1
 
 SCENARIO_NAME="${1:-}"
 N="${N:-5}"

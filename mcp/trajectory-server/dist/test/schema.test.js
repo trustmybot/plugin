@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 describe('schema — current table set, default values, constraints', () => {
-    it('fresh DB contains all 18 tables', () => {
+    it('fresh prod-mode DB contains 16 tables (no eval/debug tables)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -23,8 +23,6 @@ describe('schema — current table set, default values, constraints', () => {
             'plugin_config',
             'identity',
             'regen_state',
-            'debug_trajectory',
-            'eval_results',
             'agent_runs',
             'pr_review_runs',
         ];
@@ -106,19 +104,26 @@ describe('schema — current table set, default values, constraints', () => {
         db.close();
     });
     it('eval_results has the A/B columns (#131) on a fresh DB', () => {
-        const db = tempDB();
-        const cols = db.all('PRAGMA table_info(eval_results)');
-        const byName = new Map(cols.map((c) => [c.name, c]));
-        const arm = byName.get('arm');
-        assert.ok(arm, 'arm column must exist');
-        assert.equal(arm.type, 'TEXT');
-        assert.equal(arm.notnull, 1, 'arm must be NOT NULL');
-        assert.equal(arm.dflt_value, "'control'", 'arm must default to control');
-        const scenario = byName.get('scenario');
-        assert.ok(scenario, 'scenario column must exist');
-        assert.equal(scenario.type, 'TEXT');
-        assert.equal(scenario.notnull, 0, 'scenario is nullable');
-        db.close();
+        process.env['TMB_EVAL_MODE'] = '1';
+        let db;
+        try {
+            db = tempDB();
+            const cols = db.all('PRAGMA table_info(eval_results)');
+            const byName = new Map(cols.map((c) => [c.name, c]));
+            const arm = byName.get('arm');
+            assert.ok(arm, 'arm column must exist');
+            assert.equal(arm.type, 'TEXT');
+            assert.equal(arm.notnull, 1, 'arm must be NOT NULL');
+            assert.equal(arm.dflt_value, "'control'", 'arm must default to control');
+            const scenario = byName.get('scenario');
+            assert.ok(scenario, 'scenario column must exist');
+            assert.equal(scenario.type, 'TEXT');
+            assert.equal(scenario.notnull, 0, 'scenario is nullable');
+            db.close();
+        }
+        finally {
+            delete process.env['TMB_EVAL_MODE'];
+        }
     });
     it('last_verified_sha config key is NOT schema-seeded (#45 — initial null is correct)', () => {
         const db = tempDB();
@@ -126,60 +131,104 @@ describe('schema — current table set, default values, constraints', () => {
         assert.equal(row, undefined, 'last_verified_sha must start absent');
         db.close();
     });
-    it('debug_trajectory has zero rows on init (issue #108)', () => {
+    it('prod-mode DB does NOT have eval_results or debug_trajectory tables (#163)', () => {
         const db = tempDB();
-        const rows = db.all('SELECT * FROM debug_trajectory');
-        assert.equal(rows.length, 0);
+        const evalTable = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='eval_results'");
+        assert.equal(evalTable, undefined, 'eval_results must be absent in prod mode');
+        const debugTable = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='debug_trajectory'");
+        assert.equal(debugTable, undefined, 'debug_trajectory must be absent in prod mode');
         db.close();
+    });
+    it('eval-mode DB has eval_results + debug_trajectory when TMB_EVAL_MODE=1 (#163)', () => {
+        process.env['TMB_EVAL_MODE'] = '1';
+        let db;
+        try {
+            db = tempDB();
+            const evalTable = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='eval_results'");
+            assert.ok(evalTable !== undefined, 'eval_results must be present in eval mode');
+            const debugTable = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='debug_trajectory'");
+            assert.ok(debugTable !== undefined, 'debug_trajectory must be present in eval mode');
+            db.close();
+        }
+        finally {
+            delete process.env['TMB_EVAL_MODE'];
+        }
+    });
+    it('debug_trajectory has zero rows on init (issue #108)', () => {
+        process.env['TMB_EVAL_MODE'] = '1';
+        let db;
+        try {
+            db = tempDB();
+            const rows = db.all('SELECT * FROM debug_trajectory');
+            assert.equal(rows.length, 0);
+            db.close();
+        }
+        finally {
+            delete process.env['TMB_EVAL_MODE'];
+        }
     });
     it('debug_trajectory has expected columns + index (issue #108, extended for #110)', () => {
-        const db = tempDB();
-        const cols = db.all('PRAGMA table_info(debug_trajectory)');
-        const colNames = cols.map((c) => c.name).sort();
-        assert.deepEqual(colNames, [
-            'agent',
-            'args_json',
-            'created_at',
-            'id',
-            'is_error',
-            'kind',
-            'latency_ms',
-            'result_json',
-            'session_id',
-            'step_n',
-            'tokens_in',
-            'tokens_out',
-            'tool_or_mcp_name',
-        ]);
-        const indexes = db.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='debug_trajectory'");
-        const indexNames = indexes.map((i) => i.name);
-        assert.ok(indexNames.includes('idx_debug_trajectory_session'), 'session-step index must exist for L5 reads');
-        db.close();
+        process.env['TMB_EVAL_MODE'] = '1';
+        let db;
+        try {
+            db = tempDB();
+            const cols = db.all('PRAGMA table_info(debug_trajectory)');
+            const colNames = cols.map((c) => c.name).sort();
+            assert.deepEqual(colNames, [
+                'agent',
+                'args_json',
+                'created_at',
+                'id',
+                'is_error',
+                'kind',
+                'latency_ms',
+                'result_json',
+                'session_id',
+                'step_n',
+                'tokens_in',
+                'tokens_out',
+                'tool_or_mcp_name',
+            ]);
+            const indexes = db.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='debug_trajectory'");
+            const indexNames = indexes.map((i) => i.name);
+            assert.ok(indexNames.includes('idx_debug_trajectory_session'), 'session-step index must exist for L5 reads');
+            db.close();
+        }
+        finally {
+            delete process.env['TMB_EVAL_MODE'];
+        }
     });
     it('eval_results table exists with v2 multi-scorer schema (issue #110)', () => {
-        const db = tempDB();
-        const rows = db.all('SELECT * FROM eval_results');
-        assert.equal(rows.length, 0, 'eval_results must be empty on init');
-        const cols = db.all('PRAGMA table_info(eval_results)');
-        const colNames = cols.map((c) => c.name).sort();
-        assert.deepEqual(colNames, [
-            'arm',
-            'created_at',
-            'explanation',
-            'flow_name',
-            'id',
-            'metadata_json',
-            'pass',
-            'run_id',
-            'scenario',
-            'scorer_name',
-            'value',
-        ]);
-        const indexes = db.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='eval_results'");
-        const indexNames = indexes.map((i) => i.name).sort();
-        assert.ok(indexNames.includes('idx_eval_results_run'), 'run_id index required');
-        assert.ok(indexNames.includes('idx_eval_results_flow'), 'flow_name index required');
-        db.close();
+        process.env['TMB_EVAL_MODE'] = '1';
+        let db;
+        try {
+            db = tempDB();
+            const rows = db.all('SELECT * FROM eval_results');
+            assert.equal(rows.length, 0, 'eval_results must be empty on init');
+            const cols = db.all('PRAGMA table_info(eval_results)');
+            const colNames = cols.map((c) => c.name).sort();
+            assert.deepEqual(colNames, [
+                'arm',
+                'created_at',
+                'explanation',
+                'flow_name',
+                'id',
+                'metadata_json',
+                'pass',
+                'run_id',
+                'scenario',
+                'scorer_name',
+                'value',
+            ]);
+            const indexes = db.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='eval_results'");
+            const indexNames = indexes.map((i) => i.name).sort();
+            assert.ok(indexNames.includes('idx_eval_results_run'), 'run_id index required');
+            assert.ok(indexNames.includes('idx_eval_results_flow'), 'flow_name index required');
+            db.close();
+        }
+        finally {
+            delete process.env['TMB_EVAL_MODE'];
+        }
     });
     it('plugin_meta has exactly 1 row after 10 sequential opens of the same file-backed DB (GL #23)', () => {
         const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-schema-test-'));

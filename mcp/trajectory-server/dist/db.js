@@ -77,9 +77,13 @@ export class TrajectoryDB {
         this.syncPluginVersion();
     }
     applySchema() {
-        const schemaPath = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-        const sql = readFileSync(schemaPath, 'utf8');
+        const schemaDir = dirname(fileURLToPath(import.meta.url));
+        const sql = readFileSync(join(schemaDir, 'schema.sql'), 'utf8');
         this.db.exec(sql);
+        if (process.env['TMB_EVAL_MODE'] === '1') {
+            const evalSql = readFileSync(join(schemaDir, 'schema-eval.sql'), 'utf8');
+            this.db.exec(evalSql);
+        }
         // Migrate older DBs that pre-date the codebase-memory columns (#45)
         // and the A/B columns (#131). CREATE TABLE IF NOT EXISTS doesn't add
         // new columns to existing tables, so we explicitly ALTER any missing
@@ -94,6 +98,11 @@ export class TrajectoryDB {
         }
     }
     migrateEvalResultsAbColumns() {
+        const tableExists = this.db
+            .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='eval_results'`)
+            .get();
+        if (!tableExists)
+            return;
         const cols = this.db
             .prepare('PRAGMA table_info(eval_results)')
             .all();
