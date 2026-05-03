@@ -18,7 +18,7 @@ Confirm the following are present in the trajectory DB for the carrier issue:
    ratified agreement
 3. `roundtables` row with `status='closed'` and a non-empty `outcome`
 4. `roundtable_votes` rows — one per participant + ratification entries
-5. `ledger` row with `event_type='roundtable_summary'`
+5. `audit` row with `event_type='roundtable_summary'`
 
 If any surface is missing, log a warning to the Human before proceeding.
 

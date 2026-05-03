@@ -119,11 +119,11 @@ describe('branchReportMdTools', () => {
     assert.ok(md.includes(`# Branch Report — ${branchId} (issue #${issueId})`), 'Missing header');
     assert.ok(md.includes('**Issue objective:**'), 'Missing issue objective');
     assert.ok(md.includes('## Tasks on this branch'), 'Missing Tasks section');
-    assert.ok(md.includes('## Ledger events'), 'Missing Ledger events section');
+    assert.ok(md.includes('## Audit events'), 'Missing Audit events section');
     assert.ok(md.includes('## Validation attempts'), 'Missing Validation attempts section');
     assert.ok(md.includes('## file_registry entries touched on this branch'), 'Missing file_registry section');
 
-    assert.ok(md.includes('SWE began work on feature'), 'Ledger entry missing from report');
+    assert.ok(md.includes('SWE began work on feature'), 'Audit entry missing from report');
     assert.ok(md.includes('pass'), 'Validation verdict missing from report');
 
     db.close();
@@ -210,11 +210,11 @@ describe('branchReportMdTools', () => {
     db.close();
   });
 
-  it('empty ledger and validation — sections render with empty placeholders', async () => {
+  it('empty audit events and validation — sections render with empty placeholders', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const branchId = 'feat/empty-branch';
-    // Use direct SQL insert to avoid scope_gate_waived ledger side-effect from createTask.
+    // Use direct SQL insert to avoid scope_gate_waived audit side-effect from createTask.
     insertTaskDirect(db, issueId, branchId);
 
     const tools = branchReportMdTools(db);
@@ -228,7 +228,7 @@ describe('branchReportMdTools', () => {
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
     const md = data.markdown as string;
 
-    assert.ok(md.includes('_No ledger events._'), 'Expected empty audit events placeholder');
+    assert.ok(md.includes('_No audit events._'), 'Expected empty audit events placeholder');
     assert.ok(md.includes('_No validation attempts._'), 'Expected empty validation placeholder');
     assert.ok(
       md.includes('_No file_registry entries found for this branch._'),
@@ -276,7 +276,7 @@ describe('branchReportMdTools', () => {
     db.close();
   });
 
-  it('scopes ledger events to branch — sibling branch events not included', async () => {
+  it('scopes audit events to branch — sibling branch events not included', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const targetBranch = 'feat/target';
@@ -314,8 +314,8 @@ describe('branchReportMdTools', () => {
     const data = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
     const md = data.markdown as string;
-    assert.ok(md.includes('Started target branch work'), 'Target branch ledger entry should be present');
-    assert.ok(!md.includes('Started sibling branch work'), 'Sibling branch ledger entry should NOT be present');
+    assert.ok(md.includes('Started target branch work'), 'Target branch audit entry should be present');
+    assert.ok(!md.includes('Started sibling branch work'), 'Sibling branch audit entry should NOT be present');
 
     db.close();
   });

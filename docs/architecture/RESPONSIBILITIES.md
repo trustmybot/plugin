@@ -6,7 +6,7 @@ What each plugin-shipped agent is **actually** instructed to do, derived from th
 
 The three roles split by **what each one can be trusted to do without making its own homework, and which one stays alive when something unexpected fires**:
 
-- **bro** is the persona — the main agent, holding most permissions and the full picture (system design + requirement alignment with the Human). **Bro does everything except coding** — including all MCP / DB operations (issues, tasks, discussions, ledger, audit, file_registry summaries). Bro is the only agent that talks to the Human, and the only one with the full `requireRoles` matrix unlocked.
+- **bro** is the persona — the main agent, holding most permissions and the full picture (system design + requirement alignment with the Human). **Bro does everything except coding** — including all MCP / DB operations (issues, tasks, discussions, audit, file_registry summaries). Bro is the only agent that talks to the Human, and the only one with the full `requireRoles` matrix unlocked.
 - **swe** does coding. Three reasons coding is split out:
   1. **Token-heavy** — letting bro do it would pollute bro's strategic memory with low-level diff noise.
   2. **No self-homework** — the whole point of separation is bro re-runs verification on SWE's output. The same agent that wrote the code can't be the one marking it.

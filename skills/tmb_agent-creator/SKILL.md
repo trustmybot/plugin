@@ -253,9 +253,9 @@ AskUserQuestion({
 
 Behavior per choice:
 
-- **Skip** — write nothing; ledger event `tmb_agent_collision_skipped`. Report aborted, return control.
-- **Adopt + manage** — preserve user's file content. Use Edit to insert `tmb_owner: user-adopted` into the YAML frontmatter (after the opening `---` line, before the closing `---`). Ledger event `tmb_agent_adopted`. Report adopted, return control.
-- **Overwrite** — write the proposed (template or from-scratch) content with `tmb_owner: bro` in the frontmatter. Ledger event `tmb_agent_overwritten`. Report overwritten, return control.
+- **Skip** — write nothing; audit event `tmb_agent_collision_skipped`. Report aborted, return control.
+- **Adopt + manage** — preserve user's file content. Use Edit to insert `tmb_owner: user-adopted` into the YAML frontmatter (after the opening `---` line, before the closing `---`). Audit event `tmb_agent_adopted`. Report adopted, return control.
+- **Overwrite** — write the proposed (template or from-scratch) content with `tmb_owner: bro` in the frontmatter. Audit event `tmb_agent_overwritten`. Report overwritten, return control.
 
 In headless mode (`AskUserQuestion errors / TMB_HEADLESS=1`): HALT per the existing `## Headless mode — HALT, do not auto-approve` section. Never silently choose any of the three.
 

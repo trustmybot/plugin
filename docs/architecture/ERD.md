@@ -8,7 +8,7 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` base
 
 | Group | Tables | Keyed by |
 |---|---|---|
-| **Workflow** (per-issue) | `issues`, `tasks`, `ledger`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
+| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
 | **Registries** (standalone) | `skills`, `file_registry`, `plugin_config`, `identity`, `regen_state`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 
 ## Diagram
@@ -17,14 +17,12 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` base
 erDiagram
     issues ||--o{ issues : "parent_issue_id"
     issues ||--o{ tasks : "issue_id"
-    issues ||--o{ ledger : "issue_id"
     issues ||--o{ audit : "issue_id"
     issues ||--o{ discussions : "issue_id"
     issues ||--o{ roundtables : "issue_id"
     issues }o--o| tasks : "current_task_id"
 
     tasks ||--o{ validation_attempts : "task_id (INTEGER FK)"
-    tasks ||--o{ ledger : "branch_id (soft ref)"
     tasks ||--o{ audit : "branch_id (soft ref)"
     tasks ||--o{ agent_runs : "task_id"
 
@@ -110,14 +108,6 @@ erDiagram
         TEXT verdict
         TEXT feedback
         TEXT subagent_session_id
-    }
-
-    ledger {
-        INT  id PK
-        INT  issue_id FK
-        TEXT branch_id
-        TEXT event_type
-        TEXT summary
     }
 
     audit {
@@ -213,8 +203,7 @@ erDiagram
 | `issues` | `parent_issue_id` | `issues.id` | nested issues (rare; self-ref) |
 | `issues` | `current_task_id` | `tasks.id` | points at the task currently running; nullable |
 | `tasks` | `issue_id` | `issues.id` | every task belongs to one issue |
-| `ledger` | `issue_id` | `issues.id` | event row always scoped to an issue |
-| `audit` | `issue_id` | `issues.id` | tool output row always scoped to an issue |
+| `audit` | `issue_id` | `issues.id` | event or tool output row always scoped to an issue |
 | `discussions` | `issue_id` | `issues.id` | bro ↔ human ↔ consultants conversation per issue |
 | `roundtables` | `issue_id` | `issues.id` | a multi-agent debate belongs to an issue |
 | `roundtable_votes` | `roundtable_id` | `roundtables.id` | one vote row per agent per roundtable |
@@ -228,8 +217,7 @@ erDiagram
 
 | From | Column | → To | Why no FK |
 |---|---|---|---|
-| `ledger` | `branch_id` | `tasks.branch_id` | `branch_id` alone isn't unique in `tasks` — the UNIQUE constraint is composite `(issue_id, branch_id)`. A composite FK `(issue_id, branch_id)` would work in principle, but `ledger.branch_id` is nullable (some events are issue-scoped, not task-scoped), and nullable composite FKs are awkward. Kept as a soft ref scoped by `ledger.issue_id`. |
-| `audit` | `branch_id` | `tasks.branch_id` | Same reason — composite-uniqueness + nullable column. Audit rows are scoped by `audit.issue_id` already. |
+| `audit` | `branch_id` | `tasks.branch_id` | `branch_id` alone isn't unique in `tasks` — the UNIQUE constraint is composite `(issue_id, branch_id)`. A composite FK `(issue_id, branch_id)` would work in principle, but `audit.branch_id` is nullable (some events are issue-scoped, not task-scoped), and nullable composite FKs are awkward. Kept as a soft ref scoped by `audit.issue_id`. |
 | `tasks` | `parent_branch_id` | `tasks.branch_id` (same issue) | Self-reference within an issue. A composite self-FK `(issue_id, parent_branch_id) → (issue_id, branch_id)` is feasible but adds insert-order brittleness; kept soft. |
 
 ## Registries (no relationships to workflow tables)

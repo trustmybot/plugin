@@ -6,6 +6,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Changed
 
+- 🔖 Polish ledger→audit prose in 5 skills + extend lint to flag bare ledger word (#171)
 - ♻️ Split eval_results + debug_trajectory out of prod schema.sql; load via TMB_EVAL_MODE=1 (#163)
 - 🧪 L5 dogfood scorers updated post-#170 audit merge; add coverage for skills + roundtable_votes table writes (#159, #160)
 
