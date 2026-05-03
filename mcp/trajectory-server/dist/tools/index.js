@@ -38,9 +38,9 @@ function decorateWithAgent(tools) {
         },
     }));
 }
-export function registerTools(server, db) {
+export function registerTools(server, db, dbPath = '') {
     const discussions = discussionTools(db);
-    const issues = issueTools(db);
+    const issues = issueTools(db, dbPath);
     const tasks = taskTools(db);
     const ledger = ledgerTools(db);
     const audit = auditTools(db);

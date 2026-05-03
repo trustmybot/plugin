@@ -60,6 +60,7 @@ export interface SyncIssueCreateOpts {
   body: string;
   labels?: string[];
   _spawnFn?: SpawnFn;
+  _cwd?: string;
 }
 
 export interface SyncResult {
@@ -75,6 +76,9 @@ async function createOnBackend(
   const { title, body, labels = [] } = opts;
   const kind = backend === 'gh' ? 'github' : 'gitlab';
   const spawnOpts: SpawnSyncOptions = { timeout: 5000, encoding: 'utf8' };
+  if (opts._cwd) {
+    spawnOpts.cwd = opts._cwd;
+  }
 
   let cmd: string;
   let args: string[];
@@ -160,12 +164,16 @@ export interface SyncIssueCloseOpts {
   remote_iid: number;
   remote_kind: 'github' | 'gitlab';
   _spawnFn?: SpawnFn;
+  _cwd?: string;
 }
 
 export async function syncIssueClose(opts: SyncIssueCloseOpts): Promise<boolean> {
   const spawnFn = opts._spawnFn ?? defaultSpawnFn;
   const { remote_iid, remote_kind } = opts;
   const spawnOpts: SpawnSyncOptions = { timeout: 5000, encoding: 'utf8' };
+  if (opts._cwd) {
+    spawnOpts.cwd = opts._cwd;
+  }
 
   let cmd: string;
   let args: string[];

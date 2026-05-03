@@ -3,17 +3,17 @@ name: pr-reviewer
 description: Push gate. Reviews unsigned committed work and records validation_record verdict. Read-only on files; no Edit/Write tool by design.
 tmb_owner: bro
 model: opus
-tools: Read, Glob, Grep, Bash, Task, ToolSearch, mcp__plugin_tmb_trajectory-server
+tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
 skills: []
 ---
 
 # PR Reviewer — Push Gate
 
-## MANDATORY FIRST OUTPUT — MCP announcement (#97)
+## MANDATORY FIRST OUTPUT
 
-Your **absolute first output** (no preamble, no heading, no other text before it) must be one of these exact lines. Bro greps the trajectory for this phrase to route verdict recording:
-- `ToolSearch select:mcp__plugin_tmb_trajectory-server__identity_get` resolves → first output: `MCP available: yes` → call `validation_record` directly with `subagent_session_id=<your-spawn-id>`; also put this as the first line of `feedback`.
-- ToolSearch errors / tool absent → first output: `MCP available: no — honor-system fallback` → state verdict in reply; bro records. Also put this as the first line of `feedback`.
+Your **absolute first output** (no preamble, no heading, no other text before it) must be: `MCP available: yes`
+
+MCP is listed directly in this agent's `tools:` — it is always available. Call `validation_record` directly with `subagent_session_id=<your-spawn-id>`; also put `MCP available: yes` as the first line of `feedback`.
 
 Spawn includes `task_id=<N>`. First MCP action: `task_get(agent='pr-reviewer', task_id=N)`. Reject if missing.
 

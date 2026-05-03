@@ -23,7 +23,7 @@ const server = new Server(
   { capabilities: { tools: {} } },
 );
 
-registerTools(server, db);
+registerTools(server, db, dbPath);
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: toolDefinitions,

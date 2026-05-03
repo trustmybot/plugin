@@ -1,3 +1,4 @@
+import { dirname, join } from 'node:path';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { decodeLabels } from './labels.js';
@@ -36,7 +37,19 @@ function wrapHandler(fn) {
         }
     };
 }
-export function issueTools(db) {
+function resolveSpawnCwd(db, dbPath) {
+    if (!dbPath)
+        return undefined;
+    const defaultRepoRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
+    if (!defaultRepoRow?.value_json)
+        return undefined;
+    const defaultRepo = JSON.parse(defaultRepoRow.value_json);
+    if (typeof defaultRepo !== 'string' || defaultRepo.length === 0)
+        return undefined;
+    const workspaceRoot = dirname(dirname(dirname(dbPath)));
+    return join(workspaceRoot, defaultRepo);
+}
+export function issueTools(db, dbPath = '') {
     const definitions = [
         {
             name: 'issue_create',
@@ -181,6 +194,7 @@ export function issueTools(db) {
                         labels,
                         _backend: backend,
                         _spawnFn: spawnFn,
+                        _cwd: resolveSpawnCwd(db, dbPath),
                     });
                     if (syncResult) {
                         db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);
@@ -244,6 +258,7 @@ export function issueTools(db) {
                 const success = await syncIssueClose({
                     remote_iid: remoteRow.remote_iid,
                     remote_kind: remoteRow.remote_kind,
+                    _cwd: resolveSpawnCwd(db, dbPath),
                 });
                 if (!success) {
                     serverLog({ event: 'issue_close_sync_failed', issueId, remote_iid: remoteRow.remote_iid });

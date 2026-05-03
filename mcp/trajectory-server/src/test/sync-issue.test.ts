@@ -195,6 +195,50 @@ describe('syncIssueCreate', () => {
   });
 });
 
+describe('syncIssueCreate cwd injection', () => {
+  it('passes _cwd to spawnOpts when tmb_default_repo is configured', async () => {
+    const capturedOpts: SpawnSyncOptions[] = [];
+    const spawnFn: SpawnFn = (_cmd, _args, opts) => {
+      capturedOpts.push(opts);
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/1\n', stderr: '' };
+    };
+    const result = await syncIssueCreate({
+      issueId: 1,
+      title: 'Test',
+      body: 'Body',
+      _backend: 'gh',
+      _spawnFn: spawnFn,
+      _cwd: '/workspace/plugin',
+    });
+    assert.ok(result !== null);
+    assert.equal(capturedOpts.length, 1);
+    assert.ok(capturedOpts[0] !== undefined);
+    assert.ok(
+      typeof capturedOpts[0]!.cwd === 'string' && (capturedOpts[0]!.cwd as string).endsWith('/plugin'),
+      `expected cwd to end with /plugin, got: ${String(capturedOpts[0]!.cwd)}`,
+    );
+  });
+
+  it('leaves spawnOpts.cwd undefined when _cwd is not provided', async () => {
+    const capturedOpts: SpawnSyncOptions[] = [];
+    const spawnFn: SpawnFn = (_cmd, _args, opts) => {
+      capturedOpts.push(opts);
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/2\n', stderr: '' };
+    };
+    const result = await syncIssueCreate({
+      issueId: 2,
+      title: 'Test',
+      body: 'Body',
+      _backend: 'gh',
+      _spawnFn: spawnFn,
+    });
+    assert.ok(result !== null);
+    assert.equal(capturedOpts.length, 1);
+    assert.ok(capturedOpts[0] !== undefined);
+    assert.equal(capturedOpts[0]!.cwd, undefined, 'cwd should be undefined when _cwd is not provided');
+  });
+});
+
 describe('syncIssueClose', () => {
   it('returns true when gh close succeeds', async () => {
     const spawnFn = makeSpawnFn([
