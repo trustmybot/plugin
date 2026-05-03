@@ -5,11 +5,8 @@ Every tracked file in `plugin/` with its purpose. Regenerate after any restructu
 Last refresh: 2026-05-02 on `docs/151-architecture-cleanup`.
 
 > **Bro-as-planner doctrine + Lego templates + multi-platform placeholders.**
-> The plugin ships ZERO subagents. `bro` is a CLAUDE.md persona on main
-> Claude. Every other agent (swe, pr-reviewer, architect, cto, ceo, pm,
-> any domain consultant) lives as a Lego template that bro copies into
-> `<project>/.claude/agents/` on demand. Multi-platform adapter dirs
-> (`.codex-plugin/`, `.cursor-plugin/`, `.opencode/`, `gemini-extension.json`)
+> The plugin ships TWO global subagents — `swe` + `pr-reviewer` (the workflow backbone) — in `agents/`. They auto-discover; no copy step. **ZERO consultant subagents** ship globally; consultants (`architect`, `cto`, `ceo`, `pm`, any domain consultant) live as Lego templates in `templates/agents/` that bro copies into `<project>/.claude/agents/` on demand. `bro` is a CLAUDE.md persona on main Claude (not a subagent).
+> Multi-platform adapter dirs (`.codex-plugin/`, `.cursor-plugin/`, `.opencode/`, `gemini-extension.json`)
 > are present as **placeholders only** — see [`docs/multi-platform.md`](../multi-platform.md).
 
 ## Tree (excluding `node_modules/`, `dist/`, `.git/`, `*.lock*`, local `.trajectory.db`)
@@ -18,7 +15,7 @@ Last refresh: 2026-05-02 on `docs/151-architecture-cleanup`.
 plugin/
 ├── # Per-platform adapters (only Claude Code is implemented today)
 ├── .claude-plugin/
-│   └── plugin.json                   # native CC plugin manifest (name, version, deps, provides)
+│   └── plugin.json                   # per-plugin manifest (name, version, deps, provides). NOT the marketplace catalog — catalogs are `marketplace.json` files in separate catalog repos (see TRU-84 for the new CC marketplace migration).
 ├── .codex-plugin/                    # PLACEHOLDER — OpenAI Codex adapter
 │   ├── README.md
 │   └── plugin.json
@@ -27,7 +24,7 @@ plugin/
 │   └── plugin.json
 ├── .opencode/                        # PLACEHOLDER — OpenCode adapter
 │   └── README.md
-├── gemini-extension.json             # PLACEHOLDER — Gemini CLI manifest
+├── gemini-extension.json             # PLACEHOLDER — Gemini CLI manifest. top-level (not subdir) per Gemini CLI's extension format spec; other adapters use subdirs (.codex-plugin/, .cursor-plugin/, .opencode/) per their own platform conventions.
 │
 ├── # Per-platform persona / context loading files
 ├── CLAUDE.md                         # auto-loaded bro persona for Claude Code (canonical)
@@ -36,9 +33,9 @@ plugin/
 ├── GEMINI.md                         # PLACEHOLDER — Gemini CLI persona
 │
 ├── # Repo metadata
-├── .github/
+├── .github/                          # DORMANT — GH account suspended (per ADR 0001-gitlab-primary in TMB workspace). Files preserved for future GH restoration; CI currently runs on GitLab.
 │   └── workflows/
-│       └── test.yml                  # CI: bun build + MCP tests + hook tests on PR → dev
+│       └── test.yml                  # bun build + MCP tests + hook tests on PR → dev/main. Runs only when GH restored; until then GitLab CI is canonical.
 ├── .gitignore                        # ignores .claude/, *.db variants, node_modules/, dist/, editor cruft
 ├── .mcp.json                         # registers bundled MCP server with Claude Code
 ├── CHANGELOG.md                      # user-facing release notes (keep-a-changelog)
