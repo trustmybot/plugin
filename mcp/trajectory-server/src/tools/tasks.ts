@@ -352,6 +352,16 @@ export function taskTools(db: TrajectoryDB): {
               );
             }
             repoValue = repo;
+          } else {
+            const defaultRepoRow = db.get<{ value_json: string }>(
+              `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
+            );
+            if (defaultRepoRow?.value_json) {
+              const defaultRepo = JSON.parse(defaultRepoRow.value_json) as unknown;
+              if (typeof defaultRepo === 'string' && defaultRepo.length > 0) {
+                repoValue = defaultRepo;
+              }
+            }
           }
 
           void genId('task');

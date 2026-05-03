@@ -137,4 +137,66 @@ out=$(
 assert_not_contains "$out" '"decision":"block"' "bypass env var must suppress block even on mismatch"
 cleanup
 
+test_case "TMB workspace shape: tasks.repo=null + tmb_default_repo='plugin' + on right branch → passes"
+WORKSPACE=$(mktemp -d -t tmb-workspace-XXXX)
+INNER_REPO="$WORKSPACE/plugin"
+mkdir -p "$INNER_REPO"
+(
+  cd "$INNER_REPO" || exit 1
+  git init -q -b "fix/1-foo"
+  git config user.email "test@example.com"
+  git config user.name "Test"
+  echo "init" > README.md
+  git add README.md
+  git commit -qm "init"
+)
+WS_DB="$WORKSPACE/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$WS_DB")"
+sqlite3 "$WS_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+sqlite3 "$WS_DB" "
+  INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at)
+    VALUES ('tmb_default_repo', '\"plugin\"', datetime('now'));
+  INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+    VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, success_criteria, status, spec_body, repo, created_at, updated_at)
+    VALUES (10, 1, 'fix/1-foo', 'task 10', 'd', 'sc', 'pending', '', NULL, datetime('now'), datetime('now'));
+" >/dev/null
+REPO_PATH="$INNER_REPO"
+payload=$(make_payload "swe" "task_id=10 You are SWE.")
+out=$(run_hook "$payload" "$WS_DB")
+assert_not_contains "$out" '"decision":"block"' "TMB workspace shape with default_repo set + on right branch must not block"
+rm -rf "$WORKSPACE"
+REPO_PATH=""
+
+test_case "TMB workspace shape: tasks.repo=null + tmb_default_repo unset → blocks with clear error"
+WORKSPACE=$(mktemp -d -t tmb-workspace-XXXX)
+INNER_REPO="$WORKSPACE/plugin"
+mkdir -p "$INNER_REPO"
+(
+  cd "$INNER_REPO" || exit 1
+  git init -q -b "fix/1-foo"
+  git config user.email "test@example.com"
+  git config user.name "Test"
+  echo "init" > README.md
+  git add README.md
+  git commit -qm "init"
+)
+WS_DB="$WORKSPACE/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$WS_DB")"
+sqlite3 "$WS_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+sqlite3 "$WS_DB" "
+  INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+    VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, success_criteria, status, spec_body, repo, created_at, updated_at)
+    VALUES (11, 1, 'fix/1-foo', 'task 11', 'd', 'sc', 'pending', '', NULL, datetime('now'), datetime('now'));
+" >/dev/null
+REPO_PATH="$WORKSPACE"
+payload=$(make_payload "swe" "task_id=11 You are SWE.")
+out=$(run_hook "$payload" "$WS_DB")
+assert_contains "$out" '"decision":"block"' "TMB workspace with no default_repo and no .git at workspace root must block"
+assert_contains "$out" "tmb_default_repo" "block message must mention tmb_default_repo config key"
+assert_contains "$out" "config_set" "block message must suggest config_set remedy"
+rm -rf "$WORKSPACE"
+REPO_PATH=""
+
 summarize

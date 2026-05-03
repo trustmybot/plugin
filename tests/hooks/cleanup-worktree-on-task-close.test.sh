@@ -103,4 +103,36 @@ out=$(run_hook "$(input 'mcp__plugin_tmb-rc_trajectory-server__task_update_statu
 [ ! -d "$REPO/.claude/worktrees/bar" ] || { echo "FAIL: rc-channel match didn't fire"; exit 1; }
 echo "  rc-channel tool name handled"
 
+test_case "TMB workspace shape: workspace-rooted DB + tasks.repo=null + tmb_default_repo='plugin' → worktree removed"
+WORKSPACE_TMP=$(mktemp -d -t tmb-ws-XXXX)
+INNER="$WORKSPACE_TMP/plugin"
+mkdir -p "$INNER"
+cd "$INNER"
+git init -q -b main "$INNER"
+git -C "$INNER" config user.email t@t.io
+git -C "$INNER" config user.name t
+echo init > "$INNER/README.md"
+git -C "$INNER" add .
+git -C "$INNER" commit -qm init
+WS_DB="$WORKSPACE_TMP/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$WS_DB")"
+sqlite3 "$WS_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT NOT NULL, repo TEXT, status TEXT);
+  INSERT INTO tasks (id, branch_id, repo, status) VALUES (20, 'fix/ws-test', NULL, 'completed');
+"
+sqlite3 "$WS_DB" "
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT, updated_at TEXT);
+  INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '\"plugin\"', datetime('now'));
+"
+git -C "$INNER" branch fix/ws-test HEAD
+git -C "$INNER" worktree add -q "$WORKSPACE_TMP/.claude/worktrees/ws-test" fix/ws-test
+[ -d "$WORKSPACE_TMP/.claude/worktrees/ws-test" ] || { echo "FAIL: worktree not created"; exit 1; }
+out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 20)" \
+  | TRAJECTORY_DB_PATH="$WS_DB" bash "$HOOK" 2>&1 || true)
+assert_contains "$out" 'cleaned up worktree' "TMB workspace shape: worktree should be cleaned up"
+[ ! -d "$WORKSPACE_TMP/.claude/worktrees/ws-test" ] || { echo "FAIL: worktree still present in TMB workspace shape"; exit 1; }
+echo "  TMB workspace-rooted worktree removed successfully"
+rm -rf "$WORKSPACE_TMP"
+cd "$REPO"
+
 summarize
