@@ -23,5 +23,5 @@ FROM tasks;
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
   'planning-chain-ran (scope_gate_waived or planning_complete got ' || COUNT(*) || ')' AS description
-FROM ledger
-WHERE event_type IN ('planning_complete', 'scope_gate_waived');
+FROM audit WHERE kind='event'
+  AND event_type IN ('planning_complete', 'scope_gate_waived');
