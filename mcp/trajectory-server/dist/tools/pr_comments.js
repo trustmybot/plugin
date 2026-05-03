@@ -168,13 +168,29 @@ export function prCommentsTools(db, _spawnFn) {
             const since = typeof args['since'] === 'string' ? args['since'] : undefined;
             const configRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
             const configValue = configRow ? JSON.parse(configRow.value_json) : 'auto';
-            const backend = resolveBackend(configValue);
+            let backend;
+            if (configValue === 'off') {
+                const ghAvail = spawn('gh', ['auth', 'status'], { timeout: 5000, encoding: 'utf8' }).status === 0;
+                if (ghAvail) {
+                    backend = 'gh';
+                }
+                else {
+                    const glabAvail = spawn('glab', ['auth', 'status'], { timeout: 5000, encoding: 'utf8' }).status === 0;
+                    if (!glabAvail) {
+                        return err('Neither gh nor glab is installed/available; cannot fetch PR comments');
+                    }
+                    backend = 'glab';
+                }
+            }
+            else {
+                backend = resolveBackend(configValue);
+            }
             const configBots = db.get(`SELECT value_json FROM plugin_config WHERE key = 'pr_review_bots'`);
             const botsOverride = configBots ? JSON.parse(configBots.value_json) : '';
             const botPatterns = buildBotPatterns(botsOverride);
             const fetchResult = resolveComments(backend, prNumber, since, botPatterns, spawn);
             if (fetchResult === 'off') {
-                return err('Remote sync is disabled (issue_sync=off)');
+                return err('Failed to fetch PR comments — check gh/glab auth and PR number');
             }
             if (!fetchResult) {
                 return err('Failed to fetch PR comments — check gh/glab auth and PR number');
