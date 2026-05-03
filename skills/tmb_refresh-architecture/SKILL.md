@@ -54,6 +54,15 @@ architecture_regen(scope: 'incremental')
 Call this at session start before the first code-touching route. The MCP tool
 computes a git-log diff since the last regen and only rewrites stale files.
 
+## regen_state contract
+
+The `architecture_regen` MCP tool auto-writes `regen_state` rows on every
+successful regen — this skill does NOT need to call `regen_state_set`
+explicitly. Each regen target (`file_registry`, `codebase_tree`, `erd`,
+`module_graph`, `changelog`) gets its own row keyed by the target name; the
+tool updates `last_regen_at` and `last_seen_sha` for each target it processes.
+`lazy-regen-check` reads these rows to determine staleness at session start.
+
 ## Post-regen
 
 After the MCP call returns, compare the reported changed files against the

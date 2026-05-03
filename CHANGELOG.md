@@ -42,6 +42,8 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Fixed
 
+- 🐛 lazy-regen-check skips nudge for hand-curated arch projects (#162)
+
 - 🐛 Drop stale git-worktree literal check from local-agent-primitives lint (#169)
 
 - 🐛 (mcp): `plugin_meta` seed no longer re-inserts on every MCP boot; one-time migration collapses any pre-existing duplicates to a single `id=1` row. (GL #23)
