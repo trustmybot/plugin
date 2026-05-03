@@ -21,4 +21,4 @@ FROM plugin_config;
 SELECT
   CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
   'no-ledger-events (got ' || COUNT(*) || ', expected 0)' AS description
-FROM ledger;
+FROM audit WHERE kind='event';

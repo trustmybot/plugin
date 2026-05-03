@@ -7,6 +7,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 ### Changed
 
 - ♻️ Split eval_results + debug_trajectory out of prod schema.sql; load via TMB_EVAL_MODE=1 (#163)
+- 🧪 L5 dogfood scorers updated post-#170 audit merge; add coverage for skills + roundtable_votes table writes (#159, #160)
 
 ### Added
 

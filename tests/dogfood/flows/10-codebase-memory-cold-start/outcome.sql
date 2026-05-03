@@ -19,7 +19,7 @@
 SELECT
   CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
   'deep_scan-NOT-completed-in-headless (got ' || COUNT(*) || ', expected 0)' AS description
-FROM ledger WHERE event_type = 'deep_scan_completed';
+FROM audit WHERE kind='event' AND event_type = 'deep_scan_completed';
 
 -- After the fallback, bro must still proceed with planning. issue_create
 -- + task_create_batch indicate the planning chain ran.
