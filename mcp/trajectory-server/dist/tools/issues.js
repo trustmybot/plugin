@@ -153,6 +153,8 @@ export function issueTools(db) {
             const objective = args['objective'];
             const description = args['description'] ?? '';
             const labels = args['labels'] ?? [];
+            // _spawnFn: test-only injection point; not in inputSchema
+            const spawnFn = args['_spawnFn'] ?? undefined;
             const now = nowISO();
             const preGitSha = process.env['PRE_GIT_SHA'] ?? '';
             db.run(`INSERT INTO issues (objective, description, pre_commit_hash, status, created_at, updated_at)
@@ -178,6 +180,7 @@ export function issueTools(db) {
                         body: description,
                         labels,
                         _backend: backend,
+                        _spawnFn: spawnFn,
                     });
                     if (syncResult) {
                         db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);

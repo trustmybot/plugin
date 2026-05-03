@@ -1,4 +1,5 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { SpawnSyncOptions } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, Task } from '../types.js';
@@ -7,6 +8,12 @@ import { decodeLabels } from './labels.js';
 import { resolveBackend } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
+
+type SpawnFn = (
+  cmd: string,
+  args: string[],
+  opts: SpawnSyncOptions,
+) => { status: number | null; stdout: string; stderr: string };
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -168,6 +175,8 @@ export function issueTools(db: TrajectoryDB): {
       const objective = args['objective'] as string;
       const description = (args['description'] as string | undefined) ?? '';
       const labels = (args['labels'] as string[] | undefined) ?? [];
+      // _spawnFn: test-only injection point; not in inputSchema
+      const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
       const now = nowISO();
       const preGitSha = process.env['PRE_GIT_SHA'] ?? '';
 
@@ -205,6 +214,7 @@ export function issueTools(db: TrajectoryDB): {
             body: description,
             labels,
             _backend: backend,
+            _spawnFn: spawnFn,
           });
           if (syncResult) {
             db.run(

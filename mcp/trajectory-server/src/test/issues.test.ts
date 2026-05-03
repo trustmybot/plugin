@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 import { issueTools } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
+import { makeSpawnFn } from './sync-issue.test.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -262,11 +263,13 @@ describe('issueTools — remote sync', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Test gh sync failure fallback',
+      _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated gh auth error' }]),
     });
     const created = parseResult(result);
     assert.ok(!result.isError, 'Local insert must succeed even when remote fails');
     assert.equal(created.objective, 'Test gh sync failure fallback');
     assert.equal(created.status, 'open');
+    assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync fails');
 
     db.close();
   });
@@ -284,10 +287,12 @@ describe('issueTools — remote sync', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Test glab sync failure fallback',
+      _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated glab auth error' }]),
     });
     const created = parseResult(result);
     assert.ok(!result.isError, 'Local insert must succeed even when remote fails');
     assert.equal(created.objective, 'Test glab sync failure fallback');
+    assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync fails');
 
     db.close();
   });
@@ -302,13 +307,16 @@ describe('issueTools — remote sync', () => {
     });
     const tools = issueTools(db);
 
+    // _spawnFn guards against real remote calls if a backend is detected in this environment
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Test auto with no remote',
+      _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated no-remote failure' }]),
     });
     const created = parseResult(result);
     assert.ok(!result.isError, 'Local insert must succeed even when no backend available');
     assert.equal(created.objective, 'Test auto with no remote');
+    assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when no backend resolves');
 
     db.close();
   });
