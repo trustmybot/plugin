@@ -45,7 +45,6 @@ lint_file() {
     swe)
       check_body "$file" "task_get(" "task_get\("                    || fail=1
       check_body "$file" "task_update_status(" "task_update_status\(" || fail=1
-      check_body "$file" "git worktree" "git worktree"               || fail=1
       check_body "$file" "atomic close" "atomic.{0,3}close"          || fail=1
       check_frontmatter_tool "$file" "mcp__plugin_tmb_trajectory-server" || fail=1
       ;;

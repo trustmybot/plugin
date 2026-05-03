@@ -42,6 +42,8 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Fixed
 
+- 🐛 Drop stale git-worktree literal check from local-agent-primitives lint (#169)
+
 - 🐛 (mcp): `plugin_meta` seed no longer re-inserts on every MCP boot; one-time migration collapses any pre-existing duplicates to a single `id=1` row. (GL #23)
 
 - **Removed:** `scripts/hooks/create-worktree.sh` (#4 / TRU-80) — redundant since SWE explicitly creates its own task-branch worktree per #170/#171. Eliminates the orphan-worktree side effect (one stray `.claude/worktrees/agent-*` per SWE spawn).
