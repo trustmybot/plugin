@@ -6,13 +6,13 @@ import { join } from 'node:path';
 import type { SpawnSyncOptions } from 'node:child_process';
 import { syncIssueCreate, syncIssueClose } from '../sync/issue_sync.js';
 
-type SpawnFn = (
+export type SpawnFn = (
   cmd: string,
   args: string[],
   opts: SpawnSyncOptions,
 ) => { status: number | null; stdout: string; stderr: string };
 
-function makeSpawnFn(responses: Array<{ status: number; stdout: string; stderr: string }>): SpawnFn {
+export function makeSpawnFn(responses: Array<{ status: number; stdout: string; stderr: string }>): SpawnFn {
   let index = 0;
   return (_cmd, _args, _opts) => {
     const response = responses[index] ?? { status: 1, stdout: '', stderr: 'no more responses' };

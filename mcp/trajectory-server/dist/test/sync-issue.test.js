@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { syncIssueCreate, syncIssueClose } from '../sync/issue_sync.js';
-function makeSpawnFn(responses) {
+export function makeSpawnFn(responses) {
     let index = 0;
     return (_cmd, _args, _opts) => {
         const response = responses[index] ?? { status: 1, stdout: '', stderr: 'no more responses' };
