@@ -18,14 +18,18 @@ Bro invokes this skill once per session — immediately before the pre-scan on t
 ## Procedure
 
 1. Call `regen_state_get(target='file_registry')` and `regen_state_get(target='changelog')`.
-2. If **both** return `null` (first-ever session — no regen has ever run): probe the project's source-file count to decide whether to bootstrap initial docs.
+2. If **both** return `null` (first-ever session — no regen has ever run): probe the project's source-file count and whether hand-curated arch docs already exist.
    ```bash
    # Count source files (excluding obvious non-source dirs)
    N=$(git ls-files | grep -vE '^(\.claude/|node_modules/|dist/|build/|\.git/|docs/)' | wc -l | tr -d ' ')
+   # Detect hand-curated arch docs (any .md under docs/trustmybot/architecture at depth 1)
+   HAS_HANDCURATED=$(find docs/trustmybot/architecture -maxdepth 1 -type f -name '*.md' 2>/dev/null | head -1)
    ```
    - If `N == 0` (empty repo) → do nothing, log skip to ledger.
-   - If `N <= 200` (small project, e.g. fresh dogfood scratch) → invoke `tmb_refresh-architecture` with `scope:'full'` silently. The bootstrap is cheap on small projects and ensures `docs/trustmybot/architecture/auto/` exists for the first contributor / cold session. Tiny projects rarely cross the 25-commit threshold, so without this fallback they would never get docs.
-   - If `N > 200` → emit the one-line nudge: *"This project has N source files but no architecture docs yet. Run `/tmb refresh-architecture` to bootstrap them."* Don't auto-regen — full bootstrap on a 1000-file project can be slow.
+   - If `N <= 200` AND `HAS_HANDCURATED` is empty → invoke `tmb_refresh-architecture` with `scope:'full'` silently. The bootstrap is cheap on small projects and ensures `docs/trustmybot/architecture/auto/` exists for the first contributor / cold session. Tiny projects rarely cross the 25-commit threshold, so without this fallback they would never get docs.
+   - If `N <= 200` AND `HAS_HANDCURATED` is non-empty → SKIP. The project maintains arch docs by hand; auto-regen is user opt-in only.
+   - If `N > 200` AND `HAS_HANDCURATED` is empty → emit the one-line nudge: *"This project has N source files but no architecture docs yet. Run `/tmb refresh-architecture` to bootstrap them."* Don't auto-regen — full bootstrap on a 1000-file project can be slow.
+   - If `N > 200` AND `HAS_HANDCURATED` is non-empty → SKIP. Hand-curated arch docs signal the project has chosen not to use auto-regen; emitting the nudge is a false positive. The user opts in via `/tmb refresh-architecture` if they want.
 
 3. Otherwise (regen has run before), take the SHA from whichever `regen_state` row has the more recent `last_regen_at` timestamp and run:
    ```bash
