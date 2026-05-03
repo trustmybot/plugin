@@ -201,6 +201,28 @@ describe('pr_comments_get — GitLab backend', () => {
         db.close();
     });
 });
+describe('pr_comments_get — issue_sync=off', () => {
+    it('works when issue_sync=off (independent of issue-sync config)', async () => {
+        const db = tempDB();
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"off"', datetime('now'))`);
+        const tools = prCommentsTools(db, makeSpawnFn([
+            { status: 0, stdout: '', stderr: '' },
+            { status: 0, stdout: GH_SAMPLE, stderr: '' },
+        ]));
+        const result = (await tools.handlers['pr_comments_get']({
+            agent: 'bro',
+            pr_number: 20,
+        }));
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const data = parseResult(result);
+        assert.equal(data.remote_kind, 'github');
+        assert.equal(data.comments.length, 3);
+        const row = db.get(`SELECT pr_number, comments_processed FROM pr_review_runs WHERE pr_number = 20`);
+        assert.ok(row, 'pr_review_runs row should exist');
+        assert.equal(row.comments_processed, 3);
+        db.close();
+    });
+});
 describe('pr_review_runs table state capture', () => {
     it('records last_comment_id from final comment', async () => {
         const db = tempDB();
