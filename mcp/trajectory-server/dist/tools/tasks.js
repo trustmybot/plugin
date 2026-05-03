@@ -302,6 +302,15 @@ export function taskTools(db) {
                         }
                         repoValue = repo;
                     }
+                    else {
+                        const defaultRepoRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
+                        if (defaultRepoRow?.value_json) {
+                            const defaultRepo = JSON.parse(defaultRepoRow.value_json);
+                            if (typeof defaultRepo === 'string' && defaultRepo.length > 0) {
+                                repoValue = defaultRepo;
+                            }
+                        }
+                    }
                     void genId('task');
                     db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,

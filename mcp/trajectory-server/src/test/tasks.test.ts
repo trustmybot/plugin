@@ -1006,6 +1006,51 @@ describe('taskTools', () => {
     db.close();
   });
 
+  it('task_create_batch defaults repo to tmb_default_repo config when task.repo omitted', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"plugin"', datetime('now'))`,
+    );
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        { branch_id: 'feat/default-repo-test', description: 'No repo arg', success_criteria: 'uses default' },
+      ],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].repo, 'plugin', 'repo should default to tmb_default_repo config value');
+
+    db.close();
+  });
+
+  it('task_create_batch defaults repo to null when task.repo omitted and tmb_default_repo not set', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        { branch_id: 'feat/null-repo-back-compat', description: 'No repo, no config', success_criteria: 'repo is null' },
+      ],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].repo, null, 'repo should be null when no config and no task.repo');
+
+    db.close();
+  });
+
   it('task_create_batch passes with branch_id_proposed ledger event (#155)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);

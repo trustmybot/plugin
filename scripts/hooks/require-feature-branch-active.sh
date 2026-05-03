@@ -26,15 +26,35 @@ TASK_ID=$(echo "$PROMPT" | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=
 DB=$(tmb_db_path 2>/dev/null || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then exit 0; fi
 
-ROW=$(sqlite3 "$DB" "SELECT branch_id, COALESCE(repo, '.') FROM tasks WHERE id=$TASK_ID;" 2>/dev/null || true)
+ROW=$(sqlite3 "$DB" "SELECT branch_id, repo FROM tasks WHERE id=$TASK_ID;" 2>/dev/null || true)
 [ -n "$ROW" ] || exit 0
 
 EXPECTED=$(echo "$ROW" | cut -d'|' -f1)
 REPO=$(echo "$ROW" | cut -d'|' -f2)
 
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB")")")"
-REPO_ABS="$WORKSPACE_ROOT/$REPO"
-[ -d "$REPO_ABS/.git" ] || REPO_ABS="$WORKSPACE_ROOT"
+
+if [ -z "$REPO" ]; then
+  REPO=$(sqlite3 "$DB" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='tmb_default_repo';" 2>/dev/null || true)
+fi
+
+if [ -n "$REPO" ]; then
+  REPO_ABS="$WORKSPACE_ROOT/$REPO"
+  if [ ! -d "$REPO_ABS/.git" ]; then
+    cat <<EOF
+{"decision":"block","reason":"BLOCKED: cannot resolve repo for task $TASK_ID. tasks.repo='$REPO' does not point to a git repo at '$REPO_ABS'. Verify the path is correct."}
+EOF
+    exit 0
+  fi
+else
+  REPO_ABS="$WORKSPACE_ROOT"
+  if [ ! -d "$REPO_ABS/.git" ]; then
+    cat <<EOF
+{"decision":"block","reason":"BLOCKED: cannot resolve repo for task $TASK_ID. tasks.repo IS NULL and tmb_default_repo config is unset. Set via \`config_set tmb_default_repo <inner>\` for multi-repo workspaces."}
+EOF
+    exit 0
+  fi
+fi
 
 ACTUAL=$(git -C "$REPO_ABS" branch --show-current 2>/dev/null || true)
 

@@ -166,6 +166,8 @@ After the Human confirms the branch_id (Step 1), bro creates and switches in the
 git switch -c "${branch_id}"
 ```
 
+**Multi-repo workspaces:** if your workspace has the trajectory DB at `<workspace>/.claude/<plugin>/` but the code lives in an inner repo (e.g. `<workspace>/plugin/`), run `config_set('tmb_default_repo', 'plugin')` once after onboarding. `task_create_batch` reads this key and defaults `tasks.repo` accordingly for every task where `repo=` is not explicitly supplied. The same key is read by `require-feature-branch-active.sh` and `cleanup-worktree-on-task-close.sh` so hooks resolve the correct git root without bro needing to pass `repo=` on every call.
+
 Then verify and log:
 
 ```bash
