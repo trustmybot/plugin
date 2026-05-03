@@ -45,3 +45,104 @@ Routing SWE's commits through your local branch (rather than letting SWE push st
 | `<project>/.claude/worktrees/<slug>/` | SWE (detached HEAD) | Per-task; created on spawn, removed after bro merges its commits into local `<feature>` |
 | `origin/<base>` | Shared | Permanent; advances on merges |
 | `origin/<feature>` | Shared | Per-task; created by bro's push from local; removed after MR merge |
+
+## Realized by — files per stage
+
+**Idle**
+```text
+plugin/
+├── CLAUDE.md                                          # bro persona; reads identity + issue_resume on activation
+├── scripts/hooks/activation-routine.sh               # UserPromptSubmit: pre-fetches identity + pending issue
+└── mcp/trajectory-server/src/
+    ├── tools/identity.ts                             # identity_get
+    ├── tools/issues.ts                               # issue_resume
+    └── schema.sql                                    # plugin_config defaults seeded at DB init
+```
+
+**Issue + task filed, branch pre-created**
+```text
+plugin/
+├── CLAUDE.md                                          # bro planning chain (issue_create → task_create_batch)
+├── skills/
+│   ├── tmb_planning-simple/SKILL.md                  # simple triage plan
+│   ├── tmb_planning-difficult/SKILL.md               # difficult triage plan + ADR
+│   └── tmb_branch-id-proposal/SKILL.md               # proposes the feature branch slug
+├── scripts/hooks/
+│   ├── git-guards.sh                                 # enforces branch naming on commits
+│   └── require-feature-branch-active.sh              # blocks issue/task ops without a feature branch
+└── mcp/trajectory-server/src/tools/
+    ├── issues.ts                                     # issue_create
+    ├── tasks.ts                                      # task_create_batch
+    ├── discussions.ts                                # discussion_append (intent + triage note)
+    └── ledger.ts                                     # ledger_log (planning_complete)
+```
+
+**SWE working**
+```text
+plugin/
+├── agents/swe.md                                      # SWE executor prompt
+├── scripts/hooks/
+│   ├── require-task-spec.sh                          # gates spawn on valid pending spec row
+│   ├── worktree-create.sh                            # creates the detached worktree on spawn
+│   ├── no-worktree-branch-create.sh                  # prevents SWE from creating branches
+│   └── git-guards.sh                                 # commit branch check in worktree
+└── mcp/trajectory-server/src/tools/
+    ├── tasks.ts                                      # task_get (SWE reads spec) + task_update_status(running)
+    └── audit.ts                                      # audit table writes
+```
+
+**SWE committed (in worktree)**
+```text
+plugin/
+├── agents/swe.md                                      # atomic close: task_update_status(needs_validation)
+├── scripts/hooks/
+│   ├── swe-atomic-close.sh                           # SubagentStop safety net if SWE skips close
+│   ├── require-summaries-before-task-close.sh        # blocks close if file summaries missing
+│   └── cleanup-worktree-on-task-close.sh             # removes worktree after bro closes task
+└── mcp/trajectory-server/src/tools/
+    ├── tasks.ts                                      # task_update_status(completed, commit_sha)
+    └── file-registry.ts                              # file_registry_update_summaries
+```
+
+**Bro merges + pushes (MR opens)**
+```text
+plugin/
+├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)
+├── skills/tmb_push-gate/SKILL.md                     # push-gate orchestration
+├── scripts/hooks/
+│   ├── git-push-guard.sh                             # blocks push without pass verdicts
+│   └── branch-up-to-date-with-remote.sh              # verifies local branch is current
+└── mcp/trajectory-server/src/tools/
+    ├── tasks.ts                                      # task_update_status(closed) by bro
+    ├── ledger.ts                                     # ledger_log(bro_verification_pass)
+    ├── file-registry.ts                              # file_registry_update_summaries (advance sha)
+    └── issues.ts                                     # issue_close
+```
+
+**Push gate / verify**
+```text
+plugin/
+├── agents/pr-reviewer.md                             # pr-reviewer subagent
+├── skills/
+│   ├── tmb_push-gate/SKILL.md                        # bro push-gate orchestration
+│   ├── tmb_review-protocol/SKILL.md                  # reviewer phases 1-7
+│   ├── tmb_review-findings/SKILL.md                  # pattern catalog
+│   └── tmb_code-quality/SKILL.md                     # shared quality criteria
+├── scripts/hooks/git-push-guard.sh                   # final enforcement before origin push
+└── mcp/trajectory-server/src/
+    ├── tools/validation.ts                           # validation_record (verdict write)
+    ├── tools/tasks.ts                                # task_get (read spec + commit_sha)
+    ├── tools/discussions.ts                          # discussion_append on FAIL
+    └── schema.sql                                    # validation_attempts table
+```
+
+**After merge**
+```text
+plugin/
+├── CLAUDE.md                                          # bro post-merge cleanup chain
+├── scripts/hooks/cleanup-worktree-on-task-close.sh   # removes SWE worktree (already done at close)
+├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
+└── mcp/trajectory-server/src/tools/
+    ├── ledger.ts                                     # ledger_log (post-merge state)
+    └── regen-state.ts                                # regen_state_update after merge contents
+```

@@ -55,6 +55,18 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 **Doctrine: no onboarding, no bro-side default-write.** Modern agents don't onboard. The schema (`mcp/trajectory-server/src/schema.sql`) seeds the three policy keys at DB creation via `INSERT OR IGNORE`, so bro never has to apply or persist defaults — they're there from the moment the DB exists. Bro just reads what it needs and greets.
 
+**Realized by:**
+```text
+plugin/
+├── CLAUDE.md                                           # bro persona + first-action chain (inline, no skill)
+└── mcp/trajectory-server/src/
+    ├── schema.sql                                      # seeds plugin_config defaults via INSERT OR IGNORE
+    ├── tools/config.ts                                 # config_get / config_set
+    ├── tools/identity.ts                               # identity_get
+    ├── tools/ledger.ts                                 # ledger_log
+    └── tools/issues.ts                                 # issue_resume
+```
+
 ```mermaid
 sequenceDiagram
     participant H as Human
@@ -94,6 +106,28 @@ sequenceDiagram
 - MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `ledger_log` (no `validation_record` per task — that fires at push time)
 - DB tables: `issues`, `tasks`, `discussions`, `ledger`, `audit`
 - Hooks: `require-task-spec` (gates SWE spawn), `git-push-guard` (gates `git push`), `git-guards` (commit branch check)
+
+**Realized by:**
+```text
+plugin/
+├── agents/swe.md                                       # SWE executor subagent
+├── CLAUDE.md                                           # bro persona + planning chain
+├── skills/
+│   ├── tmb_planning-simple/SKILL.md                    # bro triage: simple task plan
+│   ├── tmb_planning-difficult/SKILL.md                 # bro triage: difficult task plan
+│   ├── tmb_swe-spawn-workflow/SKILL.md                 # bro pre-handoff spawn protocol
+│   └── tmb_swe-checklist/SKILL.md                     # SWE on-demand verification aid
+├── scripts/hooks/
+│   ├── require-task-spec.sh                            # gates SWE spawn on valid spec row
+│   ├── git-push-guard.sh                               # blocks push without pass verdict
+│   └── git-guards.sh                                   # commit branch check
+└── mcp/trajectory-server/src/tools/
+    ├── issues.ts                                       # issue_create
+    ├── tasks.ts                                        # task_create_batch / task_get / task_update_status
+    ├── discussions.ts                                  # discussion_append
+    ├── ledger.ts                                       # ledger_log
+    └── audit.ts                                        # audit table writes
+```
 
 ```mermaid
 sequenceDiagram
@@ -150,6 +184,27 @@ sequenceDiagram
 - MCP tools: + `discussion_append`, `discussion_list`
 - DB tables: + `discussions`
 - Files: ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md`
+
+**Realized by:**
+```text
+plugin/
+├── agents/swe.md                                       # SWE executor subagent
+├── CLAUDE.md                                           # bro persona + difficult-triage chain
+├── skills/
+│   ├── tmb_planning-difficult/SKILL.md                 # Q+A loop + ADR authoring
+│   ├── tmb_swe-spawn-workflow/SKILL.md                 # bro pre-handoff spawn protocol
+│   └── tmb_swe-checklist/SKILL.md                     # SWE on-demand verification aid
+├── scripts/hooks/
+│   ├── require-task-spec.sh                            # gates SWE spawn on valid spec row
+│   ├── git-push-guard.sh                               # blocks push without pass verdict
+│   └── git-guards.sh                                   # commit branch check
+├── templates/docs-trustmybot/architecture/manual/decisions/0001-example.md  # ADR template
+└── mcp/trajectory-server/src/tools/
+    ├── issues.ts                                       # issue_create
+    ├── tasks.ts                                        # task_create_batch / task_get / task_update_status
+    ├── discussions.ts                                  # discussion_append / discussion_list
+    └── ledger.ts                                       # ledger_log
+```
 
 ```mermaid
 sequenceDiagram
@@ -208,6 +263,19 @@ sequenceDiagram
 - Files written: `.claude/agents/<name>.md` (project-local, on user approval only)
 - Hooks: none
 
+**Realized by:**
+```text
+plugin/
+├── skills/tmb_agent-creator/SKILL.md                  # drafts and writes the new agent file
+└── templates/agents/                                  # base templates for shipped agent roles
+    ├── architect.md
+    ├── ceo.md
+    ├── cto.md
+    ├── pm.md
+    ├── pr-reviewer.md
+    └── swe.md
+```
+
 ```mermaid
 flowchart TD
     A[Human asks for role X] --> B{Role X exists in<br/>.claude/agents/?}
@@ -241,6 +309,14 @@ flowchart TD
 - DB tables (optional): `skills` — for effectiveness tracking via `skill_register` + `skill_record_outcome`
 - Files: `<project>/.claude/skills/<name>/SKILL.md` (project-local) — plugin-shipped `tmb_*` skills are out of scope for this flow
 - Hooks: none
+
+**Realized by:**
+```text
+plugin/
+├── skills/tmb_skill-creator/SKILL.md                  # meta-skill: drafts the new skill file
+└── mcp/trajectory-server/src/tools/
+    └── skills.ts                                      # skill_register / skill_record_outcome
+```
 
 ```mermaid
 flowchart TD
@@ -282,6 +358,24 @@ PR-reviewer no longer fires per-task at task-close. It fires at push time over a
 - MCP tools: `task_get`, `validation_record`, `discussion_append` (on FAIL), `issue_snapshot_md` (on PASS), `regen_state_get` (auto-dir check)
 - DB tables: `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL note)
 - Hooks: `git-push-guard.sh` blocks `git push` until all push-range tasks have a `validation_attempts.verdict='pass'` row
+
+**Realized by:**
+```text
+plugin/
+├── agents/pr-reviewer.md                              # the reviewer subagent
+├── skills/
+│   ├── tmb_push-gate/SKILL.md                         # bro push-gate orchestration
+│   ├── tmb_review-protocol/SKILL.md                   # reviewer phases 1-7
+│   ├── tmb_review-findings/SKILL.md                   # pattern catalog
+│   └── tmb_code-quality/SKILL.md                      # shared quality criteria
+├── scripts/hooks/git-push-guard.sh                    # blocks push without pass verdicts
+└── mcp/trajectory-server/src/
+    ├── tools/validation.ts                            # validation_record write path
+    ├── tools/tasks.ts                                 # task_get (read)
+    ├── tools/discussions.ts                           # discussion_append on FAIL
+    ├── tools/regen-state.ts                           # regen_state_get for auto-dir check
+    └── schema.sql                                     # validation_attempts table
+```
 
 ```mermaid
 sequenceDiagram
@@ -344,6 +438,27 @@ sequenceDiagram
 - Files written: `docs/trustmybot/architecture/auto/{codebase-tree,erd,module-graph,changelog}.md`
 - Hooks: none
 
+**Realized by:**
+```text
+plugin/
+├── skills/tmb_refresh-architecture/SKILL.md           # regen orchestration protocol
+├── skills/tmb_lazy-regen-check/SKILL.md               # decides if lazy regen is needed
+├── mcp/trajectory-server/src/
+│   ├── tools/regen-state.ts                           # regen_state_get / regen_state_update
+│   ├── tools/file-registry.ts                         # file_registry_scan_commits
+│   ├── tools/architecture-regen.ts                    # architecture_regen (4 renderers)
+│   ├── renderers/codebase-tree.ts                     # codebase-tree.md renderer
+│   ├── renderers/erd.ts                               # erd.md renderer
+│   ├── renderers/module-graph.ts                      # module-graph.md renderer
+│   ├── renderers/changelog.ts                         # changelog.md renderer
+│   └── regen/git-walker.ts                            # incremental git log walker
+└── templates/docs-trustmybot/architecture/auto/       # placeholder templates for auto outputs
+    ├── codebase-tree.md
+    ├── erd.md
+    ├── module-graph.md
+    └── changelog.md
+```
+
 ```mermaid
 flowchart LR
     A[Trigger:<br/>session start /<br/>tmb refresh-architecture] --> B[regen_state_get<br/>last_seen_sha]
@@ -381,6 +496,19 @@ flowchart LR
 - MCP tools: `validation_history`, `task_update_status`, `discussion_append`
 - DB tables: `validation_attempts` (one row per pr-reviewer attempt; UNIQUE(task_id, attempt_n)), `discussions`
 - Hooks: `git-push-guard` (still enforces — no push until a `verdict='pass'` row exists for every commit-bearing task)
+
+**Realized by:**
+```text
+plugin/
+├── agents/swe.md                                      # re-spawned executor
+├── agents/pr-reviewer.md                             # re-spawned at push-gate retries
+├── skills/tmb_feedback-loop/SKILL.md                  # retry/escalation protocol
+├── scripts/hooks/git-push-guard.sh                    # still enforces pass verdict
+└── mcp/trajectory-server/src/tools/
+    ├── validation.ts                                  # validation_history read + record write
+    ├── tasks.ts                                       # task_update_status
+    └── discussions.ts                                 # discussion_append (escalation note)
+```
 
 ```mermaid
 flowchart TD
@@ -443,6 +571,20 @@ If the skill finds < 2 suitable participants, it escalates back to bro — round
 - DB tables: `roundtables` (state machine row), `roundtable_votes` (one per participant), `discussions` (one `kind='analysis'` row per consultant), `ledger` (summary)
 - Hooks: `roundtable-auq-shape.sh` (PreToolUse AskUserQuestion — validates AUQ shape during `awaiting_human` state)
 
+**Realized by:**
+```text
+plugin/
+├── skills/
+│   ├── tmb_roundtable/SKILL.md                        # roundtable mechanics + state machine
+│   └── tmb_roundtable-cleanup/SKILL.md                # post-synthesis archive
+├── commands/roundtable.md                             # /roundtable slash command
+├── scripts/hooks/roundtable-auq-shape.sh              # validates AUQ shape in awaiting_human state
+└── mcp/trajectory-server/src/tools/
+    ├── roundtable.ts                                  # roundtable_create/vote/finalize/close/summarize
+    ├── discussions.ts                                 # discussion_append / discussion_list
+    └── ledger.ts                                      # ledger_log (roundtable_summary)
+```
+
 ```mermaid
 sequenceDiagram
     participant H as Human
@@ -498,6 +640,14 @@ sequenceDiagram
 - DB tables: none (for `.DS_Store` removal; `ledger` for branch deletes)
 - Hooks: none specific to this flow
 
+**Realized by:**
+```text
+plugin/
+├── CLAUDE.md                                          # bro pre-authorized cleanup doctrine
+└── mcp/trajectory-server/src/tools/
+    └── ledger.ts                                      # ledger_log (branch deletes only)
+```
+
 ```mermaid
 flowchart TD
     A["Human: 'clean all .DS_Store files'<br/>(or 'delete these branches…')"] --> B{Pre-authorized in<br/>current message?}
@@ -528,6 +678,20 @@ Consultants are **project-local** — the plugin ships none. The first time a co
 - MCP tools: `issue_get_with_discussions` (read), `discussion_append(kind='analysis'|'concern')` (write)
 - DB tables: `discussions` (one or more `kind='analysis'` or `kind='concern'` rows)
 - Hooks: none
+
+**Realized by:**
+```text
+plugin/
+├── skills/tmb_agent-creator/SKILL.md                  # drafts consultant agent on first use
+├── templates/agents/                                  # base templates for consultant roles
+│   ├── architect.md
+│   ├── ceo.md
+│   ├── cto.md
+│   └── pm.md
+└── mcp/trajectory-server/src/tools/
+    ├── issues.ts                                      # issue_get_with_discussions
+    └── discussions.ts                                 # discussion_append (analysis/concern)
+```
 
 ```mermaid
 sequenceDiagram
@@ -606,6 +770,22 @@ When Linear-imported issues have truncated descriptions, bro can backfill them u
 - DB tables: `pr_review_runs` (tracks last fetched comment per PR+repo), `issues`, `tasks`, `ledger`
 - External: `gh`/`glab` CLI (via `pr_comments_get` backend)
 - Hooks: `git-push-guard` (usual push gate when SWE commits land)
+
+**Realized by:**
+```text
+plugin/
+├── agents/swe.md                                      # spawned per ratified comment task
+├── skills/tmb_pr-review-handler/SKILL.md              # /monitor orchestration protocol
+├── commands/monitor.md                                # /monitor slash command definition
+├── scripts/hooks/git-push-guard.sh                    # push gate when SWE commits land
+└── mcp/trajectory-server/src/
+    ├── tools/pr_comments.ts                           # pr_comments_get (gh + glab backends)
+    ├── tools/roundtable.ts                            # roundtable ratification flow
+    ├── tools/issues.ts                                # issue_create
+    ├── tools/tasks.ts                                 # task_create_batch
+    ├── tools/ledger.ts                                # ledger_log (monitor_complete)
+    └── sync/backend.ts                                # gh/glab CLI backend adapter
+```
 
 ```mermaid
 sequenceDiagram
