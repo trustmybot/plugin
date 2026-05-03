@@ -13,6 +13,19 @@ Every bug caught after SWE submits is a system failure. Learn from it.
 - PR review blocks a commit (reviewer found something SWE missed)
 - Test failure from code change (regression)
 - Human catches a bug
+- Human asks bro to retry a failed SWE task
+
+## Retry Protocol (failed task)
+
+When the Human requests a retry on a failed task:
+
+1. Read the failure details: `issue_get_with_discussions` to get the concern/failure discussion.
+2. Append a retry-rationale discussion: `discussion_append(kind='decision', body='Retry rationale: <root cause> → <corrected approach>')`.
+3. Create a **new** task via `task_create_batch` with a corrected spec that explicitly addresses the failure. The old failed task stays as evidence; the new task carries the corrected spec. Do NOT reset the old task's status.
+4. Spawn SWE on the new task.
+5. Log `ledger_log(event_type='planning_complete', summary='Retry task created with corrected spec.')`.
+
+Then run the 3-question learning protocol below to capture the lesson.
 
 ## 3-Question Protocol
 

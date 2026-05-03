@@ -42,6 +42,8 @@ If the project already uses a different tool, **match the existing pattern** —
 
    **Do NOT split these across multiple bro messages.** Each separate message costs 13–60s of round-trip latency. Batched, they run concurrently in ~5s.
 
+   **Critical ordering:** `task_create_batch` must complete BEFORE `Task(swe)` is called — bro needs the returned `task_id` to pass to SWE. In CC's parallel-tool-call runtime, sequential dependencies mean: call `task_create_batch` alone first (step 3a), wait for the task ID in the result, then emit `Task(swe) + discussion_append + ledger_log` as the parallel batch (step 3b). `ledger_log(planning_complete)` MUST be in the same response as `Task(swe)` — never in a subsequent message, as the Agent sub-task may consume the next turn.
+
 4. SWE returns with `status='completed'` and `commit_sha`. Proceed to verification (next section).
 
 ## Bro verification protocol — never skip this

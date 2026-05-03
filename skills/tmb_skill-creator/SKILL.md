@@ -156,12 +156,17 @@ Tell the Human in one line: skill landed at `<path>`; attached to `<agents>`. Re
 
 ## Headless mode — HALT, do not auto-approve
 
-This skill writes new files into `.claude/skills/`. Per CLAUDE.md doctrine, file-writing skills must NEVER auto-approve in headless mode — the silent generation of skills in CI is exactly the foot-gun the rule guards against.
+This skill writes new files into `.claude/skills/`. Silent generation of skills in CI is exactly the foot-gun the rule guards against.
 
 When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set:
 
 1. Halt the skill immediately. Do NOT write any files.
-2. Record `ledger_log(agent='bro', event_type='headless_creator_blocked', summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval in headless mode.')`.
+2. Call `ledger_log` **immediately** — this write is non-negotiable:
+   ```
+   ledger_log(agent='bro',
+              event_type='headless_creator_blocked',
+              summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval in headless mode.')
+   ```
 3. Surface a clear message: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively, or write the skill file directly if you know what you want."
 
 Rationale: a skill is a behavior change to the agent ecosystem. Silent CI-time generation could ship behavior the Human never reviewed.

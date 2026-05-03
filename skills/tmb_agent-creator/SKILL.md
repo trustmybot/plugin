@@ -265,14 +265,24 @@ If the user wants a consultant that writes source code (e.g. `data-pipeline-swe`
 
 If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to tools. Otherwise, propose a skill instead (use `tmb_skill-creator`) so the existing swe gains the new behavior.
 
-## Headless mode — HALT, do not auto-approve
+## Headless mode
 
-This skill writes new files into `.claude/agents/`. Per CLAUDE.md doctrine, file-writing skills must NEVER auto-approve in headless mode — the silent generation of agents in CI is exactly the foot-gun the rule guards against.
+Two modes have different headless policies:
 
-When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set:
+### Template-copy mode — auto-approve
+
+Template-copy copies a plugin-shipped file verbatim. The content is deterministic and has already been reviewed as part of the plugin release. In headless mode, proceed without the approval AUQ:
+
+1. Write the template file to `.claude/agents/<name>.md` as normal (Step E.2).
+2. Call `ledger_log(agent='bro', event_type='tmb_agent_created', summary='Copied template <name> to .claude/agents/<name>.md (template-copy mode, headless auto-approved).', content_json='{"name": "<name>", "mode": "template-copy"}')`.
+3. Surface a note: "Agent `<name>` created from plugin template (headless mode — template content is deterministic)."
+
+Then proceed to spawn the new agent for the original ask.
+
+### From-scratch mode — HALT
+
+From-scratch mode generates novel agent content that the Human has not reviewed. In headless mode:
 
 1. Halt the skill immediately. Do NOT write any files.
-2. Record `ledger_log(agent='bro', event_type='headless_creator_blocked', summary='tmb_agent-creator blocked: cannot create agent <proposed_name> without Human approval in headless mode.')`.
-3. Surface a clear message: "Cannot create agent in headless mode — file writes require Human approval. Re-run interactively, or write the agent file directly if you know what you want."
-
-Rationale: an agent is a new persona that can be spawned by bro. Silent CI-time generation could ship behavior the Human never reviewed.
+2. Call `ledger_log(agent='bro', event_type='headless_creator_blocked', summary='tmb_agent-creator blocked: from-scratch mode requires Human approval. Cannot create agent <proposed_name> headlessly.')`.
+3. Surface a clear message: "Cannot create agent from scratch in headless mode — novel content requires Human review. Re-run interactively."
