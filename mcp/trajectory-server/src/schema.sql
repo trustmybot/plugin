@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS audit (
 
     -- Tool-call fields (kind='tool_call')
     round        INTEGER NOT NULL DEFAULT 0,
-    tool_name    TEXT,
+    tool_name    TEXT    NOT NULL DEFAULT '',
     tool_args    TEXT    NOT NULL DEFAULT '{}',
     output       TEXT    NOT NULL DEFAULT '',
     output_chars INTEGER NOT NULL DEFAULT 0,
