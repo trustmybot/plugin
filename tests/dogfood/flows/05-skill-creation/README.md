@@ -9,14 +9,14 @@
 **Expected behavior** (headless-aware):
 1. Bro routes to `tmb_skill-creator`
 2. Skill calls `AskUserQuestion`
-3. **In headless mode (L5)**: AUQ errors → `tmb_headless-fallback` records `headless_creator_blocked` ledger event. (Interactive: writes skill file + emits `tmb_skill_created`.)
+3. **In headless mode (L5)**: AUQ errors → `tmb_headless-fallback` records `headless_creator_blocked` audit event. (Interactive: writes skill file + emits `tmb_skill_created`.)
 
 ## Scorers
 
 | Scorer | What it asserts |
 |---|---|
-| `outcome.sql` | Ledger has either `tmb_skill_created` OR `headless_creator_blocked` |
-| `tools-required.json` | `ledger_log` (audit on either path) |
+| `outcome.sql` | Audit has either `tmb_skill_created` OR `headless_creator_blocked` (kind='event') |
+| `tools-required.json` | `audit_log` (audit on either path) |
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` |
 | `cost-budget.json` | Soft 60K / 90s |
 

@@ -37,12 +37,12 @@ If the project already uses a different tool, **match the existing pattern** —
    - `task_create_batch(agent='bro', spec_body=<≤8000 chars, trivial template>, waive_scope_gate=true, waive_scope_gate_reason='<defaults named, e.g. "simple-triage personal CLI: defaulted to argparse + unittest + JSON at ~/.todo/todos.json; no cross-cutting ambiguity">')`
    - `Task(subagent_type='swe', prompt='task_id=<N>', isolation='worktree')` — SWE picks up the row a few seconds later via `task_get`
    - `discussion_append(kind='note', body='Beginning planning on branch_id <branch_id>, triage: simple')`
-   - `ledger_log(event_type='planning_complete', summary='...')`
+   - `audit_log(kind='event', event_type='planning_complete', summary='...')`
    - (Optional) `discussion_append(kind='question'+'answer'` Q+A pair if you wanted to ask anything — but the simple path's whole point is you don't need to.)
 
    **Do NOT split these across multiple bro messages.** Each separate message costs 13–60s of round-trip latency. Batched, they run concurrently in ~5s.
 
-   **Critical ordering:** `task_create_batch` must complete BEFORE `Task(swe)` is called — bro needs the returned `task_id` to pass to SWE. In CC's parallel-tool-call runtime, sequential dependencies mean: call `task_create_batch` alone first (step 3a), wait for the task ID in the result, then emit `Task(swe) + discussion_append + ledger_log` as the parallel batch (step 3b). `ledger_log(planning_complete)` MUST be in the same response as `Task(swe)` — never in a subsequent message, as the Agent sub-task may consume the next turn.
+   **Critical ordering:** `task_create_batch` must complete BEFORE `Task(swe)` is called — bro needs the returned `task_id` to pass to SWE. In CC's parallel-tool-call runtime, sequential dependencies mean: call `task_create_batch` alone first (step 3a), wait for the task ID in the result, then emit `Task(swe) + discussion_append + audit_log` as the parallel batch (step 3b). `audit_log(kind='event', event_type='planning_complete')` MUST be in the same response as `Task(swe)` — never in a subsequent message, as the Agent sub-task may consume the next turn.
 
 4. SWE returns with `status='completed'` and `commit_sha`. Proceed to verification (next section).
 
@@ -66,15 +66,15 @@ git diff <commit_sha>~1..<commit_sha>           # actual changes
 ### Step V3 — Decide
 
 - **All three pass** → batch FOUR calls in the SAME response:
-  1. `ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands all passed. V3 success criteria visibly met. Closing.')`
+  1. `audit_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', kind='event', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands all passed. V3 success criteria visibly met. Closing.')`
   2. **`file_registry_update_summaries(agent='bro', updates=[<one entry per touched path: {path, summary: '<your fresh 1-3 sentence summary based on the diff you just verified>'}], advance_verified_sha=<sha>)`** — you have the full task context (issue + spec + diff just reviewed); SWE doesn't. Server enforces this is bro-only. A PreToolUse hook gates the next call: `task_update_status(closed)` will be DENIED if file_registry doesn't have fresh summaries for the touched paths.
   3. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
   4. `issue_close(agent='bro', issue_id=<I>)` IF this was the only task on the issue
 
-  Then tell the Human "Trust me bro, it works." **Do NOT call `validation_record`** — that's pr-reviewer's tool and the server will reject the call as `forbidden`. Bro's task gate writes `bro_verification_pass` to the ledger; pr-reviewer's push gate writes `validation_record` later, over the batch.
+  Then tell the Human "Trust me bro, it works." **Do NOT call `validation_record`** — that's pr-reviewer's tool and the server will reject the call as `forbidden`. Bro's task gate writes `bro_verification_pass` to the audit table (kind='event'); pr-reviewer's push gate writes `validation_record` later, over the batch.
 
 - **Any check fails** → batch:
-  1. `ledger_log(agent='bro', from_node='bro', event_type='bro_verification_fail', summary='<which check> — <details>')`
+  1. `audit_log(agent='bro', from_node='bro', kind='event', event_type='bro_verification_fail', summary='<which check> — <details>')`
   2. `discussion_append(kind='note', body='Verification fail: <which check> — <details>')`
 
   Do NOT close the task. Either re-spawn SWE with feedback (max 3 attempts per task) or escalate to the Human.

@@ -178,7 +178,7 @@ Standard difficult-path template. ≤8000 chars. Cite existing code; don't resta
 
 ### Step 6 — Batched handoff (single response)
 
-Same hard rule as the simple path: emit `task_create_batch` + `Task(swe)` + `ledger_log(planning_complete)` as multiple tool_use blocks in ONE response. CC runs them concurrently. Splitting these across messages costs ~30s of round-trip latency.
+Same hard rule as the simple path: emit `task_create_batch` + `Task(swe)` + `audit_log(kind='event', event_type='planning_complete')` as multiple tool_use blocks in ONE response. CC runs them concurrently. Splitting these across messages costs ~30s of round-trip latency.
 
 If multiple tasks were planned, fan out the SWE spawns in parallel where they have no `parent_branch_id` dependency.
 
@@ -199,13 +199,13 @@ git diff <commit_sha>~1..<commit_sha>
 
 #### V3 — Decide
 - All three pass → batch FOUR calls in the same response:
-  1. `ledger_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands passed. V3 success criteria met. Closing.')`
+  1. `audit_log(agent='bro', issue_id=<I>, branch_id=<B>, from_node='bro', kind='event', event_type='bro_verification_pass', summary='V1 files match. V2 verification commands passed. V3 success criteria met. Closing.')`
   2. **`file_registry_update_summaries(agent='bro', updates=[<one entry per touched path: {path, summary: '<your fresh 1-3 sentence summary based on the diff you just verified>'}], advance_verified_sha=<sha>)`** — you have full task context (issue + spec + diff just reviewed); SWE doesn't. Server enforces this is bro-only. A PreToolUse hook gates the next call: `task_update_status(closed)` will be DENIED if file_registry doesn't have fresh summaries for the touched paths.
   3. `task_update_status(agent='bro', task_id=<N>, status='closed', commit_sha=<sha>)`
   4. `issue_close(agent='bro', issue_id=<I>)` IF all tasks on the issue are closed
 
-  **Do NOT call `validation_record`** — pr-reviewer-only; server returns `forbidden` for bro callers. Bro writes `bro_verification_pass` to the ledger; pr-reviewer writes `validation_record` later at the push gate, over the batch.
-- Any check fails → batch `ledger_log(event_type='bro_verification_fail')` + `discussion_append(kind='note', body='Verification fail: ...')`. Do NOT close. Re-spawn SWE with feedback (max 3 retries) or escalate.
+  **Do NOT call `validation_record`** — pr-reviewer-only; server returns `forbidden` for bro callers. Bro writes `bro_verification_pass` to the audit table; pr-reviewer writes `validation_record` later at the push gate, over the batch.
+- Any check fails → batch `audit_log(kind='event', event_type='bro_verification_fail')` + `discussion_append(kind='note', body='Verification fail: ...')`. Do NOT close. Re-spawn SWE with feedback (max 3 retries) or escalate.
 
 #### Halt-on-MCP-error
 If any close-related MCP call returns `is_error: true`, STOP. Do not emit a success message. Surface the exact error to the Human — usually means the call signature is wrong.
@@ -232,7 +232,7 @@ discussion_append(kind='note', body='Triage: simple (downgraded from difficult; 
 
 When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, proceed with the spec bro has drafted as if the Human had said "proceed as proposed". Record both:
 
-- `ledger_log(agent='bro', event_type='headless_fallback', summary='tmb_planning-difficult: scope confirmation → auto-accepted')`
+- `audit_log(agent='bro', kind='event', event_type='headless_fallback', summary='tmb_planning-difficult: scope confirmation → auto-accepted')`
 - `discussion_append(agent='bro', kind='note', body='Headless fallback: planning-difficult sought scope confirmation, no Human in loop, auto-accepted. Reason: spec was drafted from project context; SWE will surface scope drift if it occurs.')`
 
-Then run the full planning chain (architecture probe, ADR draft, batched task_create_batch + spawn swe + ledger_log). Do NOT skip the ADR — that's the difficult-triage's primary deliverable.
+Then run the full planning chain (architecture probe, ADR draft, batched task_create_batch + spawn swe + audit_log). Do NOT skip the ADR — that's the difficult-triage's primary deliverable.

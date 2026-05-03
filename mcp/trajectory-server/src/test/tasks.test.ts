@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
-import { ledgerTools } from '../tools/ledger.js';
+import { auditTools } from '../tools/audit.js';
 
 function makeGitSubdir(name: string): { name: string; cleanup: () => void } {
   const dir = join(process.cwd(), name);
@@ -978,16 +978,17 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_create_batch rejects without branch_id_proposed ledger event (#155)', async () => {
+  it('task_create_batch rejects without branch_id_proposed audit event (#155)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
-    const ledger = ledgerTools(db);
+    const audit = auditTools(db);
 
-    await call(ledger.handlers, 'ledger_log', {
+    await call(audit.handlers, 'audit_log', {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
+      kind: 'event',
       event_type: 'some_other_event',
       summary: 'not a branch_id_proposed event',
     });
@@ -1051,16 +1052,17 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_create_batch passes with branch_id_proposed ledger event (#155)', async () => {
+  it('task_create_batch passes with branch_id_proposed audit event (#155)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
-    const ledger = ledgerTools(db);
+    const audit = auditTools(db);
 
-    await call(ledger.handlers, 'ledger_log', {
+    await call(audit.handlers, 'audit_log', {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
+      kind: 'event',
       event_type: 'branch_id_proposed',
       summary: 'Branch fix/test-gate created from origin/dev. Main checkout switched.',
     });

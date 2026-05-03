@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import type { Discussion, Issue, Task, LedgerEntry } from '../types.js';
+import type { Discussion, Issue, Task, AuditEventEntry } from '../types.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -59,7 +59,7 @@ export function reportTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'issue_report_md',
-      description: 'Assemble a markdown narrative for an issue including tasks, validation, and ledger timeline.',
+      description: 'Assemble a markdown narrative for an issue including tasks, validation, and audit event timeline.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -113,8 +113,8 @@ export function reportTools(db: TrajectoryDB): {
         );
       }
 
-      const ledgerEntries = db.all<LedgerEntry>(
-        `SELECT * FROM ledger WHERE issue_id = ? ORDER BY id ASC`,
+      const ledgerEntries = db.all<AuditEventEntry>(
+        `SELECT * FROM audit WHERE issue_id = ? AND kind = 'event' ORDER BY id ASC`,
         [issueId],
       );
 
@@ -164,10 +164,10 @@ export function reportTools(db: TrajectoryDB): {
       }
       lines.push('');
 
-      lines.push('## Ledger Timeline');
+      lines.push('## Audit Event Timeline');
       lines.push('');
       if (ledgerEntries.length === 0) {
-        lines.push('_No ledger entries._');
+        lines.push('_No audit events._');
       } else {
         for (const e of ledgerEntries) {
           lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);

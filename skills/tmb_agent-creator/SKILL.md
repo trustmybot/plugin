@@ -2,7 +2,7 @@
 name: tmb_agent-creator
 description: Add a project-local agent. PRIMARY MODE — copy from `templates/agents/<name>.md` verbatim. FALLBACK — draft from scratch when no shipped template matches the requested name. Always asks Human approval before writing. Never edits the body of any agent file.
 agent: bro
-allowed-tools: Read, Write, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__ledger_log
+allowed-tools: Read, Write, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 
 # tmb_agent-creator
@@ -70,8 +70,9 @@ On **no** / silence / ambiguous: abort, write nothing.
 ### Step 3 — Log + report
 
 ```
-ledger_log(
+audit_log(
   agent='bro',
+  kind='event',
   event_type='tmb_agent_created',
   summary='Copied template <name> to .claude/agents/<name>.md (template-copy mode).',
   content_json='{"name": "<name>", "mode": "template-copy"}',
@@ -154,8 +155,9 @@ On **no** / silence / ambiguous: abort, write nothing.
 ### Step 6 — Log + report
 
 ```
-ledger_log(
+audit_log(
   agent='bro',
+  kind='event',
   event_type='tmb_agent_created',
   summary='Drafted + wrote <name> from scratch (no shipped template).',
   content_json='{"name": "<name>", "mode": "from-scratch"}',
@@ -197,7 +199,7 @@ Allowed:
 
 - The rule itself, stated inline.
 - Cross-references to other prompt surfaces loaded the same way: `see CLAUDE.md ## <Section>`, `see agents/<name>.md`, `see skills/<name>/SKILL.md`.
-- MCP-DB references via tool name: "consult `discussion_list`", "see `ledger_log` for X events".
+- MCP-DB references via tool name: "consult `discussion_list`", "see `audit_log_list` for X events".
 
 If a fact really matters but you can't satisfy this without losing it, ask the Human — don't ship a prompt with noise.
 
@@ -274,7 +276,7 @@ Two modes have different headless policies:
 Template-copy copies a plugin-shipped file verbatim. The content is deterministic and has already been reviewed as part of the plugin release. In headless mode, proceed without the approval AUQ:
 
 1. Write the template file to `.claude/agents/<name>.md` as normal (Step E.2).
-2. Call `ledger_log(agent='bro', event_type='tmb_agent_created', summary='Copied template <name> to .claude/agents/<name>.md (template-copy mode, headless auto-approved).', content_json='{"name": "<name>", "mode": "template-copy"}')`.
+2. Call `audit_log(agent='bro', kind='event', event_type='tmb_agent_created', summary='Copied template <name> to .claude/agents/<name>.md (template-copy mode, headless auto-approved).', content_json='{"name": "<name>", "mode": "template-copy"}')`.
 3. Surface a note: "Agent `<name>` created from plugin template (headless mode — template content is deterministic)."
 
 Then proceed to spawn the new agent for the original ask.
@@ -284,5 +286,5 @@ Then proceed to spawn the new agent for the original ask.
 From-scratch mode generates novel agent content that the Human has not reviewed. In headless mode:
 
 1. Halt the skill immediately. Do NOT write any files.
-2. Call `ledger_log(agent='bro', event_type='headless_creator_blocked', summary='tmb_agent-creator blocked: from-scratch mode requires Human approval. Cannot create agent <proposed_name> headlessly.')`.
+2. Call `audit_log(agent='bro', kind='event', event_type='headless_creator_blocked', summary='tmb_agent-creator blocked: from-scratch mode requires Human approval. Cannot create agent <proposed_name> headlessly.')`.
 3. Surface a clear message: "Cannot create agent from scratch in headless mode — novel content requires Human review. Re-run interactively."

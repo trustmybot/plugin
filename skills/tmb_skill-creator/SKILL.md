@@ -2,7 +2,7 @@
 name: tmb_skill-creator
 description: Generate a new project-local skill and attach it to one or more existing agents by extending their `skills:` frontmatter array. Never edits the agent body. Always asks Human approval before writing.
 agent: bro
-allowed-tools: Read, Write, Edit, Glob, AskUserQuestion, mcp__plugin_tmb_trajectory-server__ledger_log
+allowed-tools: Read, Write, Edit, Glob, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 
 # tmb_skill-creator
@@ -111,7 +111,7 @@ Allowed:
 
 - The rule itself, stated inline.
 - Cross-references to other prompt surfaces: `see CLAUDE.md ## <Section>`, `see agents/<name>.md`, `see skills/<name>/SKILL.md`.
-- MCP-DB references via tool name: "consult `discussion_list`", "see `ledger_log` for X events".
+- MCP-DB references via tool name: "consult `discussion_list`", "see `audit_log` for X events".
 
 ### Why this rule exists
 
@@ -136,8 +136,9 @@ Rationale: negation forces the model to process the forbidden concept first (pin
 ## Step 5 — Log + report
 
 ```
-ledger_log(
+audit_log(
   agent='bro',
+  kind='event',
   event_type='tmb_skill_created',
   summary='Authored skill <name>; attached to <agents>.',
   content_json='{"name": "<name>", "agents": [...], "paths": [...] | null}',
@@ -161,11 +162,12 @@ This skill writes new files into `.claude/skills/`. Silent generation of skills 
 When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set:
 
 1. Halt the skill immediately. Do NOT write any files.
-2. Call `ledger_log` **immediately** — this write is non-negotiable:
+2. Call `audit_log` **immediately** — this write is non-negotiable:
    ```
-   ledger_log(agent='bro',
-              event_type='headless_creator_blocked',
-              summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval in headless mode.')
+   audit_log(agent='bro',
+             kind='event',
+             event_type='headless_creator_blocked',
+             summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval in headless mode.')
    ```
 3. Surface a clear message: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively, or write the skill file directly if you know what you want."
 

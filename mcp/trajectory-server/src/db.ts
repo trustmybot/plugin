@@ -64,6 +64,7 @@ export class TrajectoryDB {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA foreign_keys = ON');
     this.db.exec('PRAGMA busy_timeout = 5000');
+    this.migrateLedgerIntoAudit();
     this.applySchema();
     this.migratePluginMetaDuplicates();
     this.migrateTasksRepo();
@@ -78,6 +79,75 @@ export class TrajectoryDB {
     this.migrateValidationSubagentSessionId();
     this.migrateDiscussionsVerifiedHuman();
     this.syncPluginVersion();
+  }
+
+  private migrateLedgerIntoAudit(): void {
+    const ledgerExists = this.db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='ledger'`)
+      .get() as { name: string } | undefined;
+    if (!ledgerExists) return;
+
+    const auditExists = this.db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='audit'`)
+      .get() as { name: string } | undefined;
+
+    if (auditExists) {
+      const auditCols = this.db
+        .prepare('PRAGMA table_info(audit)')
+        .all() as Array<{ name: string }>;
+      const auditColNames = new Set(auditCols.map((c) => c.name));
+
+      if (!auditColNames.has('kind')) {
+        this.db.exec(
+          `ALTER TABLE audit ADD COLUMN kind TEXT NOT NULL DEFAULT 'tool_call'`,
+        );
+      }
+      if (!auditColNames.has('event_type')) {
+        this.db.exec(`ALTER TABLE audit ADD COLUMN event_type TEXT`);
+      }
+      if (!auditColNames.has('summary')) {
+        this.db.exec(`ALTER TABLE audit ADD COLUMN summary TEXT`);
+      }
+      if (!auditColNames.has('content_json')) {
+        this.db.exec(
+          `ALTER TABLE audit ADD COLUMN content_json TEXT NOT NULL DEFAULT '{}'`,
+        );
+      }
+    } else {
+      this.db.exec(
+        `CREATE TABLE audit (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id     INTEGER NOT NULL,
+          branch_id    TEXT,
+          from_node    TEXT    NOT NULL DEFAULT 'executor',
+          kind         TEXT    NOT NULL DEFAULT 'tool_call',
+          event_type   TEXT,
+          summary      TEXT,
+          content_json TEXT    NOT NULL DEFAULT '{}',
+          round        INTEGER NOT NULL DEFAULT 0,
+          tool_name    TEXT,
+          tool_args    TEXT    NOT NULL DEFAULT '{}',
+          output       TEXT    NOT NULL DEFAULT '',
+          output_chars INTEGER NOT NULL DEFAULT 0,
+          is_truncated INTEGER NOT NULL DEFAULT 0,
+          created_at   TEXT    NOT NULL
+        )`,
+      );
+    }
+
+    // Provide empty string for tool_name to satisfy any NOT NULL constraint on that
+    // column that may exist in older audit table schemas (pre-unification).
+    this.db.exec(
+      `INSERT INTO audit
+         (issue_id, branch_id, from_node, kind, event_type, summary, content_json,
+          tool_name, is_truncated, created_at)
+       SELECT issue_id, branch_id, from_node, 'event', event_type, summary,
+              COALESCE(content, '{}'), '', is_truncated, created_at
+       FROM ledger`,
+    );
+
+    // LINT-ALLOW: #170 ledger→audit migration
+    this.db.exec(`DROP TABLE ledger`);
   }
 
   private applySchema(): void {

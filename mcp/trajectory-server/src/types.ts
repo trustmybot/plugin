@@ -67,14 +67,15 @@ export interface Discussion {
   verified_human: number;
 }
 
-export interface LedgerEntry {
+export interface AuditEventEntry {
   id: number;
   issue_id: number;
   branch_id: string | null;
   from_node: string;
-  event_type: string;
-  summary: string;
-  content: string;
+  kind: 'event';
+  event_type: string | null;
+  summary: string | null;
+  content_json: string;
   is_truncated: number;
   created_at: string;
 }

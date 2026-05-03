@@ -26,18 +26,18 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
-| 1 | [First contact](#1-first-contact-defaults-applied-silently) | First activation in a project | bro | (none — inline default-write) | `plugin_config`, `ledger` | — |
-| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `tmb_swe-checklist` (lazy on demand) | `issues`, `tasks`, `ledger` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
+| 1 | [First contact](#1-first-contact-defaults-applied-silently) | First activation in a project | bro | (none — inline default-write) | `plugin_config`, `audit` | — |
+| 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `tmb_swe-checklist` (lazy on demand) | `issues`, `tasks`, `audit` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
 | 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion + ADR) → swe (pr-reviewer at push time) | + `tmb_planning-difficult` (env probe, Q+A, ADR) | + `discussions`, ADR file | same |
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → human | `tmb_agent-creator` | — | — |
 | 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | `tmb_skill-creator` | `skills` (optional, for tracking) | — |
 | 6 | [Push gate / PR review](#6-push-gate--pr-review) | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `tmb_review-protocol`, `tmb_review-findings`, `tmb_code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL) | `git-push-guard` |
 | 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture`, `tmb_lazy-regen-check` | `regen_state`, `file_registry` | — |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer when at push gate) | `tmb_feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `git-push-guard` |
-| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `roundtables`, `roundtable_votes`, `discussions`, `ledger` | `roundtable-auq-shape` |
+| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape` |
 | 13 | [Bulk cleanup](#13-bulk-cleanup-pre-authorized-destructive-ops) | Human pre-authorizes a bulk delete in the prompt | bro (direct Bash, no SWE spawn) | — | none (filesystem hygiene) | — |
 | **C** | [Consultant invocation](#c-consultant-invocation) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / pm / domain) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
-| **M** | [Monitor PR comments](#m-monitor-pr-comments) | `/monitor <PR_number>` | bro → pr-reviewer (one per actionable comment batch) | `tmb_pr-review-handler` | `pr_review_runs`, `issues`, `tasks`, `ledger` | `git-push-guard` |
+| **M** | [Monitor PR comments](#m-monitor-pr-comments) | `/monitor <PR_number>` | bro → pr-reviewer (one per actionable comment batch) | `tmb_pr-review-handler` | `pr_review_runs`, `issues`, `tasks`, `audit` | `git-push-guard` |
 
 ---
 
@@ -47,8 +47,8 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 **Involved:**
 - Agent: `bro` (no spawn — handles inline; no skill invocation)
-- MCP tools: `identity_get`, `config_get`, `config_set` (×3), `ledger_log`, `issue_resume`
-- DB tables written: `plugin_config`, `ledger`
+- MCP tools: `identity_get`, `config_get`, `config_set` (×3), `audit_log(kind='event')`, `issue_resume`
+- DB tables written: `plugin_config`, `audit`
 - Skills: **none** — the doctrine is intentionally inline in CLAUDE.md's first-action chain
 - Hooks: none
 - **Filesystem ops: NONE.** swe + pr-reviewer + default skills serve globally; nothing is copied into the project.
@@ -63,7 +63,7 @@ plugin/
     ├── schema.sql                                      # seeds plugin_config defaults via INSERT OR IGNORE
     ├── tools/config.ts                                 # config_get / config_set
     ├── tools/identity.ts                               # identity_get
-    ├── tools/ledger.ts                                 # ledger_log
+    ├── tools/audit.ts                                  # audit_log (kind='event')
     └── tools/issues.ts                                 # issue_resume
 ```
 
@@ -71,7 +71,7 @@ plugin/
 sequenceDiagram
     participant H as Human
     participant G as Bro
-    participant DB as SQLite (plugin_config, identity, ledger)
+    participant DB as SQLite (plugin_config, identity, audit)
 
     Note over DB: Schema-init seeded plugin_config defaults<br/>(github-flow / main / ["main"]) at DB creation.
 
@@ -86,7 +86,7 @@ sequenceDiagram
 **Notes:**
 - **No `identity` row exists** until the user invokes `tmb_reonboard`. Bro greets with plain second-person ("hey", "you") until then.
 - **No bro-side default-write.** Defaults are part of the schema. `INSERT OR IGNORE` makes the seed idempotent across re-runs.
-- **No `tmb_defaults_applied` ledger event** — system seeding is silent; bro only logs ledger events for decisions it actually makes.
+- **No `tmb_defaults_applied` audit event** — system seeding is silent; bro only logs audit events for decisions it actually makes.
 - **Welcome banner is mandatory** (CLAUDE.md). Two variants: pending work (resume) or idle (greeting).
 - **`tmb_reonboard`** is the only skill that writes to `identity` or changes policy keys. Phrases that invoke it: "switch to gitflow", "update my name", "reonboard".
 - Resolution rule for backbone agents: if `<project>/.claude/agents/swe.md` (or `pr-reviewer.md`) exists → use local; else use the global plugin-shipped one. Local creation is opt-in via `tmb_agent-creator` with explicit Human approval.
@@ -103,8 +103,8 @@ sequenceDiagram
 - Agents: `bro` (planner + task gate), `swe` (executor)
 - Skills loaded by bro on demand: `tmb_planning-simple` or `tmb_planning-difficult` per triage, `tmb_swe-spawn-workflow` (right before SWE handoff)
 - Skills loaded by swe: `tmb_swe-checklist` **only on demand** (when spec verification needs interpretation; not eager)
-- MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `ledger_log` (no `validation_record` per task — that fires at push time)
-- DB tables: `issues`, `tasks`, `discussions`, `ledger`, `audit`
+- MCP tools: `issue_create`, `discussion_append`, `task_create_batch`, `task_get`, `task_update_status`, `audit_log(kind='event')` (no `validation_record` per task — that fires at push time)
+- DB tables: `issues`, `tasks`, `discussions`, `audit`
 - Hooks: `require-task-spec` (gates SWE spawn), `git-push-guard` (gates `git push`), `git-guards` (commit branch check)
 
 **Realized by:**
@@ -125,8 +125,7 @@ plugin/
     ├── issues.ts                                       # issue_create
     ├── tasks.ts                                        # task_create_batch / task_get / task_update_status
     ├── discussions.ts                                  # discussion_append
-    ├── ledger.ts                                       # ledger_log
-    └── audit.ts                                        # audit table writes
+    └── audit.ts                                        # audit_log (kind='event' and kind='tool_call')
 ```
 
 ```mermaid
@@ -149,7 +148,7 @@ sequenceDiagram
     and
         B->>S: spawn Task(swe, task_id=N) [hook: require-task-spec verifies row]
     and
-        B->>DB: ledger_log(event_type='planning_complete')
+        B->>DB: audit_log(kind='event', event_type='planning_complete')
     end
 
     Note over S: BATCHED IN SWE'S FIRST RESPONSE
@@ -168,7 +167,7 @@ sequenceDiagram
 ```
 
 **Notes:**
-- Bro is the only mutator of `issues`, the planning side of `tasks`, `ledger`, and the closing-side `task_update_status('closed')`. `requireRoles` enforces this server-side.
+- Bro is the only mutator of `issues`, the planning side of `tasks`, `audit` (event kind), and the closing-side `task_update_status('closed')`. `requireRoles` enforces this server-side.
 - The whole loop runs without surfacing to the Human until task close.
 - `require-task-spec.sh` verifies the `tasks` row has `status IN (pending, open)` AND non-empty `spec_body` BEFORE allowing the SWE spawn — silent block if the row isn't real.
 - **`git-push-guard.sh`** (formerly `require-review-sign.sh`) blocks pushes to protected branches if any pushed commit's task lacks a `validation_attempts.verdict='pass'` row. See **Flow R — Push Gate** below for what happens then.
@@ -203,7 +202,7 @@ plugin/
     ├── issues.ts                                       # issue_create
     ├── tasks.ts                                        # task_create_batch / task_get / task_update_status
     ├── discussions.ts                                  # discussion_append / discussion_list
-    └── ledger.ts                                       # ledger_log
+    └── audit.ts                                        # audit_log (kind='event')
 ```
 
 ```mermaid
@@ -236,7 +235,7 @@ sequenceDiagram
     and
         B->>S: spawn Task(swe, task_id=N) [hook: require-task-spec]
     and
-        B->>DB: ledger_log(event_type='planning_complete')
+        B->>DB: audit_log(kind='event', event_type='planning_complete')
     end
 
     Note over S,B: → flow 2 "SWE returns" onwards: bro verifies, flips → 'closed'
@@ -567,8 +566,8 @@ If the skill finds < 2 suitable participants, it escalates back to bro — round
 - Convener: `bro` (loads the `tmb_roundtable` skill)
 - Participants: 2-4 project-local consultants. SWE + pr-reviewer always excluded.
 - Skills: `tmb_roundtable` (mechanics), `tmb_roundtable-cleanup` (post-synthesis archive)
-- MCP tools: `roundtable_create({ expected_participants })`, `roundtable_vote` (per participant), `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_summarize`, `ledger_log`, `discussion_list`, `discussion_append(kind='analysis')`
-- DB tables: `roundtables` (state machine row), `roundtable_votes` (one per participant), `discussions` (one `kind='analysis'` row per consultant), `ledger` (summary)
+- MCP tools: `roundtable_create({ expected_participants })`, `roundtable_vote` (per participant), `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_summarize`, `audit_log(kind='event')`, `discussion_list`, `discussion_append(kind='analysis')`
+- DB tables: `roundtables` (state machine row), `roundtable_votes` (one per participant), `discussions` (one `kind='analysis'` row per consultant), `audit` (summary)
 - Hooks: `roundtable-auq-shape.sh` (PreToolUse AskUserQuestion — validates AUQ shape during `awaiting_human` state)
 
 **Realized by:**
@@ -582,7 +581,7 @@ plugin/
 └── mcp/trajectory-server/src/tools/
     ├── roundtable.ts                                  # roundtable_create/vote/finalize/close/summarize
     ├── discussions.ts                                 # discussion_append / discussion_list
-    └── ledger.ts                                      # ledger_log (roundtable_summary)
+    └── audit.ts                                       # audit_log(kind='event', roundtable_summary)
 ```
 
 ```mermaid
@@ -608,7 +607,7 @@ sequenceDiagram
     H-->>B: ratified selections
     B->>DB: roundtable_finalize_decisions(decisions[])
     B->>DB: roundtable_close()
-    B->>DB: roundtable_summarize() → ledger_log(roundtable_summary)
+    B->>DB: roundtable_summarize() → audit_log(kind='event', event_type='roundtable_summary')
     B->>H: AskUserQuestion — downstream issues to create?
     H-->>B: selections
     B->>DB: issue_create per approved downstream
@@ -636,8 +635,8 @@ sequenceDiagram
 **Involved:**
 - Agent: `bro` only (direct Bash — no SWE spawn, no issue/task created)
 - Skills: none
-- MCP tools: `ledger_log` (if project-state-affecting, e.g. branch deletes; skip for filesystem hygiene)
-- DB tables: none (for `.DS_Store` removal; `ledger` for branch deletes)
+- MCP tools: `audit_log(kind='event')` (if project-state-affecting, e.g. branch deletes; skip for filesystem hygiene)
+- DB tables: none (for `.DS_Store` removal; `audit` for branch deletes)
 - Hooks: none specific to this flow
 
 **Realized by:**
@@ -645,7 +644,7 @@ sequenceDiagram
 plugin/
 ├── CLAUDE.md                                          # bro pre-authorized cleanup doctrine
 └── mcp/trajectory-server/src/tools/
-    └── ledger.ts                                      # ledger_log (branch deletes only)
+    └── audit.ts                                       # audit_log(kind='event') for branch deletes
 ```
 
 ```mermaid
@@ -654,7 +653,7 @@ flowchart TD
     B -->|no| C[Bro asks for explicit authorization<br/>before destructive op]
     B -->|yes| D[Bro: one-shot Bash<br/>find . -name '.DS_Store' -delete]
     D --> E{Project-state-affecting?<br/>e.g. branch deletes}
-    E -->|yes| F[ledger_log the cleanup]
+    E -->|yes| F[audit_log(kind='event') the cleanup]
     E -->|no – filesystem hygiene| G[Done — report what was removed]
     F --> G
 ```
@@ -766,8 +765,8 @@ When Linear-imported issues have truncated descriptions, bro can backfill them u
 **Involved:**
 - Agent: `bro` (orchestrator), `swe` (one per ratified comment task)
 - Skill: `tmb_pr-review-handler`
-- MCP tools: `pr_comments_get` (gh + glab backends), `roundtable_create` / `roundtable_vote` / `roundtable_finalize_decisions` / `roundtable_close` (for structured ratification), `issue_create`, `task_create_batch`, `ledger_log`
-- DB tables: `pr_review_runs` (tracks last fetched comment per PR+repo), `issues`, `tasks`, `ledger`
+- MCP tools: `pr_comments_get` (gh + glab backends), `roundtable_create` / `roundtable_vote` / `roundtable_finalize_decisions` / `roundtable_close` (for structured ratification), `issue_create`, `task_create_batch`, `audit_log(kind='event')`
+- DB tables: `pr_review_runs` (tracks last fetched comment per PR+repo), `issues`, `tasks`, `audit`
 - External: `gh`/`glab` CLI (via `pr_comments_get` backend)
 - Hooks: `git-push-guard` (usual push gate when SWE commits land)
 
@@ -783,7 +782,7 @@ plugin/
     ├── tools/roundtable.ts                            # roundtable ratification flow
     ├── tools/issues.ts                                # issue_create
     ├── tools/tasks.ts                                 # task_create_batch
-    ├── tools/ledger.ts                                # ledger_log (monitor_complete)
+    ├── tools/audit.ts                                 # audit_log(kind='event', monitor_complete)
     └── sync/backend.ts                                # gh/glab CLI backend adapter
 ```
 
@@ -806,7 +805,7 @@ sequenceDiagram
         B->>DB: issue_create + task_create_batch
         B->>S: spawn(task_id=N)
     end
-    B->>DB: ledger_log(event_type='monitor_complete', pr=42, tasks_created=N)
+    B->>DB: audit_log(kind='event', event_type='monitor_complete', pr=42, tasks_created=N)
     B-->>H: "N tasks created for PR #42 comments."
 ```
 

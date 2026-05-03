@@ -2,7 +2,7 @@
 name: tmb_branch-id-proposal
 description: Derive and propose a git-convention branch_id for a code-changing request, present it to the Human alongside the simple/difficult triage label, wait for confirmation, then open or resume the MCP issue and append the routing-note discussion entries before bro begins planning.
 agent: bro
-allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__issue_create, mcp__plugin_tmb_trajectory-server__issue_get, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__ledger_log
+allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__issue_create, mcp__plugin_tmb_trajectory-server__issue_get, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 
 # branch-id-proposal
@@ -174,7 +174,7 @@ Then verify and log:
 git branch --show-current  # MUST equal ${branch_id}
 ```
 
-`ledger_log(agent='bro', issue_id=<I>, branch_id=<branch_id>, event_type='branch_id_proposed', summary='Branch <branch_id> created from origin/<base>. Main checkout switched.')`
+`audit_log(agent='bro', issue_id=<I>, branch_id=<branch_id>, kind='event', event_type='branch_id_proposed', summary='Branch <branch_id> created from origin/<base>. Main checkout switched.')`
 
 If `git switch -c` fails (branch already exists, dirty tree, etc.) — halt and surface the error verbatim. Do NOT proceed to planning. The Human resolves manually.
 
@@ -187,7 +187,7 @@ This guarantees the invariant in `docs/architecture/GIT.md`: bro and the Human s
 When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, accept the proposed branch_id without Human confirmation. Emit both writes **immediately and proceed — do not halt**:
 
 ```
-ledger_log(agent='bro', event_type='headless_fallback',
+audit_log(agent='bro', kind='event', event_type='headless_fallback',
            summary='tmb_branch-id-proposal: confirm "<proposed_id>" → auto-accepted')
 
 discussion_append(agent='bro', kind='note',

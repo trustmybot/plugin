@@ -263,10 +263,10 @@ export function taskTools(db: TrajectoryDB): {
       }
 
       // --- Branch-id-proposal gate (MCP-level enforcement, #155) ---
-      // task_create_batch must be preceded by a ledger event 'branch_id_proposed'
-      // for this issue. Stops bro from spawning SWE without first running
-      // tmb_branch-id-proposal (which creates the feature branch and switches
-      // the main checkout to it).
+      // task_create_batch must be preceded by an audit event (kind='event') with
+      // event_type='branch_id_proposed' for this issue. Stops bro from spawning
+      // SWE without first running tmb_branch-id-proposal (which creates the
+      // feature branch and switches the main checkout to it).
       const ledgerWaived = args['waive_branch_gate'] === true;
       const ledgerWaiverReason = (args['waive_branch_gate_reason'] ?? '') as string;
 
@@ -276,7 +276,7 @@ export function taskTools(db: TrajectoryDB): {
         }
       } else {
         const proposed = db.get<{ c: number }>(
-          `SELECT COUNT(*) as c FROM ledger WHERE issue_id = ? AND event_type = 'branch_id_proposed'`,
+          `SELECT COUNT(*) as c FROM audit WHERE issue_id = ? AND kind = 'event' AND event_type = 'branch_id_proposed'`,
           [issueId],
         );
         if ((proposed?.c ?? 0) === 0) {
@@ -288,7 +288,7 @@ export function taskTools(db: TrajectoryDB): {
                 text: JSON.stringify({
                   error: 'branch_state_violation',
                   message:
-                    `branch_state_violation: issue ${issueId} has zero ledger events with event_type='branch_id_proposed'. ` +
+                    `branch_state_violation: issue ${issueId} has zero audit events with event_type='branch_id_proposed'. ` +
                     `Run tmb_branch-id-proposal first (it creates the feature branch and switches the main checkout). ` +
                     `For exceptional cases, pass waive_branch_gate=true with waive_branch_gate_reason="<why>".`,
                   issue_id: issueId,
@@ -402,8 +402,8 @@ export function taskTools(db: TrajectoryDB): {
       if (waived) {
         const now = nowISO();
         db.run(
-          `INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, content, created_at)
-           VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`,
+          `INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
+           VALUES (?, ?, ?, 'event', 'scope_gate_waived', ?, ?, ?)`,
           [
             issueId,
             inserted[0]?.branch_id ?? '',

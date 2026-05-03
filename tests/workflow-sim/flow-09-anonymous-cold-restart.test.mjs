@@ -14,7 +14,7 @@
 // re-onboarding. The Anonymous choice is now durable.
 //
 // Also asserts the related #96 invariant: bro calling validation_record gets
-// rejected with 'forbidden' (must use ledger_log(bro_verification_pass)
+// rejected with 'forbidden' (must use audit_log(kind='event', event_type='bro_verification_pass')
 // instead).
 
 import { test } from 'node:test';
@@ -93,15 +93,15 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   assert.equal(history.data.length, 0, 'no validation row should have been recorded');
 });
 
-test('Flow 09c — Bro task-gate uses ledger_log(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
+test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
   await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
-    objective: 'Verify bro_verification_pass ledger event',
-    description: 'Bro must record its task-gate verdict in the ledger, not in validation_attempts.',
+    objective: 'Verify bro_verification_pass audit event',
+    description: 'Bro must record its task-gate verdict in audit, not in validation_attempts.',
   });
   const issueId = issue.data.id;
 
@@ -124,11 +124,12 @@ test('Flow 09c — Bro task-gate uses ledger_log(bro_verification_pass), not val
   const branchId = task.data[0].branch_id;
 
   // Bro's correct task-gate close sequence
-  const verifEvent = await call(client, 'ledger_log', {
+  const verifEvent = await call(client, 'audit_log', {
     agent: 'bro',
     issue_id: issueId,
     branch_id: branchId,
     from_node: 'bro',
+    kind: 'event',
     event_type: 'bro_verification_pass',
     summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
   });
@@ -142,8 +143,8 @@ test('Flow 09c — Bro task-gate uses ledger_log(bro_verification_pass), not val
   });
   assert.equal(closed.ok, true);
 
-  // Verify the ledger has the bro_verification_pass event
-  const ledger = await call(client, 'ledger_list', { agent: 'bro', issue_id: issueId });
+  // Verify the audit table has the bro_verification_pass event
+  const ledger = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId, kind: 'event' });
   const verifEvents = ledger.data.filter(e => e.event_type === 'bro_verification_pass');
   assert.equal(verifEvents.length, 1, 'exactly one bro_verification_pass event recorded');
   assert.equal(verifEvents[0].from_node, 'bro');

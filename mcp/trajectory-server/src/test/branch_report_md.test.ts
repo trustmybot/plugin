@@ -4,7 +4,7 @@ import { tempDB } from './helpers.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
-import { ledgerTools } from '../tools/ledger.js';
+import { auditTools } from '../tools/audit.js';
 import { validationTools } from '../tools/validation.js';
 import { nowISO } from '../db.js';
 
@@ -60,7 +60,7 @@ async function createTask(
 
 /**
  * Insert a task row directly via SQL, bypassing tool-layer side effects
- * (scope-gate ledger entries etc.). Used when the test needs a clean ledger.
+ * (scope-gate audit entries etc.). Used when the test needs a clean audit table.
  */
 function insertTaskDirect(
   db: ReturnType<typeof tempDB>,
@@ -83,12 +83,13 @@ describe('branchReportMdTools', () => {
     const branchId = 'feat/my-feature';
     const taskId = await createTask(db, issueId, branchId);
 
-    const ledger = ledgerTools(db);
-    await call(ledger.handlers, 'ledger_log', {
+    const audit = auditTools(db);
+    await call(audit.handlers, 'audit_log', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: branchId,
       from_node: 'swe',
+      kind: 'event',
       event_type: 'task_started',
       summary: 'SWE began work on feature',
     });
@@ -227,7 +228,7 @@ describe('branchReportMdTools', () => {
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
     const md = data.markdown as string;
 
-    assert.ok(md.includes('_No ledger events._'), 'Expected empty ledger placeholder');
+    assert.ok(md.includes('_No ledger events._'), 'Expected empty audit events placeholder');
     assert.ok(md.includes('_No validation attempts._'), 'Expected empty validation placeholder');
     assert.ok(
       md.includes('_No file_registry entries found for this branch._'),
@@ -283,20 +284,22 @@ describe('branchReportMdTools', () => {
     await createTask(db, issueId, targetBranch);
     await createTask(db, issueId, siblingBranch);
 
-    const ledger = ledgerTools(db);
-    await call(ledger.handlers, 'ledger_log', {
+    const audit = auditTools(db);
+    await call(audit.handlers, 'audit_log', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: targetBranch,
       from_node: 'swe',
+      kind: 'event',
       event_type: 'task_started',
       summary: 'Started target branch work',
     });
-    await call(ledger.handlers, 'ledger_log', {
+    await call(audit.handlers, 'audit_log', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: siblingBranch,
       from_node: 'swe',
+      kind: 'event',
       event_type: 'task_started',
       summary: 'Started sibling branch work',
     });

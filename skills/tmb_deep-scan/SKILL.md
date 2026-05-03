@@ -2,7 +2,7 @@
 name: tmb_deep-scan
 description: Eager opt-in mode for codebase memory — read every tracked source file, generate per-file summaries, bulk-write to file_registry. Triggered when the Human says yes to the cold-start AskUserQuestion in tmb_project-prescan, or directly via "@bro deep scan" / "@bro index everything" / "@bro fully understand the project". Token-heavy by design.
 agent: bro
-allowed-tools: Bash, Read, mcp__plugin_tmb_trajectory-server__file_registry_update_summaries, mcp__plugin_tmb_trajectory-server__ledger_log, mcp__plugin_tmb_trajectory-server__discussion_append
+allowed-tools: Bash, Read, mcp__plugin_tmb_trajectory-server__file_registry_update_summaries, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 
 # tmb_deep-scan
@@ -31,7 +31,7 @@ Pre-fill `file_registry` summaries for every tracked source file in the repo, so
    - Compose a 1–3 sentence summary per file capturing: what it is (module/test/config/doc), key exports/functions, anything non-obvious
    - Single `file_registry_update_summaries(updates=[...batch...], advance_verified_sha=<current HEAD>)` call to persist
 
-4. **Final marker**: `ledger_log(agent='bro', event_type='deep_scan_completed', summary='Deep-scanned N files. Registry now indexed at HEAD <sha>.')`. Plus `discussion_append(kind='note', body='Deep scan completed: <N> files summarized, ~<Y> tokens spent. Registry trustable until next git pull or local edit.')`.
+4. **Final marker**: `audit_log(agent='bro', kind='event', event_type='deep_scan_completed', summary='Deep-scanned N files. Registry now indexed at HEAD <sha>.')`. Plus `discussion_append(kind='note', body='Deep scan completed: <N> files summarized, ~<Y> tokens spent. Registry trustable until next git pull or local edit.')`.
 
 ## Cost expectations
 

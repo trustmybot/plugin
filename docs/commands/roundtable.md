@@ -52,5 +52,5 @@ For the full deterministic phase-by-phase flow, see [`skills/tmb_roundtable/SKIL
 ## Cross-references
 
 - **Auto-invoke counterpart:** `tmb_roundtable` skill — same deliberation flow, triggered by bro automatically (e.g., `@bro hold a roundtable on <topic>`).
-- **MCP tools used:** `roundtable_create`, `roundtable_vote`, `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_summarize`, `discussion_append`, `issue_create`, `ledger_log`.
+- **MCP tools used:** `roundtable_create`, `roundtable_vote`, `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_summarize`, `discussion_append`, `issue_create`, `audit_log`.
 - **AUQ shape enforcement:** `roundtable-auq-shape` hook validates the AskUserQuestion structure while `state=awaiting_human`.

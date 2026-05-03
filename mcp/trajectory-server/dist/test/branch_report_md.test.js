@@ -4,7 +4,7 @@ import { tempDB } from './helpers.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
-import { ledgerTools } from '../tools/ledger.js';
+import { auditTools } from '../tools/audit.js';
 import { validationTools } from '../tools/validation.js';
 import { nowISO } from '../db.js';
 async function call(handlers, name, args) {
@@ -45,7 +45,7 @@ async function createTask(db, issueId, branchId) {
 }
 /**
  * Insert a task row directly via SQL, bypassing tool-layer side effects
- * (scope-gate ledger entries etc.). Used when the test needs a clean ledger.
+ * (scope-gate audit entries etc.). Used when the test needs a clean audit table.
  */
 function insertTaskDirect(db, issueId, branchId) {
     const now = nowISO();
@@ -59,12 +59,13 @@ describe('branchReportMdTools', () => {
         const issueId = await createIssue(db);
         const branchId = 'feat/my-feature';
         const taskId = await createTask(db, issueId, branchId);
-        const ledger = ledgerTools(db);
-        await call(ledger.handlers, 'ledger_log', {
+        const audit = auditTools(db);
+        await call(audit.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
             branch_id: branchId,
             from_node: 'swe',
+            kind: 'event',
             event_type: 'task_started',
             summary: 'SWE began work on feature',
         });
@@ -168,7 +169,7 @@ describe('branchReportMdTools', () => {
         const data = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
         const md = data.markdown;
-        assert.ok(md.includes('_No ledger events._'), 'Expected empty ledger placeholder');
+        assert.ok(md.includes('_No ledger events._'), 'Expected empty audit events placeholder');
         assert.ok(md.includes('_No validation attempts._'), 'Expected empty validation placeholder');
         assert.ok(md.includes('_No file_registry entries found for this branch._'), 'Expected empty file_registry placeholder');
         db.close();
@@ -210,20 +211,22 @@ describe('branchReportMdTools', () => {
         const siblingBranch = 'feat/sibling';
         await createTask(db, issueId, targetBranch);
         await createTask(db, issueId, siblingBranch);
-        const ledger = ledgerTools(db);
-        await call(ledger.handlers, 'ledger_log', {
+        const audit = auditTools(db);
+        await call(audit.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
             branch_id: targetBranch,
             from_node: 'swe',
+            kind: 'event',
             event_type: 'task_started',
             summary: 'Started target branch work',
         });
-        await call(ledger.handlers, 'ledger_log', {
+        await call(audit.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
             branch_id: siblingBranch,
             from_node: 'swe',
+            kind: 'event',
             event_type: 'task_started',
             summary: 'Started sibling branch work',
         });

@@ -1,6 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import type { Issue, Task, LedgerEntry } from '../types.js';
+import type { Issue, Task, AuditEventEntry } from '../types.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -108,8 +108,8 @@ export function branchReportMdTools(db: TrajectoryDB): {
           taskIds,
         );
 
-        const ledgerEntries = db.all<LedgerEntry>(
-          'SELECT * FROM ledger WHERE issue_id = ? AND branch_id = ? ORDER BY id ASC',
+        const ledgerEntries = db.all<AuditEventEntry>(
+          `SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? AND kind = 'event' ORDER BY id ASC`,
           [issueId, branchId],
         );
 
