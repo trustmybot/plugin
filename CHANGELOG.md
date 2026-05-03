@@ -4,6 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Changed
+
+- ♻️ Split eval_results + debug_trajectory out of prod schema.sql; load via TMB_EVAL_MODE=1 (#163)
+
 ### Added
 
 - **Enforcement:** New PreToolUse hook `require-feature-branch-active.sh` blocks SWE spawn when the main checkout is not on the task's `branch_id`. New MCP gate in `task_create_batch` requires a prior `branch_id_proposed` ledger event. `tmb_branch-id-proposal` skill now runs `git switch -c` itself instead of only logging intent. (#155)
