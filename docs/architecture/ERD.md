@@ -256,6 +256,34 @@ erDiagram
 
 The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is structurally enforced by `requireRoles` middleware inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles`, `AgentRole` type, and the role-by-tool matrix).
 
+## Capture tables — `audit` vs `debug_trajectory`
+
+Both tables capture per-tool-call detail with truncation handling, but they serve different consumers and operate under different scoping models.
+
+**`audit` (workflow-scoped)**
+
+- **Keys:** `(issue_id, branch_id, round)` — every row belongs to an issue and a (usually) task-branch.
+- **Writers:** bro (events + tool calls during planning), SWE (tool calls during work), pr-reviewer (events at sign-off). Server-side `audit.ts` accepts both `kind='event'` and `kind='tool_call'`.
+- **Read by:** `branch_report_md`, `issue_report_md`, anything that reconstructs the per-issue audit trail.
+- **Always on.** Default capture path, no opt-in flag.
+
+**`debug_trajectory` (session-scoped)**
+
+- **Keys:** `(session_id, step_n)` — deterministic ordering within a single CC session.
+- **Adds:** `tokens_in`, `tokens_out`, `latency_ms` — cost/perf attribution per call. Required for L5 eval scoring.
+- **Writers:** the MCP server itself (`src/index.ts`), wrapping every tool dispatch. NOT bro/SWE/pr-reviewer directly.
+- **Opt-in:** only writes when `process.env.TMB_DEBUG_TRAJECTORY === '1'`. Off in normal use.
+- **Schema home:** `schema-eval.sql` (split out per #163), so the prod schema doesn't carry it. The table only appears when `TMB_EVAL_MODE === '1'` triggers the eval schema apply.
+- **Read by:** L5 eval pipeline (`tests/dogfood/`), scorers in `mcp/trajectory-server/src/tools/scorers/`.
+
+**When to write where**
+
+New MCP tool author asks: "do I write to `audit` or `debug_trajectory`?" Write to `audit` for any event or tool-call you want in the per-issue audit trail — that's the default. `debug_trajectory` is auto-populated by the server's dispatch layer when eval-mode is on; tools don't write to it directly.
+
+**Why not consolidate**
+
+Option 2 (drop `debug_trajectory`, add cost/latency columns to `audit`) would conflate per-issue audit with per-session eval signal — the issue-scoping breaks down for sessions that span multiple issues, and adding nullable cost columns to a hot workflow table costs storage and clutters `branch_report_md` output. Option 3 (drop `audit`, expand `debug_trajectory`) breaks every audit-trail consumer and collapses the workflow-scoped identity of each captured row.
+
 ## Migrations
 
 Additive `ALTER TABLE` migrations shipped via `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE` (no breaking schema changes in pre-release):
