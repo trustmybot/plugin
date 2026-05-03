@@ -13,7 +13,7 @@ if (dbPath !== ':memory:') {
 }
 const db = new TrajectoryDB(dbPath);
 const server = new Server({ name: 'trajectory-server', version: '0.3.2' }, { capabilities: { tools: {} } });
-registerTools(server, db);
+registerTools(server, db, dbPath);
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolDefinitions,
 }));

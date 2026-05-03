@@ -29,11 +29,11 @@ Two triggers:
    ```
    This fast-forwards the local branch ref to the worktree's detached HEAD. The branch now reflects the work; the worktree's commits are preserved.
 2. **Query MCP** for tasks with `commit_sha NOT NULL` AND no passing `validation_attempts.verdict='pass'` row. These are the unsigned-task batch.
-3. **For each task in the batch, spawn `pr-reviewer`** with `task_id=N`. Run them in parallel where possible — they're independent.
+3. **For each task in the batch, spawn `subagent_type='pr-reviewer'`** (no `tmb:` namespace prefix) with `task_id=N`. Run them in parallel where possible — they're independent.
+   - Use `subagent_type='pr-reviewer'` exactly — the no-namespace form lets CC resolve the project-local override at `.claude/agents/pr-reviewer.md`, which declares MCP direct (required for MCP to be callable inside the subagent). The `tmb:` namespace form resolves the plugin-shipped agent instead, which cannot call MCP.
    - `pr-reviewer` ships globally with the plugin. **No file copy needed.** CC's agent dispatcher discovers it automatically.
-4. **Read the first line of pr-reviewer's response.** It will be one of:
-   - `MCP available: yes` → pr-reviewer called `validation_record` directly; proceed.
-   - `MCP available: no — honor-system fallback` → pr-reviewer could not call `validation_record`. Read pr-reviewer's stated verdict from its response. Then record on pr-reviewer's behalf using sqlite3 directly into the trajectory DB (`sqlite3 $PROJECT/.claude/tmb/trajectory.db`): insert into `validation_attempts` with `agent='pr-reviewer'`, `feedback` starting with `MCP available: no — honor-system fallback\n` followed by pr-reviewer's verbatim verdict text, and `subagent_session_id` from the agentId in pr-reviewer's response. Honor-system caveat: the row's `agent` will show `pr-reviewer` but was bro-authored — this is the authorized audit exception (#97).
+4. **Read the first line of pr-reviewer's response.** Expected: `MCP available: yes` — pr-reviewer called `validation_record` directly; proceed.
+   - Fallback (unexpected): `MCP available: no — honor-system fallback` → pr-reviewer could not call `validation_record`. Read pr-reviewer's stated verdict from its response. Then record on pr-reviewer's behalf using sqlite3 directly into the trajectory DB (`sqlite3 $PROJECT/.claude/tmb/trajectory.db`): insert into `validation_attempts` with `agent='pr-reviewer'`, `feedback` starting with `MCP available: no — honor-system fallback\n` followed by pr-reviewer's verbatim verdict text, and `subagent_session_id` from the agentId in pr-reviewer's response. Honor-system caveat: the row's `agent` will show `pr-reviewer` but was bro-authored — this is the authorized audit exception.
 5. **On all-pass:** push the local branch (`git push origin <feature>`), open the MR, then tell the Human the gate is clear. After the MR merges, run the **Post-merge cleanup** below.
 6. **On any fail:** surface the failure verbatim. The Human chooses:
    - Accept the fix scope → bro spawns swe to address.

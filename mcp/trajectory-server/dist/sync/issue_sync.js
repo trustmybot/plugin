@@ -47,6 +47,9 @@ async function createOnBackend(backend, opts, spawnFn) {
     const { title, body, labels = [] } = opts;
     const kind = backend === 'gh' ? 'github' : 'gitlab';
     const spawnOpts = { timeout: 5000, encoding: 'utf8' };
+    if (opts._cwd) {
+        spawnOpts.cwd = opts._cwd;
+    }
     let cmd;
     let args;
     if (backend === 'gh') {
@@ -126,6 +129,9 @@ export async function syncIssueClose(opts) {
     const spawnFn = opts._spawnFn ?? defaultSpawnFn;
     const { remote_iid, remote_kind } = opts;
     const spawnOpts = { timeout: 5000, encoding: 'utf8' };
+    if (opts._cwd) {
+        spawnOpts.cwd = opts._cwd;
+    }
     let cmd;
     let args;
     if (remote_kind === 'github') {

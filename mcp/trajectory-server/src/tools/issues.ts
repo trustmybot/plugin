@@ -1,5 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { SpawnSyncOptions } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, Task } from '../types.js';
@@ -53,7 +54,19 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
-export function issueTools(db: TrajectoryDB): {
+function resolveSpawnCwd(db: TrajectoryDB, dbPath: string): string | undefined {
+  if (!dbPath) return undefined;
+  const defaultRepoRow = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
+  );
+  if (!defaultRepoRow?.value_json) return undefined;
+  const defaultRepo = JSON.parse(defaultRepoRow.value_json) as unknown;
+  if (typeof defaultRepo !== 'string' || defaultRepo.length === 0) return undefined;
+  const workspaceRoot = dirname(dirname(dirname(dbPath)));
+  return join(workspaceRoot, defaultRepo);
+}
+
+export function issueTools(db: TrajectoryDB, dbPath = ''): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -215,6 +228,7 @@ export function issueTools(db: TrajectoryDB): {
             labels,
             _backend: backend,
             _spawnFn: spawnFn,
+            _cwd: resolveSpawnCwd(db, dbPath),
           });
           if (syncResult) {
             db.run(
@@ -304,6 +318,7 @@ export function issueTools(db: TrajectoryDB): {
         const success = await syncIssueClose({
           remote_iid: remoteRow.remote_iid,
           remote_kind: remoteRow.remote_kind as 'github' | 'gitlab',
+          _cwd: resolveSpawnCwd(db, dbPath),
         });
         if (!success) {
           serverLog({ event: 'issue_close_sync_failed', issueId, remote_iid: remoteRow.remote_iid });

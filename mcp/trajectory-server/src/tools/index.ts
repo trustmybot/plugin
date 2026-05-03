@@ -50,9 +50,9 @@ function decorateWithAgent(tools: Tool[]): Tool[] {
   }));
 }
 
-export function registerTools(server: Server, db: TrajectoryDB): void {
+export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): void {
   const discussions = discussionTools(db);
-  const issues = issueTools(db);
+  const issues = issueTools(db, dbPath);
   const tasks = taskTools(db);
   const ledger = ledgerTools(db);
   const audit = auditTools(db);
