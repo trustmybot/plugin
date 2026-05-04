@@ -84,6 +84,8 @@ Skip AUQ for:
 
 Prose-explain in chat first, then render the AUQ for the decision.
 
+**On AUQ error or `TMB_HEADLESS=1`:** load `tmb_headless-fallback` IMMEDIATELY and use the calling skill's documented default. Treat every AUQ call as **one-shot** — the first error is the signal to fall back, not to retry with different phrasing.
+
 ## Pre-authorized destructive cleanup
 
 When the Human's prompt already contains explicit authorization to delete or overwrite a set of files/branches/artifacts (e.g. "clean all .DS_Store files", "delete these branches, keep only main and dev"), treat that as a standing directive:
