@@ -16,6 +16,49 @@ Add a named, persistent agent to a project's `.claude/agents/`. Two modes:
 
 Every creation requires explicit Human approval — auto-creation is never permitted.
 
+## Step 0 — headless guard (FIRST action; conditional HALT)
+
+If `${TMB_HEADLESS:-}` = `1` OR `AskUserQuestion` is unavailable: branch on requested-agent-name vs shipped templates.
+
+### Step 0a — template-copy mode: AUTO-APPROVE
+
+If the requested agent name matches a shipped plugin template (`templates/agents/<name>.md` exists): proceed with template-copy at Step E.2 below. The template content is deterministic and pre-reviewed. Emit:
+
+```
+audit_log(agent='bro',
+          kind='event',
+          event_type='tmb_agent_created',
+          summary='Copied template <name> to .claude/agents/<name>.md (template-copy mode, headless auto-approved).',
+          content_json='{"name": "<name>", "mode": "template-copy"}')
+```
+
+Then continue with the spawn (Step F).
+
+### Step 0b — from-scratch mode: HALT
+
+If the requested agent has NO shipped template: from-scratch creation requires Human review of the new agent body. Halt cleanly.
+
+**Emit this MCP call IMMEDIATELY — before any other tool, before any prose:**
+
+```
+audit_log(agent='bro',
+          kind='event',
+          event_type='headless_creator_blocked',
+          summary='tmb_agent-creator blocked: cannot create from-scratch agent <proposed_name> without Human approval in headless mode.')
+```
+
+IMMEDIATELY AFTER that call, also emit:
+
+```
+discussion_append(agent='bro',
+                  kind='note',
+                  body='Headless: tmb_agent-creator halted (from-scratch mode requires Human review of the agent body).')
+```
+
+Then output the halt message: "Cannot create from-scratch agent in headless mode. Re-run interactively, or use a shipped template if one matches."
+
+**Step 0b supersedes everything below.** Do NOT proceed to AskUserQuestion, do NOT write any files.
+
 ## B. When invoked
 
 Bro invokes this skill when ALL of the following hold:
@@ -257,7 +300,7 @@ Behavior per choice:
 - **Adopt + manage** — preserve user's file content. Use Edit to insert `tmb_owner: user-adopted` into the YAML frontmatter (after the opening `---` line, before the closing `---`). Audit event `tmb_agent_adopted`. Report adopted, return control.
 - **Overwrite** — write the proposed (template or from-scratch) content with `tmb_owner: bro` in the frontmatter. Audit event `tmb_agent_overwritten`. Report overwritten, return control.
 
-In headless mode (`AskUserQuestion errors / TMB_HEADLESS=1`): HALT per the existing `## Headless mode — HALT, do not auto-approve` section. Never silently choose any of the three.
+In headless mode (`AskUserQuestion errors / TMB_HEADLESS=1`): HALT per Step 0b above. Never silently choose any of the three.
 
 ## I. Edge case — code-writing consultant
 
@@ -267,24 +310,3 @@ If the user wants a consultant that writes source code (e.g. `data-pipeline-swe`
 
 If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to tools. Otherwise, propose a skill instead (use `tmb_skill-creator`) so the existing swe gains the new behavior.
 
-## Headless mode
-
-Two modes have different headless policies:
-
-### Template-copy mode — auto-approve
-
-Template-copy copies a plugin-shipped file verbatim. The content is deterministic and has already been reviewed as part of the plugin release. In headless mode, proceed without the approval AUQ:
-
-1. Write the template file to `.claude/agents/<name>.md` as normal (Step E.2).
-2. Call `audit_log(agent='bro', kind='event', event_type='tmb_agent_created', summary='Copied template <name> to .claude/agents/<name>.md (template-copy mode, headless auto-approved).', content_json='{"name": "<name>", "mode": "template-copy"}')`.
-3. Surface a note: "Agent `<name>` created from plugin template (headless mode — template content is deterministic)."
-
-Then proceed to spawn the new agent for the original ask.
-
-### From-scratch mode — HALT
-
-From-scratch mode generates novel agent content that the Human has not reviewed. In headless mode:
-
-1. Halt the skill immediately. Do NOT write any files.
-2. Call `audit_log(agent='bro', kind='event', event_type='headless_creator_blocked', summary='tmb_agent-creator blocked: from-scratch mode requires Human approval. Cannot create agent <proposed_name> headlessly.')`.
-3. Surface a clear message: "Cannot create agent from scratch in headless mode — novel content requires Human review. Re-run interactively."
