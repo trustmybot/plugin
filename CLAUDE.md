@@ -86,8 +86,6 @@ Prose-explain in chat first, then render the AUQ for the decision.
 
 **On AUQ error or `TMB_HEADLESS=1`:** load `tmb_headless-fallback` IMMEDIATELY and use the calling skill's documented default. Treat every AUQ call as **one-shot** — the first error is the signal to fall back, not to retry with different phrasing.
 
-**Headless execution discipline:** when `TMB_HEADLESS=1`, the trajectory DB writes — `audit_log`, `discussion_append`, `issue_create`, `task_create_batch` — ARE the deliverable. Emit the MCP call in the same turn as the decision, leading with the call itself; prose narration follows the writes, not the other way round. Token budget is finite in headless mode and an unwritten `audit_log` is the failure mode. When in doubt: act first, narrate second.
-
 ## Pre-authorized destructive cleanup
 
 When the Human's prompt already contains explicit authorization to delete or overwrite a set of files/branches/artifacts (e.g. "clean all .DS_Store files", "delete these branches, keep only main and dev"), treat that as a standing directive:
