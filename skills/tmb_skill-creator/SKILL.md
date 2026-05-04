@@ -11,31 +11,6 @@ allowed-tools: Read, Write, Edit, Glob, AskUserQuestion, mcp__plugin_tmb_traject
 
 Add a new capability to a project's agents without editing their body. The Lego rule: **agent files are immutable identity; skills are additive capabilities.** This skill is the only mechanism allowed to extend a project agent — it adds a row to the agent's `skills:` array, never touches the body.
 
-## Step 0 — headless HALT (FIRST action; supersedes everything below)
-
-If `${TMB_HEADLESS:-}` = `1` OR `AskUserQuestion` is unavailable: this skill writes files into `.claude/skills/` which requires Human approval. Halt cleanly.
-
-**Emit this MCP call IMMEDIATELY — before any other tool, before any prose:**
-
-```
-audit_log(agent='bro',
-          kind='event',
-          event_type='headless_creator_blocked',
-          summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval in headless mode.')
-```
-
-IMMEDIATELY AFTER that call, also emit:
-
-```
-discussion_append(agent='bro',
-                  kind='note',
-                  body='Headless: tmb_skill-creator halted. Re-run with Human in the loop, or write the skill file directly if you know what you want.')
-```
-
-Then output the user-facing halt message: "Cannot create skill in headless mode. Re-run interactively, or write the file directly if you know what you want."
-
-**Step 0 supersedes Steps 1–5 below.** Do NOT proceed to AskUserQuestion, do NOT write any files, do NOT load other skills. The audit_log + discussion_append writes are the load-bearing artifact — without them the workflow has no record of why no skill was created.
-
 ## When invoked
 
 - Bro detects a project needs a new skill (e.g. Python-stack swe needs a Python-specific verification checklist that the default `tmb_swe-checklist` doesn't cover).
@@ -179,3 +154,21 @@ Tell the Human in one line: skill landed at `<path>`; attached to `<agents>`. Re
 - **Never overwrite an existing project skill.** Name collision = Human resolves.
 - **Approval is non-negotiable.** Write nothing without an explicit Yes.
 - **Stay focused.** A skill should encode one cohesive concern (e.g. "python verification checks", not "python rules + js rules + go rules"). Propose splitting if the body grows past ~50 lines.
+
+## Headless mode — HALT, do not auto-approve
+
+This skill writes new files into `.claude/skills/`. Silent generation of skills in CI is exactly the foot-gun the rule guards against.
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set:
+
+1. Halt the skill immediately. Do NOT write any files.
+2. Call `audit_log` **immediately** — this write is non-negotiable:
+   ```
+   audit_log(agent='bro',
+             kind='event',
+             event_type='headless_creator_blocked',
+             summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval in headless mode.')
+   ```
+3. Surface a clear message: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively, or write the skill file directly if you know what you want."
+
+Rationale: a skill is a behavior change to the agent ecosystem. Silent CI-time generation could ship behavior the Human never reviewed.

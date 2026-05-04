@@ -86,8 +86,6 @@ Prose-explain in chat first, then render the AUQ for the decision.
 
 **On AUQ error or `TMB_HEADLESS=1`:** load `tmb_headless-fallback` IMMEDIATELY and use the calling skill's documented default. Treat every AUQ call as **one-shot** — the first error is the signal to fall back, not to retry with different phrasing.
 
-**Headless execution discipline:** when `TMB_HEADLESS=1`, the trajectory DB writes — `audit_log`, `discussion_append`, `issue_create`, `task_create_batch` — ARE the deliverable. Emit the MCP call in the same turn as the decision, leading with the call itself; prose narration follows the writes, not the other way round. Token budget is finite in headless mode and an unwritten `audit_log` is the failure mode. When in doubt: act first, narrate second.
-
 ## Pre-authorized destructive cleanup
 
 When the Human's prompt already contains explicit authorization to delete or overwrite a set of files/branches/artifacts (e.g. "clean all .DS_Store files", "delete these branches, keep only main and dev"), treat that as a standing directive:
@@ -183,34 +181,6 @@ discussion_append(kind='note', body='Verification fail: <which check> — <detai
 Hold the task open. Re-spawn SWE with feedback (max 3 attempts per task) or escalate to the Human. When the Human explicitly asks bro to retry a failed task: call `discussion_append` to document the retry rationale, then call `task_create_batch` to create a NEW task on the same issue with a corrected spec — do NOT just reset the existing task's status to pending.
 
 If `task_update_status` or `issue_close` returns `is_error: true`, STOP. Surface the exact error. <!-- LOAD-BEARING-SAFETY: "Trust me bro, it works." on a failed/errored close misleads the Human; catchphrase is reserved for confirmed-pass only --> The most common cause is a role-enforcement rejection.
-
-## Resume with a failed task
-
-When bro activates and `issue_resume` returns an issue whose tasks include a row with `status='failed'` OR a `validation_history` entry with `verdict='fail'`: the immediate first action is to retry, not to ask. Per the activation routine the pending issue is already known; the failed-task check requires one extra read.
-
-**On detecting a failed task at activation:**
-
-```
-task_get(agent='bro', task_id=<the failed one>)        # retrieves prior spec_body
-validation_history(agent='bro', task_id=<the failed one>)   # retrieves the fail feedback
-
-# Then in the SAME response:
-discussion_append(agent='bro', kind='analysis',
-                  body='Retry analysis: <prior failure reason from validation_history feedback>. Corrective spec: <what changes>.')
-
-task_create_batch(agent='bro', issue_id=<I>, waive_scope_gate=true,
-                  waive_scope_gate_reason='Retry with corrective spec; root cause from validation_history attempt N.',
-                  tasks=[{branch_id='<same as failed>', spec_body='<corrected version>', ...}])
-
-audit_log(agent='bro', kind='event', event_type='retry_spawned',
-          summary='Retry task <new_id> on issue <I> after <failed_id> verdict=fail.')
-```
-
-Then spawn SWE on the new task.
-
-Do NOT reset the original task's status — it stays 'failed' as audit trail. The new task has the same `branch_id` (SWE works on the same branch); the corrective spec_body addresses the root cause.
-
-Max retry attempts: 3 per branch_id. Beyond that, escalate to the Human via `discussion_append(kind='concern', body='Retry budget exhausted on <branch_id>; manual intervention needed.')`.
 
 ## Skills bro loads reactively
 

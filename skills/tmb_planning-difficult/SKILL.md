@@ -15,39 +15,7 @@ Triage `difficult` = the change touches `docs/trustmybot/architecture/`, introdu
 
 ## Workflow
 
-### Step 0 — headless shortcut (FIRST action; supersedes Q+A loop)
-
-If `${TMB_HEADLESS:-}` = `1` OR `AskUserQuestion` is unavailable: skip the verbose Q+A loop, ADR drafting, and architecture probe. Write the minimal viable spec immediately, lean on SWE to surface scope drift.
-
-**Emit these MCP calls IMMEDIATELY — before any other tool, before any prose:**
-
-```
-audit_log(agent='bro', kind='event', event_type='headless_fallback',
-          summary='tmb_planning-difficult: Q+A loop skipped (headless); using minimal viable spec.')
-
-discussion_append(agent='bro', kind='note',
-                  body='Headless: difficult-planning shortcut. Spec drafted from prompt + project context; SWE surfaces scope drift if any.')
-
-issue_create(agent='bro', objective='<concise objective from the Human prompt>',
-             description='## Goal\n<1-paragraph framing>\n\n## Why difficult\n<1-2 lines on the architecture/public-API touch>\n\n## Acceptance\n- <criterion 1>\n- <criterion 2>\n\n## Headless note\nThis issue\'s Q+A loop was skipped under TMB_HEADLESS=1. SWE will execute the minimal viable spec; bro will re-engage if scope drift surfaces during V1/V2/V3.')
-
-# Then in the SAME response: branch_id_proposed audit + task_create_batch + spawn swe.
-audit_log(agent='bro', kind='event', event_type='branch_id_proposed',
-          summary='Proposed branch_id=<branch_id>; auto-accepted (headless).')
-
-task_create_batch(agent='bro', issue_id=<id>, waive_scope_gate=true,
-                  waive_scope_gate_reason='Headless difficult-planning: Q+A loop skipped per Step 0 shortcut.',
-                  tasks=[{...minimal viable task spec...}])
-
-audit_log(agent='bro', kind='event', event_type='planning_complete',
-          summary='Headless difficult-planning shortcut: spec drafted, task spawned.')
-```
-
-Then and ONLY then: spawn SWE (Agent tool).
-
-**Step 0 supersedes Steps 1-N below in headless mode.** No probe, no ADR draft, no Q+A. The trajectory writes ARE the deliverable.
-
-### Step 1 — Triage confirmation
+### Step 0 — Triage confirmation
 
 You arrived here because bro's triage said `difficult`. Confirm with the heuristic before proceeding:
 
@@ -60,7 +28,7 @@ Record the confirmation:
 discussion_append(kind='note', body='Triage: difficult (confirmed)')
 ```
 
-### Step 2 — Environment probe (ONE batched response)
+### Step 1 — Environment probe (ONE batched response)
 
 Detect what the Human actually has locally before offering options. Use Bash, read-only. Pick the probes relevant to the stack the ask implies. **Run them as one batched response per the parallel-batching rule in CLAUDE.md** — gate fragile commands with `|| true` or skip them based on prior probe results.
 
@@ -101,7 +69,7 @@ git remote -v 2>/dev/null | head -2
 discussion_append(kind='note', body='Env probe: uv 0.5.11, Python 3.12.3, no existing pyproject.toml, git remote set.')
 ```
 
-### Step 3 — Build grounded options + ask
+### Step 2 — Build grounded options + ask
 
 Use the probe findings to build options that actually work on this machine. Never offer an unexecutable option ("uv" when uv isn't installed). Never list a tool as `(Recommended)` unless detected AND fits the task.
 
@@ -125,7 +93,7 @@ discussion_append(kind='answer', author='human', body=<reply verbatim>)
 
 Loop until aligned. Max 3-4 questions per round to avoid form fatigue.
 
-### Step 4 — Scope-ambiguity gate (HARD RULE, MCP-enforced)
+### Step 3 — Scope-ambiguity gate (HARD RULE, MCP-enforced)
 
 **`task_create_batch` refuses to run if the issue has zero `kind='question'` rows in discussions.** This is an MCP-level check — auto-mode cannot bypass it.
 
@@ -161,7 +129,7 @@ Healthy:                              Violation (RED FLAG):
 
 If `discussion_list` shows a `kind='decision'` row with no preceding `kind='question'` — you skipped the gate. Revert by NOT creating tasks, asking the missing question, persisting Q+A, then re-decide.
 
-### Step 5 — Capture the architectural decision
+### Step 4 — Capture the architectural decision
 
 ```
 discussion_append(kind='decision', body=<architectural plan: what changes, why, trade-offs, risks>)
@@ -179,7 +147,7 @@ When the spec introduces a feature that performs external side effects — netwo
 
 If any of these three checks fail, send the spec back for revision before SWE dispatches.
 
-### Step 6 — Author the spec body (standard template)
+### Step 5 — Author the spec body (standard template)
 
 Standard difficult-path template. ≤8000 chars. Cite existing code; don't restate.
 
@@ -208,13 +176,13 @@ Standard difficult-path template. ≤8000 chars. Cite existing code; don't resta
 ```
 ```
 
-### Step 7 — Batched handoff (single response)
+### Step 6 — Batched handoff (single response)
 
 Same hard rule as the simple path: emit `task_create_batch` + `Task(swe)` + `audit_log(kind='event', event_type='planning_complete')` as multiple tool_use blocks in ONE response. CC runs them concurrently. Splitting these across messages costs ~30s of round-trip latency.
 
 If multiple tasks were planned, fan out the SWE spawns in parallel where they have no `parent_branch_id` dependency.
 
-### Step 8 — Bro verification protocol — never skip this
+### Step 7 — Bro verification protocol — never skip this
 
 Same as the simple path: bro must verify SWE actually delivered what the spec required before flipping to closed.
 
@@ -242,7 +210,7 @@ git diff <commit_sha>~1..<commit_sha>
 #### Halt-on-MCP-error
 If any close-related MCP call returns `is_error: true`, STOP. Do not emit a success message. Surface the exact error to the Human — usually means the call signature is wrong.
 
-### Step 9 — Loop
+### Step 8 — Loop
 
 If more tasks remain in the planned batch, return to Step 6 (handoff). After all tasks closed, optionally generate `issue_snapshot_md` for human review and close the issue.
 
@@ -259,3 +227,12 @@ If the difficult triage was wrong (e.g. the ask doesn't actually touch architect
 discussion_append(kind='note', body='Triage: simple (downgraded from difficult; reason: <why>)')
 # Then load tmb_planning-simple skill instead.
 ```
+
+## Headless fallback
+
+When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, proceed with the spec bro has drafted as if the Human had said "proceed as proposed". Record both:
+
+- `audit_log(agent='bro', kind='event', event_type='headless_fallback', summary='tmb_planning-difficult: scope confirmation → auto-accepted')`
+- `discussion_append(agent='bro', kind='note', body='Headless fallback: planning-difficult sought scope confirmation, no Human in loop, auto-accepted. Reason: spec was drafted from project context; SWE will surface scope drift if it occurs.')`
+
+Then run the full planning chain (architecture probe, ADR draft, batched task_create_batch + spawn swe + audit_log). Do NOT skip the ADR — that's the difficult-triage's primary deliverable.
