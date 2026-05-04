@@ -11,6 +11,31 @@ allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identit
 
 Let a user configure or update branching model, PR target, protected branches, or their name. The plugin has no first-run onboarding ceremony — bro applies defaults silently on first activation. This skill is the **only** path to write `identity` rows or change policy keys; everything else reads what bro has either defaulted or the user has previously set. Reads current state, shows it as the `Keep "<current>"` first option in a radio form, writes changes via MCP.
 
+## Step 0 — headless HALT (FIRST action; supersedes everything below)
+
+If `${TMB_HEADLESS:-}` = `1` OR `AskUserQuestion` is unavailable: re-onboarding rewrites policy keys (branching_model, pr_target, protected_branches, remotes) which is by definition a Human-driven re-confirmation.
+
+**Emit this MCP call IMMEDIATELY — before any other tool, before any prose:**
+
+```
+audit_log(agent='bro',
+          kind='event',
+          event_type='headless_reonboard_blocked',
+          summary='tmb_reonboard cannot run headless: policy keys (branching_model, pr_target, protected_branches, remotes) require explicit Human re-confirmation.')
+```
+
+IMMEDIATELY AFTER that call, also emit:
+
+```
+discussion_append(agent='bro',
+                  kind='note',
+                  body='Headless: tmb_reonboard halted. Re-run with Human in the loop, or use config_set directly if you know the values.')
+```
+
+Then output the halt message: "Re-onboarding requires interactive input. Re-run with a Human in the loop, or use `config_set` directly if you know the values."
+
+**Step 0 supersedes everything below.** Do NOT proceed to the wizard, do NOT call config_set, do NOT call identity_set.
+
 ## When Invoked
 
 Bro invokes this skill directly (no subagent spawn) on these trigger phrases or close paraphrases:
@@ -199,19 +224,3 @@ After writes, `config_list(agent='bro')` + `identity_get(agent='bro')` to confir
 | `config_list()` or `identity_get()` fails | Report the exact error, offer to retry or abort. Do NOT proceed with stale state. |
 | `config_set` or `identity_set` fails | Report the exact error, retry the same call. Do NOT skip and continue. |
 | Invalid answer (e.g. unparseable Other for branching) | Re-ask via a second `AskUserQuestion` round, omit the invalid answer. |
-
-## Headless fallback
-
-When `AskUserQuestion` errors OR `TMB_HEADLESS=1` is set, **do not silently overwrite policy keys with defaults** — re-onboard is by definition a Human-driven re-confirmation. Instead:
-
-1. Halt the skill cleanly.
-2. Call `audit_log` **immediately** — this write is the non-negotiable audit record:
-   ```
-   audit_log(agent='bro',
-             kind='event',
-             event_type='headless_reonboard_blocked',
-             summary='tmb_reonboard cannot run headless: policy keys (branching_model, pr_target, protected_branches, remotes) require explicit Human re-confirmation.')
-   ```
-3. Surface a clear message: "Re-onboarding requires interactive input. Re-run with a Human in the loop, or use `config_set` directly if you know the values."
-
-Rationale: re-onboarding flips policy keys that drive `git-guards.sh` and other hooks. A silent fallback here could break the project's git workflow with no audit trace pointing to the cause.
