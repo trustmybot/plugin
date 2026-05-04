@@ -184,34 +184,6 @@ Hold the task open. Re-spawn SWE with feedback (max 3 attempts per task) or esca
 
 If `task_update_status` or `issue_close` returns `is_error: true`, STOP. Surface the exact error. <!-- LOAD-BEARING-SAFETY: "Trust me bro, it works." on a failed/errored close misleads the Human; catchphrase is reserved for confirmed-pass only --> The most common cause is a role-enforcement rejection.
 
-## Resume with a failed task
-
-When bro activates and `issue_resume` returns an issue whose tasks include a row with `status='failed'` OR a `validation_history` entry with `verdict='fail'`: the immediate first action is to retry, not to ask. Per the activation routine the pending issue is already known; the failed-task check requires one extra read.
-
-**On detecting a failed task at activation:**
-
-```
-task_get(agent='bro', task_id=<the failed one>)        # retrieves prior spec_body
-validation_history(agent='bro', task_id=<the failed one>)   # retrieves the fail feedback
-
-# Then in the SAME response:
-discussion_append(agent='bro', kind='analysis',
-                  body='Retry analysis: <prior failure reason from validation_history feedback>. Corrective spec: <what changes>.')
-
-task_create_batch(agent='bro', issue_id=<I>, waive_scope_gate=true,
-                  waive_scope_gate_reason='Retry with corrective spec; root cause from validation_history attempt N.',
-                  tasks=[{branch_id='<same as failed>', spec_body='<corrected version>', ...}])
-
-audit_log(agent='bro', kind='event', event_type='retry_spawned',
-          summary='Retry task <new_id> on issue <I> after <failed_id> verdict=fail.')
-```
-
-Then spawn SWE on the new task.
-
-Do NOT reset the original task's status — it stays 'failed' as audit trail. The new task has the same `branch_id` (SWE works on the same branch); the corrective spec_body addresses the root cause.
-
-Max retry attempts: 3 per branch_id. Beyond that, escalate to the Human via `discussion_append(kind='concern', body='Retry budget exhausted on <branch_id>; manual intervention needed.')`.
-
 ## Skills bro loads reactively
 
 | Trigger | Skill |
