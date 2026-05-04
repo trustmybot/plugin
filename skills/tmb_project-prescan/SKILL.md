@@ -152,3 +152,21 @@ Then **return from this skill immediately** and continue the planning chain. The
 ## Failure handling
 
 If any Bash command fails (e.g. not a git repo), record the failure in the inventory entry and continue. Do NOT abort the pre-scan.
+
+## Greenfield architecture proposal
+
+If the inventory shows BOTH:
+- `HAS_TRUSTMYBOT_DIR=no` (no curated `docs/trustmybot/` yet), AND
+- The repo has tracked source files (`git ls-files | head -1` returns content)
+
+Then the project is greenfield from a doctrine perspective — it has code but no architecture-doc baseline. After the inventory, bro proposes (in headless: AUTOMATICALLY adds) an `architecture_regen` task as part of the planning chain:
+
+```
+emit a follow-up task with:
+  branch_id='chore/<NN>-arch-bootstrap'
+  spec_body: '## Goal\nBootstrap docs/trustmybot/architecture/ via architecture_regen MCP. Run on greenfield project as part of first code-touching ask.\n\n## Files\nNone (architecture_regen writes to .claude/<plugin>/regen_state and to docs/trustmybot/architecture/auto/).\n\n## Verification\nregen_state has a row for each target. file_registry populated.'
+```
+
+In headless mode (Step 0 of any planning skill): include this arch-bootstrap task as part of the same `task_create_batch` call — not as a follow-up. The audit_log event_type for the regen call is `architecture_regen_complete`.
+
+The primary L5 signal that this fired: a `regen_state` row exists for `file_registry` and `codebase_tree` after the planning chain completes.
