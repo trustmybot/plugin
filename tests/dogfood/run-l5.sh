@@ -22,6 +22,9 @@ PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 FILTER="${1:-}"
 export PLUGIN_ROOT
 
+# Headless mode — no Human in CI; signals AUQ-deny hook + skill headless paths. (#153 fix-2-v2)
+export TMB_HEADLESS=1
+
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   printf "❌ CLAUDE_CODE_OAUTH_TOKEN not set.\n"
   printf "   For local runs: export CLAUDE_CODE_OAUTH_TOKEN=...\n"
