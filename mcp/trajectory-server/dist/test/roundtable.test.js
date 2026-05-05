@@ -69,7 +69,7 @@ describe('roundtable tools', () => {
             const data = parseResult(result);
             assert.ok(data.error.includes('expected_participants'), 'Error mentions expected_participants');
         });
-        it('role rejection: architect cannot call roundtable_create', async () => {
+        it('role rejection: consultant (architect) cannot call roundtable_create', async () => {
             const rt = roundtableTools(db);
             const result = await call(rt.handlers, 'roundtable_create', {
                 agent: 'architect',
@@ -77,10 +77,10 @@ describe('roundtable tools', () => {
                 topic: 'forbidden topic',
                 expected_participants: 2,
             });
-            assert.ok(result.isError, 'Expected isError=true for architect');
+            assert.ok(result.isError, 'Expected isError=true for consultant');
             const data = parseResult(result);
             assert.equal(data.error, 'forbidden');
-            assert.equal(data.caller_role, 'architect');
+            assert.equal(data.caller_role, 'consultant');
         });
         it('role rejection: swe cannot call roundtable_create', async () => {
             const rt = roundtableTools(db);
@@ -240,7 +240,7 @@ describe('roundtable tools', () => {
             });
             assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         });
-        it('role rejection: architect cannot call roundtable_vote', async () => {
+        it('role rejection: consultant (architect) cannot call roundtable_vote', async () => {
             const rt = roundtableTools(db);
             const roundtableId = globalThis['rt1Id'];
             const result = await call(rt.handlers, 'roundtable_vote', {
@@ -249,9 +249,10 @@ describe('roundtable tools', () => {
                 participant: 'architect',
                 vote: 'in favor',
             });
-            assert.ok(result.isError, 'Expected isError=true for architect');
+            assert.ok(result.isError, 'Expected isError=true for consultant');
             const data = parseResult(result);
             assert.equal(data.error, 'forbidden');
+            assert.equal(data.caller_role, 'consultant');
         });
         it('role rejection: swe cannot call roundtable_vote', async () => {
             const rt = roundtableTools(db);
@@ -404,7 +405,7 @@ describe('roundtable tools', () => {
             assert.equal(data.status, 'closed');
             assert.ok(data.closed_at, 'closed_at must be set');
         });
-        it('role rejection: architect cannot call roundtable_close', async () => {
+        it('role rejection: consultant (architect) cannot call roundtable_close', async () => {
             const rt = roundtableTools(db);
             const roundtableId = globalThis['rt1Id'];
             const result = await call(rt.handlers, 'roundtable_close', {
@@ -412,9 +413,10 @@ describe('roundtable tools', () => {
                 roundtable_id: roundtableId,
                 outcome: 'Forbidden outcome',
             });
-            assert.ok(result.isError, 'Expected isError=true for architect');
+            assert.ok(result.isError, 'Expected isError=true for consultant');
             const data = parseResult(result);
             assert.equal(data.error, 'forbidden');
+            assert.equal(data.caller_role, 'consultant');
         });
         it('role rejection: swe cannot call roundtable_close', async () => {
             const rt = roundtableTools(db);

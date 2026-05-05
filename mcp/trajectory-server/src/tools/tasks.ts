@@ -134,6 +134,16 @@ export function taskTools(db: TrajectoryDB): {
             description:
               "Set true to bypass the scope-ambiguity gate. Only acceptable for truly trivial changes (typo fix, one-line doc change, etc.) where no Q+A was needed. If false or omitted, the issue MUST have at least one discussion row with kind='question' before tasks can be created.",
           },
+          emit_planning_complete: {
+            type: 'boolean',
+            description:
+              "Set true to atomically emit a planning_complete audit event in the same transaction as the task INSERTs. Eliminates the L5 03/12 failure mode where the LLM would create tasks but skip the closing audit_log call. Planning skills (tmb_planning-simple, tmb_planning-difficult) should set this to true.",
+          },
+          planning_complete_summary: {
+            type: 'string',
+            description:
+              "Optional override for the planning_complete event's summary text. Defaults to: 'Planning complete for issue <id>: <N> task(s) created on <branch>.'",
+          },
           waive_scope_gate_reason: {
             type: 'string',
             description:
@@ -364,6 +374,28 @@ export function taskTools(db: TrajectoryDB): {
             }
           }
 
+          // Server-side parent_branch_id default: when omitted/null, read pr_target
+          // from plugin_config (default 'main'). Fixes L5 92-base-branch where bro
+          // skipped reading config('pr_target') and tasks landed against main on
+          // gitflow projects with pr_target='dev'.
+          let parentBranchId: string | null = t.parent_branch_id ?? null;
+          if (parentBranchId == null) {
+            const prTargetRow = db.get<{ value_json: string }>(
+              `SELECT value_json FROM plugin_config WHERE key = 'pr_target'`,
+            );
+            if (prTargetRow?.value_json) {
+              try {
+                const prTarget = JSON.parse(prTargetRow.value_json) as unknown;
+                if (typeof prTarget === 'string' && prTarget.length > 0) {
+                  parentBranchId = prTarget;
+                }
+              } catch {
+                // malformed config row — leave as null and fall through
+              }
+            }
+            if (parentBranchId == null) parentBranchId = 'main';
+          }
+
           void genId('task');
 
           db.run(
@@ -375,7 +407,7 @@ export function taskTools(db: TrajectoryDB): {
             [
               issueId,
               t.branch_id,
-              t.parent_branch_id ?? null,
+              parentBranchId,
               t.title ?? '',
               t.description,
               JSON.stringify(t.tools_required ?? []),
@@ -392,6 +424,33 @@ export function taskTools(db: TrajectoryDB): {
             'SELECT * FROM tasks WHERE rowid = last_insert_rowid()',
           );
           if (row) results.push(row);
+        }
+
+        // Optional atomic audit emission: when emit_planning_complete=true, insert
+        // the planning_complete event in the SAME transaction as the task creation.
+        // This eliminates the L5 03/12 failure mode where the LLM would create
+        // tasks but skip the closing audit_log call. With this flag, the closing
+        // event is server-side and cannot be dropped between LLM turns.
+        const emitPlanningComplete = args['emit_planning_complete'] === true;
+        if (emitPlanningComplete && results.length > 0) {
+          const firstTask = results[0]!;
+          const branchForAudit = firstTask.branch_id;
+          const summary =
+            (args['planning_complete_summary'] as string | undefined) ??
+            `Planning complete for issue ${issueId}: ${results.length} task(s) created on ${branchForAudit}.`;
+          const contentJson = JSON.stringify({
+            issue_id: issueId,
+            task_count: results.length,
+            task_branch_ids: results.map((r) => r.branch_id),
+            parent_branch_ids: results.map((r) => r.parent_branch_id),
+          });
+          const fromNode = (args['agent'] as string) ?? 'bro';
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
+             VALUES (?, ?, ?, 'event', 'planning_complete', ?, ?, 0, ?)`,
+            [issueId, branchForAudit, fromNode, summary, contentJson, now],
+          );
         }
 
         return results;

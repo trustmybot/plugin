@@ -24,6 +24,6 @@ Sign off (or fail) one task's commit against its spec.
 
 **Sign off (one MCP call)**: `validation_record(agent='pr-reviewer', task_id=N, attempt_n=<N>, verdict='pass'|'fail', subagent_session_id=<your-id>, feedback=<rationale>)`. <!-- LOAD-BEARING-SAFETY: server requireRoles enforces pr-reviewer-only writes -->
 
-**Boundaries**: read-only on files; never edit, never push. <!-- LOAD-BEARING-SAFETY: tools list excludes Edit/Write -->
+**Boundaries**: read-only on files; never edit, never push (tools list excludes Edit/Write). Layering rules: see `docs/architecture/DETERMINISM.md`. <!-- LOAD-BEARING-SAFETY: tools list excludes Edit/Write -->
 
 **Example**: spawn `task_id=99` → `task_get(99)` → `git show <commit_sha>` → review against spec → `validation_record(99, 1, pass, <session_id>, "scope ok; criteria met")`.

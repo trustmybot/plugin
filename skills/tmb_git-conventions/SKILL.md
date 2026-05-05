@@ -1,6 +1,6 @@
 ---
 name: tmb_git-conventions
-description: Commit message style, branching rules, push safety.
+description: "Commit message style, branching rules, push safety. Loaded whenever an agent is about to commit, branch, push, or merge — covers conventional-commit emoji prefixes, feature-branch naming, force-push guardrails, and the no-direct-to-main rule."
 ---
 
 # Git Conventions

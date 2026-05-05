@@ -1,6 +1,6 @@
 ---
 name: tmb_naming-conventions
-description: File and identifier naming patterns.
+description: "File and identifier naming patterns. Loaded whenever bro, swe, or pr-reviewer is about to name a file, branch, identifier, or commit; ensures consistent file paths, snake_case vs kebab-case, and reserved-name avoidance across the project."
 ---
 
 # Naming Conventions

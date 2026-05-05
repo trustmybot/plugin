@@ -58,7 +58,7 @@ test('issue_update_description — agent=swe returns forbidden', async (t) => {
   assert.equal(result.error?.caller_role, 'swe');
 });
 
-test('issue_update_description — agent=architect returns forbidden', async (t) => {
+test('issue_update_description — agent=architect (consultant) returns forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -69,9 +69,25 @@ test('issue_update_description — agent=architect returns forbidden', async (t)
     issue_id: String(issue.id),
     description: 'architect trying to update',
   });
-  assert.equal(result.ok, false, 'architect should be forbidden');
+  assert.equal(result.ok, false, 'architect (consultant) should be forbidden');
   assert.equal(result.error?.error, 'forbidden');
-  assert.equal(result.error?.caller_role, 'architect');
+  // Architect normalizes to 'consultant' role under the new role doctrine.
+  assert.equal(result.error?.caller_role, 'consultant');
+});
+
+test('issue_update_description — agent=cto (consultant) also forbidden (consultant equivalence)', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await seedIssue(client);
+
+  const result = await call(client, 'issue_update_description', {
+    agent: 'cto',
+    issue_id: String(issue.id),
+    description: 'cto trying to update',
+  });
+  assert.equal(result.ok, false, 'cto (consultant) should be forbidden');
+  assert.equal(result.error?.caller_role, 'consultant');
 });
 
 test('issue_update_description — agent=pr-reviewer returns forbidden', async (t) => {

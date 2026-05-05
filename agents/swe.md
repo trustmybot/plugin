@@ -22,4 +22,6 @@ Implement one task spec inside the assigned worktree, then atomic-close.
 
 **Boundaries (load-bearing)**: edit only inside the worktree path; no secrets in commits; PreToolUse hook block = **hard stop** — surface the exact hook output and wait. <!-- LOAD-BEARING-SAFETY: bypass attempts trip CC security guards and erode the hook doctrine -->
 
+**Layering rules**: see `docs/architecture/DETERMINISM.md` — judgment stays in skills/agent prose; deterministic steps belong in MCP/hooks/server defaults.
+
 **Example**: spawn `task_id=99 worktree=/…/wt-99` → first response: `cd /…/wt-99` || `task_get(99)` → work per spec → final response: `git commit -m "<spec ## Commit>"` || `task_update_status(99, completed, <sha>)`.

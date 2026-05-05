@@ -246,7 +246,7 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
   ];
 
   const handlers: Record<string, Fn> = {
-    file_registry_upsert: requireRoles('file_registry_upsert', ['architect', 'bro'], wrapHandler(async (args) => {
+    file_registry_upsert: requireRoles('file_registry_upsert', ['bro'], wrapHandler(async (args) => {
       const pathErr = validatePath(args['path']);
       if (pathErr) return err(pathErr);
       const path = args['path'] as string;
@@ -393,7 +393,7 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
       });
     }),
 
-    file_registry_delete: requireRoles('file_registry_delete', ['architect', 'bro'], wrapHandler(async (args) => {
+    file_registry_delete: requireRoles('file_registry_delete', ['bro'], wrapHandler(async (args) => {
       const pathErr = validatePath(args['path']);
       if (pathErr) return err(pathErr);
       const path = args['path'] as string;

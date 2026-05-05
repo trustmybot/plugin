@@ -192,7 +192,7 @@ export function architectureRegenTools(db, cwd) {
         },
     ];
     const handlers = {
-        architecture_regen: requireRoles('architecture_regen', ['architect', 'bro', 'pr-reviewer'], async (args) => {
+        architecture_regen: requireRoles('architecture_regen', ['bro', 'pr-reviewer'], async (args) => {
             const startMs = Date.now();
             const rawScope = args['scope'] ?? 'incremental';
             if (typeof rawScope !== 'string' || !VALID_SCOPES.has(rawScope)) {

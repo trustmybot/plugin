@@ -126,11 +126,11 @@ describe('statsTools — task_stats', () => {
     db.close();
   });
 
-  it('is forbidden for unknown agents', async () => {
+  it('is forbidden for malformed agent names (unknown role)', async () => {
     const db = tempDB();
     const tools = statsTools(db);
 
-    const result = await call(tools.handlers, 'task_stats', { agent: 'unknown-agent', task_id: 1 });
+    const result = await call(tools.handlers, 'task_stats', { agent: '!!!malformed', task_id: 1 });
     assert.ok(result.isError);
     const payload = parseResult(result);
     assert.equal(payload.error, 'forbidden');
@@ -138,7 +138,7 @@ describe('statsTools — task_stats', () => {
     db.close();
   });
 
-  it('is accessible to all allowed roles (swe, bro, architect, pr-reviewer)', async () => {
+  it('is accessible to all allowed roles (swe, bro, consultant agents, pr-reviewer)', async () => {
     const db = tempDB();
     const tools = statsTools(db);
 
@@ -154,7 +154,7 @@ describe('statsTools — task_stats', () => {
     );
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
 
-    for (const agent of ['bro', 'swe', 'architect', 'pr-reviewer']) {
+    for (const agent of ['bro', 'swe', 'architect', 'cto', 'legal-reviewer', 'pr-reviewer']) {
       const result = await call(tools.handlers, 'task_stats', { agent, task_id: taskId });
       assert.ok(!result.isError, `Expected ${agent} to be allowed`);
     }

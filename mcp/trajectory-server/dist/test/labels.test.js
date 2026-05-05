@@ -131,13 +131,13 @@ describe('issue_set_labels', () => {
         assert.match(d.error, /Not found/);
         db.close();
     });
-    it('requireRoles rejects unknown agent', async () => {
+    it('requireRoles rejects malformed agent name', async () => {
         const db = tempDB();
         const issues = issueTools(db);
         const labels = labelTools(db);
         const issueId = await createIssue(issues.handlers);
         const r = await call(labels.handlers, 'issue_set_labels', {
-            agent: 'hacker',
+            agent: '!!!malformed',
             issue_id: String(issueId),
             labels: ['bug'],
         });
@@ -205,7 +205,7 @@ describe('issue_add_labels', () => {
         assert.equal(d.labels.length, 2, 'should still have exactly 2 labels');
         db.close();
     });
-    it('works on issue with no existing labels', async () => {
+    it('works on issue with no existing labels (consultant role)', async () => {
         const db = tempDB();
         const issues = issueTools(db);
         const labels = labelTools(db);
@@ -220,13 +220,13 @@ describe('issue_add_labels', () => {
         assert.deepEqual(d.labels, ['enhancement']);
         db.close();
     });
-    it('requireRoles rejects unknown agent', async () => {
+    it('requireRoles rejects malformed agent name', async () => {
         const db = tempDB();
         const issues = issueTools(db);
         const labels = labelTools(db);
         const issueId = await createIssue(issues.handlers);
         const r = await call(labels.handlers, 'issue_add_labels', {
-            agent: 'random',
+            agent: '!!!malformed',
             issue_id: String(issueId),
             labels: ['bug'],
         });
@@ -276,13 +276,13 @@ describe('issue_remove_labels', () => {
         assert.deepEqual(d.labels, ['bug'], 'existing label should still be there');
         db.close();
     });
-    it('requireRoles rejects unknown agent', async () => {
+    it('requireRoles rejects malformed agent name', async () => {
         const db = tempDB();
         const issues = issueTools(db);
         const labels = labelTools(db);
         const issueId = await createIssue(issues.handlers);
         const r = await call(labels.handlers, 'issue_remove_labels', {
-            agent: 'nobody',
+            agent: '!!!malformed',
             issue_id: String(issueId),
             labels: ['bug'],
         });

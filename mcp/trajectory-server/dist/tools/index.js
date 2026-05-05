@@ -15,6 +15,7 @@ import { labelTools } from './labels.js';
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
 import { prCommentsTools } from './pr_comments.js';
+import { projectMetadataTools } from './project-metadata.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
@@ -30,8 +31,8 @@ function decorateWithAgent(tools) {
                 ...(t.inputSchema.properties ?? {}),
                 agent: {
                     type: 'string',
-                    enum: ['bro', 'architect', 'swe', 'pr-reviewer'],
-                    description: "Calling agent identity. Required for role-enforced writes (identity_set, config_set, task_update_status, validation_record, etc.). Must match the spawning agent's role.",
+                    pattern: '^[a-z][a-z0-9_-]*$',
+                    description: "Calling agent identity. First-class roles: bro, swe, pr-reviewer. Any other valid name is treated as consultant.",
                 },
             },
         },
@@ -55,6 +56,7 @@ export function registerTools(server, db, dbPath = '') {
     const stats = statsTools(db);
     const roundtable = roundtableTools(db);
     const prComments = prCommentsTools(db);
+    const projectMetadata = projectMetadataTools(db);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
@@ -73,6 +75,7 @@ export function registerTools(server, db, dbPath = '') {
         ...stats.definitions,
         ...roundtable.definitions,
         ...prComments.definitions,
+        ...projectMetadata.definitions,
     ]);
     toolHandlers = {
         ...wrapAll(discussions.handlers),
@@ -92,6 +95,7 @@ export function registerTools(server, db, dbPath = '') {
         ...wrapAll(stats.handlers),
         ...wrapAll(roundtable.handlers),
         ...wrapAll(prComments.handlers),
+        ...wrapAll(projectMetadata.handlers),
     };
 }
 //# sourceMappingURL=index.js.map

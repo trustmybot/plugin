@@ -167,14 +167,14 @@ describe('configTools', () => {
         assert.equal(payload.caller_role, 'swe');
         db.close();
     });
-    it('config_set called with agent=architect is forbidden (post bro-as-planner)', async () => {
+    it('config_set called with agent=architect is forbidden (consultant role, not bro)', async () => {
         const db = tempDB();
         const tools = configTools(db);
         const result = await call(tools.handlers, 'config_set', { agent: 'architect', key: 'arch.key', value: 42 });
-        assert.ok(result.isError, 'Expected architect to be forbidden');
+        assert.ok(result.isError, 'Expected architect (consultant) to be forbidden');
         const payload = parseResult(result);
         assert.equal(payload.error, 'forbidden');
-        assert.equal(payload.caller_role, 'architect');
+        assert.equal(payload.caller_role, 'consultant');
         db.close();
     });
     it('config_set called with agent=bro succeeds', async () => {

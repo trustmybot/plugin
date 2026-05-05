@@ -1,6 +1,6 @@
 ---
 name: tmb_review-protocol
-description: Review phases 1-7 for PR Reviewer. Progression from staged diff scan to full design compliance check.
+description: "Review phases 1-7 for PR Reviewer at push gate. Loaded when pr-reviewer is about to score a task's commit against its spec; covers staged-diff scan, scope drift detection, success-criteria match, and design-compliance progression."
 ---
 
 # Review Protocol

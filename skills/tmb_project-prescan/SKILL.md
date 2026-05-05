@@ -1,7 +1,7 @@
 ---
 name: tmb_project-prescan
 description: Deterministic, non-LLM scan of the project at the first code-touching ask of a session. Enumerates git state, top-level layout, stack indicators, agents present, open MCP issues, AND the codebase-memory check. Branches per entry-state matrix — asks the Human about deep scan on cold-start in an existing repo, runs verify pass on drift, trusts the registry when clean. Skipped on greetings and read-only asks.
-allowed-tools: Bash, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__config_get, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__file_registry_list, mcp__plugin_tmb_trajectory-server__file_registry_verify, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append
+allowed-tools: Bash, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__config_get, mcp__plugin_tmb_trajectory-server__config_set, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__file_registry_list, mcp__plugin_tmb_trajectory-server__file_registry_verify, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__project_metadata_detect
 ---
 
 # project-prescan
@@ -92,7 +92,17 @@ docs/trustmybot/*.md
 agents/*.md
 ```
 
-### Phase 3 — workflow state (MCP queries, always safe to batch)
+### Phase 3 — stack detection (MCP, idempotent)
+
+Call once per prescan. Idempotent — the handler diffs the previous value before persisting.
+
+```
+project_metadata_detect(agent='bro')
+```
+
+If `changed=true`: persisted value differs from the prior run. Downstream skills that already loaded a stale read should re-fetch via `project_metadata_get`.
+
+### Phase 4 — workflow state (MCP queries, always safe to batch)
 
 ```bash
 # MCP tool calls return null/empty cleanly — safe to batch.
@@ -123,7 +133,7 @@ Proposed branch_id: <e.g. feat/foo-bar — only when request is a code change>
 =========================
 ```
 
-### Phase 4 — codebase-memory check
+### Phase 5 — codebase-memory check
 
 Branch per the entry-state matrix using `git ls-files` + `file_registry_list` + `config_get('last_verified_sha')` + `git rev-parse HEAD`.
 

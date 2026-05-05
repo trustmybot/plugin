@@ -4,7 +4,7 @@ import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-const ALLOWED_ROLES = ['bro', 'architect', 'swe', 'pr-reviewer'] as const;
+const ALLOWED_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'] as const;
 
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };

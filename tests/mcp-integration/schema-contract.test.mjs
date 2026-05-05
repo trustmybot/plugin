@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startClient, listTools } from './harness.mjs';
 
-const EXPECTED_ROLES = ['bro', 'architect', 'swe', 'pr-reviewer'];
+const EXPECTED_PATTERN = '^[a-z][a-z0-9_-]*$';
 
 test('every MCP tool exposes the `agent` parameter in its inputSchema', async (t) => {
   const { client, close } = await startClient();
@@ -12,7 +12,7 @@ test('every MCP tool exposes the `agent` parameter in its inputSchema', async (t
   assert.ok(tools.length > 20, `expected >20 tools, got ${tools.length}`);
 
   const missing = [];
-  const badEnum = [];
+  const badSchema = [];
   for (const tool of tools) {
     const props = tool.inputSchema?.properties ?? {};
     if (!('agent' in props)) {
@@ -21,13 +21,13 @@ test('every MCP tool exposes the `agent` parameter in its inputSchema', async (t
     }
     const agentProp = props.agent;
     if (agentProp.type !== 'string') {
-      badEnum.push(`${tool.name}: type=${agentProp.type}`);
+      badSchema.push(`${tool.name}: type=${agentProp.type}`);
     }
-    if (!Array.isArray(agentProp.enum) || !EXPECTED_ROLES.every((r) => agentProp.enum.includes(r))) {
-      badEnum.push(`${tool.name}: enum=${JSON.stringify(agentProp.enum)}`);
+    if (agentProp.pattern !== EXPECTED_PATTERN) {
+      badSchema.push(`${tool.name}: pattern=${JSON.stringify(agentProp.pattern)}`);
     }
   }
 
   assert.deepEqual(missing, [], `tools missing \`agent\` in schema: ${missing.join(', ')}`);
-  assert.deepEqual(badEnum, [], `tools with bad \`agent\` schema: ${badEnum.join('; ')}`);
+  assert.deepEqual(badSchema, [], `tools with bad \`agent\` schema: ${badSchema.join('; ')}`);
 });

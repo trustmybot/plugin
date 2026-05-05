@@ -99,7 +99,7 @@ export function discussionTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     discussion_append: requireRoles(
       'discussion_append',
-      ['bro', 'architect', 'swe', 'pr-reviewer'],
+      ['bro', 'swe', 'pr-reviewer', 'consultant'],
       wrapHandler(async (args) => {
         normalizeAgent(args['agent'] as string | undefined);
         const issueId = requireArg(args, 'issue_id') as string;

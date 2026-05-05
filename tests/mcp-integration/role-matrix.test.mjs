@@ -17,11 +17,13 @@ test('identity_set — bro allowed, others forbidden, missing agent forbidden', 
   assert.equal(missing.error?.error, 'forbidden');
   assert.equal(missing.error?.caller_role, 'unknown');
 
+  // Architect normalizes to 'consultant' role; first-class roles keep their literal name.
+  const expectedRole = (n) => (n === 'architect' ? 'consultant' : n);
   for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
     const res = await call(client, 'identity_set', { agent: wrongRole, human_name: 'X' });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from identity_set`);
     assert.equal(res.error?.error, 'forbidden');
-    assert.equal(res.error?.caller_role, wrongRole);
+    assert.equal(res.error?.caller_role, expectedRole(wrongRole));
   }
 
   const allowed = await call(client, 'identity_set', { agent: 'bro', human_name: 'Alice' });
@@ -93,7 +95,7 @@ test('file_registry_delete — architect & bro allowed, swe & pr-reviewer forbid
   }
 });
 
-test('issue_snapshot_md — architect & pr-reviewer only', async (t) => {
+test('issue_snapshot_md — bro & pr-reviewer only; consultants forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -102,7 +104,9 @@ test('issue_snapshot_md — architect & pr-reviewer only', async (t) => {
   assert.equal(seed.ok, true, `seed issue: ${JSON.stringify(seed)}`);
   const issueId = seed.data.id;
 
-  for (const wrongRole of ['bro', 'swe']) {
+  // Architect (now consultant role under the new doctrine) is dropped from the
+  // requireRoles list; only bro + pr-reviewer can call this report tool.
+  for (const wrongRole of ['swe', 'architect', 'cto']) {
     const res = await call(client, 'issue_snapshot_md', { agent: wrongRole, issue_id: issueId });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden`);
     assert.equal(res.error?.error, 'forbidden');
@@ -161,11 +165,13 @@ test('issue_create — bro only; architect/swe/pr-reviewer all forbidden', async
   const ok = await call(client, 'issue_create', { agent: 'bro', objective: 'planner test', description: 'd' });
   assert.equal(ok.ok, true, `bro should create issue; got ${JSON.stringify(ok)}`);
 
+  // Architect normalizes to 'consultant' role; first-class roles keep their literal name.
+  const expectedRole = (n) => (n === 'architect' ? 'consultant' : n);
   for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
     const res = await call(client, 'issue_create', { agent: wrongRole, objective: 'x', description: 'y' });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from issue_create`);
     assert.equal(res.error?.error, 'forbidden');
-    assert.equal(res.error?.caller_role, wrongRole);
+    assert.equal(res.error?.caller_role, expectedRole(wrongRole));
   }
 });
 

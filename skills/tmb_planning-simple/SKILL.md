@@ -31,19 +31,31 @@ If the project already uses a different tool, **match the existing pattern** —
 
 1. `issue_create(agent='bro', objective, description)` — anchors the work.
 2. `discussion_append(kind='note', body='Triage: simple')` — audit-trail row.
+   Read the project stack via `project_metadata_get(agent='bro')`. If it returns null, the prescan didn't run — load `tmb_project-prescan` first.
 
-3. **HARD RULE — single batched response.** After step 2, your VERY NEXT assistant response must contain ALL FIVE of these tool_use blocks emitted in parallel:
-   - `task_create_batch(agent='bro', spec_body=<≤8000 chars, trivial template>, waive_scope_gate=true, waive_scope_gate_reason='<defaults named, e.g. "simple-triage personal CLI: defaulted to argparse + unittest + JSON at ~/.todo/todos.json; no cross-cutting ambiguity">')`
-   - `Task(subagent_type='swe', prompt='task_id=<N>', isolation='worktree')` — SWE picks up the row a few seconds later via `task_get`
-   - `discussion_append(kind='note', body='Beginning planning on branch_id <branch_id>, triage: simple')`
-   - `audit_log(kind='event', event_type='planning_complete', summary='...')`
-   - (Optional) `discussion_append(kind='question'+'answer'` Q+A pair if you wanted to ask anything — but the simple path's whole point is you don't need to.)
+3. **Atomic call — `task_create_batch` with `emit_planning_complete=true`.** This is the deterministic-layer composite: server creates the task AND emits the `planning_complete` audit event in one DB transaction. The closing audit can no longer be skipped because there's nothing to skip — it's server-side.
 
-   **Do NOT split these across multiple bro messages.** Each separate message costs 13–60s of round-trip latency. Batched, they run concurrently in ~5s.
+   ```
+   task_create_batch(
+     agent='bro',
+     spec_body=<≤8000 chars, trivial template>,
+     emit_planning_complete=true,
+     planning_complete_summary='<one-line summary>',
+     waive_scope_gate=true,
+     waive_scope_gate_reason='<defaults named, e.g. "simple-triage personal CLI: argparse + unittest + JSON at ~/.todo/todos.json; no cross-cutting ambiguity">',
+   )
+   ```
 
-   **Critical ordering:** `task_create_batch` must complete BEFORE `Task(swe)` is called — bro needs the returned `task_id` to pass to SWE. In CC's parallel-tool-call runtime, sequential dependencies mean: call `task_create_batch` alone first (step 3a), wait for the task ID in the result, then emit `Task(swe) + discussion_append + audit_log` as the parallel batch (step 3b). `audit_log(kind='event', event_type='planning_complete')` MUST be in the same response as `Task(swe)` — never in a subsequent message, as the Agent sub-task may consume the next turn.
+4. After `task_create_batch` returns the `task_id`, batch the SWE spawn + the trace note:
 
-4. SWE returns with `status='completed'` and `commit_sha`. Proceed to verification (next section).
+   ```
+   Task(subagent_type='swe', prompt='task_id=<N>', isolation='worktree')
+   discussion_append(kind='note', body='Beginning planning on branch_id <branch_id>, triage: simple')
+   ```
+
+   Both run in parallel in one response. **No separate `audit_log(planning_complete)` call needed** — the server already emitted it inside `task_create_batch`'s transaction.
+
+5. SWE returns with `status='completed'` and `commit_sha`. Proceed to verification (next section).
 
 ## Bro verification protocol — never skip this
 

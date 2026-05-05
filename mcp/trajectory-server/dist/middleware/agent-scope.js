@@ -1,14 +1,13 @@
-const KNOWN_ROLES = new Set([
-    'bro',
-    'architect',
-    'swe',
-    'pr-reviewer',
-]);
+const FIRST_CLASS_ROLES = new Set(['bro', 'swe', 'pr-reviewer']);
 export function normalizeAgent(name) {
     if (!name)
         return 'unknown';
     const lower = name.toLowerCase();
-    return KNOWN_ROLES.has(lower) ? lower : 'unknown';
+    if (FIRST_CLASS_ROLES.has(lower))
+        return lower;
+    if (/^[a-z][a-z0-9_-]*$/.test(lower))
+        return 'consultant';
+    return 'unknown';
 }
 export function requireRoles(toolName, allowedRoles, handler) {
     const allowed = new Set(allowedRoles);
@@ -41,7 +40,7 @@ export function redactIssue(issue, agent, opts) {
         const truncated = rest.objective.length > 120 ? rest.objective.slice(0, 120) + '...' : rest.objective;
         return { ...rest, objective: truncated };
     }
-    // Architect and bro are full-trust; description gated only on opts.include_description.
+    // Bro, consultants, and pr-reviewer are full-trust; description gated only on opts.include_description.
     if (!opts?.include_description) {
         const { description: _, ...rest } = issue;
         void _;

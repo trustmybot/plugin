@@ -191,7 +191,7 @@ export function reportTools(db: TrajectoryDB): {
       return ok({ markdown: lines.join('\n') });
     }),
 
-    issue_snapshot_md: requireRoles('issue_snapshot_md', ['architect', 'pr-reviewer'], wrapHandler(async (args) => {
+    issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'pr-reviewer'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
       const rawOutputPath = args['output_path'] as string | undefined;

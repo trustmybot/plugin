@@ -60,7 +60,7 @@ function validateLabels(labels) {
     }
     return labels;
 }
-const ALLOWED_ROLES = ['bro', 'architect', 'swe', 'pr-reviewer'];
+const ALLOWED_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'];
 export function labelTools(db) {
     const definitions = [
         {

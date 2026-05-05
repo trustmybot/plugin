@@ -174,27 +174,27 @@ describe('branchReportMdTools', () => {
         assert.ok(md.includes('_No file_registry entries found for this branch._'), 'Expected empty file_registry placeholder');
         db.close();
     });
-    it('requireRoles — rejects unknown agent', async () => {
+    it('requireRoles — rejects malformed agent name (unknown role)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = branchReportMdTools(db);
         const result = await call(tools.handlers, 'branch_report_md', {
-            agent: 'hacker',
+            agent: '!!!malformed',
             issue_id: String(issueId),
             branch_id: 'feat/test',
         });
-        assert.ok(result.isError, 'Expected error result for unknown agent');
+        assert.ok(result.isError, 'Expected error result for malformed agent');
         const data = parseResult(result);
         assert.equal(data.error, 'forbidden', `Expected forbidden error: ${JSON.stringify(data)}`);
         db.close();
     });
-    it('all four known agents are accepted', async () => {
+    it('all allowed agents are accepted (bro, consultant agents, swe, pr-reviewer)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const branchId = 'feat/agent-test';
         await createTask(db, issueId, branchId);
         const tools = branchReportMdTools(db);
-        for (const agent of ['bro', 'architect', 'swe', 'pr-reviewer']) {
+        for (const agent of ['bro', 'architect', 'cto', 'legal-reviewer', 'swe', 'pr-reviewer']) {
             const result = await call(tools.handlers, 'branch_report_md', {
                 agent,
                 issue_id: String(issueId),

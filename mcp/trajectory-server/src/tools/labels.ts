@@ -72,7 +72,7 @@ function validateLabels(labels: unknown): string[] {
   return labels as string[];
 }
 
-const ALLOWED_ROLES = ['bro', 'architect', 'swe', 'pr-reviewer'] as const;
+const ALLOWED_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'] as const;
 
 export function labelTools(db: TrajectoryDB): {
   definitions: Tool[];

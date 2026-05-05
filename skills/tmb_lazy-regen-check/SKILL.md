@@ -1,7 +1,7 @@
 ---
 name: tmb_lazy-regen-check
 description: Decide whether to run an incremental architecture regen at session start. First-ever session on a non-empty project → silent initial bootstrap; under 25 commits since last regen → silent incremental; over 25 → one-line nudge.
-allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__regen_state_get, mcp__plugin_tmb_trajectory-server__audit_log
+allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__regen_state_get, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__project_metadata_detect, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 
 # lazy-regen-check
@@ -48,6 +48,23 @@ Bro invokes this skill once per session — immediately before the pre-scan on t
 - **Read-only sessions:** if the entire session consists of read-only asks and no code-touching ask ever arrives, this check never runs.
 - **Once per session:** after the check fires once (regardless of outcome), do not repeat it for the remainder of the session.
 - **Silent on success:** a successful incremental regen produces no output. Only the nudge message (> 25 commits) or an error is ever user-visible.
+
+## Stack drift check
+
+After the architecture regen decision, also call:
+
+```
+result = project_metadata_detect(agent='bro')
+if result.changed:
+  discussion_append(
+    agent='bro',
+    issue_id=<current>,
+    kind='note',
+    body='Stack drift detected at <result.detected.detected_at>: languages/tools changed since last prescan.'
+  )
+```
+
+This gives bro visibility when the stack changes mid-session (e.g., user installs `uv` and re-runs).
 
 ## Session-start execution chain (first code-touching ask)
 

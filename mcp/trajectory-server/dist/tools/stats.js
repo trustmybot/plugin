@@ -1,5 +1,5 @@
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
-const ALLOWED_ROLES = ['bro', 'architect', 'swe', 'pr-reviewer'];
+const ALLOWED_ROLES = ['bro', 'swe', 'pr-reviewer', 'consultant'];
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }

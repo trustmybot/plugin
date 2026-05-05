@@ -6,13 +6,29 @@ allowed-tools: Read, Glob, Grep, Bash, Task, AskUserQuestion, mcp__plugin_tmb_tr
 
 # Planning — Difficult Triage
 
+## When this loads
+
+After `tmb_swe-spawn-workflow` triages a request as **difficult** (architecture-touching, cross-cutting, or strategic). Bro lands here with: the user's request in conversation context; a pre-scan run (see `tmb_project-prescan`) — project stack available via `project_metadata_get(agent='bro')`; a branch_id proposed (see `tmb_branch-id-proposal`).
+
+Sibling: `tmb_planning-simple` handles the no-architecture path; downgrade whenever triage was wrong.
+
+L5 smoke tests: `tests/dogfood/flows/03-difficult-task/` (this skill's happy path), `02-simple-task/` (sibling).
+
+## Glossary
+
+- **Q+A pair**: a `kind='question'` row + `kind='answer'` row in the `discussions` table (one per scope choice). Persisted via `discussion_append`.
+- **Decision row**: a `kind='decision'` row in `discussions` capturing the architectural plan. The MCP scope-ambiguity gate refuses `task_create_batch` if no preceding `kind='question'` exists.
+- **AskUserQuestion modes**: `radio` / `radio + preview` / `checkbox` / `tabbed` — see `docs/architecture/UI.md`. This skill uses **radio** for single picks, **tabbed** when 2-4 related decisions stack.
+- **`spec_body`**: markdown spec passed to `task_create_batch`. Hard cap 8000 chars.
+- **`parent_branch_id`**: links sibling tasks within an issue. Used when a difficult-path issue splits into multiple tasks.
+
 Architecture-touching, cross-cutting, or strategic. Every material choice needs a Q+A pair and a `kind='decision'` row before any task is created. `task_create_batch` rejects `spec_body` >8000 chars — cite existing code, don't restate; split into multiple tasks linked by `parent_branch_id` if needed.
 
 ## 1. Confirm + probe
 
 Confirm: does the request touch `docs/trustmybot/architecture/`, introduce a new boundary, change a public API, or commit to a strategic stack choice? If none → downgrade and load `tmb_planning-simple`.
 
-Probe the stack the project announces: read whichever of `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, etc. exist. Run `git remote -v` once. The project tells you what it is.
+Read the project stack via `project_metadata_get(agent='bro')`. If it returns null, the prescan didn't run — load `tmb_project-prescan` first.
 
 ```
 discussion_append(kind='note', body='Triage: difficult (confirmed). Stack: <findings>.')
@@ -48,17 +64,26 @@ Use the template at `templates/spec.md`. Stay under 8000 chars; cite existing co
 
 **Blast-radius check** — if the feature has external side effects (network, real API mutations, billing, message-sending, writes outside the worktree): default config MUST be the safe state (opt-in); tests MUST NOT hit live services on the default `:memory:` DB; spec MUST require a pre-merge `bash tests/run-all.sh` yielding zero external mutations. Any miss → spec back for revision.
 
-## 6. Batched handoff (one response, three calls)
+## 6. Atomic handoff (server-side closing event)
 
-Emit in the SAME response — CC runs concurrently; splitting costs ~30s per batch:
+The closing `planning_complete` audit event is now emitted server-side as part of `task_create_batch`'s transaction. Pass `emit_planning_complete=true`; the audit row lands atomically with the task INSERT. There's nothing for the LLM to remember to call afterward.
 
 ```
-task_create_batch(...)
-Task(swe, ...)
-audit_log(kind='event', event_type='planning_complete', ...)
+task_create_batch(
+  agent='bro',
+  spec_body=...,
+  emit_planning_complete=true,
+  planning_complete_summary='<one-line summary>',
+)
 ```
 
-For multiple parallel tasks, fan out `Task(swe)` spawns where `parent_branch_id` permits.
+Then spawn SWE in the next response (or same, if branch_id flow allows):
+
+```
+Task(subagent_type='swe', prompt='task_id=<N>', isolation='worktree')
+```
+
+For multiple parallel tasks in one issue, fan out `Task(swe)` spawns where `parent_branch_id` permits.
 
 ## 7. Verify before close — Pull / Check / Close
 

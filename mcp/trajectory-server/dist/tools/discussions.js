@@ -79,7 +79,7 @@ export function discussionTools(db) {
         },
     ];
     const handlers = {
-        discussion_append: requireRoles('discussion_append', ['bro', 'architect', 'swe', 'pr-reviewer'], wrapHandler(async (args) => {
+        discussion_append: requireRoles('discussion_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
             const author = requireArg(args, 'author');

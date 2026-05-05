@@ -41,7 +41,7 @@ export function branchReportMdTools(db) {
         },
     ];
     const handlers = {
-        branch_report_md: requireRoles('branch_report_md', ['bro', 'architect', 'swe', 'pr-reviewer'], wrapHandler(async (args) => {
+        branch_report_md: requireRoles('branch_report_md', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             const branchId = requireArg(args, 'branch_id');

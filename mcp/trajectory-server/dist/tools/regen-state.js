@@ -92,7 +92,7 @@ export function regenStateTools(db) {
                 notes: row.notes,
             });
         }),
-        regen_state_set: requireRoles('regen_state_set', ['architect', 'bro', 'pr-reviewer'], wrapHandler(async (args) => {
+        regen_state_set: requireRoles('regen_state_set', ['bro', 'pr-reviewer'], wrapHandler(async (args) => {
             const target = validateTarget(args['target']);
             if (target === null) {
                 return err(`Invalid target ${JSON.stringify(args['target'])}: must be one of file_registry, codebase_tree, erd, module_graph, changelog`);

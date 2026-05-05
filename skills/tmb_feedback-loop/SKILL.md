@@ -1,6 +1,6 @@
 ---
 name: tmb_feedback-loop
-description: 3-question protocol for capturing bugs into review skills.
+description: "3-question protocol for converting newly-observed bugs into durable review-skill checks. Loaded whenever pr-reviewer or bro encounters a bug class that should be added to a review checklist; prevents one-off fixes from becoming recurring blind spots."
 ---
 
 # Feedback Loop
