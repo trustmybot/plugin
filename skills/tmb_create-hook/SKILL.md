@@ -31,7 +31,7 @@ hooks/
 
 ## Example Task Spec
 
-```markdown
+````markdown
 ## Description
 
 Create hooks/pre-commit that checks:
@@ -67,4 +67,4 @@ ls -la .git/hooks/pre-commit
 ## Commit
 
 `feat(hooks): add pre-commit enforcement hook`
-```
+````

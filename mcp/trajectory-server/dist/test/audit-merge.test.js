@@ -130,7 +130,7 @@ describe('auditTools — kind discriminator', () => {
         assert.equal(row.kind, 'event');
         assert.equal(row.event_type, 'planning_complete');
         assert.equal(row.summary, 'Plan done');
-        assert.equal(row.tool_name, null);
+        assert.equal(row.tool_name, '');
         db.close();
     });
     it('audit_log with kind=tool_call stores tool-call fields', async () => {

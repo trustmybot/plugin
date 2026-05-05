@@ -103,7 +103,7 @@ discussion_append(kind='note', body='Triage: difficult (overriding simple propos
 
 ## Trivial template (this is what you author for spec_body)
 
-```markdown
+````markdown
 ## Description
 <≤3 sentences. Include explicit Assumptions bullets for picked defaults.>
 
@@ -125,6 +125,6 @@ discussion_append(kind='note', body='Triage: difficult (overriding simple propos
 ```
 <emoji> <type>(<scope>): <one-line message>
 ```
-```
+````
 
 That's the whole spec_body. Don't pad it; the brevity IS the point.
