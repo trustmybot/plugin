@@ -4,8 +4,6 @@ import { nowISO } from '../db.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-const MAX_OUTPUT_BYTES = 1_048_576; // 1 MB
-const HALF_BYTES = 524_288; // 512 KB
 const MAX_CONTENT_BYTES = 1_000_000;
 
 function ok(data: unknown): CallToolResult {
@@ -36,6 +34,11 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
+// Audit table is event-only after the #179 schema cleanup. The kind='tool_call'
+// branch was retired (always-empty across production data; tool-call records
+// live in debug_trajectory). All audit_log inserts must specify event_type +
+// summary; the schema CHECK enforces kind='event' and the handler rejects any
+// caller that tries to pass kind='tool_call' for backward compatibility.
 export function auditTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -44,7 +47,7 @@ export function auditTools(db: TrajectoryDB): {
     {
       name: 'audit_log',
       description:
-        "Insert an audit record. Use kind='event' for lifecycle events (planning_complete, bro_verification_pass, etc.) and kind='tool_call' for tool invocation records.",
+        "Insert an audit lifecycle event (planning_complete, bro_verification_pass, headless_fallback, etc.). All rows are kind='event'; the kind='tool_call' branch was retired in #179. Both event_type and summary are required.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -54,36 +57,25 @@ export function auditTools(db: TrajectoryDB): {
           from_node: { type: 'string' },
           kind: {
             type: 'string',
-            enum: ['event', 'tool_call'],
-            description: "Discriminator: 'event' (lifecycle event) or 'tool_call' (tool invocation record). Defaults to 'event'.",
+            enum: ['event'],
+            description: "Always 'event'. Retained for backward-compatible callers; defaults to 'event' if omitted.",
           },
-          // event fields
-          event_type: { type: 'string', description: "Required when kind='event'." },
-          summary: { type: 'string', description: "Required when kind='event'." },
-          content_json: { type: 'string', description: "JSON string, max 1 MB. Optional for kind='event'." },
-          // tool_call fields
-          tool_name: { type: 'string', description: "Required when kind='tool_call'." },
-          tool_args: { description: "Required when kind='tool_call'." },
-          output: { type: 'string', description: "Required when kind='tool_call'." },
-          round: { type: 'number', description: "Optional for kind='tool_call'." },
+          event_type: { type: 'string', description: 'Required. Lifecycle event identifier (e.g. planning_complete).' },
+          summary: { type: 'string', description: 'Required. One-line human-readable summary.' },
+          content_json: { type: 'string', description: 'Optional. JSON string with structured event payload, max 1 MB.' },
         },
-        required: ['agent', 'issue_id', 'from_node'],
+        required: ['agent', 'issue_id', 'from_node', 'event_type', 'summary'],
       },
     },
     {
       name: 'audit_log_list',
-      description: 'Paginated fetch of audit records for an issue, optionally filtered by kind.',
+      description: 'Paginated fetch of audit records for an issue.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string' },
           branch_id: { type: 'string' },
-          kind: {
-            type: 'string',
-            enum: ['event', 'tool_call'],
-            description: "Filter by kind. Omit to return all rows.",
-          },
           limit: { type: 'number', description: 'Max rows to return (default 50, max 500)' },
           offset: { type: 'number', description: 'Row offset for pagination (default 0)' },
         },
@@ -103,90 +95,38 @@ export function auditTools(db: TrajectoryDB): {
       const kind = (args['kind'] as string | undefined) ?? 'event';
       const now = nowISO();
 
-      if (kind !== 'event' && kind !== 'tool_call') {
-        throw new Error(`Invalid kind: "${kind}". Must be 'event' or 'tool_call'.`);
+      if (kind !== 'event') {
+        throw new Error(
+          `Invalid kind: "${kind}". Only 'event' is supported after the #179 schema cleanup. The 'tool_call' kind was retired — log tool calls via debug_trajectory instead.`,
+        );
       }
 
-      if (kind === 'event') {
-        requireArg(args, 'event_type');
-        requireArg(args, 'summary');
+      requireArg(args, 'event_type');
+      requireArg(args, 'summary');
 
-        const eventType = args['event_type'] as string;
-        const summary = args['summary'] as string;
+      const eventType = args['event_type'] as string;
+      const summary = args['summary'] as string;
 
-        let contentJson = (args['content_json'] as string | undefined) ?? '{}';
-        let isTruncated = 0;
+      let contentJson = (args['content_json'] as string | undefined) ?? '{}';
+      let isTruncated = 0;
 
-        const byteLength = Buffer.byteLength(contentJson, 'utf8');
-        if (byteLength > MAX_CONTENT_BYTES) {
-          contentJson = Buffer.from(contentJson, 'utf8').slice(0, MAX_CONTENT_BYTES).toString('utf8');
-          isTruncated = 1;
-        }
-
-        db.run(
-          `INSERT INTO audit
-             (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
-           VALUES (?, ?, ?, 'event', ?, ?, ?, ?, ?)`,
-          [issueId, branchId, fromNode, eventType, summary, contentJson, isTruncated, now],
-        );
-
-        const row = db.get<Record<string, unknown>>(
-          'SELECT * FROM audit WHERE rowid = last_insert_rowid()',
-        );
-        return ok(row);
-      } else {
-        // kind='tool_call'
-        requireArg(args, 'tool_name');
-        requireArg(args, 'tool_args');
-        requireArg(args, 'output');
-
-        const toolName = args['tool_name'] as string;
-        const rawToolArgs = args['tool_args'];
-        const toolArgs =
-          typeof rawToolArgs === 'string' ? rawToolArgs : JSON.stringify(rawToolArgs);
-
-        let output = args['output'] as string;
-        let isTruncated = 0;
-
-        const outputBytes = Buffer.byteLength(output, 'utf8');
-        if (outputBytes > MAX_OUTPUT_BYTES) {
-          const buf = Buffer.from(output, 'utf8');
-          const head = buf.slice(0, HALF_BYTES).toString('utf8');
-          const tail = buf.slice(buf.length - HALF_BYTES).toString('utf8');
-          const droppedBytes = outputBytes - HALF_BYTES * 2;
-          output = `${head}...[truncated ${droppedBytes} bytes]...${tail}`;
-          isTruncated = 1;
-        }
-
-        let round: number;
-        if (args['round'] !== undefined && args['round'] !== null) {
-          round = args['round'] as number;
-        } else if (branchId !== null) {
-          const maxRow = db.get<{ max_round: number | null }>(
-            `SELECT MAX(round) as max_round FROM audit WHERE issue_id = ? AND branch_id = ? AND kind = 'tool_call'`,
-            [issueId, branchId],
-          );
-          round = (maxRow?.max_round ?? -1) + 1;
-        } else {
-          const maxRow = db.get<{ max_round: number | null }>(
-            `SELECT MAX(round) as max_round FROM audit WHERE issue_id = ? AND kind = 'tool_call'`,
-            [issueId],
-          );
-          round = (maxRow?.max_round ?? -1) + 1;
-        }
-
-        db.run(
-          `INSERT INTO audit
-             (issue_id, branch_id, from_node, kind, round, tool_name, tool_args, output, output_chars, is_truncated, created_at)
-           VALUES (?, ?, ?, 'tool_call', ?, ?, ?, ?, ?, ?, ?)`,
-          [issueId, branchId, fromNode, round, toolName, toolArgs, output, output.length, isTruncated, now],
-        );
-
-        const row = db.get<Record<string, unknown>>(
-          'SELECT * FROM audit WHERE rowid = last_insert_rowid()',
-        );
-        return ok(row);
+      const byteLength = Buffer.byteLength(contentJson, 'utf8');
+      if (byteLength > MAX_CONTENT_BYTES) {
+        contentJson = Buffer.from(contentJson, 'utf8').slice(0, MAX_CONTENT_BYTES).toString('utf8');
+        isTruncated = 1;
       }
+
+      db.run(
+        `INSERT INTO audit
+           (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
+         VALUES (?, ?, ?, 'event', ?, ?, ?, ?, ?)`,
+        [issueId, branchId, fromNode, eventType, summary, contentJson, isTruncated, now],
+      );
+
+      const row = db.get<Record<string, unknown>>(
+        'SELECT * FROM audit WHERE rowid = last_insert_rowid()',
+      );
+      return ok(row);
     }),
 
     audit_log_list: wrapHandler(async (args) => {
@@ -194,7 +134,6 @@ export function auditTools(db: TrajectoryDB): {
       const issueId = requireArg(args, 'issue_id') as string;
 
       const branchId = (args['branch_id'] as string | undefined) ?? null;
-      const kind = (args['kind'] as string | undefined) ?? null;
       const rawLimit = (args['limit'] as number | undefined) ?? 50;
       const limit = Math.min(Math.max(1, rawLimit), 500);
       const offset = Math.max(0, (args['offset'] as number | undefined) ?? 0);
@@ -205,10 +144,6 @@ export function auditTools(db: TrajectoryDB): {
       if (branchId !== null) {
         whereClause += ' AND branch_id = ?';
         params.push(branchId);
-      }
-      if (kind !== null) {
-        whereClause += ' AND kind = ?';
-        params.push(kind);
       }
 
       params.push(limit, offset);

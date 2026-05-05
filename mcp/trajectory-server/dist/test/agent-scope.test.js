@@ -4,13 +4,10 @@ import { normalizeAgent, redactIssue, redactValidationRow, requireRoles, } from 
 function makeIssue(overrides = {}) {
     return {
         id: 1,
-        parent_issue_id: null,
         objective: 'A'.repeat(200),
         description: 'SECRET DESCRIPTION',
-        pre_commit_hash: 'sha123',
         post_commit_hash: null,
         status: 'open',
-        current_task_id: null,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
         closed_at: null,

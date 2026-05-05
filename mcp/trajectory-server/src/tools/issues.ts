@@ -5,7 +5,6 @@ import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
-import { decodeLabels } from './labels.js';
 import { resolveBackend } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
@@ -18,12 +17,11 @@ type SpawnFn = (
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
+// Labels were retired from the issues table in #179 (always-empty in
+// production). Sync paths still pass labels through to the remote (GitLab/
+// GitHub) via syncIssueCreate; we just don't persist them locally anymore.
 function decodeIssue(row: IssueRow): Issue {
-  const labels = decodeLabels(row.labels);
-  return {
-    ...row,
-    labels: labels.length > 0 ? labels : undefined,
-  };
+  return { ...row };
 }
 
 function ok(data: unknown): CallToolResult {
@@ -179,16 +177,16 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
 
       const objective = args['objective'] as string;
       const description = (args['description'] as string | undefined) ?? '';
+      // labels: pass-through to remote sync; not persisted locally after #179.
       const labels = (args['labels'] as string[] | undefined) ?? [];
       // _spawnFn: test-only injection point; not in inputSchema
       const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
       const now = nowISO();
-      const preGitSha = process.env['PRE_GIT_SHA'] ?? '';
 
       db.run(
-        `INSERT INTO issues (objective, description, pre_commit_hash, status, created_at, updated_at)
-         VALUES (?, ?, ?, 'open', ?, ?)`,
-        [objective, description, preGitSha, now, now],
+        `INSERT INTO issues (objective, description, status, created_at, updated_at)
+         VALUES (?, ?, 'open', ?, ?)`,
+        [objective, description, now, now],
       );
 
       const rowId = db.get<{ id: number }>(
@@ -373,25 +371,19 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         );
       }
 
-      let rows: Array<{ id: number; objective: string; status: string; labels: string | null; created_at: string; updated_at: string }>;
+      let rows: Array<{ id: number; objective: string; status: string; created_at: string; updated_at: string }>;
       if (rawStatus !== undefined) {
         rows = db.all(
-          `SELECT id, objective, status, labels, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+          `SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
           [rawStatus, limit, offset],
         );
       } else {
         rows = db.all(
-          `SELECT id, objective, status, labels, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+          `SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
           [limit, offset],
         );
       }
-      const decoded = rows.map((r) => {
-        const labels = decodeLabels(r.labels);
-        const { labels: _raw, ...rest } = r;
-        void _raw;
-        return labels.length > 0 ? { ...rest, labels } : rest;
-      });
-      return ok(decoded);
+      return ok(rows);
     }),
 
     issue_update_description: requireRoles('issue_update_description', ['bro'], wrapHandler(async (args) => {
@@ -456,7 +448,9 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         issueId: row.id,
         title: issue.objective,
         body: row.description,
-        labels: issue.labels ?? [],
+        // Labels are not persisted locally after #179 (always-empty in
+        // production). Remote retry can't restore lost labels; pass empty.
+        labels: [],
         _backend: backend,
       });
 

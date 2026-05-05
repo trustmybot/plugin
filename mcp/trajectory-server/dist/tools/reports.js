@@ -167,12 +167,8 @@ export function reportTools(db) {
             lines.push(`**Status:** ${issue.status}`);
             lines.push(`**Created:** ${issue.created_at}`);
             lines.push(`**Updated:** ${issue.updated_at}`);
-            if (issue.current_task_id !== null) {
-                const currentTask = tasks.find((t) => t.id === issue.current_task_id);
-                if (currentTask) {
-                    lines.push(`**Current Task Branch:** ${currentTask.branch_id}`);
-                }
-            }
+            // current_task_id was retired in #179 (always-null in production); the
+            // open-tasks list below provides the same signal more reliably.
             if (issue.closed_at) {
                 lines.push(`**Closed:** ${issue.closed_at}`);
             }

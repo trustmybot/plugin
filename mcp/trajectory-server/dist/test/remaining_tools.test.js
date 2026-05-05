@@ -40,72 +40,66 @@ async function createTask(db, issueId, branchId = 'feat/test-task') {
     return rows[0].id;
 }
 describe('auditTools', () => {
-    it('audit_log kind=tool_call stores small payload intact', async () => {
+    // The kind='tool_call' branch was retired in #179 (always-empty in
+    // production data; tool-call records live in debug_trajectory). The
+    // tests below verify the current event-only contract: small + large
+    // content_json payloads, plus that tool_call calls are rejected.
+    it('audit_log kind=event stores small content_json intact', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
         const result = await call(tools.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
-            from_node: 'executor',
-            kind: 'tool_call',
-            tool_name: 'bash',
-            tool_args: { cmd: 'echo hi' },
-            output: 'hi',
+            from_node: 'bro',
+            kind: 'event',
+            event_type: 'planning_complete',
+            summary: 'Plan done',
+            content_json: JSON.stringify({ cmd: 'echo hi' }),
         });
         const row = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
         assert.equal(row.issue_id, issueId);
-        assert.equal(row.kind, 'tool_call');
-        assert.equal(row.tool_name, 'bash');
-        assert.equal(row.output, 'hi');
+        assert.equal(row.kind, 'event');
+        assert.equal(row.event_type, 'planning_complete');
         assert.equal(row.is_truncated, 0);
-        assert.equal(row.tool_args, JSON.stringify({ cmd: 'echo hi' }));
+        assert.equal(row.content_json, JSON.stringify({ cmd: 'echo hi' }));
         db.close();
     });
-    it('audit_log kind=tool_call truncates output > 1 MB and sets is_truncated = 1', async () => {
+    it('audit_log kind=event truncates content_json > 1 MB and sets is_truncated = 1', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const bigOutput = 'x'.repeat(2_000_000);
+        const bigContent = JSON.stringify({ blob: 'x'.repeat(2_000_000) });
+        const result = await call(tools.handlers, 'audit_log', {
+            agent: 'bro',
+            issue_id: String(issueId),
+            from_node: 'bro',
+            kind: 'event',
+            event_type: 'planning_complete',
+            summary: 'Plan done',
+            content_json: bigContent,
+        });
+        const row = parseResult(result);
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
+        assert.equal(row.is_truncated, 1);
+        assert.ok(row.content_json.length < bigContent.length, 'content_json should be truncated');
+        db.close();
+    });
+    it('audit_log rejects kind=tool_call (retired in #179)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = auditTools(db);
         const result = await call(tools.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'executor',
             kind: 'tool_call',
             tool_name: 'bash',
-            tool_args: {},
-            output: bigOutput,
         });
-        const row = parseResult(result);
-        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-        assert.equal(row.is_truncated, 1);
-        assert.ok(row.output.includes('[truncated'), `Expected truncation marker in output`);
-        assert.ok(row.output.length < bigOutput.length);
-        db.close();
-    });
-    it('audit_log kind=tool_call round is scoped per (issue_id, branch_id) not per issue_id', async () => {
-        const db = tempDB();
-        const issueId = await createIssue(db);
-        const tools = auditTools(db);
-        const logEntry = (branchId) => call(tools.handlers, 'audit_log', {
-            agent: 'bro',
-            issue_id: String(issueId),
-            branch_id: branchId,
-            from_node: 'executor',
-            kind: 'tool_call',
-            tool_name: 'bash',
-            tool_args: {},
-            output: 'ok',
-        });
-        const r1a = parseResult(await logEntry('task-1'));
-        const r1b = parseResult(await logEntry('task-1'));
-        const r2a = parseResult(await logEntry('task-2'));
-        const r2b = parseResult(await logEntry('task-2'));
-        assert.equal(r1a.round, 0, 'task-1 first entry should be round 0');
-        assert.equal(r1b.round, 1, 'task-1 second entry should be round 1');
-        assert.equal(r2a.round, 0, 'task-2 first entry should be round 0 (independent)');
-        assert.equal(r2b.round, 1, 'task-2 second entry should be round 1 (independent)');
+        assert.ok(result.isError, 'Expected error for retired kind=tool_call');
+        const data = parseResult(result);
+        assert.match(data.error, /tool_call/i);
         db.close();
     });
 });

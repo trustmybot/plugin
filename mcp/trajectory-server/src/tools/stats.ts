@@ -44,7 +44,6 @@ interface AgentRunRow {
   tokens_total: number;
   tool_uses: number;
   duration_ms: number;
-  started_at: string | null;
   completed_at: string;
   exit_status: string;
 }
@@ -110,7 +109,7 @@ export function statsTools(db: TrajectoryDB): {
 
         const spawns = db.all<AgentRunRow>(
           'SELECT id, agent_type, tokens_in, tokens_out, tokens_total,' +
-          ' tool_uses, duration_ms, started_at, completed_at, exit_status' +
+          ' tool_uses, duration_ms, completed_at, exit_status' +
           ' FROM agent_runs WHERE task_id = ? ORDER BY id',
           [taskId],
         );

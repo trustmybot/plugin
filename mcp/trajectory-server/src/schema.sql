@@ -3,14 +3,10 @@ PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS issues (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_issue_id   INTEGER REFERENCES issues(id),
     objective         TEXT    NOT NULL,
     description       TEXT    NOT NULL DEFAULT '',
-    pre_commit_hash   TEXT    NOT NULL DEFAULT '',
     post_commit_hash  TEXT,
     status            TEXT    NOT NULL DEFAULT 'open',
-    current_task_id   INTEGER REFERENCES tasks(id),
-    labels            TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     closed_at         TEXT,
@@ -47,22 +43,16 @@ CREATE TABLE IF NOT EXISTS audit (
     branch_id    TEXT,
     from_node    TEXT    NOT NULL DEFAULT 'executor',
 
-    -- Discriminator
-    kind         TEXT    NOT NULL DEFAULT 'event' CHECK(kind IN ('event', 'tool_call')),
+    -- All audit rows are kind='event'. The kind='tool_call' branch was retired
+    -- in #179 (always-empty across production data; tool-call records live in
+    -- debug_trajectory). The CHECK keeps 'event' as the only valid value so
+    -- writers fail loudly if they regress to the old discriminator.
+    kind         TEXT    NOT NULL DEFAULT 'event' CHECK(kind = 'event'),
 
-    -- Event fields (kind='event')
-    event_type   TEXT,
-    summary      TEXT,
+    event_type   TEXT    NOT NULL,
+    summary      TEXT    NOT NULL,
     content_json TEXT    NOT NULL DEFAULT '{}',
 
-    -- Tool-call fields (kind='tool_call')
-    round        INTEGER NOT NULL DEFAULT 0,
-    tool_name    TEXT    NOT NULL DEFAULT '',
-    tool_args    TEXT    NOT NULL DEFAULT '{}',
-    output       TEXT    NOT NULL DEFAULT '',
-    output_chars INTEGER NOT NULL DEFAULT 0,
-
-    -- Common
     is_truncated INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL
 );
@@ -158,6 +148,10 @@ CREATE TABLE IF NOT EXISTS file_registry (
     -- Codebase-memory columns (#45). content_md5 is the cheap drift probe;
     -- summary is the LLM-generated summary written by bro on Read or by SWE
     -- at atomic-close; summary_updated_at gates staleness.
+    -- NOTE: the 8 derived-metadata columns above (language/size_bytes/etc.)
+    -- are always-empty in production (#179 audit) but kept in the schema for
+    -- module-graph rendering and architecture_regen compat. Drop deferred to
+    -- a follow-up PR that also rewrites those consumers.
     content_md5         TEXT,
     summary             TEXT,
     summary_updated_at  TEXT
@@ -207,7 +201,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     tokens_total INTEGER NOT NULL DEFAULT 0,
     tool_uses    INTEGER NOT NULL DEFAULT 0,
     duration_ms  INTEGER NOT NULL DEFAULT 0,
-    started_at   TEXT,
+    -- started_at retired in #179 (never written; only completed_at is set).
     completed_at TEXT    NOT NULL,
     exit_status  TEXT    NOT NULL DEFAULT 'completed'
 );

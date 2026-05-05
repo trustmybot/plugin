@@ -34,9 +34,8 @@ export function requireRoles(toolName, allowedRoles, handler) {
 }
 export function redactIssue(issue, agent, opts) {
     if (agent === 'swe' || agent === 'unknown') {
-        const { description: _, pre_commit_hash: __, ...rest } = issue;
+        const { description: _, ...rest } = issue;
         void _;
-        void __;
         const truncated = rest.objective.length > 120 ? rest.objective.slice(0, 120) + '...' : rest.objective;
         return { ...rest, objective: truncated };
     }

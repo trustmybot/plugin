@@ -11,7 +11,8 @@ import { regenStateTools } from './regen-state.js';
 import { fileRegistryTools } from './file-registry.js';
 import { architectureRegenTools } from './architecture-regen.js';
 import { branchReportMdTools } from './branch_report_md.js';
-import { labelTools } from './labels.js';
+// labelTools removed in #179 — issues.labels column was always-empty in
+// production; local label storage retired.
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
 import { prCommentsTools } from './pr_comments.js';
@@ -52,7 +53,6 @@ export function registerTools(server, db, dbPath = '') {
     const fileRegistry = fileRegistryTools(db, dbPath);
     const architectureRegen = architectureRegenTools(db);
     const branchReport = branchReportMdTools(db);
-    const labels = labelTools(db);
     const stats = statsTools(db);
     const roundtable = roundtableTools(db);
     const prComments = prCommentsTools(db);
@@ -71,7 +71,6 @@ export function registerTools(server, db, dbPath = '') {
         ...fileRegistry.definitions,
         ...architectureRegen.definitions,
         ...branchReport.definitions,
-        ...labels.definitions,
         ...stats.definitions,
         ...roundtable.definitions,
         ...prComments.definitions,
@@ -91,7 +90,6 @@ export function registerTools(server, db, dbPath = '') {
         ...wrapAll(fileRegistry.handlers),
         ...wrapAll(architectureRegen.handlers),
         ...wrapAll(branchReport.handlers),
-        ...wrapAll(labels.handlers),
         ...wrapAll(stats.handlers),
         ...wrapAll(roundtable.handlers),
         ...wrapAll(prComments.handlers),

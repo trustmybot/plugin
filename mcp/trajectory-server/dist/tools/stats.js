@@ -58,7 +58,7 @@ export function statsTools(db) {
                 duration_ms: aggRow?.sum_duration_ms ?? 0,
             };
             const spawns = db.all('SELECT id, agent_type, tokens_in, tokens_out, tokens_total,' +
-                ' tool_uses, duration_ms, started_at, completed_at, exit_status' +
+                ' tool_uses, duration_ms, completed_at, exit_status' +
                 ' FROM agent_runs WHERE task_id = ? ORDER BY id', [taskId]);
             return ok({ task_id: taskId, aggregate, spawns });
         })),

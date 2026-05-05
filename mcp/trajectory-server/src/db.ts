@@ -68,7 +68,7 @@ export class TrajectoryDB {
     this.applySchema();
     this.migratePluginMetaDuplicates();
     this.migrateTasksRepo();
-    this.migrateIssuesLabels();
+    // migrateIssuesLabels removed in #179 — labels column is dropped, not added.
     this.migrateRemotesConfig();
     this.migrateAgentRuns();
     this.migrateRoundtablesState();
@@ -78,6 +78,10 @@ export class TrajectoryDB {
     this.migratePrReviewRuns();
     this.migrateValidationSubagentSessionId();
     this.migrateDiscussionsVerifiedHuman();
+    // #179 destructive drops run LAST so they aren't undone by additive
+    // ALTERs above. Idempotent — subsequent boots see the columns already
+    // gone and skip the DROP.
+    this.migrate179DropDeadColumns();
     this.syncPluginVersion();
   }
 
@@ -166,6 +170,8 @@ export class TrajectoryDB {
     // ones. Idempotent — checks PRAGMA table_info first.
     this.migrateFileRegistryCodebaseMemory();
     this.migrateEvalResultsAbColumns();
+    // #179 destructive drops moved to constructor end (after all additive
+    // migrations) so labels/started_at don't get re-added after the DROP.
 
     const row = this.db
       .prepare('SELECT schema_version FROM plugin_meta LIMIT 1')
@@ -199,6 +205,54 @@ export class TrajectoryDB {
     }
     if (!present.has('scenario')) {
       this.db.exec(`ALTER TABLE eval_results ADD COLUMN scenario TEXT`);
+    }
+  }
+
+  // #179: drop dead columns identified by the production-data audit
+  // (see audit_log #190 / issue #180). Each column was 100% empty across all
+  // production rows. Idempotent — only attempts a drop if the column still
+  // exists. Foreign-key drops are wrapped in PRAGMA foreign_keys=OFF so the
+  // ALTER TABLE doesn't get blocked on referencing-column restrictions.
+  private migrate179DropDeadColumns(): void {
+    const dropPlan: Array<{ table: string; columns: string[] }> = [
+      {
+        table: 'audit',
+        columns: ['tool_name', 'tool_args', 'output', 'output_chars', 'round'],
+      },
+      {
+        table: 'issues',
+        columns: ['parent_issue_id', 'pre_commit_hash', 'current_task_id', 'labels'],
+      },
+      // file_registry derived-metadata cols (language/size_bytes/imports_json/
+      // exports_json/metadata_json/last_commit_sha/last_change_type/
+      // last_change_at) are always-empty in production but kept for
+      // module-graph + architecture_regen compat. Drop deferred to a
+      // follow-up PR that also refactors those consumers.
+      { table: 'agent_runs', columns: ['started_at'] },
+    ];
+
+    this.db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      for (const { table, columns } of dropPlan) {
+        const tableExistsRow = this.db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+          .get(table) as { name: string } | undefined;
+        if (!tableExistsRow) continue;
+
+        const existing = this.db
+          .prepare('PRAGMA table_info(' + table + ')')
+          .all() as Array<{ name: string }>;
+        const present = new Set(existing.map((c) => c.name));
+        for (const col of columns) {
+          if (present.has(col)) {
+            const dropSql = 'ALTER TABLE ' + table + ' DROP COLUMN ' + col;
+            // LINT-ALLOW: #179 schema cleanup — dropping verified-dead column
+            this.db.exec(dropSql);
+          }
+        }
+      }
+    } finally {
+      this.db.exec('PRAGMA foreign_keys = ON');
     }
   }
 
@@ -246,6 +300,7 @@ export class TrajectoryDB {
   }
 
   private migrateAgentRuns(): void {
+    // started_at retired in #179 (never written; only completed_at is set).
     const createTable =
       'CREATE TABLE IF NOT EXISTS agent_runs (' +
       '  id           INTEGER PRIMARY KEY AUTOINCREMENT,' +
@@ -257,7 +312,6 @@ export class TrajectoryDB {
       '  tokens_total INTEGER NOT NULL DEFAULT 0,' +
       '  tool_uses    INTEGER NOT NULL DEFAULT 0,' +
       '  duration_ms  INTEGER NOT NULL DEFAULT 0,' +
-      '  started_at   TEXT,' +
       "  completed_at TEXT    NOT NULL," +
       "  exit_status  TEXT    NOT NULL DEFAULT 'completed'" +
       ')';

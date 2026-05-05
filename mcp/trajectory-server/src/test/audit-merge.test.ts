@@ -8,6 +8,21 @@ import { TrajectoryDB } from '../db.js';
 import { auditTools } from '../tools/audit.js';
 import { issueTools } from '../tools/issues.js';
 
+// audit-merge.test.ts (post-#179)
+//
+// Coverage focus after the schema cleanup:
+//
+// 1. The ledger→audit migration (#170) still works — pre-existing DBs with a
+//    `ledger` table get its rows merged into `audit` with kind='event'.
+// 2. The #179 destructive migration drops 5 dead columns from audit
+//    (tool_name/tool_args/output/output_chars/round) without touching row
+//    counts. The remaining audit handler accepts only kind='event'.
+//
+// The kind='tool_call' branch was retired in #179 — it was always-empty in
+// production data, and tool-call records live in `debug_trajectory`. The
+// audit handler now rejects kind='tool_call' callers; tests assert this
+// rejection rather than the old branch behavior.
+
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
 async function call(
@@ -32,6 +47,10 @@ async function createIssue(db: TrajectoryDB): Promise<number> {
   return data.id as number;
 }
 
+// Build a DB at the pre-#179 / pre-#170 schema shape so we can verify both
+// the ledger→audit merge and the #179 dead-column drops in one fixture.
+// The OLD audit table includes the columns now retired in #179; running
+// TrajectoryDB against this fixture exercises the full migration chain.
 function buildOldSchemaDb(dbPath: string): void {
   const sql = `
 PRAGMA foreign_keys = OFF;
@@ -56,7 +75,6 @@ CREATE TABLE IF NOT EXISTS agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, tas
 CREATE TABLE IF NOT EXISTS pr_review_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, pr_number INTEGER NOT NULL, repo TEXT NOT NULL, remote_kind TEXT NOT NULL, last_fetched_at DATETIME NOT NULL, last_comment_id TEXT, comments_processed INTEGER NOT NULL DEFAULT 0, tasks_created INTEGER NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT (datetime('now')));
 INSERT INTO issues (id, objective, created_at, updated_at) VALUES (1, 'Migration test issue', datetime('now'), datetime('now'));
 INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, content, created_at) VALUES (1, 'feat/x', 'bro', 'planning_complete', 'Plan done', '{"detail":"ctx"}', datetime('now')), (1, 'feat/x', 'swe', 'task_started', 'SWE started', '{}', datetime('now')), (1, NULL, 'bro', 'bro_verification_pass', 'V1 pass', '{}', datetime('now'));
-INSERT INTO audit (issue_id, branch_id, from_node, round, tool_name, tool_args, output, output_chars, created_at) VALUES (1, 'feat/x', 'executor', 0, 'Bash', '{}', 'ok', 2, datetime('now')), (1, 'feat/x', 'executor', 1, 'Read', '{}', 'file contents', 13, datetime('now'));
 `;
   const result = spawnSync('sqlite3', [dbPath], { input: sql, encoding: 'utf8' });
   if (result.status !== 0) {
@@ -64,7 +82,7 @@ INSERT INTO audit (issue_id, branch_id, from_node, round, tool_name, tool_args, 
   }
 }
 
-describe('migrateLedgerIntoAudit', () => {
+describe('migrateLedgerIntoAudit + #179 schema cleanup', () => {
   it('ledger table is dropped after migration', () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-migration-'));
     const dbPath = join(tmpDir, 'test.db');
@@ -92,41 +110,68 @@ describe('migrateLedgerIntoAudit', () => {
       `SELECT kind, event_type, from_node FROM audit WHERE kind = 'event' ORDER BY id ASC`,
     );
     assert.equal(eventRows.length, 3, '3 ledger rows should have been migrated as kind=event');
-    assert.equal(eventRows[0].event_type, 'planning_complete');
-    assert.equal(eventRows[1].event_type, 'task_started');
-    assert.equal(eventRows[2].event_type, 'bro_verification_pass');
+    assert.equal(eventRows[0]!.event_type, 'planning_complete');
+    assert.equal(eventRows[1]!.event_type, 'task_started');
+    assert.equal(eventRows[2]!.event_type, 'bro_verification_pass');
 
     tdb.close();
     unlinkSync(dbPath);
   });
 
-  it('pre-existing audit rows preserved as kind=tool_call after migration', () => {
+  it('#179: audit table has tool_call columns dropped after migration', () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-migration-'));
     const dbPath = join(tmpDir, 'test.db');
     buildOldSchemaDb(dbPath);
 
     const tdb = new TrajectoryDB(dbPath);
 
-    const toolCallRows = tdb.all<{ kind: string; tool_name: string }>(
-      `SELECT kind, tool_name FROM audit WHERE kind = 'tool_call' ORDER BY id ASC`,
-    );
-    assert.equal(toolCallRows.length, 2, '2 original audit rows should have kind=tool_call');
-    assert.equal(toolCallRows[0].tool_name, 'Bash');
-    assert.equal(toolCallRows[1].tool_name, 'Read');
+    const cols = tdb.all<{ name: string }>(`PRAGMA table_info(audit)`);
+    const colNames = new Set(cols.map((c) => c.name));
+    assert.ok(!colNames.has('tool_name'), 'tool_name should be dropped');
+    assert.ok(!colNames.has('tool_args'), 'tool_args should be dropped');
+    assert.ok(!colNames.has('output'), 'output should be dropped');
+    assert.ok(!colNames.has('output_chars'), 'output_chars should be dropped');
+    assert.ok(!colNames.has('round'), 'round should be dropped');
+    // Event columns must remain.
+    assert.ok(colNames.has('event_type'), 'event_type kept');
+    assert.ok(colNames.has('summary'), 'summary kept');
+    assert.ok(colNames.has('content_json'), 'content_json kept');
 
     tdb.close();
     unlinkSync(dbPath);
   });
 
-  it('total audit row count equals sum of old ledger + old audit', () => {
+  it('#179: issues table has dead columns dropped after migration', () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-migration-'));
     const dbPath = join(tmpDir, 'test.db');
     buildOldSchemaDb(dbPath);
 
     const tdb = new TrajectoryDB(dbPath);
 
-    const total = tdb.get<{ c: number }>('SELECT COUNT(*) as c FROM audit');
-    assert.equal(total?.c, 5, 'total = 3 ledger + 2 audit rows');
+    const cols = tdb.all<{ name: string }>(`PRAGMA table_info(issues)`);
+    const colNames = new Set(cols.map((c) => c.name));
+    assert.ok(!colNames.has('parent_issue_id'), 'parent_issue_id dropped');
+    assert.ok(!colNames.has('pre_commit_hash'), 'pre_commit_hash dropped');
+    assert.ok(!colNames.has('current_task_id'), 'current_task_id dropped');
+    assert.ok(!colNames.has('labels'), 'labels dropped');
+    assert.ok(colNames.has('objective'), 'objective kept');
+    assert.ok(colNames.has('status'), 'status kept');
+
+    tdb.close();
+    unlinkSync(dbPath);
+  });
+
+  it('#179: agent_runs.started_at dropped after migration', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-migration-'));
+    const dbPath = join(tmpDir, 'test.db');
+    buildOldSchemaDb(dbPath);
+
+    const tdb = new TrajectoryDB(dbPath);
+
+    const cols = tdb.all<{ name: string }>(`PRAGMA table_info(agent_runs)`);
+    const colNames = new Set(cols.map((c) => c.name));
+    assert.ok(!colNames.has('started_at'), 'started_at dropped');
+    assert.ok(colNames.has('completed_at'), 'completed_at kept');
 
     tdb.close();
     unlinkSync(dbPath);
@@ -148,7 +193,7 @@ describe('migrateLedgerIntoAudit', () => {
   });
 });
 
-describe('auditTools — kind discriminator', () => {
+describe('auditTools — event-only after #179', () => {
   it('audit_log with kind=event stores event fields', async () => {
     const db = new TrajectoryDB(':memory:');
     const issueId = await createIssue(db);
@@ -169,33 +214,7 @@ describe('auditTools — kind discriminator', () => {
     assert.equal(row.kind, 'event');
     assert.equal(row.event_type, 'planning_complete');
     assert.equal(row.summary, 'Plan done');
-    assert.equal(row.tool_name, '');
-
-    db.close();
-  });
-
-  it('audit_log with kind=tool_call stores tool-call fields', async () => {
-    const db = new TrajectoryDB(':memory:');
-    const issueId = await createIssue(db);
-    const tools = auditTools(db);
-
-    const result = await call(tools.handlers, 'audit_log', {
-      agent: 'swe',
-      issue_id: String(issueId),
-      from_node: 'executor',
-      kind: 'tool_call',
-      tool_name: 'Bash',
-      tool_args: { cmd: 'echo hi' },
-      output: 'hi',
-    });
-
-    const row = parseResult(result);
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-    assert.equal(row.kind, 'tool_call');
-    assert.equal(row.tool_name, 'Bash');
-    assert.equal(row.output, 'hi');
-    assert.equal(row.event_type, null);
-
+    assert.equal(row.is_truncated, 0);
     db.close();
   });
 
@@ -208,14 +227,34 @@ describe('auditTools — kind discriminator', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
-      event_type: 'bro_verification_pass',
-      summary: 'V1 pass',
+      // kind omitted
+      event_type: 'planning_complete',
+      summary: 'Plan done',
     });
 
     const row = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
     assert.equal(row.kind, 'event');
+    assert.equal(row.event_type, 'planning_complete');
+    db.close();
+  });
 
+  it('audit_log rejects kind=tool_call (retired in #179)', async () => {
+    const db = new TrajectoryDB(':memory:');
+    const issueId = await createIssue(db);
+    const tools = auditTools(db);
+
+    const result = await call(tools.handlers, 'audit_log', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      from_node: 'bro',
+      kind: 'tool_call',
+      tool_name: 'Bash',
+    });
+
+    assert.ok(result.isError, 'Expected error for retired kind=tool_call');
+    const row = parseResult(result);
+    assert.match(row.error, /tool_call/i);
     db.close();
   });
 
@@ -229,197 +268,94 @@ describe('auditTools — kind discriminator', () => {
       issue_id: String(issueId),
       from_node: 'bro',
       kind: 'event',
-      summary: 'missing event_type',
+      summary: 'Plan done',
     });
 
     assert.ok(result.isError, 'Expected error when event_type is missing');
-
     db.close();
   });
 
-  it('audit_log kind=tool_call rejects missing tool_name', async () => {
+  it('audit_log kind=event rejects missing summary', async () => {
     const db = new TrajectoryDB(':memory:');
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
     const result = await call(tools.handlers, 'audit_log', {
-      agent: 'swe',
+      agent: 'bro',
       issue_id: String(issueId),
-      from_node: 'executor',
-      kind: 'tool_call',
-      tool_args: {},
-      output: 'ok',
+      from_node: 'bro',
+      kind: 'event',
+      event_type: 'planning_complete',
     });
 
-    assert.ok(result.isError, 'Expected error when tool_name is missing');
-
+    assert.ok(result.isError, 'Expected error when summary is missing');
     db.close();
   });
 });
 
-describe('audit_log_list', () => {
-  it('returns all rows when no kind filter', async () => {
+describe('audit_log_list (event-only after #179)', () => {
+  it('returns inserted events in id-ascending order', async () => {
     const db = new TrajectoryDB(':memory:');
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
-    await call(tools.handlers, 'audit_log', {
-      agent: 'bro', issue_id: String(issueId), from_node: 'bro',
-      kind: 'event', event_type: 'planning_complete', summary: 'Plan done',
-    });
-    await call(tools.handlers, 'audit_log', {
-      agent: 'swe', issue_id: String(issueId), from_node: 'executor',
-      kind: 'tool_call', tool_name: 'Bash', tool_args: {}, output: 'ok',
-    });
-
-    const result = await call(tools.handlers, 'audit_log_list', {
-      agent: 'bro',
-      issue_id: String(issueId),
-    });
-
-    const rows = parseResult(result);
-    assert.ok(!result.isError);
-    assert.equal(rows.length, 2);
-
-    db.close();
-  });
-
-  it('filters by kind=event', async () => {
-    const db = new TrajectoryDB(':memory:');
-    const issueId = await createIssue(db);
-    const tools = auditTools(db);
-
-    await call(tools.handlers, 'audit_log', {
-      agent: 'bro', issue_id: String(issueId), from_node: 'bro',
-      kind: 'event', event_type: 'planning_complete', summary: 'Plan done',
-    });
-    await call(tools.handlers, 'audit_log', {
-      agent: 'bro', issue_id: String(issueId), from_node: 'bro',
-      kind: 'event', event_type: 'task_started', summary: 'SWE started',
-    });
-    await call(tools.handlers, 'audit_log', {
-      agent: 'swe', issue_id: String(issueId), from_node: 'executor',
-      kind: 'tool_call', tool_name: 'Bash', tool_args: {}, output: 'ok',
-    });
-
-    const result = await call(tools.handlers, 'audit_log_list', {
-      agent: 'bro',
-      issue_id: String(issueId),
-      kind: 'event',
-    });
-
-    const rows = parseResult(result);
-    assert.ok(!result.isError);
-    assert.equal(rows.length, 2);
-    assert.ok(rows.every((r: { kind: string }) => r.kind === 'event'));
-
-    db.close();
-  });
-
-  it('filters by kind=tool_call', async () => {
-    const db = new TrajectoryDB(':memory:');
-    const issueId = await createIssue(db);
-    const tools = auditTools(db);
-
-    await call(tools.handlers, 'audit_log', {
-      agent: 'bro', issue_id: String(issueId), from_node: 'bro',
-      kind: 'event', event_type: 'planning_complete', summary: 'done',
-    });
-    await call(tools.handlers, 'audit_log', {
-      agent: 'swe', issue_id: String(issueId), from_node: 'executor',
-      kind: 'tool_call', tool_name: 'Bash', tool_args: {}, output: 'ok',
-    });
-
-    const result = await call(tools.handlers, 'audit_log_list', {
-      agent: 'bro',
-      issue_id: String(issueId),
-      kind: 'tool_call',
-    });
-
-    const rows = parseResult(result);
-    assert.ok(!result.isError);
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].kind, 'tool_call');
-
-    db.close();
-  });
-
-  it('paginates with limit and offset', async () => {
-    const db = new TrajectoryDB(':memory:');
-    const issueId = await createIssue(db);
-    const tools = auditTools(db);
-
-    for (let i = 0; i < 5; i++) {
+    for (const eventType of ['planning_complete', 'task_started', 'bro_verification_pass']) {
       await call(tools.handlers, 'audit_log', {
-        agent: 'bro', issue_id: String(issueId), from_node: 'bro',
-        kind: 'event', event_type: 'step', summary: `Step ${i}`,
+        agent: 'bro',
+        issue_id: String(issueId),
+        from_node: 'bro',
+        kind: 'event',
+        event_type: eventType,
+        summary: `Test ${eventType}`,
       });
     }
 
-    const page1Result = await call(tools.handlers, 'audit_log_list', {
-      agent: 'bro', issue_id: String(issueId), kind: 'event', limit: 2, offset: 0,
-    });
-    const page1 = parseResult(page1Result);
-    assert.equal(page1.length, 2);
-    assert.equal(page1[0].summary, 'Step 0');
-    assert.equal(page1[1].summary, 'Step 1');
-
-    const page2Result = await call(tools.handlers, 'audit_log_list', {
-      agent: 'bro', issue_id: String(issueId), kind: 'event', limit: 2, offset: 2,
-    });
-    const page2 = parseResult(page2Result);
-    assert.equal(page2.length, 2);
-    assert.equal(page2[0].summary, 'Step 2');
-    assert.equal(page2[1].summary, 'Step 3');
-
-    db.close();
-  });
-
-  it('filters by branch_id', async () => {
-    const db = new TrajectoryDB(':memory:');
-    const issueId = await createIssue(db);
-    const tools = auditTools(db);
-
-    await call(tools.handlers, 'audit_log', {
-      agent: 'bro', issue_id: String(issueId), branch_id: 'feat/a', from_node: 'bro',
-      kind: 'event', event_type: 'start', summary: 'Branch A entry',
-    });
-    await call(tools.handlers, 'audit_log', {
-      agent: 'bro', issue_id: String(issueId), branch_id: 'feat/b', from_node: 'bro',
-      kind: 'event', event_type: 'start', summary: 'Branch B entry',
-    });
-
     const result = await call(tools.handlers, 'audit_log_list', {
-      agent: 'bro', issue_id: String(issueId), branch_id: 'feat/a',
+      agent: 'bro',
+      issue_id: String(issueId),
     });
-    const rows = parseResult(result);
-    assert.ok(!result.isError);
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].summary, 'Branch A entry');
 
+    const rows = parseResult(result);
+    assert.equal(rows.length, 3);
+    assert.equal(rows[0].event_type, 'planning_complete');
+    assert.equal(rows[1].event_type, 'task_started');
+    assert.equal(rows[2].event_type, 'bro_verification_pass');
+    for (const r of rows) {
+      assert.equal(r.kind, 'event');
+    }
     db.close();
   });
 
-  it('oversized content_json is truncated and is_truncated=1', async () => {
+  it('respects branch_id filter when provided', async () => {
     const db = new TrajectoryDB(':memory:');
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
-    const bigContent = JSON.stringify({ data: 'x'.repeat(1_100_000) });
-
-    const result = await call(tools.handlers, 'audit_log', {
-      agent: 'bro', issue_id: String(issueId), from_node: 'bro',
-      kind: 'event', event_type: 'large_event', summary: 'Oversized',
-      content_json: bigContent,
+    await call(tools.handlers, 'audit_log', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      from_node: 'bro',
+      branch_id: 'feat/a',
+      event_type: 'planning_complete',
+      summary: 'a',
     });
-    const row = parseResult(result);
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-    assert.equal(row.is_truncated, 1, 'is_truncated should be 1 for oversized content');
-    assert.ok(
-      Buffer.byteLength(row.content_json, 'utf8') <= 1_000_000,
-      'content_json should be truncated to <= 1 MB',
-    );
+    await call(tools.handlers, 'audit_log', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      from_node: 'bro',
+      branch_id: 'feat/b',
+      event_type: 'planning_complete',
+      summary: 'b',
+    });
 
+    const filtered = await call(tools.handlers, 'audit_log_list', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      branch_id: 'feat/a',
+    });
+    const rows = parseResult(filtered);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].branch_id, 'feat/a');
     db.close();
   });
 });
