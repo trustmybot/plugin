@@ -1,7 +1,6 @@
 ---
 name: tmb_reonboard
 description: Configure or change bro's per-project state — branching model, PR target, protected branches, identity name. The plugin has no first-run onboarding; bro applies defaults silently on first activation, and this skill is the only path to override them. Shows current values as the pre-selected option in an AskUserQuestion radio UI.
-agent: bro
 allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__identity_get, mcp__plugin_tmb_trajectory-server__identity_set, mcp__plugin_tmb_trajectory-server__identity_reset, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__config_set
 ---
 

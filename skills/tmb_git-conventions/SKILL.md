@@ -1,7 +1,6 @@
 ---
 name: tmb_git-conventions
 description: Commit message style, branching rules, push safety.
-agent: bro, swe, pr-reviewer
 ---
 
 # Git Conventions

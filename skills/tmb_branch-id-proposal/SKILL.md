@@ -1,7 +1,6 @@
 ---
 name: tmb_branch-id-proposal
 description: Derive and propose a git-convention branch_id for a code-changing request, present it to the Human alongside the simple/difficult triage label, wait for confirmation, then open or resume the MCP issue and append the routing-note discussion entries before bro begins planning.
-agent: bro
 allowed-tools: Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__issue_create, mcp__plugin_tmb_trajectory-server__issue_get, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 

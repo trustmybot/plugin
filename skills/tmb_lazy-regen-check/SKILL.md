@@ -1,7 +1,6 @@
 ---
 name: tmb_lazy-regen-check
 description: Decide whether to run an incremental architecture regen at session start. First-ever session on a non-empty project → silent initial bootstrap; under 25 commits since last regen → silent incremental; over 25 → one-line nudge.
-agent: bro
 allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__regen_state_get, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 

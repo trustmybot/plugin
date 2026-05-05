@@ -1,7 +1,6 @@
 ---
 name: tmb_feedback-loop
 description: 3-question protocol for capturing bugs into review skills.
-agent: bro, pr-reviewer
 ---
 
 # Feedback Loop

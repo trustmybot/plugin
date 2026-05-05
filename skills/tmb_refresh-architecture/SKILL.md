@@ -1,8 +1,6 @@
 ---
 name: tmb_refresh-architecture
 description: Wraps the architecture_regen MCP tool to regenerate auto/ architecture docs. Invoked by bro after difficult-path structural changes, at session start for incremental refresh, and via Human phrase trigger for a full regen.
-when-to-use: When architecture auto/ docs need regenerating — either because a structural change was just committed (full regen) or at session start to lazily sync any accumulated drift (incremental).
-when-not-to-use: When you only need to read architecture docs. Do not invoke this as a substitute for reading manual/ files or for editing auto/ files by hand.
 ---
 
 # refresh-architecture

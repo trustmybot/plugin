@@ -1,7 +1,6 @@
 ---
 name: tmb_pr-review-handler
 description: Fetches new PR/MR comments via pr_comments_get, classifies task-worthy vs informational, groups into tasks, flags arch-impact, presents plan via AskUserQuestion, dispatches SWE per ratified task, triggers tmb_refresh-architecture post-SWE on arch-impact tasks. Loaded by /monitor or explicit bro invocation.
-agent: bro
 allowed-tools: Task, Bash, mcp__plugin_tmb_trajectory-server__pr_comments_get, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__task_create_batch, mcp__plugin_tmb_trajectory-server__task_get, AskUserQuestion
 ---
 

@@ -1,7 +1,6 @@
 ---
 name: tmb_push-gate
 description: How bro handles `git push` blocked by the pre-push hook — query unsigned tasks, spawn pr-reviewer in parallel for each, surface pass/fail to Human. The push gate is bro's only pr-reviewer interaction; reviewer never fires per-task. Loaded when Human says "review before push" or hook blocks push.
-agent: bro
 allowed-tools: Task, Bash, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__validation_history
 ---
 

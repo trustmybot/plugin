@@ -1,7 +1,6 @@
 ---
 name: tmb_agent-creator
 description: Add a project-local agent. PRIMARY MODE — copy from `templates/agents/<name>.md` verbatim. FALLBACK — draft from scratch when no shipped template matches the requested name. Always asks Human approval before writing. Never edits the body of any agent file.
-agent: bro
 allowed-tools: Read, Write, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 

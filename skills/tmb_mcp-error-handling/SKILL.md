@@ -1,7 +1,6 @@
 ---
 name: tmb_mcp-error-handling
 description: How bro handles MCP tool errors (is_error=true, forbidden, validation, constraint failures) — halt the current flow, surface the exact error, never silently proceed. Loaded reactively on the first MCP error in a session.
-agent: bro
 allowed-tools: mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 

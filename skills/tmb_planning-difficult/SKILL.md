@@ -1,7 +1,6 @@
 ---
 name: tmb_planning-difficult
 description: Bro's planning protocol when triage = difficult (architecture-touching, cross-cutting, or strategic). Full env probe + Q+A discussion + ADR + standard-template spec, plus the same bro verification step the simple path uses. Loaded only when triage warrants it.
-agent: bro
 allowed-tools: Read, Glob, Grep, Bash, Task, AskUserQuestion, mcp__plugin_tmb_trajectory-server
 ---
 

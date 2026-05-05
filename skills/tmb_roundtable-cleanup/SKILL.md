@@ -1,7 +1,6 @@
 ---
 name: tmb_roundtable-cleanup
 description: Post-roundtable cleanup steps. Invoked by bro after tmb_roundtable completes to verify DB capture surfaces are populated and optionally trim any stale workspace artifacts.
-agent: bro
 ---
 
 # Roundtable Cleanup

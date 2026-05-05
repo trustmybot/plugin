@@ -1,7 +1,6 @@
 ---
 name: tmb_planning-simple
 description: Bro's planning protocol when triage = simple. Pick defaults from the table, batch all post-triage tool calls in one response, spawn SWE, verify SWE's work, close. Targets ≤30s of bro work + ≤2 min total chain.
-agent: bro
 allowed-tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
 ---
 

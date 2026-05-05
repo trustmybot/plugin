@@ -1,7 +1,6 @@
 ---
 name: tmb_skill-creator
 description: Generate a new project-local skill and attach it to one or more existing agents by extending their `skills:` frontmatter array. Never edits the agent body. Always asks Human approval before writing.
-agent: bro
 allowed-tools: Read, Write, Edit, Glob, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 
@@ -61,20 +60,21 @@ Wait for answers. Validate the name matches `^[a-z][a-z0-9-]{0,63}$`. Reserved n
 
 ## Step 2 — Draft the skill
 
-Author the file at `<project>/.claude/skills/<name>/SKILL.md`. Standard frontmatter:
+Author the file at `<project>/.claude/skills/<name>/SKILL.md`. Standard frontmatter (only `name`, `description`, and optional `allowed-tools` per CC docs):
 
 ```markdown
 ---
 name: <name>
-description: <one sentence — when to invoke, what it covers>
-agent: <comma-separated agent names from Step 1, or omit for any-agent>
-paths: ["<glob>", ...]   # only if Path-scoped was chosen
+description: <one sentence — when this skill auto-loads (CC matches descriptions to context). Be specific so the harness picks it up reliably.>
+allowed-tools: <optional, comma-separated — restricts tools the skill can invoke>
 ---
 
 # <Title — Human-Readable>
 
 [Body — concrete rules, checks, or patterns the agent should apply when this skill is loaded. Keep it focused; if this skill grows over 50 lines, propose splitting.]
 ```
+
+**Skill-to-agent binding** is via the agent's `skills:` frontmatter array (not a skill-side field). Step 3 will extend each chosen agent's array.
 
 ## Step 3 — Show + ask
 

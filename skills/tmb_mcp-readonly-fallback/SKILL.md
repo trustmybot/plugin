@@ -1,7 +1,6 @@
 ---
 name: tmb_mcp-readonly-fallback
 description: Readonly sqlite3 fallback for the 7 most-used trajectory-server read tools when MCP is dead. Load ONLY when an mcp__plugin_tmb_* tool returns is_error=true with content matching "no matching deferred tools" OR "trajectory-server" is identified as unreachable by tmb_mcp-error-handling. Do NOT load on unrelated MCP errors (forbidden, validation, constraint).
-agent: bro
 allowed-tools: Bash(plugin/scripts/bro-sqlite-readonly.sh:*)
 ---
 

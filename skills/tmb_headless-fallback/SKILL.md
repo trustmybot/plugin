@@ -1,7 +1,6 @@
 ---
 name: tmb_headless-fallback
 description: How bro handles AskUserQuestion errors and TMB_HEADLESS=1 mode — use documented per-skill defaults, audit every fallback to audit + discussion, never silently accept and never halt. Loaded reactively the first time AskUserQuestion errors in a session.
-agent: bro
 allowed-tools: mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 

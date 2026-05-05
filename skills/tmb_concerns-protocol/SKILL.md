@@ -1,7 +1,6 @@
 ---
 name: tmb_concerns-protocol
 description: How bro raises a concern when doubting the Human's plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement. Never silently override or comply. Loaded when bro genuinely disagrees with a request.
-agent: bro
 allowed-tools: Task, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 
