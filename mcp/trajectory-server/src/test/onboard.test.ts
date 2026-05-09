@@ -66,7 +66,7 @@ describe('onboard tools', () => {
   });
 
   describe('onboard_get_questions', () => {
-    it('local first-run round=main returns ONLY a Name question', async () => {
+    it('local first-run round=main returns ONLY a Name question, with ≥2 options (AUQ minimum)', async () => {
       const db = tempDB();
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_get_questions', {
@@ -77,9 +77,38 @@ describe('onboard tools', () => {
       const questions = data.questions as Array<{ header: string; options: Array<{ label: string }> }>;
       assert.equal(questions.length, 1);
       assert.equal(questions[0].header, 'Your name');
-      // First-run: no Keep option, only Anonymous (+ AUQ-rendered Other)
-      assert.equal(questions[0].options.length, 1);
+      // First-run: no Keep option. Two explicit options (AUQ requires ≥2);
+      // Anonymous + Set-my-name. Other is AUQ-auto-rendered for typed input.
+      assert.equal(questions[0].options.length, 2);
       assert.equal(questions[0].options[0].label, 'Anonymous');
+      assert.equal(questions[0].options[1].label, 'Set my name');
+      db.close();
+    });
+
+    it('every question has ≥2 options (AUQ schema minimum)', async () => {
+      const db = tempDB();
+      const tools = onboardTools(db);
+      // Fan out across the four (shape, round) combinations. Each must
+      // return questions where options.length >= 2 for every question.
+      const cases: Array<{ shape: string; round: string; ok: boolean }> = [
+        { shape: 'local', round: 'main', ok: true },
+        { shape: 'remote', round: 'main', ok: true },
+        { shape: 'remote', round: 'sync', ok: true },
+      ];
+      for (const c of cases) {
+        const result = await call(tools.handlers, 'onboard_get_questions', {
+          shape: c.shape,
+          round: c.round,
+        });
+        const data = parse(result);
+        const questions = data.questions as Array<{ header: string; options: unknown[] }>;
+        for (const q of questions) {
+          assert.ok(
+            q.options.length >= 2,
+            `(${c.shape}/${c.round}) question "${q.header}" has ${q.options.length} option(s); AUQ requires ≥2`,
+          );
+        }
+      }
       db.close();
     });
 

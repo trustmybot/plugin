@@ -185,9 +185,15 @@ function nameQuestion(currentName: string | null, isReonboard: boolean): BuiltQu
       options.push({ label: 'Keep Anonymous', description: 'No change. Identity stays anonymous.' });
     }
   }
+  // AskUserQuestion requires ≥2 explicit options (Other is auto-rendered but
+  // doesn't satisfy the minimum). For first-run we always include both:
   options.push({
     label: 'Anonymous',
     description: 'No name stored. Free-floating sessions.',
+  });
+  options.push({
+    label: 'Set my name',
+    description: 'Pick "Other" below and type your name (1-32 chars).',
   });
   return {
     question: 'What should I call you?',

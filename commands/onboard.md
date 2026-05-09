@@ -114,8 +114,9 @@ Bro translates AUQ answer strings back to the wire format `onboard_apply` expect
 | AUQ answer | Wire value |
 |---|---|
 | `"Anonymous"` | `name="Anonymous"` |
-| Other-typed name | `name="<the typed string>"` |
-| `Keep "<current>"` (any field) | omit that field — server treats omission as "no change" |
+| `"Set my name"` (no Other text typed) | INVALID — re-ask Name question only; the user picked the typed-name path but didn't actually type. |
+| Other-typed name (any string from the Other field) | `name="<the typed string>"` |
+| `Keep "<current>"` / `"Keep Anonymous"` (any field) | omit that field — server treats omission as "no change" |
 | `"GitHub Flow"` | `branching_model="github-flow"` |
 | `"Git Flow"` | `branching_model="gitflow"` |
 | `"GitHub"` | `remote="github"` |
