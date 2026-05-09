@@ -1,6 +1,6 @@
 # 92-base-branch
 
-**Flow under test**: `plugin_config.pr_target` honored by `tmb_branch-id-proposal`. Issue #101 allows base allowlist {dev, main, master}; this flow regresses on default-fallback.
+**Flow under test**: `plugin_config.pr_target` honored by `tmb_planning §Step 2`. Issue #101 allows base allowlist {dev, main, master}; this flow regresses on default-fallback.
 
 **Pre-state** (`onboarding-named` + custom): `pr_target='dev'`. Real `dev` branch exists.
 
@@ -8,7 +8,7 @@
 
 **Expected behavior**:
 1. Bro triages as simple
-2. `tmb_branch-id-proposal` reads `pr_target` from config
+2. `tmb_planning §Step 2` reads `pr_target` from config
 3. `task_create_batch` is called with `parent_branch_id='dev'`
 4. No task falls back to 'main'
 

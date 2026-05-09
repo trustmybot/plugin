@@ -1,0 +1,282 @@
+---
+name: tmb_planning
+description: Bro's full code-touching flow — cold-start judgment, triage, branch_id confirm, spec authoring (simple defaults table or difficult Q+A + ADR), SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail. Loaded on the first code-touching ask of a session. Self-contained — everything bro needs is here.
+allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_trajectory-server
+---
+
+# Planning — bro's code-touching flow
+
+The deterministic substrate (project inventory, registry warmth, regen
+drift) lands as `additionalContext` from `session-start-prescan.sh` and
+`session-start-regen-check.sh` before this skill loads. The mechanical
+pre-checks (scope-ambiguity gate, branch-id-proposed audit,
+greenfield architecture_regen, source-edit guard) are wire-enforced.
+This skill is what bro decides.
+
+## Headless fast path (TMB_HEADLESS=1)
+
+**Skip every AUQ.** No Human means no answer; rendering an AUQ incurs
+a deny-and-recover round trip per question. The 8-step recipe below is
+fully self-contained.
+
+1. `branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)`
+   → take returned `branch_id` + `triage`.
+2. `issue_create(agent='bro', objective=<short>, description=<2-sentence summary>)`.
+3. **One** combined headless-fallback record — both writes required:
+   - `audit_log(agent='bro', issue_id=<I>, kind='event', event_type='headless_fallback', summary='tmb_planning headless: branch_id confirm → Yes, proceed; cold-start → lazy fill; difficult Q+A (if applicable) → proceed as proposed')`
+   - `discussion_append(agent='bro', issue_id=<I>, author='bro', kind='note', body='Headless fallback: no Human in loop; defaults applied.')`
+4. `discussion_append(issue_id=<I>, author='bro', kind='intent', body='Human intent verbatim: "<the request>"')`.
+   Use `author='bro'`; `author='human'` is server-gated by the `verified_human=true` flag from the UserPromptSubmit hook.
+5. `git switch -c <branch_id>` (the WorktreeCreate hook routes to the right inner repo when in a workspace).
+6. Author the spec body inline using the template in §"Spec body template". Difficult-path: pick conservative defaults, name them in `## Description` "Assumptions:" bullets.
+7. `task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, description, success_criteria, spec_body}], emit_planning_complete=true, waive_scope_gate=true, waive_scope_gate_reason='headless mode: defaults applied; <one-line scope summary>')`.
+8. Spawn SWE: `git worktree add --detach .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`.
+
+Interactive (Human-present) flow continues at Step 0.
+
+## Step 0 — Cold-start codebase memory (interactive only)
+
+Fires only when `session-start-prescan.sh` reported `file_registry: cold` AND `N source > 0`. Render:
+
+```
+AskUserQuestion: "Project has N source files but file_registry is empty. Index now (~M tokens, ~Ts) for full project context, or lazy-fill as we work?"
+options: [Deep scan now | Lazy fill (Recommended)]
+```
+
+- **Deep scan** — enumerate `git ls-files` minus binaries / lockfiles / generated dirs / files >200KB; read in batches of ~25; one `file_registry_update_summaries(updates=[...], advance_verified_sha=<HEAD>)` per batch; `audit_log(event_type='deep_scan_completed')` at the end.
+- **Lazy fill** (default) — proceed; bro reads files on-demand and summaries land per Read.
+
+Warm registry → skip. Empty repo → skip. Drift (warm + dirty / branch behind / HEAD moved) → call `file_registry_verify(paths=<git ls-files>)`; for `mismatch` clear the summary, for `missing` delete, for `new` lazy-fill, then `config_set('last_verified_sha', <HEAD>)`.
+
+## Step 1 — Triage (judgment)
+
+`simple` — narrow scope, no architecture impact, no public API change.
+
+`difficult` — touches `docs/trustmybot/architecture/`, introduces a new service boundary, modifies a public API, commits to a strategic stack choice, or names multiple unrelated surfaces. When a default choice carries strategic weight (production DB, auth scheme, retention policy) or the spec can't fit in 8000 chars, it's difficult.
+
+`discussion_append(kind='note', body='Triage: <simple|difficult>')`.
+
+## Step 2 — Branch-id + Human confirm (interactive)
+
+When a remote is configured, render:
+
+```
+AskUserQuestion: "Which branch should I create the new feature branch from?"
+options: [pr_target (pull origin/<pr_target> first) | <current_branch> | 1-3 prominent local branches]
+```
+
+On `pr_target`: `git fetch origin ${pr_target} && git checkout ${pr_target} && git pull --ff-only`.
+On non-pr_target: switch, do not auto-pull.
+Any git error: halt and surface.
+
+Then derive + propose:
+
+```
+{ branch_id, triage, confidence } = branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)
+```
+
+Render branch-id confirm AUQ:
+
+```
+AskUserQuestion: "Proceed with branch_id <X>, triage: <Y>?"
+options: [Yes, proceed | Downgrade to simple OR Upgrade to difficult | Suggest different branch_id]
+```
+
+On Yes:
+
+```
+issue_create(agent='bro', objective=<short>)             # if no open issue
+discussion_append(issue_id, author='human', kind='intent', body=<verbatim>)
+discussion_append(issue_id, author='bro',   kind='note',   body='Beginning planning on ${branch_id}, triage: ${triage}')
+git switch -c "${branch_id}"
+audit_log(agent='bro', issue_id=<I>, branch_id=<branch_id>, kind='event', event_type='branch_id_proposed', summary='Branch <branch_id> created from origin/<base>.')
+```
+
+Conventional-format regex + the `branch_id_proposed` audit gate are both server-enforced.
+
+## Step 3 — Spec authoring
+
+### Simple — pick defaults; no ceremonial Q+A
+
+| Dimension | Default |
+|---|---|
+| Python CLI framework | `argparse` (stdlib) |
+| Python test runner | `unittest` (stdlib), unless project already uses `pytest` |
+| Node test runner | `node:test` (stdlib), unless project uses `vitest` / `jest` |
+| Storage (personal tools) | `~/.<app>/<file>.json`, atomic write via tmpfile + rename |
+| Storage (project tools) | match existing project convention |
+| File layout | single file until ~200 LOC |
+| Python version | `python3` (system) |
+| Concurrency model | single-user, single-process |
+
+If the project already uses a different tool, **match the existing pattern** — convention wins over default.
+
+### Difficult — Q+A loop + ADR
+
+Use AskUserQuestion (radio for single picks, tabbed for 2-4 stacked decisions). Persist every Q+A verbatim:
+
+```
+discussion_append(kind='question', body=<verbatim>)
+discussion_append(kind='answer', author='human', body=<verbatim>)
+```
+
+Topics that ALWAYS need Q+A: storage backend, library choice, command surface, feature scope, persistence location, runtime target, file layout. **Scope-ambiguity gate** (server-enforced): `task_create_batch` returns `forbidden` if the issue has zero `kind='question'` rows.
+
+After alignment:
+
+```
+discussion_append(kind='decision', body='<plan: changes, why, trade-offs, risks>')
+```
+
+Co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` when the change warrants a durable record.
+
+**Blast-radius check** (difficult only): if the feature has external side effects (network, real API mutations, billing, message-sending, writes outside the worktree): default config MUST be the safe state (opt-in); tests MUST NOT hit live services on the default `:memory:` DB; spec MUST require a pre-merge `bash tests/run-all.sh` yielding zero external mutations. Any miss → spec back for revision.
+
+## Spec body template (max 8000 chars)
+
+Self-contained — never reference another spec for content. Split into multiple tasks linked by `parent_branch_id` if it exceeds 200 lines.
+
+```markdown
+## Description
+<≤3 sentences. Cite file paths with line refs. Quote actual code that pins behaviour. Include explicit Assumptions bullets for picked defaults.>
+
+## Files
+- path/to/file — action: brief note
+
+## Success Criteria
+- 2–5 testable assertions.
+
+## Verification
+```bash
+# Exact commands SWE runs to confirm Success Criteria.
+```
+
+## Out of Scope
+- Nearby work this task explicitly does NOT do.
+
+## Commit
+```
+<emoji> <type>(<scope>): <one-line message>
+```
+```
+
+## Step 4 — Spawn SWE
+
+```
+task_create_batch(
+  agent='bro', issue_id=<I>,
+  spec_body=<≤8000 chars>,
+  emit_planning_complete=true,
+  planning_complete_summary='<one-line>',
+  waive_scope_gate=<true | false>,
+  waive_scope_gate_reason='<≥10 chars>',
+)
+```
+
+`emit_planning_complete=true` emits the closing audit row in the same DB transaction.
+
+**`waive_scope_gate` use cases** — three valid:
+
+1. **Truly trivial work** (typo fix, one-line doc, mechanical rename per the user's exact request). Reason: `'simple-triage trivial: <what>'`.
+2. **Headless mode (TMB_HEADLESS=1) on simple OR difficult path.** No Human in the loop means the Q+A loop has nothing to wait for; the server-side gate would block forever. Reason: `'headless mode, defaults applied; <one-line scope summary>'`.
+3. **Difficult-path with a recorded `kind='decision'` discussion** — the server already counts your decisions as scope alignment; waive is redundant but honest. Reason: `'difficult-path with recorded decision; gate redundant'`.
+
+For interactive difficult-path runs (Human present), **do not** waive — let the scope-ambiguity gate enforce the Q+A loop.
+
+Spawn commands:
+
+```bash
+git fetch origin <pr_target>
+git switch -c <branch_id> origin/<pr_target>     # already done in Step 2 if there
+git worktree add --detach .claude/worktrees/<slug> <branch_id>
+```
+
+```
+Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')
+```
+
+`<slug>` = everything after the `<type>/` prefix. Parallel spawns when tasks have no overlapping `## Files`; sequential when they share files.
+
+## Step 5 — Verify + atomic close
+
+After SWE returns `completed`:
+
+**V1 — Pull**
+```
+task_get(task_id=<N>)                            # spec_body, commit_sha
+git diff <commit_sha>~1..<commit_sha>            # actual changes
+```
+
+**V2 — Three checks (all required)**
+1. Files match `## Files` — every changed file listed; no surprise files outside scope.
+2. `## Verification` commands pass — re-run verbatim inside the SWE worktree. Run V2 BEFORE V3 — the `cleanup-worktree-on-task-close.sh` hook removes the worktree on close.
+3. Each `## Success Criteria` bullet visibly met by the diff.
+
+**V3 — All three pass → one atomic call**
+
+```
+bro_atomic_close(
+  agent='bro', task_id=<N>, commit_sha=<sha>,
+  file_summaries=[<{path, summary}> per touched path],
+  verification_summary='V1 files match. V2 verification commands all passed. V3 success criteria visibly met.',
+  close_issue_if_last_task=true,
+)
+```
+
+Then tell the Human "Trust me bro, it works." Bro never calls `validation_record` — server returns `forbidden`.
+
+**V3 — Any check fails**
+
+```
+audit_log(agent='bro', from_node='bro', kind='event', event_type='bro_verification_fail', summary='<which check> — <details>')
+discussion_append(kind='note', body='Verification fail: <which check> — <details>')
+```
+
+Don't close. Either retry SWE via `task_retry_batch` (max 3 retries per task) or escalate.
+
+```
+task_retry_batch(
+  agent='bro', failed_task_id=<N>,
+  new_branch_id='<type>/<slug>-v2',
+  corrected_spec_body=<≤8000 chars>,
+  retry_rationale='<≤200 chars: root cause → corrected approach>',
+  description=<...>, success_criteria=<...>,
+)
+```
+
+If `bro_atomic_close` returns `is_error: true`, halt and surface — see `tmb_recovery` §B.
+
+## Step 6 — Architecture refresh (difficult only, post-close)
+
+When a difficult-path task introduces a structural change (new module boundary, schema change, public API change, new dependency), after closing:
+
+```
+architecture_regen(agent='bro', scope='full')
+```
+
+Surface one line if `changed > 0`.
+
+## Headless fallback (interactive flow falls back here on AUQ error)
+
+If an AUQ in Steps 0/2/3 errors mid-interactive-run OR `TMB_HEADLESS=1` flips on:
+
+| AUQ | Default |
+|---|---|
+| Cold-start (Step 0) | Lazy fill |
+| Base-branch (Step 2) | `${pr_target}` |
+| Branch-id confirm (Step 2) | "Yes, proceed" |
+| Difficult Q+A (Step 3) | "proceed as proposed" — still author the ADR |
+
+Record both audit + discussion writes for each fallback (`event_type='headless_fallback'`). Do not auto-pick Upgrade-to-difficult, Suggest-different-branch_id, or any "halt + ask" choice headlessly — those need explicit Human intent.
+
+For difficult-path in headless mode, waive the scope gate (Step 4 case 2).
+
+## Learning (post-retry or escalation)
+
+Capture the lesson once the retry is in flight:
+
+1. **Is this new or known?** Check the patterns + criteria documented in `tmb_review` skill body.
+2. **Where should the knowledge live?** Specific code pattern → `tmb_review` Living-patterns section. Design-time question or implementation rule → `tmb_review` Code-quality criteria, or a new lint hook in `scripts/hooks/`.
+3. **Was the task underspecified?** If SWE had to guess, update the spec template above or the difficult-path Q+A topics list.
+
+Skip one-off typos, tooling glitches, and bugs from stale task files.

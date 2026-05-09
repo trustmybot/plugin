@@ -9,7 +9,7 @@
 **Expected behavior**:
 1. Bro detects code-touching ask
 2. Triages as `difficult` (architecture-impacting: storage layer + public API surface)
-3. Loads `tmb_planning-difficult` skill — runs Q+A captured as discussion rows
+3. Loads `tmb_planning` skill — runs Q+A captured as discussion rows
 4. Creates issue + task
 5. Logs `planning_complete` event
 

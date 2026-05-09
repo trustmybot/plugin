@@ -14,6 +14,6 @@ FROM tasks;
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'planning_complete-ledger-event-present (got ' || COUNT(*) || ')' AS description
+  'planning_complete-audit-event-present (got ' || COUNT(*) || ')' AS description
 FROM audit WHERE kind='event'
   AND event_type = 'planning_complete';

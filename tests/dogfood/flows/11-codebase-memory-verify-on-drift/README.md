@@ -1,6 +1,6 @@
 # 11-codebase-memory-verify-on-drift
 
-Regression test for the verify-on-drift branch in `tmb_project-prescan` (#45). Pre-state simulates a populated registry that's gone stale (file modified on disk after row was written). Bro must:
+Regression test for the verify-on-drift branch in `session-start-prescan.sh hook + tmb_planning §Step 0` (#45). Pre-state simulates a populated registry that's gone stale (file modified on disk after row was written). Bro must:
 
 1. Run the prescan
 2. Detect drift (dirty tree)

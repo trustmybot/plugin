@@ -49,35 +49,16 @@ plugin/
 │   └── swe.md                        # executor — one task per spawn, isolated worktree, atomic close
 │
 ├── # Plugin runtime — skills (all global; project can override per-name)
-├── skills/                           # tmb_* protocol skills + default workflow skills (lazy-loaded)
-│   ├── # Protocol skills (immutable, plugin-owned, can't be overridden by name)
-│   ├── tmb_agent-creator/            # propose & write new agent files on user approval (template-copy or from-scratch)
-│   ├── tmb_branch-id-proposal/       # bro derives branch_id + opens MCP issue before loading planning skill
+├── skills/                           # tmb_* protocol skills (10 total; lazy-loaded; project can override per-name)
+│   ├── tmb_planning/                 # bro's full code-touching flow — cold-start, triage, branch_id confirm, spec, spawn, V1/V2/V3, atomic close, retry
+│   ├── tmb_review/                   # pr-reviewer judgment phases + bro push-gate orchestration + PR comment triage
+│   ├── tmb_recovery/                 # bro's response when AUQ errors / MCP returns is_error / trajectory-server unreachable
 │   ├── tmb_concerns-protocol/        # how bro raises a concern when doubting the Human's plan (surface or spawn consultant)
-│   ├── tmb_create-hook/              # how to add a new hook script safely
-│   ├── tmb_feedback-loop/            # bro ↔ swe ↔ pr-reviewer retry/escalation protocol
-│   ├── tmb_headless-fallback/        # AskUserQuestion error / TMB_HEADLESS=1 fallback doctrine + per-skill defaults audit
-│   ├── tmb_lazy-regen-check/         # bro's session-start architecture-regen heuristic (25-commit threshold)
-│   ├── tmb_mcp-error-handling/       # is_error halt rule + forbidden-tools list + policy-key writes
-│   ├── tmb_planning-difficult/       # bro's planning protocol when triage=difficult (env probe + Q+A + ADR + verification)
-│   ├── tmb_planning-simple/          # bro's planning protocol when triage=simple (defaults table + batched handoff + verification)
-│   ├── tmb_project-prescan/          # bro's deterministic inventory pass on first code-touching ask
-│   ├── tmb_push-gate/                # push-gate orchestration: spawn pr-reviewer per unsigned task at git push time
-│   ├── tmb_refresh-architecture/     # user-facing "regenerate architecture docs" entry
-│   ├── tmb_reonboard/                # configure or change branching model / PR target / protected branches / identity name
-│   ├── tmb_roundtable/               # multi-agent debate coordinator (≥2 planning-capable consultants required)
-│   ├── tmb_roundtable-cleanup/       # post-roundtable archive + DB cleanup
-│   ├── tmb_pr-review-handler/        # /monitor slash command — fetches PR comments, ratifies clusters, dispatches SWE
+│   ├── tmb_agent-creator/            # propose & write new agent files on user approval (template-copy or from-scratch)
 │   ├── tmb_skill-creator/            # propose & write new skill files; appends to consuming agent's skills:
-│   ├── tmb_swe-spawn-workflow/       # bro's protocol for spawning SWE with task_id + spec
-│   ├── # Default workflow skills (used by global agents; project overrides per-name)
-│   ├── tmb_code-quality/                 # generic quality gates (error handling, security, edges)
-│   ├── tmb_docs-conventions/             # docs-update rules + prompt-editing discipline
-│   ├── tmb_git-conventions/              # emoji-prefixed commits, branch naming
-│   ├── tmb_naming-conventions/           # file/variable/test naming rules
-│   ├── tmb_review-findings/              # pr-reviewer output format
-│   ├── tmb_review-protocol/              # pr-reviewer full protocol
-│   └── tmb_swe-checklist/                # SWE pre-commit checklist (lazy-loaded by SWE on demand)
+│   ├── tmb_swe-checklist/            # SWE pre-commit judgment checklist
+│   └── tmb_docs-conventions/         # prompt-editing discipline (load when SWE's spec names a markdown file)
+│   # Reference content (not skills, read-only): docs/contributing/{CODE_QUALITY,REVIEW_FINDINGS,CREATOR_GUIDE}.md
 │
 ├── # Consultant templates (opt-in — copied per-project on first request via tmb_agent-creator)
 ├── templates/
@@ -128,7 +109,7 @@ plugin/
 │       ├── require-task-spec.sh      # PreToolUse Agent — block SWE spawn unless task_id references a valid DB row
 │       ├── roundtable-auq-shape.sh   # PreToolUse AskUserQuestion — validates AUQ shape during roundtable awaiting_human (#141)
 │       ├── session-log-capture.sh    # UserPromptSubmit — tracks current cc.log path for diagnostics
-│       ├── session-start-regen-check.sh # SessionStart hook — nudges tmb_refresh-architecture when arch docs are stale
+│       ├── session-start-regen-check.sh # SessionStart hook — nudges architecture_regen when arch docs are stale
 │       ├── swe-atomic-close.sh       # SubagentStop — safety net: auto-completes pending task if SWE stopped without calling task_update_status
 │       ├── worktree-create.sh        # WorktreeCreate — worktree-creation safety checks
 │       └── write-active-workspace-sentinel.sh # SessionStart — writes sentinel for cross-session workspace resolution

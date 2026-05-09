@@ -18,7 +18,7 @@ FROM tasks;
 
 -- planning_complete is logged in the same batch as the Agent spawn. In some
 -- runs the batch succeeds; in others the SWE subagent absorbs the tail of the
--- session before the ledger row lands. Accept either scope_gate_waived
+-- session before the audit row lands. Accept either scope_gate_waived
 -- (proves planning chain ran) OR planning_complete directly.
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,

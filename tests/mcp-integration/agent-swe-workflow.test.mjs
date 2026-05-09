@@ -49,7 +49,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   assert.equal(running.ok, true, `status running: ${JSON.stringify(running)}`);
 
   // 3. Log progress during work
-  const ledger = await call(client, 'audit_log', {
+  const progressAudit = await call(client, 'audit_log', {
     agent: 'swe',
     issue_id: issueId,
     branch_id: 'feat/swe-test',
@@ -58,7 +58,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     event_type: 'swe_progress',
     summary: 'wrote initial handler',
   });
-  assert.equal(ledger.ok, true, `audit_log: ${JSON.stringify(ledger)}`);
+  assert.equal(progressAudit.ok, true, `audit_log: ${JSON.stringify(progressAudit)}`);
 
   // 4. File registry update — swe is NOT in requireRoles for this tool
   //    (currently architect/bro only; tracked in #50).
@@ -72,7 +72,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   assert.equal(upsert.error?.error, 'forbidden');
 
   // 5. Audit log for lifecycle event
-  const audit = await call(client, 'audit_log', {
+  const outputAudit = await call(client, 'audit_log', {
     agent: 'swe',
     issue_id: issueId,
     branch_id: 'feat/swe-test',
@@ -81,7 +81,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     event_type: 'tool_output_logged',
     summary: 'pytest tests/ — OK: 12 passed',
   });
-  assert.equal(audit.ok, true, `audit_log: ${JSON.stringify(audit)}`);
+  assert.equal(outputAudit.ok, true, `audit_log: ${JSON.stringify(outputAudit)}`);
 
   // 6. Atomic close — status → completed
   const completed = await call(client, 'task_update_status', {

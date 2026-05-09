@@ -71,7 +71,7 @@ l5_run_claude() {
     echo "  plugin-dir: $PLUGIN_ROOT" >&2
     echo "  prompt: $prompt" >&2
     echo "  jsonl: $jsonl" >&2
-    _l5_timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude \
+    _l5_timeout "${TMB_CLAUDE_TIMEOUT:-600}" claude \
       --plugin-dir "$PLUGIN_ROOT" \
       --dangerously-skip-permissions \
       --output-format stream-json \

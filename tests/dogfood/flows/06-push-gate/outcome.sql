@@ -1,4 +1,4 @@
--- 06-push-gate: pre-seed = 1 task in needs_validation. Bro runs tmb_push-gate,
+-- 06-push-gate: pre-seed = 1 task in needs_validation. Bro runs tmb_review §B,
 -- which spawns pr-reviewer subagent that issues validation_record.
 
 SELECT

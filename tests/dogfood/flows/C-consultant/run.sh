@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FLOW_NAME="C-consultant"
 RUN_ID="${RUN_ID:-$(date +%s)-$RANDOM}"
-PROMPT="@bro get the architect's read on whether SQLite WAL mode is sufficient for our concurrency model"
+PROMPT="@bro spawn the architect subagent and ask whether SQLite WAL mode is sufficient for our concurrency model"
 
 PROJECT=$(l5_setup_scratch_project)
 trap 'l5_cleanup_project "$PROJECT"' EXIT

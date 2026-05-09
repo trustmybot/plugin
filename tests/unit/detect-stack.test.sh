@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-SCRIPT="$(cd "$(dirname "$0")/../.." && pwd)/skills/tmb_project-prescan/scripts/detect-stack.sh"
+SCRIPT="$(cd "$(dirname "$0")/../.." && pwd)/scripts/detect-stack.sh"
 PASS=0
 FAIL=0
 

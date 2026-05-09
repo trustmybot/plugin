@@ -49,7 +49,7 @@ if [ "$DRIFT" -lt "$THRESHOLD" ]; then
   exit 0
 fi
 
-CONTEXT="[tmb session-start regen check] Architecture docs are stale: ${DRIFT} commits since last regen (threshold: ${THRESHOLD}). When convenient, run \`tmb_refresh-architecture\` to bring docs/trustmybot/architecture/auto/ back in sync."
+CONTEXT="[tmb session-start regen check] Architecture docs are stale: ${DRIFT} commits since last regen (threshold: ${THRESHOLD}). When convenient, call \`architecture_regen(agent='bro', scope='full')\` to bring docs/trustmybot/architecture/auto/ back in sync."
 
 jq -nc --arg ctx "$CONTEXT" '{
   hookSpecificOutput: {

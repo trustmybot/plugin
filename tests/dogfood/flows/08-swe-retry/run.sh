@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # L5 v2 — 08-swe-retry (FLOWS.md §8)
-# Seeds a failed task + failure discussion. Triggers tmb_feedback-loop.
+# Seeds a failed task + failure discussion. Triggers task_retry_batch composite + tmb_planning §Step 5 retry.
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

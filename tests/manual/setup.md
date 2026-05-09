@@ -70,11 +70,11 @@ sqlite3 .claude/tmb/trajectory.db <<'SQL'   # plugin name is tmb in both stable 
 .headers on
 SELECT human_name, created_at FROM identity;
 SELECT key, value_json FROM plugin_config ORDER BY key;
-SELECT id, event_type, summary FROM ledger ORDER BY id DESC LIMIT 3;
+SELECT id, event_type, summary FROM audit WHERE kind='event' ORDER BY id DESC LIMIT 3;
 SQL
 ```
 
-Expected: 1 identity row (set via `tmb_reonboard`), 3 config rows from the schema seed (`branching_model`, `pr_target`, `protected_branches`), and an empty ledger if no decisions have fired yet.
+Expected: 1 identity row (set via `/onboard slash command`), 3 config rows from the schema seed (`branching_model`, `pr_target`, `protected_branches`), and an empty audit if no decisions have fired yet.
 
 ### Hot reload (apply edits without restart)
 

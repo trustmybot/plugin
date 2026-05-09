@@ -32,9 +32,9 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → human | `tmb_agent-creator` | — | — |
 | 5 | [Skill creation](#5-skill-creation) | Recurring pattern needs encoding | bro | `tmb_skill-creator` | `skills` (optional, for tracking) | — |
 | 6 | [Push gate / PR review](#6-push-gate--pr-review) | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `tmb_review-protocol`, `tmb_review-findings`, `tmb_code-quality` | `tasks` (read), `validation_attempts` (write), `discussions` (optional FAIL) | `git-push-guard` |
-| 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture`, `tmb_lazy-regen-check` | `regen_state`, `file_registry` | — |
+| 7 | [Architecture regen](#7-architecture-regen) | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `tmb_refresh-architecture` | `regen_state`, `file_registry` | `session-start-regen-check`, `lazy-regen-postcheck` |
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer when at push gate) | `tmb_feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `git-push-guard` |
-| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2-4 project-local consultants | `tmb_roundtable`, `tmb_roundtable-cleanup` | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape` |
+| 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2-4 project-local consultants | `tmb_roundtable` | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | 13 | [Bulk cleanup](#13-bulk-cleanup-pre-authorized-destructive-ops) | Human pre-authorizes a bulk delete in the prompt | bro (direct Bash, no SWE spawn) | — | none (filesystem hygiene) | — |
 | **C** | [Consultant invocation](#c-consultant-invocation) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / pm / domain) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
 | **M** | [Monitor PR comments](#m-monitor-pr-comments) | `/monitor <PR_number>` | bro → pr-reviewer (one per actionable comment batch) | `tmb_pr-review-handler` | `pr_review_runs`, `issues`, `tasks`, `audit` | `git-push-guard` |
@@ -440,8 +440,9 @@ sequenceDiagram
 **Realized by:**
 ```text
 plugin/
-├── skills/tmb_refresh-architecture/SKILL.md           # regen orchestration protocol
-├── skills/tmb_lazy-regen-check/SKILL.md               # decides if lazy regen is needed
+├── skills/tmb_refresh-architecture/SKILL.md           # thin wrapper over architecture_regen MCP tool
+├── scripts/hooks/session-start-regen-check.sh        # SessionStart drift nudge (>25 commits)
+├── scripts/hooks/lazy-regen-postcheck.sh             # PostToolUse on file_registry_update_summaries — drift warn
 ├── mcp/trajectory-server/src/
 │   ├── tools/regen-state.ts                           # regen_state_get / regen_state_update
 │   ├── tools/file-registry.ts                         # file_registry_scan_commits
@@ -565,7 +566,8 @@ If the skill finds < 2 suitable participants, it escalates back to bro — round
 
 - Convener: `bro` (loads the `tmb_roundtable` skill)
 - Participants: 2-4 project-local consultants. SWE + pr-reviewer always excluded.
-- Skills: `tmb_roundtable` (mechanics), `tmb_roundtable-cleanup` (post-synthesis archive)
+- Skills: `tmb_roundtable` (mechanics)
+- Hook: `scripts/hooks/roundtable-cleanup-postcheck.sh` (post-synthesis verification — was the prior `tmb_roundtable-cleanup` skill)
 - MCP tools: `roundtable_create({ expected_participants })`, `roundtable_vote` (per participant), `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_summarize`, `audit_log(kind='event')`, `discussion_list`, `discussion_append(kind='analysis')`
 - DB tables: `roundtables` (state machine row), `roundtable_votes` (one per participant), `discussions` (one `kind='analysis'` row per consultant), `audit` (summary)
 - Hooks: `roundtable-auq-shape.sh` (PreToolUse AskUserQuestion — validates AUQ shape during `awaiting_human` state)
@@ -574,10 +576,10 @@ If the skill finds < 2 suitable participants, it escalates back to bro — round
 ```text
 plugin/
 ├── skills/
-│   ├── tmb_roundtable/SKILL.md                        # roundtable mechanics + state machine
-│   └── tmb_roundtable-cleanup/SKILL.md                # post-synthesis archive
+│   └── tmb_roundtable/SKILL.md                        # roundtable mechanics + state machine
 ├── commands/roundtable.md                             # /roundtable slash command
 ├── scripts/hooks/roundtable-auq-shape.sh              # validates AUQ shape in awaiting_human state
+├── scripts/hooks/roundtable-cleanup-postcheck.sh      # post-close capture-surface verification
 └── mcp/trajectory-server/src/tools/
     ├── roundtable.ts                                  # roundtable_create/vote/finalize/close/summarize
     ├── discussions.ts                                 # discussion_append / discussion_list

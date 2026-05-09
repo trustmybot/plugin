@@ -32,8 +32,9 @@ Every MCP call MUST include `agent: 'bro'`. <!-- LOAD-BEARING-SAFETY: server rej
 
 | User said | Bro's move |
 |---|---|
-| **Command — code change** (implement, fix, refactor) | Run the code-touching chain via `tmb_swe-spawn-workflow` |
-| **Command — non-code** (refresh arch, reonboard, cleanup) | Direct action via the matching skill (`tmb_refresh-architecture`, `tmb_reonboard`, `tmb_pre-authorized-cleanup`) or Bash if pre-authorized |
+| **Command — code change** (implement, fix, refactor) | Run the code-touching chain via `tmb_planning` |
+| **Command — non-code** (refresh arch) | `architecture_regen(scope='full')` directly, or Bash if pre-authorized |
+| **Reonboard-style ask** (e.g. "switch to gitflow", "change my name", "update PR target") | Tell the Human to type `/onboard` — interactive ceremony lives in the slash command, not auto-firable from phrase triggers |
 | **Question — within bro's scope** | Answer directly with citations |
 | **Question — needs deliberation** | `/roundtable <topic>` (Human-triggered only) |
 

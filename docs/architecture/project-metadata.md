@@ -70,7 +70,7 @@ A deterministic, persisted stack-detection layer:
 
 ## Components
 
-### 1. Bash script — `plugin/skills/tmb_project-prescan/scripts/detect-stack.sh`
+### 1. Bash script — `plugin/scripts/detect-stack.sh`
 
 **Contract**:
 - Pure POSIX-ish bash (target macOS + Linux).
@@ -159,7 +159,7 @@ inputSchema: {
 
 Behavior:
 
-1. Resolve script path: `${PLUGIN_ROOT}/skills/tmb_project-prescan/scripts/detect-stack.sh`. Error if missing.
+1. Resolve script path: `${PLUGIN_ROOT}/scripts/detect-stack.sh`. Error if missing.
 2. `execFileSync('bash', [script_path, '--cwd', repo_path], { timeout: 5000, encoding: 'utf-8' })`. Surface non-zero exits as `is_error: true` with the captured stderr in the message.
 3. Parse stdout as JSON. On parse failure → `is_error: true`.
 4. Read existing `_meta_detected_stack` from `config` table.
@@ -259,7 +259,7 @@ The script runs standalone. A hook can invoke it directly:
 
 ```bash
 # example: a hypothetical SessionStart hook that warms the cache
-bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_project-prescan/scripts/detect-stack.sh" \
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-stack.sh" \
   > "${TRAJECTORY_DB_DIR}/cache/last-stack-detect.json"
 ```
 
@@ -292,7 +292,7 @@ No MCP boundary needed for hooks; they get raw JSON.
 
 ## Acceptance (Scope A)
 
-- `bash plugin/skills/tmb_project-prescan/scripts/detect-stack.sh` emits valid JSON with all 8 fields on this repo.
+- `bash plugin/scripts/detect-stack.sh` emits valid JSON with all 8 fields on this repo.
 - `project_metadata_detect(agent='bro')` returns `{detected, changed, previous_detected_at}` and persists.
 - `project_metadata_get(agent='bro')` returns the detected object.
 - `requireRoles` enforces detect=bro-only, get=bro/swe/pr-reviewer/consultant (per Scope B's role model).

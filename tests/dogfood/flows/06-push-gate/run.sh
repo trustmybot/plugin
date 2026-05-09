@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # L5 v2 — 06-push-gate (FLOWS.md §6)
 # Seeds an unsigned task in needs_validation status with a real commit on a
-# feature branch. Triggers bro to run tmb_push-gate → spawns pr-reviewer.
+# feature branch. Triggers bro to run tmb_review §B → spawns pr-reviewer.
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

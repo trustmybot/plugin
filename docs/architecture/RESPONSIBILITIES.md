@@ -55,7 +55,7 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
 
 ### Code-touching chain (single source of truth: `tmb_planning-simple` / `tmb_planning-difficult`)
 
-1. `tmb_project-prescan` → `tmb_lazy-regen-check` → triage
+1. `session-start-prescan.sh` (auto hook — inventory) → `tmb_project-prescan` (cold-start judgment) → `session-start-regen-check.sh` (auto hook — drift) → triage
 2. `tmb_branch-id-proposal` (open MCP issue + propose branch_id)
 3. `tmb_planning-simple` OR `tmb_planning-difficult` — specs that introduce external side effects (network calls, API mutations) get a blast-radius review before finalizing
 4. **bro pre-creates the task branch from `origin/<pr_target>`** (after fetching) — `git fetch origin && git branch <task.branch_id> origin/<pr_target>`
@@ -65,8 +65,7 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
    - V1 — files match the spec's `## Files`
    - V2 — re-run the spec's `## Verification` commands inside the worktree
    - V3 — each `## Success Criteria` bullet visibly met by the diff
-8. **bro updates file_registry summaries** — `file_registry_update_summaries(updates=[{path, summary, ...}], advance_verified_sha=<commit_sha>)`. Server-enforced bro-only; a PreToolUse hook denies the next step if summaries are missing/stale.
-9. `task_update_status(status='closed')` + `issue_close` (if last task on issue)
+8. **bro_atomic_close** — single composite call: writes `bro_verification_pass` audit + advances `last_verified_sha` + updates `file_registry` + flips status to `closed` + closes the issue (if last task) — all in one DB transaction.
 
 ### Reactive skills (loaded on trigger only)
 

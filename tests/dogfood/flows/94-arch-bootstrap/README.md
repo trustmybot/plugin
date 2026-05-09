@@ -1,6 +1,6 @@
 # 94-arch-bootstrap
 
-**Flow under test**: First-code-touching-ask triggers silent arch bootstrap on small projects (≤200 commits) per `tmb_lazy-regen-check` issue #94 fix.
+**Flow under test**: First-code-touching-ask triggers silent arch bootstrap on small projects (≤200 commits) per `lazy-regen-postcheck.sh hook` issue #94 fix.
 
 **Pre-state** (`onboarding-named`): tiny scratch project (1 commit), no arch docs.
 
@@ -8,7 +8,7 @@
 
 **Expected behavior**:
 1. Bro detects code-touching ask
-2. `tmb_lazy-regen-check` runs first; sees N≤200 → invokes `tmb_refresh-architecture(scope='initial')` silently
+2. `lazy-regen-postcheck.sh hook` runs first; sees N≤200 → invokes `architecture_regen MCP tool(scope='initial')` silently
 3. Bootstrap populates `file_registry` + `regen_state`
 4. Planning chain proceeds for the ask
 

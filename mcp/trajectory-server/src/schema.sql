@@ -63,7 +63,14 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     attempt_n           INTEGER NOT NULL,
     agent               TEXT    NOT NULL DEFAULT '',
     verdict             TEXT    NOT NULL,
-    feedback            TEXT    NOT NULL DEFAULT '',
+    -- LOAD-BEARING-SAFETY (#97): feedback MUST start with the literal MCP-availability prefix.
+    -- Bro's push-gate parser depends on this exact format; raw-SQL inserts via sqlite3 fallback
+    -- (tmb_review §B) bypass the MCP handler, so the constraint lives at the schema layer.
+    feedback            TEXT    NOT NULL DEFAULT '' CHECK (
+        feedback LIKE 'MCP available: yes%' OR
+        feedback LIKE 'MCP available: no — honor-system fallback%' OR
+        feedback = ''
+    ),
     subagent_session_id TEXT,
     created_at          TEXT    NOT NULL,
     UNIQUE(task_id, attempt_n)

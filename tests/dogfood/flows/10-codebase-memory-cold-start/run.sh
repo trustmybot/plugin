@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # L5 — 10-codebase-memory-cold-start (#45)
 # Existing repo with files but empty file_registry → bro must trigger the
-# AskUserQuestion in tmb_project-prescan. In headless mode (claude -p),
-# AskUserQuestion errors → tmb_headless-fallback fires with default 'lazy',
-# which records a headless_fallback ledger event. Outcome asserts that.
+# AskUserQuestion in session-start-prescan.sh hook + tmb_planning §Step 0. In headless mode (claude -p),
+# AskUserQuestion errors → tmb_recovery §A fires with default 'lazy',
+# which records a headless_fallback audit event. Outcome asserts that.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/flow-helpers.sh"

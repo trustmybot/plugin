@@ -113,8 +113,8 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
     waive_branch_gate: true,
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     tasks: [{
-      branch_id: 'feat/ledger-event-test',
-      title: 'ledger event test',
+      branch_id: 'feat/audit-event-test',
+      title: 'audit event test',
       description: 'fixture',
       success_criteria: 'fixture',
       spec_body: '## Description\nfixture',
@@ -144,8 +144,8 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
   assert.equal(closed.ok, true);
 
   // Verify the audit table has the bro_verification_pass event
-  const ledger = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId, kind: 'event' });
-  const verifEvents = ledger.data.filter(e => e.event_type === 'bro_verification_pass');
+  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId, kind: 'event' });
+  const verifEvents = audit.data.filter(e => e.event_type === 'bro_verification_pass');
   assert.equal(verifEvents.length, 1, 'exactly one bro_verification_pass event recorded');
   assert.equal(verifEvents[0].from_node, 'bro');
 

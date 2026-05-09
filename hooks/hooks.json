@@ -28,6 +28,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/write-active-workspace-sentinel.sh",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-prescan.sh",
+            "timeout": 5
           }
         ]
       }
@@ -49,6 +54,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-log-capture.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/consultant-spawn-required.sh",
             "timeout": 3
           }
         ]
@@ -77,6 +87,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/branch-up-to-date-with-remote.sh",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/commit-msg-lint.sh",
+            "timeout": 3
           }
         ]
       },
@@ -101,6 +116,16 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-summaries-before-task-close.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__task_create_batch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/greenfield-arch-required.sh",
             "timeout": 5
           }
         ]
@@ -132,6 +157,16 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-source-edit-from-main.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/naming-lint.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/code-quality-lint.sh",
+            "timeout": 3
           }
         ]
       },
@@ -154,6 +189,26 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cleanup-worktree-on-task-close.sh",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__file_registry_update_summaries",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/lazy-regen-postcheck.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__roundtable_close",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-cleanup-postcheck.sh",
+            "timeout": 5
           }
         ]
       }

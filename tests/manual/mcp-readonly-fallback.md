@@ -1,6 +1,6 @@
 # Manual Test Recipe — mcp-readonly-fallback
 
-Tests for `plugin/scripts/bro-sqlite-readonly.sh` and `plugin/skills/tmb_mcp-readonly-fallback/SKILL.md`.
+Tests for `plugin/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh` and `plugin/skills/tmb_recovery/SKILL.md (§C)`.
 
 All commands run from the `plugin/` directory. Replace `<DB>` with your trajectory DB path (default: `<project>/.claude/tmb/trajectory.db`).
 
@@ -19,7 +19,7 @@ export TRAJECTORY_DB_PATH="$DB"
 ### Verify DB is readable (dry-run check)
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh --dry-run
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh --dry-run
 ```
 
 Expected output shape:
@@ -49,7 +49,7 @@ sqlite3 "$DB" "SELECT id, issue_id FROM tasks WHERE status IN ('pending','failed
 ### 1. issue_resume
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh issue_resume '{"issue_id":"<ID>"}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh issue_resume '{"issue_id":"<ID>"}'
 ```
 
 Expected JSON shape:
@@ -62,7 +62,7 @@ Assert: top-level keys are `issue` and `next_task`. `issue` has `id`, `objective
 ### 2. issue_get
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh issue_get '{"issue_id":"<ID>"}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh issue_get '{"issue_id":"<ID>"}'
 ```
 
 Expected JSON shape:
@@ -74,7 +74,7 @@ Assert: no `description` field (redacted in default mode). Keys include `id`, `o
 
 Test with description included:
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh issue_get '{"issue_id":"<ID>","include_description":true}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh issue_get '{"issue_id":"<ID>","include_description":true}'
 ```
 
 Assert: `description` field present in response.
@@ -82,7 +82,7 @@ Assert: `description` field present in response.
 ### 3. issue_get_phase
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh issue_get_phase '{"issue_id":"<ID>"}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh issue_get_phase '{"issue_id":"<ID>"}'
 ```
 
 Expected JSON shape:
@@ -95,7 +95,7 @@ Assert: `phase` is one of `discussion | blueprint | tasks | done`. `counts` has 
 ### 4. task_get
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh task_get '{"task_id":"<ID>"}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh task_get '{"task_id":"<ID>"}'
 ```
 
 Expected JSON shape:
@@ -108,7 +108,7 @@ Assert: all Task fields present: `id`, `issue_id`, `branch_id`, `parent_branch_i
 ### 5. task_first_actionable
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh task_first_actionable '{"issue_id":"<ID>"}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh task_first_actionable '{"issue_id":"<ID>"}'
 ```
 
 Expected output: full task JSON object (same shape as `task_get`) OR `null` if no pending/failed tasks.
@@ -118,7 +118,7 @@ Assert: either a task object with all fields, or the literal `null`.
 ### 6. config_get
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh config_get '{"key":"branching_model"}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh config_get '{"key":"branching_model"}'
 ```
 
 Expected output: the raw JSON value (not an object wrapper), e.g. `"github-flow"`.
@@ -127,7 +127,7 @@ Assert: output is the deserialized config value. For `branching_model` it should
 
 Test a missing key:
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh config_get '{"key":"nonexistent_key"}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh config_get '{"key":"nonexistent_key"}'
 ```
 
 Assert: output is `null`.
@@ -135,7 +135,7 @@ Assert: output is `null`.
 ### 7. config_list
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh config_list '{}'
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh config_list '{}'
 ```
 
 Expected JSON shape:
@@ -152,7 +152,7 @@ Assert: top-level object where keys are config key names, values are deserialize
 Each of these should exit 1 and return a JSON error — never touch the DB.
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh issue_create '{"objective":"test"}'; echo "exit: $?"
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh issue_create '{"objective":"test"}'; echo "exit: $?"
 ```
 
 Expected:
@@ -164,19 +164,19 @@ exit: 1
 Repeat for other write tools:
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh task_create_batch '{}'; echo "exit: $?"
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh task_update_status '{}'; echo "exit: $?"
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh validation_record '{}'; echo "exit: $?"
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh discussion_append '{}'; echo "exit: $?"
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh config_set '{}'; echo "exit: $?"
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh issue_close '{}'; echo "exit: $?"
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh task_create_batch '{}'; echo "exit: $?"
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh task_update_status '{}'; echo "exit: $?"
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh validation_record '{}'; echo "exit: $?"
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh discussion_append '{}'; echo "exit: $?"
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh config_set '{}'; echo "exit: $?"
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh issue_close '{}'; echo "exit: $?"
 ```
 
 Assert for each: exit code 1, `error` field is `"degraded-mode-readonly"`, `requested` matches the tool name.
 
 Unknown tools also refuse:
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh some_made_up_tool '{}'; echo "exit: $?"
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh some_made_up_tool '{}'; echo "exit: $?"
 ```
 
 Assert: same refusal shape, exit 1.
@@ -200,7 +200,7 @@ wc -l ~/.claude/tmb/logs/mcp-health.log
 ### Fire a fallback read
 
 ```bash
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh config_list '{}' > /dev/null
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh config_list '{}' > /dev/null
 ```
 
 ### Assert log entry appended
@@ -230,15 +230,15 @@ tmplog=$(mktemp -d) && unset HOME  # edge-case test only in isolated shell
 
 ```bash
 # --dry-run
-TRAJECTORY_DB_PATH="$DB" scripts/bro-sqlite-readonly.sh --dry-run
+TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh --dry-run
 # Assert: {"ok":true,"db_path":"...","issues_count":<N>}
 
 # --list
-scripts/bro-sqlite-readonly.sh --list
+skills/tmb_recovery/scripts/bro-sqlite-readonly.sh --list
 # Assert: {"supported_read_tools":["issue_resume","issue_get","issue_get_phase","task_get","task_first_actionable","config_get","config_list"]}
 
 # No args → usage error
-scripts/bro-sqlite-readonly.sh; echo "exit: $?"
+skills/tmb_recovery/scripts/bro-sqlite-readonly.sh; echo "exit: $?"
 # Assert: {"error":"usage",...}, exit 1
 ```
 

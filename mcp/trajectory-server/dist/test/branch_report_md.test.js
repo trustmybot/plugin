@@ -75,7 +75,7 @@ describe('branchReportMdTools', () => {
             task_id: taskId,
             attempt_n: 1,
             verdict: 'pass',
-            feedback: 'Looks good',
+            feedback: 'MCP available: yes\nLooks good',
             subagent_session_id: 'test-session-abc',
         });
         const tools = branchReportMdTools(db);

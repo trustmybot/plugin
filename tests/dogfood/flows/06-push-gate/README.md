@@ -1,6 +1,6 @@
 # 06-push-gate
 
-**Flow under test**: `FLOWS.md §6 — Push gate / PR review`. Bro runs `tmb_push-gate` which spawns `pr-reviewer` subagent per unsigned task.
+**Flow under test**: `FLOWS.md §6 — Push gate / PR review`. Bro runs `tmb_review §B` which spawns `pr-reviewer` subagent per unsigned task.
 
 **Pre-state** (`onboarding-named` + custom seed): one task in `needs_validation` with a real commit on `feat/seed-todo`.
 
@@ -8,7 +8,7 @@
 
 **Expected behavior**:
 1. Bro recognises push-gate ask
-2. Loads `tmb_push-gate`
+2. Loads `tmb_review §B`
 3. Spawns `pr-reviewer` for task #1 via `Task`
 4. pr-reviewer reads diff, issues `validation_record(verdict='pass'|'fail')`
 

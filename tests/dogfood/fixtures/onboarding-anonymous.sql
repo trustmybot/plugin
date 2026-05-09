@@ -1,5 +1,5 @@
 -- Defaults applied + the user explicitly created an identity row but left
--- the name blank (via tmb_reonboard with an empty name choice).
+-- the name blank (via the /onboard slash command with an empty name choice).
 -- The first-action chain must see the row + the config values and proceed
 -- without re-applying defaults or re-asking.
 -- Filename retained for backward compat; no first-run-onboarding ceremony exists

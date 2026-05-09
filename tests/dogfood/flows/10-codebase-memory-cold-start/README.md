@@ -1,11 +1,11 @@
 # 10-codebase-memory-cold-start
 
-Regression test for the Hybrid D' cold-start branch in `tmb_project-prescan` (#45). Existing repo has tracked files; `file_registry` is empty; `tmb_first-run-onboarding` is no longer needed (identity is seeded). Bro must:
+Regression test for the Hybrid D' cold-start branch in `session-start-prescan.sh hook + tmb_planning §Step 0` (#45). Existing repo has tracked files; `file_registry` is empty; `tmb_first-run-onboarding` is no longer needed (identity is seeded). Bro must:
 
 1. Run the prescan
 2. Detect "files exist + registry empty" (cold start)
 3. Try `AskUserQuestion` ("deep scan or lazy?")
-4. Fail in headless → invoke `tmb_headless-fallback` → default = lazy → log `headless_fallback` audit event
+4. Fail in headless → invoke `tmb_recovery §A` → default = lazy → log `headless_fallback` audit event
 5. Continue with the actual ask (planning chain → issue_create → task_create_batch)
 
 ## Pre-state
@@ -26,4 +26,4 @@ Regression test for the Hybrid D' cold-start branch in `tmb_project-prescan` (#4
 
 ## Why this matters
 
-Tests two doctrines together: (a) cold-start AskUserQuestion lives in `tmb_project-prescan`, (b) headless fallback to lazy is the documented default and is auditable.
+Tests two doctrines together: (a) cold-start AskUserQuestion lives in `session-start-prescan.sh hook + tmb_planning §Step 0`, (b) headless fallback to lazy is the documented default and is auditable.

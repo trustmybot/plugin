@@ -61,7 +61,7 @@ assert_eq "" "$out" "below threshold silenced"
 test_case "drift at/above threshold: emit additionalContext"
 out=$(echo '{}' | env TMB_REGEN_DRIFT_THRESHOLD=2 bash "$HOOK" 2>&1 || true)
 assert_contains "$out" '"hookEventName":"SessionStart"' "JSON event name"
-assert_contains "$out" 'tmb_refresh-architecture' "suggests skill"
+assert_contains "$out" 'architecture_regen' "suggests architecture_regen MCP tool"
 assert_contains "$out" 'commits since last regen' "summary mentions commit count"
 
 test_case "regen_state references unknown sha: silent no-op (defensive)"

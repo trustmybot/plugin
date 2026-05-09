@@ -1,6 +1,6 @@
 # 07-architecture-regen
 
-**Flow under test**: `FLOWS.md §7 — Architecture regen`. Human phrase trigger invokes `tmb_refresh-architecture`.
+**Flow under test**: `FLOWS.md §7 — Architecture regen`. Human phrase trigger invokes `architecture_regen MCP tool`.
 
 **Pre-state** (`onboarding-named`): identity set, no prior arch docs.
 
@@ -8,7 +8,7 @@
 
 **Expected behavior**:
 1. Bro recognises the phrase trigger
-2. Loads `tmb_refresh-architecture` with `scope='full'`
+2. Loads `architecture_regen MCP tool` with `scope='full'`
 3. Skill calls `architecture_regen` MCP tool
 4. MCP tool writes `regen_state` row + `file_registry` rows for arch paths
 

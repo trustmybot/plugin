@@ -94,6 +94,17 @@ The "enforcement" column names the **strongest layer currently deployed** for ea
 | Direct commits to `dev`/`main` from outside dev→main PR flow blocked | Layer 2 | `scripts/hooks/git-guards.sh` |
 | Worktree branch creation safety | Layer 2 (PreToolUse Bash hooks) | `scripts/hooks/no-worktree-branch-create.sh`, `scripts/hooks/branch-up-to-date-with-remote.sh` |
 | Push gate (see pr-reviewer section) | Layer 2 | `scripts/hooks/git-push-guard.sh` |
+| Naming conventions (file/identifier kebab/snake/Pascal per language) | Layer 2 (PreToolUse on Edit/Write/MultiEdit) | `scripts/hooks/naming-lint.sh` |
+| Conventional-commit subject format (`<emoji> <type>(<scope>): <subject>`) | Layer 2 (PreToolUse on Bash, intercepts `git commit -m`) | `scripts/hooks/commit-msg-lint.sh` |
+| Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | Layer 2 (PreToolUse on Edit/Write/MultiEdit) | `scripts/hooks/code-quality-lint.sh` |
+| Project inventory at session start (git state, stacks, registry warmth) | Layer 2 (SessionStart hook) | `scripts/hooks/session-start-prescan.sh` |
+| Greenfield project must run architecture_regen before task_create_batch | Layer 2 (PreToolUse on `mcp__*task_create_batch`) | `scripts/hooks/greenfield-arch-required.sh` |
+| Domain-expert prompt → suggest spawning a consultant | Layer 5 (UserPromptSubmit injection) | `scripts/hooks/consultant-spawn-required.sh` |
+| Lazy-regen drift warning after `file_registry_update_summaries` | Layer 2 (PostToolUse) | `scripts/hooks/lazy-regen-postcheck.sh` |
+| Roundtable capture-surface verification on `roundtable_close` | Layer 2 (PostToolUse) | `scripts/hooks/roundtable-cleanup-postcheck.sh` |
+| Bro task-close atomic invariants (audit + summaries + status + issue close in one txn) | Layer 4 (MCP composite) | `mcp/.../tools/composites.ts:bro_atomic_close` |
+| SWE retry composite (rationale + new task + audit in one txn) | Layer 4 (MCP composite) | `mcp/.../tools/composites.ts:task_retry_batch` |
+| branch_id derivation from intent (heuristic) | Layer 4 (MCP composite) | `mcp/.../tools/composites.ts:branch_id_propose` |
 
 ## Open Layer-6-only items — promotion candidates
 

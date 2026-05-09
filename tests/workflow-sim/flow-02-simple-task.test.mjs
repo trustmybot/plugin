@@ -116,8 +116,8 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(finalTask.data.commit_sha, 'aaaaaaa1111111111111111111111111111aaaaa');
 
   // audit event recorded
-  const ledger = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId, kind: 'event' });
-  assert.equal(ledger.ok, true);
-  assert.ok(ledger.data.some(e => e.event_type === 'planning_complete'),
+  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId, kind: 'event' });
+  assert.equal(audit.ok, true);
+  assert.ok(audit.data.some(e => e.event_type === 'planning_complete'),
     'planning_complete event must land in audit');
 });
