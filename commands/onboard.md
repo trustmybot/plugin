@@ -1,80 +1,35 @@
 ---
-description: Configure or change identity, branching model, PR target, remotes, and issue-sync. Two-branch flow — local-only projects skip remote-only questions. Pre-fills defaults from a silent git/CLI probe.
+description: Configure or change identity, branching model, PR target, remotes, and issue-sync. Server-driven — bro orchestrates AskUserQuestion rounds; the MCP `onboard_*` tools own every if/else branch (probe, Keep options, derived defaults, transactional persistence).
 argument-hint: (none)
 ---
 
 # Onboard / Re-onboard
 
-Two-round AskUserQuestion ceremony. **Round 1** asks the project shape (local-only vs remote-tracked) so bro can drop irrelevant questions. **Round 2** asks the per-shape question set with current values pre-selected.
+Bro orchestrates an AskUserQuestion ceremony in 2-3 rounds. **All deterministic logic lives in the `onboard_*` MCP tools** — bro's job is just to pass answers between AUQ and the server.
 
-## Auto-fire
+## Auto-fire trigger
 
-Bro runs this command on its own when the trajectory DB has no `identity` row (fresh project init). The trigger is silent — bro doesn't ask permission, it goes straight to Round 1. The DB-empty heuristic: `identity_get(agent='bro')` returns `human_name=null`.
-
-`/onboard` re-runs on demand for any later changes. In re-onboard mode the existing values pre-select as `Keep "<current>"`.
+Bro runs `/onboard` automatically on its first message in a session if `state.first_run === true` (the empty-DB heuristic — no `identity` row exists). The trigger is silent: no permission gate, no "want me to onboard?" question. `/onboard` also runs on demand whenever the Human types it for later changes.
 
 ## Scope
 
 Allowed:
-- `AskUserQuestion` (collect answers)
-- `Bash` (read-only `git remote -v`, `git rev-parse`, `command -v gh/glab`, `gh auth status`, `glab auth status`)
-- `config_list`, `config_set` (keys: `branching_model`, `pr_target`, `protected_branches`, `remotes`, `issue_sync` only)
-- `identity_get`, `identity_set`, `identity_reset`
+- `AskUserQuestion`
+- `mcp__plugin_tmb_trajectory-server__onboard_state_get`
+- `mcp__plugin_tmb_trajectory-server__onboard_get_questions`
+- `mcp__plugin_tmb_trajectory-server__onboard_apply`
 
-Out of scope: `issue_create`, `task_create_batch`, `task_update_status`, `validation_record`, anything else.
+Out of scope: every other MCP tool, Bash, Read, Edit, Write. The slash command persists state via `onboard_apply` only — no direct `config_set` / `identity_set` / Bash probes from bro.
 
-## Step 0 — Silent context probe (no AUQ)
-
-Run these read-only commands. They never block the flow; their results pre-fill AUQ defaults.
-
-```bash
-git rev-parse --show-toplevel 2>/dev/null   # in_git_repo?
-git remote -v 2>/dev/null                    # detected remotes
-command -v gh                                # gh installed?
-command -v glab                              # glab installed?
-gh auth status 2>/dev/null                   # gh authenticated?
-glab auth status 2>/dev/null                 # glab authenticated?
-```
-
-Build a probe object:
+## Step 1 — Read state (one MCP call)
 
 ```
-{
-  in_git: bool,
-  detected_remotes: [{name, provider, url}],   // see provider mapping below
-  gh_installed: bool, gh_authed: bool,
-  glab_installed: bool, glab_authed: bool,
-  origin_kind: 'github' | 'gitlab' | 'bitbucket' | 'codeberg' | 'azuredev' | 'other' | null
-}
+state = onboard_state_get(agent='bro')
 ```
 
-URL → provider mapping (`git remote -v` lines):
+Returns `{ first_run, current, probe }`. Bro doesn't interpret the probe — it's already pre-baked into the question structures the server returns next.
 
-| URL pattern | provider |
-|---|---|
-| `github.com` | `github` |
-| `gitlab.com` or `gitlab.<corp>.<tld>` | `gitlab` |
-| `bitbucket.org` | `bitbucket` |
-| `codeberg.org` | `codeberg` |
-| `dev.azure.com` | `azuredev` |
-| anything else | `other` |
-
-`origin_kind` = the provider of the remote named `origin`, or `null` if no `origin`.
-
-## Step 1 — Read current state
-
-```
-config_list(agent='bro')
-identity_get(agent='bro')
-```
-
-Extract (use `(unset)` display for `null`):
-- `current_human_name` — from `identity_get().human_name`
-- `current_branching_model`, `current_pr_target`, `current_protected_branches`, `current_remotes`, `current_issue_sync` — from `config_list()`.
-
-If every key matches its schema default AND `current_human_name` is null → this is a **first-run onboard** (no Keep options). Otherwise it's a **re-onboard** (Keep options pre-select).
-
-## Round 1 — Project shape (single AUQ)
+## Round 1 — Project shape (single AUQ — hardcoded options, no logic)
 
 ```
 AskUserQuestion({
@@ -83,223 +38,119 @@ AskUserQuestion({
     header: "Shape",
     multiSelect: false,
     options: [
-      { label: "Local-only", description: "No GitHub/GitLab. Issues stay in the local trajectory DB; no PR/MR pushes." },
+      { label: "Local-only",     description: "No GitHub/GitLab. Issues stay in the local trajectory DB; no PR/MR pushes." },
       { label: "Remote-tracked", description: "Pushes to GitHub or GitLab. We'll ask about issue mirroring next." }
     ]
   }]
 })
 ```
 
-**Pre-select rule:** if `probe.origin_kind` is `github` or `gitlab` → preselect `Remote-tracked`. Otherwise preselect `Local-only`.
+Pre-select hint: if `state.probe.origin_kind` is `github` or `gitlab`, render `Remote-tracked` first; otherwise `Local-only` first.
 
-Store the answer as `shape` ∈ `{local, remote}`. Branch the rest of the flow on it.
+Store the answer as `shape` ∈ `{local, remote}`.
 
-## Round 2 — Per-shape questions
-
-### LOCAL branch
-
-Local-only projects have no remote, no PR/MR, no team workflow to align with. The minimum is the Human's name; on re-onboard the Branching question is added so they can change models without first switching to remote-tracked.
-
-**First-run (1 question — Name only):**
+## Round 2 — Per-shape questions (server-built)
 
 ```
-AskUserQuestion({
-  questions: [
-    {
-      question: "What should I call you?",
-      header: "Your name",
-      multiSelect: false,
-      options: [
-        { label: "Anonymous", description: "No name stored. Free-floating sessions." }
-        // AUQ auto-renders "Other" — that's the typed-name path.
-      ]
-    }
-  ]
-})
+r2 = onboard_get_questions(agent='bro', shape=<shape>, round='main')
 ```
 
-**Re-onboard (2 questions — Name + Branching, both with `Keep` pre-selected):**
+The server returns the right question set:
+
+| shape | first_run | round=main returns |
+|---|---|---|
+| `local` | `true`  | Name only |
+| `local` | `false` | Name + Branching (with Keep options) |
+| `remote` | either | Name + Branching + PR target + Remote |
+
+Feed `r2.questions` straight into `AskUserQuestion`. Each question already carries the right `Keep "<current>"` option (or omits it on first-run), the right disabled CLI options (gh/glab not installed), and the right pre-select index.
+
+## Round 3 — Issue sync (remote shape only)
 
 ```
-AskUserQuestion({
-  questions: [
-    {
-      question: "What should I call you?",
-      header: "Your name",
-      multiSelect: false,
-      options: [
-        { label: `Keep "${current_human_name}"`, description: "No change." },
-        { label: "Anonymous", description: "No name stored. Free-floating sessions." }
-      ]
-    },
-    {
-      question: "How does your team branch?",
-      header: "Branching",
-      multiSelect: false,
-      options: [
-        { label: `Keep "${current_branching_model}"`, description: "No change." },
-        { label: "Trunk + feature branches (GitHub Flow)", description: "Single main, feature branches per task." },
-        { label: "Trunk + develop + releases (Git Flow)", description: "Long-lived develop + releases to main." }
-      ]
-    }
-  ]
-})
+if (shape == 'remote') {
+  r3 = onboard_get_questions(agent='bro', shape='remote', round='sync')
+  AskUserQuestion({ questions: r3.questions })
+}
 ```
 
-**No PR-target/remotes/issue_sync AUQ on the local branch.** On submit:
-- `branching_model` — first-run defaults to `github-flow` silently (single main + feature branches per task — the right shape for 90% of local repos). On re-onboard takes the user's answer.
-- `pr_target` is derived from `branching_model`: `github-flow` → `main`, `gitflow` → `develop`.
-- `remotes` is set to `[]` (empty array).
-- `issue_sync` is set to `off`.
+The server picks the right `Auto`/`Off` description text based on whether `gh`/`glab` auth detected — bro doesn't render the warning manually.
 
-### REMOTE branch (4 questions, batched)
+## Step 4 — Apply (one MCP call, transactional)
 
 ```
-AskUserQuestion({
-  questions: [
-    {
-      question: "What should I call you?",
-      header: "Your name",
-      multiSelect: false,
-      options: [
-        { label: `Keep "${current_human_name}"`, description: "No change." },  // re-onboard only
-        { label: "Anonymous", description: "No name stored. Free-floating sessions." }
-        // AUQ auto-renders "Other" for typed name.
-      ]
-    },
-    {
-      question: "How does your team branch?",
-      header: "Branching",
-      multiSelect: false,
-      options: [
-        { label: `Keep "${current_branching_model}"`, description: "No change." },  // re-onboard only
-        { label: "Trunk + feature branches (GitHub Flow)", description: "Single main, feature branches, PRs back." },
-        { label: "Trunk + develop + releases (Git Flow)", description: "Long-lived develop + releases to main." }
-      ]
-    },
-    {
-      question: "What's your PR target branch?",
-      header: "PR target",
-      multiSelect: false,
-      options: [
-        { label: `Keep "${current_pr_target}"`, description: "No change." },  // re-onboard only
-        { label: "main", description: "Most common default." },
-        { label: "develop", description: "Common for Git Flow." },
-        { label: "master", description: "Older repos." }
-        // AUQ Other for any alternative
-      ]
-    },
-    {
-      question: "Which remote does this project use?",
-      header: "Remote",
-      multiSelect: false,
-      options: [
-        // pre-select via probe.origin_kind
-        { label: "GitHub", description: "github.com or GitHub Enterprise." },
-        { label: "GitLab", description: "gitlab.com or self-hosted GitLab." },
-        { label: "Both", description: "Mirrored or dual-host." }
-      ]
-    }
-  ]
-})
+onboard_apply(agent='bro', shape=<shape>, name=<answer>, branching_model=<answer>, pr_target=<answer>, remote=<answer>, issue_sync=<answer>)
 ```
 
-**Pre-select rules:**
-- `Branching`: pre-select based on `probe.origin_kind` heuristic if first-run (default `github-flow`); otherwise `Keep`.
-- `PR target`: if `branching_model` answered as `github-flow` → preselect `main`; `gitflow` → preselect `develop`. On re-onboard, `Keep` wins.
-- `Remote`: pre-select `GitHub` if `probe.origin_kind=github`, `GitLab` if `gitlab`. Disable an option if its CLI isn't installed (label suffix `" (CLI not installed)"`).
+The server:
 
-Then a **second remote-branch round** for issue_sync:
+- Resolves `name` → `identity_set(human_name)` for typed names, `identity_set(anonymous=true)` for `Anonymous`, no-op for `Keep`.
+- Persists `branching_model`, `pr_target`, `remotes`, `issue_sync`.
+- Recomputes `protected_branches` from the branching model + PR target.
+- Defaults missing fields on local shape (`branching_model`='github-flow', `pr_target`=derived, `remotes`=`[]`, `issue_sync`='off').
+- Wraps the whole thing in `db.transaction(...)` so partial onboards never land.
 
-```
-AskUserQuestion({
-  questions: [{
-    question: "Mirror new MCP issues to your remote?",
-    header: "Issue sync",
-    multiSelect: false,
-    options: [
-      { label: `Keep "${current_issue_sync}"`, description: "No change." },  // re-onboard only
-      { label: "Auto — sync to the remote you picked", description: "issue_create writes to GitHub/GitLab as well as the local DB." },
-      { label: "Off — local DB only", description: "Issues stay in the trajectory DB; no remote mirror." }
-    ]
-  }]
-})
-```
+Returns `{ ok: true, applied: { human_name, branching_model, pr_target, protected_branches, remotes, issue_sync } }`.
 
-If the chosen remote's CLI is **not authenticated** (probe), surface a one-line warning before persisting: `Heads up: \`gh auth status\` failed — issue_sync='auto' will retry until you authenticate.`
+## Step 5 — Confirm to the Human
 
-## Step 3 — Persist via MCP
-
-For each answer:
-
-- Starts with `Keep "`: no write for that field.
-- Name = `Anonymous`: `identity_reset(agent='bro')`.
-- Name = typed (Other path): `identity_set(agent='bro', human_name=<name>)`.
-- Branching changed: `config_set(agent='bro', key='branching_model', value=<canonical>)`.
-- PR target changed: `config_set(agent='bro', key='pr_target', value=<value>)` AND recompute `protected_branches`:
-
-  | branching | protected_branches |
-  |---|---|
-  | `github-flow` | `[<pr_target>]` |
-  | `gitflow` | `["main", <pr_target>]` (deduped) |
-  | `custom` | second AUQ round, `multiSelect=true` |
-
-  Then `config_set(agent='bro', key='protected_branches', value=<new list>)`.
-
-### Remote-branch persistence
-
-- Map answer → providers: `GitHub` → `[{name:'origin', provider:'github', url:<from probe or "">}]`; `GitLab` → `[{name:'origin', provider:'gitlab', ...}]`; `Both` → both entries.
-- Reuse `probe.detected_remotes` URLs when the provider matches; empty `url` if not yet pushed.
-- `config_set(agent='bro', key='remotes', value=<array>)`.
-- `config_set(agent='bro', key='issue_sync', value='auto'|'off')`.
-
-### Local-branch persistence
-
-- `config_set(agent='bro', key='remotes', value=[])`.
-- `config_set(agent='bro', key='issue_sync', value='off')`.
-- `config_set(agent='bro', key='pr_target', value=<derived>)` if not already set.
-
-## Step 4 — Verify and close
-
-```
-config_list(agent='bro')
-identity_get(agent='bro')
-```
-
-Emit:
+Render the `applied` payload back as a short summary:
 
 > Done. Settings updated:
-> - Your name: `<final_human_name>`
+> - Your name: `<human_name>`
 > - Project shape: `<local|remote>`
-> - Branching model: `<final_branching_model>`
-> - PR target: `<final_pr_target>`
-> - Protected branches: `<final_protected_branches>`
-> - Remotes: `<name> → <provider>` (one per line; or `none — local-only` if empty)
-> - Issue sync: `<final_issue_sync>`
+> - Branching model: `<branching_model>`
+> - PR target: `<pr_target>`
+> - Protected branches: `<protected_branches.join(", ")>`
+> - Remotes: one line per `{ name } → { provider }`, or `none — local-only` if empty
+> - Issue sync: `<issue_sync>`
 >
 > Tell me what you want to work on.
 
-## Error handling
+## Answer translation
 
-| Trigger | Response |
+Bro translates AUQ answer strings back to the wire format `onboard_apply` expects:
+
+| AUQ answer | Wire value |
 |---|---|
-| `config_list()` or `identity_get()` fails | Report the exact error, offer retry or abort. Do not proceed with stale state. |
-| `config_set` or `identity_set` fails | Report the exact error, retry the same call. Do not skip. |
-| Invalid answer (e.g. unparseable Other for branching) | Re-ask via a second AUQ round, omit the invalid answer. |
-| Conflict (e.g. user picks Local-only but probe shows GitHub origin) | Surface the contradiction, re-ask Round 1 once. Trust the user's second answer. |
+| `"Anonymous"` | `name="Anonymous"` |
+| Other-typed name | `name="<the typed string>"` |
+| `Keep "<current>"` (any field) | omit that field — server treats omission as "no change" |
+| `"GitHub Flow"` | `branching_model="github-flow"` |
+| `"Git Flow"` | `branching_model="gitflow"` |
+| `"GitHub"` | `remote="github"` |
+| `"GitLab"` | `remote="gitlab"` |
+| `"Both"` | `remote="both"` |
+| `"main" / "develop" / "master"` | `pr_target="<lowercase>"` |
+| `"Auto …"` / `"Off …"` | `issue_sync="auto"` / `"off"` |
 
-## Headless mode — HALT, do not auto-apply
+## Conflict handling
 
-`/onboard` is interactive by definition. When `TMB_HEADLESS=1` or `AskUserQuestion` errors, halt cleanly:
+If the user picks `Local-only` on Round 1 but `state.probe.origin_kind` showed `github`/`gitlab`, surface the contradiction:
+
+> Heads up: this project has a `<github|gitlab>` origin remote, but you picked Local-only. Issues won't mirror to the remote and PRs/MRs won't be tracked. Continue, or switch to Remote-tracked?
+
+Re-render Round 1 once. Trust the user's second answer.
+
+## Headless mode
+
+`/onboard` is interactive by definition. If `TMB_HEADLESS=1` or AskUserQuestion errors:
 
 ```
 audit_log(agent='bro', issue_id='999999', kind='event',
           event_type='headless_reonboard_blocked',
           summary='Cannot run /onboard headless: policy keys require explicit Human re-confirmation. Tell the Human to run /onboard interactively.')
-discussion_append(agent='bro', issue_id='999999', kind='note',
-          body='Headless reonboard blocked. The Human must type /onboard interactively to apply policy changes.')
 ```
 
 Surface: `Re-onboarding requires interactive input. Re-run with a Human in the loop, or use \`config_set\` directly if you know the values.`
 
-Rationale: onboarding flips policy keys that drive `git-guards.sh` and other hooks. A silent fallback could break the project's git workflow with no audit trace.
+Rationale: onboarding flips policy keys that drive `git-guards.sh`. Silent fallback could break the project's git workflow with no audit trace.
+
+## Error handling
+
+| Trigger | Response |
+|---|---|
+| `onboard_state_get` fails | Report the exact error, retry once, then halt. Cannot proceed without state. |
+| `onboard_get_questions` fails | Same — halt cleanly. |
+| `onboard_apply` returns `error` | Report the error verbatim, retry once. If the second attempt fails, halt and tell the Human to re-run `/onboard`. |
+| Invalid Other-typed name (regex rejects) | Re-ask the Name question only, surface the constraint (1-32 chars, must start with a letter). |

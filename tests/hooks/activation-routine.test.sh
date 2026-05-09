@@ -67,11 +67,24 @@ assert_eq "" "$out" "no output once bro mode exited"
 
 # ---- bro trigger paths: emit additionalContext ----
 
-test_case "@bro greeting + empty DB state (no identity, no pending): emit unset/none"
+test_case "@bro greeting + empty DB state (no identity, no pending): emit FIRST CONTACT auto-fire signal"
 out=$(run_hook "$(input '@bro hi')")
 assert_contains "$out" '"hookEventName":"UserPromptSubmit"' "JSON has correct event name"
-assert_contains "$out" 'identity=<unset>' "identity reported as unset"
+assert_contains "$out" 'FIRST CONTACT' "first-contact marker present in injected context"
+assert_contains "$out" 'auto-fire /onboard' "auto-fire instruction injected"
 assert_contains "$out" 'pending=<none>' "pending reported as none"
+
+test_case "anonymous identity row present (#95): emits anonymous greeting, NOT first-contact"
+sqlite3 "$DB" "DELETE FROM identity;"
+sqlite3 "$DB" "INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (1, NULL, datetime('now'), datetime('now'));"
+out=$(run_hook "$(input '@bro hi')")
+assert_contains "$out" '<anonymous>' "anonymous greeting context present"
+# Critical: the first-contact auto-fire must NOT fire for anonymous (existing) row
+if echo "$out" | grep -q 'FIRST CONTACT'; then
+  echo "  FAIL anonymous row should NOT trigger FIRST CONTACT auto-fire (#95 regression)"
+  exit 1
+fi
+sqlite3 "$DB" "DELETE FROM identity;"
 
 test_case "@bro greeting + identity row present: emit human name"
 sqlite3 "$DB" "INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (1, 'Zax', datetime('now'), datetime('now'));"

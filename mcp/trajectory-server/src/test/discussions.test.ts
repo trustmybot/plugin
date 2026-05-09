@@ -187,9 +187,11 @@ describe('discussions + snapshot integration', () => {
   it('step 3d: discussion_list for unknown issue returns empty with warning', async () => {
     const disc = discussionTools(db);
 
+    // Use an id below the schema-seeded system issue (999999) but definitely
+    // not created by any test setup. 8 has no fixtures or upstream creates.
     const result = await call(disc.handlers, 'discussion_list', {
       agent: 'bro',
-      issue_id: '999999',
+      issue_id: '8',
     });
     assert.ok(!result.isError, 'Should NOT throw for unknown issue');
     const data = parseResult(result);

@@ -1,1 +1,4 @@
-[]
+[
+  "mcp__plugin_tmb_trajectory-server__onboard_state_get",
+  "mcp__plugin_tmb_trajectory-server__audit_log"
+]
