@@ -96,7 +96,11 @@ Store the answer as `shape` ∈ `{local, remote}`. Branch the rest of the flow o
 
 ## Round 2 — Per-shape questions
 
-### LOCAL branch (2 questions, batched)
+### LOCAL branch
+
+Local-only projects have no remote, no PR/MR, no team workflow to align with. The minimum is the Human's name; on re-onboard the Branching question is added so they can change models without first switching to remote-tracked.
+
+**First-run (1 question — Name only):**
 
 ```
 AskUserQuestion({
@@ -106,10 +110,26 @@ AskUserQuestion({
       header: "Your name",
       multiSelect: false,
       options: [
-        // first-run: omit Keep
-        { label: `Keep "${current_human_name}"`, description: "No change." },  // re-onboard only
         { label: "Anonymous", description: "No name stored. Free-floating sessions." }
         // AUQ auto-renders "Other" — that's the typed-name path.
+      ]
+    }
+  ]
+})
+```
+
+**Re-onboard (2 questions — Name + Branching, both with `Keep` pre-selected):**
+
+```
+AskUserQuestion({
+  questions: [
+    {
+      question: "What should I call you?",
+      header: "Your name",
+      multiSelect: false,
+      options: [
+        { label: `Keep "${current_human_name}"`, description: "No change." },
+        { label: "Anonymous", description: "No name stored. Free-floating sessions." }
       ]
     },
     {
@@ -117,8 +137,8 @@ AskUserQuestion({
       header: "Branching",
       multiSelect: false,
       options: [
-        { label: `Keep "${current_branching_model}"`, description: "No change." },  // re-onboard only
-        { label: "Trunk + feature branches (GitHub Flow)", description: "Single main, feature branches, PRs back." },
+        { label: `Keep "${current_branching_model}"`, description: "No change." },
+        { label: "Trunk + feature branches (GitHub Flow)", description: "Single main, feature branches per task." },
         { label: "Trunk + develop + releases (Git Flow)", description: "Long-lived develop + releases to main." }
       ]
     }
@@ -126,8 +146,9 @@ AskUserQuestion({
 })
 ```
 
-**No `pr_target`, `remotes`, or `issue_sync` AUQ.** On submit:
-- `pr_target` is derived: `github-flow` → `main`, `gitflow` → `develop`.
+**No PR-target/remotes/issue_sync AUQ on the local branch.** On submit:
+- `branching_model` — first-run defaults to `github-flow` silently (single main + feature branches per task — the right shape for 90% of local repos). On re-onboard takes the user's answer.
+- `pr_target` is derived from `branching_model`: `github-flow` → `main`, `gitflow` → `develop`.
 - `remotes` is set to `[]` (empty array).
 - `issue_sync` is set to `off`.
 
