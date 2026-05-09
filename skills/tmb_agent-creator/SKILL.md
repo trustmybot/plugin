@@ -1,42 +1,33 @@
 ---
 name: tmb_agent-creator
-description: Add a project-local agent at .claude/agents/<name>.md. Loads when the user asks for a named-role consult that doesn't yet exist locally — e.g. "get the architect's read on X", "have the cto look at this", "spawn a legal-reviewer to check Y", "what would the pm say about Z", "I need a security consultant for...". Without this skill bro would Task()-spawn the agent without writing the file, leaving the project with no persisted record. Two modes: template-copy (PRIMARY) when a shipped templates/agents/<name>.md exists; from-scratch (FALLBACK) when no template matches. Always Human-approved.
-allowed-tools: Read, Write, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log
+description: Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn. Loads on any named-role consult — e.g. "get the architect's read on X", "what does the cto think", "have the legal-reviewer check Y".
+allowed-tools: Read, Write, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__agent_list, mcp__plugin_tmb_trajectory-server__agent_register
 ---
 
 # Agent Creator
 
-Add a named, persistent agent to `.claude/agents/`. Two modes; both require explicit Human approval. User-created agents default to **consultant** scope (server-rejected for non-bro/non-swe/non-pr-reviewer callers: `task_create_batch`, `task_update_status`, `validation_record`, `issue_create`, `issue_close`).
+Resolve a consultant ask by querying the registry, then routing to one of three branches. User-created agents default to **consultant** scope (server-rejected for non-bro/non-swe/non-pr-reviewer callers: `task_create_batch`, `task_update_status`, `validation_record`, `issue_create`, `issue_close`).
 
-The bundled `scripts/prompt-author-lint.sh` (regex scan for negations + noise citations) runs as a Bash step in Mode B step 4 — bro doesn't read it directly.
+The bundled `scripts/prompt-author-lint.sh` (regex scan for negations + noise citations) runs as a Bash step in Branch C step 4 — bro doesn't read it directly.
 
-## When to invoke
+## Resolution algorithm
 
-The user's request needs a named, persistent consultant for a specific role AND the role does not already exist in `.claude/agents/`. Skip for one-off sub-tasks a Task-tool spawn can handle.
+1. Call `agent_list()` to get all known agents from the registry.
+2. Resolve the target agent name from the user's phrasing.
+3. **Branch A — Local file exists:** if `<project>/.claude/agents/<name>.md` exists → spawn via `Agent`. DONE.
+4. **Branch B — Template in registry:** else if the registry shows `scope='template'` for the resolved name → copy `plugin/templates/agents/<name>.md` to `<project>/.claude/agents/<name>.md`; call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md', tmb_owner='bro')`; spawn via `Agent`. DONE.
+5. **Branch C — From-scratch:** else → run the from-scratch ceremony below; call `agent_register(...)` after writing; spawn via `Agent`. DONE.
 
-## Shipped templates (Mode A trigger names)
+### Branch B — Template-copy detail
 
-| Template | Role |
-|---|---|
-| `architect.md` | System-design consultant — load-bearing assumptions, simpler alternatives, trade-offs, risks |
-| `cto.md` | Technical strategy — scaling, dependency posture, build/CI direction |
-| `ceo.md` | Product-scope — prioritization, business framing |
-| `pm.md` | Product-strategy — user-need framing, success metrics |
-| `swe.md` | Executor — implements task specs in isolated worktree, atomic close |
-| `pr-reviewer.md` | Push-time gate — reviews unsigned tasks against spec, records validation_record |
-
-If the requested name matches one of these → **Mode A**. Otherwise → **Mode B**.
-
-## Mode A — Template-copy (PRIMARY)
-
-In headless mode (`TMB_HEADLESS=1`): **skip Step 1 (no AUQ) and write the file directly**. Template content is deterministic — reviewed at plugin release — so the auto-approve is safe. Render the AUQ only when a Human is in the loop.
+In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly**. Template content is deterministic — reviewed at plugin release — so the auto-approve is safe. Render the AUQ only when a Human is in the loop.
 
 1. **Show + ask** (interactive only). Read the template via `Read` (do not transform). Present in a fenced code block, ask:
    > Copy `templates/agents/<name>.md` to `.claude/agents/<name>.md` verbatim? Project-specific behavior gets attached later via `tmb_skill-creator`. (yes/no)
 2. **Copy on approval** (or unconditionally in headless). Write the template content unmodified. If the destination exists, switch to the collision flow (§"Collision dialog" below).
-3. **Log + report.** If there's no open issue (free-floating consult — common for agent creation), first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>`.
+3. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md', tmb_owner='bro')`. If there's no open issue, first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>`.
 
-## Mode B — From-scratch (FALLBACK)
+### Branch C — From-scratch detail
 
 1. **Discover the gap** — AskUserQuestion at most 3 questions in one batch:
    1. What role/title should this agent have?
@@ -90,7 +81,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip Step 1 (no AUQ) and write the file d
    > Do you want me to create this agent? It will be written to `.claude/agents/<name>.md` and available in future sessions. (yes/no)
 
 6. **Write on approval** with `tmb_owner: bro` in frontmatter.
-7. **Log + report.** Same issue-scoping rule as Mode A step 3 — `issue_create` first if no active issue. Then `audit_log(issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`.
+7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md', tmb_owner='bro')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`.
 
 ## Reserved names (refuse)
 
@@ -128,5 +119,6 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 
 ## Headless mode
 
-- **Template-copy** → auto-approve. Content is deterministic and reviewed at plugin release. Write the template, log `tmb_agent_created` (note `headless_auto_approved` in summary).
-- **From-scratch** → HALT. Novel content needs Human review. Scope the audit first via `issue_create` (per the §"Log + report" pattern in Mode B step 7), then `audit_log(event_type='headless_creator_blocked', ...)`. Surface: "Cannot create agent from scratch in headless mode — novel content requires Human review."
+- **Branch A (local file exists)** → spawn directly, no approval needed.
+- **Branch B (template-copy)** → auto-approve. Content is deterministic and reviewed at plugin release. Write the template, register, log `tmb_agent_created` (note `headless_auto_approved` in summary).
+- **Branch C (from-scratch)** → HALT. Novel content needs Human review. Scope the audit first via `issue_create` (per the §"Register + log" pattern in Branch C step 7), then `audit_log(event_type='headless_creator_blocked', ...)`. Surface: "Cannot create agent from scratch in headless mode — novel content requires Human review."

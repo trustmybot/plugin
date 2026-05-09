@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 describe('schema — current table set, default values, constraints', () => {
-    it('fresh prod-mode DB contains 15 tables (no ledger, no eval/debug tables)', () => {
+    it('fresh prod-mode DB contains 16 tables (no ledger, no eval/debug tables)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -14,6 +14,7 @@ describe('schema — current table set, default values, constraints', () => {
             'audit',
             'validation_attempts',
             'skills',
+            'agents',
             'roundtables',
             'roundtable_votes',
             'discussions',

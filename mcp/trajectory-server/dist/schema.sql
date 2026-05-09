@@ -95,6 +95,26 @@ CREATE TABLE IF NOT EXISTS skills (
     updated_at      TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS agents (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE,
+    kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+    scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
+    file_path   TEXT    NOT NULL,
+    tmb_owner   TEXT    NOT NULL DEFAULT 'bro' CHECK (tmb_owner IN ('bro','user-adopted','user')),
+    status      TEXT    NOT NULL DEFAULT 'active',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO agents (name, kind, scope, file_path, tmb_owner) VALUES
+    ('swe',          'backbone',   'global',   'agents/swe.md',                 'bro'),
+    ('pr-reviewer',  'backbone',   'global',   'agents/pr-reviewer.md',         'bro'),
+    ('architect',    'consultant', 'template', 'templates/agents/architect.md', 'bro'),
+    ('cto',          'consultant', 'template', 'templates/agents/cto.md',       'bro'),
+    ('ceo',          'consultant', 'template', 'templates/agents/ceo.md',       'bro'),
+    ('pm',           'consultant', 'template', 'templates/agents/pm.md',        'bro');
+
 CREATE TABLE IF NOT EXISTS roundtables (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id                INTEGER NOT NULL REFERENCES issues(id),

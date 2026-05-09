@@ -2,6 +2,8 @@
 
 How the plugin's agent set is layered, distributed, and overridden. Reference doc — bro reads this on demand, not on every turn.
 
+The canonical registry for all known agents is the SQLite `agents` table in the trajectory DB. It is seeded at DB init with the two backbone agents (`swe`, `pr-reviewer`) and the four shipped consultant templates (`architect`, `cto`, `ceo`, `pm`). Use `agent_list` to query it and `agent_register` to add project-local agents. This doc is the prose explainer of the architecture; the DB is the runtime source of truth.
+
 ## Two layers
 
 ### Layer 1 — Workflow backbone (always global)
