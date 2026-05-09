@@ -116,6 +116,52 @@ describe('fileRegistryTools', () => {
 
       db.close();
     });
+
+    it('upsert does not clobber content_md5 or summary written by file_registry_update_summaries', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'fru-'));
+      const cwdPrev = process.cwd();
+      process.chdir(dir);
+      try {
+        writeFileSync(join(dir, 'preserve.ts'), 'export const x = 1;\n');
+        const db = tempDB();
+        const tools = fileRegistryTools(db);
+
+        const summaryResult = await call(tools.handlers, 'file_registry_update_summaries', {
+          updates: [{ path: 'preserve.ts', summary: 'seed-summary' }],
+        });
+        assert.ok(!summaryResult.isError);
+        const summaryData = parseResult(summaryResult);
+        assert.equal(summaryData.updated, 1);
+
+        const seededRow = db.get<{ content_md5: string; summary: string; summary_updated_at: string }>(
+          `SELECT content_md5, summary, summary_updated_at FROM file_registry WHERE path = ?`,
+          ['preserve.ts'],
+        );
+        assert.ok(seededRow, 'row should exist after update_summaries');
+        const seededMd5 = seededRow.content_md5;
+        assert.ok(typeof seededMd5 === 'string' && seededMd5.length > 0, 'content_md5 should be set');
+
+        await call(tools.handlers, 'file_registry_upsert', {
+          path: 'preserve.ts',
+          type: 'source',
+          language: 'typescript',
+          metadata: { touched: true },
+        });
+
+        const afterRow = db.get<{ content_md5: string; summary: string; summary_updated_at: string }>(
+          `SELECT content_md5, summary, summary_updated_at FROM file_registry WHERE path = ?`,
+          ['preserve.ts'],
+        );
+        assert.ok(afterRow, 'row should still exist after upsert');
+        assert.equal(afterRow.content_md5, seededMd5, 'content_md5 must not be clobbered by upsert');
+        assert.equal(afterRow.summary, 'seed-summary', 'summary must not be clobbered by upsert');
+        assert.ok(afterRow.summary_updated_at !== null, 'summary_updated_at must remain non-null');
+
+        db.close();
+      } finally {
+        process.chdir(cwdPrev);
+      }
+    });
   });
 
   describe('file_registry_upsert validation', () => {

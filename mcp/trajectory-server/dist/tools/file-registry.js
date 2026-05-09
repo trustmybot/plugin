@@ -248,9 +248,19 @@ export function fileRegistryTools(db, dbPath = '') {
             const importsJson = JSON.stringify(rawImports);
             const exportsJson = JSON.stringify(rawExports);
             const metadataJson = JSON.stringify(rawMetadata);
-            db.run(`INSERT OR REPLACE INTO file_registry
+            db.run(`INSERT INTO file_registry
            (path, type, language, size_bytes, last_commit_sha, last_change_type, last_change_at, imports_json, exports_json, metadata_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(path) DO UPDATE SET
+           type             = excluded.type,
+           language         = excluded.language,
+           size_bytes       = excluded.size_bytes,
+           last_commit_sha  = excluded.last_commit_sha,
+           last_change_type = excluded.last_change_type,
+           last_change_at   = excluded.last_change_at,
+           imports_json     = excluded.imports_json,
+           exports_json     = excluded.exports_json,
+           metadata_json    = excluded.metadata_json`, [
                 path,
                 type,
                 language,
