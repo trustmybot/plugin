@@ -1,0 +1,1 @@
+../../tmb_agent-creator/scripts/prompt-author-lint.sh

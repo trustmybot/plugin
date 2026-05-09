@@ -27,13 +27,12 @@ function wrapHandler(fn) {
 function resolveScriptPath() {
     const pluginRoot = process.env['CLAUDE_PLUGIN_ROOT'];
     if (pluginRoot) {
-        return join(pluginRoot, 'skills', 'tmb_project-prescan', 'scripts', 'detect-stack.sh');
+        return join(pluginRoot, 'scripts', 'detect-stack.sh');
     }
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
-    // From dist/tools/ → go up to trajectory-server root (dist/tools → dist → trajectory-server),
-    // then up through mcp/ to the plugin root, then into skills/
-    return join(__dirname, '..', '..', '..', '..', 'skills', 'tmb_project-prescan', 'scripts', 'detect-stack.sh');
+    // From dist/tools/ → up through mcp/trajectory-server/dist → plugin root.
+    return join(__dirname, '..', '..', '..', '..', 'scripts', 'detect-stack.sh');
 }
 function readExistingStack(db) {
     const row = db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [META_KEY]);

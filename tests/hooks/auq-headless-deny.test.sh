@@ -36,8 +36,8 @@ test_case "AUQ with TMB_HEADLESS=1 emits deny decision"
 input=$(make_input "AskUserQuestion")
 out=$(echo "$input" | TMB_HEADLESS=1 bash "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "output has deny decision"
-assert_contains "$out" "tmb_headless-fallback" "output references fallback skill"
-assert_contains "$out" "Do NOT retry" "output includes no-retry instruction"
+assert_contains "$out" "tmb_recovery" "output references the recovery skill"
+assert_contains "$out" "Skip retrying" "output includes no-retry instruction"
 
 # Test 4 — AUQ + TMB_HEADLESS=0 (set but falsy): exit 0, no stdout
 test_case "AUQ with TMB_HEADLESS=0 exits silently"

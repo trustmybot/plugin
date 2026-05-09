@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { startClient, call } from './harness.mjs';
 
 // Role matrix coverage for tools that currently wrap handlers with `requireRoles`.
-// Tools without requireRoles (task_*, validation_*, issue_*, ledger_*, audit_*,
+// Tools without requireRoles (task_*, validation_*, issue_*, audit_*, audit_*,
 // skill_*) accept any caller — that's tracked as a protection gap (see issue
 // filed alongside this test file). When requireRoles is added there, add tests
 // to this file covering them.
@@ -272,7 +272,7 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
   }
 
   const ok = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: 'lgtm',
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: 'MCP available: yes\nlgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
   assert.equal(ok.ok, true, `pr-reviewer should record; got ${JSON.stringify(ok)}`);

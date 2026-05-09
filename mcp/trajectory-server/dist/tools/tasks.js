@@ -107,7 +107,7 @@ export function taskTools(db) {
                     },
                     emit_planning_complete: {
                         type: 'boolean',
-                        description: "Set true to atomically emit a planning_complete audit event in the same transaction as the task INSERTs. Eliminates the L5 03/12 failure mode where the LLM would create tasks but skip the closing audit_log call. Planning skills (tmb_planning-simple, tmb_planning-difficult) should set this to true.",
+                        description: "Set true to atomically emit a planning_complete audit event in the same transaction as the task INSERTs. Eliminates the L5 03/12 failure mode where the LLM would create tasks but skip the closing audit_log call. The tmb_planning skill (Step 4) should set this to true.",
                     },
                     planning_complete_summary: {
                         type: 'string',
@@ -232,12 +232,13 @@ export function taskTools(db) {
             // --- Branch-id-proposal gate (MCP-level enforcement, #155) ---
             // task_create_batch must be preceded by an audit event (kind='event') with
             // event_type='branch_id_proposed' for this issue. Stops bro from spawning
-            // SWE without first running tmb_branch-id-proposal (which creates the
-            // feature branch and switches the main checkout to it).
-            const ledgerWaived = args['waive_branch_gate'] === true;
-            const ledgerWaiverReason = (args['waive_branch_gate_reason'] ?? '');
-            if (ledgerWaived) {
-                if (typeof ledgerWaiverReason !== 'string' || ledgerWaiverReason.trim().length < 10) {
+            // SWE without first running tmb_planning §Step 2 (which calls
+            // branch_id_propose, asks the Human to confirm, runs git switch -c, and
+            // emits the branch_id_proposed audit event).
+            const branchGateWaived = args['waive_branch_gate'] === true;
+            const branchGateWaiverReason = (args['waive_branch_gate_reason'] ?? '');
+            if (branchGateWaived) {
+                if (typeof branchGateWaiverReason !== 'string' || branchGateWaiverReason.trim().length < 10) {
                     return err('waive_branch_gate_reason must be a string ≥10 chars.');
                 }
             }
@@ -252,7 +253,7 @@ export function taskTools(db) {
                                 text: JSON.stringify({
                                     error: 'branch_state_violation',
                                     message: `branch_state_violation: issue ${issueId} has zero audit events with event_type='branch_id_proposed'. ` +
-                                        `Run tmb_branch-id-proposal first (it creates the feature branch and switches the main checkout). ` +
+                                        `Run tmb_planning §Step 2 first (it calls branch_id_propose, confirms with Human, runs git switch -c, and emits the audit event). ` +
                                         `For exceptional cases, pass waive_branch_gate=true with waive_branch_gate_reason="<why>".`,
                                     issue_id: issueId,
                                 }),

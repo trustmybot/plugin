@@ -8,7 +8,7 @@
 
 **Expected behavior**:
 1. Bro reads the failed task + discussion via MCP
-2. Loads `tmb_feedback-loop`
+2. Loads `task_retry_batch composite + tmb_planning §Step 5 retry`
 3. Appends a retry analysis
 4. Calls `task_create_batch` with the corrected spec
 

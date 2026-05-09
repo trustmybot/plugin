@@ -79,6 +79,10 @@ export function validationTools(db) {
             if (!VALID_VERDICTS.has(verdict)) {
                 throw new Error(`Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`);
             }
+            const feedbackArg = args['feedback'];
+            if (!/^MCP available: (yes|no)\b/.test(feedbackArg)) {
+                throw new Error('precondition_failed: validation_record.feedback must start with "MCP available: yes" or "MCP available: no — honor-system fallback" (LOAD-BEARING-SAFETY #97 — bro\'s push-gate parses this prefix to detect dead MCP). Prepend the line, then put your rationale on subsequent lines.');
+            }
             const taskExists = db.get(`SELECT id FROM tasks WHERE id = ?`, [taskId]);
             if (!taskExists) {
                 throw new Error(`task_id=${taskId} not found in tasks table`);

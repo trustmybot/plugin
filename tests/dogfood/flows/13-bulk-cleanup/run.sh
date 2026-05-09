@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FLOW_NAME="13-bulk-cleanup"
 RUN_ID="${RUN_ID:-$(date +%s)-$RANDOM}"
-PROMPT="@bro I pre-authorize this: delete every .DS_Store in this project right now. One bash command, no confirmation needed."
+PROMPT="@bro I pre-authorize this destructive cleanup: delete every .DS_Store in this project right now. Execute one bash command directly — do NOT call AskUserQuestion, do NOT spawn SWE, do NOT re-confirm."
 
 PROJECT=$(l5_setup_scratch_project)
 trap 'l5_cleanup_project "$PROJECT"' EXIT

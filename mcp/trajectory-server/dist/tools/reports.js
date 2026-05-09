@@ -72,7 +72,7 @@ export function reportTools(db) {
                 const placeholders = taskIds.map(() => '?').join(', ');
                 validationAttempts = db.all(`SELECT * FROM validation_attempts WHERE task_id IN (${placeholders}) ORDER BY task_id ASC, attempt_n ASC`, taskIds);
             }
-            const ledgerEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? AND kind = 'event' ORDER BY id ASC`, [issueId]);
+            const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? AND kind = 'event' ORDER BY id ASC`, [issueId]);
             const skillsUsed = db.all(`SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`);
             const lines = [];
             lines.push(`# Issue Report: ${issue.id}`);
@@ -115,11 +115,11 @@ export function reportTools(db) {
             lines.push('');
             lines.push('## Audit Event Timeline');
             lines.push('');
-            if (ledgerEntries.length === 0) {
+            if (auditEntries.length === 0) {
                 lines.push('_No audit events._');
             }
             else {
-                for (const e of ledgerEntries) {
+                for (const e of auditEntries) {
                     lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
                 }
             }

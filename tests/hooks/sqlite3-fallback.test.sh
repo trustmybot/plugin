@@ -109,7 +109,7 @@ call_lib_stderr() {
   bash -c ". '$LIB'; $*" 2>/tmp/tmb_test_stderr; cat /tmp/tmb_test_stderr
 }
 
-ledger_count_for() {
+audit_count_for() {
   local tool="$1"
   sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='mcp_unavailable_fallback_invoked' AND summary LIKE '%$tool%';"
 }
@@ -124,8 +124,8 @@ row=$(sqlite3 "$DB" "SELECT verdict, feedback FROM validation_attempts WHERE tas
 assert_eq "pass|looks good" "$row" "validation_attempts row"
 
 test_case "validation_record happy path: audit row written"
-count=$(ledger_count_for "validation_record")
-assert_eq "1" "$count" "audit ledger rows after validation_record"
+count=$(audit_count_for "validation_record")
+assert_eq "1" "$count" "audit rows after validation_record"
 
 test_case "validation_record role rejection: swe is not allowed"
 out=$(call_lib "tmb_fallback_validation_record 42 2 swe pass 'nope'" 2>&1 || true)
@@ -154,8 +154,8 @@ sha=$(sqlite3 "$DB" "SELECT commit_sha FROM tasks WHERE id=42;")
 assert_eq "abc123" "$sha" "commit_sha"
 
 test_case "task_update_status happy path: audit row written"
-count=$(ledger_count_for "task_update_status")
-assert_eq "1" "$count" "audit ledger row after task_update_status"
+count=$(audit_count_for "task_update_status")
+assert_eq "1" "$count" "audit row after task_update_status"
 
 test_case "task_update_status role rejection: architect not allowed"
 out=$(call_lib "tmb_fallback_task_update_status 42 closed architect" 2>&1 || true)
@@ -176,8 +176,8 @@ body=$(sqlite3 "$DB" "SELECT body FROM discussions WHERE issue_id=1 LIMIT 1;")
 assert_eq "planning complete" "$body" "discussion body"
 
 test_case "discussion_append happy path: audit row written"
-count=$(ledger_count_for "discussion_append")
-assert_eq "1" "$count" "audit ledger row after discussion_append"
+count=$(audit_count_for "discussion_append")
+assert_eq "1" "$count" "audit row after discussion_append"
 
 test_case "discussion_append role rejection: unknown agent blocked"
 out=$(call_lib "tmb_fallback_discussion_append 1 ghost note 'haxor' ghost" 2>&1 || true)
@@ -198,7 +198,7 @@ count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='planning_com
 assert_eq "1" "$count" "audit_log row"
 
 test_case "audit_log happy path: audit self-row written"
-count=$(ledger_count_for "audit_log")
+count=$(audit_count_for "audit_log")
 assert_eq "1" "$count" "audit self-row after audit_log"
 
 test_case "audit_log role rejection: unknown agent blocked"
@@ -219,7 +219,7 @@ closed_at=$(sqlite3 "$DB" "SELECT closed_at FROM issues WHERE id=1;")
 [ -n "$closed_at" ] && _pass || _fail "closed_at should be non-empty, got empty"
 
 test_case "issue_close happy path: audit row written"
-count=$(ledger_count_for "issue_close")
+count=$(audit_count_for "issue_close")
 assert_eq "1" "$count" "audit row after issue_close"
 
 test_case "issue_close with post_git_sha: post_commit_hash written"
@@ -248,9 +248,9 @@ test_case "file_registry_update_summary happy path: content_md5 written"
 md5=$(sqlite3 "$DB" "SELECT content_md5 FROM file_registry WHERE path='$DUMMY_FILE';")
 [ -n "$md5" ] && _pass || _fail "content_md5 should be non-empty, got empty"
 
-test_case "file_registry_update_summary happy path: audit ledger row written"
-count=$(ledger_count_for "file_registry_update_summaries")
-assert_eq "1" "$count" "audit ledger row after file_registry_update_summary"
+test_case "file_registry_update_summary happy path: audit row written"
+count=$(audit_count_for "file_registry_update_summaries")
+assert_eq "1" "$count" "audit row after file_registry_update_summary"
 
 test_case "file_registry_update_summary role rejection: swe not allowed"
 out=$(call_lib "tmb_fallback_file_registry_update_summary swe '$DUMMY_FILE' 'test'" 2>&1 || true)

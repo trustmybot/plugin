@@ -1,289 +1,132 @@
 ---
 name: tmb_agent-creator
-description: Add a project-local agent. PRIMARY MODE — copy from `templates/agents/<name>.md` verbatim. FALLBACK — draft from scratch when no shipped template matches the requested name. Always asks Human approval before writing. Never edits the body of any agent file.
+description: Add a project-local agent at .claude/agents/<name>.md. Loads when the user asks for a named-role consult that doesn't yet exist locally — e.g. "get the architect's read on X", "have the cto look at this", "spawn a legal-reviewer to check Y", "what would the pm say about Z", "I need a security consultant for...". Without this skill bro would Task()-spawn the agent without writing the file, leaving the project with no persisted record. Two modes: template-copy (PRIMARY) when a shipped templates/agents/<name>.md exists; from-scratch (FALLBACK) when no template matches. Always Human-approved.
 allowed-tools: Read, Write, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 
-# tmb_agent-creator
+# Agent Creator
 
-## A. Purpose
+Add a named, persistent agent to `.claude/agents/`. Two modes; both require explicit Human approval. User-created agents default to **consultant** scope (server-rejected for non-bro/non-swe/non-pr-reviewer callers: `task_create_batch`, `task_update_status`, `validation_record`, `issue_create`, `issue_close`).
 
-Add a named, persistent agent to a project's `.claude/agents/`. Two modes:
+The bundled `scripts/prompt-author-lint.sh` (regex scan for negations + noise citations) runs as a Bash step in Mode B step 4 — bro doesn't read it directly.
 
-1. **Template-copy mode** (PRIMARY) — when `${CLAUDE_PLUGIN_ROOT}/templates/agents/<name>.md` exists for the requested name, copy it verbatim into the project. This is the Lego path: bro never edits the body of a copied template.
-2. **From-scratch mode** (FALLBACK) — when no template matches (e.g. `legal-reviewer`, `security-reviewer`, project-specific role), bro drafts a fresh prompt with Human approval and writes it into the project.
+## When to invoke
 
-Every creation requires explicit Human approval — auto-creation is never permitted.
+The user's request needs a named, persistent consultant for a specific role AND the role does not already exist in `.claude/agents/`. Skip for one-off sub-tasks a Task-tool spawn can handle.
 
-## B. When invoked
+## Shipped templates (Mode A trigger names)
 
-Bro invokes this skill when ALL of the following hold:
-
-1. The user's request needs a named, persistent agent (consultant for a specific role) AND
-2. The role does not already exist in `.claude/agents/`.
-
-Do NOT invoke for one-off sub-tasks that a Task tool spawn can handle.
-
-User-created agents default to **consultant** scope: they advise, return analysis to bro, and never write workflow state (`task_create_batch`, `task_update_status`, `validation_record`, `issue_create` are all server-rejected for non-bro / non-swe / non-pr-reviewer callers — see `mcp/trajectory-server/src/middleware/agent-scope.ts`). The decision chain stays **Human → bro → swe**, with `pr-reviewer` as the gate.
-
-## C. Shipped templates (template-copy mode triggers when name matches)
-
-| Template | Role | Lines |
-|---|---|---|
-| `architect.md` | System-design consultant — load-bearing assumptions, simpler alternatives, trade-offs, risks | ~21 |
-| `cto.md` | Technical strategy consultant — scaling, dependency posture, build/CI direction | ~21 |
-| `ceo.md` | Product-scope consultant — prioritization, business framing | ~21 |
-| `pm.md` | Product-strategy consultant — user-need framing, success metrics | ~21 |
-| `swe.md` | Executor — implements task specs in isolated worktree, atomic close | ~23 |
-| `pr-reviewer.md` | Push-time gate — reviews unsigned tasks against spec, records validation_record | ~28 |
-
-If the Human's request matches a shipped template name → **template-copy mode**. Otherwise → **from-scratch mode**.
-
-## D. Reserved names (always refuse)
-
-These names map to plugin protocol roles. If the user requests one, refuse and ask for a different name:
-
-- `bro`
-
-Other names — including `architect`, `cto`, `ceo`, `pm`, `swe`, `pr-reviewer`, `legal-reviewer`, anything else — are allowed. Shipped templates exist for `swe`, `pr-reviewer`, `architect`, `cto`, `ceo`, `pm`; everything else uses from-scratch mode.
-
-## E. Execution — template-copy mode
-
-Triggered when `${CLAUDE_PLUGIN_ROOT}/templates/agents/<name>.md` exists.
-
-### Step 1 — Show + ask
-
-Read the template via `Read` (do not transform). Present it in a fenced code block with a one-liner explaining it's a minimal Lego template and bro will not edit the body. Ask verbatim:
-
-> "Copy `templates/agents/<name>.md` to `.claude/agents/<name>.md` verbatim? Project-specific behavior gets attached later via `tmb_skill-creator`. (yes/no)"
-
-### Step 2 — Copy on approval
-
-On **yes**:
-1. Write the template content unmodified to `<project>/.claude/agents/<name>.md`. **No transformations** — preserve frontmatter, body, line endings. The template already contains `tmb_owner: bro` in its frontmatter; do not strip it.
-2. If the destination exists, switch to the collision flow (Section H.1) rather than refusing outright.
-3. Verify by reading the first 5 lines of the destination.
-
-On **no** / silence / ambiguous: abort, write nothing.
-
-### Step 3 — Log + report
-
-```
-audit_log(
-  agent='bro',
-  kind='event',
-  event_type='tmb_agent_created',
-  summary='Copied template <name> to .claude/agents/<name>.md (template-copy mode).',
-  content_json='{"name": "<name>", "mode": "template-copy"}',
-)
-```
-
-Tell the Human: file landed at `<path>`. Return control. Bro then spawns the new agent for the original ask.
-
-## F. Execution — from-scratch mode
-
-Triggered when no shipped template matches the requested name.
-
-### Step 1 — Discover the gap
-
-Ask the user at most **3 clarifying questions** in a single message:
-
-1. What role/title should this agent have?
-2. What are its core responsibilities?
-3. Which existing agent is closest, and what gap does the new agent fill?
-
-Wait for answers. Do NOT draft a proposal until you have answers to all three.
-
-### Step 2 — Read the context
-
-1. `Glob` `.claude/agents/` to list existing project agents.
-2. Check for a name collision: if `.claude/agents/<proposed-name>.md` exists, pause and switch to overwrite-confirmation flow (Section H).
-3. `Glob` the project's top-level files (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `*.md`) to understand the stack and domain.
-
-### Step 3 — Draft the prompt
-
-Produce a Lego-shaped agent file: identity + role + boundary + `skills: []`. Body ≤25 lines. Don't bake in stack-specific content — that comes from skills attached later via `tmb_skill-creator`.
-
-Standard frontmatter:
-
-```yaml
----
-name: <kebab-case>
-description: <one sentence: role and primary capability>
-tmb_owner: bro
-model: opus                   # default for consultants
-tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server
-skills: []
----
-
-# <Title — Human-Readable Name>
-
-Your spawn includes `consultant: analysis-only` and a specific question. Reject any spawn missing the marker.
-
-[2-3 sentences: what this consultant focuses on, what kind of analysis it returns, how it differs from other consultants in the roster.]
-
-Persist key points via `discussion_append(agent='<name>', kind='analysis')` or `kind='concern'`.
-
-You decide nothing. Bro summarizes for the Human; the Human decides.
-
-Server-rejected for you: `task_create_batch`, `task_update_status`, `validation_record`, `issue_create`, `issue_close`.
-
-Project-specific context comes from skills the project attaches to this agent's `skills:` list. Never edit this file.
-```
-
-Field guidance:
-
-- `name`: kebab-case (e.g. `legal-reviewer`).
-- `model`: default `opus` for consultants. Use `sonnet` only if the role is mechanical / cost-sensitive.
-- `tools`: minimum viable. Default is read-only + MCP. Add `Bash` only if the consultant needs to verify by running commands. Add `Write`/`Edit` ONLY if the consultant produces output files (rare; most consultants are analysis-only).
-- `skills: []` — empty by default. Bro extends via `tmb_skill-creator` after creation.
-
-### Step 4 — Show and ask (mandatory)
-
-Present the full drafted file in a fenced code block, then ask verbatim:
-
-> "Do you want me to create this agent? It will be written to `.claude/agents/<name>.md` and available in future sessions. (yes/no)"
-
-Do NOT write anything until the user responds.
-
-### Step 5 — Write on approval
-
-On **yes**: write the file with `tmb_owner: bro` included in the YAML frontmatter. Verify by reading the first 5 lines.
-On **no** / silence / ambiguous: abort, write nothing.
-
-### Step 6 — Log + report
-
-```
-audit_log(
-  agent='bro',
-  kind='event',
-  event_type='tmb_agent_created',
-  summary='Drafted + wrote <name> from scratch (no shipped template).',
-  content_json='{"name": "<name>", "mode": "from-scratch"}',
-)
-```
-
-Tell the Human: file landed at `<path>`. Return control.
-
-## F.4.5 Pink-elephant check (mandatory before approval, from-scratch mode)
-
-Before presenting the draft to the Human for approval, scan the body for negation patterns:
-
-- `^Don't `, `^Never `, `^Do not ` — start-of-line negative imperatives
-- `MUST NOT`, mid-sentence `do not`/`don't`/`never`
-
-For each match:
-1. Surface to the Human via the approval AskUserQuestion: "Found N negation patterns. Convert to positive directives?"
-2. If Human accepts: rewrite each as positive (`Don't include emojis` → `Use plain text only`)
-3. If Human declines a specific one: add `<!-- LOAD-BEARING-SAFETY: <reason> -->` inline so the lint exempts it
-
-Rationale: negation forces the model to process the forbidden concept first (pink elephant problem). Positive directives boost desired-token probability more than negatives suppress unwanted ones.
-
-Note: template-copy mode is exempt — templates are curated post-audit.
-
-## F.5 Pre-write check — no noise-citations
-
-Before writing any agent file (template-copy or from-scratch), scan the body you're about to commit for these patterns. Strip or rewrite each match before saving:
-
-| Pattern | Why it's noise |
+| Template | Role |
 |---|---|
-| Issue numbers — `#\d+`, `(#W4)`, `[bro #1]` | The agent can't fetch issues at runtime; tokens cost every turn; IDs decay as issues close. |
-| Memory file paths — `feedback_*.md`, `~/.claude/projects/<proj>/memory/...` | Memory is per-session and mutable. It is NOT canonical. Note: `~/.claude/` paths that point to runtime artifacts (logs, settings) are fine — only the memory dir is forbidden. |
-| Origin attributions — `caught in`, `prior incident`, `regression during X`, `2× during Y` | Tells the LLM nothing actionable. |
-| Dates — `2026-04-XX` | Decay; rot as the codebase evolves. |
-| PR/MR URLs — `!\d+`, `gitlab.com/.../merge_requests/...` | Same as issue numbers. |
-| Tombstones — `previously`, `no longer`, `deprecated`, `do not`, `was` (when used as migration commentary) | Pre-release means delete cleanly, not migrate-with-comments. |
+| `architect.md` | System-design consultant — load-bearing assumptions, simpler alternatives, trade-offs, risks |
+| `cto.md` | Technical strategy — scaling, dependency posture, build/CI direction |
+| `ceo.md` | Product-scope — prioritization, business framing |
+| `pm.md` | Product-strategy — user-need framing, success metrics |
+| `swe.md` | Executor — implements task specs in isolated worktree, atomic close |
+| `pr-reviewer.md` | Push-time gate — reviews unsigned tasks against spec, records validation_record |
 
-Allowed:
+If the requested name matches one of these → **Mode A**. Otherwise → **Mode B**.
 
-- The rule itself, stated inline.
-- Cross-references to other prompt surfaces loaded the same way: `see CLAUDE.md ## <Section>`, `see agents/<name>.md`, `see skills/<name>/SKILL.md`.
-- MCP-DB references via tool name: "consult `discussion_list`", "see `audit_log_list` for X events".
+## Mode A — Template-copy (PRIMARY)
 
-If a fact really matters but you can't satisfy this without losing it, ask the Human — don't ship a prompt with noise.
+In headless mode (`TMB_HEADLESS=1`): **skip Step 1 (no AUQ) and write the file directly**. Template content is deterministic — reviewed at plugin release — so the auto-approve is safe. Render the AUQ only when a Human is in the loop.
 
-## F.6 Why this rule exists
+1. **Show + ask** (interactive only). Read the template via `Read` (do not transform). Present in a fenced code block, ask:
+   > Copy `templates/agents/<name>.md` to `.claude/agents/<name>.md` verbatim? Project-specific behavior gets attached later via `tmb_skill-creator`. (yes/no)
+2. **Copy on approval** (or unconditionally in headless). Write the template content unmodified. If the destination exists, switch to the collision flow (§"Collision dialog" below).
+3. **Log + report.** If there's no open issue (free-floating consult — common for agent creation), first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>`.
 
-Agent and skill prompts load into the LLM context every turn the agent fires. Anything cited there must be either (a) inline (the actual rule), (b) in another canonical SE source loaded the same way (CLAUDE.md, other agent files, other skill files), or (c) in the MCP DB referenced by tool name.
+## Mode B — From-scratch (FALLBACK)
 
-Issue numbers, memory paths, "caught in", origin attributions — none of these are things the LLM can act on at runtime. They cost tokens, they decay (the issue closes, the memory gets renamed), and they bury the actual rule under historical lineage the model has no way to follow.
+1. **Discover the gap** — AskUserQuestion at most 3 questions in one batch:
+   1. What role/title should this agent have?
+   2. What are its core responsibilities?
+   3. Which existing agent is closest, and what gap does the new agent fill?
 
-Citations belong in commits, MRs, and issue bodies — surfaces humans grep, not surfaces the LLM reads top-to-bottom. The two surfaces have opposite economics; the doctrine reflects that.
+2. **Read context.** Glob `.claude/agents/` for existing project agents, check for name collision. Glob top-level files (`package.json`, `pyproject.toml`, etc.) for stack/domain.
 
-## G. Hard rules
+3. **Draft** using this frontmatter template (body ≤25 lines; stack-specific content comes from skills attached later via `tmb_skill-creator`):
 
-- **Verbatim copy in template-copy mode.** Never transform a template's body. Project customization happens via `tmb_skill-creator` extending `skills:`, never by editing the agent body.
-- **Never write to `plugin/agents/`** or any path inside the plugin install. The plugin is read-only at runtime.
-- **Approval is non-negotiable** — both modes require an explicit Yes.
-- **Reserved names refused** — `bro` always refused.
-- **Existing files never overwritten silently.** Show diff or refuse, depending on mode (Section H).
+   ```yaml
+   ---
+   name: <kebab-case>
+   description: <one sentence: role and primary capability>
+   tmb_owner: bro
+   model: opus                   # default for consultants; sonnet only when role is mechanical / cost-sensitive
+   tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server
+   skills: []
+   ---
 
-## H. Error handling
+   # <Title — Human-Readable Name>
 
-| Trigger | Response |
-|---|---|
-| User answer is ambiguous (can't determine role/name) | Do NOT proceed. Ask again with a concrete yes/no or fill-in-the-blank prompt. |
-| Target `.claude/agents/<name>.md` already exists | See H.1 — read the file, check `tmb_owner`, follow the appropriate collision path. |
-| User requests a reserved name | Refuse: "The name `<name>` is reserved for a plugin core agent. Please choose a different name." Re-ask. |
-| User attempts to skip the approval step | Refuse: "Explicit approval is required before writing any agent file. I cannot skip this step." |
+   Your spawn includes `consultant: analysis-only` and a specific question. Reject any spawn missing the marker.
 
-### H.1 Existing-file dialog (file collision)
+   [2-3 sentences: what this consultant focuses on, what kind of analysis it returns, how it differs from other consultants in the roster.]
 
-When the target `.claude/agents/<name>.md` already exists, do NOT silently overwrite. First, read the existing file and check its `tmb_owner` field:
+   Persist key points via `discussion_append(agent='<name>', kind='analysis')` or `kind='concern'`.
 
-- `tmb_owner: bro` (plugin-managed): refuse overwrite by default — show a unified diff, then ask whether to proceed (yes/no), since the user almost never wants to clobber a plugin-managed file. Treat as a special case; not the common collision path.
-- `tmb_owner: user-adopted` (managed via prior adoption): treat exactly like `tmb_owner: bro` — show diff, ask before overwriting.
-- No `tmb_owner` field (user-authored, untouched): show the unified diff vs proposed content, then call AskUserQuestion with three options:
+   You decide nothing. Bro summarizes for the Human; the Human decides.
 
-```
-AskUserQuestion({
-  questions: [{
-    question: "I found .claude/agents/<name>.md already. What do you want?",
-    header: "Collision",
-    multiSelect: false,
-    options: [
-      { label: "Skip (Recommended)", description: "Keep your file unchanged; abort the skill" },
-      { label: "Adopt + manage", description: "Mark file managed; future updates via this skill" },
-      { label: "Overwrite", description: "Replace your file with the new content (DESTRUCTIVE)" }
-    ]
-  }]
-})
-```
+   Server-rejected for you: `task_create_batch`, `task_update_status`, `validation_record`, `issue_create`, `issue_close`.
 
-Behavior per choice:
+   Project-specific context comes from skills the project attaches to this agent's `skills:` list. Never edit this file.
+   ```
 
-- **Skip** — write nothing; audit event `tmb_agent_collision_skipped`. Report aborted, return control.
-- **Adopt + manage** — preserve user's file content. Use Edit to insert `tmb_owner: user-adopted` into the YAML frontmatter (after the opening `---` line, before the closing `---`). Audit event `tmb_agent_adopted`. Report adopted, return control.
-- **Overwrite** — write the proposed (template or from-scratch) content with `tmb_owner: bro` in the frontmatter. Audit event `tmb_agent_overwritten`. Report overwritten, return control.
+   Field guidance:
+   - `name`: kebab-case (e.g. `legal-reviewer`).
+   - `tools`: minimum viable. Default is read-only + MCP. Add `Bash` only if the consultant verifies by running commands. Add `Write`/`Edit` only if the consultant produces output files (rare).
+   - `skills: []` — empty by default. Bro extends via `tmb_skill-creator` after creation.
+   - 30-line cap enforced by `tests/lint/agent-line-budget.sh`.
 
-In headless mode (`AskUserQuestion errors / TMB_HEADLESS=1`): HALT per the existing `## Headless mode — HALT, do not auto-approve` section. Never silently choose any of the three.
+4. **Pre-write lint.** Run `${CLAUDE_PLUGIN_ROOT}/skills/tmb_agent-creator/scripts/prompt-author-lint.sh <draft-path>`. The script flags two pattern classes:
 
-## I. Edge case — code-writing consultant
+   **Pink-elephant negations**: start-of-line `Don't`, `Never`, `Do not`; mid-sentence `MUST NOT`, `do not`, `don't`, `never`. Rewrite each as positive (`Don't include emojis` → `Use plain text only`). For load-bearing safety, add `<!-- LOAD-BEARING-SAFETY: <reason> -->` inline.
+
+   **Noise citations**: issue numbers (`#\d+`), memory file paths (`feedback_*.md`, `~/.claude/projects/...`), origin attributions (`caught in`, `prior incident`), decaying dates, PR/MR URLs, tombstones (`previously`, `no longer`, `deprecated` as migration commentary). Strip or rewrite each. Allowed: rule stated inline, cross-refs to other prompt surfaces (`see CLAUDE.md ## <Section>`), MCP-DB references via tool name.
+
+   Surface findings via the approval AUQ; the user picks accept/decline per finding.
+
+5. **Show + ask.** Present the full drafted file in a fenced code block. Ask:
+   > Do you want me to create this agent? It will be written to `.claude/agents/<name>.md` and available in future sessions. (yes/no)
+
+6. **Write on approval** with `tmb_owner: bro` in frontmatter.
+7. **Log + report.** Same issue-scoping rule as Mode A step 3 — `issue_create` first if no active issue. Then `audit_log(issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`.
+
+## Reserved names (refuse)
+
+- `bro` — plugin protocol persona.
+
+Other names — `architect`, `cto`, `ceo`, `pm`, `swe`, `pr-reviewer`, `legal-reviewer`, anything else — are allowed.
+
+## Collision dialog (existing target file)
+
+When `.claude/agents/<name>.md` already exists, never silently overwrite. Read the existing file and check the `tmb_owner` field:
+
+- `tmb_owner: bro` (plugin-managed) → refuse overwrite by default; show unified diff, ask yes/no.
+- `tmb_owner: user-adopted` → same as `bro`; show diff, ask.
+- No `tmb_owner` field (user-authored, untouched) → AskUserQuestion with options:
+  - **Skip (Recommended)** — keep your file unchanged; abort the skill. Audit `tmb_agent_collision_skipped`.
+  - **Adopt + manage** — preserve user's content; insert `tmb_owner: user-adopted` into the frontmatter. Audit `tmb_agent_adopted`.
+  - **Overwrite** — replace with the proposed content; `tmb_owner: bro`. Audit `tmb_agent_overwritten`.
+
+In headless mode (AskUserQuestion errors / `TMB_HEADLESS=1`): HALT per the headless-mode section below. Never silently choose any of the three.
+
+## Edge case — code-writing consultant
 
 If the user wants a consultant that writes source code (e.g. `data-pipeline-swe`), warn first:
+> This agent will write source code. The plugin's `swe` role already exists for that. Are you sure you want a parallel code-writing consultant? It will need `isolation: worktree` and `Write`/`Edit` tools, which means it bypasses bro's task-spec gating.
 
-> "This agent will write source code. The plugin's swe role already exists for that. Are you sure you want a parallel code-writing consultant? It will need `isolation: worktree` and `Write`/`Edit` tools, which means it bypasses bro's task-spec gating."
+If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to tools. Otherwise, propose a skill via `tmb_skill-creator` so the existing `swe` gains the new behavior.
 
-If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to tools. Otherwise, propose a skill instead (use `tmb_skill-creator`) so the existing swe gains the new behavior.
+## Hard rules
+
+- **Verbatim copy in template-copy mode.** Customization happens via skills, not by editing the agent body.
+- **Plugin install is read-only.** Never write to `plugin/agents/`.
+- **Approval is non-negotiable** in both modes.
+- **Reserved names refused** — `bro` is reserved.
+- **Existing files never overwritten silently** — see Collision dialog above.
 
 ## Headless mode
 
-Two modes have different headless policies:
-
-### Template-copy mode — auto-approve
-
-Template-copy copies a plugin-shipped file verbatim. The content is deterministic and has already been reviewed as part of the plugin release. In headless mode, proceed without the approval AUQ:
-
-1. Write the template file to `.claude/agents/<name>.md` as normal (Step E.2).
-2. Call `audit_log(agent='bro', kind='event', event_type='tmb_agent_created', summary='Copied template <name> to .claude/agents/<name>.md (template-copy mode, headless auto-approved).', content_json='{"name": "<name>", "mode": "template-copy"}')`.
-3. Surface a note: "Agent `<name>` created from plugin template (headless mode — template content is deterministic)."
-
-Then proceed to spawn the new agent for the original ask.
-
-### From-scratch mode — HALT
-
-From-scratch mode generates novel agent content that the Human has not reviewed. In headless mode:
-
-1. Halt the skill immediately. Do NOT write any files.
-2. Call `audit_log(agent='bro', kind='event', event_type='headless_creator_blocked', summary='tmb_agent-creator blocked: from-scratch mode requires Human approval. Cannot create agent <proposed_name> headlessly.')`.
-3. Surface a clear message: "Cannot create agent from scratch in headless mode — novel content requires Human review. Re-run interactively."
+- **Template-copy** → auto-approve. Content is deterministic and reviewed at plugin release. Write the template, log `tmb_agent_created` (note `headless_auto_approved` in summary).
+- **From-scratch** → HALT. Novel content needs Human review. Scope the audit first via `issue_create` (per the §"Log + report" pattern in Mode B step 7), then `audit_log(event_type='headless_creator_blocked', ...)`. Surface: "Cannot create agent from scratch in headless mode — novel content requires Human review."

@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# PostToolUse hook on roundtable_close. Verifies the five capture
+# surfaces the prior tmb_roundtable-cleanup skill enumerated are
+# populated for the closed roundtable. Emits soft `additionalContext`
+# when something is missing — never blocks; cleanup is advisory.
+#
+# Capture surfaces (per roundtable_id):
+#   1. discussions(kind='analysis')               — at least one
+#   2. discussions(kind='decision')               — at least one
+#   3. roundtables.status='closed' AND outcome   — non-empty
+#   4. roundtable_votes                          — at least one
+#   5. audit(event_type='roundtable_summary')    — at least one
+#
+# Always silent on failure.
+
+set -uo pipefail
+
+INPUT=$(cat)
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
+
+case "$TOOL_NAME" in
+  *roundtable_close) ;;
+  *) exit 0 ;;
+esac
+
+RT_ID=$(echo "$INPUT" | jq -r '.tool_input.roundtable_id // ""' 2>/dev/null)
+[ -n "$RT_ID" ] || exit 0
+
+DB_PATH="${TRAJECTORY_DB_PATH:-}"
+if [ -z "$DB_PATH" ]; then
+  PLUGIN_NAME="tmb"
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
+    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
+  fi
+  DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
+fi
+[ -f "$DB_PATH" ] || exit 0
+command -v sqlite3 >/dev/null 2>&1 || exit 0
+
+# Resolve the carrier issue_id for this roundtable.
+ISSUE_ID=$(sqlite3 "$DB_PATH" "SELECT issue_id FROM roundtables WHERE id=$RT_ID LIMIT 1;" 2>/dev/null || true)
+[ -n "$ISSUE_ID" ] || exit 0
+
+ANALYSES=$(sqlite3 "$DB_PATH" \
+  "SELECT COUNT(*) FROM discussions WHERE issue_id=$ISSUE_ID AND kind='analysis';" 2>/dev/null || echo 0)
+DECISIONS=$(sqlite3 "$DB_PATH" \
+  "SELECT COUNT(*) FROM discussions WHERE issue_id=$ISSUE_ID AND kind='decision';" 2>/dev/null || echo 0)
+RT_STATE=$(sqlite3 "$DB_PATH" \
+  "SELECT status || '|' || COALESCE(outcome,'') FROM roundtables WHERE id=$RT_ID LIMIT 1;" 2>/dev/null || true)
+VOTES=$(sqlite3 "$DB_PATH" \
+  "SELECT COUNT(*) FROM roundtable_votes WHERE roundtable_id=$RT_ID;" 2>/dev/null || echo 0)
+SUMMARY_EVT=$(sqlite3 "$DB_PATH" \
+  "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_summary' AND issue_id=$ISSUE_ID;" 2>/dev/null || echo 0)
+
+RT_STATUS=$(printf '%s' "$RT_STATE" | cut -d'|' -f1)
+RT_OUTCOME=$(printf '%s' "$RT_STATE" | cut -d'|' -f2-)
+
+MISSING=""
+[ "$ANALYSES"    -ge 1 ]      || MISSING="$MISSING analysis-discussions"
+[ "$DECISIONS"   -ge 1 ]      || MISSING="$MISSING decision-discussions"
+[ "$RT_STATUS"   = "closed" ] || MISSING="$MISSING roundtable.status=closed"
+[ -n "$RT_OUTCOME" ]          || MISSING="$MISSING roundtable.outcome"
+[ "$VOTES"       -ge 1 ]      || MISSING="$MISSING votes"
+[ "$SUMMARY_EVT" -ge 1 ]      || MISSING="$MISSING audit(roundtable_summary)"
+
+[ -z "$MISSING" ] && exit 0
+
+CTX="[tmb roundtable-cleanup] roundtable_id=$RT_ID closed but the following capture surfaces are missing:$MISSING. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_log) so the trajectory is auditable."
+
+jq -nc --arg ctx "$CTX" '{
+  hookSpecificOutput: {
+    hookEventName: "PostToolUse",
+    additionalContext: $ctx
+  }
+}'
+exit 0

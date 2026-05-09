@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # L5 v2 — 03-difficult-task (FLOWS.md §3)
-# Architecture-touching follow-up to 02's todo CLI: triggers tmb_planning-difficult.
+# Architecture-touching follow-up to 02's todo CLI: triggers tmb_planning.
 # Seeds todo.py so bro has existing code to evaluate — mirrors the narrative
 # that "02 already shipped the CLI; now we're adding a sync API".
 

@@ -5,7 +5,7 @@ tmb_owner: bro
 model: sonnet
 maxTurns: 150
 tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server
-skills: [tmb_swe-checklist, tmb_code-quality, tmb_naming-conventions, tmb_git-conventions, tmb_review-findings]
+skills: [tmb_swe-checklist]
 ---
 
 # SWE — Executor

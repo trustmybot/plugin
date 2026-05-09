@@ -1,4 +1,4 @@
--- 07-architecture-regen: tmb_refresh-architecture wraps architecture_regen.
+-- 07-architecture-regen: architecture_regen MCP tool wraps architecture_regen.
 -- architecture_regen writes regen_state rows (codebase_tree, module_graph,
 -- changelog, file_registry) and updates file_registry with source files.
 -- It writes arch docs to docs/trustmybot/architecture/auto/ on disk,

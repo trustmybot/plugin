@@ -198,7 +198,7 @@ surfaces, and follow-up issue creation.
 - ONE `AskUserQuestion` with Q1 `multiSelect:true` (agreements) + Q2–Q4 radio
   (disagreements). The `roundtable-auq-shape` hook blocks any other shape while
   `state=awaiting_human` and no human vote is recorded yet.
-- Headless variant (`TMB_HEADLESS=1`): bro halts per `tmb_headless-fallback`.
+- Headless variant (`TMB_HEADLESS=1`): bro halts per `tmb_recovery §A`.
 
 **Expect — Phase 5 (finalize):**
 - ONE `roundtable_finalize_decisions(ratified=[...], unratified=[...], resolutions=[...])`
@@ -263,7 +263,7 @@ git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing trac
 ## S-25: /roundtable slash command end-to-end
 
 1. User types `/roundtable Should we adopt feature flags?`
-2. Verify: tmb_roundtable skill invokes with topic
+2. Verify: /roundtable slash command skill invokes with topic
 3. Skill runs Phase 1-7 per the deterministic flow
 4. Verify all 5 DB capture surfaces populated
 5. Verify carrier issue closes (one-shot pattern)
@@ -322,7 +322,7 @@ git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing trac
 **Expect — Phase 9 (dispatch):**
 - `task_create_batch` called once per task.
 - SWE spawned for each.
-- After SWE completes the arch-impact task: `tmb_refresh-architecture` is invoked before moving to the next task or push gate.
+- After SWE completes the arch-impact task: `architecture_regen MCP tool` is invoked before moving to the next task or push gate.
 
 **Expect — Phase 10 (state update):**
 ```sql
@@ -349,13 +349,13 @@ SELECT title, status FROM tasks ORDER BY id DESC LIMIT 5;
 ```
 
 **Push gate:**
-After all SWE tasks close, run `git push` — verify push gate requires pr-reviewer sign-off per the normal `tmb_push-gate` flow.
+After all SWE tasks close, run `git push` — verify push gate requires pr-reviewer sign-off per the normal `tmb_review §B` flow.
 
 ✅ Pass criteria:
 - 5 comments fetched, 3 remain after bot + informational filter.
 - Tasks grouped by file (A+B merged if grouping works).
 - AUQ shows tasks with `(arch-impact)` suffix on the schema task.
-- `tmb_refresh-architecture` invoked after the arch-impact task's SWE returns.
+- `architecture_regen MCP tool` invoked after the arch-impact task's SWE returns.
 - `pr_review_runs` row has correct counts.
 - Discussion entries created for all 5 fetched comments.
 
@@ -363,7 +363,7 @@ After all SWE tasks close, run `git push` — verify push gate requires pr-revie
 
 ## S-27: Onboarding issue-sync opt-in end-to-end
 
-Validates the `tmb_reonboard` issue-sync opt-in phase added in #147.
+Validates the `/onboard slash command` issue-sync opt-in phase added in #147.
 
 **Setup:**
 1. Fresh scratch project with TMB plugin active.
@@ -371,7 +371,7 @@ Validates the `tmb_reonboard` issue-sync opt-in phase added in #147.
 3. Ensure `config_get('issue_sync')` returns `'off'` (the default).
 
 **Run:**
-- Trigger `tmb_reonboard` (e.g. `@bro re-onboard`).
+- Trigger `/onboard slash command` (e.g. `@bro re-onboard`).
 
 **Expect — Issue-sync opt-in phase:**
 - Skill runs `gh auth status` (exits non-zero) and `glab auth status` (exits 0).
@@ -400,7 +400,7 @@ Expected: an entry with `kind=issue_sync_active`, `backend=glab`, and the new is
 **Headless variant:** with `TMB_HEADLESS=1`, skip the AUQ; `issue_sync` remains `'off'` — no config write occurs.
 
 ✅ Pass criteria:
-- `tmb_reonboard` detects `glab` authenticated; shows two-option AUQ (Mirror to GitLab / Skip).
+- `/onboard slash command` detects `glab` authenticated; shows two-option AUQ (Mirror to GitLab / Skip).
 - After picking "Mirror to GitLab": `config_get('issue_sync')` returns `'glab'`.
 - Subsequent `issue_create` triggers `syncIssueCreate`; `issue_sync_active` entry appears in `~/.claude/tmb/logs/issue-sync.log`.
 - Headless mode leaves `issue_sync='off'` unchanged.

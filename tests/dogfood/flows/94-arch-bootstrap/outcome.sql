@@ -1,5 +1,5 @@
--- 94-arch-bootstrap: small project (≤200 commits) triggers tmb_lazy-regen-check
--- → tmb_refresh-architecture(scope='initial') silently on first code-touching ask.
+-- 94-arch-bootstrap: small project (≤200 commits) triggers lazy-regen-postcheck.sh hook
+-- → architecture_regen MCP tool(scope='initial') silently on first code-touching ask.
 -- architecture_regen writes regen_state rows and updates file_registry with
 -- source files, but does NOT register arch doc paths in file_registry itself.
 

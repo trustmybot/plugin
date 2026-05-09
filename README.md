@@ -122,7 +122,7 @@ Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/traj
 - **`roundtables`** + **`roundtable_votes`** — multi-consultant debate transcripts (when convened)
 - **`tasks`** — execution specs (planned by bro, executed by swe), status, commit SHAs
 - **`validation_attempts`** — pr-reviewer verdicts; the structural record of what was approved
-- **`ledger`** + **`audit`** — append-only event log + tool I/O for replay
+- **`audit`** — append-only event log (the prior `ledger` table was merged into `audit` in PR #170; one event stream now)
 
 Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes where you left off. The DB is canonical state — files stay reserved for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills).
 

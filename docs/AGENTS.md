@@ -66,22 +66,32 @@ Never confuse layers: a "more skilled SWE" means swe.md plus added skills, not a
 
 `skills/` holds both the `tmb_*` protocol skills (immutable, reserved by plugin) AND the default workflow skills used by global agents:
 
-- `tmb_swe-checklist`
-- `tmb_code-quality`
-- `tmb_docs-conventions`
-- `tmb_git-conventions`
-- `tmb_naming-conventions`
-- `tmb_review-protocol`
-- `tmb_review-findings`
+- `tmb_swe-checklist` (SWE)
+- `tmb_review` (pr-reviewer)
+- `tmb_docs-conventions` (SWE — prompt-editing discipline)
 
-All are globally discoverable. Project-local `<project>/.claude/skills/<name>/SKILL.md` overrides by name. Onboarding does NOT copy skills into projects — the global ones serve every project until a customization is needed.
+Reference content used by these skills lives at
+`docs/contributing/CODE_QUALITY.md` (qualitative criteria) and
+`docs/contributing/REVIEW_FINDINGS.md` (living patterns catalogue) — read,
+not auto-loaded.
+
+All shipped skills are globally discoverable. Project-local
+`<project>/.claude/skills/<name>/SKILL.md` overrides by name. Onboarding
+does not copy skills into projects — the global ones serve every project
+until a customization is needed.
+
+The retired `tmb_naming-conventions` / `tmb_git-conventions` /
+`tmb_create-hook` skills are now enforced by hooks
+(`scripts/hooks/naming-lint.sh`, `scripts/hooks/commit-msg-lint.sh`,
+`scripts/hooks/code-quality-lint.sh`); the conventions are deterministic
+so prose is no longer the safety net.
 
 ## Slash commands
 
 The plugin ships explicit-trigger slash commands that wrap skills:
 
 - `/roundtable <topic>` → invokes `tmb_roundtable` skill
-- `/monitor <PR_number>` → invokes `tmb_pr-review-handler` skill
+- `/monitor <PR_number>` → invokes `tmb_review` skill (PR comment triage section)
 
 Runtime location: `plugin/commands/<name>.md`. Public design docs: `plugin/docs/commands/<name>.md`. Catalog index: `plugin/docs/commands/README.md`. L1 lint: `tests/lint/command-frontmatter.sh`.
 

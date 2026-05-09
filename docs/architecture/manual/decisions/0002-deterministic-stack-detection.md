@@ -15,7 +15,7 @@ GitHub solved this class of problem with **Linguist** — a deterministic Ruby t
 
 Adopt a 4-layer architecture for project stack metadata:
 
-1. **Detection script** at `plugin/skills/tmb_project-prescan/scripts/detect-stack.sh` (Anthropic skill-bundled anatomy). Pure shell. Standalone-hookable. Hybrid: prefer `enry` or `tokei` for languages when installed; fall back to file-presence heuristics otherwise. `command -v` for installed tools.
+1. **Detection script** at `plugin/scripts/detect-stack.sh` (Anthropic skill-bundled anatomy). Pure shell. Standalone-hookable. Hybrid: prefer `enry` or `tokei` for languages when installed; fall back to file-presence heuristics otherwise. `command -v` for installed tools.
 
 2. **MCP tools** `project_metadata_detect` (`requireRoles: ['bro']`) and `project_metadata_get` (`requireRoles: ['bro', 'swe', 'pr-reviewer']`) wrapping the script and providing typed contracts.
 

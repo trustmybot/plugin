@@ -33,21 +33,21 @@ With a number, fetch starts immediately. Without arguments, bro resolves the PR 
 
 ## What happens
 
-1. `tmb_pr-review-handler` skill is invoked with the PR number.
+1. `tmb_review` skill is invoked with the PR number.
 2. Prior fetch state is read from `pr_review_runs` — only new comments since last fetch are processed.
 3. `pr_comments_get` fetches comments from gh or glab. Bots and resolved threads are filtered out.
 4. Each new human comment is persisted to the carrier issue via `discussion_append`.
 5. Task-worthy comments are grouped by file or concept into logical tasks.
 6. Tasks touching schema, arch docs, or agent files are flagged `(arch-impact)`.
 7. One `AskUserQuestion` (multiSelect) presents the plan — you pick which comments to address.
-8. SWE is dispatched for each ratified task. Arch-impact tasks trigger `tmb_refresh-architecture` after SWE returns.
+8. SWE is dispatched for each ratified task. Arch-impact tasks trigger `architecture_regen` after SWE returns.
 9. `pr_review_runs` is updated with the fetch state for incremental next runs.
 
-For the full phase-by-phase flow, see [`skills/tmb_pr-review-handler/SKILL.md`](../../skills/tmb_pr-review-handler/SKILL.md).
+For the full phase-by-phase flow, see [`skills/tmb_review/SKILL.md`](../../skills/tmb_review/SKILL.md).
 
 ## Cross-references
 
-- **Skill:** `tmb_pr-review-handler` — same flow, invocable directly by bro without the slash command.
+- **Skill:** `tmb_review` — same flow, invocable directly by bro without the slash command.
 - **MCP tools used:** `pr_comments_get`, `discussion_append`, `task_create_batch`, `task_get`.
-- **Post-SWE arch regen:** `tmb_refresh-architecture` skill — triggered automatically on arch-impact tasks.
+- **Post-SWE arch regen:** `architecture_regen` skill — triggered automatically on arch-impact tasks.
 - **State tracking:** `pr_review_runs` table — tracks per-PR fetch history for incremental fetches.

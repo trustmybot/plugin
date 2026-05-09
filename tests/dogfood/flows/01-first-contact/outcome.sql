@@ -25,5 +25,5 @@ FROM plugin_config WHERE key = 'protected_branches';
 
 SELECT
   CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
-  'no-ledger-events-from-bro (got ' || COUNT(*) || ', expected 0 — defaults are schema-seeded, no decision to log)' AS description
+  'no-audit-events-from-bro (got ' || COUNT(*) || ', expected 0 — defaults are schema-seeded, no decision to log)' AS description
 FROM audit WHERE kind='event';

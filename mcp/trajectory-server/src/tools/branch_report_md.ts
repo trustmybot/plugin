@@ -108,7 +108,7 @@ export function branchReportMdTools(db: TrajectoryDB): {
           taskIds,
         );
 
-        const ledgerEntries = db.all<AuditEventEntry>(
+        const auditEntries = db.all<AuditEventEntry>(
           `SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? AND kind = 'event' ORDER BY id ASC`,
           [issueId, branchId],
         );
@@ -147,12 +147,12 @@ export function branchReportMdTools(db: TrajectoryDB): {
 
         lines.push('## Audit events');
         lines.push('');
-        if (ledgerEntries.length === 0) {
+        if (auditEntries.length === 0) {
           lines.push('_No audit events._');
         } else {
           lines.push('| Time | Event | From | Summary |');
           lines.push('|---|---|---|---|');
-          for (const e of ledgerEntries) {
+          for (const e of auditEntries) {
             lines.push(`| ${e.created_at} | ${e.event_type} | ${e.from_node} | ${e.summary} |`);
           }
         }

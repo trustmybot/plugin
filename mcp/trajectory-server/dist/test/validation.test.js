@@ -69,7 +69,7 @@ describe('validation_record subagent_session_id gate', () => {
             task_id: taskId,
             attempt_n: 1,
             verdict: 'pass',
-            feedback: '# LGTM',
+            feedback: 'MCP available: yes\n# LGTM',
             subagent_session_id: 'abc123',
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -113,7 +113,7 @@ describe('validation_record subagent_session_id gate', () => {
         const issueId = await createIssue(altDb);
         const altTaskId = await createTask(altDb, issueId);
         altDb.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
-       VALUES (?, ?, ?, ?, ?, NULL, datetime('now'))`, [altTaskId, 1, 'pr-reviewer', 'pass', '# Legacy row']);
+       VALUES (?, ?, ?, ?, ?, NULL, datetime('now'))`, [altTaskId, 1, 'pr-reviewer', 'pass', 'MCP available: yes\n# Legacy row']);
         const tools = validationTools(altDb);
         const result = await call(tools.handlers, 'validation_history', {
             agent: 'bro',

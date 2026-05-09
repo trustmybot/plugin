@@ -1,1 +1,1 @@
-@bro switch us to gitflow
+@bro I want to switch to gitflow — what's the right way to reconfigure?

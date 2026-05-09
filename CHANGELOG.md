@@ -6,11 +6,20 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Changed
 
+- 🚚 Skill→determinism migration phase 1 (#181): 5 skills deleted (`tmb_naming-conventions`, `tmb_git-conventions`, `tmb_create-hook`, `tmb_lazy-regen-check`, `tmb_roundtable-cleanup`); 9 skills shrunk to judgment-only (`tmb_swe-checklist`, `tmb_review-protocol`, `tmb_refresh-architecture`, `tmb_branch-id-proposal`, `tmb_pr-review-handler`, `tmb_push-gate`, `tmb_swe-spawn-workflow`, `tmb_feedback-loop`, `tmb_project-prescan`); 2 skills shrunk to qualitative criteria (`tmb_code-quality`, `tmb_docs-conventions`).
 - 🔖 Polish ledger→audit prose in 5 skills + extend lint to flag bare ledger word (#171)
 - ♻️ Split eval_results + debug_trajectory out of prod schema.sql; load via TMB_EVAL_MODE=1 (#163)
 - 🧪 L5 dogfood scorers updated post-#170 audit merge; add coverage for skills + roundtable_votes table writes (#159, #160)
 
 ### Added
+
+- **Determinism layer expansion (#181):** 8 new hooks + 3 new MCP composites absorb the deterministic content the deleted/shrunk skills used to carry.
+  - PreToolUse lints: `naming-lint.sh` (Edit/Write — file naming per language), `commit-msg-lint.sh` (Bash — Conventional Commits + emoji), `code-quality-lint.sh` (Edit/Write — bare except, mutable defaults, f-string SQL, etc.).
+  - PreToolUse gate: `greenfield-arch-required.sh` blocks `task_create_batch` when no `docs/trustmybot/` and no prior `architecture_regen` audit.
+  - UserPromptSubmit hint: `consultant-spawn-required.sh` injects advisory `additionalContext` on domain-expert keywords (security, perf, legal, architecture).
+  - SessionStart inventory: `session-start-prescan.sh` injects the deterministic project inventory (git state, stacks, registry warmth, open issues) so bro doesn't re-derive it on the first ask.
+  - PostToolUse: `lazy-regen-postcheck.sh` (file_registry_update_summaries — drift warn), `roundtable-cleanup-postcheck.sh` (roundtable_close — capture-surface verification).
+  - MCP composites (`mcp/.../tools/composites.ts`): `branch_id_propose(intent, objective?)` (heuristic mapping → conventional branch_id + triage), `task_retry_batch(failed_task_id, …)` (one transaction for retry rationale + new task + audit), `bro_atomic_close(task_id, sha, summaries, …)` (one transaction for V3 audit + summaries + status flip + optional issue close — eliminates the L5 close-step drift failure mode).
 
 - **Enforcement:** New PreToolUse hook `require-feature-branch-active.sh` blocks SWE spawn when the main checkout is not on the task's `branch_id`. New MCP gate in `task_create_batch` requires a prior `branch_id_proposed` ledger event. `tmb_branch-id-proposal` skill now runs `git switch -c` itself instead of only logging intent. (#155)
 

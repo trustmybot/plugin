@@ -9,7 +9,7 @@
 **Expected behavior** (headless-aware):
 1. Bro routes to `tmb_skill-creator`
 2. Skill calls `AskUserQuestion`
-3. **In headless mode (L5)**: AUQ errors → `tmb_headless-fallback` records `headless_creator_blocked` audit event. (Interactive: writes skill file + emits `tmb_skill_created`.)
+3. **In headless mode (L5)**: AUQ errors → `tmb_recovery §A` records `headless_creator_blocked` audit event. (Interactive: writes skill file + emits `tmb_skill_created`.)
 
 ## Scorers
 

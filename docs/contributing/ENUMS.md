@@ -85,7 +85,7 @@ Mirrors `plugin_config.remotes[].provider` (see `ENUMS.md#pluginconfigremotespro
 
 K8s Events have a `reason` field with a similar shape but different semantics. **TMB-specific** — these mirror our agent communication patterns.
 
-### `ledger.from_node` — which agent or persona logged the event
+### `audit.from_node` — which agent or persona logged the event
 
 | Value | Source | Notes |
 |---|---|---|
@@ -100,7 +100,7 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 
 **TMB-specific** — these are TMB's role names. Custom agents added to a project become valid `from_node` values for that project's DB only.
 
-### `ledger.event_type` — workflow events
+### `audit.event_type` — workflow events
 
 | Value | Trigger |
 |---|---|

@@ -37,8 +37,9 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 ## Slash commands
 
-- `/roundtable <topic>` — wraps `tmb_roundtable` skill (multi-agent deliberation with checkbox/radio AUQ ratification)
-- `/monitor <PR_number>` — wraps `tmb_pr-review-handler` skill (fetches review comments, plans tasks, dispatches SWE per ratified comment)
+- `/roundtable <topic>` — multi-agent deliberation with checkbox/radio AUQ ratification (full procedure in `commands/roundtable.md`)
+- `/onboard` — interactive policy ceremony: branching model, PR target, protected branches, identity name, remotes, issue-sync (full procedure in `commands/onboard.md`)
+- `/monitor <PR_number>` — invokes `tmb_review` skill (PR comment triage section): fetches review comments, plans tasks, dispatches SWE per ratified comment
 
 Catalog: `docs/commands/README.md`.
 
@@ -53,7 +54,7 @@ Catalog: `docs/commands/README.md`.
 
 ## Env vars
 
-- `TMB_HEADLESS=1` — disables AskUserQuestion; bro halts per `tmb_headless-fallback`
+- `TMB_HEADLESS=1` — disables AskUserQuestion; bro halts per `tmb_recovery` §A
 - `TMB_DISABLE_REMOTE_SYNC=1` — overrides `issue_sync` config to off (defense-in-depth, #146)
 - `TRAJECTORY_DB_PATH` — pin DB path for tests/CI (overrides walk-up resolution)
 - `CLAUDE_PLUGIN_ROOT` — set by CC; resolves plugin name for path calculations
