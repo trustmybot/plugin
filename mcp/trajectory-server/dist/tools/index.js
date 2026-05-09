@@ -4,6 +4,7 @@ import { taskTools } from './tasks.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
+import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
 import { identityTools } from './identity.js';
@@ -47,6 +48,7 @@ export function registerTools(server, db, dbPath = '') {
     const audit = auditTools(db);
     const validation = validationTools(db);
     const skills = skillTools(db);
+    const agents = agentTools(db);
     const reports = reportTools(db);
     const config = configTools(db);
     const identity = identityTools(db);
@@ -66,6 +68,7 @@ export function registerTools(server, db, dbPath = '') {
         ...audit.definitions,
         ...validation.definitions,
         ...skills.definitions,
+        ...agents.definitions,
         ...reports.definitions,
         ...config.definitions,
         ...identity.definitions,
@@ -86,6 +89,7 @@ export function registerTools(server, db, dbPath = '') {
         ...wrapAll(audit.handlers),
         ...wrapAll(validation.handlers),
         ...wrapAll(skills.handlers),
+        ...wrapAll(agents.handlers),
         ...wrapAll(reports.handlers),
         ...wrapAll(config.handlers),
         ...wrapAll(identity.handlers),
