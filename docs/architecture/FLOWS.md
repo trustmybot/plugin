@@ -26,7 +26,7 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 | # | Flow | Trigger | Agents | Key skills | DB tables touched | Hooks |
 |---|---|---|---|---|---|---|
-| 1 | [First contact](#1-first-contact-defaults-applied-silently) | First activation in a project | bro | (none — inline default-write) | `plugin_config`, `audit` | — |
+| 1 | [First contact](#1-first-contact-auto-fired-onboard) | First activation when `identity_get()` is empty | bro | `commands/onboard.md` (auto-fired slash command) | `plugin_config`, `identity`, `audit` | — |
 | 2 | [Simple task](#2-simple-task) | Code change, no architecture impact | bro → swe (pr-reviewer at push time only) | `tmb_planning-simple` (bro), `tmb_swe-checklist` (lazy on demand) | `issues`, `tasks`, `audit` (per task) + `validation_attempts` (at push) | `require-task-spec`, `git-push-guard`, `git-guards` |
 | 3 | [Difficult task](#3-difficult-task) | Code change touching `docs/trustmybot/architecture/` | bro (full discussion + ADR) → swe (pr-reviewer at push time) | + `tmb_planning-difficult` (env probe, Q+A, ADR) | + `discussions`, ADR file | same |
 | 4 | [Agent-creator](#4-agent-creator-on-demand-domain-agent) | Routing hits a role not in `.claude/agents/` | bro → human | `tmb_agent-creator` | — | — |
@@ -42,30 +42,39 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 ---
 
-## 1. First Contact (defaults applied silently)
+## 1. First Contact (auto-fired `/onboard`)
 
-**Trigger:** Bro at session start finds `config_get("branching_model")` returns null.
+**Trigger:** Bro at session start finds `identity_get()` returns `human_name=null` (the empty-DB heuristic). Bro auto-fires the `/onboard` slash command without asking permission.
 
 **Involved:**
-- Agent: `bro` (no spawn — handles inline; no skill invocation)
-- MCP tools: `identity_get`, `config_get`, `config_set` (×3), `audit_log(kind='event')`, `issue_resume`
-- DB tables written: `plugin_config`, `audit`
-- Skills: **none** — the doctrine is intentionally inline in CLAUDE.md's first-action chain
+- Agent: `bro` (no spawn — runs the slash command inline)
+- Slash command: `/onboard` (defined in `commands/onboard.md`)
+- MCP tools: `identity_get`, `config_list`, `config_set` (×N per branch), `identity_set`/`identity_reset`, `audit_log`
+- Bash (read-only probe): `git remote -v`, `git rev-parse`, `command -v gh`, `command -v glab`, `gh auth status`, `glab auth status`
+- DB tables written: `plugin_config`, `identity`, `audit`
 - Hooks: none
 - **Filesystem ops: NONE.** swe + pr-reviewer + default skills serve globally; nothing is copied into the project.
 
-**Doctrine: no onboarding, no bro-side default-write.** Modern agents don't onboard. The schema (`mcp/trajectory-server/src/schema.sql`) seeds the three policy keys at DB creation via `INSERT OR IGNORE`, so bro never has to apply or persist defaults — they're there from the moment the DB exists. Bro just reads what it needs and greets.
+**Doctrine: silent trigger, branched ceremony.** Defaults are seeded into `plugin_config` at schema-init via `INSERT OR IGNORE`, so bro never operates on null state. The auto-fired `/onboard` is the only path for the Human to override those defaults. Round 1 asks the **project shape** (local-only vs remote-tracked); Round 2's question set depends on the shape:
+
+| Shape | Round 2 questions | Persisted |
+|---|---|---|
+| Local-only | Name, Branching | `identity`, `branching_model`, derived `pr_target`, `remotes=[]`, `issue_sync='off'` |
+| Remote-tracked | Name, Branching, PR target, Remote | + `remotes` array, then a 2nd round for `issue_sync` |
+
+The pre-fire **silent probe** (origin URL, gh/glab installed/authed) pre-selects defaults so most questions become 1-tap confirms.
 
 **Realized by:**
 ```text
 plugin/
-├── CLAUDE.md                                           # bro persona + first-action chain (inline, no skill)
+├── CLAUDE.md                                           # bro persona + first-action chain
+├── commands/onboard.md                                 # the slash command (auto-fired on empty identity)
 └── mcp/trajectory-server/src/
     ├── schema.sql                                      # seeds plugin_config defaults via INSERT OR IGNORE
-    ├── tools/config.ts                                 # config_get / config_set
-    ├── tools/identity.ts                               # identity_get
-    ├── tools/audit.ts                                  # audit_log (kind='event')
-    └── tools/issues.ts                                 # issue_resume
+    ├── tools/config.ts                                 # config_list / config_set
+    ├── tools/identity.ts                               # identity_get / identity_set / identity_reset
+    ├── tools/audit.ts                                  # audit_log
+    └── sync/backend.ts                                 # detectPreferred() — origin → github/gitlab inference
 ```
 
 ```mermaid
@@ -74,22 +83,38 @@ sequenceDiagram
     participant G as Bro
     participant DB as SQLite (plugin_config, identity, audit)
 
-    Note over DB: Schema-init seeded plugin_config defaults<br/>(github-flow / main / ["main"]) at DB creation.
+    Note over DB: Schema-init seeded plugin_config defaults at DB creation.
 
-    Note over G: First activation — two parallel reads
+    Note over G: Session start — silent state read
     G->>DB: identity_get()
-    G->>DB: issue_resume()
-    DB-->>G: identity null + no pending work
+    DB-->>G: human_name=null  ← empty-DB signal
 
-    G->>H: "Entering bro mode. What are we doing?"
+    Note over G: Auto-fire /onboard
+    G->>G: silent probe (git remote -v, gh/glab auth)
+    G->>H: AUQ Round 1 — Local-only or Remote-tracked?
+    H-->>G: shape
+
+    alt Local-only
+        G->>H: AUQ Round 2 — Name + Branching
+        H-->>G: answers
+        G->>DB: identity_set / config_set (×3, derived pr_target)
+    else Remote-tracked
+        G->>H: AUQ Round 2 — Name + Branching + PR target + Remote
+        H-->>G: answers
+        G->>DB: identity_set / config_set (×4)
+        G->>H: AUQ Round 3 — Issue sync auto/off
+        H-->>G: answer
+        G->>DB: config_set issue_sync
+    end
+
+    G->>H: "Done. Settings updated: ..."
 ```
 
 **Notes:**
-- **No `identity` row exists** until the user invokes `tmb_reonboard`. Bro greets with plain second-person ("hey", "you") until then.
-- **No bro-side default-write.** Defaults are part of the schema. `INSERT OR IGNORE` makes the seed idempotent across re-runs.
-- **No `tmb_defaults_applied` audit event** — system seeding is silent; bro only logs audit events for decisions it actually makes.
-- **Welcome banner is mandatory** (CLAUDE.md). Two variants: pending work (resume) or idle (greeting).
-- **`tmb_reonboard`** is the only skill that writes to `identity` or changes policy keys. Phrases that invoke it: "switch to gitflow", "update my name", "reonboard".
+- **No `identity` row** exists until `/onboard` runs. The empty-DB heuristic is `identity_get().human_name === null`.
+- **The slash command is auto-fired**, not Human-typed, on first contact. `/onboard` re-runs on demand for later changes — same flow, with `Keep "<current>"` options pre-selected.
+- **Defaults stay schema-seeded.** `/onboard` writes user choices on top; without it, the schema defaults still serve.
+- **Welcome banner is mandatory** (CLAUDE.md). Two variants: pending work (resume) or idle (greeting). On first contact the banner appears AFTER `/onboard` completes.
 - Resolution rule for backbone agents: if `<project>/.claude/agents/swe.md` (or `pr-reviewer.md`) exists → use local; else use the global plugin-shipped one. Local creation is opt-in via `tmb_agent-creator` with explicit Human approval.
 
 ---

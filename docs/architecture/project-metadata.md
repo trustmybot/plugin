@@ -133,7 +133,7 @@ A deterministic, persisted stack-detection layer:
 
 (Note: `cargo` and `go` appear in both package_managers and test_runners conceptually — emit them once in package_managers; test invocations use `cargo test` / `go test` which the planning skill knows.)
 
-**Git remote provider mapping** (re-uses the mapping from `tmb_reonboard` Step 1.5):
+**Git remote provider mapping** (re-uses the URL pattern table from `commands/onboard.md` Step 0 — silent context probe):
 
 | URL contains | provider |
 |---|---|
