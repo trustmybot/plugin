@@ -58,7 +58,27 @@ out=$(echo "$(input 'Bash' 'git worktree add -B foo .claude/worktrees/x HEAD')" 
   | env TMB_ALLOW_WORKTREE_BRANCH_CREATE=1 bash "$HOOK" 2>&1 || true)
 assert_eq "" "$out" "env bypass works"
 
+# --- #2869: --detach checks ---
+
+test_case "git worktree add --detach path branch: BLOCK"
+out=$(run_hook "$(input 'Bash' 'git worktree add --detach .claude/worktrees/x fix/foo')")
+assert_contains "$out" '"permissionDecision":"deny"' "deny on --detach"
+assert_contains "$out" 'strands SWE' "reason cites #2869 doctrine"
+
+test_case "git worktree add (no --detach): silent pass"
+out=$(run_hook "$(input 'Bash' 'git worktree add .claude/worktrees/y fix/bar')")
+assert_eq "" "$out" "plain worktree add allowed"
+
+test_case "TMB_ALLOW_WORKTREE_DETACH bypass: pass even with --detach"
+out=$(echo "$(input 'Bash' 'git worktree add --detach .claude/worktrees/x fix/foo')" \
+  | env TMB_ALLOW_WORKTREE_DETACH=1 bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "detach bypass works"
+
 test_case "no DB (not a TMB project): pass even on -B"
 rm -f "$DB"
 out=$(run_hook "$(input 'Bash' 'git worktree add -B foo .claude/worktrees/x HEAD')")
 assert_eq "" "$out" "no DB = not TMB = allow"
+
+test_case "no DB (not a TMB project): pass even on --detach"
+out=$(run_hook "$(input 'Bash' 'git worktree add --detach .claude/worktrees/x fix/foo')")
+assert_eq "" "$out" "no DB = not TMB = allow detach too"

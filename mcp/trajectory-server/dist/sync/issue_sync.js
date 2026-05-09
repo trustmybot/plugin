@@ -43,6 +43,9 @@ function parseRemoteIid(stdout, kind) {
     }
     return null;
 }
+function isFailure(r) {
+    return r.ok === false;
+}
 async function createOnBackend(backend, opts, spawnFn) {
     const { title, body, labels = [] } = opts;
     const kind = backend === 'gh' ? 'github' : 'gitlab';
@@ -74,8 +77,16 @@ async function createOnBackend(backend, opts, spawnFn) {
                 backend,
                 issueId: opts.issueId,
                 stderr: result.stderr,
+                exit_code: result.status,
             });
-            return null;
+            return {
+                ok: false,
+                reason: 'non_zero_exit',
+                backend,
+                stderr: result.stderr,
+                stdout: result.stdout,
+                exit_code: result.status ?? undefined,
+            };
         }
         const remote_iid = parseRemoteIid(result.stdout, kind);
         if (remote_iid === null) {
@@ -85,25 +96,42 @@ async function createOnBackend(backend, opts, spawnFn) {
                 issueId: opts.issueId,
                 stdout: result.stdout,
             });
-            return null;
+            return {
+                ok: false,
+                reason: 'parse_failed',
+                backend,
+                stdout: result.stdout,
+                message: `could not parse remote issue id from "${cmd} ${args.join(' ')}" output`,
+            };
         }
         return { remote_iid, remote_kind: kind };
     }
     catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         syncLog({
             event: 'issue_create_error',
             backend,
             issueId: opts.issueId,
-            error: e instanceof Error ? e.message : String(e),
+            error: message,
         });
-        return null;
+        return {
+            ok: false,
+            reason: 'spawn_error',
+            backend,
+            message,
+        };
     }
 }
 export async function syncIssueCreate(opts) {
     const spawnFn = opts._spawnFn ?? defaultSpawnFn;
     const backend = opts._backend;
     if (!backend) {
-        return null;
+        return {
+            ok: false,
+            reason: 'no_backend',
+            backend: null,
+            message: 'no remote backend configured (issue_sync key resolved to null)',
+        };
     }
     syncLog({
         kind: 'issue_sync_active',
@@ -119,12 +147,18 @@ export async function syncIssueCreate(opts) {
     }
     if (backend === 'both') {
         const ghResult = await createOnBackend('gh', opts, spawnFn);
-        if (ghResult)
+        if (!isFailure(ghResult))
             return ghResult;
         return createOnBackend('glab', opts, spawnFn);
     }
-    return null;
+    return {
+        ok: false,
+        reason: 'no_backend',
+        backend: null,
+        message: `unrecognised backend "${backend}"`,
+    };
 }
+export { isFailure as isSyncFailure };
 export async function syncIssueClose(opts) {
     const spawnFn = opts._spawnFn ?? defaultSpawnFn;
     const { remote_iid, remote_kind } = opts;
@@ -150,19 +184,27 @@ export async function syncIssueClose(opts) {
                 remote_kind,
                 remote_iid,
                 stderr: result.stderr,
+                exit_code: result.status,
             });
-            return false;
+            return {
+                ok: false,
+                reason: 'non_zero_exit',
+                stderr: result.stderr,
+                stdout: result.stdout,
+                exit_code: result.status ?? undefined,
+            };
         }
-        return true;
+        return { ok: true };
     }
     catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         syncLog({
             event: 'issue_close_error',
             remote_kind,
             remote_iid,
-            error: e instanceof Error ? e.message : String(e),
+            error: message,
         });
-        return false;
+        return { ok: false, reason: 'spawn_error', message };
     }
 }
 //# sourceMappingURL=issue_sync.js.map

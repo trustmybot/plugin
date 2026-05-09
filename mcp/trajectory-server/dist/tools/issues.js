@@ -1,8 +1,8 @@
 import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackend } from '../sync/backend.js';
-import { syncIssueCreate, syncIssueClose } from '../sync/issue_sync.js';
+import { resolveBackend, detectPreferred } from '../sync/backend.js';
+import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
 // Labels were retired from the issues table in #179 (always-empty in
 // production). Sync paths still pass labels through to the remote (GitLab/
@@ -170,6 +170,9 @@ export function issueTools(db, dbPath = '') {
             const syncConfig = syncConfigRow
                 ? JSON.parse(syncConfigRow.value_json)
                 : 'off';
+            // #2871 — collect any sync diagnostic that the caller (bro) should
+            // see inline. The trajectory log alone is invisible to the agent.
+            let syncDiagnostic;
             if (syncConfig !== 'off') {
                 const backend = resolveBackend(syncConfig);
                 if (backend === null) {
@@ -185,18 +188,53 @@ export function issueTools(db, dbPath = '') {
                         _spawnFn: spawnFn,
                         _cwd: resolveSpawnCwd(db, dbPath),
                     });
-                    if (syncResult) {
+                    if (!isSyncFailure(syncResult)) {
                         db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);
                     }
                     else {
-                        serverLog({ event: 'issue_sync_failed', issueId, backend });
+                        serverLog({
+                            event: 'issue_sync_failed',
+                            issueId,
+                            backend,
+                            reason: syncResult.reason,
+                            exit_code: syncResult.exit_code,
+                            stderr: syncResult.stderr?.slice(0, 1024),
+                            message: syncResult.message,
+                        });
+                        syncDiagnostic = {
+                            sync_failed: true,
+                            reason: syncResult.reason,
+                            backend: syncResult.backend,
+                            exit_code: syncResult.exit_code,
+                            stderr: syncResult.stderr?.slice(0, 4096),
+                            stdout: syncResult.stdout?.slice(0, 4096),
+                            message: syncResult.message,
+                            hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+                        };
                     }
+                }
+            }
+            else {
+                // #2871 Bug 1 — work env had `issue_sync='off'` while origin pointed at
+                // GitLab; issues silently never reached the remote. Surface a warning
+                // when the project clearly looks remote-tracked (git origin is gh/glab)
+                // but sync is disabled, so bro can mention it instead of hiding the drift.
+                const preferred = detectPreferred();
+                if (preferred !== null) {
+                    syncDiagnostic = {
+                        sync_skipped: true,
+                        reason: 'issue_sync is "off" but origin points at ' + preferred,
+                        hint: 'If this project should mirror issues to the remote, run `config_set(key="issue_sync", value="auto")`.',
+                    };
                 }
             }
             const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             const issue = decodeIssue(row);
             const redacted = redactIssue(issue, agent, { include_description: true });
-            return ok(redacted);
+            const payload = { ...redacted };
+            if (syncDiagnostic)
+                payload._sync = syncDiagnostic;
+            return ok(payload);
         })),
         issue_get: wrapHandler(async (args) => {
             const agent = normalizeAgent(args['agent']);
@@ -244,13 +282,21 @@ export function issueTools(db, dbPath = '') {
             }
             const remoteRow = db.get(`SELECT remote_iid, remote_kind FROM issues WHERE id = ?`, [issueId]);
             if (remoteRow?.remote_iid != null && remoteRow.remote_kind != null) {
-                const success = await syncIssueClose({
+                const closeResult = await syncIssueClose({
                     remote_iid: remoteRow.remote_iid,
                     remote_kind: remoteRow.remote_kind,
                     _cwd: resolveSpawnCwd(db, dbPath),
                 });
-                if (!success) {
-                    serverLog({ event: 'issue_close_sync_failed', issueId, remote_iid: remoteRow.remote_iid });
+                if (!closeResult.ok) {
+                    serverLog({
+                        event: 'issue_close_sync_failed',
+                        issueId,
+                        remote_iid: remoteRow.remote_iid,
+                        reason: closeResult.reason,
+                        exit_code: closeResult.exit_code,
+                        stderr: closeResult.stderr?.slice(0, 1024),
+                        message: closeResult.message,
+                    });
                 }
             }
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
@@ -339,11 +385,26 @@ export function issueTools(db, dbPath = '') {
             }
             const issue = decodeIssue(row);
             if (row.status === 'closed' && row.remote_iid != null && row.remote_kind != null) {
-                const success = await syncIssueClose({
+                const closeResult = await syncIssueClose({
                     remote_iid: row.remote_iid,
                     remote_kind: row.remote_kind,
                 });
-                return ok({ action: 'close', success });
+                if (closeResult.ok) {
+                    return ok({ action: 'close', success: true });
+                }
+                // #2871: surface the diagnostic so bro can see why the close failed
+                // instead of just `{success:false}`.
+                return ok({
+                    action: 'close',
+                    success: false,
+                    error: {
+                        reason: closeResult.reason,
+                        exit_code: closeResult.exit_code,
+                        stderr: closeResult.stderr?.slice(0, 4096),
+                        stdout: closeResult.stdout?.slice(0, 4096),
+                        message: closeResult.message,
+                    },
+                });
             }
             const syncResult = await syncIssueCreate({
                 issueId: row.id,
@@ -354,11 +415,24 @@ export function issueTools(db, dbPath = '') {
                 labels: [],
                 _backend: backend,
             });
-            if (syncResult) {
+            if (!isSyncFailure(syncResult)) {
                 db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);
                 return ok({ action: 'create', success: true, remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind });
             }
-            return ok({ action: 'create', success: false });
+            // #2871: surface the diagnostic so bro can see why the create failed
+            // instead of just `{success:false}` with no clue.
+            return ok({
+                action: 'create',
+                success: false,
+                error: {
+                    reason: syncResult.reason,
+                    backend: syncResult.backend,
+                    exit_code: syncResult.exit_code,
+                    stderr: syncResult.stderr?.slice(0, 4096),
+                    stdout: syncResult.stdout?.slice(0, 4096),
+                    message: syncResult.message,
+                },
+            });
         })),
     };
     return { definitions, handlers };

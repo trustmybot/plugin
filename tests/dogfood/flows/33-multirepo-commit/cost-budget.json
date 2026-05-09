@@ -1,0 +1,5 @@
+{
+  "max_total_tokens": 50000,
+  "max_duration_ms": 90000,
+  "soft_warn_only": true
+}

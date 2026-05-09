@@ -36,6 +36,7 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 | 8 | [SWE retry / escalation](#8-swe-retry--escalation) | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer when at push gate) | `tmb_feedback-loop` | `validation_attempts` (multiple rows), `discussions` | `git-push-guard` |
 | 9 | [Roundtable](#9-roundtable-multi-agent-deliberation) | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2-4 project-local consultants | `tmb_roundtable` | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | 13 | [Bulk cleanup](#13-bulk-cleanup-pre-authorized-destructive-ops) | Human pre-authorizes a bulk delete in the prompt | bro (direct Bash, no SWE spawn) | — | none (filesystem hygiene) | — |
+| 33 | [Multi-repo path discipline](#33-multi-repo-path-discipline) | Multi-repo workspace; `tmb_default_repo` set; bro indexes inner repo | bro | — | `file_registry` (repo-relative paths) | — |
 | **C** | [Consultant invocation](#c-consultant-invocation) | Human asks for second opinion **OR** bro spawns one | bro → consultant (architect / cto / pm / domain) | n/a (consultants follow their own prompts) | `discussions` (kind='analysis'/'concern') | — |
 | **M** | [Monitor PR comments](#m-monitor-pr-comments) | `/monitor <PR_number>` | bro → pr-reviewer (one per actionable comment batch) | `tmb_pr-review-handler` | `pr_review_runs`, `issues`, `tasks`, `audit` | `git-push-guard` |
 
@@ -664,6 +665,36 @@ flowchart TD
 - No re-confirmation after the Human has authorized. Re-asking treats a standing directive as a question — wastes time and ignores intent.
 - Defensive checks (which files match? any active worktrees?) belong *before* the Human authorizes, not after.
 - AskUserQuestion is explicitly forbidden for this flow (see `tools-forbidden.json` in the L5 flow fixture).
+
+---
+
+## 33. Multi-repo path discipline
+
+**Trigger:** workspace has multiple inner git repos (siblings or submodules); `tmb_default_repo` is configured; bro is asked to index or operate on the default repo.
+
+**Doctrine:** `file_registry` paths are stored repo-relative — scoped per inner repo via `tasks.repo` (per-task) or `tmb_default_repo` (workspace default). Bro does NOT prepend the inner repo directory when writing rows.
+
+**Workspace shape:**
+
+```
+PROJECT/
+├── .claude/tmb/trajectory.db   ← workspace-rooted; MCP DB lives here
+├── api/                         ← inner repo, tmb_default_repo='api'
+│   └── handler.py
+└── app/                         ← sibling inner repo (untouched in this flow)
+    └── src/index.ts
+```
+
+**Steps:**
+
+1. Bro reads `tmb_default_repo` via `config_get` (or relies on `tasks.repo` if a task was already created).
+2. Bro globs / reads files in `<workspace>/api/`.
+3. Bro inserts `file_registry` rows with **repo-relative** paths: `handler.py`, NOT `api/handler.py`.
+4. Sibling repos (`app/`) are not touched.
+
+**Notes:**
+- Path-discipline regressions are the recurring root cause behind several "MCP server is workspace-rooted but commit paths are plugin-rooted" incidents. The L5 fixture (`tests/dogfood/flows/33-multirepo-commit/`) catches this at the storage layer: `file_registry.path LIKE 'api/%' OR LIKE 'app/%'` returns ≥1 row only on a regression.
+- Same discipline applies to git operations — bro should use `git -C <inner-repo>` with repo-relative paths, never workspace-rooted prefixes against an outer repo that doesn't track those files.
 
 ---
 
