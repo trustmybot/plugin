@@ -68,11 +68,28 @@ export interface SyncResult {
   remote_kind: 'github' | 'gitlab';
 }
 
+// #2871: callers need the failure reason to surface in tool responses,
+// not just a null. SyncFailure carries enough detail for bro to decide
+// whether to retry, fall back, or surface to the Human.
+export interface SyncFailure {
+  ok: false;
+  reason: 'spawn_error' | 'non_zero_exit' | 'parse_failed' | 'no_backend';
+  backend: 'gh' | 'glab' | 'both' | null;
+  stderr?: string;
+  stdout?: string;
+  exit_code?: number;
+  message?: string;
+}
+
+function isFailure(r: SyncResult | SyncFailure): r is SyncFailure {
+  return (r as SyncFailure).ok === false;
+}
+
 async function createOnBackend(
   backend: 'gh' | 'glab',
   opts: SyncIssueCreateOpts,
   spawnFn: SpawnFn,
-): Promise<SyncResult | null> {
+): Promise<SyncResult | SyncFailure> {
   const { title, body, labels = [] } = opts;
   const kind = backend === 'gh' ? 'github' : 'gitlab';
   const spawnOpts: SpawnSyncOptions = { timeout: 5000, encoding: 'utf8' };
@@ -104,8 +121,16 @@ async function createOnBackend(
         backend,
         issueId: opts.issueId,
         stderr: result.stderr,
+        exit_code: result.status,
       });
-      return null;
+      return {
+        ok: false,
+        reason: 'non_zero_exit',
+        backend,
+        stderr: result.stderr,
+        stdout: result.stdout,
+        exit_code: result.status ?? undefined,
+      };
     }
     const remote_iid = parseRemoteIid(result.stdout, kind);
     if (remote_iid === null) {
@@ -115,28 +140,45 @@ async function createOnBackend(
         issueId: opts.issueId,
         stdout: result.stdout,
       });
-      return null;
+      return {
+        ok: false,
+        reason: 'parse_failed',
+        backend,
+        stdout: result.stdout,
+        message: `could not parse remote issue id from "${cmd} ${args.join(' ')}" output`,
+      };
     }
     return { remote_iid, remote_kind: kind };
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     syncLog({
       event: 'issue_create_error',
       backend,
       issueId: opts.issueId,
-      error: e instanceof Error ? e.message : String(e),
+      error: message,
     });
-    return null;
+    return {
+      ok: false,
+      reason: 'spawn_error',
+      backend,
+      message,
+    };
   }
 }
 
 export async function syncIssueCreate(
   opts: SyncIssueCreateOpts & { _backend?: 'gh' | 'glab' | 'both' },
-): Promise<SyncResult | null> {
+): Promise<SyncResult | SyncFailure> {
   const spawnFn = opts._spawnFn ?? defaultSpawnFn;
   const backend = opts._backend;
 
   if (!backend) {
-    return null;
+    return {
+      ok: false,
+      reason: 'no_backend',
+      backend: null,
+      message: 'no remote backend configured (issue_sync key resolved to null)',
+    };
   }
 
   syncLog({
@@ -154,11 +196,18 @@ export async function syncIssueCreate(
   }
   if (backend === 'both') {
     const ghResult = await createOnBackend('gh', opts, spawnFn);
-    if (ghResult) return ghResult;
+    if (!isFailure(ghResult)) return ghResult;
     return createOnBackend('glab', opts, spawnFn);
   }
-  return null;
+  return {
+    ok: false,
+    reason: 'no_backend',
+    backend: null,
+    message: `unrecognised backend "${backend}"`,
+  };
 }
+
+export { isFailure as isSyncFailure };
 
 export interface SyncIssueCloseOpts {
   remote_iid: number;
@@ -167,7 +216,16 @@ export interface SyncIssueCloseOpts {
   _cwd?: string;
 }
 
-export async function syncIssueClose(opts: SyncIssueCloseOpts): Promise<boolean> {
+export interface SyncCloseResult {
+  ok: boolean;
+  reason?: 'spawn_error' | 'non_zero_exit';
+  stderr?: string;
+  stdout?: string;
+  exit_code?: number;
+  message?: string;
+}
+
+export async function syncIssueClose(opts: SyncIssueCloseOpts): Promise<SyncCloseResult> {
   const spawnFn = opts._spawnFn ?? defaultSpawnFn;
   const { remote_iid, remote_kind } = opts;
   const spawnOpts: SpawnSyncOptions = { timeout: 5000, encoding: 'utf8' };
@@ -193,17 +251,25 @@ export async function syncIssueClose(opts: SyncIssueCloseOpts): Promise<boolean>
         remote_kind,
         remote_iid,
         stderr: result.stderr,
+        exit_code: result.status,
       });
-      return false;
+      return {
+        ok: false,
+        reason: 'non_zero_exit',
+        stderr: result.stderr,
+        stdout: result.stdout,
+        exit_code: result.status ?? undefined,
+      };
     }
-    return true;
+    return { ok: true };
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     syncLog({
       event: 'issue_close_error',
       remote_kind,
       remote_iid,
-      error: e instanceof Error ? e.message : String(e),
+      error: message,
     });
-    return false;
+    return { ok: false, reason: 'spawn_error', message };
   }
 }

@@ -31,31 +31,65 @@ fi
 
 LOWER=$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')
 
-# Domain-expert keyword classes. Each class names the consultant role
-# bro should consider spawning.
-DOMAIN=""
-case "$LOWER" in
-  *"security"*|*"vulnerability"*|*"injection"*|*"xss"*|*"csrf"*|*"auth bypass"*) DOMAIN="security" ;;
-  *"perf"*|*"latency"*|*"throughput"*|*"bottleneck"*|*"scaling"*|*"benchmark"*) DOMAIN="perf" ;;
-  *"legal"*|*"licensing"*|*"compliance"*|*"gdpr"*|*"pii"*|*"copyright"*) DOMAIN="legal" ;;
-  *"architecture decision"*|*"trade-off"*|*"tradeoff"*|*"design choice"*|*"adr"*) DOMAIN="architect" ;;
-  *)
-    # Pattern fallback: "what's the X implication" / "is X safe under Y" /
-    # "should we use X over Y" — these cluster on advisory questions.
+# Two firing modes:
+#   - DOMAIN keyword detected → suggest spawning a domain-fit consultant
+#   - NAMED_ROLE detected     → remind bro to consult the registry (agent_list)
+#                                before spawning, even when the role is explicit
+#
+# Consultant names are loaded from the agents-registry SQLite table — the
+# canonical source of truth (#184). Hardcoding names would drift each time
+# a project registers a new consultant.
+NAMED_ROLE=""
+if command -v sqlite3 >/dev/null 2>&1; then
+  CONSULTANT_NAMES=$(sqlite3 "$DB_PATH" \
+    "SELECT name FROM agents WHERE kind='consultant' AND status='active';" \
+    2>/dev/null)
+  while IFS= read -r role; do
+    [ -n "$role" ] || continue
+    role_lc=$(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')
     case "$LOWER" in
-      *"implication"*|*"trade-off"*|*"should we use"*|*"better to use"*) DOMAIN="advisory" ;;
+      *"${role_lc}'s read"*|*"${role_lc}'s view"*|*"${role_lc}'s take"*|\
+      *"${role_lc} agent"*|*"the ${role_lc} "*|*"the ${role_lc}."*|*"the ${role_lc},"*)
+        NAMED_ROLE="$role_lc"
+        break
+        ;;
     esac
-    ;;
-esac
+  done <<EOF
+$CONSULTANT_NAMES
+EOF
+fi
 
-[ -z "$DOMAIN" ] && exit 0
+# Domain-expert keyword classes. Each class names the consultant role
+# bro should consider spawning when no specific role was named.
+DOMAIN=""
+if [ -z "$NAMED_ROLE" ]; then
+  case "$LOWER" in
+    *"security"*|*"vulnerability"*|*"injection"*|*"xss"*|*"csrf"*|*"auth bypass"*) DOMAIN="security" ;;
+    *"perf"*|*"latency"*|*"throughput"*|*"bottleneck"*|*"scaling"*|*"benchmark"*) DOMAIN="perf" ;;
+    *"legal"*|*"licensing"*|*"compliance"*|*"gdpr"*|*"pii"*|*"copyright"*) DOMAIN="legal" ;;
+    *"architecture decision"*|*"trade-off"*|*"tradeoff"*|*"design choice"*|*"adr"*) DOMAIN="architect" ;;
+    *)
+      # Pattern fallback: "what's the X implication" / "is X safe under Y" /
+      # "should we use X over Y" — these cluster on advisory questions.
+      case "$LOWER" in
+        *"implication"*|*"trade-off"*|*"should we use"*|*"better to use"*) DOMAIN="advisory" ;;
+      esac
+      ;;
+  esac
+fi
 
-# Don't fire if the user already mentions a consultant or agent role.
-case "$LOWER" in
-  *"consultant"*|*"architect"*|*"cto"*|*"ceo"*|*"pm"*|*"agent-creator"*) exit 0 ;;
-esac
+[ -z "$NAMED_ROLE" ] && [ -z "$DOMAIN" ] && exit 0
 
-CONTEXT="[tmb consultant-spawn hint] The user's prompt looks like a ${DOMAIN} judgment call. If the existing roster (\`.claude/agents/\`) doesn't already include a fitting consultant, propose \`tmb_agent-creator\` to spawn one in analysis-only mode (per tmb_concerns-protocol Path B). Decide whether to spawn — this hint is advisory."
+if [ -n "$NAMED_ROLE" ]; then
+  # Post-#184 doctrine: the registry is the source of truth for agents.
+  # Even when the user names a specific role, bro must call agent_list to
+  # resolve scope (template vs project-local), then either copy + register
+  # + spawn, or spawn directly. Skipping agent_list lets bro silently use
+  # a stale .claude/agents/ file or miss a registered alternative.
+  CONTEXT="[tmb consultant-spawn hint] The user's prompt names the ${NAMED_ROLE} role. Load \`tmb_agent-creator\` to look up ${NAMED_ROLE} in the agent registry (\`agent_list\`), resolve its scope, then spawn via \`Agent\`. Direct \`Agent\` calls without a registry consult bypass the source of truth (#184)."
+else
+  CONTEXT="[tmb consultant-spawn hint] The user's prompt looks like a ${DOMAIN} judgment call. If the existing roster (\`.claude/agents/\`) doesn't already include a fitting consultant, propose \`tmb_agent-creator\` to spawn one in analysis-only mode (per tmb_concerns-protocol Path B). Decide whether to spawn — this hint is advisory."
+fi
 
 jq -nc --arg ctx "$CONTEXT" '{
   hookSpecificOutput: {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { syncIssueCreate, syncIssueClose } from '../sync/issue_sync.js';
+import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
 export function makeSpawnFn(responses) {
     let index = 0;
     return (_cmd, _args, _opts) => {
@@ -13,13 +13,14 @@ export function makeSpawnFn(responses) {
     };
 }
 describe('syncIssueCreate', () => {
-    it('returns null when backend is not set', async () => {
+    it('returns SyncFailure(no_backend) when backend is not set', async () => {
         const result = await syncIssueCreate({
             issueId: 1,
             title: 'Test',
             body: 'Body',
         });
-        assert.equal(result, null);
+        assert.ok(isSyncFailure(result));
+        assert.equal(result.reason, 'no_backend');
     });
     it('parses github URL from gh stdout', async () => {
         const spawnFn = makeSpawnFn([
@@ -36,7 +37,7 @@ describe('syncIssueCreate', () => {
             _backend: 'gh',
             _spawnFn: spawnFn,
         });
-        assert.ok(result !== null);
+        assert.ok(!isSyncFailure(result));
         assert.equal(result.remote_iid, 42);
         assert.equal(result.remote_kind, 'github');
     });
@@ -55,11 +56,11 @@ describe('syncIssueCreate', () => {
             _backend: 'glab',
             _spawnFn: spawnFn,
         });
-        assert.ok(result !== null);
+        assert.ok(!isSyncFailure(result));
         assert.equal(result.remote_iid, 77);
         assert.equal(result.remote_kind, 'gitlab');
     });
-    it('returns null when command fails', async () => {
+    it('returns SyncFailure with stderr+exit_code when command fails (#2871)', async () => {
         const spawnFn = makeSpawnFn([
             { status: 1, stdout: '', stderr: 'auth error' },
         ]);
@@ -70,9 +71,13 @@ describe('syncIssueCreate', () => {
             _backend: 'gh',
             _spawnFn: spawnFn,
         });
-        assert.equal(result, null);
+        assert.ok(isSyncFailure(result));
+        assert.equal(result.reason, 'non_zero_exit');
+        assert.equal(result.exit_code, 1);
+        assert.equal(result.stderr, 'auth error');
+        assert.equal(result.backend, 'gh');
     });
-    it('returns null when stdout cannot be parsed', async () => {
+    it('returns SyncFailure with parse_failed reason when stdout is unrecognised (#2871)', async () => {
         const spawnFn = makeSpawnFn([
             { status: 0, stdout: 'unexpected output\n', stderr: '' },
         ]);
@@ -83,7 +88,9 @@ describe('syncIssueCreate', () => {
             _backend: 'gh',
             _spawnFn: spawnFn,
         });
-        assert.equal(result, null);
+        assert.ok(isSyncFailure(result));
+        assert.equal(result.reason, 'parse_failed');
+        assert.equal(result.stdout, 'unexpected output\n');
     });
     it('for both backend, uses gh result when gh succeeds', async () => {
         const spawnFn = makeSpawnFn([
@@ -100,7 +107,7 @@ describe('syncIssueCreate', () => {
             _backend: 'both',
             _spawnFn: spawnFn,
         });
-        assert.ok(result !== null);
+        assert.ok(!isSyncFailure(result));
         assert.equal(result.remote_iid, 10);
         assert.equal(result.remote_kind, 'github');
     });
@@ -120,7 +127,7 @@ describe('syncIssueCreate', () => {
             _backend: 'both',
             _spawnFn: spawnFn,
         });
-        assert.ok(result !== null);
+        assert.ok(!isSyncFailure(result));
         assert.equal(result.remote_iid, 55);
         assert.equal(result.remote_kind, 'gitlab');
     });
@@ -214,7 +221,7 @@ describe('syncIssueCreate cwd injection', () => {
     });
 });
 describe('syncIssueClose', () => {
-    it('returns true when gh close succeeds', async () => {
+    it('returns ok=true when gh close succeeds', async () => {
         const spawnFn = makeSpawnFn([
             { status: 0, stdout: '', stderr: '' },
         ]);
@@ -223,9 +230,9 @@ describe('syncIssueClose', () => {
             remote_kind: 'github',
             _spawnFn: spawnFn,
         });
-        assert.equal(result, true);
+        assert.equal(result.ok, true);
     });
-    it('returns false when glab close fails', async () => {
+    it('returns ok=false with stderr+exit_code when glab close fails (#2871)', async () => {
         const spawnFn = makeSpawnFn([
             { status: 1, stdout: '', stderr: 'not found' },
         ]);
@@ -234,7 +241,10 @@ describe('syncIssueClose', () => {
             remote_kind: 'gitlab',
             _spawnFn: spawnFn,
         });
-        assert.equal(result, false);
+        assert.equal(result.ok, false);
+        assert.equal(result.reason, 'non_zero_exit');
+        assert.equal(result.exit_code, 1);
+        assert.equal(result.stderr, 'not found');
     });
 });
 //# sourceMappingURL=sync-issue.test.js.map

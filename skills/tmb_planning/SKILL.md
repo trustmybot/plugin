@@ -30,7 +30,7 @@ fully self-contained.
 5. `git switch -c <branch_id>` (the WorktreeCreate hook routes to the right inner repo when in a workspace).
 6. Author the spec body inline using the template in §"Spec body template". Difficult-path: pick conservative defaults, name them in `## Description` "Assumptions:" bullets.
 7. `task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, description, success_criteria, spec_body}], emit_planning_complete=true, waive_scope_gate=true, waive_scope_gate_reason='headless mode: defaults applied; <one-line scope summary>')`.
-8. Spawn SWE: `git worktree add --detach .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`.
+8. Spawn SWE: `git worktree add .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`.
 
 Interactive (Human-present) flow continues at Step 0.
 
@@ -188,7 +188,7 @@ Spawn commands:
 ```bash
 git fetch origin <pr_target>
 git switch -c <branch_id> origin/<pr_target>     # already done in Step 2 if there
-git worktree add --detach .claude/worktrees/<slug> <branch_id>
+git worktree add .claude/worktrees/<slug> <branch_id>
 ```
 
 ```
