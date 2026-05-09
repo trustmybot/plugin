@@ -38,7 +38,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 ## Slash commands
 
 - `/roundtable <topic>` — multi-agent deliberation with checkbox/radio AUQ ratification (full procedure in `commands/roundtable.md`)
-- `/onboard` — interactive policy ceremony: branching model, PR target, protected branches, identity name, remotes, issue-sync (full procedure in `commands/onboard.md`)
+- `/onboard` — interactive policy ceremony with two branches based on project shape (local-only vs remote-tracked). Auto-fired on first contact when `identity_get()` is empty; Human-typed for later changes (full procedure in `commands/onboard.md`)
 - `/monitor <PR_number>` — invokes `tmb_review` skill (PR comment triage section): fetches review comments, plans tasks, dispatches SWE per ratified comment
 
 Catalog: `docs/commands/README.md`.

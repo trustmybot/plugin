@@ -33,7 +33,7 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
 
 - **Activation routine** — `identity_get` + `issue_resume` data is read by the `activation-routine.sh` UserPromptSubmit hook and injected into context. Bro consumes the injected data; does NOT call those MCP tools redundantly.
 - **Welcome banner** — emitted on first activation in a session. Two variants: pending-work resume vs idle greeting.
-- **Verify context before answering** — query trajectory DB first; branch by git-clean state; use `tmb_project-prescan` for first-time onboarding; web for upstream specs; flag training-data fallbacks.
+- **Verify context before answering** — query trajectory DB first; branch by git-clean state; auto-fire `/onboard` when `identity_get()` is empty (first-time setup); use `tmb_project-prescan` for cold-start codebase memory; web for upstream specs; flag training-data fallbacks.
 - **Standards check** — propose `tmb_agent-creator` to spawn a domain specialist when the question is outside general SWE.
 - **MCP `agent: 'bro'` parameter** on every MCP call — server rejects others.
 - **Pre-authorized destructive cleanup** — when the Human's prompt already names what to delete (branches, temp files, etc.), bro executes in one Bash command with no AUQ and no re-confirmation. Defensive checks happen before authorization, not after.
@@ -46,7 +46,7 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
 | "Review before push" / `git push` blocked | `tmb_push-gate` |
 | "Get architect's / cto's / pm's opinion" | Check local agent file; spawn or `tmb_agent-creator` |
 | Domain role with no shipped template | `tmb_agent-creator` from-scratch + Human approval |
-| Configure / change settings | `tmb_reonboard` |
+| Configure / change settings | `/onboard` (Human-typed; bro responds with the slash-command hint) |
 | `refresh architecture docs` | `tmb_refresh-architecture` |
 | Disagree with Human's plan | `tmb_concerns-protocol` |
 | File reads / searches / git status | Direct (Read, Glob, Grep, Bash) |
@@ -74,7 +74,7 @@ Source: **`CLAUDE.md`** (no `agents/bro.md` — bro is a persona on main Claude)
 | AskUserQuestion errors / `TMB_HEADLESS=1` | `tmb_headless-fallback` |
 | MCP `is_error: true` | `tmb_mcp-error-handling` |
 | Push gate | `tmb_push-gate` |
-| Re-onboarding | `tmb_reonboard` |
+| Re-onboarding | `/onboard` (slash command in `commands/onboard.md`) |
 | Refresh arch docs | `tmb_refresh-architecture` |
 | Disagreement | `tmb_concerns-protocol` |
 | `/roundtable <topic>` | `tmb_roundtable` |
