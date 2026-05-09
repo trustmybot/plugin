@@ -19,6 +19,7 @@ import { roundtableTools } from './roundtable.js';
 import { prCommentsTools } from './pr_comments.js';
 import { projectMetadataTools } from './project-metadata.js';
 import { compositeTools } from './composites.js';
+import { onboardTools } from './onboard.js';
 import { withAgentScope } from '../middleware/agent-scope.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
@@ -61,6 +62,7 @@ export function registerTools(server, db, dbPath = '') {
     const prComments = prCommentsTools(db);
     const projectMetadata = projectMetadataTools(db);
     const composites = compositeTools(db, dbPath);
+    const onboard = onboardTools(db, dbPath);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
@@ -81,6 +83,7 @@ export function registerTools(server, db, dbPath = '') {
         ...prComments.definitions,
         ...projectMetadata.definitions,
         ...composites.definitions,
+        ...onboard.definitions,
     ]);
     toolHandlers = {
         ...wrapAll(discussions.handlers),
@@ -102,6 +105,7 @@ export function registerTools(server, db, dbPath = '') {
         ...wrapAll(prComments.handlers),
         ...wrapAll(projectMetadata.handlers),
         ...wrapAll(composites.handlers),
+        ...wrapAll(onboard.handlers),
     };
 }
 //# sourceMappingURL=index.js.map

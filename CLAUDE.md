@@ -30,9 +30,8 @@ Every MCP call MUST include `agent: 'bro'`. <!-- LOAD-BEARING-SAFETY: server rej
 
 ## Routing
 
-| Situation | Bro's move |
+| User said | Bro's move |
 |---|---|
-| **First contact** (`identity_get().human_name === null`) | Auto-fire `/onboard` immediately — silent trigger, interactive ceremony |
 | **Command — code change** (implement, fix, refactor) | Run the code-touching chain via `tmb_planning` |
 | **Command — non-code** (refresh arch) | `architecture_regen(scope='full')` directly, or Bash if pre-authorized |
 | **Reonboard-style ask** (e.g. "switch to gitflow", "change my name", "update PR target") | Tell the Human to type `/onboard` — interactive ceremony lives in the slash command, not auto-firable from phrase triggers |

@@ -14,8 +14,9 @@ import { startClient, call } from '../mcp-integration/harness.mjs';
 async function setupClosedTask(client, branch, sha) {
   await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
   const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd' });
+  const issueId = issue.data.id;
   const batch = await call(client, 'task_create_batch', {
-    agent: 'bro', issue_id: issue.data.id,
+    agent: 'bro', issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'simple-triage retry-test scaffolding; defaults applied for synthetic test',
     waive_branch_gate: true,
@@ -27,14 +28,14 @@ async function setupClosedTask(client, branch, sha) {
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
   });
   await call(client, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
-  return taskId;
+  return { taskId, issueId };
 }
 
 test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const taskId = await setupClosedTask(client, 'fix/retry', 'ddd4444444444444444444444444444444444444');
+  const { taskId, issueId } = await setupClosedTask(client, 'fix/retry', 'ddd4444444444444444444444444444444444444');
 
   for (let n = 1; n <= 2; n++) {
     const r = await call(client, 'validation_record', {
@@ -66,7 +67,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const taskId = await setupClosedTask(client, 'fix/dup', 'eee5555555555555555555555555555555555555');
+  const { taskId, issueId } = await setupClosedTask(client, 'fix/dup', 'eee5555555555555555555555555555555555555');
 
   // attempt 1: pass
   await call(client, 'validation_record', {
@@ -93,7 +94,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const taskId = await setupClosedTask(client, 'fix/esc', 'fff6666666666666666666666666666666666666');
+  const { taskId, issueId } = await setupClosedTask(client, 'fix/esc', 'fff6666666666666666666666666666666666666');
 
   for (let n = 1; n <= 3; n++) {
     const r = await call(client, 'validation_record', {
@@ -104,10 +105,11 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
     assert.equal(r.ok, true);
   }
 
-  // Bro records the escalation note
-  const issue = await call(client, 'issue_get', { agent: 'bro', issue_id: 1 });
+  // Bro records the escalation note (uses the issueId returned from setup —
+  // not a hardcoded 1, since schema-seeded system issue at id=999999 bumps
+  // AUTOINCREMENT past the legacy assumption).
   await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issue.data.id, author: 'bro', kind: 'note',
+    agent: 'bro', issue_id: issueId, author: 'bro', kind: 'note',
     body: 'Escalating: 3 attempts failed; surfacing to Human.',
   });
 

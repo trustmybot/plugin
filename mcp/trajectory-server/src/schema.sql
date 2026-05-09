@@ -115,6 +115,13 @@ INSERT OR IGNORE INTO agents (name, kind, scope, file_path, tmb_owner) VALUES
     ('ceo',          'consultant', 'template', 'templates/agents/ceo.md',       'bro'),
     ('pm',           'consultant', 'template', 'templates/agents/pm.md',        'bro');
 
+-- Synthetic "system" issue (id=999999) — parent FK for system-level audit and
+-- discussion writes that don't belong to any user-created work issue. The
+-- tmb_recovery doctrine and the /onboard headless-block path target this id.
+-- Schema-seeded so every fresh DB has it without fixtures needing to add it.
+INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+VALUES (999999, 'system', 'parent issue for headless-recovery / system-level audit and discussion events', 'open', datetime('now'), datetime('now'));
+
 CREATE TABLE IF NOT EXISTS roundtables (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id                INTEGER NOT NULL REFERENCES issues(id),
