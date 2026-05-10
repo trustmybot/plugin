@@ -64,7 +64,7 @@ export function roundtableTools(db: TrajectoryDB): {
     {
       name: 'roundtable_create',
       description:
-        'Create a new roundtable meeting record. Bro-only. Returns the roundtable_id to use for subsequent vote and close calls.',
+        'Create a new roundtable meeting record. Bro-only. Returns the roundtable_id to use for subsequent vote and close calls. Server-gated: requires a prior audit row with event_type=\'roundtable_slash_invoked\' (written by the roundtable-slash-detect.sh UserPromptSubmit hook when the user types /roundtable). The /roundtable ceremony is Human-triggered only.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -74,6 +74,16 @@ export function roundtableTools(db: TrajectoryDB): {
           expected_participants: {
             type: 'number',
             description: 'Number of non-human participants (2–5)',
+          },
+          waive_slash_gate: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the slash-invoke gate (rarely justified — /roundtable is Human-triggered only). If false or omitted, an audit row with event_type='roundtable_slash_invoked' must exist.",
+          },
+          waive_slash_gate_reason: {
+            type: 'string',
+            description:
+              "Required when waive_slash_gate=true. Min 10 chars. Explain why bro is firing roundtable_create without a /roundtable invocation.",
           },
         },
         required: ['agent', 'issue_id', 'topic', 'expected_participants'],
@@ -187,6 +197,58 @@ export function roundtableTools(db: TrajectoryDB): {
           expectedParticipants > 5
         ) {
           throw new Error('invalid_argument: expected_participants must be an integer between 2 and 5');
+        }
+
+        // --- Slash-invoke gate (MCP-level enforcement) ---
+        // /roundtable is Human-triggered only per CLAUDE.md routing. The
+        // roundtable-slash-detect.sh UserPromptSubmit hook writes an
+        // audit row when the user actually types /roundtable. Without
+        // that audit, bro is auto-firing roundtable_create from a phrase
+        // trigger — captured-bug L6 scenario 08.
+        const slashGateWaived = args['waive_slash_gate'] === true;
+        const slashGateWaiverReason = (args['waive_slash_gate_reason'] ?? '') as string;
+        if (slashGateWaived) {
+          if (
+            typeof slashGateWaiverReason !== 'string' ||
+            slashGateWaiverReason.trim().length < 10
+          ) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: 'invalid_argument',
+                    message: 'waive_slash_gate_reason must be a string ≥10 chars.',
+                  }),
+                },
+              ],
+            };
+          }
+        } else {
+          const slashRow = db.get<{ c: number }>(
+            `SELECT COUNT(*) as c FROM audit
+             WHERE kind = 'event' AND event_type = 'roundtable_slash_invoked'`,
+          );
+          if ((slashRow?.c ?? 0) === 0) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: 'roundtable_slash_gate_violation',
+                    message:
+                      `Roundtable slash gate: /roundtable is Human-triggered only. ` +
+                      `No audit row with event_type='roundtable_slash_invoked' exists, meaning ` +
+                      `the user did not type /roundtable. Tell the Human to type /roundtable <topic> ` +
+                      `instead of auto-firing roundtable_create. For exceptional cases, pass ` +
+                      `waive_slash_gate=true with waive_slash_gate_reason="<why>".`,
+                  }),
+                },
+              ],
+            };
+          }
         }
 
         const now = nowISO();
