@@ -1,0 +1,5 @@
+[
+  "mcp__plugin_tmb_trajectory-server__roundtable_create",
+  "mcp__plugin_tmb_trajectory-server__roundtable_close",
+  "mcp__plugin_tmb_trajectory-server__roundtable_finalize_decisions"
+]

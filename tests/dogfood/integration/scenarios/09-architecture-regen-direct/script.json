@@ -1,0 +1,7 @@
+{
+  "max_turns": 3,
+  "user_after_bro": [
+    "Looks good. Anything else I should know?"
+  ],
+  "terminal_pattern": "ready when|nothing else|let me know|all set|nothing pending"
+}
