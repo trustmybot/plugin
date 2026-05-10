@@ -1,0 +1,8 @@
+{
+  "max_turns": 4,
+  "user_after_bro": [
+    "Yes, please proceed — spawn the pr-reviewer and push when it signs off.",
+    "Looks good. Confirm the push went through."
+  ],
+  "terminal_pattern": "pushed|push.*succeeded|task closed|MR (open|created)"
+}
