@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,10 +39,12 @@ export function resolvePluginName(env: NodeJS.ProcessEnv = process.env): string 
  * Resolve the trajectory DB path.
  *
  * 1. Explicit `TRAJECTORY_DB_PATH` env override wins. Power-user / CI use.
- * 2. Default: `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local,
- *    per-user, per-channel. Stable installs write to `.claude/tmb/`,
- *    rc installs write to `.claude/tmb-rc/`. Auto-gitignored via the
- *    plugin-root `.gitignore` exclusion of `.claude/` (issue #87).
+ * 2. Walk up from cwd to find an existing `.claude/<plugin>/trajectory.db`.
+ *    Workspace-pattern projects keep the live DB at the workspace root above
+ *    the inner repos; without this walk-up, the hook (PWD = inner repo) and
+ *    the MCP server (PWD = workspace root) would resolve different DBs and
+ *    bro would see false 'first contact' on every turn (#2872).
+ * 3. Fallback: `<cwd>/.claude/<plugin-name>/trajectory.db` — fresh-init.
  */
 export function resolveDbPath(opts?: { env?: NodeJS.ProcessEnv; cwd?: string }): string {
   const env = opts?.env ?? process.env;
@@ -50,7 +52,23 @@ export function resolveDbPath(opts?: { env?: NodeJS.ProcessEnv; cwd?: string }):
   const override = env['TRAJECTORY_DB_PATH'];
   if (override && override.trim().length > 0) return override;
   const pluginName = resolvePluginName(env);
+  const found = findExistingDbUp(cwd, pluginName);
+  if (found) return found;
   return join(cwd, '.claude', pluginName, 'trajectory.db');
+}
+
+function findExistingDbUp(startDir: string, pluginName: string): string | null {
+  let dir = startDir;
+  // Walk up at most 8 levels — enough for any reasonable workspace nesting,
+  // and bounds the cost when nothing exists.
+  for (let i = 0; i < 8; i++) {
+    const candidate = join(dir, '.claude', pluginName, 'trajectory.db');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
 }
 
 export class TrajectoryDB {
@@ -78,6 +96,7 @@ export class TrajectoryDB {
     this.migratePrReviewRuns();
     this.migrateValidationSubagentSessionId();
     this.migrateDiscussionsVerifiedHuman();
+    this.migrateFileRegistryRepoColumn();
     // #179 destructive drops run LAST so they aren't undone by additive
     // ALTERs above. Idempotent — subsequent boots see the columns already
     // gone and skip the DROP.
@@ -436,6 +455,43 @@ export class TrajectoryDB {
         .prepare(`ALTER TABLE discussions ADD COLUMN verified_human INTEGER NOT NULL DEFAULT 0`)
         .run();
     }
+  }
+
+  private migrateFileRegistryRepoColumn(): void {
+    const cols = this.db
+      .prepare('PRAGMA table_info(file_registry)')
+      .all() as Array<{ name: string; pk: number }>;
+    const present = new Set(cols.map((c) => c.name));
+    if (present.has('repo')) return;
+
+    const colNames = cols.map((c) => c.name);
+    const selectList = [`'' AS repo`, ...colNames].join(', ');
+
+    this.transaction(() => {
+      this.db.exec(
+        `CREATE TABLE file_registry_new (
+          repo                TEXT NOT NULL DEFAULT '',
+          path                TEXT NOT NULL,
+          type                TEXT NOT NULL DEFAULT 'unknown',
+          language            TEXT,
+          size_bytes          INTEGER,
+          last_commit_sha     TEXT,
+          last_change_type    TEXT,
+          last_change_at      TEXT,
+          imports_json        TEXT NOT NULL DEFAULT '[]',
+          exports_json        TEXT NOT NULL DEFAULT '[]',
+          metadata_json       TEXT NOT NULL DEFAULT '{}',
+          content_md5         TEXT,
+          summary             TEXT,
+          summary_updated_at  TEXT,
+          PRIMARY KEY (repo, path)
+        )`,
+      );
+      this.db.exec(`INSERT INTO file_registry_new SELECT ${selectList} FROM file_registry`);
+      // LINT-ALLOW: table-swap migration to add the multi-repo `repo` column and change PK to (repo, path). Rows are copied above before drop.
+      this.db.exec(`DROP TABLE file_registry`);
+      this.db.exec(`ALTER TABLE file_registry_new RENAME TO file_registry`);
+    });
   }
 
   private migratePluginMetaDuplicates(): void {
