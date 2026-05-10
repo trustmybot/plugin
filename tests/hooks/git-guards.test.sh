@@ -146,9 +146,11 @@ setup_detached_worktree_repo() {
     echo init > README.md
     git add . && git commit -qm init
 
-    # Create a detached-HEAD worktree (SWE pattern post-!45).
+    # Create a SWE worktree attached to feat/cli-todo — the worktree owns the
+    # branch ref so its commits advance it directly.
     # Slug = "cli-todo" (basename of worktree dir = everything after last /).
-    git worktree add -q --detach .claude/worktrees/cli-todo
+    git branch feat/cli-todo HEAD
+    git worktree add -q .claude/worktrees/cli-todo feat/cli-todo
 
     # Plant trajectory DB with:
     #   - branching_model, pr_target, protected_branches (schema defaults to github-flow/main/[main])

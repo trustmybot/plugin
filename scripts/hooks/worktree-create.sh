@@ -9,9 +9,11 @@
 # Branches:
 #   repo IS NULL/empty  → no-op JSON {"continue": true}. Single-repo CC
 #                          continues with default worktree creation logic.
-#   repo IS SET         → runs `git -C <repo> worktree add --detach <path> <branch>`
-#                          inside the resolved repo directory. Detached HEAD
-#                          keeps the branch ref free for the main checkout.
+#   repo IS SET         → runs `git -C <repo> worktree add <path> <branch>`
+#                          inside the resolved repo directory. The worktree
+#                          attaches to the named branch so SWE's commits
+#                          advance the branch ref directly and pushes carry
+#                          the commits (#2869 / #2879).
 #
 # Worktree path: <workspace_root>/.claude/worktrees/<slug>
 # where slug strips the <type>/ prefix (fix/123-foo → 123-foo).
@@ -73,7 +75,7 @@ WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
 
 mkdir -p "$(dirname "$WORKTREE_PATH")"
 
-if ! git -C "$REPO_ABS" worktree add --detach "$WORKTREE_PATH" "$BRANCH_NAME" 2>&1; then
+if ! git -C "$REPO_ABS" worktree add "$WORKTREE_PATH" "$BRANCH_NAME" 2>&1; then
   printf 'tmb worktree-create: git worktree add failed for branch %s in repo %s\n' \
     "$BRANCH_NAME" "$REPO_ABS" >&2
   exit 1

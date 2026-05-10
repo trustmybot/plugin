@@ -69,23 +69,24 @@ sqlite3 "$DB" "
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL DEFAULT '\"\"'
   );
-  INSERT INTO tasks (id, branch_id, status, updated_at) VALUES (42, 'fix/test-branch', 'pending', datetime('now', '+10 seconds'));
-  INSERT INTO tasks (id, branch_id, status, updated_at) VALUES (43, 'fix/other-branch', 'completed', datetime('now'));
-  INSERT INTO tasks (id, branch_id, status, updated_at) VALUES (44, 'fix/nv-branch', 'needs_validation', datetime('now'));
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (42, 'fix/test-branch', 'dev', 'pending', datetime('now', '+10 seconds'));
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (43, 'fix/other-branch', 'dev', 'completed', datetime('now'));
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (44, 'fix/nv-branch', 'dev', 'needs_validation', datetime('now'));
   INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 export TRAJECTORY_DB_PATH="$DB"
 
-# Create the SWE detached-HEAD worktrees.
+# Create the SWE worktrees attached to the named branch — the worktree owns
+# the branch ref so SWE's commits advance it directly.
 # Slug = everything after the last '/' in branch_id.
 WT_PATH="$REPO/.claude/worktrees/test-branch"
 git branch fix/test-branch HEAD
-git worktree add -q --detach "$WT_PATH"
+git worktree add -q "$WT_PATH" fix/test-branch
 
 # Worktree for task 44 (needs_validation, slug = nv-branch).
 WT_NV_PATH="$REPO/.claude/worktrees/nv-branch"
 git branch fix/nv-branch HEAD
-git worktree add -q --detach "$WT_NV_PATH"
+git worktree add -q "$WT_NV_PATH" fix/nv-branch
 
 swe_input() {
   jq -n '{subagent_type: "swe"}'
@@ -194,8 +195,11 @@ assert_eq "$((AR_COUNT_NV_BEFORE + 1))" "$AR_COUNT_NV_AFTER" "agent_runs row ins
 
 echo '--- Test: needs_validation + no worktree commit → metrics-only ---'
 
-# Reset nv-branch local ref so WT_HEAD == LOCAL_FEATURE → HAS_COMMITS=false.
-git -C "$REPO" branch -f fix/nv-branch "$(git -C "$WT_NV_PATH" rev-parse HEAD)"
+# Reset the worktree to match its parent_branch tip — branch ref + worktree
+# HEAD both move back so HAS_COMMITS=false. The hook detects "no commits"
+# by comparing worktree HEAD to parent branch tip.
+PARENT_TIP=$(git -C "$REPO" rev-parse dev)
+git -C "$WT_NV_PATH" reset --hard -q "$PARENT_TIP"
 sqlite3 "$DB" "UPDATE tasks SET updated_at=datetime('now', '+35 seconds') WHERE id=44;"
 
 test_case "needs_validation + no commit → no additionalContext"
