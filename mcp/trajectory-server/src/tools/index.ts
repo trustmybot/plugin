@@ -20,7 +20,6 @@ import { branchReportMdTools } from './branch_report_md.js';
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
 import { prCommentsTools } from './pr_comments.js';
-import { projectMetadataTools } from './project-metadata.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
@@ -73,7 +72,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
   const stats = statsTools(db);
   const roundtable = roundtableTools(db);
   const prComments = prCommentsTools(db);
-  const projectMetadata = projectMetadataTools(db);
   const composites = compositeTools(db, dbPath);
   const onboard = onboardTools(db, dbPath);
   const scan = scanTools(db);
@@ -96,7 +94,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...stats.definitions,
     ...roundtable.definitions,
     ...prComments.definitions,
-    ...projectMetadata.definitions,
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
@@ -120,7 +117,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...wrapAll(stats.handlers),
     ...wrapAll(roundtable.handlers),
     ...wrapAll(prComments.handlers),
-    ...wrapAll(projectMetadata.handlers),
     ...wrapAll(composites.handlers),
     ...wrapAll(onboard.handlers),
     ...wrapAll(scan.handlers),
