@@ -135,6 +135,16 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   l6c_snapshot_db "$PROJECT" "$STEP_DIR/pre-state.sql"
   cp "$ROW_DIR/prompt.txt" "$STEP_DIR/user-input.txt"
 
+  # Write the pre-run git snapshot the git scorer reads. Mirrors what
+  # l5_run_claude does so the chain runner doesn't fail every git scorer.
+  if git -C "$PROJECT" rev-parse HEAD >/dev/null 2>&1; then
+    pre_head=$(git -C "$PROJECT" rev-parse HEAD 2>/dev/null || echo "")
+    pre_branch=$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    mkdir -p "$PROJECT/.claude/tmb"
+    printf '{"head":"%s","branch":"%s"}\n' "$pre_head" "$pre_branch" \
+      > "$PROJECT/.claude/tmb/_l5_pre_run_git.json"
+  fi
+
   # Prepend the test-mode AUQ-suppression prefix on the FIRST turn only.
   IS_FIRST=0
   if [ "$step_id" = "1" ] || ! [ -s "$CHAIN_TRAJECTORY" ]; then
@@ -150,7 +160,11 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   l6c_send_turn "$PROJECT" "$SESSION_ID" "$IS_FIRST" "$PROMPT" "$TURN_JSONL"
 
   cat "$TURN_JSONL" >> "$CHAIN_TRAJECTORY"
-  cp "$CHAIN_TRAJECTORY" "$PROJECT/trajectory.jsonl"
+  # Per-step scoring reads $PROJECT/trajectory.jsonl. Required/forbidden
+  # tool checks should reflect THIS row's behaviour, not the cumulative
+  # chain — point trajectory.jsonl at just this turn's jsonl. The full
+  # chain log is preserved separately at $CHAIN_TRAJECTORY for debugging.
+  cp "$TURN_JSONL" "$PROJECT/trajectory.jsonl"
 
   jq -r 'select(.type=="assistant") | .message.content[] | select(.type=="text") | .text' \
     "$TURN_JSONL" 2>/dev/null | tail -c 4000 > "$STEP_DIR/bro-response.txt" || true
@@ -187,7 +201,7 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
     printf "  ✗ step %d failed (%s scorer fails)\n" "$step_id" "$STEP_FAILS"
   fi
 
-  jq -n --arg id "$step_id" --arg name "$step_name" --arg status "$STATUS" \
+  jq -nc --arg id "$step_id" --arg name "$step_name" --arg status "$STATUS" \
         --arg fails "$STEP_FAILS" --arg tokens "$TOKENS" --arg duration "$DURATION_MS" \
         '{id: ($id|tonumber), name: $name, status: $status, scorer_fails: ($fails|tonumber), tokens: ($tokens|tonumber), duration_ms: ($duration|tonumber)}' \
     >> "$RESULTS_JSONL"

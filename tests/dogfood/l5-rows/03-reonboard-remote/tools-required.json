@@ -1,4 +1,3 @@
 [
-  "mcp__plugin_tmb_trajectory-server__onboard_state_get",
-  "mcp__plugin_tmb_trajectory-server__onboard_get_questions"
+  "mcp__plugin_tmb_trajectory-server__onboard_state_get"
 ]

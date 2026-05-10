@@ -18,16 +18,23 @@ SCENARIO_DIR="$2"
 
 SEED_SHA=$(git -C "$PROJECT" rev-parse feat/seed-todo)
 
+# Use AUTOINCREMENT (omit explicit id) so this scenario works both as an
+# L5 unit (clean DB) and as an L6 chain step where IDs are already taken
+# by prior rows. Substantive assertions key off branch_id, not numeric id.
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
-INSERT INTO issues (id, objective, description, status, created_at, updated_at)
-VALUES (1, 'Seed todo CLI', 'pre-seed for push-gate scenario', 'open',
+INSERT INTO issues (objective, description, status, created_at, updated_at)
+VALUES ('Seed todo CLI (push-gate)', 'pre-seed for push-gate scenario', 'open',
         datetime('now'), datetime('now'));
-INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, title, spec_body,
+
+INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, spec_body,
                    description, success_criteria, status, commit_sha,
                    created_at, updated_at)
-VALUES (1, 1, 'feat/seed-todo', 'main', 'Seed todo CLI',
-        '## Files
+SELECT id, 'feat/seed-todo', 'main', 'Seed todo CLI',
+       '## Files
 todo.py
 ', '', '', 'needs_validation', '$SEED_SHA',
-        datetime('now'), datetime('now'));
+       datetime('now'), datetime('now')
+FROM issues
+WHERE objective = 'Seed todo CLI (push-gate)'
+ORDER BY id DESC LIMIT 1;
 SQL
