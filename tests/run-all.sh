@@ -66,6 +66,7 @@ fi
 
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/mcp-integration/run.sh"
 run_step "L3 integration: hook script tests"                         bash "$HERE/hooks/run.sh"
+run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/dogfood/lib/scorers-test.sh"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
 

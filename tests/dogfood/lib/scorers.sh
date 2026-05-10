@@ -279,3 +279,259 @@ l5_score_files() {
 
   return $fail
 }
+
+# l5_score_coherence <project_dir> <flow> <scorer_dir> <run_id>
+# Reads scorer_dir/outcome-coherence.json. Asserts row counts per table
+# satisfy the comparison operator. Catches "empty-table" doctrine violations
+# (e.g. a planning flow that didn't write any discussions row) without each
+# flow author having to spell out the SQL in outcome.sql.
+#
+# Schema:
+#   {
+#     "expected_writes": {
+#       "<table>": "<op><N>",
+#       "<table> WHERE <where-clause>": "<op><N>"
+#     }
+#   }
+#
+# Operators: ">=N", "<=N", "=N", "!=N", or bare "N" (interpreted as "=N").
+# Opt-in: silently returns 0 when no outcome-coherence.json is present.
+l5_score_coherence() {
+  local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
+  local cfg="$scorer_dir/outcome-coherence.json"
+  local db="$project/.claude/tmb/trajectory.db"
+
+  [ -f "$cfg" ] || return 0
+
+  local fail=0
+  local checked=0
+
+  # Iterate keys of expected_writes (table specs, possibly with WHERE suffix).
+  local keys
+  keys=$(jq -r '(.expected_writes // {}) | to_entries[] | .key' "$cfg" 2>/dev/null)
+
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    checked=$((checked + 1))
+
+    local op_value
+    op_value=$(jq -r --arg k "$key" '.expected_writes[$k]' "$cfg")
+
+    # Split "<table>[ WHERE <clause>]"
+    local table where_clause=""
+    if [[ "$key" == *" WHERE "* ]]; then
+      table="${key%% WHERE *}"
+      where_clause=" WHERE ${key#* WHERE }"
+    else
+      table="$key"
+    fi
+
+    # Parse op + number
+    local op num
+    case "$op_value" in
+      ">="*) op=">="; num="${op_value#>=}" ;;
+      "<="*) op="<="; num="${op_value#<=}" ;;
+      "!="*) op="!="; num="${op_value#!=}" ;;
+      "="*)  op="=";  num="${op_value#=}"  ;;
+      *)
+        # Bare number = exact match.
+        if [[ "$op_value" =~ ^[0-9]+$ ]]; then
+          op="="; num="$op_value"
+        else
+          echo "  ✗ coherence: invalid operator in '$op_value' for $key" >&2
+          fail=1
+          continue
+        fi
+        ;;
+    esac
+
+    local count
+    count=$(sqlite3 "$db" "SELECT COUNT(*) FROM ${table}${where_clause};" 2>/dev/null)
+    if [ -z "$count" ]; then
+      echo "  ✗ coherence: query failed for ${table}${where_clause}" >&2
+      fail=1
+      continue
+    fi
+
+    local pass=0
+    case "$op" in
+      ">=") [ "$count" -ge "$num" ] && pass=1 ;;
+      "<=") [ "$count" -le "$num" ] && pass=1 ;;
+      "=")  [ "$count" -eq "$num" ] && pass=1 ;;
+      "!=") [ "$count" -ne "$num" ] && pass=1 ;;
+    esac
+
+    if [ "$pass" = "1" ]; then
+      echo "  ✓ coherence: ${table}${where_clause} = $count (expected $op_value)"
+    else
+      echo "  ✗ coherence: ${table}${where_clause} = $count (expected $op_value)" >&2
+      fail=1
+    fi
+  done <<< "$keys"
+
+  if [ "$checked" = "0" ]; then
+    # Empty config — treat as no-op rather than fail.
+    return 0
+  fi
+
+  l5_record_score "$db" "$run_id" "$flow" "coherence" \
+    "$([ "$fail" = "0" ] && echo 1 || echo 0)" \
+    "" \
+    "$([ "$fail" = "0" ] && echo "$checked check(s) passed" || echo "$fail of $checked check(s) failed")"
+  return "$fail"
+}
+
+# l5_score_git <project_dir> <flow> <scorer_dir> <run_id>
+# Reads scorer_dir/outcome-git.json. Asserts git-state invariants the flow
+# must hold post-run. Catches "bro committed to dev directly" / "worktree
+# on detached HEAD" / "uncommitted slop in worktree" — failures that look
+# like a passing flow on the trajectory + DB scorers.
+#
+# Schema:
+#   {
+#     "base_branch_unchanged":   true,                 // base = pr_target config; only init commit
+#     "uncommitted_in_worktree": false,                // applies to the most-recent task's worktree
+#     "worktrees": [
+#       {
+#         "path":            ".claude/worktrees/<slug>",  // <slug> = most-recent tasks.branch_id slug
+#         "head_branch":     "<task.branch_id>",          // literal branch name or placeholder
+#         "head_not_branch": ["dev", "main"]              // assert HEAD is not on any of these
+#       }
+#     ]
+#   }
+#
+# Opt-in: silently returns 0 when no outcome-git.json is present.
+l5_score_git() {
+  local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
+  local cfg="$scorer_dir/outcome-git.json"
+  local db="$project/.claude/tmb/trajectory.db"
+
+  [ -f "$cfg" ] || return 0
+
+  local fail=0 checked=0
+
+  # Resolve the most-recent task's branch_id (used for placeholder
+  # substitution and worktree slug derivation).
+  local task_branch=""
+  local task_slug=""
+  task_branch=$(sqlite3 "$db" "SELECT branch_id FROM tasks ORDER BY id DESC LIMIT 1;" 2>/dev/null)
+  task_slug="${task_branch##*/}"
+
+  # Resolve pr_target for base-branch checks.
+  local pr_target
+  pr_target=$(sqlite3 "$db" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null)
+  pr_target="${pr_target:-main}"
+
+  # 1) base_branch_unchanged — base branch tip should match the snapshot
+  # captured by l5_run_claude immediately before bro fired. This isolates
+  # "bro committed to base during the run" from setup commits the flow's
+  # run.sh made beforehand (e.g., flow 13 seeds .DS_Store files via a
+  # commit on main before bro is even spawned).
+  if [ "$(jq -r '.base_branch_unchanged // false' "$cfg")" = "true" ]; then
+    checked=$((checked + 1))
+    local pre_run="$project/.claude/tmb/_l5_pre_run_git.json"
+    if [ ! -f "$pre_run" ]; then
+      echo "  ✗ git: pre-run snapshot missing at $pre_run (did l5_run_claude run?)" >&2
+      fail=1
+    else
+      local pre_head post_head
+      pre_head=$(jq -r '.head // ""' "$pre_run")
+      post_head=$(git -C "$project" rev-parse "$pr_target" 2>/dev/null || echo "")
+      if [ -z "$pre_head" ] || [ -z "$post_head" ]; then
+        echo "  ✗ git: base branch '$pr_target' SHA not resolvable (pre=$pre_head post=$post_head)" >&2
+        fail=1
+      elif [ "$pre_head" = "$post_head" ]; then
+        echo "  ✓ git: base branch '$pr_target' unchanged since pre-run snapshot"
+      else
+        local delta
+        delta=$(git -C "$project" rev-list --count "$pre_head..$post_head" 2>/dev/null || echo "?")
+        echo "  ✗ git: base branch '$pr_target' advanced $delta commit(s) during the run. Did bro commit to base?" >&2
+        fail=1
+      fi
+    fi
+  fi
+
+  # 2) uncommitted_in_worktree — most-recent task's worktree should be clean.
+  local uncommitted_setting
+  uncommitted_setting=$(jq -r '.uncommitted_in_worktree // null' "$cfg")
+  if [ "$uncommitted_setting" = "false" ] && [ -n "$task_slug" ] && [ -d "$project/.claude/worktrees/$task_slug" ]; then
+    checked=$((checked + 1))
+    local dirty
+    dirty=$(git -C "$project/.claude/worktrees/$task_slug" status --porcelain 2>/dev/null || true)
+    if [ -z "$dirty" ]; then
+      echo "  ✓ git: worktree '$task_slug' is clean (no uncommitted changes)"
+    else
+      echo "  ✗ git: worktree '$task_slug' has uncommitted changes:" >&2
+      echo "$dirty" | head -5 >&2
+      fail=1
+    fi
+  fi
+
+  # 3) worktrees[] — per-worktree HEAD assertions.
+  local wt_count
+  wt_count=$(jq -r '(.worktrees // []) | length' "$cfg" 2>/dev/null)
+  wt_count="${wt_count:-0}"
+  if [ "$wt_count" -gt 0 ]; then
+    local i
+    for ((i=0; i < wt_count; i++)); do
+      checked=$((checked + 1))
+      local wt_path wt_head_should
+      wt_path=$(jq -r ".worktrees[$i].path // \"\"" "$cfg")
+      wt_head_should=$(jq -r ".worktrees[$i].head_branch // \"\"" "$cfg")
+
+      # Placeholder substitution.
+      wt_path="${wt_path//<slug>/$task_slug}"
+      wt_head_should="${wt_head_should//<task.branch_id>/$task_branch}"
+
+      local full_path="$project/$wt_path"
+      if [ ! -d "$full_path" ]; then
+        echo "  ✗ git: worktree path missing: $wt_path" >&2
+        fail=1
+        continue
+      fi
+
+      local actual
+      actual=$(git -C "$full_path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+      if [ -z "$actual" ]; then
+        echo "  ✗ git: could not resolve HEAD branch in $wt_path" >&2
+        fail=1
+        continue
+      fi
+
+      # Required branch (positive)
+      if [ -n "$wt_head_should" ]; then
+        if [ "$actual" = "$wt_head_should" ]; then
+          echo "  ✓ git: $wt_path HEAD on '$actual'"
+        else
+          echo "  ✗ git: $wt_path HEAD on '$actual' (expected '$wt_head_should')" >&2
+          fail=1
+        fi
+      fi
+
+      # head_not_branch list
+      local not_count
+      not_count=$(jq -r ".worktrees[$i].head_not_branch // [] | length" "$cfg")
+      if [ "$not_count" -gt 0 ]; then
+        local j
+        for ((j=0; j < not_count; j++)); do
+          local forbidden
+          forbidden=$(jq -r ".worktrees[$i].head_not_branch[$j]" "$cfg")
+          if [ "$actual" = "$forbidden" ]; then
+            echo "  ✗ git: $wt_path HEAD on forbidden branch '$forbidden'" >&2
+            fail=1
+          fi
+        done
+      fi
+    done
+  fi
+
+  if [ "$checked" = "0" ]; then
+    return 0
+  fi
+
+  l5_record_score "$db" "$run_id" "$flow" "git" \
+    "$([ "$fail" = "0" ] && echo 1 || echo 0)" \
+    "" \
+    "$([ "$fail" = "0" ] && echo "$checked check(s) passed" || echo "$fail of $checked check(s) failed")"
+  return "$fail"
+}
