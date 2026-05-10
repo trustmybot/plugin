@@ -1,0 +1,7 @@
+{
+  "expected_writes": {
+    "identity": "=0",
+    "tasks": "=0",
+    "issues WHERE id != 999999": "=0"
+  }
+}
