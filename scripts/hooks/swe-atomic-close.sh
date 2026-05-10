@@ -74,6 +74,9 @@ if [ "$AGENT_TYPE" != "swe" ] && [ "$AGENT_TYPE" != "tmb:swe" ]; then
 fi
 
 # Resolve trajectory DB path (same logic as mcp-health-check.sh / query-task.sh).
+# Walk up from PWD to handle workspace-pattern projects where the live DB
+# lives at the workspace root above the inner repos (#2872 same root cause —
+# the production agent_runs=0 symptom traces here).
 DB=""
 if command -v tmb_db_path >/dev/null 2>&1; then
   DB=$(tmb_db_path 2>/dev/null || true)
@@ -83,19 +86,19 @@ if [ -z "$DB" ]; then
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
     PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
   fi
-  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT="$(pwd)"
-  CANDIDATE="$REPO_ROOT/.claude/$PLUGIN_NAME/trajectory.db"
-  [ -f "$CANDIDATE" ] && DB="$CANDIDATE"
+  dir="$PWD"
+  for _ in 1 2 3 4 5 6 7 8; do
+    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
+    if [ -f "$candidate" ]; then DB="$candidate"; break; fi
+    parent=$(dirname "$dir")
+    [ "$parent" = "$dir" ] && break
+    dir="$parent"
+  done
 fi
 
 if [ -z "$DB" ] || ! command -v sqlite3 >/dev/null 2>&1; then
   exit 0
 fi
-
-# Find the most-recent pending task by scanning the DB for the worktree.
-# SWE runs in a detached-HEAD worktree; `git rev-parse --abbrev-ref HEAD`
-# returns "HEAD" not the branch name. Instead we look up by worktree path.
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 # Read pr_target from config (default: main).
 PR_TARGET=$(tmb_config_get "pr_target" 2>/dev/null || true)
@@ -104,8 +107,10 @@ PR_TARGET="${PR_TARGET:-main}"
 # Find the most-recent task in any SWE-relevant status. parent_branch_id is
 # needed to detect commits in the attached-worktree model (branch ref and
 # worktree HEAD advance together; we compare HEAD against the parent branch).
+# tasks.repo (added in MR !122) tells us which inner repo this task belongs
+# to in workspace-pattern projects; resolve via repos.path.
 ROW=$(sqlite3 "$DB" \
-  "SELECT id, status, branch_id, COALESCE(parent_branch_id, '') FROM tasks
+  "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
    WHERE status IN ('pending', 'needs_validation', 'completed')
    ORDER BY updated_at DESC, id DESC LIMIT 1;" \
   2>/dev/null || true)
@@ -118,6 +123,21 @@ TASK_ID=$(echo "$ROW" | cut -d'|' -f1)
 TASK_STATUS=$(echo "$ROW" | cut -d'|' -f2)
 BRANCH=$(echo "$ROW" | cut -d'|' -f3)
 PARENT_BRANCH=$(echo "$ROW" | cut -d'|' -f4)
+TASK_REPO=$(echo "$ROW" | cut -d'|' -f5)
+
+# Resolve REPO_ROOT for worktree path:
+#   1. If task has a repo and repos.path resolves, use it (multi-repo workspace).
+#   2. Else fall back to `git rev-parse --show-toplevel` from PWD.
+#   3. Else PWD itself.
+REPO_ROOT=""
+if [ -n "$TASK_REPO" ]; then
+  REPO_ROOT=$(sqlite3 "$DB" \
+    "SELECT path FROM repos WHERE name='$(echo "$TASK_REPO" | sed "s/'/''/g")' LIMIT 1;" \
+    2>/dev/null || true)
+fi
+if [ -z "$REPO_ROOT" ]; then
+  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+fi
 
 # Derive the worktree path: slug = everything after the last '/' in branch_id.
 SLUG="${BRANCH##*/}"

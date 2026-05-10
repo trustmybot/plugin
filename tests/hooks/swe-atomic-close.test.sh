@@ -48,9 +48,20 @@ sqlite3 "$DB" "
     attempts INTEGER NOT NULL DEFAULT 0,
     spec_body TEXT NOT NULL DEFAULT '',
     commit_sha TEXT,
+    repo TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
+  );
+  CREATE TABLE repos (
+    name TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    default_branch TEXT NOT NULL DEFAULT 'main',
+    head_commit_sha TEXT NOT NULL DEFAULT '',
+    file_count INTEGER NOT NULL DEFAULT 0,
+    last_scanned_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
   );
   CREATE TABLE agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
