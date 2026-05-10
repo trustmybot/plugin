@@ -112,6 +112,10 @@ describe('task_retry_batch', () => {
     const created = parse(await call(tasks.handlers, 'task_create_batch', {
       agent: 'bro',
       issue_id: issueId,
+      waive_intent_gate: true,
+      waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+      waive_triage_gate: true,
+      waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
       tasks: [{
         branch_id: 'fix/initial',
         description: 'do thing',
@@ -174,6 +178,8 @@ describe('task_retry_batch', () => {
     });
     const created = parse(await call(tasks.handlers, 'task_create_batch', {
       agent: 'bro', issue_id: issueId,
+      waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+      waive_triage_gate: true, waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
       tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'sc', spec_body: 's' }],
     })) as unknown as Array<{ id: number }>;
     const id = String(created[0]!.id);
@@ -213,6 +219,8 @@ describe('bro_atomic_close', () => {
     });
     const created = parse(await call(tasks.handlers, 'task_create_batch', {
       agent: 'bro', issue_id: issueId,
+      waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+      waive_triage_gate: true, waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
       tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'sc', spec_body: 's' }],
     })) as unknown as Array<{ id: number }>;
     const id = String(created[0]!.id);

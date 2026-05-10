@@ -165,6 +165,26 @@ export function taskTools(db: TrajectoryDB): {
             description:
               "Required when waive_registry_gate=true. Min 10 chars. Explain why /scan can't run.",
           },
+          waive_intent_gate: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the intent-discussion gate. Acceptable for trivial work where the user intent is unambiguous and verbatim capture would be ceremony. If false or omitted, the issue MUST have at least one discussion row with kind='intent' before tasks can be created.",
+          },
+          waive_intent_gate_reason: {
+            type: 'string',
+            description:
+              "Required when waive_intent_gate=true. Min 10 chars. Explain why intent capture is unnecessary.",
+          },
+          waive_triage_gate: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the triage-note gate AND the linked decision-when-difficult gate. Acceptable only for trivial waives where triage classification is obvious. If false or omitted, the issue MUST have a kind='note' discussion whose body contains 'Triage:' before tasks can be created — and if triage='difficult', also a kind='decision' discussion.",
+          },
+          waive_triage_gate_reason: {
+            type: 'string',
+            description:
+              "Required when waive_triage_gate=true. Min 10 chars. Explain why triage classification is unnecessary.",
+          },
         },
         required: ['agent', 'issue_id', 'tasks'],
       },
@@ -354,6 +374,124 @@ export function taskTools(db: TrajectoryDB): {
                     `Registry-cold gate: no deep_scan_completed audit row exists. ` +
                     `Run /scan (or call scan_run directly) to discover repos and populate file_registry. ` +
                     `For exceptional cases, pass waive_registry_gate=true with waive_registry_gate_reason="<why>".`,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      // --- Intent-discussion gate (MCP-level enforcement) ---
+      // tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human
+      // intent verbatim: ...') before task_create_batch. Production showed 0
+      // intent rows across 9 issues — bro consistently skipped this write
+      // because no gate enforced it. Server-side now does.
+      const intentGateWaived = args['waive_intent_gate'] === true;
+      const intentGateWaiverReason = (args['waive_intent_gate_reason'] ?? '') as string;
+
+      if (intentGateWaived) {
+        if (
+          typeof intentGateWaiverReason !== 'string' ||
+          intentGateWaiverReason.trim().length < 10
+        ) {
+          return err('waive_intent_gate_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const intentRow = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'intent'`,
+          [issueId],
+        );
+        if ((intentRow?.c ?? 0) === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'intent_gate_violation',
+                  message:
+                    `Intent gate: issue ${issueId} has zero kind='intent' discussions. ` +
+                    `tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human intent verbatim: "<the request>"') ` +
+                    `before task_create_batch. For exceptional cases, pass waive_intent_gate=true with waive_intent_gate_reason="<why>".`,
+                  issue_id: issueId,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      // --- Triage-note gate (MCP-level enforcement) ---
+      // tmb_planning Step 1 mandates discussion_append(kind='note', body='Triage:
+      // <simple|difficult>') before task_create_batch. The audit row of the
+      // triage classification is load-bearing for downstream verification.
+      // The body must contain "Triage:" — case-sensitive match on the canonical
+      // form bro is supposed to write.
+      const triageGateWaived = args['waive_triage_gate'] === true;
+      const triageGateWaiverReason = (args['waive_triage_gate_reason'] ?? '') as string;
+      let triageNoteBody: string | null = null;
+
+      if (triageGateWaived) {
+        if (
+          typeof triageGateWaiverReason !== 'string' ||
+          triageGateWaiverReason.trim().length < 10
+        ) {
+          return err('waive_triage_gate_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const triageRow = db.get<{ body: string }>(
+          `SELECT body FROM discussions
+           WHERE issue_id = ? AND kind = 'note' AND body LIKE '%Triage:%'
+           ORDER BY id DESC LIMIT 1`,
+          [issueId],
+        );
+        if (!triageRow) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'triage_gate_violation',
+                  message:
+                    `Triage gate: issue ${issueId} has zero kind='note' discussions whose body contains 'Triage:'. ` +
+                    `tmb_planning Step 1 mandates discussion_append(kind='note', body='Triage: <simple|difficult>') ` +
+                    `before task_create_batch. For exceptional cases, pass waive_triage_gate=true with waive_triage_gate_reason="<why>".`,
+                  issue_id: issueId,
+                }),
+              },
+            ],
+          };
+        }
+        triageNoteBody = triageRow.body;
+      }
+
+      // --- Decision-when-difficult gate (MCP-level enforcement) ---
+      // When the Triage note classified the issue as 'difficult', bro must
+      // also have written a kind='decision' discussion before task_create_batch.
+      // Captures the production pattern where bro skipped the difficult-path
+      // ceremony in headless mode.
+      const isDifficult =
+        triageNoteBody !== null && /Triage:\s*difficult/i.test(triageNoteBody);
+      if (isDifficult && !triageGateWaived) {
+        const decisionRow = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'decision'`,
+          [issueId],
+        );
+        if ((decisionRow?.c ?? 0) === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'decision_gate_violation',
+                  message:
+                    `Decision gate: issue ${issueId} is triaged 'difficult' but has zero kind='decision' discussions. ` +
+                    `tmb_planning Step 3 mandates discussion_append(kind='decision', body='<plan: changes, why, trade-offs, risks>') ` +
+                    `for difficult-path issues before task_create_batch (an ADR also lands at docs/trustmybot/architecture/manual/decisions/). ` +
+                    `If this issue should be triaged as simple, downgrade the Triage note. For exceptional cases, pass waive_triage_gate=true with waive_triage_gate_reason="<why>".`,
+                  issue_id: issueId,
                 }),
               },
             ],

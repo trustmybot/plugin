@@ -50,7 +50,7 @@ Drift (warm + dirty / branch behind / HEAD moved) is handled automatically by th
 
 `difficult` — touches `docs/trustmybot/architecture/`, introduces a new service boundary, modifies a public API, commits to a strategic stack choice, or names multiple unrelated surfaces. When a default choice carries strategic weight (production DB, auth scheme, retention policy) or the spec can't fit in 8000 chars, it's difficult.
 
-`discussion_append(kind='note', body='Triage: <simple|difficult>')`.
+`discussion_append(kind='note', body='Triage: <simple|difficult>')` — server-enforced via the **triage gate** on `task_create_batch`: a `kind='note'` row whose body contains `Triage:` must exist or the call is rejected. If `Triage: difficult`, a follow-up `kind='decision'` row is also required by the **decision gate**.
 
 ## Step 2 — Branch-id + Human confirm (interactive)
 
@@ -123,6 +123,8 @@ After alignment:
 ```
 discussion_append(kind='decision', body='<plan: changes, why, trade-offs, risks>')
 ```
+
+Server-enforced via the **decision gate** on `task_create_batch`: when the latest Triage note says `Triage: difficult`, a `kind='decision'` row must exist or the call is rejected.
 
 Co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` when the change warrants a durable record.
 

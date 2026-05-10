@@ -56,6 +56,10 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
     waive_scope_gate_reason: 'test fixture',
     waive_branch_gate: true,
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_triage_gate: true,
+    waive_triage_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{
       branch_id: 'feat/role-test',
       title: 'role test',
@@ -107,6 +111,10 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
     waive_scope_gate_reason: 'test fixture',
     waive_branch_gate: true,
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_triage_gate: true,
+    waive_triage_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{
       branch_id: 'feat/audit-event-test',
       title: 'audit event test',

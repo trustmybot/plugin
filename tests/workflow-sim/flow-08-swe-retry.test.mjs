@@ -21,6 +21,10 @@ async function setupClosedTask(client, branch, sha) {
     waive_scope_gate_reason: 'simple-triage retry-test scaffolding; defaults applied for synthetic test',
     waive_branch_gate: true,
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_triage_gate: true,
+    waive_triage_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{ branch_id: branch, title: 't', description: 'd', success_criteria: 's', spec_body: '## body' }],
   });
   const taskId = batch.data[0].id;
