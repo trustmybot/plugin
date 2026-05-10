@@ -1,36 +1,37 @@
 # 02-onboard-local
 
-**Scenario under test:** the user picks a *local* shape during onboarding (no remote, GitHub-flow branching, PR target = `main`). Per the partial-test pattern, the L5 unit can't drive the AUQ rounds — the fixture pre-seeds the post-AUQ state and the test confirms the seeded state matches doctrine.
+**Scenario under test:** the project is already onboarded with local-shape defaults (no remote, GitHub-flow, target=main). The user signals they want to *change that* — go remote, host on GitHub. Bro must recognize the reonboard intent, check current state, and **ask** whether to fire `/onboard` again. Bro must NOT auto-apply config changes.
 
-**🟡 Partial-test:** the real onboarding ceremony renders 3+ AUQ rounds (branching model → remote shape → PR target). Headless test mode suppresses AUQ. The L5 verifies the fixture seeded the expected local-shape values; the L6 chain step uses the same seed to bridge from row 1's intent signal to row 4's first task.
+**🟡 Partial-test:** bro stops at the question; the actual reonboard ceremony is handled in row 3 (where the user types `/onboard` explicitly). This row tests bro's ability to read the user's vague intent ("make this available on GitHub") as a reonboard cue without short-circuiting to silent config rewrites.
 
 ## Pre-state
 
-`onboarding-named` fixture, which seeds:
+`onboarding-named` fixture + `setup.sh` re-seeds plugin_config local-shape values:
 - `identity` row exists (onboarded marker)
 - `plugin_config[branching_model]='"github-flow"'`
 - `plugin_config[pr_target]='"main"'`
 - `plugin_config[protected_branches]='["main"]'`
 - `plugin_config[remotes]='[]'`
-- `plugin_config[issue_sync]='off'`
-- `audit(event_type='deep_scan_completed')` row exists (registry-cold gate cleared)
+- `plugin_config[issue_sync]='"off"'`
+- `audit(event_type='deep_scan_completed')` row exists
 
 ## Turns
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro the project just got onboarded with local-shape defaults — confirm the active config so I know we're aligned.` |
-| → | bro | reads state via MCP (likely `tmb_config-policy` or directly via `issue_state_get` / `plugin_config` reads); recaps branching model + pr_target + remotes; no DB writes |
+| 1 | user | `@bro I want to make this project available on GitHub.` |
+| → | bro | calls `onboard_state_get`, sees current state is local; responds with a question like "want me to run `/onboard` again to switch to a remote shape?" — does NOT call `onboard_apply` or modify config |
 
 ## Pass criteria
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `identity` row exists; `plugin_config.branching_model = "github-flow"`; `plugin_config.pr_target = "main"`; `plugin_config.remotes = "[]"`; `deep_scan_completed` audit exists |
+| `outcome.sql` | identity row intact; local-shape plugin_config values still present (bro didn't auto-rewrite) |
 | `outcome-coherence.json` | `identity`: `=1`; `tasks`: `=0`; `audit WHERE event_type='deep_scan_completed'`: `>=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
-| `tools-required.json` | none required (this row is a state-recap; the partial-test verification is the fixture seed) |
-| `tools-forbidden.json` | `task_create_batch`, `issue_create`, `Agent` (no code work, no SWE) |
+| `tools-required.json` | `onboard_state_get` (bro checks current state) |
+| `tools-forbidden.json` | `onboard_apply` (must NOT auto-apply), `task_create_batch`, `issue_create`, `Agent` |
+| `script.json` terminal_pattern | bro mentions `/onboard` / `reonboard` / "run it again" — the question signal |
 | `cost-budget.json` | Soft 100K / 300s |
 
-**Failure modes captured:** fixture drift — if `onboarding-named.sql` stops seeding `branching_model` or `pr_target`, the L5 catches it. Downstream rows depend on these values (row 7's push gate, row 12's resume).
+**Failure modes captured:** bro silently auto-rewrites plugin_config to remote-shape values; bro starts code work without asking; bro doesn't engage with the intent at all.
