@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { TrajectoryDB } from '../db.js';
+import { tempDB } from './helpers.js';
 import { discussionTools } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -32,7 +33,7 @@ describe('discussions + snapshot integration', () => {
   let tmpWorkDir: string;
 
   before(() => {
-    db = new TrajectoryDB(':memory:');
+    db = tempDB();
 
     tmpWorkDir = join(tmpdir(), `tmb-test-${Date.now()}`);
     snapshotDir = join(tmpWorkDir, 'docs', 'trustmybot', 'snapshots');
@@ -404,7 +405,7 @@ describe('discussion_append verified_human gate (#145)', () => {
   let issueId: string;
 
   before(async () => {
-    db = new TrajectoryDB(':memory:');
+    db = tempDB();
     const issues = issueTools(db);
 
     async function call(

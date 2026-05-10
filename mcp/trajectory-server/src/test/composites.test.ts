@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { TrajectoryDB } from '../db.js';
+import { tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -24,7 +25,7 @@ async function call(
 }
 
 describe('branch_id_propose', () => {
-  const db = new TrajectoryDB(':memory:');
+  const db = tempDB();
   const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
   it('maps "fix the auth crash" to fix/ prefix', async () => {
@@ -75,7 +76,7 @@ describe('branch_id_propose', () => {
 
 describe('task_retry_batch', () => {
   it('clones a failed task with corrected spec, links rationale + audit', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
     const tasks = taskTools(db);
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -154,7 +155,7 @@ describe('task_retry_batch', () => {
   });
 
   it('rejects retry on a task whose status is not failed', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
     const tasks = taskTools(db);
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -193,7 +194,7 @@ describe('task_retry_batch', () => {
 
 describe('bro_atomic_close', () => {
   it('rejects when task is not in completed/needs_validation', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
     const tasks = taskTools(db);
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -228,7 +229,7 @@ describe('bro_atomic_close', () => {
   });
 
   it('rejects malformed commit_sha', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
     const r = await call(composites.handlers, 'bro_atomic_close', {
       agent: 'bro',
@@ -241,7 +242,7 @@ describe('bro_atomic_close', () => {
   });
 
   it('rejects empty file_summaries', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
     const r = await call(composites.handlers, 'bro_atomic_close', {
       agent: 'bro',
@@ -254,7 +255,7 @@ describe('bro_atomic_close', () => {
   });
 
   it('rejects non-bro caller', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
     const r = await call(composites.handlers, 'bro_atomic_close', {
       agent: 'swe',

@@ -211,6 +211,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__bro_atomic_close",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-task-close-rescan.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SubagentStop": [

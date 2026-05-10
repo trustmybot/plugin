@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { TrajectoryDB } from '../db.js';
+import { tempDB } from './helpers.js';
 import { auditTools } from '../tools/audit.js';
 import { issueTools } from '../tools/issues.js';
 
@@ -195,7 +196,7 @@ describe('migrateLedgerIntoAudit + #179 schema cleanup', () => {
 
 describe('auditTools — event-only after #179', () => {
   it('audit_log with kind=event stores event fields', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
@@ -219,7 +220,7 @@ describe('auditTools — event-only after #179', () => {
   });
 
   it('audit_log defaults kind to event when omitted', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
@@ -240,7 +241,7 @@ describe('auditTools — event-only after #179', () => {
   });
 
   it('audit_log rejects kind=tool_call (retired in #179)', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
@@ -259,7 +260,7 @@ describe('auditTools — event-only after #179', () => {
   });
 
   it('audit_log kind=event rejects missing event_type', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
@@ -276,7 +277,7 @@ describe('auditTools — event-only after #179', () => {
   });
 
   it('audit_log kind=event rejects missing summary', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
@@ -295,7 +296,7 @@ describe('auditTools — event-only after #179', () => {
 
 describe('audit_log_list (event-only after #179)', () => {
   it('returns inserted events in id-ascending order', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 
@@ -327,7 +328,7 @@ describe('audit_log_list (event-only after #179)', () => {
   });
 
   it('respects branch_id filter when provided', async () => {
-    const db = new TrajectoryDB(':memory:');
+    const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
 

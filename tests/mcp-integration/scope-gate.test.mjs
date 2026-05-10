@@ -211,3 +211,136 @@ test('task_create_batch — rejects waiver with missing/short reason', async (t)
   assert.equal(shortReason.ok, false);
   assert.match(shortReason.error?.error ?? '', /≥10|>=10|\b10 chars\b/);
 });
+
+// --- Registry-cold gate: ensures /scan ran before tasks land. The pre-seed
+// in startClient() clears it; tests below use a custom client without the
+// pre-seed to verify the gate's reject + waive paths.
+import { spawn } from 'node:child_process';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+async function startClientUnseeded() {
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const SERVER_DIST = path.resolve(HERE, '../../mcp/trajectory-server/dist/index.js');
+  const transport = new StdioClientTransport({
+    command: 'node',
+    args: [SERVER_DIST],
+    env: { ...process.env, TRAJECTORY_DB_PATH: ':memory:' },
+  });
+  const client = new Client({ name: 'tmb-gate-test', version: '1.0' }, { capabilities: {} });
+  await client.connect(transport);
+  return { client, async close() { await client.close(); } };
+}
+
+test('task_create_batch — registry_cold_gate rejects when no deep_scan_completed audit exists', async (t) => {
+  const { client, close } = await startClientUnseeded();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'gated',
+    description: 'gate test',
+  });
+  assert.equal(issue.ok, true);
+
+  const result = await call(client, 'task_create_batch', {
+    agent: 'bro',
+    issue_id: issue.data.id,
+    waive_scope_gate: true,
+    waive_scope_gate_reason: 'gate-test: scope-gate not under test here',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'gate-test: branch-gate not under test here',
+    tasks: [{ branch_id: 'fix/gate', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.error, 'registry_cold_violation');
+  assert.match(result.error.message, /\/scan/);
+});
+
+test('task_create_batch — registry_cold_gate clears after a deep_scan_completed audit lands', async (t) => {
+  const { client, close } = await startClientUnseeded();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'unlock',
+    description: 'gate clear test',
+  });
+  assert.equal(issue.ok, true);
+
+  const seed = await call(client, 'audit_log', {
+    agent: 'bro',
+    issue_id: '999999',
+    from_node: 'bro',
+    kind: 'event',
+    event_type: 'deep_scan_completed',
+    summary: 'manual seed (gate test)',
+  });
+  assert.equal(seed.ok, true);
+
+  const result = await call(client, 'task_create_batch', {
+    agent: 'bro',
+    issue_id: issue.data.id,
+    waive_scope_gate: true,
+    waive_scope_gate_reason: 'gate-test: scope-gate not under test here',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'gate-test: branch-gate not under test here',
+    tasks: [{ branch_id: 'fix/unlock', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.ok(Array.isArray(result.data));
+  assert.equal(result.data.length, 1);
+});
+
+test('task_create_batch — waive_registry_gate accepts an explicit reason ≥10 chars', async (t) => {
+  const { client, close } = await startClientUnseeded();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'waive',
+    description: 'waive test',
+  });
+  assert.equal(issue.ok, true);
+
+  const result = await call(client, 'task_create_batch', {
+    agent: 'bro',
+    issue_id: issue.data.id,
+    waive_scope_gate: true,
+    waive_scope_gate_reason: 'gate-test: scope-gate not under test here',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'gate-test: branch-gate not under test here',
+    waive_registry_gate: true,
+    waive_registry_gate_reason: 'scratch fixture; scan cannot run here',
+    tasks: [{ branch_id: 'fix/waived', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test('task_create_batch — waive_registry_gate rejects too-short reason', async (t) => {
+  const { client, close } = await startClientUnseeded();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'waive-bad',
+    description: 'waive too short',
+  });
+  assert.equal(issue.ok, true);
+
+  const result = await call(client, 'task_create_batch', {
+    agent: 'bro',
+    issue_id: issue.data.id,
+    waive_scope_gate: true,
+    waive_scope_gate_reason: 'gate-test: scope-gate not under test here',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'gate-test: branch-gate not under test here',
+    waive_registry_gate: true,
+    waive_registry_gate_reason: 'short',
+    tasks: [{ branch_id: 'fix/waived', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error.error ?? '', /waive_registry_gate_reason|≥10/);
+});
