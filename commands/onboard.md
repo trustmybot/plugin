@@ -115,10 +115,8 @@ Bro translates AUQ answer strings back to the wire format `onboard_apply` expect
 | `Keep "<current>"` (any field) | omit that field — server treats omission as "no change" |
 | `"GitHub Flow"` | `branching_model="github-flow"` |
 | `"Git Flow"` | `branching_model="gitflow"` |
-| `"GitHub"` | `remote="github"` |
-| `"GitLab"` | `remote="gitlab"` |
-| `"Both"` | `remote="both"` |
-| `"main" / "develop" / "master"` | `pr_target="<lowercase>"` |
+| Remote checkbox set (multiSelect) | `remote=["github"]` / `["gitlab"]` / `["github","gitlab"]` |
+| `"main" / "develop"` (or any Other-typed branch name) | `pr_target="<value>"` |
 | `"Auto …"` / `"Off …"` | `issue_sync="auto"` / `"off"` |
 
 ## Conflict handling
