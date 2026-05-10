@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { TrajectoryDB } from '../db.js';
+import { tempDB } from './helpers.js';
 import { roundtableTools } from '../tools/roundtable.js';
 import { issueTools } from '../tools/issues.js';
 function parseResult(result) {
@@ -15,7 +15,7 @@ describe('roundtable tools', () => {
     let db;
     let issueId;
     before(async () => {
-        db = new TrajectoryDB(':memory:');
+        db = tempDB();
         const issues = issueTools(db);
         const result = await call(issues.handlers, 'issue_create', {
             agent: 'bro',

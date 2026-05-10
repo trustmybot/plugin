@@ -2,10 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
-
-function tempDB(): TrajectoryDB {
-  return new TrajectoryDB(':memory:');
-}
+import { tempDB } from './helpers.js';
 
 function call(
   handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,

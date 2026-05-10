@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { TrajectoryDB } from '../db.js';
+import { tempDB } from './helpers.js';
 import { validationTools } from '../tools/validation.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -41,7 +41,7 @@ describe('validation_record subagent_session_id gate', () => {
     let db;
     let taskId;
     before(async () => {
-        db = new TrajectoryDB(':memory:');
+        db = tempDB();
         const issueId = await createIssue(db);
         taskId = await createTask(db, issueId);
     });
@@ -109,7 +109,7 @@ describe('validation_record subagent_session_id gate', () => {
         assert.ok(!String(data.error).includes('precondition_failed'), 'swe must not hit the subagent_session_id gate; it should be blocked by requireRoles');
     });
     it('backward compat: pre-migration rows with NULL subagent_session_id are readable via validation_history', async () => {
-        const altDb = new TrajectoryDB(':memory:');
+        const altDb = tempDB();
         const issueId = await createIssue(altDb);
         const altTaskId = await createTask(altDb, issueId);
         altDb.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)

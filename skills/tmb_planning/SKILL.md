@@ -34,19 +34,15 @@ fully self-contained.
 
 Interactive (Human-present) flow continues at Step 0.
 
-## Step 0 — Cold-start codebase memory (interactive only)
+## Step 0 — Cold-start codebase memory
 
-Fires only when `session-start-prescan.sh` reported `file_registry: cold` AND `N source > 0`. Render:
+Fires when `session-start-prescan.sh` reported `file_registry: cold` AND `N source > 0`.
 
-```
-AskUserQuestion: "Project has N source files but file_registry is empty. Index now (~M tokens, ~Ts) for full project context, or lazy-fill as we work?"
-options: [Deep scan now | Lazy fill (Recommended)]
-```
+**Tell the Human to run `/scan`.** The slash command is the deterministic path: bash + git + md5 populate `repos` + `file_registry` and emit a `deep_scan_completed` audit row, which clears the registry-cold gate on `task_create_batch`. Phase 2 of `/scan` dispatches background subagents to fill summaries in parallel — non-blocking.
 
-- **Deep scan** — enumerate `git ls-files` minus binaries / lockfiles / generated dirs / files >200KB; read in batches of ~25; one `file_registry_update_summaries(updates=[...], advance_verified_sha=<HEAD>)` per batch; `audit_log(event_type='deep_scan_completed')` at the end.
-- **Lazy fill** (default) — proceed; bro reads files on-demand and summaries land per Read.
+If bro tries `task_create_batch` without `/scan` having ever run, the server returns `registry_cold_violation`. The error message names the fix (`/scan`); just relay it to the Human.
 
-Warm registry → skip. Empty repo → skip. Drift (warm + dirty / branch behind / HEAD moved) → call `file_registry_verify(paths=<git ls-files>)`; for `mismatch` clear the summary, for `missing` delete, for `new` lazy-fill, then `config_set('last_verified_sha', <HEAD>)`.
+Drift (warm + dirty / branch behind / HEAD moved) is handled automatically by the post-task-close auto-rescan hook — md5-only invalidation preserves summaries on unchanged files; only changed files lose their summary so the next Read repopulates.
 
 ## Step 1 — Triage (judgment)
 

@@ -155,6 +155,16 @@ export function taskTools(db: TrajectoryDB): {
           waive_branch_gate_reason: {
             type: 'string',
           },
+          waive_registry_gate: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the registry-cold gate. Only acceptable when /scan can't run for some reason (offline / scratch test fixture). If false or omitted, file_registry MUST have at least one row for each task's repo before tasks can be created — populate via /scan or scan_run.",
+          },
+          waive_registry_gate_reason: {
+            type: 'string',
+            description:
+              "Required when waive_registry_gate=true. Min 10 chars. Explain why /scan can't run.",
+          },
         },
         required: ['agent', 'issue_id', 'tasks'],
       },
@@ -303,6 +313,47 @@ export function taskTools(db: TrajectoryDB): {
                     `Run tmb_planning §Step 2 first (it calls branch_id_propose, confirms with Human, runs git switch -c, and emits the audit event). ` +
                     `For exceptional cases, pass waive_branch_gate=true with waive_branch_gate_reason="<why>".`,
                   issue_id: issueId,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      // --- Registry-cold gate (MCP-level enforcement) ---
+      // /scan must have run at least once before bro can create tasks.
+      // The check is "is there any deep_scan_completed audit row?" — once
+      // /scan runs once per project lifetime, the gate clears. md5-driven
+      // drift detection on rescans handles updates. Without this gate, bro
+      // can ship work into an empty file_registry, which silently breaks
+      // the close-time summary check + leaves bro re-Reading every file in
+      // future sessions.
+      const registryGateWaived = args['waive_registry_gate'] === true;
+      const registryGateWaiverReason = (args['waive_registry_gate_reason'] ?? '') as string;
+
+      if (registryGateWaived) {
+        if (
+          typeof registryGateWaiverReason !== 'string' ||
+          registryGateWaiverReason.trim().length < 10
+        ) {
+          return err('waive_registry_gate_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const scanRow = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM audit WHERE kind = 'event' AND event_type = 'deep_scan_completed'`,
+        );
+        if ((scanRow?.c ?? 0) === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'registry_cold_violation',
+                  message:
+                    `Registry-cold gate: no deep_scan_completed audit row exists. ` +
+                    `Run /scan (or call scan_run directly) to discover repos and populate file_registry. ` +
+                    `For exceptional cases, pass waive_registry_gate=true with waive_registry_gate_reason="<why>".`,
                 }),
               },
             ],

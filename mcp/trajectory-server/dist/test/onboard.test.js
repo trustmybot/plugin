@@ -1,10 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
-function tempDB() {
-    return new TrajectoryDB(':memory:');
-}
+import { tempDB } from './helpers.js';
 function call(handlers, name, args) {
     return handlers[name]({ agent: 'bro', ...args });
 }
