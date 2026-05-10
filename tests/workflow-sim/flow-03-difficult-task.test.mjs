@@ -79,6 +79,10 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
     issue_id: issueId,
     waive_branch_gate: true,
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_triage_gate: true,
+    waive_triage_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{
       branch_id: 'refactor/jwt-auth',
       title: 'Replace session middleware with JWT (RS256)',

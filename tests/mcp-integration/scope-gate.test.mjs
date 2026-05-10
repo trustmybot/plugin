@@ -149,6 +149,10 @@ test('task_create_batch — accepts when a kind=question row exists', async (t) 
     issue_id: issueId,
     waive_branch_gate: true,
     waive_branch_gate_reason: 'scope-gate test; branch gate not under test in this case',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'scope-gate test; intent gate not under test in this case',
+    waive_triage_gate: true,
+    waive_triage_gate_reason: 'scope-gate test; triage gate not under test in this case',
     tasks: [{ branch_id: 'feat/gate-ok', description: 'd', success_criteria: 'x' }],
   });
 
@@ -173,6 +177,10 @@ test('task_create_batch — accepts with waiver + reason ≥10 chars', async (t)
     waive_scope_gate_reason: 'typo in README line 12; no interpretation needed',
     waive_branch_gate: true,
     waive_branch_gate_reason: 'scope-gate test; branch gate not under test in this case',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'scope-gate test; intent gate not under test in this case',
+    waive_triage_gate: true,
+    waive_triage_gate_reason: 'scope-gate test; triage gate not under test in this case',
     tasks: [{ branch_id: 'fix/readme-typo', description: 'fix recieve', success_criteria: 'green spellcheck' }],
   });
 
@@ -287,6 +295,10 @@ test('task_create_batch — registry_cold_gate clears after a deep_scan_complete
     waive_scope_gate_reason: 'gate-test: scope-gate not under test here',
     waive_branch_gate: true,
     waive_branch_gate_reason: 'gate-test: branch-gate not under test here',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'gate-test: intent-gate not under test here',
+    waive_triage_gate: true,
+    waive_triage_gate_reason: 'gate-test: triage-gate not under test here',
     tasks: [{ branch_id: 'fix/unlock', description: 'd', success_criteria: 'x' }],
   });
   assert.equal(result.ok, true, JSON.stringify(result));
@@ -312,6 +324,10 @@ test('task_create_batch — waive_registry_gate accepts an explicit reason ≥10
     waive_scope_gate_reason: 'gate-test: scope-gate not under test here',
     waive_branch_gate: true,
     waive_branch_gate_reason: 'gate-test: branch-gate not under test here',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'gate-test: intent-gate not under test here',
+    waive_triage_gate: true,
+    waive_triage_gate_reason: 'gate-test: triage-gate not under test here',
     waive_registry_gate: true,
     waive_registry_gate_reason: 'scratch fixture; scan cannot run here',
     tasks: [{ branch_id: 'fix/waived', description: 'd', success_criteria: 'x' }],
@@ -343,4 +359,155 @@ test('task_create_batch — waive_registry_gate rejects too-short reason', async
   });
   assert.equal(result.ok, false);
   assert.match(result.error.error ?? '', /waive_registry_gate_reason|≥10/);
+});
+
+// --- Intent + Triage + Decision-when-difficult gates on task_create_batch ---
+
+test('task_create_batch — intent_gate rejects when no kind=intent discussion exists', async (t) => {
+  const { client, close } = await startClient();  // pre-seeds deep_scan_completed
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'intent-gate test',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  // Pre-seed scope-question + branch_id_proposed audit so those gates clear.
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'question', author: 'architect', body: 'Which lib?',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
+  });
+  await call(client, 'audit_log', {
+    agent: 'bro', issue_id: issueId, from_node: 'bro', kind: 'event',
+    event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
+  });
+  // Triage note exists so triage gate clears; intent does NOT.
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'note', author: 'bro', body: 'Triage: simple',
+  });
+
+  const result = await call(client, 'task_create_batch', {
+    agent: 'bro',
+    issue_id: issueId,
+    tasks: [{ branch_id: 'feat/x', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error?.error, 'intent_gate_violation');
+});
+
+test('task_create_batch — triage_gate rejects when no Triage note exists', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'triage-gate test',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'question', author: 'architect', body: 'Which lib?',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
+  });
+  await call(client, 'audit_log', {
+    agent: 'bro', issue_id: issueId, from_node: 'bro', kind: 'event',
+    event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
+  });
+  // Intent exists; Triage does NOT.
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'intent', author: 'bro', body: 'Human intent verbatim: ...',
+  });
+
+  const result = await call(client, 'task_create_batch', {
+    agent: 'bro',
+    issue_id: issueId,
+    tasks: [{ branch_id: 'feat/x', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error?.error, 'triage_gate_violation');
+});
+
+test('task_create_batch — decision_gate rejects when triage=difficult but no kind=decision exists', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'decision-gate test',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'question', author: 'architect', body: 'Which DB?',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'sqlite', verified_human: true,
+  });
+  await call(client, 'audit_log', {
+    agent: 'bro', issue_id: issueId, from_node: 'bro', kind: 'event',
+    event_type: 'branch_id_proposed', branch_id: 'feat/sqlite', summary: 'proposed',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'intent', author: 'bro', body: 'Human intent verbatim: ...',
+  });
+  // Triage = difficult — but NO kind='decision' yet.
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'note', author: 'bro', body: 'Triage: difficult',
+  });
+
+  const result = await call(client, 'task_create_batch', {
+    agent: 'bro',
+    issue_id: issueId,
+    tasks: [{ branch_id: 'feat/sqlite', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error?.error, 'decision_gate_violation');
+});
+
+test('task_create_batch — decision_gate clears when triage=difficult AND a kind=decision exists', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'decision-gate clear test',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'question', author: 'architect', body: 'Which DB?',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'sqlite', verified_human: true,
+  });
+  await call(client, 'audit_log', {
+    agent: 'bro', issue_id: issueId, from_node: 'bro', kind: 'event',
+    event_type: 'branch_id_proposed', branch_id: 'feat/sqlite', summary: 'proposed',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'intent', author: 'bro', body: 'Human intent verbatim: ...',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'note', author: 'bro', body: 'Triage: difficult',
+  });
+  await call(client, 'discussion_append', {
+    agent: 'bro', issue_id: issueId, kind: 'decision', author: 'bro',
+    body: 'Plan: switch to sqlite. Trade-offs: simpler ops, harder migration. Risks: schema lock.',
+  });
+
+  const result = await call(client, 'task_create_batch', {
+    agent: 'bro',
+    issue_id: issueId,
+    tasks: [{ branch_id: 'feat/sqlite', description: 'd', success_criteria: 'x' }],
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
