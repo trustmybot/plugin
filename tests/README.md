@@ -1,129 +1,108 @@
 # tests
 
-Everything test-related for the plugin — how to run, what each layer covers, when to add a test where, and the full manual-test catalog.
+How to run, what each layer covers, when to add a test where.
 
 ## Layered test pyramid
 
-Each layer catches a different class of bug; skipping any layer means shipping a bug the others cannot see.
+Each layer catches a different class of bug; skipping one means shipping a bug the others cannot see.
 
 | Layer | What | Where | Catches |
 |---|---|---|---|
-| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`docker/install-smoke.Dockerfile`](./docker/) | dist/ shipping, prebuild, MCP server cold-spawn — caught v0.2.0 + v0.3.0 |
-| **L1** | Lint (version sync, link check, dist freshness, etc.) | [`lint/*.sh`](./lint/) | Stale CHANGELOG, broken links, version drift, doctrine doc parity |
-| **L2** | Unit — handler logic, synthetic args; no LLM, no protocol | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
-| **L3** | Integration — real server subprocess + JSON-RPC stdio | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement |
+| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`docker/install-smoke.Dockerfile`](./docker/) | dist/ shipping, prebuild, MCP server cold-spawn |
+| **L1** | Lint (version sync, link check, dist freshness, layer-budget, etc.) | [`lint/*.sh`](./lint/) | Stale CHANGELOG, broken links, version drift, agent-template line caps, doctrine doc parity |
+| **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
+| **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
-| **L5** | **Workflow-doctrine dogfood — multi-scorer (outcome + trajectory + cost)** against `--plugin-dir` source (issues #108, #110) | [`dogfood/`](./dogfood/) | Doctrine drift between FLOWS.md and reality, agent-prompt regressions, cold-start behavior |
-| **Release canary** | **Full marketplace install + workflow doctrine in one Docker image** — the final automated gate (was "L5+L5 combined", #112) | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches PLUS everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy). |
-| **A/B prompt eval** *(opt-in, #131)* | Head-to-head comparison of doctrine variants (e.g. CLAUDE.md slim vs padded). Runs N pairs per arm against an L5 flow, computes per-arm pass-rate + chi-squared p-value | [`dogfood/run-ab.sh`](./dogfood/run-ab.sh) + [`dogfood/ab-scenarios/`](./dogfood/ab-scenarios/) | Whether a doctrine change actually moves the needle vs is just rearrangement; data for #150 ingredient slicing |
-| **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session — only for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
+| **L5** | Dogfood — real Claude Code (`claude -p --plugin-dir`) against pre-seeded flows; multi-scorer (outcome.sql + tools-required + tools-forbidden + cost) | [`dogfood/`](./dogfood/) | Doctrine drift between FLOWS.md and reality, agent-prompt regressions, cold-start behavior |
+| **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
+| **A/B prompt eval** | Head-to-head comparison of doctrine variants (e.g. CLAUDE.md slim vs padded). N pairs per arm against an L5 flow → per-arm pass-rate + chi-squared p-value | [`dogfood/run-ab.sh`](./dogfood/run-ab.sh) + [`dogfood/ab-scenarios/`](./dogfood/ab-scenarios/) | Whether a doctrine change moves the needle vs is just rearrangement |
+| **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
-**Golden rule:** *Layer N green does not imply Layer N+1 green.* Layer 1 passed with 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. Layer 2 would have caught that at the wire level in milliseconds. Always run all three before tagging a release.
+**Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
 
 ## Testing philosophy — light to heavy, fail fast
 
-**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L5 (light, `--plugin-dir`) → Release canary (heavy, marketplace simulation in Docker) → Manual smoke (last resort, fallback only).
+**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L5 light (`--plugin-dir`) → Release canary (heavy, marketplace simulation in Docker) → Manual smoke (last resort).
 
-This applies to:
+Applies to:
 
-- **PR review**: PRs that fail L1 don't pay the L2 cost. PRs that pass L1-L4 trigger L5 only when labeled. Release canary runs on RC tag pushes only.
-- **Release validation**: cut an RC tag → L0 + L1-L4 (every PR did this already) → L5 light → if green, Release canary → if green, promote dev → main → cut stable.
-- **Investigating a regression**: bisect at the lightest layer that fails. If L1 catches it, don't run L4. If L2 catches it, don't run L5.
+- **PR review.** PRs that fail L1 don't pay the L2 cost. PRs that pass L1–L4 trigger L5 only when labeled. Release canary runs on RC tag pushes only.
+- **Release validation.** Cut an RC tag → L0 + L1–L4 (every PR did this) → L5 light → if green, Release canary → if green, promote dev → main → cut stable.
+- **Investigating a regression.** Bisect at the lightest layer that fails. If L1 catches it, don't run L4. If L2 catches it, don't run L5.
 
-**Why**: token cost matters (Release canary ≈ $1-3 per run; L5 light ≈ ~$0.20; L1-L4 ≈ free). Human time matters (manual smoke = 30-45 min; the rest is automated). Cheap signals first eliminates the need for expensive ones.
+**Why**: token cost (Release canary ≈ $1–3/run; L5 light ≈ ~$0.20; L1–L4 ≈ free). Human time (manual smoke = 30–45 min; rest is automated). Cheap signals first eliminates the need for expensive ones.
 
-**Insertion-friendly naming**: Release canary is non-numeric so heavy layers slot in between L4 and Release canary without renumbering. The A/B prompt-eval layer (#131) lives at this tier — opt-in, not part of the auto-escalation chain.
-
-## When to use A/B prompt eval (#131)
-
-Reach for the A/B framework when you're about to ship a doctrine change ("tightening this CLAUDE.md section, hope it helps") and want data instead of vibes. Examples:
-
-- Compare two CLAUDE.md slim variants on the same flow + prompt → which one actually improves outcome pass-rate?
-- Compare Hybrid D' (cold-start AskUserQuestion + lazy default) against pure-lazy → did the question add value?
-
-Skip A/B for: small mechanical fixes (typos, lint), schema/MCP changes (those land via L1–L4), or anything where the right outcome is obvious without measurement.
-
-Run:
-
-```bash
-export CLAUDE_CODE_OAUTH_TOKEN=<token>
-N=10 bash tests/dogfood/run-ab.sh <scenario-name>
-bash tests/dogfood/scripts/ab-report.sh <scenario-name> --db <persisted-trajectory.db>
-```
-
-See `tests/dogfood/ab-scenarios/example-claude-md-slim/README.md` for the worked-example scenario layout.
-
-**The escalation chain**:
+The escalation chain:
 
 ```
-PR opened → L0 + L1-L4 in CI (free, < 2 min)
+PR opened → L0 + L1–L4 in CI (free, < 2 min)
    ↓ green
 PR labeled `L5` (optional) → L5 light in CI (~$0.20, ~3 min)
    ↓ green
-RC tag pushed → Release canary in CI (~$1-3, ~10 min)
+RC tag pushed → Release canary in CI (~$1–3, ~10 min)
    ↓ green
 Promote RC → main → tag stable. Manual smoke only when an automated layer
-  genuinely can't model the scenario (very rare; document why).
+  genuinely can't model the scenario.
 ```
 
 ## Layout
 
 ```
 tests/
-├── README.md                ← (you are here) framework + operational
-├── run-all.sh               ← orchestrator — runs L0-L4
-├── docker/                  ← L0 install-smoke
-├── lint/                    ← L1 lints (version sync, links, doctrine docs)
-├── mcp-integration/         ← L3 real server subprocess + JSON-RPC
-├── hooks/                   ← L3 hook script tests
-├── workflow-sim/            ← L4 MCP-only multi-step workflow tests
-├── lib/                     ← shared shell-assert helpers
-├── manual/                  ← L5 human-run against a real Claude Code session
+├── README.md                   ← (this) framework + operational
+├── EVALUATION.md               ← L5 evaluation system reference + refactor goals
+├── run-all.sh                  ← orchestrator — runs L1–L4
+├── docker/                     ← L0 install-smoke + Release canary
+├── lint/                       ← L1 lints (version sync, links, doctrine docs, layer budgets)
+├── mcp-integration/            ← L3 real server subprocess + JSON-RPC
+├── hooks/                      ← L3 hook script tests
+├── workflow-sim/               ← L4 MCP-only multi-step workflow tests
+├── lib/                        ← shared shell-assert helpers
+├── manual/                     ← Manual smoke (human-run against real CC)
 │   ├── README.md
 │   ├── setup.md
 │   └── scenarios.md
-└── dogfood/                 ← L5 deterministic-trajectory tests (issue #108)
-    ├── run-l5.sh
-    ├── lib/flow-helpers.sh
-    ├── flows/<name>.test.sh
-    ├── fixtures/<name>.sql
-    └── expected/<name>.txt
+└── dogfood/                    ← L5 deterministic-trajectory tests + A/B framework
+    ├── run-l5.sh, run-ab.sh
+    ├── lib/                    ← flow-helpers, scorers, smoke-helpers
+    ├── flows/<name>/           ← per-flow scaffolding (run.sh + outcome.sql + tools-required + tools-forbidden + cost-budget)
+    ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous)
+    └── ab-scenarios/           ← per-A/B-test layout
 ```
 
-Layer 1 (MCP unit tests) lives at `mcp/trajectory-server/src/test/` — colocated with the source it tests, following the convention used elsewhere in that package.
+L2 (MCP unit) lives at `mcp/trajectory-server/src/test/` — colocated with the source it tests, following the convention used elsewhere in that package.
 
-## Run everything automated
+## Run everything automated (L1–L4)
 
 ```bash
-# From plugin/ root:
 bash tests/run-all.sh
 ```
 
-Runs in order: Layer 1 unit → Layer 2 integration → hook scripts → agent-budget lint. Exit non-zero if any suite fails. CI at `.github/workflows/test.yml` runs exactly this on every PR to `dev`.
+Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. CI runs exactly this on every PR to `dev`.
 
 ## Run an individual suite
 
 ```bash
-# Layer 1 — MCP unit (handlers direct, synthetic args)
-(cd mcp/trajectory-server && bun run build && node --test dist/test/*.test.js)
+# L1 — lint
+bash tests/lint/agent-line-budget.sh
+# (and any other tests/lint/*.sh)
 
-# Layer 2 — MCP integration (real server subprocess + JSON-RPC)
+# L2 — MCP unit (handlers direct, synthetic args)
+(cd mcp/trajectory-server && bun run build && node --experimental-sqlite --test dist/test/*.test.js)
+
+# L3 — MCP integration (real server subprocess + JSON-RPC)
 bash tests/mcp-integration/run.sh
 
-# Hook scripts
+# L3 — Hook scripts
 bash tests/hooks/run.sh
 
-# Agent-prompt budget lint
-bash tests/lint/agent-line-budget.sh
+# L4 — Workflow simulation
+node --test tests/workflow-sim/*.test.mjs
 ```
 
-## Run the manual suite (L5)
+## Run L5 dogfood
 
-See [`manual/README.md`](./manual/README.md) — setup, scenarios, and what to do when a scenario fails.
-
-## Run L5 dogfood (deterministic-trajectory tests)
-
-L5 drives real Claude Code through pre-seeded TMB workflows and asserts the MCP/tool sequence matches FLOWS.md. Issue #108.
+L5 drives real Claude Code through pre-seeded TMB workflows and asserts the MCP/tool sequence + DB state matches doctrine. See [`EVALUATION.md`](./EVALUATION.md) for the scorer model and how flows are scored.
 
 ```bash
 # One-time: set the headless auth token
@@ -136,23 +115,40 @@ bash tests/dogfood/run-l5.sh
 bash tests/dogfood/run-l5.sh onboarding
 ```
 
-Each flow lives in `tests/dogfood/flows/<name>.test.sh`. Expected trajectories are `tests/dogfood/expected/<name>.txt` (one MCP/tool call per line, prefixed `mcp_call:` or `tool_use:`). Pre-seed SQL fixtures live in `tests/dogfood/fixtures/<name>.sql`.
-
-To add a new flow: copy an existing `flows/*.test.sh`, name a fixture (or write one), capture the expected sequence by running once with `TMB_DEBUG_TRAJECTORY=1` and reading the `debug_trajectory` table.
-
 CI runs L5 on tag pushes and on PRs labeled `L5`. The workflow at `.github/workflows/l5-dogfood.yml` skips silently if the secret is unset.
+
+## A/B prompt eval
+
+Reach for the A/B framework when you're about to ship a doctrine change ("tightening this CLAUDE.md section, hope it helps") and want data instead of vibes:
+
+- Compare two CLAUDE.md slim variants on the same flow + prompt → which one improves outcome pass-rate?
+- Compare Hybrid D' (cold-start AskUserQuestion + lazy default) against pure-lazy → did the question add value?
+
+Skip A/B for: small mechanical fixes (typos, lint), schema/MCP changes (those land via L1–L4), or anything where the right outcome is obvious without measurement.
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=<token>
+N=10 bash tests/dogfood/run-ab.sh <scenario-name>
+bash tests/dogfood/scripts/ab-report.sh <scenario-name> --db <persisted-trajectory.db>
+```
+
+See `tests/dogfood/ab-scenarios/example-claude-md-slim/README.md` for the worked-example scenario layout.
+
+## Run manual smoke
+
+See [`manual/README.md`](./manual/README.md) — setup, scenarios, and what to do when a scenario fails.
 
 ## Debug modes
 
-Three opt-in / always-on surfaces produce diagnostic output. Used together they cover the "what was the system doing right before it failed?" question.
+Three opt-in / always-on diagnostic surfaces. Used together they cover the "what was the system doing right before it failed?" question.
 
 | Mode | Surface | Trigger | Purpose |
 |---|---|---|---|
-| Trajectory capture | `debug_trajectory` SQL table inside the trajectory DB | `TMB_DEBUG_TRAJECTORY=1` | Capture canonical L5 expected-sequence; A/B prompt eval input |
+| Trajectory capture | `debug_trajectory` SQL table inside the trajectory DB | `TMB_DEBUG_TRAJECTORY=1` | Capture canonical L5 expected-sequence; A/B prompt-eval input |
 | MCP server log | `~/.claude/tmb/logs/mcp-server.log` (JSONL, file-based) | always-on | Forensics: lifecycle (startup/shutdown/error) + per-tool entry/exit; survives MCP/CC crash |
 | SQL query log | `~/.claude/tmb/logs/sql.log` (JSONL, file-based) | `TMB_DEBUG_SQL=1` | Every `run`/`get`/`all` with sql, params, duration_ms; verbose, off by default |
 
-`mcp-server.log` and `sql.log` are file-based by design — they survive MCP-child or CC-host death, which is the exact failure mode where the SQL `debug_trajectory` table becomes unreadable. See [`manual/debug-mode-expand.md`](./manual/debug-mode-expand.md) for the reproducible recipe.
+`mcp-server.log` and `sql.log` are file-based by design — they survive MCP-child or CC-host death, which is the failure mode where the SQL `debug_trajectory` table becomes unreadable.
 
 **Privacy note** — `TMB_DEBUG_SQL=1` logs every SQL parameter verbatim (task descriptions, identity names, discussion content, spec bodies). Enable only when investigating; disable immediately after; don't commit `sql.log` or paste it unredacted.
 
@@ -160,30 +156,36 @@ Three opt-in / always-on surfaces produce diagnostic output. Used together they 
 
 ```
 Is the change a pure handler detail (SQL, validation, return shape)?
-  → Layer 1 only.
+  → L2 only.
 
 Does the change touch:
   - a tool's inputSchema?
   - a requireRoles wrapper?
   - cross-tool invariants (e.g., validation_history must reflect validation_record)?
   - an agent's MCP responsibility sequence?
-  → Layer 1 AND Layer 2.
+  → L2 + L3.
 
 Does the change affect:
   - an agent's prompt?
   - a skill's behavior?
   - a routing rule in bro/architect?
   - the UX of any user-facing interaction?
-  → Layer 1 AND Layer 2 AND Layer 3 (add a scenario).
+  → L2 + L3 + L5 (add a flow under tests/dogfood/flows/).
+
+Does the change introduce a hook or modify hook behavior?
+  → L3 (tests/hooks/<name>.test.sh).
+
+Does the change touch the schema (DB tables, columns, CHECK constraints)?
+  → L2 (test the new shape) + L3 (regression test that callers handle migration).
 ```
 
 ## What each layer cannot catch
 
-- **Layer 1** — bypasses the MCP protocol. Cannot catch schema drift, role enforcement via the SDK (tests pass `agent:'x'` synthetically, production stripping happens before handler sees it), stdio transport bugs, or cross-tool workflow regressions.
-- **Layer 2** — deterministic protocol exercise. Cannot catch UX regressions, prompt drift, or whether the LLM *chooses* to call the right MCP at the right time (it tests that the call works when made, not that it's made).
-- **Layer 3** — slow and non-deterministic. Cannot substitute for Layer 1/2. If a dogfood run finds a schema bug, that's a signal Layer 1/2 coverage is incomplete.
+- **L2** — bypasses the MCP protocol. Cannot catch schema drift, role enforcement via the SDK (tests pass `agent:'x'` synthetically; production stripping happens before handler sees it), stdio transport bugs, or cross-tool workflow regressions.
+- **L3** — deterministic protocol exercise. Cannot catch UX regressions, prompt drift, or whether the LLM *chooses* to call the right MCP at the right time (it tests that the call works when made, not that it's made).
+- **L5** — slow and non-deterministic. Cannot substitute for L2/L3. If a dogfood run finds a schema bug, that's a signal L2/L3 coverage is incomplete.
 
-**Regression teeth proof (Layer 2):** removing `requireRoles('identity_set', ['bro'], …)` from `identity.ts` → Layer 2 fails on the next run with *"architect must be forbidden from identity_set"*. Verified 2026-04-24.
+**Regression teeth proof (L3):** removing `requireRoles('identity_set', ['bro'], …)` from `identity.ts` → L3 fails on the next run with *"architect must be forbidden from identity_set"*. Verified 2026-04-24.
 
 ## Add a new test
 
@@ -192,6 +194,7 @@ Does the change affect:
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
 | Protocol / role / workflow | `tests/mcp-integration/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
 | Hook script | `tests/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
+| L5 flow | `tests/dogfood/flows/<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — run.sh + outcome.sql + tools-required + tools-forbidden + cost-budget |
 | Manual scenario | `tests/manual/scenarios.md` | follow the 8-section template at the top of that file |
 
 ### Hook test skeleton
@@ -221,11 +224,12 @@ Assertion helpers (`tests/lib/assert.sh`):
 
 ## Anti-patterns
 
-- **"Layer 1 is green, ship it."** Layer 1 bypasses the MCP protocol layer. The 0-tool-uses bug in PR #41 had 235 Layer 1 tests green while every `identity_set` call in production returned `forbidden` because the schema stripped the `agent` param before the handler saw it. Always validate at the wire level.
-- **"Layer 3 will catch it."** Dogfood is slow (minutes per scenario) and non-deterministic (depends on LLM). Schema bugs, role bugs, and required-arg bugs should be caught in ms by Layer 2. Layer 3 is for what only a real LLM session can reveal.
+- **"L2 is green, ship it."** L2 bypasses the MCP protocol layer. The 0-tool-uses bug in PR #41 had 235 L2 tests green while every `identity_set` call in production returned `forbidden` because the schema stripped the `agent` param before the handler saw it. Always validate at the wire level (L3).
+- **"L5 will catch it."** Dogfood is slow (minutes per scenario) and non-deterministic (depends on LLM). Schema bugs, role bugs, and required-arg bugs should be caught in ms by L2/L3. L5 is for what only a real LLM session can reveal.
 - **"The handler already validates args, so schema doesn't matter."** It does. The LLM discovers what params to pass from the inputSchema. If `agent` isn't declared there, the LLM won't pass it, and role enforcement silently fails.
-- **Adding a new MCP tool without a Layer 2 test.** Ship a test alongside the tool, not after. Every protected tool must have a role-matrix test; every tool used in any agent's workflow must appear in that agent's workflow test.
+- **Adding a new MCP tool without an L3 test.** Ship a test alongside the tool, not after. Every protected tool must have a role-matrix test; every tool used in any agent's workflow must appear in that agent's workflow test.
 
 ## Related
 
-- [`scripts/hooks/diagnostic/README.md`](../scripts/hooks/diagnostic/README.md) — opt-in probe-bash harness for investigating [issue #14](https://github.com/trustmybot/plugin/issues/14)
+- [`EVALUATION.md`](./EVALUATION.md) — L5 evaluation system reference: scorers, flow file layout, refactor goals (interactive driver, LLM-as-judge, cross-table coherence).
+- [`scripts/hooks/diagnostic/README.md`](../scripts/hooks/diagnostic/README.md) — opt-in probe-bash harness for issue #14.

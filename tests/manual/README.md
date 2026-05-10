@@ -1,13 +1,13 @@
-# Manual tests — Layer 5
+# Manual smoke
 
-Layers L0–L4 + L5 are automated (Docker install-smoke, lint, MCP unit + integration, workflow simulation, release canary). Layer 5 is the residue — Claude-side behaviors that have no automated test surface: trigger detection, AskUserQuestion radio rendering, agent spawn isolation, subagent prompt precedence, tone, real worktree creation.
+L0–L5 are automated (Docker install-smoke, lint, MCP unit + integration, workflow simulation, dogfood, release canary). Manual smoke is the residue — Claude-side behaviors that have no automated test surface: trigger detection, AskUserQuestion radio rendering, agent spawn isolation, subagent prompt precedence, tone, real worktree creation.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | [`setup.md`](./setup.md) | **Read this first.** Two test paths explained: Path A (local `claude --plugin-dir`, fast iteration) vs Path B (marketplace `/plugin install tmb@trustmybot-rc`, REQUIRED for RC validation). Plus reset, hot reload, common errors, the Docker install-smoke fallback (Path C). |
-| [`scenarios.md`](./scenarios.md) | The 10-item L5 checklist. Walk every item against the install you're validating. |
+| [`scenarios.md`](./scenarios.md) | The 10-item manual-smoke checklist. Walk every item against the install you're validating. |
 
 ## When to run
 
@@ -23,7 +23,7 @@ Layers L0–L4 + L5 are automated (Docker install-smoke, lint, MCP unit + integr
 
 v0.2.0 and v0.3.0 both shipped install-path bugs that broke every stable user. Both were validated locally via Path A and passed. **Path A doesn't exercise the marketplace install lifecycle** (`bun install --ignore-scripts`) where both bugs lived. Path B is the only manual path that catches that bug class.
 
-The companion automated test (Path C — `tests/docker/run-install-smoke.sh`) catches it in CI starting v0.3.1, but Layer 5 also requires a real-CC manual walk because Claude-side behaviors (trigger word, AskUserQuestion, etc.) aren't testable in Docker.
+The companion automated test (Path C — `tests/docker/run-install-smoke.sh`) catches it in CI starting v0.3.1, but manual smoke also requires a real-CC walk because Claude-side behaviors (trigger word, AskUserQuestion, etc.) aren't testable in Docker.
 
 ## Why this is in `tests/` and not `docs/`
 

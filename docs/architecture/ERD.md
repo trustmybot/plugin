@@ -15,12 +15,10 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` base
 
 ```mermaid
 erDiagram
-    issues ||--o{ issues : "parent_issue_id"
     issues ||--o{ tasks : "issue_id"
     issues ||--o{ audit : "issue_id"
     issues ||--o{ discussions : "issue_id"
     issues ||--o{ roundtables : "issue_id"
-    issues }o--o| tasks : "current_task_id"
 
     tasks ||--o{ validation_attempts : "task_id (INTEGER FK)"
     tasks ||--o{ audit : "branch_id (soft ref)"
@@ -73,12 +71,9 @@ erDiagram
 
     issues {
         INT  id PK
-        INT  parent_issue_id FK
         TEXT objective
         TEXT description
         TEXT status
-        INT  current_task_id FK
-        TEXT pre_commit_hash
         TEXT post_commit_hash
         INT  remote_iid
         TEXT remote_kind
@@ -89,7 +84,7 @@ erDiagram
         INT  id PK
         INT  issue_id FK
         TEXT branch_id "git branch: feat/x, fix/y, …"
-        TEXT parent_branch_id "git branch of parent task"
+        TEXT parent_branch_id "branch this one was cut from"
         TEXT title
         TEXT description
         TEXT tools_required "JSON array"
@@ -99,6 +94,8 @@ erDiagram
         INT  attempts
         TEXT spec_body
         TEXT commit_sha
+        TEXT repo "multi-repo workspace inner-repo path"
+        TEXT completed_at
     }
 
     validation_attempts {
@@ -116,10 +113,11 @@ erDiagram
         INT  issue_id FK
         TEXT branch_id
         TEXT from_node
-        TEXT tool_name
-        TEXT tool_args "JSON"
-        TEXT output
-        INT  round
+        TEXT kind "always 'event' (CHECK)"
+        TEXT event_type
+        TEXT summary
+        TEXT content_json
+        INT  is_truncated
     }
 
     discussions {
@@ -201,10 +199,8 @@ erDiagram
 
 | From | Column | → To | Semantics |
 |---|---|---|---|
-| `issues` | `parent_issue_id` | `issues.id` | nested issues (rare; self-ref) |
-| `issues` | `current_task_id` | `tasks.id` | points at the task currently running; nullable |
 | `tasks` | `issue_id` | `issues.id` | every task belongs to one issue |
-| `audit` | `issue_id` | `issues.id` | event or tool output row always scoped to an issue |
+| `audit` | `issue_id` | `issues.id` | every event row scoped to an issue (use system issue id=999999 for project-level events) |
 | `discussions` | `issue_id` | `issues.id` | bro ↔ human ↔ consultants conversation per issue |
 | `roundtables` | `issue_id` | `issues.id` | a multi-agent debate belongs to an issue |
 | `roundtable_votes` | `roundtable_id` | `roundtables.id` | one vote row per agent per roundtable |
@@ -228,7 +224,7 @@ erDiagram
 | `skills` | Registry of curated + agent-created skills with effectiveness stats (`uses`, `successes`, `failures`, `effectiveness`). Looked up by name. |
 | `file_registry` | Output of the lazy `git log` diff walker. One row per file. Feeds the 4 auto renderers. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `identity` | Single-row table (`CHECK id=1`) holding bro name + human name. |
+| `identity` | Single-row table (`CHECK id=1`) — pure onboarded marker. Row presence at id=1 means `/onboard` ran; row absence is the auto-fire signal. No name or other user data is stored. |
 | `regen_state` | Per-target cursor (`last_seen_sha`) for the lazy architecture regen. |
 | `plugin_meta` | Schema + plugin version (for future migrations). Current row: `schema_version=1, plugin_version='0.0.0'`. |
 | `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration, exit_status). Written by `swe-atomic-close.sh` SubagentStop hook. |
@@ -259,44 +255,13 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 
 ## Capture tables — `audit` vs `debug_trajectory`
 
-Both tables capture per-tool-call detail with truncation handling, but they serve different consumers and operate under different scoping models.
+| Table | Scope | When written | Read by |
+|---|---|---|---|
+| `audit` | per-issue | always; bro/SWE/pr-reviewer write `kind='event'` rows for lifecycle markers | `branch_report_md`, `issue_report_md`, audit trail rendering |
+| `debug_trajectory` | per-session | only when `TMB_DEBUG_TRAJECTORY=1` (eval mode); MCP server wraps every tool dispatch and writes here | L5 eval pipeline, scorers |
 
-**`audit` (workflow-scoped)**
+`audit` is event-only since #179 (the `kind='tool_call'` branch was retired; tool-call records live in `debug_trajectory`). `debug_trajectory` schema is in `schema-eval.sql`, applied only when `TMB_EVAL_MODE=1` so production DBs don't carry it.
 
-- **Keys:** `(issue_id, branch_id, round)` — every row belongs to an issue and a (usually) task-branch.
-- **Writers:** bro (events + tool calls during planning), SWE (tool calls during work), pr-reviewer (events at sign-off). Server-side `audit.ts` accepts both `kind='event'` and `kind='tool_call'`.
-- **Read by:** `branch_report_md`, `issue_report_md`, anything that reconstructs the per-issue audit trail.
-- **Always on.** Default capture path, no opt-in flag.
+## Schema migration policy
 
-**`debug_trajectory` (session-scoped)**
-
-- **Keys:** `(session_id, step_n)` — deterministic ordering within a single CC session.
-- **Adds:** `tokens_in`, `tokens_out`, `latency_ms` — cost/perf attribution per call. Required for L5 eval scoring.
-- **Writers:** the MCP server itself (`src/index.ts`), wrapping every tool dispatch. NOT bro/SWE/pr-reviewer directly.
-- **Opt-in:** only writes when `process.env.TMB_DEBUG_TRAJECTORY === '1'`. Off in normal use.
-- **Schema home:** `schema-eval.sql` (split out per #163), so the prod schema doesn't carry it. The table only appears when `TMB_EVAL_MODE === '1'` triggers the eval schema apply.
-- **Read by:** L5 eval pipeline (`tests/dogfood/`), scorers in `mcp/trajectory-server/src/tools/scorers/`.
-
-**When to write where**
-
-New MCP tool author asks: "do I write to `audit` or `debug_trajectory`?" Write to `audit` for any event or tool-call you want in the per-issue audit trail — that's the default. `debug_trajectory` is auto-populated by the server's dispatch layer when eval-mode is on; tools don't write to it directly.
-
-**Why not consolidate**
-
-Option 2 (drop `debug_trajectory`, add cost/latency columns to `audit`) would conflate per-issue audit with per-session eval signal — the issue-scoping breaks down for sessions that span multiple issues, and adding nullable cost columns to a hot workflow table costs storage and clutters `branch_report_md` output. Option 3 (drop `audit`, expand `debug_trajectory`) breaks every audit-trail consumer and collapses the workflow-scoped identity of each captured row.
-
-## Migrations
-
-Additive `ALTER TABLE` migrations shipped via `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE` (no breaking schema changes in pre-release):
-
-| Migration | PR | Change |
-|---|---|---|
-| State machine columns | #141 | `roundtables.state`, `roundtables.expected_participants`, `roundtables.ratification_received_at` |
-| Issue sync tracking | #132 | `issues.remote_iid`, `issues.remote_kind`, `issues.remote_synced_at` |
-| Validation gate | #144 | `validation_attempts.subagent_session_id` |
-| Discussion gate | #145 | `discussions.verified_human` |
-| Issue sync default flip | #146 | `plugin_config` seed for `issue_sync = 'off'` |
-| Roundtable vote participant | #141 | `roundtable_votes.participant` |
-| PR monitor table | #142 | `pr_review_runs` (new table) |
-
-The plugin is pre-release — every new install is a fresh DB. `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE` into `plugin_meta`. Future breaking schema changes will add a `v1 → v2` path in the same release.
+Pre-release — every new install is a fresh DB. `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`. Additive column adds happen via `ALTER TABLE` migrations in `db.ts`. Destructive drops (column removals) live in `migrate179DropDeadColumns` (idempotent — re-runs see the column already gone).

@@ -1,242 +1,164 @@
-# Plugin File Map
+# Plugin file map
 
-Every tracked file in `plugin/` with its purpose. Regenerate after any restructure.
+Tracked files in `plugin/` grouped by purpose. Counts are correct as of the current commit; treat the shell (`ls scripts/hooks/*.sh | wc -l` etc.) as the source of truth if this doc drifts.
 
-Last refresh: 2026-05-02 on `docs/151-architecture-cleanup`.
-
-> **Bro-as-planner doctrine + Lego templates + multi-platform placeholders.**
-> The plugin ships TWO global subagents — `swe` + `pr-reviewer` (the workflow backbone) — in `agents/`. They auto-discover; no copy step. **ZERO consultant subagents** ship globally; consultants (`architect`, `cto`, `ceo`, `pm`, any domain consultant) live as Lego templates in `templates/agents/` that bro copies into `<project>/.claude/agents/` on demand. `bro` is a CLAUDE.md persona on main Claude (not a subagent).
-> Multi-platform adapter dirs (`.codex-plugin/`, `.cursor-plugin/`, `.opencode/`, `gemini-extension.json`)
-> are present as **placeholders only** — see [`docs/multi-platform.md`](../multi-platform.md).
-
-## Tree (excluding `node_modules/`, `dist/`, `.git/`, `*.lock*`, local `.trajectory.db`)
+## Top-level
 
 ```
 plugin/
-├── # Per-platform adapters (only Claude Code is implemented today)
-├── .claude-plugin/
-│   └── plugin.json                   # per-plugin manifest (name, version, deps, provides). NOT the marketplace catalog — catalogs are `marketplace.json` files in separate catalog repos (see TRU-84 for the new CC marketplace migration).
-├── .codex-plugin/                    # PLACEHOLDER — OpenAI Codex adapter
-│   ├── README.md
-│   └── plugin.json
-├── .cursor-plugin/                   # PLACEHOLDER — Cursor adapter
-│   ├── README.md
-│   └── plugin.json
-├── .opencode/                        # PLACEHOLDER — OpenCode adapter
-│   └── README.md
-├── gemini-extension.json             # PLACEHOLDER — Gemini CLI manifest. top-level (not subdir) per Gemini CLI's extension format spec; other adapters use subdirs (.codex-plugin/, .cursor-plugin/, .opencode/) per their own platform conventions.
-│
-├── # Per-platform persona / context loading files
-├── CLAUDE.md                         # auto-loaded bro persona for Claude Code (canonical)
-├── CODEX.md                          # PLACEHOLDER — Codex persona
-├── CURSOR.md                         # PLACEHOLDER — Cursor persona
-├── GEMINI.md                         # PLACEHOLDER — Gemini CLI persona
-│
-├── # Repo metadata
-├── .github/                          # DORMANT — GH account suspended (per ADR 0001-gitlab-primary in TMB workspace). Files preserved for future GH restoration; CI currently runs on GitLab.
-│   └── workflows/
-│       └── test.yml                  # bun build + MCP tests + hook tests on PR → dev/main. Runs only when GH restored; until then GitLab CI is canonical.
-├── .gitignore                        # ignores .claude/, *.db variants, node_modules/, dist/, editor cruft
-├── .mcp.json                         # registers bundled MCP server with Claude Code
-├── CHANGELOG.md                      # user-facing release notes (keep-a-changelog)
-├── CONTRIBUTING.md                   # branch workflow, pre-PR checklist, design principles
-├── LICENSE                           # MIT
-├── README.md                         # project README + quickstart
-│
-├── # Plugin runtime — workflow backbone agents (always global, project can override per-name)
-├── agents/                           # 2 backbone agents — auto-discovered by CC, no copy step
-│   ├── pr-reviewer.md                # push gate — runs at git push over batch of unsigned tasks
-│   └── swe.md                        # executor — one task per spawn, isolated worktree, atomic close
-│
-├── # Plugin runtime — skills (all global; project can override per-name)
-├── skills/                           # tmb_* protocol skills (10 total; lazy-loaded; project can override per-name)
-│   ├── tmb_planning/                 # bro's full code-touching flow — cold-start, triage, branch_id confirm, spec, spawn, V1/V2/V3, atomic close, retry
-│   ├── tmb_review/                   # pr-reviewer judgment phases + bro push-gate orchestration + PR comment triage
-│   ├── tmb_recovery/                 # bro's response when AUQ errors / MCP returns is_error / trajectory-server unreachable
-│   ├── tmb_concerns-protocol/        # how bro raises a concern when doubting the Human's plan (surface or spawn consultant)
-│   ├── tmb_agent-creator/            # propose & write new agent files on user approval (template-copy or from-scratch)
-│   ├── tmb_skill-creator/            # propose & write new skill files; appends to consuming agent's skills:
-│   ├── tmb_swe-checklist/            # SWE pre-commit judgment checklist
-│   └── tmb_docs-conventions/         # prompt-editing discipline (load when SWE's spec names a markdown file)
-│   # Reference content (not skills, read-only): docs/contributing/{CODE_QUALITY,REVIEW_FINDINGS,CREATOR_GUIDE}.md
-│
-├── # Consultant templates (opt-in — copied per-project on first request via tmb_agent-creator)
-├── templates/
-│   ├── agents/                       # 4 consultant templates (≤30 lines each, lint-enforced)
-│   │   ├── architect.md              # consultant — system-design analysis, on-demand
-│   │   ├── ceo.md                    # consultant — product scope, prioritization, business framing
-│   │   ├── cto.md                    # consultant — tech strategy, scaling, stack trade-offs
-│   │   └── pm.md                     # consultant — product strategy, user-need framing
-│   │
-│   └── docs-trustmybot/              # seeded docs skeleton for downstream projects
-│       ├── architecture/
-│       │   ├── auto/                 # regenerated from file_registry (do not edit)
-│       │   │   ├── changelog.md
-│       │   │   ├── codebase-tree.md
-│       │   │   ├── erd.md
-│       │   │   └── module-graph.md
-│       │   ├── manual/               # hand-curated (consultants own)
-│       │   │   ├── decisions/0001-example.md   # ADR template
-│       │   │   ├── data-flow.md
-│       │   │   ├── infrastructure.md
-│       │   │   └── security-model.md
-│       │   └── README.md             # auto vs manual rules
-│       └── snapshots/.gitkeep        # for issue_snapshot_md output
-│
-├── # Hooks (PreToolUse / PostToolUse / SessionStart / UserPromptSubmit / SubagentStop / WorktreeCreate)
-├── hooks/
-│   └── hooks.json                    # CC hooks manifest (matchers + script paths)
-├── scripts/
-│   └── hooks/
-│       ├── diagnostic/
-│       │   ├── probe-bash.sh         # Issue #14 subagent Bash-bypass probe
-│       │   └── README.md             # diagnostic usage guide
-│       ├── lib/
-│       │   └── query-task.sh         # shared sqlite helpers (tmb_db_path, tmb_task_spec_status, …)
-│       ├── activation-routine.sh     # UserPromptSubmit hook — pre-fetches identity + pending issue when bro mode active
-│       ├── askuserquestion-length-lint.sh # PreToolUse AskUserQuestion — caps label (≤5 words) and description (≤15 words)
-│       ├── branch-up-to-date-with-remote.sh  # PreToolUse Bash — denies worktree-add when branch is behind origin/<pr_target>
-│       ├── cleanup-worktree-on-task-close.sh # PostToolUse — removes worktree when bro flips task → closed
-│       ├── debug-trajectory.sh       # PreToolUse capture (TMB_DEBUG_TRAJECTORY=1) — populates debug_trajectory table
-│       ├── deferred-tools-drift-warn.sh # SessionStart — warns when MCP tools on disk are newer than running server
-│       ├── ensure-gitignore.sh       # SessionStart hook — ensures project .gitignore excludes .claude/
-│       ├── git-guards.sh             # protected-branch block, force-push block, dual-tier dev→main exception (v0.1.1)
-│       ├── git-push-guard.sh         # PreToolUse Bash — blocks `git push` on unsigned commits
-│       ├── mcp-health-check.sh       # UserPromptSubmit (periodic) — MCP server liveness probe
-│       ├── no-source-edit-from-main.sh  # PreToolUse Edit/Write — blocks bro from editing source outside an SWE worktree
-│       ├── no-worktree-branch-create.sh # PreToolUse Bash — blocks `git worktree add -b/-B` (branch authority is bro's)
-│       ├── require-summaries-before-task-close.sh # PreToolUse task_update_status — denies close if file_registry summaries missing/stale (#181)
-│       ├── require-task-spec.sh      # PreToolUse Agent — block SWE spawn unless task_id references a valid DB row
-│       ├── roundtable-auq-shape.sh   # PreToolUse AskUserQuestion — validates AUQ shape during roundtable awaiting_human (#141)
-│       ├── session-log-capture.sh    # UserPromptSubmit — tracks current cc.log path for diagnostics
-│       ├── session-start-regen-check.sh # SessionStart hook — nudges architecture_regen when arch docs are stale
-│       ├── swe-atomic-close.sh       # SubagentStop — safety net: auto-completes pending task if SWE stopped without calling task_update_status
-│       ├── worktree-create.sh        # WorktreeCreate — worktree-creation safety checks
-│       └── write-active-workspace-sentinel.sh # SessionStart — writes sentinel for cross-session workspace resolution
-│
-├── # Bundled MCP server — SQLite trajectory persistence
-├── mcp/
-│   └── trajectory-server/
-│       ├── .gitignore                # dist/, node_modules/, *.db variants
-│       ├── README.md                 # MCP server build/test/run instructions
-│       ├── bun.lock                  # dependency lockfile
-│       ├── package.json              # @modelcontextprotocol/sdk; SQLite via Node stdlib (node:sqlite)
-│       ├── tsconfig.json             # strict TS, emits to dist/
-│       │
-│       ├── docs/
-│       │   └── CONFIG_KEYS.md        # canonical list of plugin_config keys
-│       │
-│       └── src/
-│           ├── db.ts                 # opens DB, applies schema.sql
-│           ├── index.ts              # MCP server entrypoint (stdio transport)
-│           ├── schema.sql            # authoritative schema DDL (18 tables, schema_version=1 baseline)
-│           ├── types.ts              # shared TS types (Issue, Task, Discussion, …)
-│           │
-│           ├── middleware/
-│           │   └── agent-scope.ts    # AgentRole type, normalizeAgent, requireRoles, redact helpers
-│           │
-│           ├── regen/
-│           │   ├── git-walker.ts     # lazy git-log diff walker → file_registry
-│           │   └── ts-import-parser.ts # extracts imports/exports for module-graph renderer
-│           │
-│           ├── renderers/
-│           │   ├── changelog.ts      # docs/trustmybot/architecture/auto/changelog.md
-│           │   ├── codebase-tree.ts  # codebase-tree.md renderer
-│           │   ├── erd.ts            # erd.md renderer (Mermaid ER)
-│           │   ├── module-graph.ts   # module-graph.md renderer (Mermaid graph)
-│           │   └── types.ts          # shared renderer types
-│           │
-│           ├── test/                 # node:test unit tests
-│           │   ├── agent-scope.test.ts
-│           │   ├── architecture-regen.test.ts
-│           │   ├── changelog.test.ts
-│           │   ├── codebase-tree.test.ts
-│           │   ├── config_keys_contract.test.ts
-│           │   ├── config.test.ts
-│           │   ├── db-path.test.ts
-│           │   ├── db.test.ts
-│           │   ├── discussions.test.ts       # end-to-end discussion tools + snapshot
-│           │   ├── erd.test.ts
-│           │   ├── file-registry.test.ts
-│           │   ├── helpers.ts                # tempDB(), createIssue(), createTask()
-│           │   ├── identity.test.ts
-│           │   ├── issues.test.ts
-│           │   ├── audit-merge.test.ts   # migration + unified audit table
-│           │   ├── module-graph.test.ts
-│           │   ├── regen-state.test.ts
-│           │   ├── remaining_tools.test.ts   # audit, validation, skills, reports
-│           │   ├── schema.test.ts            # current-schema contract
-│           │   └── tasks.test.ts
-│           │
-│           └── tools/                # MCP tool families (one file per domain)
-│               ├── architecture-regen.ts  # orchestrator: file-registry scan + 4 renderers
-│               ├── audit.ts          # audit_log (kind='event'|'tool_call'), audit_log_list
-│               ├── branch_report_md.ts # branch_report_md — branch-level narrative builder
-│               ├── config.ts         # plugin_config get/set/list
-│               ├── discussions.ts    # discussion_append (verified_human gate), discussion_list
-│               ├── file-registry.ts  # file_registry_upsert/list/verify/delete/update_summaries (bro-only)
-│               ├── identity.ts       # identity_get, identity_set, identity_reset
-│               ├── index.ts          # registerTools() — wires every family into server
-│               ├── issues.ts         # issue_create/get/resume/close/update_description/sync_retry (requireRoles)
-│               ├── labels.ts         # issue_add_labels, issue_remove_labels, issue_set_labels
-│               ├── pr_comments.ts    # pr_comments_get (gh + glab backends, bot-filtered)
-│               ├── regen-state.ts    # regen_state_get/set — cursor for lazy regen
-│               ├── reports.ts        # issue_report_md, issue_snapshot_md
-│               ├── roundtable.ts     # roundtable_create/vote/close/finalize_decisions/summarize (state machine)
-│               ├── skills.ts         # skill_register, skill_promote, skill_record_outcome
-│               ├── stats.ts          # task_stats, task_first_actionable
-│               ├── tasks.ts          # task_create_batch, task_get, task_update_status (requireRoles)
-│               └── validation.ts     # validation_record (requireRoles=['pr-reviewer'] + subagent_session_id), validation_history
-│
-├── # Cross-platform strategy doc
-├── docs/
-│   ├── multi-platform.md             # how the per-platform adapter pattern works
-│   └── architecture/                 # contributor-facing reference
-│       ├── ENFORCEMENT.md           # 6 enforcement layers + per-agent × per-interaction coverage matrix
-│       ├── RESPONSIBILITIES.md      # what bro/swe/pr-reviewer/consultants are actually instructed to do (from prompts + hooks + Layer-1)
-│       ├── ERD.md                    # SQLite schema: Mermaid ER diagram + FK + soft-ref tables
-│       ├── FILES.md                  # this file
-│       └── FLOWS.md                  # workflow flowcharts
-│
-└── # Test infrastructure
-    └── tests/
-        ├── README.md                 # contributor testing guide
-        ├── run-all.sh                # lint + MCP integration + hook suites; exit 0 only if all pass
-        ├── lint/
-        │   ├── agent-line-budget.sh           # template-agent ≤30-line cap
-        │   └── onboarding-skill-contract.sh   # required onboarding-skill assertions
-        ├── mcp-integration/
-        │   ├── agent-bro-planner-workflow.test.mjs
-        │   ├── agent-bro-workflow.test.mjs
-        │   ├── agent-pr-reviewer-workflow.test.mjs
-        │   ├── agent-swe-workflow.test.mjs
-        │   ├── harness.mjs
-        │   ├── role-matrix.test.mjs
-        │   ├── run.sh
-        │   ├── schema-contract.test.mjs
-        │   └── scope-gate.test.mjs
-        ├── hooks/
-        │   ├── git-guards.test.sh
-        │   ├── require-task-spec.test.sh
-        │   └── run.sh                # aggregator
-        ├── lib/
-        │   └── assert.sh             # shared assertion helpers
-        └── manual/
-            ├── README.md
-            ├── scenarios.md          # Layer 3 dogfood test plan (refresh tracked in #51)
-            └── setup.md              # scratch-project scaffold for manual runs
+├── CLAUDE.md                 # auto-loaded bro persona for Claude Code
+├── README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE
+├── .claude-plugin/plugin.json     # Claude Code plugin manifest
+├── .codex-plugin/, .cursor-plugin/, .opencode/, gemini-extension.json
+│                              # PLACEHOLDERS — see docs/MULTI_PLATFORM.md
+├── CODEX.md, CURSOR.md, GEMINI.md  # PLACEHOLDER personas
+├── .gitignore, .mcp.json
+└── .github/workflows/test.yml      # GH dormant; GitLab CI is canonical
 ```
 
-## Open issues touching file-map concerns
+## Workflow backbone agents
 
-- **#14** — subagent Bash may bypass PreToolUse hooks (diagnostic harness shipped at `scripts/hooks/diagnostic/`)
-- **#51** — `tests/manual/scenarios.md` template-rewrite for the bro-as-planner chain
+```
+agents/
+├── pr-reviewer.md            # push gate — runs at git push over batch of unsigned tasks
+└── swe.md                    # executor — one task per spawn, isolated worktree, atomic close
+```
 
-## Summary
+`bro` is a `CLAUDE.md` persona on main Claude (no agent file). Backbone agents auto-discover; project can override per-name via `<project>/.claude/agents/<name>.md`.
 
-- **Two-layer agent model.** Bro is a CLAUDE.md persona. Backbone agents (`swe`, `pr-reviewer`) ship globally in `agents/`. Consultants (`architect`, `cto`, `ceo`, `pm`) ship as templates in `templates/agents/`, instantiated per-project on demand.
-- **28 skills total** in `skills/`: 21 protocol skills (`tmb_*`, plugin-owned) + 7 default workflow skills (overridable by name in `<project>/.claude/skills/`).
-- **20 hook scripts** under `scripts/hooks/` (see hooks table in `docs/REFERENCE.md`)
-- **18-table SQLite schema** via `node:sqlite` (Node stdlib, no native deps; Node ≥22 required) — see [`ERD.md`](ERD.md).
-- **Test layers (L0-L5)**: see [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`../../tests/run-all.sh`](../../tests/run-all.sh). 10 lint scripts + 245 MCP unit + 43 MCP integration + 27 hook unit + 10-item manual checklist + Docker install-smoke + post-tag canary.
-- **Multi-platform structure** present as placeholders; only `.claude-plugin/` is implemented (see [`../multi-platform.md`](../multi-platform.md)).
+## Skills (8 total)
+
+```
+skills/
+├── tmb_planning/             # bro's full code-touching flow
+├── tmb_review/               # pr-reviewer judgment + bro push-gate orchestration + PR comment triage
+├── tmb_recovery/             # bro's response when AUQ errors / MCP returns is_error / trajectory-server unreachable
+├── tmb_concerns-protocol/    # how bro raises a concern when doubting the Human's plan
+├── tmb_agent-creator/        # propose & write new agent files on user approval
+├── tmb_skill-creator/        # propose & write new skill files
+├── tmb_swe-checklist/        # SWE pre-commit judgment checklist
+└── tmb_docs-conventions/     # prompt-editing discipline (loaded by SWE on markdown spec files)
+```
+
+Slash commands (Human-triggered ceremonies, not skills):
+
+```
+commands/
+├── onboard.md                # /onboard — auto-fired on first contact + Human-typed for changes
+├── roundtable.md             # /roundtable <topic> — multi-agent deliberation
+└── monitor.md                # /monitor <PR_number> — PR comment review
+```
+
+## Consultant templates
+
+Copied per-project on first request via `tmb_agent-creator`:
+
+```
+templates/
+├── agents/                   # 4 consultant templates (≤30 lines each, lint-enforced)
+│   ├── architect.md, ceo.md, cto.md, pm.md
+└── docs-trustmybot/          # seeded docs skeleton for downstream projects
+    ├── architecture/auto/    # regen output (changelog, codebase-tree, erd, module-graph)
+    ├── architecture/manual/  # hand-curated (decisions/, data-flow, infrastructure, security-model)
+    └── snapshots/.gitkeep    # for issue_snapshot_md output
+```
+
+## Hooks (30 scripts)
+
+```
+hooks/hooks.json              # CC hooks manifest (matchers + script paths)
+scripts/hooks/
+├── lib/query-task.sh         # shared sqlite helpers
+├── diagnostic/               # subagent Bash-bypass probe (#14)
+└── *.sh                      # 30 lifecycle hooks
+```
+
+Group by event:
+
+| Event | Scripts |
+|---|---|
+| **SessionStart** | `session-start-prescan`, `session-start-regen-check`, `ensure-gitignore`, `deferred-tools-drift-warn`, `write-active-workspace-sentinel` |
+| **UserPromptSubmit** | `activation-routine`, `consultant-spawn-required`, `mcp-health-check`, `session-log-capture` |
+| **PreToolUse** | `no-source-edit-from-main`, `no-worktree-branch-create`, `branch-up-to-date-with-remote`, `git-guards`, `git-push-guard`, `commit-msg-lint`, `naming-lint`, `code-quality-lint`, `require-task-spec`, `require-summaries-before-task-close`, `require-feature-branch-active`, `auq-headless-deny`, `askuserquestion-length-lint`, `roundtable-auq-shape`, `greenfield-arch-required`, `debug-trajectory` |
+| **PostToolUse** | `cleanup-worktree-on-task-close`, `lazy-regen-postcheck`, `roundtable-cleanup-postcheck` |
+| **SubagentStop** | `swe-atomic-close` |
+| **WorktreeCreate** | `worktree-create` |
+
+## MCP server
+
+```
+mcp/trajectory-server/
+├── package.json, tsconfig.json, README.md, bun.lock
+├── docs/CONFIG_KEYS.md       # canonical plugin_config key list
+└── src/
+    ├── db.ts                 # opens DB, applies schema.sql, runs migrations
+    ├── index.ts              # MCP server entrypoint (stdio transport)
+    ├── schema.sql            # authoritative schema (18 tables)
+    ├── schema-eval.sql       # eval-mode-only tables (debug_trajectory, eval_results)
+    ├── types.ts              # shared TS types
+    ├── middleware/agent-scope.ts    # AgentRole, normalizeAgent, requireRoles, redact
+    ├── regen/                # git-walker + ts-import-parser → file_registry feed
+    ├── renderers/            # auto-doc generators (changelog/erd/module-graph/codebase-tree)
+    ├── sync/                 # gh/glab issue sync (backend.ts + issue_sync.ts)
+    ├── tools/                # MCP tool families (one file per domain — see below)
+    └── test/                 # node:test unit tests (~480 tests across 35 files)
+```
+
+### Tool families
+
+| File | Tools |
+|---|---|
+| `agents.ts` | `agent_list`, `agent_register` |
+| `architecture-regen.ts` | `architecture_regen` |
+| `audit.ts` | `audit_log`, `audit_log_list` (event-only since #179) |
+| `branch_report_md.ts` | `branch_report_md` |
+| `composites.ts` | `branch_id_propose`, `task_retry_batch`, `bro_atomic_close` |
+| `config.ts` | `config_get`, `config_set`, `config_list` |
+| `discussions.ts` | `discussion_append` (verified_human gate), `discussion_list`, `issue_get_with_discussions` |
+| `file-registry.ts` | `file_registry_upsert/list/verify/delete/update_summaries` (bro-only) |
+| `identity.ts` | `identity_get`, `identity_set`, `identity_reset` (onboarded-marker only — no name stored) |
+| `issues.ts` | `issue_create/get/resume/close/update_description/sync_retry` |
+| `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
+| `pr_comments.ts` | `pr_comments_get` (gh + glab backends, bot-filtered) |
+| `project-metadata.ts` | `project_metadata_detect` (deterministic stack detection) |
+| `regen-state.ts` | `regen_state_get`, `regen_state_set` |
+| `reports.ts` | `issue_report_md`, `issue_snapshot_md` |
+| `roundtable.ts` | `roundtable_create/vote/close/finalize_decisions/summarize` (state machine) |
+| `skills.ts` | `skill_register`, `skill_promote`, `skill_record_outcome` |
+| `stats.ts` | `task_stats`, `task_first_actionable` |
+| `tasks.ts` | `task_create_batch`, `task_get`, `task_update_status` |
+| `validation.ts` | `validation_record` (pr-reviewer-only + subagent_session_id + MCP-availability prefix), `validation_history` |
+
+## Tests
+
+```
+tests/
+├── README.md, run-all.sh         # L1–L4 aggregator
+├── lint/                          # L1 lint scripts
+├── mcp-integration/               # L2 — 7 .mjs files
+├── hooks/                         # L3 — 23 .test.sh files
+├── workflow-sim/                  # L4 — 6 .mjs files
+├── dogfood/                       # L5 — claude -p flows
+│   ├── run-l5.sh, run-ab.sh
+│   ├── flows/                     # per-flow scaffolding
+│   ├── fixtures/                  # SQL fixtures (empty, onboarding-named, onboarding-anonymous)
+│   ├── lib/                       # flow-helpers, scorers, smoke-helpers
+│   └── ab-scenarios/              # historical A/B prompt-eval scenarios
+└── manual/                        # L0 install-smoke + manual scenarios
+```
+
+## Architecture docs
+
+```
+docs/architecture/
+├── DETERMINISM.md      # 7 enforcement mechanisms; judgment vs determinism
+├── ENFORCEMENT.md      # 6 layers + per-agent × per-interaction coverage matrix
+├── RESPONSIBILITIES.md # what bro/swe/pr-reviewer/consultants are actually instructed to do
+├── ERD.md              # SQLite schema: Mermaid ER + FK + soft-refs + role × tool matrix
+├── FLOWS.md            # workflow flowcharts (canonical chain + per-flow deltas)
+├── FILES.md            # this file
+├── GIT.md              # git state across a task lifecycle (worktree model)
+├── UI.md               # AskUserQuestion modes + constraints
+├── PROJECT_METADATA.md # stack detection API + lookup tables + drift handling
+└── manual/decisions/   # ADRs (e.g., 0002-deterministic-stack-detection)
+```
