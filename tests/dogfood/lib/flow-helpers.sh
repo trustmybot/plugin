@@ -59,9 +59,23 @@ l5_preserve_trajectory() {
 # claude blocks every tool call (Bash, Edit, MCP) until a human approves
 # them, and there is no human in the loop here. The scratch dir is a
 # fresh mktemp-d, so there's nothing to harm.
+# Shared header injected before every test prompt. The "Don't call AUQ"
+# instruction is the cheap first line of defense against AUQ firing in
+# tests (the auq-headless-deny.sh PreToolUse hook is the second). Skips
+# the SDK + API-key cost we'd otherwise need to answer AUQ programmatically;
+# AUQ rendering / option labels are exercised separately in manual smoke.
+_l5_test_prompt_prefix() {
+  cat <<'EOF'
+[TEST MODE] Do not call AskUserQuestion. Apply documented defaults from skills/CLAUDE.md and continue. The Human is not in the loop here.
+
+EOF
+}
+
 l5_run_claude() {
   local dir="$1" prompt="$2"
   local jsonl="$dir/trajectory.jsonl"
+  local full_prompt
+  full_prompt="$(_l5_test_prompt_prefix)$prompt"
 
   # Snapshot pre-run git state so the git scorer can detect "bro committed
   # to base" without conflating it with setup-time commits the flow's
@@ -91,7 +105,7 @@ l5_run_claude() {
       --include-hook-events \
       --include-partial-messages \
       --verbose \
-      -p "$prompt" \
+      -p "$full_prompt" \
       > "$jsonl" 2>/tmp/tmb-claude-stderr.$$ || true
     [ -s /tmp/tmb-claude-stderr.$$ ] && sed 's/^/  [claude-err] /' /tmp/tmb-claude-stderr.$$ >&2
     rm -f /tmp/tmb-claude-stderr.$$
