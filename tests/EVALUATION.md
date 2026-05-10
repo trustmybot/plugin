@@ -7,7 +7,7 @@ Two automated dogfood layers drive **real Claude Code through pre-seeded TMB wor
 | **L5** | Per-row independent unit tests. Each test starts from a fixture that pre-seeds the **cumulative state up to this row** (codebase, MCP DB, discussions, issues, tasks, audit, etc.). One row = one test. | Single bro turn (or short multi-turn) against pre-seeded state. Fast, isolated, ~$0.20/test. | Debug or regression-test a single row's contract. **First-line check after a fix** — if the L5 for that row doesn't pass, don't run L6. |
 | **L6** | Single **chained integration test** that walks ALL 13 journey rows sequentially in one continuous session via `claude --session-id` / `--resume`. State carries across rows: row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 13-row chain in one session. Slow, ~$0.30–1/scenario × 13 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row continuity holds end-to-end. |
 
-The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration → L4 workflow-sim → L5 → L6) lives in [`README.md`](./README.md). This doc is the reference for how L5 + L6 work, what each catches, and the refactor plan.
+The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration → L4 workflow-sim → L5 → L6) lives in [`README.md`](./README.md). This doc is the reference for how L5 + L6 work and what each catches.
 
 ---
 
@@ -41,141 +41,67 @@ L6 reuses L5's fixtures, scorers, and shell helpers — they differ only in whet
 
 ---
 
-## L5 — per-flow runner (today)
+## L5 — per-row runner
 
-L5 fires `claude -p` against the plugin source once, captures the trajectory, scores it. Run a single flow by name substring:
+L5 fires `claude -p` against a pre-seeded fixture once per row, captures the trajectory, scores it. Each row's fixture seeds the cumulative state up to that row (codebase + MCP DB rows for issues / tasks / discussions / audit / file_registry), so any single row is testable in isolation.
 
 ```bash
-bash tests/dogfood/run-l5.sh 32-team-config        # ~30-60s
-bash tests/dogfood/run-l5.sh                        # all 19 flows, ~30-50 min
+bash tests/dogfood/run-l5.sh 07-push-gate           # one row, ~30-60s
+bash tests/dogfood/run-l5.sh                        # all rows
 ```
 
-When to use L5: testing one skill change, debugging one flow, regression-tracing.
+When to use L5: debugging one row, regression-tracing after a fix, pre-flight before re-running L6.
 
 ### File layout
 
 ```
 tests/dogfood/
-├── run-l5.sh                 # orchestrator — picks up CLAUDE_CODE_OAUTH_TOKEN, iterates flows
+├── run-l5.sh                 # orchestrator — iterates rows
 ├── lib/
-│   ├── flow-helpers.sh       # l5_setup_scratch_project, l5_seed_db, l5_run_claude, l5_score_flow
-│   ├── scorers.sh            # outcome / trajectory / cost scorer impls
+│   ├── flow-helpers.sh       # row-level setup + run + score helpers
+│   ├── scorers.sh            # outcome / coherence / git / trajectory / cost scorer impls
 │   ├── smoke-helpers.sh      # pre-flight substrate health (MCP spawn + auth + plugin-load)
 │   └── timeout-shim.sh       # cross-platform timeout wrapper
-├── flows/<name>/
-│   ├── run.sh                # per-flow setup + l5_run_claude + l5_score_flow
+├── l5-rows/<NN>-<name>/
+│   ├── README.md             # what this row tests
+│   ├── fixture.txt           # named SQL fixture seeded before the row fires
+│   ├── setup.sh              # extra pre-state injection (rows + files) on top of the fixture
 │   ├── prompt.txt            # the user prompt fed to claude -p
 │   ├── outcome.sql           # SQL assertions against trajectory.db
-│   ├── tools-required.json   # MCP tools that MUST appear in trajectory.jsonl
-│   ├── tools-forbidden.json  # MCP tools that MUST NOT appear
-│   ├── cost-budget.json      # max tokens / max duration_ms (soft-warn or hard-fail)
-│   ├── outcome-files.json    # (optional) filesystem-state assertions
-│   └── README.md             # human description of what the flow tests
-├── fixtures/                 # SQL fixtures (empty / onboarding-named / onboarding-anonymous)
+│   ├── outcome-coherence.json  # cross-table row-count shape
+│   ├── outcome-git.json      # final git state assertions
+│   ├── tools-required.json   # MCP / built-in tools that MUST appear in trajectory.jsonl
+│   ├── tools-forbidden.json  # tools that MUST NOT appear
+│   └── cost-budget.json      # max tokens / max duration_ms
+├── fixtures/                 # SQL fixtures (empty / onboarding-named / onboarding-anonymous / …)
 └── ab-scenarios/             # A/B prompt-eval scenarios (see README.md § A/B)
 ```
 
-### Per-flow execution
+### Per-row execution
 
-1. `l5_setup_scratch_project` — `mktemp -d`, `git init -b main`, identity config, `.gitignore`, `.claude/tmb/` dir.
-2. `l5_seed_db <fixture>` — apply `schema.sql` then the named SQL fixture.
-3. Per-flow `run.sh` does any extra setup (seed tasks, scatter files, copy templates).
-4. `l5_run_claude <prompt>` — runs `claude --plugin-dir <plugin> --dangerously-skip-permissions --output-format stream-json --include-hook-events --include-partial-messages --verbose -p "$prompt"` with `TMB_HEADLESS=1`; captures `trajectory.jsonl` + the project's `trajectory.db`.
-5. `l5_score_flow` — runs every present scorer against the captured artifacts. The flow passes only when every required scorer passes.
+1. Set up a fresh scratch project (`mktemp -d`, `git init -b main`, identity config, `.gitignore`, `.claude/tmb/` dir).
+2. Seed the DB: apply `schema.sql` then the row's `fixture.txt` SQL fixture.
+3. Run the row's `setup.sh` for extra pre-state (seed tasks, scatter files, copy templates).
+4. Run claude: `claude --plugin-dir <plugin> --dangerously-skip-permissions --output-format stream-json --include-hook-events --include-partial-messages --verbose -p "$prompt"` with the test-mode AUQ-suppression prefix prepended; capture `trajectory.jsonl` + `trajectory.db`.
+5. Run every present scorer against the captured artifacts. The row passes only when every required scorer passes.
 
-The trajectory is preserved at `~/.claude/tmb/l5-trajectories/<flow>/<run_id>/` regardless of pass/fail.
+The trajectory is preserved at `~/.claude/tmb/l5-trajectories/<row>/<run_id>/` regardless of pass/fail.
 
-### Scorers (today)
+### Scorers
 
 | Scorer | File | Asserts |
 |---|---|---|
 | **outcome** | `outcome.sql` | One or more SQL queries returning a `(pass, description)` tuple per assertion. Run against the scratch project's `.claude/tmb/trajectory.db`. |
+| **outcome-coherence** | `outcome-coherence.json` | Cross-table row-count shape: `{"<table> [WHERE <clause>]": ">=N" / "<=N" / "=N" / "!=N"}`. Catches empty-table omissions where per-row `outcome.sql` is incomplete. |
+| **outcome-git** | `outcome-git.json` | Final git state: `worktree_head_branch` / `worktree_head_not_branch` / `base_branch_unchanged` / `uncommitted_in_worktree`. Catches workflow-violating commits on the wrong branch. |
 | **trajectory_required** | `tools-required.json` | Every named tool appears at least once in the assistant's `tool_use` blocks in `trajectory.jsonl`. |
 | **trajectory_forbidden** | `tools-forbidden.json` | None of the named tools appear in `trajectory.jsonl`. |
-| **cost** | `cost-budget.json` | `tokens_total` and `duration_ms` (from the `result` event) stay within the budgets. Soft-warn or hard-fail per-flow. |
+| **cost** | `cost-budget.json` | `tokens_total` and `duration_ms` (from the `result` event) stay within the budgets. Soft-warn or hard-fail per-row. |
 | **files** *(optional)* | `outcome-files.json` | Filesystem assertions: `must_exist` / `must_not_exist` / `min_bytes` per path. |
 
-A flow passes when every scorer it ships passes. Missing optional scorers are skipped silently.
+A row passes when every scorer it ships passes. Missing optional scorers are skipped silently.
 
-### What today's L5 catches
-
-- **DB-write contract violations** — a planning flow that doesn't write `discussions` rows; a config-change flow that flips policy keys without an audit event; a multi-repo flow that writes workspace-rooted paths into `file_registry`.
-- **Tool-call order violations** — bro calling `task_create_batch` before `issue_create`; SWE writing `file_registry_update_summaries` (bro-only); pr-reviewer paraphrasing the MCP-availability prefix.
-- **Cost regressions** — a flow that used to finish in 30s now taking 300s.
-- **Cold-start trajectories** — bro on a fresh DB auto-firing `/onboard` (or failing to).
-
-### What today's L5 cannot catch
-
-- **Multi-turn conversations.** L5 is single-shot `claude -p` with `TMB_HEADLESS=1`. AskUserQuestion is denied by `auq-headless-deny.sh` so bro never has a Human in the loop. Many real doctrinal violations only manifest after bro asks a clarifying question.
-- **Subjective doctrine.** "Did bro explain the trade-off before acting?" "Was the spec body adequately scoped?" SQL can't score these.
-- **Empty-table omissions.** `outcome.sql` asserts what each flow author wrote. If the author forgot to assert `discussions >= 1`, a flow can pass while bro skipped recording the discussion entirely. (Failure mode behind the 2026-05 incident: bro answered Daisy's questions and silently created a worktree from `dev` without recording any of it.)
-- **Cross-table coherence.** A flow can pass while bro produced a `tasks` row on `dev` directly (instead of pre-creating a feature branch). Per-flow `outcome.sql` would have to anticipate every coherence invariant; today most don't.
-- **Git-state coherence.** L5 doesn't assert that the worktree HEAD is on the right branch, that `dev` didn't move during the flow, or that pushed commits descend from `origin/<pr_target>`.
-- **Cross-flow continuity.** "Onboard then a code task then a push" — three flows that need to share state. L5's scratch project resets per flow; can't test journeys.
-
----
-
-## L6 — integration runner (proposed)
-
-L6 chains multiple flows or turns into one continuous session and scores the cumulative state. Right tool when:
-
-- Testing a user journey that spans flows (onboard → first task → push gate → retry).
-- Asserting cross-flow state continuity (a task closed in one turn is reopenable later via `issue_resume`).
-- Catching regressions that only emerge after several bro turns.
-
-```bash
-bash tests/dogfood/run-l6.sh onboard-then-first-task    # one journey, ~5 min
-bash tests/dogfood/run-l6.sh                             # all journeys
-```
-
-When to use L6: end-to-end coverage of a real user workflow. When NOT: anything a single L5 flow can express — L5 is faster and tighter.
-
-### File layout
-
-L6 reuses L5's lib + fixtures + scorer types. New directory:
-
-```
-tests/dogfood/integration/
-└── scenarios/<name>/
-    ├── README.md             # what journey this exercises
-    ├── script.json           # multi-turn user persona + canned answers + terminal conditions
-    ├── outcome.sql           # cumulative DB state assertions
-    ├── outcome-coherence.json  # cross-table shape (Phase 1)
-    ├── outcome-git.json        # final git state (Phase 1)
-    └── outcome-judge.md        # (Phase 3) end-of-journey rubric
-```
-
-### Driver semantics
-
-1. `l6_setup_scratch_project` — same as L5 (single project, one fixture seed).
-2. `l6_run_session` — multi-turn loop:
-   - Fire bro with the first user message from `script.json`.
-   - On bro response: simulated-user agent reads the response + persona spec → emits next user message OR signals terminal.
-   - Repeat until terminal condition (max turns, persona "satisfied", or terminal regex match).
-3. `l6_score_session` — runs scorers against the cumulative trajectory + final DB state.
-
-The same flow file format works for L5 single-shot AND for individual turns inside an L6 session, so authors don't learn two systems.
-
----
-
-## Refactor plan — three phases, sequential MRs
-
-| Order | MR | Adds | Validates |
-|---|---|---|---|
-| 1 | Phase 1 — coherence + git-state scorers | `outcome-coherence.json` and `outcome-git.json` scorer types in `scorers.sh`. Integration into `l5_score_flow`. | L5 catches the empty-table + git-violation failure modes from the 2026-05 incident. |
-| 2 | Coherence backfill | Add coherence scorers to existing 19 L5 flows where applicable. | Empty-table audit you already see in `trajectory.db`. |
-| 3 | Phase 2 — multi-turn driver | Simulated-user loop in `l5_run_claude_interactive` (opt-in via flow's `script.json`). | One L5 flow (probably `32-team-config`) migrated to multi-turn — proof of concept. |
-| 4 | L6 layer | `tests/dogfood/integration/` directory. `run-l6.sh` wraps Phase 2's loop with cumulative scoring. First scenario: `onboard-then-first-task`. | Integration tests live; cross-flow continuity testable. |
-| 5 | Headless fast-path retirement | Delete `auq-headless-deny.sh` + `tmb_recovery §A` headless block + skill `Headless fast path` sections. ([Issue !2867](#).) | Parallel doctrine retired; L5 + L6 test the production path. |
-| 6 | Phase 3 — LLM-as-judge | `outcome-judge.md` scorer type in `scorers.sh`. Applies to L5 and L6. | Subjective doctrine ("did bro explain the trade-off?") scored. |
-
-Each MR is independently mergeable and brings a clear win. Sequence matches the "no parallel work, every issue gets a feature branch" rule.
-
----
-
-## Phase 1 design (immediate)
-
-### `outcome-coherence.json`
+#### `outcome-coherence.json` shape
 
 ```json
 {
@@ -190,9 +116,9 @@ Each MR is independently mergeable and brings a clear win. Sequence matches the 
 }
 ```
 
-Scorer queries `SELECT COUNT(*) FROM <table> [WHERE <suffix>]` and checks against the operator (`>=N` / `<=N` / `=N` / `0`). The key supports a `WHERE <suffix>` so flow authors can target specific shape ("at least one task whose branch_id isn't dev").
+Scorer runs `SELECT COUNT(*) FROM <table> [WHERE <suffix>]` per key and checks against the operator (`>=N` / `<=N` / `=N` / `!=N` / bare `N`). The optional `WHERE <suffix>` lets row authors target specific shape ("at least one task whose branch_id isn't dev").
 
-### `outcome-git.json`
+#### `outcome-git.json` shape
 
 ```json
 {
@@ -203,15 +129,110 @@ Scorer queries `SELECT COUNT(*) FROM <table> [WHERE <suffix>]` and checks agains
 }
 ```
 
-Scorer:
 - `worktree_head_branch`: resolves `<task.branch_id>` from the most recent `tasks` row in DB; runs `git -C .claude/worktrees/<slug> rev-parse --abbrev-ref HEAD` and asserts equals.
 - `worktree_head_not_branch`: same probe, asserts NOT equals any in the list.
-- `base_branch_unchanged`: counts commits on `<pr_target>` before flow vs after; asserts equal.
+- `base_branch_unchanged`: counts commits on `<pr_target>` before vs after; asserts equal (snapshot-based).
 - `uncommitted_in_worktree`: asserts `git status --porcelain` empty.
 
-### Integration
+### What L5 catches
 
-`l5_score_flow` gets two new optional scorers wired in alongside the existing five. Missing files = scorer skipped (backward-compat with all 19 existing flows). New scorer files are pure JSON; pure shell + sqlite3 + git plumbing. No new dependencies.
+- **DB-write contract violations** — a planning row that doesn't write `discussions`; a config-change row that flips policy keys without an audit event; a multi-repo row that writes workspace-rooted paths into `file_registry`.
+- **Tool-call order violations** — bro calling `task_create_batch` before `issue_create`; SWE writing `file_registry_update_summaries` (bro-only); pr-reviewer paraphrasing the MCP-availability prefix.
+- **Cross-table coherence** — empty-table omissions, missing planning audits, unsigned commits sneaking past the push gate.
+- **Git-state coherence** — worktree HEAD on the wrong branch, base branch advancing during a flow, uncommitted edits at row close.
+- **Cost regressions** — a row that used to finish in 30s now taking 300s.
+- **Cold-start trajectories** — bro on a fresh DB auto-firing `/onboard` (or failing to).
+
+### What L5 cannot catch
+
+- **Cross-row continuity.** Each L5 row resets state to its fixture; can't catch regressions that only emerge after several bro turns sharing one DB. That's L6's job.
+- **Subjective doctrine.** "Did bro explain the trade-off before acting?" "Was the spec body adequately scoped?" SQL can't score these — covered by the LLM-as-judge scorer (see [#2882](https://gitlab.com/trustmybot/plugin/-/issues/2882)) when implemented.
+- **Multi-turn AUQ ceremonies.** AUQ is suppressed in test mode (the runner injects a "do not call AskUserQuestion" prefix). Rows whose production behaviour is "bro renders AUQ rounds" use the partial-test pattern (see TODO-CLI journey below); the full AUQ ceremony lives in manual smoke.
+
+---
+
+## L6 — chained integration runner
+
+L6 walks all 13 journey rows sequentially in **one** continuous CC session via `claude --session-id` / `--resume`. State carries across rows: row N's bro turn produces real DB writes that row N+1 inherits. The TODO CLI codebase grows row by row.
+
+```bash
+bash tests/dogfood/run-l6.sh                  # full chain, all 13 rows
+bash tests/dogfood/run-l6.sh --from row-7     # resume from a specific row
+```
+
+When to use L6: integration smoke before any release; verifying cross-row continuity after fixes that span multiple rows.
+
+### File layout
+
+L6 reuses L5's per-row outcome bundles; the chain manifest just lists rows in order plus the seed bridges between them.
+
+```
+tests/dogfood/
+├── l5-rows/<NN>-<name>/        # per-row outcome bundle (also runs as L5 unit)
+│   ├── README.md
+│   ├── fixture.txt
+│   ├── setup.sh
+│   ├── prompt.txt              # user prompt for this row
+│   ├── outcome.sql
+│   ├── outcome-coherence.json
+│   ├── outcome-git.json
+│   ├── tools-required.json
+│   ├── tools-forbidden.json
+│   └── cost-budget.json
+└── l6-chain/
+    ├── chain-manifest.json     # ordered list of rows + post-AUQ seeds
+    └── runs/<run-id>/          # per-step logs (see below)
+```
+
+### Driver semantics
+
+1. `l6_setup_scratch_project` — single project, single DB, single git repo. Initialised once at chain start.
+2. For each row in `chain-manifest.json`:
+   - Apply pre-state seed (fixture or prior-row carry-forward).
+   - Send `prompt.txt` via `claude --resume <session_id>`.
+   - Score the post-state against the row's outcome bundle.
+   - For 🟡 partial-test rows: inject post-AUQ pseudo-data before row N+1.
+   - Write per-step log section.
+3. Halt on first row failure (subsequent rows not attempted).
+
+### Per-step log section
+
+Every L6 run produces a per-step log so failures are debuggable without replaying the whole chain.
+
+```
+<run-id>/
+├── chain-summary.md             # one-page report: row-by-row pass/fail + cost + duration
+├── chain-trajectory.jsonl       # cumulative claude --resume stream-json across all turns
+├── step-01-cold-start/
+│   ├── pre-state.sql            # DB snapshot before this row fires
+│   ├── user-input.txt           # the user prompt sent this turn
+│   ├── bro-response.txt         # bro's text output (extracted from trajectory)
+│   ├── tool-uses.jsonl          # MCP + built-in tool calls bro made this turn
+│   ├── post-state.sql           # DB snapshot after this row's turn
+│   ├── post-state.diff          # delta vs pre-state (rows added/changed)
+│   ├── scorers.json             # per-scorer pass/fail
+│   └── seed-applied.sql         # if 🟡 partial-test, the post-AUQ pseudo-data injected before row N+1
+├── step-02-onboard-local/
+│   └── …
+…
+└── step-13-pr-comment-review/
+    └── …
+```
+
+`chain-summary.md` example:
+
+```
+| #  | Row                              | Status | Tokens  | Duration | Notes                                  |
+|----|----------------------------------|--------|---------|----------|----------------------------------------|
+| 1  | Cold start                       | ✅ pass | 320     | 4.2s     | onboard intent: state_get + questions  |
+| 2  | Onboard local (partial-test)     | ✅ pass | (seed)  | 0.0s     | identity + plugin_config seeded        |
+| 3  | Reonboard remote (partial-test)  | ✅ pass | 290     | 3.8s     | state_get + questions(shape='remote')  |
+| 4  | First task hits gate             | ❌ FAIL | 4,210   | 89s      | scorer 'tasks ≥1' got 0 — gate didn't  |
+                                                                          clear after scan_run                   │
+…
+```
+
+When a row fails: read its `scorers.json`, diff `pre-state.sql` ↔ `post-state.sql`, fix the bug, run the L5 unit for that row alone, then rerun L6.
 
 ---
 
@@ -219,32 +240,30 @@ Scorer:
 
 | Goal | Where | Pattern |
 |---|---|---|
-| New L5 flow (single-shot) | `tests/dogfood/flows/<NN>-<name>/` | scaffold per L5 layout above |
-| New L6 scenario (multi-turn journey) | `tests/dogfood/integration/scenarios/<name>/` | scaffold per L6 layout above |
-| New scorer type | `tests/dogfood/lib/scorers.sh` | add a function `score_<name>`; register it in `l5_score_flow` / `l6_score_session` |
+| New L5 row | `tests/dogfood/l5-rows/<NN>-<name>/` | scaffold per L5 layout above |
+| New L6 chain step | `tests/dogfood/l6-chain/chain-manifest.json` | append entry pointing at the L5 row's outcome bundle + post-AUQ seed if partial-test |
+| New scorer type | `tests/dogfood/lib/scorers.sh` | add a function `score_<name>`; register it in `l5_score_row` / the L6 chain step scorer |
 
-## Open questions / non-goals
+## Non-goals
 
-- **Run-anywhere assertions.** Current scorers assume a fresh scratch project; running against a Human's real project would clobber state. L5 + L6 are fixture-only by design.
-- **Per-flow flake tolerance.** A flow that passes 90/100 runs is still useful, but today's runner is binary pass/fail. Statistical tolerance lives in the A/B framework, not in `run-l5.sh` / `run-l6.sh`.
-- **Cross-test ordering.** Each L5 flow / L6 scenario gets its own scratch project. Tests that exercise cross-test continuity (e.g., "what happens when bro picks up an issue from a prior session") are out of scope; that's what real-world dogfood + manual smoke cover.
+- **Run-anywhere assertions.** Scorers assume a fresh scratch project; running against a Human's real project would clobber state. L5 + L6 are fixture-only by design.
+- **Statistical pass-rate tolerance.** A row that passes 90/100 runs is still useful, but the runner is binary pass/fail. Statistical tolerance lives in the A/B framework, not in `run-l5.sh` / `run-l6.sh`.
 
 ---
 
 ## End-to-end journey: TODO CLI app
 
-A canonical journey that exercises every actor, every gate, and every hook from cold start to PR merge. Each row is a **self-contained L6 scenario** (runs in isolation under `tests/dogfood/integration/scenarios/<name>/`); rows compose left-to-right into a real-world dev process **without** conflicting setups, so a developer adding `feat 1 → feat 2 → refactor → consult → push` reads naturally.
+A canonical journey that exercises every actor, every gate, and every hook from cold start to PR merge. Each row is a **self-contained L5 unit** (one row, one fixture, one scorer bundle) that doubles as a step in the L6 chain. Reading the table top-to-bottom is the L6 chain order; reading any single row is the L5 unit definition.
 
 Rules:
 
-- **One row = one scenario.** Each row is testable in isolation against a fresh fixture.
-- **Multiple rows = one full test.** Read top-to-bottom for the journey shape; nothing in row N+1 invalidates state from row N.
+- **One row = one L5 unit + one L6 chain step.**
 - **Cells without an actor write `—`.** Empty cells make it explicit which actors are dormant in that step.
-- **Outcome assertions cite DB tables / files / audit events** — what the L6 scorer would check.
-- **Partial-test pattern** for AUQ-bearing rows. Per PR 1 (MR !128), the L5/L6 runner injects `[TEST MODE] Do not call AskUserQuestion. Apply documented defaults from skills/CLAUDE.md and continue.` so AUQ rarely fires. For rows whose production behaviour is "bro renders AUQ rounds" (e.g. onboard, branch-id confirm, difficult Q+A loop), the L6 test cannot drive AUQ. The pattern is:
+- **Outcome assertions cite DB tables / files / audit events** — what the scorers check.
+- **Partial-test pattern** for AUQ-bearing rows. The L5/L6 runner injects `[TEST MODE] Do not call AskUserQuestion. Apply documented defaults from skills/CLAUDE.md and continue.` so AUQ rarely fires. For rows whose production behaviour is "bro renders AUQ rounds" (e.g. onboard, branch-id confirm, difficult Q+A loop), the test cannot drive AUQ. The pattern is:
   1. **Success criterion = bro initiates the AUQ chain.** Observable via the MCP calls bro makes BEFORE rendering AUQ — for onboard, that's `onboard_state_get` and/or `onboard_get_questions`. Asserted via `tools-required.json`.
-  2. **Stop the test.** The L6 scenario terminates after the intent signal.
-  3. **Fixture seeds the post-AUQ state** so the next row can run. `onboarding-named.sql` seeds `identity` + `plugin_config` keys + `deep_scan_completed` audit; future fixtures can seed `kind='answer'` rows for difficult-path Q+A; etc.
+  2. **Stop the test.** The scenario terminates after the intent signal.
+  3. **Fixture seeds the post-AUQ state** so the next row can run. `onboarding-named.sql` seeds `identity` + `plugin_config` keys + `deep_scan_completed` audit; the difficult-path fixture seeds `kind='answer'` rows for Q+A; etc.
   4. **AUQ rendering** (option labels, multi-round flow, "selected" highlighting) is **manual smoke** — `tests/manual/scenarios.md` §② onboarding + §roundtable. Not L6 territory.
 
   Rows that use the partial-test pattern are tagged **🟡 partial-test** in the table below.
@@ -265,79 +284,20 @@ Rules:
 | 12 | **Issue resume across sessions** | (new CC session) `@bro keep going on issue 1 — dispatch SWE for task 1` (where issue 1 has `planning_complete` audit + `pending` task) | Reads existing state via `issue_resume`; dispatches SWE for task 1; does NOT replan | `task_first_actionable` returns the pending task | Picks up + finishes | — | — | exactly 1 `issues` row (no duplicate); exactly 1 `tasks` row (no replan); `Agent` (SWE) called |
 | 13 | **PR comment review (`/monitor`)** | `/monitor 123` (after MR opens upstream) | Reads comments via `pr_comments_get(pr_number=123)`; spawns pr-reviewer to triage; on actionable feedback, opens new tasks | `pr_comments_get` updates `pr_review_runs` row; bot-pattern filter excludes auto-comments | — | Runs from main checkout (NOT in worktree). Reads comments; classifies each as ack / actionable / noise; writes `discussion_append(kind='note')` per comment | — | `pr_review_runs` row count ≥1; `comments_processed > 0`; possibly new `tasks` rows for actionable feedback |
 
-### How to read this as a journey
+### Journey shape
 
-Rows 1–3 are bootstrap (cold → onboarded → remote-onboarded). Rows 4–7 are the canonical happy-path code-touching loop (first task hits the gate + recovery → SWE close → post-close cleanup → push). Rows 8–11 are the four advanced patterns bro must support without bypassing doctrine (difficult path, concerns-protocol, consultant invocation, roundtable). Rows 12–13 cover the post-merge / cross-session edges (resume, PR comments).
+Rows 1–3 are bootstrap (cold → onboarded → remote-onboarded). Rows 4–7 are the happy-path code-touching loop (first task hits the gate + recovery → SWE close → post-close cleanup → push). Rows 8–11 are the four advanced patterns bro must support without bypassing doctrine (difficult path, concerns-protocol, consultant invocation, roundtable). Rows 12–13 cover the post-merge / cross-session edges (resume, PR comments).
 
-**Each row is a standalone L6 scenario** with its own `setup.sh` + fixture seed. They do NOT compose into one continuous test that walks the DB through 13 transitions — that would be impossible for the 🟡 partial-test rows since AUQ is suppressed in test mode. Instead, each row's fixture seeds the cumulative state it needs:
+L5 runs each row alone against its fixture. L6 walks all 13 in a single chained CC session, with state carrying across rows and per-step logs written under `tests/dogfood/l6-chain/runs/<run-id>/` (format spec is in the L6 section above).
 
-- Row 1 (cold start) → empty fixture; test asserts AUQ intent then stops.
-- Rows 2-13 → `onboarding-named.sql` fixture (or a per-scenario extension) which **injects the pseudo-data** that the prior rows would have produced if AUQ could be driven. This is why scenarios 02-15 work today: they inherit the post-onboard state without onboarding from scratch.
+For the 🟡 partial-test rows, between-row seeds bridge the AUQ gap:
 
-For the 🟡 partial-test rows, the fixture seeds the post-AUQ state:
-
-| Row | What the fixture seeds (post-AUQ pseudo-data) |
+| Row | Post-AUQ seed |
 |---|---|
-| 1 Cold start | (nothing — test asserts AUQ intent then stops; row 2's fixture seeds the rest) |
-| 2 Onboard local | `onboarding-named.sql` → `identity` row + `plugin_config` keys (branching_model='github-flow', pr_target='main', protected_branches=["main"], remotes=[], issue_sync='off') + `deep_scan_completed` audit |
-| 3 Reonboard remote | `onboarding-named.sql` extension flipping branching_model='gitflow', pr_target='dev', remotes=[{name:'origin',provider:'gitlab'}] |
-| 8 Difficult-path Q+A | per-scenario `setup.sh` injects `kind='question'` + `kind='answer'` rows |
-| 11 Roundtable ratification | per-scenario `setup.sh` injects ratify=true + human's `roundtable_vote` row |
+| 1 Cold start | (nothing — test asserts AUQ intent and ends; row 2's seed fills in) |
+| 2 Onboard local | `onboarding-named.sql` → `identity` + `plugin_config` (branching_model='github-flow', pr_target='main', protected_branches=["main"], remotes=[], issue_sync='off') + `deep_scan_completed` audit |
+| 3 Reonboard remote | extension flipping `branching_model='gitflow'`, `pr_target='dev'`, `remotes=[{name:'origin',provider:'gitlab'}]` |
+| 8 Difficult-path Q+A | injects `kind='question'` + `kind='answer'` rows |
+| 11 Roundtable ratification | injects ratify=true + human's `roundtable_vote` row |
 
-Run **one row** to debug a specific gate or actor; run **all rows** to verify each step's contract. The journey arrow is **conceptual**, not state-carrying — the conceptual flow guides which fixtures each row uses, but the L6 runner spawns a fresh DB per scenario.
-
-**The full AUQ ceremony** (rendering, option labels, multi-round flow, "selected" highlighting) is covered by manual smoke — `tests/manual/scenarios.md` §② onboarding + §roundtable. Not L6 territory.
-
-### Per-step log section (L6 chain output)
-
-Every L6 run produces a per-step log so failures are debuggable without replaying the whole chain. Layout under the run-id directory:
-
-```
-<run-id>/
-├── chain-summary.md             # one-page report: row-by-row pass/fail + cost + duration
-├── chain-trajectory.jsonl       # cumulative claude --resume stream-json across all turns
-├── step-01-cold-start/
-│   ├── pre-state.sql            # DB snapshot before this row fires
-│   ├── user-input.txt           # the user prompt sent this turn
-│   ├── bro-response.txt         # bro's text output (extracted from trajectory)
-│   ├── tool-uses.jsonl          # MCP + built-in tool calls bro made this turn
-│   ├── post-state.sql           # DB snapshot after this row's turn
-│   ├── post-state.diff          # delta vs pre-state (rows added/changed)
-│   ├── scorers.json             # per-scorer pass/fail (outcome.sql, coherence, tools-required, …)
-│   └── seed-applied.sql         # if the row is 🟡 partial-test, the post-AUQ pseudo-data injected before row N+1
-├── step-02-onboard-local/
-│   └── …
-…
-└── step-13-pr-comment-review/
-    └── …
-```
-
-`chain-summary.md` is the human-readable report. Example:
-
-```
-| #  | Row                              | Status | Tokens  | Duration | Notes                                  |
-|----|----------------------------------|--------|---------|----------|----------------------------------------|
-| 1  | Cold start                       | ✅ pass | 320     | 4.2s     | onboard intent: state_get + questions  |
-| 2  | Onboard local (partial-test)     | ✅ pass | (seed)  | 0.0s     | identity + plugin_config seeded        |
-| 3  | Reonboard remote (partial-test)  | ✅ pass | 290     | 3.8s     | state_get + questions(shape='remote')  |
-| 4  | First task hits gate             | ❌ FAIL | 4,210   | 89s      | scorer 'tasks ≥1' got 0 — gate didn't  |
-                                                                          clear after scan_run                   │
-…
-```
-
-When row 4 fails (above), the developer:
-
-1. Reads `step-04-first-task/scorers.json` for the failure detail.
-2. Diffs `pre-state.sql` ↔ `post-state.sql` to see what bro actually did.
-3. Reads `bro-response.txt` to see if bro narrated the issue.
-4. Fixes the underlying bug (probably in `tools/tasks.ts` or `scan.ts`).
-5. **Runs L5 for row 4 alone** to verify the fix in isolation (~$0.20).
-6. Reruns L6 from scratch to verify the chain.
-
-### What was dropped (and why)
-
-| Original row | Disposition |
-|---|---|
-| Explicit `/scan` on cold registry (was row 4) | **Merged into row 4.** /scan should run implicitly when bro hits the registry-cold gate; an explicit user-typed /scan as a separate journey step is redundant. |
-| Reonboard-redirect (was row 14) | **Removed.** Edge-case routing-table doctrine; covered by standalone L6 scenario `04-reonboard-redirect`. Doesn't fit the canonical "build TODO CLI" journey. |
-| Explicit "Architecture refresh" (was row 15) | **Removed.** Architecture updates should follow naturally from structural changes detected during scan, not from an explicit user `/refresh-arch` action. Tracked by [#2881](https://gitlab.com/trustmybot/plugin/-/issues/2881) — merge `architecture_regen` into `scan_run` + add `fired_by` tracking on the `deep_scan_completed` audit. |
+The full AUQ ceremony (rendering, option labels, multi-round flow, "selected" highlighting) is covered by manual smoke — `tests/manual/scenarios.md` §② onboarding + §roundtable.
