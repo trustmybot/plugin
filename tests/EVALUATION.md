@@ -246,8 +246,8 @@ When a row fails: read its `scorers.json`, diff `pre-state.sql` ↔ `post-state.
 
 ## Non-goals
 
-- **Run-anywhere assertions.** Scorers assume a fresh scratch project; running against a Human's real project would clobber state. L5 + L6 are fixture-only by design.
-- **Statistical pass-rate tolerance.** A row that passes 90/100 runs is still useful, but the runner is binary pass/fail. Statistical tolerance lives in the A/B framework, not in `run-l5.sh` / `run-l6.sh`.
+- **Code quality.** L5 + L6 verify the **workflow** runs programmatically — bro hits the right gates, writes the right rows, dispatches the right subagents in the right order. They do NOT lint the SWE-produced code, score architectural quality, or assert specific implementation choices. Code-quality enforcement is the user's project's responsibility (their CI, their reviewers); TMB's tests cover only the orchestration layer.
+- **Flake tolerance.** Tests must be deterministic. There is no "passes 90/100 runs is still useful" allowance — a single failure means a real workflow regression that compounds in production (e.g. if bro skips `/scan` once, every subsequent task pays the cost of re-reading the whole codebase). If a row is flaky, the underlying bug is real and must be fixed at the deterministic-layer level (server gate, hook, schema CHECK) per `docs/architecture/DETERMINISM.md` — not papered over with a retry loop.
 
 ---
 
