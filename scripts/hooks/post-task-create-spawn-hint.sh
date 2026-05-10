@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# PostToolUse hook on task_create_batch. After bro creates tasks, injects
+# `additionalContext` reminding bro to spawn SWE via the Agent tool for
+# each new task — the next required step in the planning chain.
+#
+# Captures L6 scenario 14: production showed tasks stuck at `pending`
+# because bro called task_create_batch then stopped without dispatching
+# SWE. The hook is a hint — not a block — because the user might
+# legitimately want to review the spec before spawning SWE.
+#
+# Bypass: TMB_DISABLE_SPAWN_HINT=1.
+# Always silent on failure.
+
+set -uo pipefail
+
+INPUT=$(cat 2>/dev/null) || exit 0
+command -v jq >/dev/null 2>&1 || exit 0
+
+if [ "${TMB_DISABLE_SPAWN_HINT:-0}" = "1" ]; then
+  exit 0
+fi
+
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
+case "$TOOL_NAME" in
+  mcp__*trajectory-server__task_create_batch) ;;
+  *) exit 0 ;;
+esac
+
+# Don't fire if the call returned an error (gate violation, etc.).
+RESPONSE_ERROR=$(echo "$INPUT" | jq -r '.tool_response.is_error // false' 2>/dev/null)
+[ "$RESPONSE_ERROR" = "true" ] && exit 0
+
+# Pull the task list from the response. The handler returns an array of
+# created task rows; the response shape is .tool_response.content[0].text
+# which is a JSON-encoded string of the array.
+RESPONSE_TEXT=$(echo "$INPUT" | jq -r '.tool_response.content[0].text // ""' 2>/dev/null)
+[ -n "$RESPONSE_TEXT" ] || exit 0
+
+# Parse the task list. Skip if the response wasn't an array (e.g. error).
+TASK_LIST=$(echo "$RESPONSE_TEXT" | jq -r 'if type == "array" then map("  - task_id=\(.id) branch_id=\(.branch_id)") | join("\n") else "" end' 2>/dev/null)
+[ -n "$TASK_LIST" ] || exit 0
+
+REASON="🚀 SWE-spawn hint: ${TOOL_NAME##*__} created the following tasks. Per tmb_planning Step 5, the next step is to spawn SWE via the Agent tool for each task — production sessions where this step was skipped left tasks stuck at status='pending' forever.
+
+Tasks created:
+${TASK_LIST}
+
+For each: \`Agent(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')\`. The branch is already pre-created (branch_id_proposed audit + git switch); SWE attaches to it.
+
+If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug."
+
+jq -nc --arg reason "$REASON" '{
+  hookSpecificOutput: {
+    hookEventName: "PostToolUse",
+    additionalContext: $reason
+  }
+}'
+
+exit 0
