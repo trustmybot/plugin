@@ -2,10 +2,10 @@
 
 Two automated dogfood layers drive **real Claude Code through pre-seeded TMB workflows** and assert the result matches doctrine.
 
-| Layer | Purpose | Scope per run |
-|---|---|---|
-| **L5** | Per-flow targeted runner | One bro response, one user prompt, one outcome bundle. Fast iteration on a single flow. |
-| **L6** | Integration / journey runner | Multi-turn, multi-flow continuous session. Asserts cumulative state across the whole user journey. |
+| Layer | Purpose | Scope per run | When to run |
+|---|---|---|---|
+| **L5** | Per-row independent unit tests. Each test starts from a fixture that pre-seeds the **cumulative state up to this row** (codebase, MCP DB, discussions, issues, tasks, audit, etc.). One row = one test. | Single bro turn (or short multi-turn) against pre-seeded state. Fast, isolated, ~$0.20/test. | Debug or regression-test a single row's contract. **First-line check after a fix** — if the L5 for that row doesn't pass, don't run L6. |
+| **L6** | Single **chained integration test** that walks ALL 13 journey rows sequentially in one continuous session via `claude --session-id` / `--resume`. State carries across rows: row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 13-row chain in one session. Slow, ~$0.30–1/scenario × 13 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row continuity holds end-to-end. |
 
 The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration → L4 workflow-sim → L5 → L6) lives in [`README.md`](./README.md). This doc is the reference for how L5 + L6 work, what each catches, and the refactor plan.
 
@@ -15,9 +15,29 @@ The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration �
 
 Layers below L5 are MCP-only — they validate handlers, protocol, and workflow contracts without involving a real LLM. That class of test catches schema drift, role enforcement, and FK violations in milliseconds, but it cannot catch the failure mode that matters most in production: **bro skipping a doctrinal step because the LLM forgot, misordered, or misinterpreted prose**.
 
-L5 catches single-flow drift. L6 catches drift that only emerges across multiple turns / flows — cross-flow state continuity, cumulative contract violations, regressions that need real session length to surface.
+**L5 catches per-row contract drift.** Each row is tested in isolation against a pre-seeded fixture, so a regression in (say) the registry-cold gate fails the L5 for row 4 cleanly without touching rows 5+. Fast iteration. The fixture pre-seeds the cumulative DB state — codebase + MCP DB rows for issues / tasks / discussions / audit / file_registry — that prior rows would have produced.
 
-The two layers share scorer types, fixtures, and shell helpers; they differ only in what they wrap.
+**L6 catches cross-row continuity drift.** Rows 1–13 chain in one CC session. Row 5 (SWE close) needs the task that row 4 (gate + recovery) produced; row 7 (push gate) needs the closed task + commit_sha from row 5; row 11 (roundtable) deliberates on the actual TODO CLI work from rows 4–10. L6 verifies the workflow doesn't break across the seam between rows.
+
+**1:1 mapping** — every L5 row has a corresponding L6 chain step and vice versa. If you add a row to the journey table, you add an L5 fixture + scorer for it, and the L6 chain manifest gains an entry. They're sibling artifacts.
+
+> Implementation tracking: [#2882](https://gitlab.com/trustmybot/plugin/-/issues/2882) is the L6 chain runner; [#2883](https://gitlab.com/trustmybot/plugin/-/issues/2883) migrates the existing scenarios to the per-row L5 layout.
+
+**Workflow when something fails:**
+
+```
+L6 chain fails at row 7 (push gate)
+        ↓
+Fix the bug (probably in tools/composites.ts or a hook)
+        ↓
+Run L5 row-7 alone against its fixture (~$0.20, ~30 sec)
+        ↓ pass
+Re-run L6 from scratch (~$5–10, ~10 min)
+        ↓ pass
+Done.
+```
+
+L6 reuses L5's fixtures, scorers, and shell helpers — they differ only in whether the runner replays the chain or stops at one row.
 
 ---
 
@@ -241,7 +261,7 @@ Rules:
 | 8 🟡 | **Difficult-path — switch storage to SQLite (partial-test)** | `@bro refactor TODO storage from JSON files to SQLite` (strategic stack choice) | Triages `difficult`; writes `kind='note', body='Triage: difficult'`; would render AUQ Q+A loop (storage backend, library choice, file layout per `tmb_planning` Step 3); pseudo-data injects `kind='question'` + `kind='answer'` rows; bro continues with `kind='decision'` write + ADR + `task_create_batch` + SWE spawn | `task_create_batch` triage gate clears (note has 'Triage:'); decision gate clears (kind='decision' row exists); scope-ambiguity gate clears (kind='question' from injected Q+A) | Picks up + implements migration | — | — | `Triage: difficult` note; ≥1 `kind='question'` row (fixture-injected); ≥1 `kind='answer'` row (fixture-injected); ≥1 `kind='decision'` discussion (bro-written); ADR file exists; tasks row created |
 | 9 | **Concerns-protocol — ambiguous test edit** | `@bro the test in tests/test_todo.py is using exact equality but I want approxEqual — just delete the strict check` | `concerns-protocol-hint.sh` UserPromptSubmit hook detects "delete the test"-class phrase, injects advisory. Bro reads file; recognizes the test is deliberately strict; writes `discussion_append(kind='note', body='Concern: …')` AND asks clarifying question; only after user confirms, dispatches SWE | `concerns-protocol-hint.sh` injection on doubt-class keywords; `discussions` insert with `kind='note', body LIKE '%Concern%'` | Spawned only after alignment; edits the test file | — | — | ≥1 `discussions` row with `kind='note' AND body LIKE '%Concern%'` BEFORE any `tasks` row written |
 | 10 | **Consultant — architect read on storage** | `@bro spawn the architect and have them weigh in on whether to use SQLite or DuckDB` | Calls `agent_list` → architect has `scope='template'`; loads `tmb_agent-creator` skill; copies `templates/agents/architect.md` → `.claude/agents/architect.md`; calls `agent_register(scope='project-local')`; emits `audit(event_type='tmb_agent_created')`; spawns architect via `Agent` | `consultant-spawn-required.sh` UserPromptSubmit injects advisory `additionalContext` on the keyword "architect" | — | — | architect reads codebase; writes `discussion_append(kind='analysis')`; returns its read; `swe-atomic-close.sh` (or equivalent SubagentStop) writes `agent_runs` row with `agent_type='architect'` | `audit(event_type='tmb_agent_created')` row exists; `discussions(kind='analysis')` row ≥1; **`agent_runs` row with `agent_type='architect'` ≥1**; `.claude/agents/architect.md` file present |
-| 11 🟡 | **Roundtable — concurrency model deliberation (partial-test)** | `/roundtable async-first vs thread-pool for the watcher` (Human-typed only) | `roundtable-slash-detect.sh` UserPromptSubmit hook writes `audit(event_type='roundtable_slash_invoked')` so the gate clears; bro orchestrates `roundtable_create(participants=[architect,cto,pm])`; spawns each via `Agent`; collects analyses; would surface **ratification AUQ** at end; pseudo-data injects ratify=true and the human's ratification `roundtable_vote`; bro calls `roundtable_close + roundtable_finalize_decisions` | `roundtable_create` slash-invoke gate clears via the audit row; `roundtable-auq-shape.sh` PreToolUse enforces ratification AUQ shape (would fire if AUQ rendered); `roundtable-cleanup-postcheck.sh` PostToolUse on `roundtable_close` checks captured surfaces | — | — | architect/cto/pm each spawn; each calls `discussion_append(kind='analysis')`; each calls `roundtable_vote` | `roundtables.state='closed'`; `roundtable_votes` row count =3 (or 4 with human ratification injected); ≥3 `discussions(kind='analysis')` rows |
+| 11 🟡 | **Roundtable — concurrency model for the TODO CLI watcher (partial-test)** | `/roundtable should the TODO CLI's file watcher be async-first or thread-pooled? — context: row 8 settled storage on SQLite; the watcher reads the SQLite DB on TODO file changes` (Human-typed only — references the actual work from rows 4–10) | `roundtable-slash-detect.sh` UserPromptSubmit hook writes `audit(event_type='roundtable_slash_invoked')` so the gate clears; bro orchestrates `roundtable_create(participants=[architect,cto,pm])` with the prior-rows context attached as the `topic`; spawns each via `Agent`; collects analyses (each consultant cites real files/decisions from the chain); would surface **ratification AUQ** at end; pseudo-data injects ratify=true and the human's ratification `roundtable_vote`; bro calls `roundtable_close + roundtable_finalize_decisions` | `roundtable_create` slash-invoke gate clears via the audit row; `roundtable-auq-shape.sh` PreToolUse enforces ratification AUQ shape (would fire if AUQ rendered); `roundtable-cleanup-postcheck.sh` PostToolUse on `roundtable_close` checks captured surfaces | — | — | architect/cto/pm each spawn; each reads from the actual codebase (TODO CLI from rows 4–10) + DB (decisions from row 8) before writing `discussion_append(kind='analysis')`; each calls `roundtable_vote` | `roundtables.state='closed'`; `roundtable_topic` references SQLite + watcher from prior rows; `roundtable_votes` row count =3 (or 4 with human ratification injected); ≥3 `discussions(kind='analysis')` rows; at least one `kind='analysis'` body cites `cli.py` or the SQLite decision audit |
 | 12 | **Issue resume across sessions** | (new CC session) `@bro keep going on issue 1 — dispatch SWE for task 1` (where issue 1 has `planning_complete` audit + `pending` task) | Reads existing state via `issue_resume`; dispatches SWE for task 1; does NOT replan | `task_first_actionable` returns the pending task | Picks up + finishes | — | — | exactly 1 `issues` row (no duplicate); exactly 1 `tasks` row (no replan); `Agent` (SWE) called |
 | 13 | **PR comment review (`/monitor`)** | `/monitor 123` (after MR opens upstream) | Reads comments via `pr_comments_get(pr_number=123)`; spawns pr-reviewer to triage; on actionable feedback, opens new tasks | `pr_comments_get` updates `pr_review_runs` row; bot-pattern filter excludes auto-comments | — | Runs from main checkout (NOT in worktree). Reads comments; classifies each as ack / actionable / noise; writes `discussion_append(kind='note')` per comment | — | `pr_review_runs` row count ≥1; `comments_processed > 0`; possibly new `tasks` rows for actionable feedback |
 
@@ -267,6 +287,52 @@ For the 🟡 partial-test rows, the fixture seeds the post-AUQ state:
 Run **one row** to debug a specific gate or actor; run **all rows** to verify each step's contract. The journey arrow is **conceptual**, not state-carrying — the conceptual flow guides which fixtures each row uses, but the L6 runner spawns a fresh DB per scenario.
 
 **The full AUQ ceremony** (rendering, option labels, multi-round flow, "selected" highlighting) is covered by manual smoke — `tests/manual/scenarios.md` §② onboarding + §roundtable. Not L6 territory.
+
+### Per-step log section (L6 chain output)
+
+Every L6 run produces a per-step log so failures are debuggable without replaying the whole chain. Layout under the run-id directory:
+
+```
+<run-id>/
+├── chain-summary.md             # one-page report: row-by-row pass/fail + cost + duration
+├── chain-trajectory.jsonl       # cumulative claude --resume stream-json across all turns
+├── step-01-cold-start/
+│   ├── pre-state.sql            # DB snapshot before this row fires
+│   ├── user-input.txt           # the user prompt sent this turn
+│   ├── bro-response.txt         # bro's text output (extracted from trajectory)
+│   ├── tool-uses.jsonl          # MCP + built-in tool calls bro made this turn
+│   ├── post-state.sql           # DB snapshot after this row's turn
+│   ├── post-state.diff          # delta vs pre-state (rows added/changed)
+│   ├── scorers.json             # per-scorer pass/fail (outcome.sql, coherence, tools-required, …)
+│   └── seed-applied.sql         # if the row is 🟡 partial-test, the post-AUQ pseudo-data injected before row N+1
+├── step-02-onboard-local/
+│   └── …
+…
+└── step-13-pr-comment-review/
+    └── …
+```
+
+`chain-summary.md` is the human-readable report. Example:
+
+```
+| #  | Row                              | Status | Tokens  | Duration | Notes                                  |
+|----|----------------------------------|--------|---------|----------|----------------------------------------|
+| 1  | Cold start                       | ✅ pass | 320     | 4.2s     | onboard intent: state_get + questions  |
+| 2  | Onboard local (partial-test)     | ✅ pass | (seed)  | 0.0s     | identity + plugin_config seeded        |
+| 3  | Reonboard remote (partial-test)  | ✅ pass | 290     | 3.8s     | state_get + questions(shape='remote')  |
+| 4  | First task hits gate             | ❌ FAIL | 4,210   | 89s      | scorer 'tasks ≥1' got 0 — gate didn't  |
+                                                                          clear after scan_run                   │
+…
+```
+
+When row 4 fails (above), the developer:
+
+1. Reads `step-04-first-task/scorers.json` for the failure detail.
+2. Diffs `pre-state.sql` ↔ `post-state.sql` to see what bro actually did.
+3. Reads `bro-response.txt` to see if bro narrated the issue.
+4. Fixes the underlying bug (probably in `tools/tasks.ts` or `scan.ts`).
+5. **Runs L5 for row 4 alone** to verify the fix in isolation (~$0.20).
+6. Reruns L6 from scratch to verify the chain.
 
 ### What was dropped (and why)
 
