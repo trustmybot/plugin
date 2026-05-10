@@ -1,0 +1,9 @@
+{
+  "base_branch_unchanged": true,
+  "worktrees": [
+    {
+      "path": ".claude/worktrees/<slug>",
+      "head_not_branch": ["main", "master", "dev", "develop"]
+    }
+  ]
+}
