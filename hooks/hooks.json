@@ -241,6 +241,16 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__task_create_batch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-task-create-spawn-hint.sh",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "SubagentStop": [
