@@ -207,10 +207,11 @@ function prTargetQuestion(
   options.push(
     { label: 'main', description: 'Most common default.' },
     { label: 'develop', description: 'Common for Git Flow.' },
-    { label: 'master', description: 'Older repos.' },
   );
 
   // First-run pre-select by branching_model: github-flow → main, gitflow → develop.
+  // master / older targets aren't offered as labeled options (rare in modern
+  // projects). Users who actually need master/release/etc. type it via Other.
   let default_index = 0;
   if (!isReonboard) {
     const want = branchingModel === 'gitflow' ? 'develop' : 'main';
@@ -230,56 +231,38 @@ function remoteQuestion(
   origin_kind: Provider | null,
   gh_installed: boolean,
   glab_installed: boolean,
-  isReonboard: boolean,
-  currentRemotes: unknown,
+  _isReonboard: boolean,
+  _currentRemotes: unknown,
 ): BuiltQuestion {
-  const options: QuestionOption[] = [];
-
-  // Prepend a Keep option on re-onboard if the current remotes resolves to a
-  // single canonical provider (github/gitlab/both).
-  if (isReonboard && Array.isArray(currentRemotes) && currentRemotes.length > 0) {
-    const providers = (currentRemotes as Array<{ provider?: string }>)
-      .map((r) => r.provider)
-      .filter((p): p is string => typeof p === 'string');
-    const uniq = Array.from(new Set(providers));
-    let label: string | null = null;
-    if (uniq.length === 1 && uniq[0] === 'github') label = 'Keep "GitHub"';
-    else if (uniq.length === 1 && uniq[0] === 'gitlab') label = 'Keep "GitLab"';
-    else if (uniq.length === 2 && uniq.includes('github') && uniq.includes('gitlab')) label = 'Keep "Both"';
-    if (label) options.push({ label, description: 'No change.' });
-  }
-
-  options.push({
-    label: gh_installed ? 'GitHub' : 'GitHub (CLI not installed)',
-    description: 'github.com or GitHub Enterprise.',
-    disabled: !gh_installed,
-  });
-  options.push({
-    label: glab_installed ? 'GitLab' : 'GitLab (CLI not installed)',
-    description: 'gitlab.com or self-hosted GitLab.',
-    disabled: !glab_installed,
-  });
-  options.push({
-    label: 'Both',
-    description: 'Mirrored or dual-host. Issues sync to both.',
-    disabled: !(gh_installed && glab_installed),
-  });
+  // multiSelect: pick one or both checkboxes (no separate "Both" option).
+  // Keep options don't apply on a multiSelect — re-onboard users just check
+  // whichever providers they want; submitting unchanged is a valid no-op
+  // outcome, but the answer set is the new state.
+  const options: QuestionOption[] = [
+    {
+      label: gh_installed ? 'GitHub' : 'GitHub (CLI not installed)',
+      description: 'github.com or GitHub Enterprise.',
+      disabled: !gh_installed,
+    },
+    {
+      label: glab_installed ? 'GitLab' : 'GitLab (CLI not installed)',
+      description: 'gitlab.com or self-hosted GitLab.',
+      disabled: !glab_installed,
+    },
+  ];
 
   // Pre-select via probe.origin_kind.
   let default_index = 0;
-  if (!isReonboard) {
-    const want =
-      origin_kind === 'github' ? 'GitHub' : origin_kind === 'gitlab' ? 'GitLab' : null;
-    if (want) {
-      const idx = options.findIndex((o) => o.label === want || o.label.startsWith(want + ' '));
-      if (idx >= 0 && !options[idx].disabled) default_index = idx;
-    }
+  const want = origin_kind === 'github' ? 'GitHub' : origin_kind === 'gitlab' ? 'GitLab' : null;
+  if (want) {
+    const idx = options.findIndex((o) => o.label === want || o.label.startsWith(want + ' '));
+    if (idx >= 0 && !options[idx].disabled) default_index = idx;
   }
 
   return {
-    question: 'Which remote does this project use?',
+    question: 'Which remote(s) does this project use?',
     header: 'Remote',
-    multiSelect: false,
+    multiSelect: true,
     options,
     default_index,
   };
@@ -363,9 +346,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           },
           pr_target: { type: 'string' },
           remote: {
-            type: 'string',
-            enum: ['github', 'gitlab', 'both'],
-            description: 'Required when shape=remote. Ignored on local.',
+            type: 'array',
+            items: { type: 'string', enum: ['github', 'gitlab'] },
+            description: 'Required when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Ignored on local.',
           },
           issue_sync: {
             type: 'string',
@@ -492,8 +475,24 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         let remotes: Array<{ name: string; provider: Provider; url: string }> = [];
         let issue_sync: 'auto' | 'off' = 'off';
         if (shape === 'remote') {
-          const remote = args['remote'] as 'github' | 'gitlab' | 'both' | undefined;
-          if (!remote) throw new Error("'remote' is required when shape='remote'");
+          const rawRemote = args['remote'];
+          // Accept array (canonical, post-multiSelect) or string (legacy/single).
+          let remoteList: string[];
+          if (Array.isArray(rawRemote)) {
+            remoteList = rawRemote.filter((s): s is string => typeof s === 'string');
+          } else if (typeof rawRemote === 'string') {
+            remoteList = [rawRemote];
+          } else {
+            throw new Error("'remote' is required when shape='remote'");
+          }
+          if (remoteList.length === 0) {
+            throw new Error("'remote' must include at least one of 'github' / 'gitlab' when shape='remote'");
+          }
+          for (const r of remoteList) {
+            if (r !== 'github' && r !== 'gitlab') {
+              throw new Error(`remote entries must be 'github' or 'gitlab' (got '${r}')`);
+            }
+          }
           issue_sync = (args['issue_sync'] as 'auto' | 'off' | undefined) ?? 'off';
           if (issue_sync !== 'auto' && issue_sync !== 'off') {
             throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
@@ -503,13 +502,18 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           const git = probeGit(cwd || process.cwd());
           const findUrl = (p: Provider): string =>
             git.detected_remotes.find((r) => r.provider === p)?.url ?? '';
-          if (remote === 'github') remotes = [{ name: 'origin', provider: 'github', url: findUrl('github') }];
-          else if (remote === 'gitlab') remotes = [{ name: 'origin', provider: 'gitlab', url: findUrl('gitlab') }];
-          else
-            remotes = [
-              { name: 'origin', provider: 'github', url: findUrl('github') },
-              { name: 'gitlab', provider: 'gitlab', url: findUrl('gitlab') },
-            ];
+          // Stable order: github first, then gitlab. The first entry uses
+          // name='origin'; if both are present the second uses provider name.
+          const wantedGh = remoteList.includes('github');
+          const wantedGl = remoteList.includes('gitlab');
+          if (wantedGh) remotes.push({ name: 'origin', provider: 'github', url: findUrl('github') });
+          if (wantedGl) {
+            remotes.push({
+              name: wantedGh ? 'gitlab' : 'origin',
+              provider: 'gitlab',
+              url: findUrl('gitlab'),
+            });
+          }
         }
 
         const protected_branches = deriveProtectedBranches(branching_model, pr_target);

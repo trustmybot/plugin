@@ -190,14 +190,14 @@ describe('onboard tools', () => {
       db.close();
     });
 
-    it('remote shape: persists remote provider + issue_sync', async () => {
+    it('remote shape: persists single-provider array', async () => {
       const db = tempDB();
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
         branching_model: 'github-flow',
         pr_target: 'main',
-        remote: 'gitlab',
+        remote: ['gitlab'],
         issue_sync: 'auto',
       });
       const data = parse(result);
@@ -210,24 +210,60 @@ describe('onboard tools', () => {
       db.close();
     });
 
-    it('remote=both: writes both provider entries', async () => {
+    it('remote=[github,gitlab]: writes both provider entries with stable github-first order', async () => {
       const db = tempDB();
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
         branching_model: 'github-flow',
         pr_target: 'main',
-        remote: 'both',
+        remote: ['github', 'gitlab'],
+        issue_sync: 'auto',
+      });
+      const data = parse(result);
+      const applied = data.applied as Record<string, unknown>;
+      const remotes = applied.remotes as Array<{ provider: string; name: string }>;
+      assert.equal(remotes.length, 2);
+      assert.equal(remotes[0].provider, 'github');
+      assert.equal(remotes[0].name, 'origin');
+      assert.equal(remotes[1].provider, 'gitlab');
+      assert.equal(remotes[1].name, 'gitlab');
+      db.close();
+    });
+
+    it('remote=["gitlab","github"] order is normalized — github still first', async () => {
+      const db = tempDB();
+      const tools = onboardTools(db);
+      const result = await call(tools.handlers, 'onboard_apply', {
+        shape: 'remote',
+        branching_model: 'github-flow',
+        pr_target: 'main',
+        remote: ['gitlab', 'github'],
+        issue_sync: 'auto',
+      });
+      const data = parse(result);
+      const applied = data.applied as Record<string, unknown>;
+      const remotes = applied.remotes as Array<{ provider: string; name: string }>;
+      assert.equal(remotes[0].provider, 'github');
+      assert.equal(remotes[1].provider, 'gitlab');
+      db.close();
+    });
+
+    it('remote shape: legacy string form ("gitlab") is still accepted for backward compat', async () => {
+      const db = tempDB();
+      const tools = onboardTools(db);
+      const result = await call(tools.handlers, 'onboard_apply', {
+        shape: 'remote',
+        branching_model: 'github-flow',
+        pr_target: 'main',
+        remote: 'gitlab',
         issue_sync: 'auto',
       });
       const data = parse(result);
       const applied = data.applied as Record<string, unknown>;
       const remotes = applied.remotes as Array<{ provider: string }>;
-      assert.equal(remotes.length, 2);
-      assert.deepEqual(
-        remotes.map((r) => r.provider).sort(),
-        ['github', 'gitlab'],
-      );
+      assert.equal(remotes.length, 1);
+      assert.equal(remotes[0].provider, 'gitlab');
       db.close();
     });
 
@@ -240,6 +276,34 @@ describe('onboard tools', () => {
       });
       const data = parse(result);
       assert.match(String(data.error), /'remote' is required when shape='remote'/);
+      db.close();
+    });
+
+    it('remote shape rejects empty array', async () => {
+      const db = tempDB();
+      const tools = onboardTools(db);
+      const result = await call(tools.handlers, 'onboard_apply', {
+        shape: 'remote',
+        branching_model: 'github-flow',
+        remote: [],
+        issue_sync: 'auto',
+      });
+      const data = parse(result);
+      assert.match(String(data.error), /at least one/);
+      db.close();
+    });
+
+    it('remote shape rejects unknown provider in array', async () => {
+      const db = tempDB();
+      const tools = onboardTools(db);
+      const result = await call(tools.handlers, 'onboard_apply', {
+        shape: 'remote',
+        branching_model: 'github-flow',
+        remote: ['bitbucket'],
+        issue_sync: 'auto',
+      });
+      const data = parse(result);
+      assert.match(String(data.error), /'github' or 'gitlab'/);
       db.close();
     });
 
