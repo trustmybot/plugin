@@ -20,14 +20,14 @@ function parseResult(result: RawResult) {
 }
 
 describe('identityTools', () => {
-  it('identity_get on empty table returns default with human_name=null', async () => {
+  it('identity_get on empty table returns onboarded=false', async () => {
     const db = tempDB();
     const tools = identityTools(db);
 
     const result = await call(tools.handlers, 'identity_get', {});
     assert.ok(!result.isError);
     const data = parseResult(result);
-    assert.equal(data.human_name, null);
+    assert.equal(data.onboarded, false);
     assert.equal(data.created_at, null);
     assert.equal(data.updated_at, null);
 
@@ -45,61 +45,44 @@ describe('identityTools', () => {
     db.close();
   });
 
-  it('identity_set with human_name persists; row created', async () => {
+  it('identity_set marks the project as onboarded; row created at id=1 with timestamps', async () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const setResult = await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: 'Alice' });
+    const setResult = await call(tools.handlers, 'identity_set', { agent: 'bro' });
     assert.ok(!setResult.isError);
     const set = parseResult(setResult);
-    assert.equal(set.human_name, 'Alice');
+    assert.equal(set.onboarded, true);
+    assert.ok(set.created_at, 'created_at must be set');
+    assert.ok(set.updated_at, 'updated_at must be set');
 
     const getResult = await call(tools.handlers, 'identity_get', {});
     const got = parseResult(getResult);
-    assert.equal(got.human_name, 'Alice');
+    assert.equal(got.onboarded, true);
 
     db.close();
   });
 
-  it('identity_set with invalid human_name: empty string', async () => {
+  it('identity_set is idempotent — second call updates updated_at, leaves created_at', async () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const result = await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: '' });
-    assert.ok(result.isError, 'Expected error for empty human_name');
-    assert.match(parseResult(result).error, /Invalid human_name/);
+    const first = parseResult(await call(tools.handlers, 'identity_set', { agent: 'bro' }));
+    // Wait one tick so the timestamp moves.
+    await new Promise((r) => setTimeout(r, 10));
+    const second = parseResult(await call(tools.handlers, 'identity_set', { agent: 'bro' }));
+
+    assert.equal(first.created_at, second.created_at, 'created_at must be stable across re-set');
+    assert.ok(second.updated_at >= first.updated_at, 'updated_at must monotonically advance');
 
     db.close();
   });
 
-  it('identity_set with invalid human_name: 33 characters', async () => {
+  it('identity_reset clears the row; identity_get returns onboarded=false again', async () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const longName = 'a'.repeat(33);
-    const result = await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: longName });
-    assert.ok(result.isError, 'Expected error for 33-char name');
-    assert.match(parseResult(result).error, /Invalid human_name/);
-
-    db.close();
-  });
-
-  it('identity_set with invalid human_name: control character', async () => {
-    const db = tempDB();
-    const tools = identityTools(db);
-
-    const result = await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: 'bad\x01name' });
-    assert.ok(result.isError, 'Expected error for control char in name');
-    assert.match(parseResult(result).error, /Invalid human_name/);
-
-    db.close();
-  });
-
-  it('identity_reset clears the row; identity_get returns defaults again', async () => {
-    const db = tempDB();
-    const tools = identityTools(db);
-
-    await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: 'Alice' });
+    await call(tools.handlers, 'identity_set', { agent: 'bro' });
 
     const resetResult = await call(tools.handlers, 'identity_reset', { agent: 'bro' });
     assert.ok(!resetResult.isError);
@@ -107,9 +90,7 @@ describe('identityTools', () => {
 
     const getResult = await call(tools.handlers, 'identity_get', {});
     const data = parseResult(getResult);
-    assert.equal(data.human_name, null);
-    assert.equal(data.created_at, null);
-    assert.equal(data.updated_at, null);
+    assert.equal(data.onboarded, false);
 
     db.close();
   });
@@ -125,93 +106,11 @@ describe('identityTools', () => {
     db.close();
   });
 
-  it('identity_set with no args (probe): no-op, returns current state', async () => {
-    const db = tempDB();
-    const tools = identityTools(db);
-
-    await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: 'Alice' });
-    const result = await call(tools.handlers, 'identity_set', { agent: 'bro' });
-    assert.ok(!result.isError);
-    const data = parseResult(result);
-    assert.equal(data.human_name, 'Alice');
-
-    db.close();
-  });
-
-  it('identity_set with anonymous=true: writes row with human_name=null and non-null timestamps (issue #95)', async () => {
-    const db = tempDB();
-    const tools = identityTools(db);
-
-    const setResult = await call(tools.handlers, 'identity_set', { agent: 'bro', anonymous: true });
-    assert.ok(!setResult.isError);
-    const set = parseResult(setResult);
-    assert.equal(set.human_name, null);
-    assert.ok(set.created_at, 'created_at must be set');
-    assert.ok(set.updated_at, 'updated_at must be set');
-
-    // Critical: the next identity_get must NOT look like "uninitialized".
-    // First-action chain checks `created_at != null` to decide onboarded vs not.
-    const getResult = await call(tools.handlers, 'identity_get', {});
-    const got = parseResult(getResult);
-    assert.equal(got.human_name, null);
-    assert.ok(got.created_at, 'created_at non-null is the "onboarded" signal');
-
-    // Row exists in DB.
-    const row = db.get<{ id: number; human_name: string | null }>('SELECT * FROM identity WHERE id=1');
-    assert.ok(row, 'Anonymous identity must persist a row');
-    assert.equal(row.human_name, null);
-
-    db.close();
-  });
-
-  it('identity_set with anonymous=true on existing named identity: updates to anonymous', async () => {
-    const db = tempDB();
-    const tools = identityTools(db);
-
-    await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: 'Alice' });
-    const setResult = await call(tools.handlers, 'identity_set', { agent: 'bro', anonymous: true });
-    assert.ok(!setResult.isError);
-    const set = parseResult(setResult);
-    assert.equal(set.human_name, null);
-
-    db.close();
-  });
-
-  it('identity_set rejects both human_name AND anonymous in same call', async () => {
-    const db = tempDB();
-    const tools = identityTools(db);
-
-    const result = await call(tools.handlers, 'identity_set', {
-      agent: 'bro',
-      human_name: 'Alice',
-      anonymous: true,
-    });
-    assert.ok(result.isError, 'Must reject ambiguous call');
-    assert.match(parseResult(result).error, /pass either human_name OR anonymous/);
-
-    db.close();
-  });
-
-  it('identity_set with anonymous=false (explicit) is treated as no-op probe, not write', async () => {
-    const db = tempDB();
-    const tools = identityTools(db);
-
-    const result = await call(tools.handlers, 'identity_set', { agent: 'bro', anonymous: false });
-    assert.ok(!result.isError);
-    const data = parseResult(result);
-    assert.equal(data.created_at, null, 'no row should have been written');
-
-    const row = db.get('SELECT * FROM identity LIMIT 1');
-    assert.equal(row, undefined, 'anonymous=false must not write a row');
-
-    db.close();
-  });
-
   it('identity_set called with agent=swe returns forbidden; row unchanged', async () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const result = await call(tools.handlers, 'identity_set', { agent: 'swe', human_name: 'hacked' });
+    const result = await call(tools.handlers, 'identity_set', { agent: 'swe' });
     assert.ok(result.isError, 'Expected forbidden error');
     const payload = parseResult(result);
     assert.equal(payload.error, 'forbidden');
@@ -227,9 +126,9 @@ describe('identityTools', () => {
     const db = tempDB();
     const tools = identityTools(db);
 
-    const result = await call(tools.handlers, 'identity_set', { agent: 'bro', human_name: 'Alice' });
+    const result = await call(tools.handlers, 'identity_set', { agent: 'bro' });
     assert.ok(!result.isError, 'Expected success for bro');
-    assert.equal(parseResult(result).human_name, 'Alice');
+    assert.equal(parseResult(result).onboarded, true);
 
     db.close();
   });
@@ -241,7 +140,7 @@ describe('identityTools', () => {
     assert.throws(
       () =>
         db.run(
-          `INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (2, 'other', ?, ?)`,
+          `INSERT INTO identity (id, created_at, updated_at) VALUES (2, ?, ?)`,
           [now, now],
         ),
       (e: Error) => {

@@ -17,7 +17,7 @@ test('Flow 7 — regen_state lifecycle: get null → set after regen → next ge
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
+  await call(client, 'identity_set', { agent: 'bro' });
 
   // 1. Fresh project: no regen has happened yet
   const initial = await call(client, 'regen_state_get', { agent: 'bro', target: 'codebase_tree' });

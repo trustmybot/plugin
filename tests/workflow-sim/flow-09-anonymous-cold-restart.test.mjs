@@ -1,43 +1,38 @@
-// Flow 09 — Cold-restart after Anonymous onboarding (regression for issue #95)
+// Flow 09 — Cold-restart after onboarding (regression for issue #95)
 //
-// Trajectory: Human chooses "Anonymous" during first-run onboarding. Server
-// MUST persist a row with human_name=NULL (not skip the write). On any
-// subsequent cold session, identity_get must return created_at != null so
-// bro's first-action chain skips re-onboarding.
+// Trajectory: Human completes /onboard (any path). Server MUST persist the
+// identity row at id=1 (the onboarded marker). On any subsequent cold session,
+// identity_get must return onboarded=true so bro's first-action chain skips
+// re-firing /onboard.
 //
 // Pre-fix bug (v0.3.x): the onboarding skill said "skip identity_set if
-// Anonymous", so no row was ever written. Cold restart found
-// identity_get().created_at == null → re-triggered full onboarding every time.
+// Anonymous", so no row was ever written. Cold restart found onboarded=false
+// → re-triggered full onboarding every time.
 //
-// Post-fix (v0.4.1): identity_set(anonymous=true) writes a row with
-// human_name=NULL. created_at populates. Cold restart sees the row → skips
-// re-onboarding. The Anonymous choice is now durable.
-//
-// Also asserts the related #96 invariant: bro calling validation_record gets
-// rejected with 'forbidden' (must use audit_log(kind='event', event_type='bro_verification_pass')
-// instead).
+// Post-fix doctrine (current): the identity table is a pure marker. Bro
+// doesn't store names; row presence alone signals onboarded.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startClient, call } from '../mcp-integration/harness.mjs';
 
-test('Flow 09 — Anonymous cold-restart: identity_set(anonymous=true) persists; created_at non-null', async (t) => {
+test('Flow 09 — Cold-restart: identity_set marks onboarded; row persists', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  // Step 1: First-run onboarding — Human picks Anonymous
-  const setResult = await call(client, 'identity_set', { agent: 'bro', anonymous: true });
-  assert.equal(setResult.ok, true, 'identity_set(anonymous=true) must succeed');
-  assert.equal(setResult.data.human_name, null);
-  assert.ok(setResult.data.created_at, 'created_at must be set after Anonymous onboarding');
+  // Step 1: /onboard completes → identity_set marks the project onboarded.
+  const setResult = await call(client, 'identity_set', { agent: 'bro' });
+  assert.equal(setResult.ok, true, 'identity_set must succeed');
+  assert.equal(setResult.data.onboarded, true);
+  assert.ok(setResult.data.created_at, 'created_at must be set after onboard');
 
   // Step 2: Simulate cold session — bro's first-action chain calls identity_get
   const probe = await call(client, 'identity_get', {});
   assert.equal(probe.ok, true);
-  assert.equal(probe.data.human_name, null, 'human_name stays null for Anonymous');
-  assert.ok(
-    probe.data.created_at,
-    'created_at MUST be non-null — this is the "onboarded" signal that prevents re-onboarding (issue #95)',
+  assert.equal(
+    probe.data.onboarded,
+    true,
+    'onboarded MUST be true — this is the signal that prevents re-firing /onboard (issue #95)',
   );
 });
 
@@ -46,7 +41,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   t.after(async () => { await close(); });
 
   // Set up identity + an issue + task so validation_record has a valid target
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
+  await call(client, 'identity_set', { agent: 'bro' });
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
     objective: 'Verify role enforcement',
@@ -97,7 +92,7 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
+  await call(client, 'identity_set', { agent: 'bro' });
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
     objective: 'Verify bro_verification_pass audit event',

@@ -100,12 +100,9 @@ function writeConfig(db, key, value) {
      VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`, [key, JSON.stringify(value), now]);
 }
-function readIdentityState(db) {
-    const row = db.get(`SELECT human_name FROM identity WHERE id = 1`);
-    if (row === undefined || row === null) {
-        return { row_exists: false, human_name: null };
-    }
-    return { row_exists: true, human_name: row.human_name };
+function readOnboardedFlag(db) {
+    const row = db.get(`SELECT id FROM identity WHERE id = 1`);
+    return row !== undefined && row !== null;
 }
 function deriveProtectedBranches(branchingModel, prTarget) {
     if (branchingModel === 'gitflow') {
@@ -121,35 +118,11 @@ const BRANCHING_DESCRIPTIONS = {
     'github-flow': 'One long-lived branch (main). Each task gets its own short-lived branch off main; you open a PR back to main when it\'s ready. No release branches. Suitable for continuous deploys.',
     gitflow: 'Two long-lived branches (main + develop). Daily work merges into develop; release branches are cut from develop and merged into main when shipping. Hotfixes go straight to main. Suitable for versioned releases.',
 };
-function nameQuestion(currentName, isReonboard) {
-    const options = [];
-    if (isReonboard) {
-        if (currentName !== null) {
-            options.push({ label: `Keep "${currentName}"`, description: 'No change.' });
-        }
-        else {
-            // Anonymous identity already exists — Keep means "stay anonymous".
-            options.push({ label: 'Keep Anonymous', description: 'No change. Identity stays anonymous.' });
-        }
-    }
-    // AskUserQuestion requires ≥2 explicit options (Other is auto-rendered but
-    // doesn't satisfy the minimum). For first-run we always include both:
-    options.push({
-        label: 'Anonymous',
-        description: 'No name stored. Free-floating sessions.',
-    });
-    options.push({
-        label: 'Set my name',
-        description: 'Pick "Other" below and type your name (1-32 chars).',
-    });
-    return {
-        question: 'What should I call you?',
-        header: 'Your name',
-        multiSelect: false,
-        options,
-        default_index: 0,
-    };
-}
+// Name is intentionally NOT a built question — it's free-text input that
+// AUQ's radio model fits poorly (the auto-rendered "Other" field clutters
+// the picker with 3 effective options when only 2 are conceptually offered:
+// "Anonymous" or "type your name"). The skill body asks Name in plain prose
+// and feeds the parsed answer straight to `onboard_apply`. See commands/onboard.md.
 function branchingQuestion(currentModel, isReonboard) {
     const options = [];
     if (isReonboard && currentModel !== null) {
@@ -298,14 +271,11 @@ export function onboardTools(db, dbPath = '') {
         },
         {
             name: 'onboard_apply',
-            description: 'Persist all /onboard answers in a single transaction. Server derives pr_target / protected_branches from branching_model when not explicitly set, sets remotes=[] + issue_sync="off" for local shape, and recomputes protected_branches whenever branching_model or pr_target changes.',
+            description: 'Persist all /onboard answers in a single transaction. Server derives pr_target / protected_branches from branching_model when not explicitly set, sets remotes=[] + issue_sync="off" for local shape, and recomputes protected_branches whenever branching_model or pr_target changes. Also writes the identity row at id=1 as the "onboarded" marker so future cold restarts skip the auto-fire trigger.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     shape: { type: 'string', enum: ['local', 'remote'] },
-                    name: {
-                        description: 'Anonymous (anonymous identity), null/omit (no change), or a typed name string.',
-                    },
                     branching_model: {
                         type: 'string',
                         enum: ['github-flow', 'gitflow'],
@@ -333,16 +303,15 @@ export function onboardTools(db, dbPath = '') {
             const git = probeGit(cwd || process.cwd());
             const gh = probeCli('gh');
             const glab = probeCli('glab');
-            const id = readIdentityState(db);
-            // first_run is signalled by *row absence*, not by human_name nullity.
-            // An anonymous identity (row present, human_name=NULL) counts as
-            // onboarded — its presence is the only thing that suppresses the
-            // auto-fire trigger on cold restart (#95).
-            const first_run = !id.row_exists;
+            const onboarded = readOnboardedFlag(db);
+            // first_run is signalled by identity row absence. The row is a pure
+            // onboarded marker — bro doesn't store names or any other identity
+            // attributes, so row presence alone suppresses the auto-fire trigger
+            // on cold restart (#95).
+            const first_run = !onboarded;
             return ok({
                 first_run,
                 current: {
-                    human_name: id.human_name,
                     branching_model: readConfig(db, 'branching_model'),
                     pr_target: readConfig(db, 'pr_target'),
                     protected_branches: readConfig(db, 'protected_branches'),
@@ -363,11 +332,8 @@ export function onboardTools(db, dbPath = '') {
         onboard_get_questions: requireRoles('onboard_get_questions', ['bro'], wrapHandler(async (args) => {
             const shape = args['shape'];
             const round = args['round'];
-            const id = readIdentityState(db);
-            const human_name = id.human_name;
-            // Re-onboard means the identity row exists. Anonymous (row + human_name=NULL)
-            // counts as re-onboard — show a "Keep Anonymous" path.
-            const isReonboard = id.row_exists;
+            // Re-onboard means /onboard already ran in this project — identity row exists.
+            const isReonboard = readOnboardedFlag(db);
             const currentBranching = readConfig(db, 'branching_model');
             const currentPrTarget = readConfig(db, 'pr_target');
             const currentRemotes = readConfig(db, 'remotes');
@@ -376,9 +342,11 @@ export function onboardTools(db, dbPath = '') {
             const git = probeGit(cwd || process.cwd());
             const gh = probeCli('gh');
             const glab = probeCli('glab');
+            // Name is asked separately as a prose prompt (not AUQ — see comment
+            // on the deleted nameQuestion). onboard_get_questions only returns
+            // multiple-choice questions where AUQ's radio model is the right fit.
             const questions = [];
             if (round === 'main') {
-                questions.push(nameQuestion(human_name, isReonboard));
                 if (shape === 'remote' || isReonboard) {
                     // Local re-onboard adds Branching so the Human can change models.
                     // Local first-run skips Branching entirely (silent default).
@@ -388,6 +356,7 @@ export function onboardTools(db, dbPath = '') {
                     questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard));
                     questions.push(remoteQuestion(git.origin_kind, gh.installed, glab.installed, isReonboard, currentRemotes));
                 }
+                // shape=local + first-run yields questions=[] — skill skips AUQ Round 2.
             }
             else if (round === 'sync') {
                 if (shape !== 'remote') {
@@ -405,7 +374,6 @@ export function onboardTools(db, dbPath = '') {
             if (shape !== 'local' && shape !== 'remote') {
                 throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
             }
-            const name = args['name'];
             const branching_model = args['branching_model'] ??
                 (shape === 'local' ? 'github-flow' : undefined);
             if (!branching_model) {
@@ -441,29 +409,20 @@ export function onboardTools(db, dbPath = '') {
             const protected_branches = deriveProtectedBranches(branching_model, pr_target);
             const now = nowISO();
             db.transaction(() => {
-                // Identity
-                if (name === 'Anonymous') {
-                    db.run(`INSERT INTO identity (id, human_name, created_at, updated_at)
-               VALUES (1, NULL, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET human_name = NULL, updated_at = excluded.updated_at`, [now, now]);
-                }
-                else if (typeof name === 'string' && name.trim().length > 0) {
-                    db.run(`INSERT INTO identity (id, human_name, created_at, updated_at)
-               VALUES (1, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET human_name = excluded.human_name, updated_at = excluded.updated_at`, [name.trim(), now, now]);
-                }
-                // null/undefined name → leave identity untouched (re-onboard "Keep" path).
+                // Mark project as onboarded — pure marker row, no fields beyond timestamps.
+                db.run(`INSERT INTO identity (id, created_at, updated_at)
+             VALUES (1, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at`, [now, now]);
                 writeConfig(db, 'branching_model', branching_model);
                 writeConfig(db, 'pr_target', pr_target);
                 writeConfig(db, 'protected_branches', protected_branches);
                 writeConfig(db, 'remotes', remotes);
                 writeConfig(db, 'issue_sync', issue_sync);
             });
-            const finalState = readIdentityState(db);
             return ok({
                 ok: true,
                 applied: {
-                    human_name: finalState.human_name,
+                    onboarded: true,
                     branching_model,
                     pr_target,
                     protected_branches,

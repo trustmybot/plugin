@@ -17,7 +17,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   t.after(async () => { await close(); });
 
   // Setup: minimal identity + config so role checks are cleaner
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
+  await call(client, 'identity_set', { agent: 'bro' });
 
   // 1. bro creates issue
   const issue = await call(client, 'issue_create', {

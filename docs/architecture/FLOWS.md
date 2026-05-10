@@ -44,7 +44,7 @@ Companion docs: [`ERD.md`](ERD.md) for schema, [`FILES.md`](FILES.md) for the fi
 
 ## 1. First Contact (auto-fired `/onboard`)
 
-**Trigger:** Bro at session start finds `identity_get()` returns `human_name=null` (the empty-DB heuristic). Bro auto-fires the `/onboard` slash command without asking permission.
+**Trigger:** Bro at session start finds `identity_get()` returns `onboarded=false` (no row at id=1 — the empty-DB heuristic). Bro auto-fires the `/onboard` slash command without asking permission.
 
 **Involved:**
 - Agent: `bro` (no spawn — runs the slash command inline)
@@ -87,7 +87,7 @@ sequenceDiagram
 
     Note over G: Session start — silent state read
     G->>DB: identity_get()
-    DB-->>G: human_name=null  ← empty-DB signal
+    DB-->>G: onboarded=false  ← row absent, empty-DB signal
 
     Note over G: Auto-fire /onboard
     G->>G: silent probe (git remote -v, gh/glab auth)
@@ -111,7 +111,7 @@ sequenceDiagram
 ```
 
 **Notes:**
-- **No `identity` row** exists until `/onboard` runs. The empty-DB heuristic is `identity_get().human_name === null`.
+- **No `identity` row** exists until `/onboard` runs. The empty-DB heuristic is `identity_get().onboarded === false` (row absent at id=1). The identity table is a pure onboarded-marker — no user name or any other field is stored.
 - **The slash command is auto-fired**, not Human-typed, on first contact. `/onboard` re-runs on demand for later changes — same flow, with `Keep "<current>"` options pre-selected.
 - **Defaults stay schema-seeded.** `/onboard` writes user choices on top; without it, the schema defaults still serve.
 - **Welcome banner is mandatory** (CLAUDE.md). Two variants: pending work (resume) or idle (greeting). On first contact the banner appears AFTER `/onboard` completes.
