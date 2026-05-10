@@ -339,14 +339,14 @@ describe('schema — current table set, default values, constraints', () => {
     const now = new Date().toISOString();
 
     db.run(
-      `INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (1, 'Alice', ?, ?)`,
+      `INSERT INTO identity (id, created_at, updated_at) VALUES (1, ?, ?)`,
       [now, now],
     );
 
     assert.throws(
       () => {
         db.run(
-          `INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (2, 'Bob', ?, ?)`,
+          `INSERT INTO identity (id, created_at, updated_at) VALUES (2, ?, ?)`,
           [now, now],
         );
       },

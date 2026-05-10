@@ -86,7 +86,7 @@ Both extend the same marketplace UI — no separate `add` step needed for users;
 
 That's the entry point. Saying `@bro` activates the bro persona for the rest of the session. From there:
 
-- **First trigger in a project** runs onboarding silently. Bro probes the local git env (origin URL, gh/glab availability) and asks one shape question (local-only vs remote-tracked), then 2-4 follow-ups depending on shape. Answers persist to the trajectory DB. ~30 seconds.
+- **First trigger in a project** runs onboarding silently. Bro probes the local git env (origin URL, gh/glab availability) and asks one shape question (local-only vs remote-tracked), then 0-3 follow-ups depending on shape. No name or other personal info is collected. Answers persist to the trajectory DB. ~30 seconds.
 - **Code-touching asks** route through bro → SWE, with bro verifying SWE's work before closing the task and pr-reviewer gating at `git push` time.
 - **Read-only / casual asks** (status, "what's in this dir") are answered inline by bro without spawning anyone.
 

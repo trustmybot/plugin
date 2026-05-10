@@ -12,7 +12,7 @@ test('identity_set — bro allowed, others forbidden, missing agent forbidden', 
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const missing = await call(client, 'identity_set', { human_name: 'X' });
+  const missing = await call(client, 'identity_set', {});
   assert.equal(missing.ok, false, 'call without agent must fail');
   assert.equal(missing.error?.error, 'forbidden');
   assert.equal(missing.error?.caller_role, 'unknown');
@@ -20,15 +20,15 @@ test('identity_set — bro allowed, others forbidden, missing agent forbidden', 
   // Architect normalizes to 'consultant' role; first-class roles keep their literal name.
   const expectedRole = (n) => (n === 'architect' ? 'consultant' : n);
   for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
-    const res = await call(client, 'identity_set', { agent: wrongRole, human_name: 'X' });
+    const res = await call(client, 'identity_set', { agent: wrongRole });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from identity_set`);
     assert.equal(res.error?.error, 'forbidden');
     assert.equal(res.error?.caller_role, expectedRole(wrongRole));
   }
 
-  const allowed = await call(client, 'identity_set', { agent: 'bro', human_name: 'Alice' });
+  const allowed = await call(client, 'identity_set', { agent: 'bro' });
   assert.equal(allowed.ok, true, `bro should be allowed; got ${JSON.stringify(allowed)}`);
-  assert.equal(allowed.data?.human_name, 'Alice');
+  assert.equal(allowed.data?.onboarded, true);
 });
 
 test('identity_reset — bro only', async (t) => {

@@ -18,7 +18,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
+  await call(client, 'identity_set', { agent: 'bro' });
 
   // 1. Issue
   const issue = await call(client, 'issue_create', {
@@ -113,7 +113,7 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
+  await call(client, 'identity_set', { agent: 'bro' });
 
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'Difficult thing', description: 'd',

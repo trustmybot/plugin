@@ -74,22 +74,22 @@ assert_contains "$out" 'FIRST CONTACT' "first-contact marker present in injected
 assert_contains "$out" 'auto-fire /onboard' "auto-fire instruction injected"
 assert_contains "$out" 'pending=<none>' "pending reported as none"
 
-test_case "anonymous identity row present (#95): emits anonymous greeting, NOT first-contact"
+test_case "identity row present (post-onboard, #95): emits onboarded=yes, NOT first-contact"
 sqlite3 "$DB" "DELETE FROM identity;"
-sqlite3 "$DB" "INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (1, NULL, datetime('now'), datetime('now'));"
+sqlite3 "$DB" "INSERT INTO identity (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'));"
 out=$(run_hook "$(input '@bro hi')")
-assert_contains "$out" '<anonymous>' "anonymous greeting context present"
-# Critical: the first-contact auto-fire must NOT fire for anonymous (existing) row
+assert_contains "$out" 'onboarded=yes' "onboarded marker present"
+# Critical: the first-contact auto-fire must NOT fire for an existing row
 if echo "$out" | grep -q 'FIRST CONTACT'; then
-  echo "  FAIL anonymous row should NOT trigger FIRST CONTACT auto-fire (#95 regression)"
+  echo "  FAIL onboarded row should NOT trigger FIRST CONTACT auto-fire (#95 regression)"
   exit 1
 fi
 sqlite3 "$DB" "DELETE FROM identity;"
 
-test_case "@bro greeting + identity row present: emit human name"
-sqlite3 "$DB" "INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (1, 'Zax', datetime('now'), datetime('now'));"
+test_case "@bro greeting + identity row present: onboarded=yes (no name stored)"
+sqlite3 "$DB" "INSERT INTO identity (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'));"
 out=$(run_hook "$(input '@bro hi')")
-assert_contains "$out" 'identity=Zax' "identity reported with name"
+assert_contains "$out" 'onboarded=yes' "onboarded reported"
 
 test_case "@bro greeting + pending issue: emit issue id + objective"
 sqlite3 "$DB" "INSERT INTO issues (objective, status) VALUES ('Wire activation routine hook', 'open');"
@@ -99,7 +99,7 @@ assert_contains "$out" 'pending=#1: Wire activation routine hook' "pending issue
 test_case "sticky bro mode (transcript has Entering bro mode., no exit): non-bro prompt still triggers"
 out=$(run_hook "$(input 'what about pyproject.toml' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"hookEventName":"UserPromptSubmit"' "sticky bro fires hook"
-assert_contains "$out" 'identity=Zax' "still pre-fetches identity"
+assert_contains "$out" 'onboarded=yes' "still pre-fetches onboarded marker"
 
 test_case "REGRESSION: user said @bro in prior turn but assistant skipped announce → sticky still fires"
 TRANSCRIPT_NO_ANNOUNCE="$TMPDIR/transcript-no-announce.jsonl"

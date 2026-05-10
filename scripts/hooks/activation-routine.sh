@@ -61,23 +61,19 @@ command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
 IDENTITY_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM identity WHERE id = 1;" 2>/dev/null)
-IDENTITY_NAME=$(sqlite3 "$DB_PATH" "SELECT human_name FROM identity WHERE id = 1;" 2>/dev/null)
 PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" \
   "SELECT id, objective FROM issues WHERE status='open' AND id < 999999 ORDER BY id DESC LIMIT 1;" \
   2>/dev/null)
 
-# Three states the hook must distinguish:
-#   - row absent     → first contact; bro must auto-fire /onboard
-#   - row + name     → onboarded, named
-#   - row + no name  → onboarded, anonymous (still onboarded — #95)
+# Two states the hook must distinguish:
+#   - row absent  → first contact; bro must auto-fire /onboard
+#   - row present → onboarded (pure marker — no name or other fields are stored)
 FIRST_RUN=0
 if [ "$IDENTITY_ROW_COUNT" = "0" ]; then
   FIRST_RUN=1
-  IDENTITY_LINE="identity=<no row — FIRST CONTACT, auto-fire /onboard before any reply>"
-elif [ -n "$IDENTITY_NAME" ]; then
-  IDENTITY_LINE="identity=${IDENTITY_NAME}"
+  ONBOARDED_LINE="onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>"
 else
-  IDENTITY_LINE="identity=<anonymous> (row exists, no name set — use anonymous greeting)"
+  ONBOARDED_LINE="onboarded=yes"
 fi
 
 if [ -n "$PENDING" ]; then
@@ -89,9 +85,9 @@ else
 fi
 
 if [ "$FIRST_RUN" = "1" ]; then
-  CONTEXT="[tmb activation routine — pre-fetched by hook] ${IDENTITY_LINE}; ${PENDING_LINE}. ACTION: this is the user's first contact in this project — call \`onboard_state_get(agent='bro')\` and run the \`/onboard\` slash command flow IMMEDIATELY before any reply (auto-fire doctrine, no permission gate). Do not greet, do not answer the user's prompt, do not call identity_get / issue_resume separately — onboard_state_get returns everything you need."
+  CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}; ${PENDING_LINE}. ACTION: this is the user's first contact in this project — call \`onboard_state_get(agent='bro')\` and run the \`/onboard\` slash command flow IMMEDIATELY before any reply (auto-fire doctrine, no permission gate). Do not greet, do not answer the user's prompt, do not call identity_get / issue_resume separately — onboard_state_get returns everything you need."
 else
-  CONTEXT="[tmb activation routine — pre-fetched by hook] ${IDENTITY_LINE}; ${PENDING_LINE}. Use this to compose the welcome banner; do NOT also call identity_get / issue_resume — they would be redundant duplicate reads."
+  CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}; ${PENDING_LINE}. Use this to compose the welcome banner; do NOT also call identity_get / issue_resume — they would be redundant duplicate reads."
 fi
 
 jq -nc --arg ctx "$CONTEXT" '{

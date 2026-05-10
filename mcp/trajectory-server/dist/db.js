@@ -203,6 +203,10 @@ export class TrajectoryDB {
             // module-graph + architecture_regen compat. Drop deferred to a
             // follow-up PR that also refactors those consumers.
             { table: 'agent_runs', columns: ['started_at'] },
+            // identity.human_name dropped — bro doesn't ask for or store the
+            // user's name. The identity table stays as a pure onboarded-marker
+            // (row presence at id=1 = /onboard completed).
+            { table: 'identity', columns: ['human_name'] },
         ];
         this.db.exec('PRAGMA foreign_keys = OFF');
         try {

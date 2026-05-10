@@ -49,21 +49,21 @@ Pre-select hint: if `state.probe.origin_kind` is `github` or `gitlab`, render `R
 
 Store the answer as `shape` ∈ `{local, remote}`.
 
-## Round 2 — Per-shape questions (server-built)
+## Round 2 — Multiple-choice questions (server-built AUQ)
 
 ```
 r2 = onboard_get_questions(agent='bro', shape=<shape>, round='main')
 ```
 
-The server returns the right question set:
+The server returns the multi-choice question set. Bro doesn't ask for the user's name anywhere — the identity table is a pure onboarded-marker, no name stored.
 
 | shape | first_run | round=main returns |
 |---|---|---|
-| `local` | `true`  | Name only |
-| `local` | `false` | Name + Branching (with Keep options) |
-| `remote` | either | Name + Branching + PR target + Remote |
+| `local` | `true`  | (empty — branching defaults silently; skip AUQ Round 2) |
+| `local` | `false` | Branching (with Keep option) |
+| `remote` | either | Branching + PR target + Remote |
 
-Feed `r2.questions` straight into `AskUserQuestion`. Each question already carries the right `Keep "<current>"` option (or omits it on first-run), the right disabled CLI options (gh/glab not installed), and the right pre-select index.
+If `r2.questions` is empty (local first-run), skip AUQ entirely — proceed straight to Round 3 / Apply. Otherwise feed `r2.questions` into `AskUserQuestion`. Each question already carries the right `Keep "<current>"` option (or omits it on first-run), the right disabled CLI options (gh/glab not installed), and the right pre-select index.
 
 ## Round 3 — Issue sync (remote shape only)
 
@@ -79,25 +79,24 @@ The server picks the right `Auto`/`Off` description text based on whether `gh`/`
 ## Step 4 — Apply (one MCP call, transactional)
 
 ```
-onboard_apply(agent='bro', shape=<shape>, name=<answer>, branching_model=<answer>, pr_target=<answer>, remote=<answer>, issue_sync=<answer>)
+onboard_apply(agent='bro', shape=<shape>, branching_model=<answer>, pr_target=<answer>, remote=<answer>, issue_sync=<answer>)
 ```
 
 The server:
 
-- Resolves `name` → `identity_set(human_name)` for typed names, `identity_set(anonymous=true)` for `Anonymous`, no-op for `Keep`.
+- Writes the identity row at id=1 as the onboarded marker (no name or other fields stored — just the row's existence).
 - Persists `branching_model`, `pr_target`, `remotes`, `issue_sync`.
 - Recomputes `protected_branches` from the branching model + PR target.
 - Defaults missing fields on local shape (`branching_model`='github-flow', `pr_target`=derived, `remotes`=`[]`, `issue_sync`='off').
 - Wraps the whole thing in `db.transaction(...)` so partial onboards never land.
 
-Returns `{ ok: true, applied: { human_name, branching_model, pr_target, protected_branches, remotes, issue_sync } }`.
+Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync } }`.
 
 ## Step 5 — Confirm to the Human
 
 Render the `applied` payload back as a short summary:
 
 > Done. Settings updated:
-> - Your name: `<human_name>`
 > - Project shape: `<local|remote>`
 > - Branching model: `<branching_model>`
 > - PR target: `<pr_target>`
@@ -113,10 +112,7 @@ Bro translates AUQ answer strings back to the wire format `onboard_apply` expect
 
 | AUQ answer | Wire value |
 |---|---|
-| `"Anonymous"` | `name="Anonymous"` |
-| `"Set my name"` (no Other text typed) | INVALID — re-ask Name question only; the user picked the typed-name path but didn't actually type. |
-| Other-typed name (any string from the Other field) | `name="<the typed string>"` |
-| `Keep "<current>"` / `"Keep Anonymous"` (any field) | omit that field — server treats omission as "no change" |
+| `Keep "<current>"` (any field) | omit that field — server treats omission as "no change" |
 | `"GitHub Flow"` | `branching_model="github-flow"` |
 | `"Git Flow"` | `branching_model="gitflow"` |
 | `"GitHub"` | `remote="github"` |
@@ -154,4 +150,3 @@ Rationale: onboarding flips policy keys that drive `git-guards.sh`. Silent fallb
 | `onboard_state_get` fails | Report the exact error, retry once, then halt. Cannot proceed without state. |
 | `onboard_get_questions` fails | Same — halt cleanly. |
 | `onboard_apply` returns `error` | Report the error verbatim, retry once. If the second attempt fails, halt and tell the Human to re-run `/onboard`. |
-| Invalid Other-typed name (regex rejects) | Re-ask the Name question only, surface the constraint (1-32 chars, must start with a letter). |

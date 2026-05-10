@@ -55,7 +55,8 @@ erDiagram
 
     identity {
         INT  id PK "always 1"
-        TEXT human_name
+        TEXT created_at "row presence = onboarded marker"
+        TEXT updated_at
     }
 
     regen_state {
