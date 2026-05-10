@@ -1,4 +1,4 @@
-# 01-onboard-then-task-on-feature-branch
+# legacy-onboard-then-task (misc — pre-reframe)
 
 **Scenario under test:** the bug Daisy hit on 2026-05 — bro answers a user's clarifying questions in chat, then silently creates a worktree from `main` without first making a feature branch, leaving the user's question + bro's answer absent from the `discussions` table.
 

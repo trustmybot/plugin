@@ -1,4 +1,4 @@
-# 04-reonboard-redirect
+# reonboard-redirect (misc — edge case)
 
 **Scenario under test:** the Human asks for a re-onboarding-style change ("switch to gitflow", "change my issue tracker"). Bro must redirect to `/onboard`, NOT auto-fire onboarding tools or guess at the new config.
 

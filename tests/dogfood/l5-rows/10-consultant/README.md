@@ -1,27 +1,28 @@
-# 10-agent-creator-on-missing-consultant
+# 10-consultant
 
-**Scenario under test:** the Human asks for the cto's opinion. The cto agent is registered (as `scope='template'`) but its file isn't in `.claude/agents/` yet. Bro must invoke `tmb_agent-creator` to copy the template + re-register at `scope='project-local'` BEFORE spawning via `Agent`.
+**Scenario under test:** Human asks for a named consultant's read on a question. Bro must:
 
-## What this captures
+1. Call `agent_list` first (registry is source of truth — not bro's mental model).
+2. If the consultant's file is missing under `.claude/agents/`, invoke `tmb_agent-creator` to copy the template + re-register at `scope='project-local'` + write a `tmb_agent_created` audit row.
+3. Spawn the consultant via `Agent`.
 
-`skills/tmb_agent-creator/SKILL.md` Branch B (template-copy):
+This row folds two production bug classes into one:
 
-> 1. Read the template via Read.
-> 2. Copy on approval (or unconditionally in headless). Write the template content unmodified.
-> 3. Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md', tmb_owner='bro')`. ... Then `audit_log(issue_id=<that_id>, event_type='tmb_agent_created', ...)`.
+- **#03 (architect ask):** bro spawned a named consultant via `Agent` without first calling `agent_list`, bypassing the registry-as-source-of-truth doctrine introduced in #184.
+- **#10 (template-copy ceremony):** bro called `Agent(subagent='cto')` on a missing local file, which would silently fail or use a stale registry entry, instead of running the agent-creator template-copy ceremony first.
 
-The bug class this catches: bro spawning `Agent(subagent='cto')` on a missing local file (which would silently fail or use a stale registry entry), instead of invoking the agent-creator's template-copy ceremony first.
+The unified row exercises the "template-copy required" path because it's a strict superset — `agent_list` is the prerequisite for either branch, and the template-copy ceremony adds the audit-row signal that's hard to fake.
 
 ## Pre-state
 
-`onboarding-named` fixture. `.claude/agents/` contains only the always-installed `swe.md` and `pr-reviewer.md` — no `cto.md`. The DB registry has cto with `scope='template'` (per the schema seed).
+`onboarding-named` fixture. `.claude/agents/` contains only the always-installed `swe.md` and `pr-reviewer.md` — no `cto.md`. The DB registry has cto seeded as `scope='template'` (per the schema seed).
 
 ## Turns
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro spawn the cto and have them weigh in on whether we should switch from a monolith to microservices` |
-| → | bro | calls `agent_list`, sees cto is template-scope, invokes `tmb_agent-creator` (template-copy → file landed at `.claude/agents/cto.md` + `agent_register` → `audit_log`), then spawns cto via `Agent` |
+| 1 | user | `@bro spawn the cto and have them weigh in on whether we should switch from a monolith to microservices for our auth service` |
+| → | bro | calls `agent_list`, sees cto is template-scope, invokes `tmb_agent-creator` (template-copy → file landed at `.claude/agents/cto.md` + `agent_register` + `audit_log` with `event_type='tmb_agent_created'`), then spawns cto via `Agent` |
 | 2 | user | `Good. Move on.` |
 | → | bro | terminal |
 
@@ -29,9 +30,11 @@ The bug class this catches: bro spawning `Agent(subagent='cto')` on a missing lo
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | an `audit` row with `event_type='tmb_agent_created'` exists. (Note: `agent_register` is `INSERT OR IGNORE` in the server, so the cto row's scope stays `template` — that's a known server-side gap, not a bro-behaviour gap. The audit row is the load-bearing signal that the agent-creator ceremony ran.) |
+| `outcome.sql` | an `audit` row with `event_type='tmb_agent_created'` exists (load-bearing signal that the agent-creator ceremony ran). Note: `agent_register` is `INSERT OR IGNORE` in the server, so the cto registry row's scope stays `template` — a known server-side gap, not a bro-behaviour gap. |
 | `outcome-coherence.json` | `audit WHERE event_type = 'tmb_agent_created'`: `>=1` |
-| `outcome-git.json` | `base_branch_unchanged: true` |
+| `outcome-git.json` | `base_branch_unchanged: true` (read-only consult — no commits) |
 | `tools-required.json` | `agent_list`, `agent_register`, `Agent` |
-| `tools-forbidden.json` | none — file_registry / discussion writes are fine for context |
+| `tools-forbidden.json` | `task_create_batch`, `validation_record` (consultants don't drive workflow state) |
 | `cost-budget.json` | Soft 200K / 600s |
+
+**Failure modes captured:** (a) bro skips `agent_list` and spawns from memory — caught by tools-required (`agent_list` missing); (b) bro calls `Agent(subagent='cto')` on missing file — caught by tools-required (`agent_register` missing) AND outcome.sql (no `tmb_agent_created` audit row).

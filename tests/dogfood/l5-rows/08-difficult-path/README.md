@@ -1,4 +1,4 @@
-# 07-difficult-path-with-adr
+# 08-difficult-path
 
 **Scenario under test:** the Human asks for a strategic stack-choice change ("rewrite our auth to use Clerk instead of homegrown JWT"). Per `tmb_planning` triage rules, this is a *difficult* path — bro must record `Triage: difficult`, run the Q+A loop, write a `kind='decision'` discussion, and author an ADR before dispatching SWE.
 

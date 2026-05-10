@@ -1,4 +1,4 @@
-# 12-scan-required-before-tasks
+# 04-first-task-hits-gate
 
 **Scenario under test:** the user onboarded but `/scan` never ran (no `deep_scan_completed` audit row exists). User asks for a code change. Bro must run `/scan` (or `scan_run` directly) BEFORE `task_create_batch`. The registry-cold gate enforces this server-side; the test verifies bro responds to the gate correctly instead of waiving it silently.
 

@@ -1,4 +1,4 @@
-# 08-roundtable-routing-redirect
+# roundtable-routing-redirect (misc — edge case)
 
 **Scenario under test:** the Human says "let's get a roundtable on X". Bro must redirect — `/roundtable` is Human-triggered only — NOT auto-fire `roundtable_create`.
 

@@ -5,20 +5,20 @@ SELECT
 FROM identity;
 
 SELECT
-  CASE WHEN value = '"github-flow"' THEN 1 ELSE 0 END AS pass,
-  'plugin_config.branching_model = "github-flow" (got ' || COALESCE(value, 'NULL') || ')' AS description
+  CASE WHEN value_json = '"github-flow"' THEN 1 ELSE 0 END AS pass,
+  'plugin_config.branching_model = "github-flow" (got ' || COALESCE(value_json, 'NULL') || ')' AS description
 FROM plugin_config
 WHERE key = 'branching_model';
 
 SELECT
-  CASE WHEN value = '"main"' THEN 1 ELSE 0 END AS pass,
-  'plugin_config.pr_target = "main" (got ' || COALESCE(value, 'NULL') || ')' AS description
+  CASE WHEN value_json = '"main"' THEN 1 ELSE 0 END AS pass,
+  'plugin_config.pr_target = "main" (got ' || COALESCE(value_json, 'NULL') || ')' AS description
 FROM plugin_config
 WHERE key = 'pr_target';
 
 SELECT
-  CASE WHEN value = '[]' THEN 1 ELSE 0 END AS pass,
-  'plugin_config.remotes = [] (got ' || COALESCE(value, 'NULL') || ')' AS description
+  CASE WHEN value_json = '[]' THEN 1 ELSE 0 END AS pass,
+  'plugin_config.remotes = [] (got ' || COALESCE(value_json, 'NULL') || ')' AS description
 FROM plugin_config
 WHERE key = 'remotes';
 

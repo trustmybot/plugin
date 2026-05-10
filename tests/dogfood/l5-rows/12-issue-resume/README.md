@@ -1,4 +1,4 @@
-# 06-issue-resume-across-turns
+# 12-issue-resume
 
 **Scenario under test:** there's an in-progress issue with a pending task already planned (`planning_complete` audit row exists, task in `pending` state). The Human says "let's keep going on issue 1" — bro must pick up the existing planning state and proceed to SWE dispatch, NOT re-run `tmb_planning` from the top and create a duplicate issue / duplicate tasks.
 

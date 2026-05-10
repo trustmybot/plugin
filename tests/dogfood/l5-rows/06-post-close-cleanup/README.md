@@ -1,4 +1,4 @@
-# 11-file-registry-summary-after-read
+# 06-post-close-cleanup
 
 **Scenario under test:** the Human asks bro a question that requires reading a file for context. The file is registered in `file_registry` but its `summary` column is NULL. After bro Reads the file, bro must call `file_registry_update_summaries` to populate the summary so future sessions don't have to re-read.
 

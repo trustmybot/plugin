@@ -1,4 +1,4 @@
-# 02-push-gate-with-pr-reviewer-signoff
+# 07-push-gate
 
 **Scenario under test:** the full push-gate flow — bro completes a task, user attempts `git push`, push-guard blocks unsigned commits, bro spawns pr-reviewer, pr-reviewer signs off, push proceeds.
 

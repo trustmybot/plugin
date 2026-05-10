@@ -1,4 +1,4 @@
-# 09-architecture-regen-direct
+# architecture-regen-direct (misc — edge case)
 
 **Scenario under test:** the Human says "refresh the architecture docs". Bro must fire `architecture_regen(scope='full')` directly — no `tmb_planning`, no issue, no task, no SWE.
 

@@ -1,4 +1,4 @@
-# 13-triage-discussion-before-task
+# triage-discussion-before-task (misc — edge case)
 
 **Scenario under test:** for every code-touching ask, `tmb_planning` Step 1 mandates `discussion_append(kind='note', body='Triage: <simple|difficult>')` BEFORE `task_create_batch`. Production DB inspection (2026-05-09) showed **0 discussions across 9 issues** — bro consistently skipped the Triage write because no server gate enforces it (the scope-ambiguity gate is `kind='question'` based, not `kind='note'` based).
 
