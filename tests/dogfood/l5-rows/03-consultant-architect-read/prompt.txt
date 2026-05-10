@@ -1,1 +1,0 @@
-@bro what's the architect's read on whether SQLite WAL mode is sufficient for our concurrency model? Spawn the architect subagent and summarize its analysis back to me.
