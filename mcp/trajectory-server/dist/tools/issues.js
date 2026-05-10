@@ -414,6 +414,10 @@ export function issueTools(db, dbPath = '') {
                 // production). Remote retry can't restore lost labels; pass empty.
                 labels: [],
                 _backend: backend,
+                // #2877: workspace-pattern projects need glab/gh shellouts to run
+                // inside one of the discovered repos, not the workspace root which
+                // isn't a git repo. resolveSpawnCwd reads tmb_default_repo.
+                _cwd: resolveSpawnCwd(db, dbPath),
             });
             if (!isSyncFailure(syncResult)) {
                 db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);

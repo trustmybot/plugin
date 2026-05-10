@@ -53,7 +53,23 @@ if [ -z "$DB_PATH" ]; then
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
     PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
   fi
-  DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
+  # #2872: walk up from PWD to find the live DB. Workspace-pattern projects
+  # keep .claude/<plugin>/trajectory.db at the workspace root above the
+  # inner repos; without walk-up the hook (PWD = inner repo) reads a stale
+  # empty seed and the MCP server reads the workspace one — false 'first
+  # contact' on every turn.
+  dir="$PWD"
+  for _ in 1 2 3 4 5 6 7 8; do
+    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
+    if [ -f "$candidate" ]; then
+      DB_PATH="$candidate"
+      break
+    fi
+    parent=$(dirname "$dir")
+    [ "$parent" = "$dir" ] && break
+    dir="$parent"
+  done
+  [ -z "$DB_PATH" ] && DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
 fi
 
 [ -f "$DB_PATH" ] || exit 0

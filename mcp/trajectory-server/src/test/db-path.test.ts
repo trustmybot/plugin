@@ -87,6 +87,46 @@ describe('resolveDbPath', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // #2872: workspace-pattern projects keep the live DB at the workspace root
+  // above the inner repos. The hook (PWD = inner repo) and MCP server (PWD =
+  // workspace root) used to disagree; resolveDbPath now walks up to find
+  // whichever one is real.
+  it('walks up from cwd to find an existing .claude/<plugin>/trajectory.db (#2872)', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'walk-up-'));
+    try {
+      // Plant the DB at the workspace root.
+      mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+      writeFileSync(join(ws, '.claude', 'tmb', 'trajectory.db'), '');
+      // Make a deeper inner-repo cwd. resolveDbPath called from there should
+      // find the workspace-rooted DB, not invent a new path.
+      const inner = join(ws, 'plugin', 'subdir');
+      mkdirSync(inner, { recursive: true });
+
+      const got = resolveDbPath({ env: {}, cwd: inner });
+      assert.equal(got, join(ws, '.claude', 'tmb', 'trajectory.db'));
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to <cwd>/.claude/tmb/trajectory.db when no DB exists upwards (#2872)', () => {
+    // Use a tmpdir we own so no parent has a real DB to find. We can't
+    // guarantee /tmp doesn't have one, so plant a sibling-workspace and
+    // verify resolveDbPath does NOT escape its own subtree.
+    const ws = mkdtempSync(join(tmpdir(), 'walk-up-fresh-'));
+    try {
+      const inner = join(ws, 'a', 'b');
+      mkdirSync(inner, { recursive: true });
+      const got = resolveDbPath({ env: {}, cwd: inner });
+      // The walk-up returns the first hit; since no .claude/tmb/trajectory.db
+      // exists anywhere in this freshly-created subtree, the fallback path
+      // (cwd-relative) is used.
+      assert.equal(got, join(inner, '.claude', 'tmb', 'trajectory.db'));
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('resolvePluginName', () => {

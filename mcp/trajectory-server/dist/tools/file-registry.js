@@ -249,9 +249,9 @@ export function fileRegistryTools(db, dbPath = '') {
             const exportsJson = JSON.stringify(rawExports);
             const metadataJson = JSON.stringify(rawMetadata);
             db.run(`INSERT INTO file_registry
-           (path, type, language, size_bytes, last_commit_sha, last_change_type, last_change_at, imports_json, exports_json, metadata_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(path) DO UPDATE SET
+           (repo, path, type, language, size_bytes, last_commit_sha, last_change_type, last_change_at, imports_json, exports_json, metadata_json)
+         VALUES ('', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(repo, path) DO UPDATE SET
            type             = excluded.type,
            language         = excluded.language,
            size_bytes       = excluded.size_bytes,
@@ -440,9 +440,9 @@ export function fileRegistryTools(db, dbPath = '') {
                     });
                     continue;
                 }
-                db.run(`INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
-             VALUES (?, 'unknown', ?, ?, ?)
-             ON CONFLICT(path) DO UPDATE SET
+                db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+             VALUES ('', ?, 'unknown', ?, ?, ?)
+             ON CONFLICT(repo, path) DO UPDATE SET
                content_md5        = excluded.content_md5,
                summary            = excluded.summary,
                summary_updated_at = excluded.summary_updated_at`, [u.path, md5, u.summary, now]);
