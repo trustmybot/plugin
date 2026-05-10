@@ -1,0 +1,1 @@
+@bro let's switch our authentication system from homegrown JWT to Clerk (the SaaS auth provider). Plan it as a real change — this is a strategic stack choice. Then dispatch SWE.

@@ -1,0 +1,1 @@
+@bro the test in tests/test_calculator.py is using exact equality but I want it to use approxEqual with tolerance 0.001 — just delete the strict check and replace it. Spawn SWE to make the change.
