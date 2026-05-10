@@ -97,7 +97,10 @@ l6_run_session() {
   session_id=$(_l6_uuid)
   local turn=1
   local current_msg
-  current_msg=$(cat "$prompt_file")
+  # Inject the test-mode header on the FIRST turn only. Subsequent user
+  # replies are conversational and don't need the prefix repeated. See
+  # _l5_test_prompt_prefix in flow-helpers.sh for rationale.
+  current_msg="$(_l5_test_prompt_prefix)$(cat "$prompt_file")"
 
   : > "$jsonl"   # truncate; we append per turn
 

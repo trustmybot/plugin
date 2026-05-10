@@ -1,0 +1,6 @@
+{
+  "expected_writes": {
+    "tasks": ">=1",
+    "tasks WHERE status='pending'": "=0"
+  }
+}
