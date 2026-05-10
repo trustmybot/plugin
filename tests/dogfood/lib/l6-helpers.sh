@@ -10,8 +10,8 @@
 #   l6_score_session           — runs all 7 scorers at terminal against the
 #                                 cumulative DB + master trajectory.jsonl
 #
-# Scenario layout (mirrors L5 flow layout):
-#   tests/dogfood/integration/scenarios/<name>/
+# Per-row layout (per-row L5 unit also runs as L6 chain step):
+#   tests/dogfood/l5-rows/<name>/
 #     script.json              — turn list + terminal condition + max_turns
 #     prompt.txt               — initial user message (turn 1)
 #     outcome.sql              — final-state SQL assertions

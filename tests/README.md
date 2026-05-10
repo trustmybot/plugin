@@ -14,7 +14,7 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | Per-row independent units. Each test starts from a fixture pre-seeding the cumulative state up to that row (codebase + MCP DB rows + audit history). One row = one test. ~$0.20/test. | [`dogfood/run-l5.sh`](./dogfood/run-l5.sh), [`dogfood/flows/`](./dogfood/flows/) | Per-row contract drift. **First-line check after a fix.** If the L5 for a row fails, don't run L6 yet. |
-| **L6** | Single chained integration. Walks all 13 journey rows sequentially in one CC session via `claude --session-id` / `--resume`. State carries across rows. | [`dogfood/run-l6.sh`](./dogfood/run-l6.sh), [`dogfood/integration/scenarios/`](./dogfood/integration/scenarios/) | Cross-row continuity (row N+1 inheriting row N's DB writes). Run after relevant L5s pass. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
+| **L6** | Single chained integration. Walks all 13 journey rows sequentially in one CC session via `claude --session-id` / `--resume`. State carries across rows. | [`dogfood/run-l6.sh`](./dogfood/run-l6.sh), [`dogfood/l5-rows/`](./dogfood/l5-rows/) | Cross-row continuity (row N+1 inheriting row N's DB writes). Run after relevant L5s pass. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
 | **A/B prompt eval** | Head-to-head comparison of doctrine variants (e.g. CLAUDE.md slim vs padded). N pairs per arm against an L5 flow → per-arm pass-rate + chi-squared p-value | [`dogfood/run-ab.sh`](./dogfood/run-ab.sh) + [`dogfood/ab-scenarios/`](./dogfood/ab-scenarios/) | Whether a doctrine change moves the needle vs is just rearrangement |
 | **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
@@ -68,8 +68,8 @@ tests/
 └── dogfood/                    ← L5 + L6 dogfood + A/B framework
     ├── run-l5.sh, run-l6.sh, run-ab.sh
     ├── lib/                    ← flow-helpers, l6-helpers, scorers, smoke-helpers, timeout-shim
-    ├── flows/<name>/           ← L5 per-flow scaffolding (run.sh + outcome.sql + tools-required + tools-forbidden + cost-budget + outcome-coherence + outcome-git)
-    ├── integration/scenarios/<name>/  ← L6 multi-turn scenarios (script.json + prompt.txt + outcome bundle)
+    ├── flows/<name>/           ← legacy per-flow L5 scenarios; being migrated row-by-row to l5-rows/
+    ├── l5-rows/<NN>-<name>/    ← per-row L5 unit (also drives the L6 chain step) — script.json + prompt.txt + outcome bundle
     ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the registry-cold gate so flows that exercise task_create_batch don't trip it
     └── ab-scenarios/           ← per-A/B-test layout
 ```
@@ -194,7 +194,7 @@ Does the change affect cross-flow / multi-turn dynamics?
   - cumulative state across multiple bro turns
   - state continuity across `--resume` sessions
   - empty-table regression patterns (registry, discussions, agent_runs, etc.)
-  → L2 + L3 + L6 (add a scenario under tests/dogfood/integration/scenarios/).
+  → L2 + L3 + L6 (add a scenario under tests/dogfood/l5-rows/).
 
 Does the change introduce a hook or modify hook behavior?
   → L3 (tests/hooks/<name>.test.sh).
@@ -220,7 +220,7 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 | Protocol / role / workflow | `tests/mcp-integration/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
 | Hook script | `tests/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
 | L5 per-flow scenario | `tests/dogfood/flows/<NN>-<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `run.sh` + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` + `outcome-git.json` |
-| L6 multi-turn scenario | `tests/dogfood/integration/scenarios/<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — same outcome bundle as L5 plus `script.json` (turns) + `prompt.txt` (turn-1 user input) + `fixture.txt` |
+| L6 multi-turn scenario | `tests/dogfood/l5-rows/<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — same outcome bundle as L5 plus `script.json` (turns) + `prompt.txt` (turn-1 user input) + `fixture.txt` |
 | Manual scenario | `tests/manual/scenarios.md` | follow the 8-section template at the top of that file |
 
 ### Hook test skeleton
