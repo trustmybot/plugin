@@ -62,6 +62,19 @@ l5_preserve_trajectory() {
 l5_run_claude() {
   local dir="$1" prompt="$2"
   local jsonl="$dir/trajectory.jsonl"
+
+  # Snapshot pre-run git state so the git scorer can detect "bro committed
+  # to base" without conflating it with setup-time commits the flow's
+  # run.sh made before this point. Stored as JSON for forward-compat.
+  if git -C "$dir" rev-parse HEAD >/dev/null 2>&1; then
+    local pre_head pre_branch
+    pre_head=$(git -C "$dir" rev-parse HEAD 2>/dev/null || echo "")
+    pre_branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    mkdir -p "$dir/.claude/tmb"
+    printf '{"head":"%s","branch":"%s"}\n' "$pre_head" "$pre_branch" \
+      > "$dir/.claude/tmb/_l5_pre_run_git.json"
+  fi
+
   (
     cd "$dir" || exit 1
     export TMB_DEBUG_TRAJECTORY=1
@@ -97,11 +110,13 @@ l5_run_claude() {
 # scorer that's mandated for the flow passes. Issue #110.
 #
 # Scorers (per industry-standard Inspect AI / AgentEvals pattern):
-#   1. outcome           — primary; SQL assertions on final DB state
-#   2. trajectory_required — required tools were called (any order)
+#   1. outcome              — primary; SQL assertions on final DB state
+#   2. trajectory_required  — required tools were called (any order)
 #   3. trajectory_forbidden — forbidden tools were NOT called
-#   4. cost              — observational unless cost-budget says fail_above_max
-#   5. files             — filesystem assertions (opt-in via outcome-files.json)
+#   4. cost                 — observational unless cost-budget says fail_above_max
+#   5. files                — filesystem assertions (opt-in via outcome-files.json)
+#   6. coherence            — table-shape invariants (opt-in via outcome-coherence.json) — catches empty-table doctrine violations
+#   7. git                  — git-state invariants (opt-in via outcome-git.json) — catches base-branch contamination + worktree-on-wrong-branch
 l5_score_flow() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local total_fail=0
@@ -111,6 +126,8 @@ l5_score_flow() {
   l5_score_trajectory_forbidden "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_cost                 "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_files                "$scorer_dir" "$project"                   || total_fail=$((total_fail + 1))
+  l5_score_coherence            "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l5_score_git                  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
 
   return "$total_fail"
 }
