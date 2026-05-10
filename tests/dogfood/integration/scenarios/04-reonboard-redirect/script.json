@@ -1,0 +1,7 @@
+{
+  "max_turns": 3,
+  "user_after_bro": [
+    "Got it. Anything else I should know?"
+  ],
+  "terminal_pattern": "/onboard|let me know|ready when|nothing else"
+}
