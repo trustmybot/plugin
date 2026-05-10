@@ -1,4 +1,4 @@
-# Layer 4 — Workflow Simulation
+# L4 — Workflow Simulation
 
 These tests **drive the real MCP server through scripted tool sequences** to verify that each FLOWS.md flow produces the right state transitions, audit events, and role-enforcement behavior — **without needing Claude Code to be running**.
 
@@ -33,7 +33,7 @@ Each test asserts the **structural contract** of a flow:
 - The right MCP tools get called in the right order
 - The right rows land in the right tables
 - Role enforcement (`requireRoles`) fires correctly per agent
-- Ledger events are recorded for downstream snapshot/report use
+- Audit events are recorded for downstream snapshot/report use
 - Status transitions follow the documented state machine
 
 If a flow's contract changes (new step, new role enforcement, new audit event), the corresponding test file changes too — that's how `FLOWS.md` and the code stay in sync.

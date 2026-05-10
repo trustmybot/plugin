@@ -19,26 +19,28 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **A/B prompt eval** | Head-to-head comparison of doctrine variants (e.g. CLAUDE.md slim vs padded). N pairs per arm against an L5 flow → per-arm pass-rate + chi-squared p-value | [`dogfood/run-ab.sh`](./dogfood/run-ab.sh) + [`dogfood/ab-scenarios/`](./dogfood/ab-scenarios/) | Whether a doctrine change moves the needle vs is just rearrangement |
 | **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
-**Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed 235 tests while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
+**Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed every test while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
 
 ## Testing philosophy — light to heavy, fail fast
 
-**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L5 light (`--plugin-dir`) → Release canary (heavy, marketplace simulation in Docker) → Manual smoke (last resort).
+**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L5 (per-flow, `--plugin-dir`) → L6 (multi-turn integration) → Release canary (marketplace simulation in Docker) → Manual smoke (last resort).
 
 Applies to:
 
-- **PR review.** PRs that fail L1 don't pay the L2 cost. PRs that pass L1–L4 trigger L5 only when labeled. Release canary runs on RC tag pushes only.
-- **Release validation.** Cut an RC tag → L0 + L1–L4 (every PR did this) → L5 light → if green, Release canary → if green, promote dev → main → cut stable.
+- **PR review.** PRs that fail L1 don't pay the L2 cost. PRs that pass L1–L4 trigger L5/L6 only when labeled. Release canary runs on RC tag pushes only.
+- **Release validation.** Cut an RC tag → L0 + L1–L4 (every PR did this) → L5 + L6 → if green, Release canary → if green, promote dev → main → cut stable.
 - **Investigating a regression.** Bisect at the lightest layer that fails. If L1 catches it, don't run L4. If L2 catches it, don't run L5.
 
-**Why**: token cost (Release canary ≈ $1–3/run; L5 light ≈ ~$0.20; L1–L4 ≈ free). Human time (manual smoke = 30–45 min; rest is automated). Cheap signals first eliminates the need for expensive ones.
+**Why**: token cost (Release canary ≈ $1–3/run; L6 multi-turn ≈ $0.30–1.00 per scenario; L5 per-flow ≈ ~$0.20; L1–L4 ≈ free). Human time (manual smoke = 30–45 min; rest is automated). Cheap signals first eliminates the need for expensive ones.
 
 The escalation chain:
 
 ```
 PR opened → L0 + L1–L4 in CI (free, < 2 min)
    ↓ green
-PR labeled `L5` (optional) → L5 light in CI (~$0.20, ~3 min)
+PR labeled `L5` (optional) → L5 per-flow runner (~$0.20/flow, ~3 min/flow)
+   ↓ green
+PR labeled `L6` (optional) → L6 multi-turn integration (~$0.30–1/scenario)
    ↓ green
 RC tag pushed → Release canary in CI (~$1–3, ~10 min)
    ↓ green
@@ -51,7 +53,7 @@ Promote RC → main → tag stable. Manual smoke only when an automated layer
 ```
 tests/
 ├── README.md                   ← (this) framework + operational
-├── EVALUATION.md               ← L5 evaluation system reference + refactor goals
+├── EVALUATION.md               ← L5 + L6 evaluation system reference + TODO-CLI journey table
 ├── run-all.sh                  ← orchestrator — runs L1–L4
 ├── docker/                     ← L0 install-smoke + Release canary
 ├── lint/                       ← L1 lints (version sync, links, doctrine docs, layer budgets)
@@ -63,11 +65,12 @@ tests/
 │   ├── README.md
 │   ├── setup.md
 │   └── scenarios.md
-└── dogfood/                    ← L5 deterministic-trajectory tests + A/B framework
-    ├── run-l5.sh, run-ab.sh
-    ├── lib/                    ← flow-helpers, scorers, smoke-helpers
-    ├── flows/<name>/           ← per-flow scaffolding (run.sh + outcome.sql + tools-required + tools-forbidden + cost-budget)
-    ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous)
+└── dogfood/                    ← L5 + L6 dogfood + A/B framework
+    ├── run-l5.sh, run-l6.sh, run-ab.sh
+    ├── lib/                    ← flow-helpers, l6-helpers, scorers, smoke-helpers, timeout-shim
+    ├── flows/<name>/           ← L5 per-flow scaffolding (run.sh + outcome.sql + tools-required + tools-forbidden + cost-budget + outcome-coherence + outcome-git)
+    ├── integration/scenarios/<name>/  ← L6 multi-turn scenarios (script.json + prompt.txt + outcome bundle)
+    ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the registry-cold gate so flows that exercise task_create_batch don't trip it
     └── ab-scenarios/           ← per-A/B-test layout
 ```
 
@@ -101,9 +104,9 @@ bash tests/hooks/run.sh
 node --test tests/workflow-sim/*.test.mjs
 ```
 
-## Run L5 dogfood
+## Run L5 dogfood (per-flow)
 
-L5 drives real Claude Code through pre-seeded TMB workflows and asserts the MCP/tool sequence + DB state matches doctrine. See [`EVALUATION.md`](./EVALUATION.md) for the scorer model and how flows are scored.
+L5 drives real Claude Code through one pre-seeded flow and asserts the MCP/tool sequence + DB state matches doctrine. See [`EVALUATION.md`](./EVALUATION.md) for the scorer model and the TODO-CLI journey table.
 
 ```bash
 # One-time: set the headless auth token
@@ -117,6 +120,20 @@ bash tests/dogfood/run-l5.sh onboarding
 ```
 
 CI runs L5 on tag pushes and on PRs labeled `L5`. The workflow at `.github/workflows/l5-dogfood.yml` skips silently if the secret is unset.
+
+## Run L6 dogfood (multi-turn integration)
+
+L6 drives real Claude Code through a multi-turn continuous session via `--session-id` / `--resume`, asserting cumulative state across the whole user journey. Each scenario is one self-contained journey; multiple scenarios compose into the TODO-CLI sequence in [`EVALUATION.md`](./EVALUATION.md).
+
+```bash
+# Run all scenarios
+bash tests/dogfood/run-l6.sh
+
+# Run a single scenario by name substring
+bash tests/dogfood/run-l6.sh 04-reonboard
+```
+
+CI gates L6 the same way as L5 — on tag pushes and PRs labeled `L6`.
 
 ## A/B prompt eval
 
@@ -170,8 +187,14 @@ Does the change affect:
   - an agent's prompt?
   - a skill's behavior?
   - a routing rule in bro/architect?
-  - the UX of any user-facing interaction?
+  - the UX of any single user-facing interaction?
   → L2 + L3 + L5 (add a flow under tests/dogfood/flows/).
+
+Does the change affect cross-flow / multi-turn dynamics?
+  - cumulative state across multiple bro turns
+  - state continuity across `--resume` sessions
+  - empty-table regression patterns (registry, discussions, agent_runs, etc.)
+  → L2 + L3 + L6 (add a scenario under tests/dogfood/integration/scenarios/).
 
 Does the change introduce a hook or modify hook behavior?
   → L3 (tests/hooks/<name>.test.sh).
@@ -184,7 +207,8 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 
 - **L2** — bypasses the MCP protocol. Cannot catch schema drift, role enforcement via the SDK (tests pass `agent:'x'` synthetically; production stripping happens before handler sees it), stdio transport bugs, or cross-tool workflow regressions.
 - **L3** — deterministic protocol exercise. Cannot catch UX regressions, prompt drift, or whether the LLM *chooses* to call the right MCP at the right time (it tests that the call works when made, not that it's made).
-- **L5** — slow and non-deterministic. Cannot substitute for L2/L3. If a dogfood run finds a schema bug, that's a signal L2/L3 coverage is incomplete.
+- **L5** — single-shot, slow, non-deterministic. Cannot substitute for L2/L3 (schema/role bugs should be caught in ms). Cannot catch cross-flow drift — that's L6.
+- **L6** — multi-turn, slow, non-deterministic. Cannot substitute for L5 (which is faster + tighter for one-flow regressions). Cannot catch what only happens with a real Human in the loop — that's manual smoke.
 
 **Regression teeth proof (L3):** removing `requireRoles('identity_set', ['bro'], …)` from `identity.ts` → L3 fails on the next run with *"architect must be forbidden from identity_set"*. Verified 2026-04-24.
 
@@ -195,7 +219,8 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
 | Protocol / role / workflow | `tests/mcp-integration/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
 | Hook script | `tests/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
-| L5 flow | `tests/dogfood/flows/<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — run.sh + outcome.sql + tools-required + tools-forbidden + cost-budget |
+| L5 per-flow scenario | `tests/dogfood/flows/<NN>-<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `run.sh` + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` + `outcome-git.json` |
+| L6 multi-turn scenario | `tests/dogfood/integration/scenarios/<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — same outcome bundle as L5 plus `script.json` (turns) + `prompt.txt` (turn-1 user input) + `fixture.txt` |
 | Manual scenario | `tests/manual/scenarios.md` | follow the 8-section template at the top of that file |
 
 ### Hook test skeleton
@@ -232,5 +257,5 @@ Assertion helpers (`tests/lib/assert.sh`):
 
 ## Related
 
-- [`EVALUATION.md`](./EVALUATION.md) — L5 evaluation system reference: scorers, flow file layout, refactor goals (interactive driver, LLM-as-judge, cross-table coherence).
+- [`EVALUATION.md`](./EVALUATION.md) — L5 + L6 evaluation system reference: scorers, flow / scenario layout, the TODO-CLI end-to-end journey table.
 - [`scripts/hooks/diagnostic/README.md`](../scripts/hooks/diagnostic/README.md) — opt-in probe-bash harness for issue #14.
