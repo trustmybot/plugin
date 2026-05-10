@@ -1,1 +1,1 @@
-@bro implement an add command for the TODO CLI in src/cli.py — should append the new TODO line to ~/.todos. Plan and dispatch SWE.
+@bro build an add command for the TODO CLI — src/cli.py, appends to ~/.todos.
