@@ -249,9 +249,24 @@ Rules:
 
 Rows 1–3 are bootstrap (cold → onboarded → remote-onboarded). Rows 4–7 are the canonical happy-path code-touching loop (first task hits the gate + recovery → SWE close → post-close cleanup → push). Rows 8–11 are the four advanced patterns bro must support without bypassing doctrine (difficult path, concerns-protocol, consultant invocation, roundtable). Rows 12–13 cover the post-merge / cross-session edges (resume, PR comments).
 
-Run **one row** to debug a specific gate or actor; run **all rows in order** as the integration smoke before any release. The pre-state of row N+1 is exactly the post-state of row N.
+**Each row is a standalone L6 scenario** with its own `setup.sh` + fixture seed. They do NOT compose into one continuous test that walks the DB through 13 transitions — that would be impossible for the 🟡 partial-test rows since AUQ is suppressed in test mode. Instead, each row's fixture seeds the cumulative state it needs:
 
-**🟡 partial-test rows** (1, 2, 3, 8, 11) test the AUQ-intent signal then stop; downstream state is fixture-injected. The full AUQ ceremony (rendering, option labels, multi-round flow) is covered by manual smoke (`tests/manual/scenarios.md` §② onboarding + §roundtable). See "Partial-test pattern" rule above.
+- Row 1 (cold start) → empty fixture; test asserts AUQ intent then stops.
+- Rows 2-13 → `onboarding-named.sql` fixture (or a per-scenario extension) which **injects the pseudo-data** that the prior rows would have produced if AUQ could be driven. This is why scenarios 02-15 work today: they inherit the post-onboard state without onboarding from scratch.
+
+For the 🟡 partial-test rows, the fixture seeds the post-AUQ state:
+
+| Row | What the fixture seeds (post-AUQ pseudo-data) |
+|---|---|
+| 1 Cold start | (nothing — test asserts AUQ intent then stops; row 2's fixture seeds the rest) |
+| 2 Onboard local | `onboarding-named.sql` → `identity` row + `plugin_config` keys (branching_model='github-flow', pr_target='main', protected_branches=["main"], remotes=[], issue_sync='off') + `deep_scan_completed` audit |
+| 3 Reonboard remote | `onboarding-named.sql` extension flipping branching_model='gitflow', pr_target='dev', remotes=[{name:'origin',provider:'gitlab'}] |
+| 8 Difficult-path Q+A | per-scenario `setup.sh` injects `kind='question'` + `kind='answer'` rows |
+| 11 Roundtable ratification | per-scenario `setup.sh` injects ratify=true + human's `roundtable_vote` row |
+
+Run **one row** to debug a specific gate or actor; run **all rows** to verify each step's contract. The journey arrow is **conceptual**, not state-carrying — the conceptual flow guides which fixtures each row uses, but the L6 runner spawns a fresh DB per scenario.
+
+**The full AUQ ceremony** (rendering, option labels, multi-round flow, "selected" highlighting) is covered by manual smoke — `tests/manual/scenarios.md` §② onboarding + §roundtable. Not L6 territory.
 
 ### What was dropped (and why)
 
