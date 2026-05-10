@@ -124,7 +124,6 @@ mcp/trajectory-server/
 | `issues.ts` | `issue_create/get/resume/close/update_description/sync_retry` |
 | `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
 | `pr_comments.ts` | `pr_comments_get` (gh + glab backends, bot-filtered) |
-| `project-metadata.ts` | `project_metadata_detect` (deterministic stack detection) |
 | `regen-state.ts` | `regen_state_get`, `regen_state_set` |
 | `reports.ts` | `issue_report_md`, `issue_snapshot_md` |
 | `roundtable.ts` | `roundtable_create/vote/close/finalize_decisions/summarize` (state machine) |
@@ -163,5 +162,4 @@ docs/architecture/
 ├── FILES.md            # this file
 ├── GIT.md              # git state across a task lifecycle (worktree model)
 ├── UI.md               # AskUserQuestion modes + constraints
-├── PROJECT_METADATA.md # stack detection API + lookup tables + drift handling
 ```

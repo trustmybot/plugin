@@ -51,7 +51,7 @@ Recognizable by mechanism. **Anything that is *sequencing*, *defaulting*, *const
 | "Don't proceed until Z has happened" | (3) PreToolUse hook with state check |
 | "After A, also do B" | (4) PostToolUse hook |
 | "Tool X is forbidden for role Y" | (6) `requireRoles` |
-| "Probe the environment for X, Y, Z" | MCP tool (e.g., `project_metadata_detect`) |
+| "Probe the environment for X, Y, Z" | MCP composite tool that forks a deterministic shell script (cf. `scan_run` → `scripts/scan.sh`) |
 | "Validate input matches schema" | MCP tool's input validation |
 | "Enforce file naming convention" | (3) Lint hook |
 | "Ensure committed before push" | (3) Pre-push hook |
