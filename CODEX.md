@@ -17,5 +17,5 @@ Most of the doctrine — the planning skill (`tmb_planning-simple` / `tmb_planni
 ## See also
 
 - [`./CLAUDE.md`](./CLAUDE.md) — the canonical bro persona for Claude Code
-- [`./docs/multi-platform.md`](./docs/multi-platform.md) — the strategy
+- [`./docs/MULTI_PLATFORM.md`](./docs/MULTI_PLATFORM.md) — the strategy
 - [`./.codex-plugin/`](./.codex-plugin/) — the manifest placeholder

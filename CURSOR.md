@@ -14,5 +14,5 @@ The bro persona doctrine, equivalent to Claude Code's `CLAUDE.md`:
 ## See also
 
 - [`./CLAUDE.md`](./CLAUDE.md) — the canonical bro persona for Claude Code
-- [`./docs/multi-platform.md`](./docs/multi-platform.md)
+- [`./docs/MULTI_PLATFORM.md`](./docs/MULTI_PLATFORM.md)
 - [`./.cursor-plugin/`](./.cursor-plugin/)

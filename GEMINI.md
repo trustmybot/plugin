@@ -15,5 +15,5 @@ Gemini's plugin model is closer to "context file + auto-discovery" than to manif
 ## See also
 
 - [`./CLAUDE.md`](./CLAUDE.md) — the canonical bro persona for Claude Code
-- [`./docs/multi-platform.md`](./docs/multi-platform.md)
+- [`./docs/MULTI_PLATFORM.md`](./docs/MULTI_PLATFORM.md)
 - [`./gemini-extension.json`](./gemini-extension.json) — the manifest placeholder

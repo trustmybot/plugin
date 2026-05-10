@@ -3,7 +3,7 @@
 **Status**: Accepted
 **Date**: 2026-05-05
 **Issue**: #179
-**Design doc**: `../../project-metadata.md`
+**Design doc**: `../../PROJECT_METADATA.md`
 
 ## Context
 

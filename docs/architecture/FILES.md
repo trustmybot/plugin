@@ -10,7 +10,7 @@ plugin/
 ├── README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE
 ├── .claude-plugin/plugin.json     # Claude Code plugin manifest
 ├── .codex-plugin/, .cursor-plugin/, .opencode/, gemini-extension.json
-│                              # PLACEHOLDERS — see docs/multi-platform.md
+│                              # PLACEHOLDERS — see docs/MULTI_PLATFORM.md
 ├── CODEX.md, CURSOR.md, GEMINI.md  # PLACEHOLDER personas
 ├── .gitignore, .mcp.json
 └── .github/workflows/test.yml      # GH dormant; GitLab CI is canonical
@@ -159,6 +159,6 @@ docs/architecture/
 ├── FILES.md            # this file
 ├── GIT.md              # git state across a task lifecycle (worktree model)
 ├── UI.md               # AskUserQuestion modes + constraints
-├── project-metadata.md # config keys + project metadata schema
+├── PROJECT_METADATA.md # stack detection API + lookup tables + drift handling
 └── manual/decisions/   # ADRs (e.g., 0002-deterministic-stack-detection)
 ```
