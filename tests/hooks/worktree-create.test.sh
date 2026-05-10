@@ -101,4 +101,27 @@ else
   _fail "worktree dir is not a valid git worktree"
 fi
 
+test_case "REGRESSION (#2879): worktree HEAD is on the named branch"
+# The hook must produce a worktree where `git rev-parse --abbrev-ref HEAD`
+# returns the branch name. Branch ownership lives in the worktree so SWE's
+# commits advance the branch ref directly and pushes carry the work.
+HEAD_BRANCH=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ "$HEAD_BRANCH" = "fix/123-with-repo" ]; then
+  _pass
+else
+  _fail "expected worktree HEAD on fix/123-with-repo, got '$HEAD_BRANCH'"
+fi
+
+test_case "REGRESSION (#2879): SWE-style commit in the worktree advances the branch ref"
+echo "swe-commit" > "$WORKTREE_PATH/swe-file.txt"
+git -C "$WORKTREE_PATH" add swe-file.txt
+git -C "$WORKTREE_PATH" -c user.email=swe@t.io -c user.name=swe commit -qm "swe: add file"
+SWE_HEAD=$(git -C "$WORKTREE_PATH" rev-parse HEAD)
+BRANCH_TIP=$(git -C "$INNER_REPO" rev-parse fix/123-with-repo)
+if [ "$SWE_HEAD" = "$BRANCH_TIP" ]; then
+  _pass
+else
+  _fail "expected fix/123-with-repo to point at worktree HEAD ($SWE_HEAD); got $BRANCH_TIP — branch ref must move with the worktree commit"
+fi
+
 summarize

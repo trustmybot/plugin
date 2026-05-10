@@ -101,9 +101,11 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 PR_TARGET=$(tmb_config_get "pr_target" 2>/dev/null || true)
 PR_TARGET="${PR_TARGET:-main}"
 
-# Find the most-recent task in any SWE-relevant status.
+# Find the most-recent task in any SWE-relevant status. parent_branch_id is
+# needed to detect commits in the attached-worktree model (branch ref and
+# worktree HEAD advance together; we compare HEAD against the parent branch).
 ROW=$(sqlite3 "$DB" \
-  "SELECT id, status, branch_id FROM tasks
+  "SELECT id, status, branch_id, COALESCE(parent_branch_id, '') FROM tasks
    WHERE status IN ('pending', 'needs_validation', 'completed')
    ORDER BY updated_at DESC, id DESC LIMIT 1;" \
   2>/dev/null || true)
@@ -115,21 +117,41 @@ fi
 TASK_ID=$(echo "$ROW" | cut -d'|' -f1)
 TASK_STATUS=$(echo "$ROW" | cut -d'|' -f2)
 BRANCH=$(echo "$ROW" | cut -d'|' -f3)
+PARENT_BRANCH=$(echo "$ROW" | cut -d'|' -f4)
 
 # Derive the worktree path: slug = everything after the last '/' in branch_id.
 SLUG="${BRANCH##*/}"
 WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
 
-# Read the SWE's worktree HEAD (works for detached HEAD).
+# Read the SWE's worktree HEAD.
 WT_HEAD=$(git -C "$WT_PATH" rev-parse HEAD 2>/dev/null || true)
 
-# Read the local feature branch ref (what bro last reaped, if anything).
-LOCAL_FEATURE=$(git -C "$REPO_ROOT" rev-parse "refs/heads/${BRANCH}" 2>/dev/null || true)
-
-# HAS_COMMITS: worktree has commits that haven't been reaped into local branch yet.
+# HAS_COMMITS: SWE committed in the worktree.
+#
+# Attached-worktree model: SWE's commits advance the branch ref directly,
+# so the worktree HEAD == the branch ref tip. Compare HEAD to the parent
+# branch — if HEAD is ahead, SWE committed.
+#
+# Fallback (legacy DBs without parent_branch_id recorded): compare against
+# the local branch ref. This catches the older detached-HEAD layout where
+# worktree HEAD diverges from the branch ref.
 HAS_COMMITS="false"
-if [ -n "$WT_HEAD" ] && [ "$WT_HEAD" != "$LOCAL_FEATURE" ]; then
-  HAS_COMMITS="true"
+if [ -n "$WT_HEAD" ]; then
+  if [ -n "$PARENT_BRANCH" ]; then
+    PARENT_TIP=$(git -C "$REPO_ROOT" rev-parse "refs/heads/${PARENT_BRANCH}" 2>/dev/null || true)
+    if [ -z "$PARENT_TIP" ]; then
+      PARENT_TIP=$(git -C "$REPO_ROOT" rev-parse "refs/remotes/origin/${PARENT_BRANCH}" 2>/dev/null || true)
+    fi
+    if [ -n "$PARENT_TIP" ] && [ "$WT_HEAD" != "$PARENT_TIP" ]; then
+      HAS_COMMITS="true"
+    fi
+  fi
+  if [ "$HAS_COMMITS" = "false" ]; then
+    LOCAL_FEATURE=$(git -C "$REPO_ROOT" rev-parse "refs/heads/${BRANCH}" 2>/dev/null || true)
+    if [ -n "$LOCAL_FEATURE" ] && [ "$WT_HEAD" != "$LOCAL_FEATURE" ]; then
+      HAS_COMMITS="true"
+    fi
+  fi
 fi
 
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
