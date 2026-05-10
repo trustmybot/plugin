@@ -4,12 +4,12 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` base
 
 ## Overview
 
-18 tables in two groups:
+19 tables in two groups:
 
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `skills`, `file_registry`, `plugin_config`, `identity`, `regen_state`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `skills`, `repos`, `file_registry`, `plugin_config`, `identity`, `regen_state`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 
 ## Diagram
 
@@ -26,7 +26,17 @@ erDiagram
 
     roundtables ||--o{ roundtable_votes : "roundtable_id"
 
+    repos {
+        TEXT  name PK
+        TEXT  path
+        TEXT  default_branch
+        TEXT  head_commit_sha
+        INT   file_count
+        TEXT  last_scanned_at
+    }
+
     file_registry {
+        TEXT  repo PK
         TEXT  path PK
         TEXT  type
         TEXT  language
@@ -222,7 +232,8 @@ erDiagram
 | Table | Purpose |
 |---|---|
 | `skills` | Registry of curated + agent-created skills with effectiveness stats (`uses`, `successes`, `failures`, `effectiveness`). Looked up by name. |
-| `file_registry` | Output of the lazy `git log` diff walker. One row per file. Feeds the 4 auto renderers. |
+| `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). |
+| `file_registry` | One row per `(repo, path)`. Phase 1 of `/scan` populates `path`/`size`/`content_md5`/`last_commit_sha` deterministically (bash + git + md5); Phase 2 fills `summary` via parallel background subagents. Drift detection is md5-only — `last_commit_sha` is metadata, not invalidation signal. Closed-task hook (`post-task-close-rescan.sh`) re-runs scan automatically; rows where md5 matches keep their summary, rows where md5 differs get the summary cleared. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
 | `identity` | Single-row table (`CHECK id=1`) — pure onboarded marker. Row presence at id=1 means `/onboard` ran; row absence is the auto-fire signal. No name or other user data is stored. |
 | `regen_state` | Per-target cursor (`last_seen_sha`) for the lazy architecture regen. |

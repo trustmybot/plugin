@@ -4,3 +4,7 @@
 -- the same onboarded-marker invariant: row presence suppresses auto-fire).
 INSERT INTO identity (id, created_at, updated_at)
 VALUES (1, datetime('now'), datetime('now'));
+
+-- Pre-clear the registry-cold gate (see onboarding-named.sql for rationale).
+INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
+VALUES (999999, NULL, 'bro', 'event', 'deep_scan_completed', 'L5/L6 fixture: gate cleared', '{}', datetime('now'));

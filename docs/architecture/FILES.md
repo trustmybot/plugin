@@ -46,7 +46,8 @@ Slash commands (Human-triggered ceremonies, not skills):
 commands/
 ├── onboard.md                # /onboard — auto-fired on first contact + Human-typed for changes
 ├── roundtable.md             # /roundtable <topic> — multi-agent deliberation
-└── monitor.md                # /monitor <PR_number> — PR comment review
+├── monitor.md                # /monitor <PR_number> — PR comment review
+└── scan.md                   # /scan — deterministic project scan (Phase 1 bash; Phase 2 parallel summary fill)
 ```
 
 ## Consultant templates
@@ -63,14 +64,16 @@ templates/
     └── snapshots/.gitkeep    # for issue_snapshot_md output
 ```
 
-## Hooks (30 scripts)
+## Hooks
 
 ```
 hooks/hooks.json              # CC hooks manifest (matchers + script paths)
 scripts/hooks/
 ├── lib/query-task.sh         # shared sqlite helpers
 ├── diagnostic/               # subagent Bash-bypass probe (#14)
-└── *.sh                      # 30 lifecycle hooks
+└── *.sh                      # lifecycle hooks
+scripts/maintenance/
+└── run-scan.mjs              # standalone scan invoker — used by post-task-close-rescan.sh
 ```
 
 Group by event:
@@ -80,7 +83,7 @@ Group by event:
 | **SessionStart** | `session-start-prescan`, `session-start-regen-check`, `ensure-gitignore`, `deferred-tools-drift-warn`, `write-active-workspace-sentinel` |
 | **UserPromptSubmit** | `activation-routine`, `consultant-spawn-required`, `mcp-health-check`, `session-log-capture` |
 | **PreToolUse** | `no-source-edit-from-main`, `no-worktree-branch-create`, `branch-up-to-date-with-remote`, `git-guards`, `git-push-guard`, `commit-msg-lint`, `naming-lint`, `code-quality-lint`, `require-task-spec`, `require-summaries-before-task-close`, `require-feature-branch-active`, `auq-headless-deny`, `askuserquestion-length-lint`, `roundtable-auq-shape`, `greenfield-arch-required`, `debug-trajectory` |
-| **PostToolUse** | `cleanup-worktree-on-task-close`, `lazy-regen-postcheck`, `roundtable-cleanup-postcheck` |
+| **PostToolUse** | `cleanup-worktree-on-task-close`, `lazy-regen-postcheck`, `roundtable-cleanup-postcheck`, `post-task-close-rescan` |
 | **SubagentStop** | `swe-atomic-close` |
 | **WorktreeCreate** | `worktree-create` |
 
@@ -93,7 +96,7 @@ mcp/trajectory-server/
 └── src/
     ├── db.ts                 # opens DB, applies schema.sql, runs migrations
     ├── index.ts              # MCP server entrypoint (stdio transport)
-    ├── schema.sql            # authoritative schema (18 tables)
+    ├── schema.sql            # authoritative schema (19 tables)
     ├── schema-eval.sql       # eval-mode-only tables (debug_trajectory, eval_results)
     ├── types.ts              # shared TS types
     ├── middleware/agent-scope.ts    # AgentRole, normalizeAgent, requireRoles, redact
@@ -116,6 +119,7 @@ mcp/trajectory-server/
 | `config.ts` | `config_get`, `config_set`, `config_list` |
 | `discussions.ts` | `discussion_append` (verified_human gate), `discussion_list`, `issue_get_with_discussions` |
 | `file-registry.ts` | `file_registry_upsert/list/verify/delete/update_summaries` (bro-only) |
+| `scan.ts` | `scan_run` (forks `scripts/scan.sh`, persists to `repos` + `file_registry`, emits `deep_scan_completed` audit), `repos_list`, `file_registry_bulk_upsert` |
 | `identity.ts` | `identity_get`, `identity_set`, `identity_reset` (onboarded-marker only — no name stored) |
 | `issues.ts` | `issue_create/get/resume/close/update_description/sync_retry` |
 | `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
@@ -160,5 +164,4 @@ docs/architecture/
 ├── GIT.md              # git state across a task lifecycle (worktree model)
 ├── UI.md               # AskUserQuestion modes + constraints
 ├── PROJECT_METADATA.md # stack detection API + lookup tables + drift handling
-└── manual/decisions/   # ADRs (e.g., 0002-deterministic-stack-detection)
 ```

@@ -1,8 +1,6 @@
 # Project metadata
 
-Deterministic stack detection — the data bro reads instead of re-probing the project on every turn.
-
-> Rationale + design history: ADR `manual/decisions/0002-deterministic-stack-detection.md`. This doc is the **reference for the current shape**: API, schema, lookup tables.
+Deterministic stack detection — the data bro reads instead of re-probing the project on every turn. This doc is the reference for the API, schema, and lookup tables.
 
 ## API
 

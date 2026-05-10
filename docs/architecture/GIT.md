@@ -63,16 +63,18 @@ plugin/
 plugin/
 ├── CLAUDE.md                                          # bro planning chain (issue_create → task_create_batch)
 ├── skills/
-│   ├── tmb_planning-simple/SKILL.md                  # simple triage plan
-│   ├── tmb_planning-difficult/SKILL.md               # difficult triage plan + ADR
-│   └── tmb_branch-id-proposal/SKILL.md               # proposes the feature branch slug
+│   └── tmb_planning/SKILL.md                         # full code-touching flow (simple + difficult triage)
+├── commands/
+│   └── scan.md                                       # /scan — must run before task_create_batch (registry-cold gate)
 ├── scripts/hooks/
 │   ├── git-guards.sh                                 # enforces branch naming on commits
 │   └── require-feature-branch-active.sh              # blocks issue/task ops without a feature branch
 └── mcp/trajectory-server/src/tools/
     ├── issues.ts                                     # issue_create
-    ├── tasks.ts                                      # task_create_batch
+    ├── tasks.ts                                      # task_create_batch (scope/branch/registry-cold gates)
     ├── discussions.ts                                # discussion_append (intent + triage note)
+    ├── composites.ts                                 # branch_id_propose
+    ├── scan.ts                                       # scan_run (Phase 1 of /scan)
     └── audit.ts                                      # audit_log(kind='event', planning_complete)
 ```
 
@@ -107,14 +109,15 @@ plugin/
 ```text
 plugin/
 ├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)
-├── skills/tmb_push-gate/SKILL.md                     # push-gate orchestration
+├── skills/tmb_review/SKILL.md                        # push-gate orchestration + review phases
 ├── scripts/hooks/
 │   ├── git-push-guard.sh                             # blocks push without pass verdicts
-│   └── branch-up-to-date-with-remote.sh              # verifies local branch is current
+│   ├── branch-up-to-date-with-remote.sh              # verifies local branch is current
+│   └── post-task-close-rescan.sh                     # PostToolUse: backgrounds /scan to refresh file_registry
 └── mcp/trajectory-server/src/tools/
-    ├── tasks.ts                                      # task_update_status(closed) by bro
+    ├── composites.ts                                 # bro_atomic_close (audit + summaries + status + close)
     ├── audit.ts                                      # audit_log(kind='event', bro_verification_pass)
-    ├── file-registry.ts                              # file_registry_update_summaries (advance sha)
+    ├── file-registry.ts                              # file_registry_update_summaries (md5-driven drift)
     └── issues.ts                                     # issue_close
 ```
 
@@ -122,11 +125,7 @@ plugin/
 ```text
 plugin/
 ├── agents/pr-reviewer.md                             # pr-reviewer subagent
-├── skills/
-│   ├── tmb_push-gate/SKILL.md                        # bro push-gate orchestration
-│   ├── tmb_review-protocol/SKILL.md                  # reviewer phases 1-7
-│   ├── tmb_review-findings/SKILL.md                  # pattern catalog
-│   └── tmb_code-quality/SKILL.md                     # shared quality criteria
+├── skills/tmb_review/SKILL.md                        # reviewer phases + bro push-gate orchestration
 ├── scripts/hooks/git-push-guard.sh                   # final enforcement before origin push
 └── mcp/trajectory-server/src/
     ├── tools/validation.ts                           # validation_record (verdict write)
