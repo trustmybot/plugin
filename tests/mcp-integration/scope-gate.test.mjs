@@ -511,3 +511,78 @@ test('task_create_batch — decision_gate clears when triage=difficult AND a kin
   });
   assert.equal(result.ok, true, JSON.stringify(result));
 });
+
+// --- Roundtable slash-invoke gate (#08) ---
+
+test('roundtable_create — slash-invoke gate rejects when no /roundtable was typed', async (t) => {
+  const { client, close } = await startClient();  // no slash-invoke audit seeded
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'roundtable gate test',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  const result = await call(client, 'roundtable_create', {
+    agent: 'bro',
+    issue_id: issueId,
+    topic: 'auto-fired without /roundtable',
+    expected_participants: 3,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error?.error, 'roundtable_slash_gate_violation');
+});
+
+test('roundtable_create — slash-invoke gate clears after a /roundtable audit lands', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'roundtable gate clear test',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  await call(client, 'audit_log', {
+    agent: 'bro',
+    issue_id: '999999',
+    from_node: 'system',
+    kind: 'event',
+    event_type: 'roundtable_slash_invoked',
+    summary: 'manual seed (gate test)',
+  });
+
+  const result = await call(client, 'roundtable_create', {
+    agent: 'bro',
+    issue_id: issueId,
+    topic: 'Postgres vs SQLite',
+    expected_participants: 3,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.ok(typeof result.data.roundtable_id === 'number');
+});
+
+test('roundtable_create — waive_slash_gate accepts an explicit reason ≥10 chars', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const issue = await call(client, 'issue_create', {
+    agent: 'bro',
+    objective: 'waive test',
+    description: 'x',
+  });
+  const issueId = issue.data.id;
+
+  const result = await call(client, 'roundtable_create', {
+    agent: 'bro',
+    issue_id: issueId,
+    topic: 'waived',
+    expected_participants: 3,
+    waive_slash_gate: true,
+    waive_slash_gate_reason: 'integration test fixture, slash-invoke gate not under test',
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+});

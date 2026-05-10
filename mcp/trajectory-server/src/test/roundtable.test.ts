@@ -28,6 +28,13 @@ describe('roundtable tools', () => {
   before(async () => {
     db = tempDB();
 
+    // Seed the slash-invoke audit so the roundtable_create gate clears.
+    // Tests targeting the gate explicitly use a fresh DB without this seed.
+    db.run(
+      `INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
+       VALUES (999999, NULL, 'system', 'event', 'roundtable_slash_invoked', 'test fixture: gate cleared', '{}', datetime('now'))`,
+    );
+
     const issues = issueTools(db);
     const result = await call(issues.handlers, 'issue_create', {
       agent: 'bro',
