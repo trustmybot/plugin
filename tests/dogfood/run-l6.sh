@@ -45,7 +45,7 @@ PASS=0
 FAIL=0
 FAILED_SCENARIOS=()
 
-SCENARIOS_ROOT="$HERE/integration/scenarios"
+SCENARIOS_ROOT="$HERE/l5-rows"
 [ -d "$SCENARIOS_ROOT" ] || {
   printf "❌ no scenarios at %s\n" "$SCENARIOS_ROOT"
   exit 1
