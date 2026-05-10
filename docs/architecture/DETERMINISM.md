@@ -86,58 +86,6 @@ Atomic composites collapse N → 1: one call decision, deterministic execution. 
 
 ---
 
-## TMB-specific applications (current state, 2026-05)
-
-### Already migrated
-
-- **Stack detection** (was: bash probe block in `tmb_planning-difficult` SKILL.md → now: `project_metadata_detect` MCP tool with hybrid enry/file-presence). Mechanism 1+ (deterministic operation persisted to DB).
-- **`emit_planning_complete=true`** flag on `task_create_batch` (was: prose in skills "remember to also call audit_log(planning_complete)" → now: server-side audit emission inside the same transaction). Mechanism 2.
-- **`parent_branch_id` default** in `task_create_batch` (was: prose "remember to read pr_target" → now: server reads `config('pr_target')` when omitted). Mechanism 1.
-- **Architect role doctrine** (was: skill prose "Tools bro must NEVER call" → now: `requireRoles` rejects on the wire regardless of prompt). Mechanism 6.
-- **Push gate** (was: skill prose → now: pre-push hook blocks unsigned commits). Mechanism 3.
-- **No source edit from main** (was: skill prose → now: PreToolUse hook). Mechanism 3.
-- **Worktree creation** (was: skill prose → now: WorktreeCreate hook routes to right repo). Mechanism 3.
-- **Atomic close-batch validation** (file_registry freshness gate before `task_update_status(closed)`). Mechanism 3.
-- **Naming conventions** (was: `tmb_naming-conventions` skill prose → now: `scripts/hooks/naming-lint.sh` PreToolUse on Edit/Write/MultiEdit). Mechanism 3.
-- **Git conventions** (was: `tmb_git-conventions` skill prose → now: `scripts/hooks/commit-msg-lint.sh` PreToolUse on Bash + existing `git-push-guard.sh` + `git-guards.sh`). Mechanism 3.
-- **Mechanical code-quality patterns** (was: half of `tmb_code-quality` prose → now: `scripts/hooks/code-quality-lint.sh` PreToolUse on Edit/Write — qualitative criteria stay in the skill). Mechanism 3.
-- **Project prescan inventory** (was: `tmb_project-prescan` Phases 1–4 prose → now: `scripts/hooks/session-start-prescan.sh` SessionStart hook injects inventory as `additionalContext`). Mechanism 4 (SessionStart hook).
-- **Lazy-regen drift detection** (was: `tmb_lazy-regen-check` skill prose → now: `scripts/hooks/lazy-regen-postcheck.sh` PostToolUse on `file_registry_update_summaries` + existing `session-start-regen-check.sh`). Mechanism 4.
-- **Roundtable cleanup verification** (was: `tmb_roundtable-cleanup` skill prose → now: `scripts/hooks/roundtable-cleanup-postcheck.sh` PostToolUse on `roundtable_close`). Mechanism 4.
-- **Greenfield architecture_regen enforcement** (was: skill prose "remember to bootstrap arch docs first" → now: `scripts/hooks/greenfield-arch-required.sh` PreToolUse on `task_create_batch`). Mechanism 3.
-- **Consultant spawn hint** (was: prompt prose "consider spawning a consultant" → now: `scripts/hooks/consultant-spawn-required.sh` UserPromptSubmit injects advisory `additionalContext` on domain-expert keywords). Mechanism 5.
-- **branch_id derivation** (was: `tmb_branch-id-proposal` Step 1 mapping table → now: `branch_id_propose` MCP composite returns `{ branch_id, triage, confidence }` from free-text intent). Mechanism 2.
-- **SWE retry composite** (was: 5-step prose recipe in `tmb_feedback-loop` → now: `task_retry_batch(failed_task_id, ...)` MCP composite — one transaction for rationale append + new task insert + audit). Mechanism 2.
-- **Bro atomic close** (was: prose 4-call V3 batch → now: `bro_atomic_close(task_id, sha, summaries, ...)` MCP composite — one transaction for audit + summaries + status flip + optional issue close). Mechanism 2.
-
-### Irreducibly mechanism 7 (always skill prose)
-
-The 8 surviving skills carry only judgment-bound work:
-
-- `tmb_planning` — triage classification, cold-start deep-scan judgment, spec authoring (simple defaults vs difficult Q+A + ADR), V1/V2/V3 verification, architecture refresh.
-- `tmb_review` — pr-reviewer's qualitative phases + bro's push-gate orchestration + bro's PR-comment triage.
-- `tmb_recovery` — failure-mode classification (AUQ-error / MCP is_error / trajectory-server-down) with documented defaults.
-- `tmb_agent-creator` / `tmb_skill-creator` — Q+A, draft, Human-approval flow.
-- `tmb_concerns-protocol` — when to disagree with the Human.
-- `tmb_swe-checklist` — SWE's self-review judgment (SWE-bound).
-- `tmb_docs-conventions` — prompt-edit discipline (loaded by SWE when the spec names a markdown file).
-
-Slash commands carry Human-triggered ceremonies that aren't skills:
-
-- `/onboard` — policy ceremony (auto-fired on first contact; Human-typed for later changes).
-- `/roundtable` — multi-agent deliberation.
-- `/monitor` — PR comment review.
-
----
-
-## Current state
-
-8 skills, ~974 prose lines (flat single-file `SKILL.md` per skill). Per-file totals: `tmb_planning` 282, `tmb_review` 219, `tmb_agent-creator` 132, `tmb_recovery` 109, `tmb_skill-creator` 102, `tmb_docs-conventions` 53, `tmb_concerns-protocol` 50, `tmb_swe-checklist` 27.
-
-The skill *count* doesn't drop drastically — judgment skills survive. The *line count* drops because each skill becomes a thin caller of deterministic infrastructure, not a re-implementation of it.
-
----
-
 ## Authoring checklist (apply when adding or editing any skill)
 
 Before merging a skill change, verify each procedural sentence answers **yes** to at least one:

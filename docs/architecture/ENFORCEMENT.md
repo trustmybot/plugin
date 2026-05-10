@@ -34,6 +34,8 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Branch up-to-date with `origin/<pr_target>` before SWE attach | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
 | Worktree cleanup on task close | 2 | `scripts/hooks/cleanup-worktree-on-task-close.sh` |
 | Bro updates `file_registry` summaries before closing the task | 1 + 2 | `requireRoles('file_registry_update_summaries', ['bro'])` + `scripts/hooks/require-summaries-before-task-close.sh` |
+| `task_create_batch` blocked until `/scan` has run (registry-cold gate) | 1 | server gate in `tools/tasks.ts` rejects unless `audit` has a `deep_scan_completed` row OR `waive_registry_gate=true` + reason ≥10 chars |
+| `file_registry` auto-refresh after `bro_atomic_close` (md5-driven drift) | 4 | `scripts/hooks/post-task-close-rescan.sh` PostToolUse on `bro_atomic_close` backgrounds `scripts/maintenance/run-scan.mjs` |
 | MCP calls include `agent: 'bro'` | 1 | `mcp/.../middleware/agent-scope.ts` |
 | `validation_record` requires `subagent_session_id` (#144) | 1 | `mcp/.../tools/validation.ts` |
 | `validation_record.feedback` MCP-availability prefix (#97) | 4 | schema CHECK on `validation_attempts.feedback` |
@@ -88,7 +90,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `scripts/hooks/naming-lint.sh` |
 | Conventional-commit subject format | 2 | `scripts/hooks/commit-msg-lint.sh` |
 | Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `scripts/hooks/code-quality-lint.sh` |
-| Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` |
+| Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` (reports `file_registry: cold`/`warm`; bulk population belongs to `/scan`) |
 | Greenfield project must run `architecture_regen` before `task_create_batch` | 2 | `scripts/hooks/greenfield-arch-required.sh` |
 | Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/consultant-spawn-required.sh` |
 | Lazy-regen drift warning after `file_registry_update_summaries` | 2 | `scripts/hooks/lazy-regen-postcheck.sh` |
