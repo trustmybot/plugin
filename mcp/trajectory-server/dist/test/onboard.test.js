@@ -144,7 +144,7 @@ describe('onboard tools', () => {
             assert.ok(row, 'identity row must be written');
             db.close();
         });
-        it('local + gitflow: pr_target derives to develop, protected_branches gets both main + develop', async () => {
+        it('local + gitflow: pr_target derives to dev, protected_branches gets both main + dev (#2878)', async () => {
             const db = tempDB();
             const tools = onboardTools(db);
             const result = await call(tools.handlers, 'onboard_apply', {
@@ -154,8 +154,8 @@ describe('onboard tools', () => {
             const data = parse(result);
             const applied = data.applied;
             assert.equal(applied.branching_model, 'gitflow');
-            assert.equal(applied.pr_target, 'develop');
-            assert.deepEqual(applied.protected_branches, ['main', 'develop']);
+            assert.equal(applied.pr_target, 'dev');
+            assert.deepEqual(applied.protected_branches, ['main', 'dev']);
             db.close();
         });
         it('remote shape: persists single-provider array', async () => {
@@ -295,8 +295,8 @@ describe('onboard tools', () => {
             const config = db.all(`SELECT key, value_json FROM plugin_config WHERE key IN ('branching_model','pr_target','protected_branches','remotes','issue_sync')`);
             const map = Object.fromEntries(config.map((r) => [r.key, JSON.parse(r.value_json)]));
             assert.equal(map.branching_model, 'gitflow');
-            assert.equal(map.pr_target, 'develop');
-            assert.deepEqual(map.protected_branches.sort(), ['develop', 'main']);
+            assert.equal(map.pr_target, 'dev');
+            assert.deepEqual(map.protected_branches.sort(), ['dev', 'main']);
             assert.equal(map.issue_sync, 'auto');
             // identity row also written as marker
             const id = db.get('SELECT id FROM identity WHERE id = 1');

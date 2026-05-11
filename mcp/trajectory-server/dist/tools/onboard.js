@@ -112,11 +112,16 @@ function deriveProtectedBranches(branchingModel, prTarget) {
     return [prTarget];
 }
 function derivePrTargetDefault(branchingModel) {
-    return branchingModel === 'gitflow' ? 'develop' : 'main';
+    // gitflow → 'dev' (most common modern variant; GitLab Flow + many repos).
+    // Users on classic Git Flow with 'develop' override via the AUQ option or
+    // re-onboard later. Picked over 'develop' as the default because real-world
+    // surveys (2026-05) show 'dev' as the more frequent long-lived integration
+    // branch name across the active GitLab/GitHub ecosystem.
+    return branchingModel === 'gitflow' ? 'dev' : 'main';
 }
 const BRANCHING_DESCRIPTIONS = {
     'github-flow': 'One long-lived branch (main). Each task gets its own short-lived branch off main; you open a PR back to main when it\'s ready. No release branches. Suitable for continuous deploys.',
-    gitflow: 'Two long-lived branches (main + develop). Daily work merges into develop; release branches are cut from develop and merged into main when shipping. Hotfixes go straight to main. Suitable for versioned releases.',
+    gitflow: 'Two long-lived branches (main + dev). Daily work merges into the integration branch (commonly named "dev" — older repos may name it "develop"); release branches are cut from there and merged into main when shipping. Hotfixes go straight to main. Suitable for versioned releases.',
 };
 // Name is intentionally NOT a built question — it's free-text input that
 // AUQ's radio model fits poorly (the auto-rendered "Other" field clutters
@@ -149,13 +154,14 @@ function prTargetQuestion(currentTarget, branchingModel, isReonboard) {
     if (isReonboard && currentTarget !== null) {
         options.push({ label: `Keep "${currentTarget}"`, description: 'No change.' });
     }
-    options.push({ label: 'main', description: 'Most common default.' }, { label: 'develop', description: 'Common for Git Flow.' });
-    // First-run pre-select by branching_model: github-flow → main, gitflow → develop.
+    options.push({ label: 'main', description: 'Most common default.' }, { label: 'dev', description: 'Common for GitLab Flow + modern Git Flow variants.' }, { label: 'develop', description: 'Classic Git Flow convention.' });
+    // First-run pre-select by branching_model: github-flow → main, gitflow → dev.
+    // 'develop' is offered as a secondary option for classic Git Flow repos.
     // master / older targets aren't offered as labeled options (rare in modern
     // projects). Users who actually need master/release/etc. type it via Other.
     let default_index = 0;
     if (!isReonboard) {
-        const want = branchingModel === 'gitflow' ? 'develop' : 'main';
+        const want = branchingModel === 'gitflow' ? 'dev' : 'main';
         default_index = options.findIndex((o) => o.label === want);
         if (default_index < 0)
             default_index = 0;
