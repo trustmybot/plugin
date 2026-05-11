@@ -80,14 +80,14 @@ ONBOARDED=$(sqlite3 "$DB_PATH" "SELECT 1 FROM identity LIMIT 1;" 2>/dev/null || 
 
 REASON="🔁 reonboard-intent hint: the user's prompt contains '${matched}'. This signals a *reonboard* (the project is already onboarded — switching shape, not initial onboard).
 
-🚫 **DO NOT call \`onboard_apply\`.** Reonboard is a Human-driven slash ceremony, NOT a tool you fire on the user's behalf. Even when the prompt says 'Don't ask questions', that means 'don't render AUQ' — it does NOT mean 'auto-rewrite plugin_config silently'.
-
 Required workflow (one turn, no questions):
 1. Call \`onboard_state_get\` to read the current config (branching_model, pr_target, remotes).
-2. In your text response, **recommend the user type \`/onboard\`** — verbatim, the slash command — so the interactive ceremony runs cleanly when they're ready.
-3. End the turn. Do not modify plugin_config. Do not call onboard_apply. Do not call config_set. The user's next message will be \`/onboard\` (or won't, but that's their choice).
+2. Either path is acceptable — pick one:
+   - **Auto-apply** via \`onboard_apply(shape='remote', remote=[...], ...)\` with conservative defaults matching the user's intent (e.g. 'gitlab' / 'github').
+   - **Recommend** the user type \`/onboard\` verbatim in your text response, so they can drive the interactive ceremony themselves.
+3. Do NOT spawn code work (no \`task_create_batch\`, no \`issue_create\`, no \`Agent\` for SWE). Reonboard is config-only.
 
-If you fire \`onboard_apply\` here you will fail row 2 of the L6 chain and silently overwrite the user's working config without their explicit slash invocation. Don't do that."
+The Human prefers either of those two paths. Don't get stuck chasing external CLIs (gh/glab repo create) before TMB's plugin_config is settled."
 
 jq -nc --arg reason "$REASON" '{
   hookSpecificOutput: {

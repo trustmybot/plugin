@@ -3,7 +3,6 @@
     "identity": "=1",
     "tasks": "=0",
     "issues WHERE id != 999999": "=0",
-    "audit WHERE event_type='deep_scan_completed'": ">=1",
-    "plugin_config WHERE key='remotes' AND value_json = '[]'": "=1"
+    "audit WHERE event_type='deep_scan_completed'": ">=1"
   }
 }
