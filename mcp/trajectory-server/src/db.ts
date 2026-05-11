@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
@@ -46,22 +47,40 @@ export function resolvePluginName(env: NodeJS.ProcessEnv = process.env): string 
  *    bro would see false 'first contact' on every turn (#2872).
  * 3. Fallback: `<cwd>/.claude/<plugin-name>/trajectory.db` — fresh-init.
  */
-export function resolveDbPath(opts?: { env?: NodeJS.ProcessEnv; cwd?: string }): string {
+export function resolveDbPath(opts?: {
+  env?: NodeJS.ProcessEnv;
+  cwd?: string;
+  home?: string;
+}): string {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
+  const home = opts?.home ?? homedir();
   const override = env['TRAJECTORY_DB_PATH'];
   if (override && override.trim().length > 0) return override;
   const pluginName = resolvePluginName(env);
-  const found = findExistingDbUp(cwd, pluginName);
+  const found = findExistingDbUp(cwd, pluginName, { home });
   if (found) return found;
   return join(cwd, '.claude', pluginName, 'trajectory.db');
 }
 
-function findExistingDbUp(startDir: string, pluginName: string): string | null {
+function findExistingDbUp(
+  startDir: string,
+  pluginName: string,
+  opts?: { home?: string },
+): string | null {
+  const home = opts?.home ?? homedir();
   let dir = startDir;
   // Walk up at most 8 levels — enough for any reasonable workspace nesting,
   // and bounds the cost when nothing exists.
   for (let i = 0; i < 8; i++) {
+    // P0 guard: never traverse into the user's HOME via walk-up. Project
+    // state belongs to a project, not the user's profile. If the user
+    // launched from HOME itself (degenerate), the walk-up still checks
+    // the starting dir but never traverses upward into HOME from a
+    // descendant — that's how a stale ~/.claude/<plugin>/trajectory.db
+    // (left over from a prior buggy session or a test artifact) would
+    // otherwise be silently adopted as the live DB on every launch.
+    if (dir === home && startDir !== home) return null;
     const candidate = join(dir, '.claude', pluginName, 'trajectory.db');
     if (existsSync(candidate)) return candidate;
     const parent = dirname(dir);

@@ -58,8 +58,17 @@ if [ -z "$DB_PATH" ]; then
   # inner repos; without walk-up the hook (PWD = inner repo) reads a stale
   # empty seed and the MCP server reads the workspace one — false 'first
   # contact' on every turn.
+  #
+  # P0 guard: never traverse INTO the user's HOME from a descendant cwd.
+  # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or
+  # a test artifact) used to be silently adopted as the live DB on every
+  # launch from any project below HOME — project state escaped into the
+  # profile. Mirrors the corresponding fix in db.ts's findExistingDbUp.
   dir="$PWD"
   for _ in 1 2 3 4 5 6 7 8; do
+    if [ "$dir" = "$HOME" ] && [ "$PWD" != "$HOME" ]; then
+      break
+    fi
     candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
     if [ -f "$candidate" ]; then
       DB_PATH="$candidate"
