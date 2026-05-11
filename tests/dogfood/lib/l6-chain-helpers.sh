@@ -49,38 +49,96 @@ l6c_apply_seed() {
   sqlite3 "$project/.claude/tmb/trajectory.db" < "$seed"
 }
 
-# l6c_send_turn <project> <unused_session_id> <unused_is_first> <prompt> <turn_jsonl_out>
-# Fires one fresh `claude -p` invocation against the project's cumulative
-# trajectory DB. No --session-id / --resume — continuity is DB-driven via
-# bro's tmb_recovery / state-aware MCPs (issue_state_get,
-# task_first_actionable, etc.). That's the *workflow* under test in L6.
-#
-# Argument 2 and 3 are kept for backwards-compat with the prior signature
-# but ignored — see commit history if you need the old session-pinned form.
-l6c_send_turn() {
-  local project="$1" prompt="$4" out_jsonl="$5"
+# l6c_run_step <project> <row_dir> <out_jsonl>
+# Runs ONE chain step. Within a step the row's script.json drives a
+# multi-turn conversation (turn 1 = prompt.txt; subsequent turns from
+# user_after_bro[]) via a step-local --session-id / --resume. BETWEEN
+# steps fresh session — continuity carries via the cumulative trajectory
+# DB only, mirroring real cross-session resume.
+l6c_run_step() {
+  local project="$1" row_dir="$2" out_jsonl="$3"
+  local prompt_file="$row_dir/prompt.txt"
+  local script="$row_dir/script.json"
 
-  (
-    cd "$project" || exit 1
-    export TMB_HEADLESS=1
-    export TMB_DEBUG_TRAJECTORY=1
-    export CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN}"
+  local max_turns user_replies terminal_pattern
+  if [ -f "$script" ]; then
+    max_turns=$(jq -r '.max_turns // 1' "$script")
+    user_replies=$(jq -c '.user_after_bro // []' "$script")
+    terminal_pattern=$(jq -r '.terminal_pattern // ""' "$script")
+  else
+    max_turns=1
+    user_replies='[]'
+    terminal_pattern=""
+  fi
 
-    local cc_args=(
-      --plugin-dir "$PLUGIN_ROOT"
-      --dangerously-skip-permissions
-      --output-format stream-json
-      --include-hook-events
-      --include-partial-messages
-      --verbose
-      -p "$prompt"
+  local session_id
+  session_id=$(l6c_uuid)
+  : > "$out_jsonl"
+
+  local turn=1
+  local current_msg
+  current_msg="$(_l5_test_prompt_prefix)$(cat "$prompt_file")"
+
+  while [ "$turn" -le "$max_turns" ]; do
+    local turn_jsonl="${out_jsonl}.turn${turn}"
+
+    (
+      cd "$project" || exit 1
+      export TMB_HEADLESS=1
+      export TMB_DEBUG_TRAJECTORY=1
+      export CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN}"
+
+      local cc_args=(
+        --plugin-dir "$PLUGIN_ROOT"
+        --dangerously-skip-permissions
+        --output-format stream-json
+        --include-hook-events
+        --include-partial-messages
+        --verbose
+        -p "$current_msg"
+      )
+
+      if [ "$turn" = "1" ]; then
+        cc_args=(--session-id "$session_id" "${cc_args[@]}")
+      else
+        cc_args=(--resume "$session_id" "${cc_args[@]}")
+      fi
+
+      _l5_timeout "${TMB_CLAUDE_TIMEOUT:-600}" claude "${cc_args[@]}" \
+        > "$turn_jsonl" 2>/tmp/tmb-l6c-stderr.$$ || true
+      [ -s /tmp/tmb-l6c-stderr.$$ ] && sed 's/^/  [claude-err] /' /tmp/tmb-l6c-stderr.$$ >&2
+      rm -f /tmp/tmb-l6c-stderr.$$
     )
 
-    _l5_timeout "${TMB_CLAUDE_TIMEOUT:-600}" claude "${cc_args[@]}" \
-      > "$out_jsonl" 2>/tmp/tmb-l6c-stderr.$$ || true
-    [ -s /tmp/tmb-l6c-stderr.$$ ] && sed 's/^/  [claude-err] /' /tmp/tmb-l6c-stderr.$$ >&2
-    rm -f /tmp/tmb-l6c-stderr.$$
-  )
+    cat "$turn_jsonl" >> "$out_jsonl"
+
+    # Pull bro's last text response.
+    local bro_text
+    bro_text=$(jq -r '
+      select(.type == "assistant") |
+      .message.content[] |
+      select(.type == "text") |
+      .text
+    ' "$turn_jsonl" 2>/dev/null | tail -c 4000)
+
+    # Terminal-pattern early-exit.
+    if [ -n "$terminal_pattern" ] && [ -n "$bro_text" ]; then
+      if echo "$bro_text" | grep -qE "$terminal_pattern"; then
+        rm -f "$turn_jsonl"
+        break
+      fi
+    fi
+
+    # Next user reply from script queue. Empty = done.
+    local next_msg
+    next_msg=$(echo "$user_replies" | jq -r ".[$((turn - 1))] // empty")
+    rm -f "$turn_jsonl"
+    if [ -z "$next_msg" ]; then
+      break
+    fi
+    current_msg="$next_msg"
+    turn=$((turn + 1))
+  done
 }
 
 # l6c_score_step <project> <step_name> <row_dir> <run_id>: run every scorer

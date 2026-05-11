@@ -162,18 +162,16 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
       > "$PROJECT/.claude/tmb/_l5_pre_run_git.json"
   fi
 
-  # Every step is a fresh `claude -p` invocation. Continuity comes from
-  # the cumulative trajectory DB, not from --session-id/--resume. Bro's
-  # native design uses tmb_recovery + state-aware MCPs (issue_state_get,
-  # task_first_actionable, etc.) to pick up from the DB on every cold
-  # start — that's the *workflow* under test. Using --resume would mask
-  # whether bro actually consults the DB and instead let him rely on LLM
-  # session history (which doesn't exist in real cross-session resumes).
-  PROMPT="$(_l5_test_prompt_prefix)$(cat "$ROW_DIR/prompt.txt")"
-
+  # Run the step. Each step starts a *fresh* CC session (no --resume from
+  # the prior step) — cross-row continuity is DB-driven via bro's
+  # tmb_recovery + state-aware MCPs. WITHIN a step the row's script.json
+  # drives a multi-turn conversation via a step-local --session-id;
+  # without this rows 8/9 (which expect a follow-up user reply) can't
+  # complete because bro asks for clarification and the chain would
+  # otherwise move on before the answer arrives.
   TURN_JSONL="$STEP_DIR/turn.jsonl"
-  printf "  turn: claude -p (fresh session, DB-driven resume)\n"
-  l6c_send_turn "$PROJECT" "" "1" "$PROMPT" "$TURN_JSONL"
+  printf "  step: fresh session, multi-turn within step (DB-driven across steps)\n"
+  l6c_run_step "$PROJECT" "$ROW_DIR" "$TURN_JSONL"
 
   cat "$TURN_JSONL" >> "$CHAIN_TRAJECTORY"
   # Per-step scoring reads $PROJECT/trajectory.jsonl. Required/forbidden

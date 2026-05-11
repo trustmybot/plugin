@@ -50,10 +50,19 @@ content_md5=$(md5 -q "$PROJECT/src/auth.py" 2>/dev/null || md5sum "$PROJECT/src/
 # The hook's prefix match needs the same canonical form.
 PROJECT_REAL=$(cd "$PROJECT" && pwd -P)
 
+# Reuse the existing repos row's name if any. In the L6 chain, row 4's
+# scan_run auto-creates a repos row with a name derived from the scratch
+# dir basename. Forcing a second row at the same path would make the
+# hook's repo-walk non-deterministic and the file_registry lookup would
+# miss when the hook picked the unseeded name.
+EXISTING_REPO=$(sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
+  "SELECT name FROM repos WHERE path = '$PROJECT_REAL' ORDER BY length(name) DESC LIMIT 1;" 2>/dev/null)
+REPO_NAME="${EXISTING_REPO:-todo-cli}"
+
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
 INSERT OR REPLACE INTO repos (name, path, default_branch)
-VALUES ('todo-cli', '$PROJECT_REAL', 'main');
+VALUES ('$REPO_NAME', '$PROJECT_REAL', 'main');
 
-INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
-VALUES ('todo-cli', 'src/auth.py', 'source', '$content_md5', NULL, NULL);
+INSERT OR REPLACE INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+VALUES ('$REPO_NAME', 'src/auth.py', 'source', '$content_md5', NULL, NULL);
 SQL
