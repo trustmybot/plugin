@@ -37,8 +37,8 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     waive_intent_gate: true,
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
-    waive_triage_gate: true,
-    waive_triage_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [
       { branch_id: 'feat/a', title: 'A', description: 'd', success_criteria: 's', spec_body: '## A' },
       { branch_id: 'feat/b', title: 'B', description: 'd', success_criteria: 's', spec_body: '## B' },
@@ -118,8 +118,8 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     waive_intent_gate: true,
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
-    waive_triage_gate: true,
-    waive_triage_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', success_criteria: 's', spec_body: '## body' }],
   });
   const taskId = batch.data[0].id;

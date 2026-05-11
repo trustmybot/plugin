@@ -69,17 +69,6 @@ function intentToType(text: string): { prefix: string; confidence: number } {
   return { prefix: 'chore', confidence: 0.3 };
 }
 
-// Architecture-touching signal → triage='difficult'. Otherwise simple.
-function classifyTriage(text: string): 'simple' | 'difficult' {
-  const lower = text.toLowerCase();
-  const archSignals = [
-    /\barchitecture\b/, /\bschema\b/, /\bmigration\b/, /\bpublic api\b/,
-    /\bservice boundary\b/, /\bcross[\s-]?cutting\b/, /\badr\b/,
-    /\bnew (service|module|package)\b/, /\bdata model\b/,
-  ];
-  return archSignals.some((p) => p.test(lower)) ? 'difficult' : 'simple';
-}
-
 function md5OfBuffer(buf: Buffer): string {
   return createHash('md5').update(buf).digest('hex');
 }
@@ -101,7 +90,7 @@ export function compositeTools(
       name: 'branch_id_propose',
       description:
         'Heuristic-only branch_id derivation: takes free-text intent + objective, returns ' +
-        '{ branch_id, triage, confidence }. Pure function — no DB writes. Bro confirms with ' +
+        '{ branch_id, confidence }. Pure function — no DB writes. Bro confirms with ' +
         'Human via AskUserQuestion before persisting.',
       inputSchema: {
         type: 'object',
@@ -211,7 +200,6 @@ export function compositeTools(
         const objective = (args['objective'] as string | undefined) ?? intent;
 
         const { prefix, confidence } = intentToType(intent);
-        const triage = classifyTriage(intent + ' ' + objective);
         const slug = slugify(objective) || slugify(intent) || 'task';
         const branchId = `${prefix}/${slug}`;
 
@@ -222,7 +210,7 @@ export function compositeTools(
           );
         }
 
-        return ok({ branch_id: branchId, triage, confidence });
+        return ok({ branch_id: branchId, confidence });
       }),
     ),
 

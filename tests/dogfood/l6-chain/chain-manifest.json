@@ -69,11 +69,11 @@
     },
     {
       "id": 8,
-      "name": "08-difficult-path",
-      "row_dir": "l5-rows/08-difficult-path",
+      "name": "08-architectural-change",
+      "row_dir": "l5-rows/08-architectural-change",
       "partial_test": true,
       "seed_before": null,
-      "seed_after": "seeds/after-08-difficult-path.sql",
+      "seed_after": "seeds/after-08-architectural-change.sql",
       "halt_on_fail": true
     },
     {

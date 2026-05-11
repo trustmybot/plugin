@@ -1,6 +1,6 @@
 # misc/ — edge-case scenarios outside the 13-row journey
 
-These scenarios capture bug classes that aren't part of the canonical TODO-CLI journey (rows 1–13 in [`tests/EVALUATION.md`](../../EVALUATION.md)). They're kept around because they document real captured production violations, but they don't participate in the L6 chain.
+These scenarios capture bug classes that aren't part of the canonical TODO-CLI journey (rows 1–13 in [`tests/EVALUATION.md`](../../../EVALUATION.md)). They're kept around because they document real captured production violations, but they don't participate in the L6 chain.
 
 | Dir | What it captures |
 |---|---|
@@ -8,7 +8,7 @@ These scenarios capture bug classes that aren't part of the canonical TODO-CLI j
 | `reonboard-redirect/` | Re-onboarding-style ask ("switch to gitflow") — bro must redirect to `/onboard`, not auto-fire. The journey covers reonboard explicitly in row 3 (partial-test). |
 | `roundtable-routing-redirect/` | Phrase-trigger `/roundtable` attempt — bro must redirect. Captured-bug-as-failing. Row 11 covers the slash-invoked happy path. |
 | `architecture-regen-direct/` | "Refresh the architecture docs" → `architecture_regen` direct, no planning. Edge case; not in the journey. |
-| `triage-discussion-before-task/` | Triage discussion gate. Now enforced server-side via the triage gate on `task_create_batch`; the journey row 4 covers it implicitly. |
+| `triage-discussion-before-task/` | Triage discussion gate (legacy — retired with the simple/difficult triage). Kept for historical reference; the universal decision gate replaces it. |
 
 Run individually if you need to debug one:
 

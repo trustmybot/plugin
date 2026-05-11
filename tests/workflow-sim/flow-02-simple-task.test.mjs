@@ -51,8 +51,8 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     waive_intent_gate: true,
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
-    waive_triage_gate: true,
-    waive_triage_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{
       branch_id: 'feat/hello',
       title: 'Add /hello endpoint',

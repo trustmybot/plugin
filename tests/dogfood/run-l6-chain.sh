@@ -29,7 +29,6 @@ export PLUGIN_ROOT
 export TMB_HEADLESS=1
 
 MANIFEST="$HERE/l6-chain/chain-manifest.json"
-SEEDS_DIR="$HERE/l6-chain/seeds"
 
 START_FROM=1
 HALT_ON_FAIL=1
@@ -193,10 +192,13 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   DURATION_MS=$(jq -s 'map(select(.type=="result") | .duration_ms // 0) | add // 0' \
     "$TURN_JSONL" 2>/dev/null || echo 0)
 
-  # Score this step against the cumulative DB.
+  # Score this step against the cumulative DB. Export the env vars
+  # explicitly so they're visible inside the subshells spawned by
+  # l6c_score_step (an inline `VAR=val cmd` only seeds the immediate
+  # child process; the scorer's internal subshells don't see it).
+  export SCENARIO_NAME="$step_name"
   STEP_FAILS=0
-  SCENARIO_NAME="$step_name" RUN_ID="$RUN_ID" \
-    l6c_score_step "$PROJECT" "$step_name" "$ROW_DIR" "$RUN_ID" \
+  l6c_score_step "$PROJECT" "$step_name" "$ROW_DIR" "$RUN_ID" \
     > "$STEP_DIR/scorers.txt" 2>&1 || STEP_FAILS=$?
 
   # Minimal scorers.json for chain-summary parsing.

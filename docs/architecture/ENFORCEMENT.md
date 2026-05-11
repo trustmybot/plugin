@@ -44,7 +44,8 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Issue-sync default-off + env-var kill-switch | 1 | schema seed + `TMB_DISABLE_REMOTE_SYNC` short-circuit in `sync/backend.ts` |
 | Roundtable state machine | 1 | server rejects state-transition violations |
 | Welcome banner phrasing | 6 only | CLAUDE.md |
-| Triage rule (`difficult` iff `docs/trustmybot/architecture/` touched) | 6 only | CLAUDE.md |
+| Decision-audit row required on every `task_create_batch` | 1 | `mcp/.../tools/tasks.ts` decision_gate |
+| ADR-required hint (architectural intent → advisory injection) | 3 | `scripts/hooks/adr-required-hint.sh` |
 | Verify-context check before answering | 6 only | CLAUDE.md |
 | Voice / tone | 6 only | CLAUDE.md |
 

@@ -13,7 +13,7 @@ async function seedCompletedTask(client) {
   assert.equal(issue.ok, true);
   const batch = await call(client, 'task_create_batch', {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-    waive_branch_gate: true, waive_branch_gate_reason: 'integration-test fixture; branch gate not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_triage_gate: true, waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
+    waive_branch_gate: true, waive_branch_gate_reason: 'integration-test fixture; branch gate not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic triage; not under test',
     agent: 'bro',
     issue_id: issue.data.id,
     tasks: [{
