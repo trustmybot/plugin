@@ -41,7 +41,7 @@ Routing SWE's commits through your local branch (rather than letting SWE push st
 | Path | Belongs to | Lifetime |
 |---|---|---|
 | `<project>/` (main checkout) | You + bro | Permanent; switches between `<base>` and `<feature>` per task |
-| `<project>/.claude/worktrees/<slug>/` | SWE (detached HEAD) | Per-task; created on spawn, removed after bro merges its commits into local `<feature>` |
+| `<project>/.claude/worktrees/<slug>/` | SWE (on the task's `<feature>` branch) | Per-task; created on spawn, removed after bro merges its commits into local `<feature>` |
 | `origin/<base>` | Shared | Permanent; advances on merges |
 | `origin/<feature>` | Shared | Per-task; created by bro's push from local; removed after MR merge |
 
@@ -84,7 +84,7 @@ plugin/
 ├── agents/swe.md                                      # SWE executor prompt
 ├── scripts/hooks/
 │   ├── require-task-spec.sh                          # gates spawn on valid pending spec row
-│   ├── worktree-create.sh                            # creates the detached worktree on spawn
+│   ├── worktree-create.sh                            # creates the per-task worktree on spawn (on the task's feature branch — see #2879)
 │   ├── no-worktree-branch-create.sh                  # prevents SWE from creating branches
 │   └── git-guards.sh                                 # commit branch check in worktree
 └── mcp/trajectory-server/src/tools/
