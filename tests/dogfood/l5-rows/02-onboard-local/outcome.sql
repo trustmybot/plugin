@@ -1,26 +1,14 @@
--- 02-onboard-local — fixture-seeded local-shape state must look right.
+-- 02-onboard-local → reonboard intent recognized. Either of two paths is
+-- acceptable per Daisy's design:
+--   (a) bro auto-applies via onboard_apply (config now reflects remote)
+--   (b) bro recommends `/onboard` in text and stops (config preserved)
+-- The contract just checks that bro engaged with the reonboard signal
+-- (called onboard_state_get) and didn't start code work.
+
 SELECT
   CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
   'identity row count (got ' || COUNT(*) || ', expected =1)' AS description
 FROM identity;
-
-SELECT
-  CASE WHEN value_json = '"github-flow"' THEN 1 ELSE 0 END AS pass,
-  'plugin_config.branching_model = "github-flow" (got ' || COALESCE(value_json, 'NULL') || ')' AS description
-FROM plugin_config
-WHERE key = 'branching_model';
-
-SELECT
-  CASE WHEN value_json = '"main"' THEN 1 ELSE 0 END AS pass,
-  'plugin_config.pr_target = "main" (got ' || COALESCE(value_json, 'NULL') || ')' AS description
-FROM plugin_config
-WHERE key = 'pr_target';
-
-SELECT
-  CASE WHEN value_json = '[]' THEN 1 ELSE 0 END AS pass,
-  'plugin_config.remotes = [] (got ' || COALESCE(value_json, 'NULL') || ')' AS description
-FROM plugin_config
-WHERE key = 'remotes';
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,

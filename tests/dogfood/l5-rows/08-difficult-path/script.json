@@ -1,7 +1,5 @@
 {
-  "max_turns": 3,
-  "user_after_bro": [
-    "Looks good. Wrap it up."
-  ],
+  "max_turns": 1,
+  "user_after_bro": [],
   "terminal_pattern": "task closed|push when ready|MR (open|created)|ready for review|wrapped|dispatched"
 }

@@ -1,1 +1,3 @@
-@bro implement an add command for the TODO CLI in src/cli.py — append a new TODO line to ~/.todos. Plan + dispatch SWE.
+@bro make a todo CLI in Python.
+
+Don't ask questions.

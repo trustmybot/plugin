@@ -42,7 +42,27 @@ PY
 # Compute md5 of the file content the same way file_registry_upsert would.
 content_md5=$(md5 -q "$PROJECT/src/auth.py" 2>/dev/null || md5sum "$PROJECT/src/auth.py" | cut -d' ' -f1)
 
+# Seed `repos` AND `file_registry` consistently. The post-read-summary-hint
+# hook walks `repos` to convert the Read tool's absolute path back to a
+# repo-relative path. Use the *physical* (symlink-resolved) project path
+# because Read resolves symlinks: on macOS, mktemp returns
+# /var/folders/.../tmb-l5-X but Read sees /private/var/folders/.../tmb-l5-X.
+# The hook's prefix match needs the same canonical form.
+PROJECT_REAL=$(cd "$PROJECT" && pwd -P)
+
+# Reuse the existing repos row's name if any. In the L6 chain, row 4's
+# scan_run auto-creates a repos row with a name derived from the scratch
+# dir basename. Forcing a second row at the same path would make the
+# hook's repo-walk non-deterministic and the file_registry lookup would
+# miss when the hook picked the unseeded name.
+EXISTING_REPO=$(sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
+  "SELECT name FROM repos WHERE path = '$PROJECT_REAL' ORDER BY length(name) DESC LIMIT 1;" 2>/dev/null)
+REPO_NAME="${EXISTING_REPO:-todo-cli}"
+
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
-INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
-VALUES ('src/auth.py', 'source', '$content_md5', NULL, NULL);
+INSERT OR REPLACE INTO repos (name, path, default_branch)
+VALUES ('$REPO_NAME', '$PROJECT_REAL', 'main');
+
+INSERT OR REPLACE INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+VALUES ('$REPO_NAME', 'src/auth.py', 'source', '$content_md5', NULL, NULL);
 SQL

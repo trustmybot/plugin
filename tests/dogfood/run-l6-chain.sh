@@ -79,8 +79,7 @@ INITIAL_FIXTURE=$(jq -r '.initial_fixture' "$MANIFEST")
 printf '  fixture:  %s\n' "$INITIAL_FIXTURE"
 l5_seed_db "$PROJECT" "$INITIAL_FIXTURE" || { printf "❌ fixture seed failed\n" >&2; exit 1; }
 
-SESSION_ID=$(l6c_uuid)
-printf '  session:  %s\n' "$SESSION_ID"
+printf '  mode:     fresh `claude -p` per row (DB-driven resume)\n'
 printf '\n'
 
 CHAIN_TRAJECTORY="$RUN_DIR/chain-trajectory.jsonl"
@@ -135,22 +134,51 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   l6c_snapshot_db "$PROJECT" "$STEP_DIR/pre-state.sql"
   cp "$ROW_DIR/prompt.txt" "$STEP_DIR/user-input.txt"
 
-  # Prepend the test-mode AUQ-suppression prefix on the FIRST turn only.
-  IS_FIRST=0
-  if [ "$step_id" = "1" ] || ! [ -s "$CHAIN_TRAJECTORY" ]; then
-    IS_FIRST=1
-  fi
-  PROMPT=$(cat "$ROW_DIR/prompt.txt")
-  if [ "$IS_FIRST" = "1" ]; then
-    PROMPT="$(_l5_test_prompt_prefix)$PROMPT"
+  # If plugin_config.pr_target points at a branch that doesn't exist in
+  # git, create it from main. The chain seeds flip pr_target mid-chain
+  # (e.g. row 3 → gitflow → dev) but seeds are SQL-only and can't create
+  # git branches. Without this, bro stalls in row 4 with a config-vs-git
+  # mismatch ("dev branch demanded but doesn't exist").
+  cfg_pr_target=$(sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
+    "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null)
+  cfg_pr_target="${cfg_pr_target:-main}"
+  if [ -n "$cfg_pr_target" ] && ! git -C "$PROJECT" rev-parse --verify "$cfg_pr_target" >/dev/null 2>&1; then
+    if git -C "$PROJECT" rev-parse --verify main >/dev/null 2>&1; then
+      git -C "$PROJECT" branch "$cfg_pr_target" main 2>/dev/null || true
+      printf "  ensured branch '%s' exists (from main)\n" "$cfg_pr_target"
+    fi
   fi
 
+  # Write the pre-run git snapshot the git scorer reads. Capture the
+  # HEAD of pr_target (NOT current branch HEAD) so the scorer's pre/post
+  # comparison is meaningful when pr_target changed mid-chain.
+  if git -C "$PROJECT" rev-parse HEAD >/dev/null 2>&1; then
+    pre_head=$(git -C "$PROJECT" rev-parse "$cfg_pr_target" 2>/dev/null \
+              || git -C "$PROJECT" rev-parse HEAD 2>/dev/null \
+              || echo "")
+    pre_branch="$cfg_pr_target"
+    mkdir -p "$PROJECT/.claude/tmb"
+    printf '{"head":"%s","branch":"%s"}\n' "$pre_head" "$pre_branch" \
+      > "$PROJECT/.claude/tmb/_l5_pre_run_git.json"
+  fi
+
+  # Run the step. Each step starts a *fresh* CC session (no --resume from
+  # the prior step) — cross-row continuity is DB-driven via bro's
+  # tmb_recovery + state-aware MCPs. WITHIN a step the row's script.json
+  # drives a multi-turn conversation via a step-local --session-id;
+  # without this rows 8/9 (which expect a follow-up user reply) can't
+  # complete because bro asks for clarification and the chain would
+  # otherwise move on before the answer arrives.
   TURN_JSONL="$STEP_DIR/turn.jsonl"
-  printf "  turn: claude --%s\n" "$([ "$IS_FIRST" = "1" ] && echo "session-id $SESSION_ID" || echo "resume $SESSION_ID")"
-  l6c_send_turn "$PROJECT" "$SESSION_ID" "$IS_FIRST" "$PROMPT" "$TURN_JSONL"
+  printf "  step: fresh session, multi-turn within step (DB-driven across steps)\n"
+  l6c_run_step "$PROJECT" "$ROW_DIR" "$TURN_JSONL"
 
   cat "$TURN_JSONL" >> "$CHAIN_TRAJECTORY"
-  cp "$CHAIN_TRAJECTORY" "$PROJECT/trajectory.jsonl"
+  # Per-step scoring reads $PROJECT/trajectory.jsonl. Required/forbidden
+  # tool checks should reflect THIS row's behaviour, not the cumulative
+  # chain — point trajectory.jsonl at just this turn's jsonl. The full
+  # chain log is preserved separately at $CHAIN_TRAJECTORY for debugging.
+  cp "$TURN_JSONL" "$PROJECT/trajectory.jsonl"
 
   jq -r 'select(.type=="assistant") | .message.content[] | select(.type=="text") | .text' \
     "$TURN_JSONL" 2>/dev/null | tail -c 4000 > "$STEP_DIR/bro-response.txt" || true
@@ -187,7 +215,7 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
     printf "  ✗ step %d failed (%s scorer fails)\n" "$step_id" "$STEP_FAILS"
   fi
 
-  jq -n --arg id "$step_id" --arg name "$step_name" --arg status "$STATUS" \
+  jq -nc --arg id "$step_id" --arg name "$step_name" --arg status "$STATUS" \
         --arg fails "$STEP_FAILS" --arg tokens "$TOKENS" --arg duration "$DURATION_MS" \
         '{id: ($id|tonumber), name: $name, status: $status, scorer_fails: ($fails|tonumber), tokens: ($tokens|tonumber), duration_ms: ($duration|tonumber)}' \
     >> "$RESULTS_JSONL"

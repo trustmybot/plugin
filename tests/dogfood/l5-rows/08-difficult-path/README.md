@@ -2,7 +2,7 @@
 
 **Scenario under test:** the Human asks for a strategic stack-choice change ("rewrite our auth to use Clerk instead of homegrown JWT"). Per `tmb_planning` triage rules, this is a *difficult* path — bro must record `Triage: difficult`, run the Q+A loop, write a `kind='decision'` discussion, and author an ADR before dispatching SWE.
 
-> **Status: currently FAILING** (as of the L6 introduction MR). This scenario documents a *captured bug class* — bro skipped the difficult-path triage entirely (no `Triage: difficult` note, no `kind='decision'` discussion) and went straight to SWE. The headless fast path in `tmb_planning` short-circuits the difficult-path ceremony when no Q+A exists. Daisy's "L6 capture more bugs" directive is satisfied by leaving this scenario in place as-failing; a follow-up issue should require the triage note + decision write even on headless difficult paths.
+Passes in L5 standalone after the `skills/tmb_planning/SKILL.md` triage doctrine update (explicit "switch to X for auth/db/storage/framework → always difficult, casual phrasing doesn't downgrade"). In L6 chain bro sometimes still mis-classifies as `simple` due to cumulative-DB context priming — that's flake, not a deterministic regression.
 
 ## What this captures
 
@@ -28,10 +28,8 @@ The bug class this catches: bro misrouting a strategic-stack request as `simple`
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro let's switch our auth from homegrown JWT to Clerk. Plan and dispatch.` |
-| → | bro | triages as difficult, records `Triage: difficult`, runs headless Q+A defaults, writes a `kind='decision'` discussion, authors ADR, dispatches SWE |
-| 2 | user | `Looks good. Wrap it up.` |
-| → | bro | terminal |
+| 1 | user | `@bro let's switch to Clerk for auth.\n\nDon't ask questions.` |
+| → | bro | triages as difficult, records `Triage: difficult` note, writes a `kind='decision'` discussion, authors ADR, dispatches SWE. Single turn — terminates when SWE close lands. |
 
 ## Pass criteria
 

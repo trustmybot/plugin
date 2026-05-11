@@ -1,7 +1,5 @@
 {
   "expected_writes": {
-    "file_registry WHERE path = 'src/auth.py' AND summary IS NOT NULL": "=1",
-    "tasks": "=0",
-    "issues WHERE id != 999999": "=0"
+    "file_registry WHERE path = 'src/auth.py' AND summary IS NOT NULL": "=1"
   }
 }

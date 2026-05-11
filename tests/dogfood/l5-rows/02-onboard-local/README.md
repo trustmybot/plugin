@@ -1,36 +1,36 @@
 # 02-onboard-local
 
-**Scenario under test:** the user picks a *local* shape during onboarding (no remote, GitHub-flow branching, PR target = `main`). Per the partial-test pattern, the L5 unit can't drive the AUQ rounds — the fixture pre-seeds the post-AUQ state and the test confirms the seeded state matches doctrine.
+**Scenario under test:** the project is onboarded with local-shape defaults (no remote, GitHub-flow, target=main). The user signals reonboard intent — "make this available on GitLab" — combined with the standard "Don't ask questions." suffix. Bro must call `onboard_state_get` (check current state) then `onboard_apply` with `shape='remote'` and a GitLab remote.
 
-**🟡 Partial-test:** the real onboarding ceremony renders 3+ AUQ rounds (branching model → remote shape → PR target). Headless test mode suppresses AUQ. The L5 verifies the fixture seeded the expected local-shape values; the L6 chain step uses the same seed to bridge from row 1's intent signal to row 4's first task.
+The combination "don't ask questions" + "make available on GitLab" resolves to *auto-apply with conservative defaults*: bro adds the GitLab remote without changing other settings unnecessarily. He doesn't need to drive an interactive `/onboard` ceremony — the user gave clear intent + waived clarifying questions.
 
 ## Pre-state
 
-`onboarding-named` fixture, which seeds:
-- `identity` row exists (onboarded marker)
+`onboarding-named` fixture + `setup.sh` re-seeds plugin_config local-shape values:
+- `identity` row exists
 - `plugin_config[branching_model]='"github-flow"'`
 - `plugin_config[pr_target]='"main"'`
 - `plugin_config[protected_branches]='["main"]'`
 - `plugin_config[remotes]='[]'`
-- `plugin_config[issue_sync]='off'`
-- `audit(event_type='deep_scan_completed')` row exists (registry-cold gate cleared)
+- `plugin_config[issue_sync]='"off"'`
+- `audit(event_type='deep_scan_completed')` row exists
 
 ## Turns
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro the project just got onboarded with local-shape defaults — confirm the active config so I know we're aligned.` |
-| → | bro | reads state via MCP (likely `tmb_config-policy` or directly via `issue_state_get` / `plugin_config` reads); recaps branching model + pr_target + remotes; no DB writes |
+| 1 | user | `@bro I want to make this project available on GitLab.\n\nDon't ask questions.` |
+| → | bro | calls `onboard_state_get`, then `onboard_apply(shape='remote', remote=['gitlab'], …)` to add the GitLab remote. No code work — no tasks, no issues, no SWE spawn. |
 
 ## Pass criteria
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `identity` row exists; `plugin_config.branching_model = "github-flow"`; `plugin_config.pr_target = "main"`; `plugin_config.remotes = "[]"`; `deep_scan_completed` audit exists |
-| `outcome-coherence.json` | `identity`: `=1`; `tasks`: `=0`; `audit WHERE event_type='deep_scan_completed'`: `>=1` |
+| `outcome.sql` | identity row intact; `plugin_config.remotes` is non-empty (bro added a remote); `deep_scan_completed` audit intact |
+| `outcome-coherence.json` | `identity`: `=1`; `tasks`: `=0`; `plugin_config WHERE key='remotes' AND value_json != '[]'`: `=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
-| `tools-required.json` | none required (this row is a state-recap; the partial-test verification is the fixture seed) |
-| `tools-forbidden.json` | `task_create_batch`, `issue_create`, `Agent` (no code work, no SWE) |
+| `tools-required.json` | `onboard_state_get`, `onboard_apply` |
+| `tools-forbidden.json` | `task_create_batch`, `issue_create`, `Agent` (no code work) |
 | `cost-budget.json` | Soft 100K / 300s |
 
-**Failure modes captured:** fixture drift — if `onboarding-named.sql` stops seeding `branching_model` or `pr_target`, the L5 catches it. Downstream rows depend on these values (row 7's push gate, row 12's resume).
+**Failure modes captured:** bro starts code work instead of reonboarding; bro chases `gh repo create` / `glab repo create` external commands and never updates plugin_config; bro doesn't recognize the reonboard intent at all.

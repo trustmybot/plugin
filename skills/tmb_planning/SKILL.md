@@ -50,6 +50,15 @@ Drift (warm + dirty / branch behind / HEAD moved) is handled automatically by th
 
 `difficult` — touches `docs/trustmybot/architecture/`, introduces a new service boundary, modifies a public API, commits to a strategic stack choice, or names multiple unrelated surfaces. When a default choice carries strategic weight (production DB, auth scheme, retention policy) or the spec can't fit in 8000 chars, it's difficult.
 
+Examples of intents that are **always difficult** (even when phrased casually):
+
+- "switch to <Library> for auth" / "swap our auth from X to Y" — auth-scheme change is strategic
+- "migrate storage from JSON to SQLite" / "swap our DB from Postgres to MySQL" — DB choice is strategic
+- "let's use <Framework> instead of the homegrown thing" — strategic stack choice
+- "refactor TODO storage to <X>" / "replace <module> with <library>" — likely names multiple surfaces
+
+Even one-line user prompts that imply a stack swap (`switch to`, `swap`, `migrate to`, `replace ... with`, `use <X> instead of`) trigger `difficult`. Casual phrasing doesn't downgrade the classification.
+
 `discussion_append(kind='note', body='Triage: <simple|difficult>')` — server-enforced via the **triage gate** on `task_create_batch`: a `kind='note'` row whose body contains `Triage:` must exist or the call is rejected. If `Triage: difficult`, a follow-up `kind='decision'` row is also required by the **decision gate**.
 
 ## Step 2 — Branch-id + Human confirm (interactive)

@@ -46,7 +46,7 @@ Per-step logs land under `~/.claude/tmb/l6-chain-runs/<run-id>/`:
 
 ## How rows chain together
 
-L5 runs each row alone against its fixture. L6 walks all 13 in one continuous CC session via `claude --session-id` (turn 1) + `--resume` (subsequent turns) — row N's bro turn produces real DB writes that row N+1 inherits.
+L5 runs each row alone against its fixture. L6 walks all 13 against ONE cumulative trajectory DB — each row fires a fresh `claude -p`, and bro picks up state from the DB via `tmb_recovery` / `issue_state_get` / `task_first_actionable` on every cold start. Row N's DB writes are row N+1's pre-state — that's what the chain tests.
 
 **Between-row seeds** bridge the AUQ gaps for partial-test rows (1, 2, 3, 8, 11, 13):
 

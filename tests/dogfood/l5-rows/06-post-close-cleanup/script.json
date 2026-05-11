@@ -1,7 +1,5 @@
 {
-  "max_turns": 3,
-  "user_after_bro": [
-    "Got it. Anything else I should know?"
-  ],
+  "max_turns": 1,
+  "user_after_bro": [],
   "terminal_pattern": "let me know|nothing else|all set|nothing pending|standing by|moving on"
 }

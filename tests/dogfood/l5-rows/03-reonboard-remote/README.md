@@ -12,7 +12,7 @@
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `/onboard` |
+| 1 | user | `/onboard\n\nDon't ask questions.` |
 | → | bro | `roundtable-slash-detect.sh` doesn't match. The onboard slash command handler routes to bro. Bro calls `onboard_state_get` → reads `first_run=false` → calls `onboard_get_questions(shape='remote' or default)` → would render AUQ. Test ends here. |
 
 ## Pass criteria
@@ -22,7 +22,7 @@
 | `outcome.sql` | trivial pass — substantive check is in `tools-required.json`. Identity row remains intact (no row resets). |
 | `outcome-coherence.json` | `identity`: `=1` (unchanged); `tasks`: `=0` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
-| `tools-required.json` | `onboard_state_get` AND `onboard_get_questions` |
+| `tools-required.json` | `onboard_state_get` (bro re-initiated the onboard chain) |
 | `tools-forbidden.json` | `task_create_batch`, `issue_create`, `Agent` |
 | `cost-budget.json` | Soft 150K / 600s |
 

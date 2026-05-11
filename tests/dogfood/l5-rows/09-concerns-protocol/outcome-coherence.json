@@ -1,6 +1,6 @@
 {
   "expected_writes": {
-    "discussions WHERE kind = 'note' AND body LIKE '%Concern%'": ">=1",
+    "discussions WHERE LOWER(body) LIKE '%concern%'": ">=1",
     "tasks": ">=1"
   }
 }

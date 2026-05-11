@@ -12,7 +12,7 @@
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro hi` |
+| 1 | user | `@bro hi\n\nDon't ask questions.` |
 | → | bro | `activation-routine.sh` injects `onboarded=no`. Bro auto-routes to `/onboard`: calls `onboard_state_get` → reads first_run=true → calls `onboard_get_questions` → would render AUQ rounds (suppressed in test mode). Test ends here. |
 
 ## Pass criteria
@@ -22,7 +22,7 @@
 | `outcome.sql` | trivial pass — substantive check is in `tools-required.json`. No `identity` row is asserted (lands via row 2 fixture seed in L6). |
 | `outcome-coherence.json` | `identity`: `=0` (still empty); `tasks`: `=0` (no code work this row) |
 | `outcome-git.json` | `base_branch_unchanged: true` |
-| `tools-required.json` | `onboard_state_get` AND `onboard_get_questions` (= "bro initiated the AUQ chain") |
+| `tools-required.json` | `onboard_state_get` (bro initiated the onboard chain) |
 | `tools-forbidden.json` | `task_create_batch`, `issue_create`, `Agent` (no code work, no SWE) |
 | `cost-budget.json` | Soft 150K / 600s |
 

@@ -1,1 +1,3 @@
-@bro the project just got onboarded with local-shape defaults — recap the active branching model, pr_target, and whether any remotes are configured. Don't make any changes.
+@bro I want to make this project available on GitLab.
+
+Don't ask questions.

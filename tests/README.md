@@ -66,10 +66,11 @@ tests/
 │   ├── setup.md
 │   └── scenarios.md
 └── dogfood/                    ← L5 + L6 dogfood + A/B framework
-    ├── run-l5.sh, run-l6.sh, run-ab.sh
-    ├── lib/                    ← flow-helpers, l6-helpers, scorers, smoke-helpers, timeout-shim
+    ├── run-l5.sh, run-l6.sh, run-l6-chain.sh, run-ab.sh
+    ├── lib/                    ← flow-helpers, l6-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
     ├── flows/<name>/           ← legacy per-flow L5 scenarios; being migrated row-by-row to l5-rows/
     ├── l5-rows/<NN>-<name>/    ← per-row L5 unit (also drives the L6 chain step) — script.json + prompt.txt + outcome bundle
+    ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
     ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the registry-cold gate so flows that exercise task_create_batch don't trip it
     └── ab-scenarios/           ← per-A/B-test layout
 ```
@@ -123,17 +124,44 @@ CI runs L5 on tag pushes and on PRs labeled `L5`. The workflow at `.github/workf
 
 ## Run L6 dogfood (multi-turn integration)
 
-L6 drives real Claude Code through a multi-turn continuous session via `--session-id` / `--resume`, asserting cumulative state across the whole user journey. Each scenario is one self-contained journey; multiple scenarios compose into the TODO-CLI sequence in [`EVALUATION.md`](./EVALUATION.md).
+L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-row DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, `file_registry` on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
+
+Two runners share the per-row outcome bundles under `tests/dogfood/l5-rows/`:
 
 ```bash
-# Run all scenarios
-bash tests/dogfood/run-l6.sh
+# Per-row independent run (each row from a clean fixture; this is the L5
+# unit layer despite the historical `run-l6.sh` filename).
+bash tests/dogfood/run-l6.sh                  # all rows
+bash tests/dogfood/run-l6.sh 07-push-gate     # one row by name substring
 
-# Run a single scenario by name substring
-bash tests/dogfood/run-l6.sh 04-reonboard
+# Chained run — walks all 13 rows against a cumulative trajectory DB.
+# Each row fires a fresh `claude -p`; DB continuity (not LLM-session
+# continuity) drives the chain. Per-step logs land at
+# ~/.claude/tmb/l6-chain-runs/<run-id>/. See tests/dogfood/l6-chain/README.md.
+bash tests/dogfood/run-l6-chain.sh                  # full chain
+bash tests/dogfood/run-l6-chain.sh --from 7         # resume from row 7
+bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
 ```
 
 CI gates L6 the same way as L5 — on tag pushes and PRs labeled `L6`.
+
+### Writing prompts for L5/L6 rows
+
+L5/L6 test against bro's ability to translate user intent into the right orchestration. Prompts must sound like a real engineer typing — not like a workflow spec. Three rules:
+
+1. **Lazy human tone.** Default to short and vague (`@bro git push`, `@bro hi`). Narrow + tight is fine **only** when needed to scope the assertion ("appends to ~/.todos" pins the file paths so outcome.sql can check them).
+2. **Implicit workflows stay bro-side.** Never have the user invoke a step that bro should auto-fire — that bypasses the contract under test.
+3. **Always end with `Don't ask questions.`** on a separate line. AUQ is suppressed in test mode, but bro still defaults to asking clarifying questions for ambiguous prompts — the chain then stalls because the synthetic user has no follow-up. This trailing line forces bro to apply documented defaults and proceed, mirroring a real-user "just do the thing" expectation.
+
+| ✓ Natural | ✗ Robotic / over-specified |
+|---|---|
+| `@bro git push` | `@bro the task on feat/seed-todo is signed off — review and push it.` |
+| `@bro let cto weigh in on monolith vs microservices for auth.` | `@bro spawn the cto and have them weigh in on...` |
+| `@bro build an add command for the TODO CLI — src/cli.py, appends to ~/.todos.` | `@bro implement an add command for the TODO CLI. Plan and dispatch SWE.` |
+| `@bro I want to make this project available on GitHub.` | `@bro reonboard with remote=GitHub, branching_model=github-flow.` |
+| `@bro let's switch to Clerk for auth.` | `@bro plan a difficult-path migration from JWT to Clerk and dispatch SWE.` |
+
+Legitimate user-typed slash commands stay verbatim (`/onboard`, `/roundtable …`, `/monitor 123`, `/scan`). Don't have the user type `@bro scan the codebase` — `scan_run` is supposed to be fired implicitly by the registry-cold gate when bro reaches `task_create_batch`. Asking for it explicitly bypasses the very contract row 4 exists to verify.
 
 ## A/B prompt eval
 

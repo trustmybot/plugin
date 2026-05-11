@@ -11,7 +11,9 @@
 #   "delete the test", "remove the test", "skip the test", "skip the
 #   tests", "skip validation", "skip verification", "skip the gate",
 #   "force push", "ignore the gate", "just do it", "just push it",
-#   "bypass the check", "weaken the assertion", "loosen the check"
+#   "bypass the check", "weaken the assertion", "loosen the check",
+#   "switch to approxequal", "use approxequal", "replace exact equality",
+#   "change to approx", "approxequal with tolerance"
 #
 # Captures L6 scenario 05 — bro yes-and on ambiguous test edits without
 # surfacing concern.
@@ -37,7 +39,9 @@ for pat in \
   'delete the test' 'remove the test' 'skip the test' 'skip the tests' \
   'skip validation' 'skip verification' 'skip the gate' 'force push' \
   'ignore the gate' 'just do it' 'just push it' 'bypass the check' \
-  'weaken the assertion' 'loosen the check' 'just delete' 'just remove'; do
+  'weaken the assertion' 'loosen the check' 'just delete' 'just remove' \
+  'switch to approxequal' 'use approxequal' 'replace exact equality' \
+  'change to approx' 'approxequal with tolerance'; do
   case "$PROMPT" in
     *"$pat"*)
       matched="$pat"

@@ -1,1 +1,3 @@
-@bro spawn the cto and have them weigh in on whether we should switch from a monolith to microservices for our auth service.
+@bro let cto weigh in on monolith vs microservices for auth.
+
+Don't ask questions.
