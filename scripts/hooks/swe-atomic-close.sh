@@ -86,8 +86,13 @@ if [ -z "$DB" ]; then
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
     PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
   fi
+  # P0 guard: never traverse INTO the user's HOME from a descendant cwd.
+  # Project state must not escape into the user's profile (mirrors db.ts).
   dir="$PWD"
   for _ in 1 2 3 4 5 6 7 8; do
+    if [ "$dir" = "$HOME" ] && [ "$PWD" != "$HOME" ]; then
+      break
+    fi
     candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
     if [ -f "$candidate" ]; then DB="$candidate"; break; fi
     parent=$(dirname "$dir")

@@ -46,10 +46,19 @@ tmb_db_path() {
       fi
     fi
   fi
+  # P0 guard: do NOT walk into the user's HOME from a descendant cwd.
+  # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or a
+  # test artifact) used to be silently adopted as the live DB on every launch.
+  # Project state belongs to a project. Mirrors db.ts findExistingDbUp.
+  local start
+  start="$(pwd)"
   local candidates=()
   local dir
-  dir="$(pwd)"
+  dir="$start"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if [ "$dir" = "$HOME" ] && [ "$start" != "$HOME" ]; then
+      break
+    fi
     local candidate="$dir/.claude/$plugin_name/trajectory.db"
     [ -f "$candidate" ] && candidates+=("$candidate")
     dir="$(dirname "$dir")"
