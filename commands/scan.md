@@ -16,7 +16,7 @@ Bro runs `/scan` before any `task_create_batch` call when `file_registry` is emp
 ## Phase 1 — programmatic (blocking, fast)
 
 ```
-scan_run(agent='bro')
+scan_run(agent='bro', source='user_manual')
 ```
 
 The server forks `scripts/scan.sh`, which:

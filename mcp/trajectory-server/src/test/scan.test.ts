@@ -214,4 +214,144 @@ describe('scan_run — workspace discovery + persistence', () => {
       rmSync(ws, { recursive: true, force: true });
     }
   });
+
+  // #2881: scan_run accepts a `source` arg + enriches the deep_scan_completed
+  // audit content_json with source / structural_change / regen_invoked.
+  describe('scan_run source + audit enrichment (#2881)', () => {
+    it('persists source=user_manual in audit content_json when caller passes it', async () => {
+      const ws = mkdtempSync(join(tmpdir(), 'scan-src-'));
+      try {
+        mkRepo(ws, 'app', { 'a.txt': 'a\n' });
+
+        const db = tempDB();
+        const tools = scanTools(db);
+        const result = await call(tools.handlers, 'scan_run', {
+          agent: 'bro',
+          session_dir: ws,
+          source: 'user_manual',
+        });
+        assert.ok(!result.isError);
+        const data = parse(result) as { source: string; structural_change: boolean; regen_invoked: boolean };
+        assert.equal(data.source, 'user_manual');
+        assert.equal(data.regen_invoked, false);
+
+        const audit = db.get<{ content_json: string }>(
+          `SELECT content_json FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1`,
+        );
+        assert.ok(audit);
+        const parsedAudit = JSON.parse(audit!.content_json);
+        assert.equal(parsedAudit.source, 'user_manual');
+        assert.equal(parsedAudit.regen_invoked, false);
+        assert.ok(Array.isArray(parsedAudit.repos_seen));
+        assert.ok(Array.isArray(parsedAudit.top_dirs));
+
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('defaults source to bro_auto_initial when caller omits it', async () => {
+      const ws = mkdtempSync(join(tmpdir(), 'scan-src-default-'));
+      try {
+        mkRepo(ws, 'app', { 'a.txt': 'a\n' });
+
+        const db = tempDB();
+        const tools = scanTools(db);
+        const result = await call(tools.handlers, 'scan_run', {
+          agent: 'bro',
+          session_dir: ws,
+        });
+        const data = parse(result) as { source: string };
+        assert.equal(data.source, 'bro_auto_initial');
+
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects unknown source value by falling back to bro_auto_initial', async () => {
+      const ws = mkdtempSync(join(tmpdir(), 'scan-src-bad-'));
+      try {
+        mkRepo(ws, 'app', { 'a.txt': 'a\n' });
+
+        const db = tempDB();
+        const tools = scanTools(db);
+        const result = await call(tools.handlers, 'scan_run', {
+          agent: 'bro',
+          session_dir: ws,
+          source: 'definitely-not-a-real-value',
+        });
+        const data = parse(result) as { source: string };
+        assert.equal(data.source, 'bro_auto_initial');
+
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('flags structural_change=true on the first scan ever (no prior audit row)', async () => {
+      const ws = mkdtempSync(join(tmpdir(), 'scan-struct-first-'));
+      try {
+        mkRepo(ws, 'app', { 'a.txt': 'a\n' });
+
+        const db = tempDB();
+        const tools = scanTools(db);
+        const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+        const data = parse(result) as { structural_change: boolean };
+        assert.equal(data.structural_change, true);
+
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('flags structural_change=false on an immediate rescan with no shape changes', async () => {
+      const ws = mkdtempSync(join(tmpdir(), 'scan-struct-stable-'));
+      try {
+        mkRepo(ws, 'app', { 'src/main.py': 'p\n' });
+
+        const db = tempDB();
+        const tools = scanTools(db);
+        await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+        // Second scan — same repo, same files, same top-level dirs.
+        const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+        const data = parse(result) as { structural_change: boolean };
+        assert.equal(data.structural_change, false);
+
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('flags structural_change=true when a new top-level dir appears between scans', async () => {
+      const ws = mkdtempSync(join(tmpdir(), 'scan-struct-newdir-'));
+      try {
+        mkRepo(ws, 'app', { 'src/main.py': 'p\n' });
+
+        const db = tempDB();
+        const tools = scanTools(db);
+        await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+
+        // Add a new top-level dir + commit.
+        const appDir = join(ws, 'app');
+        mkdirSync(join(appDir, 'docs'));
+        writeFileSync(join(appDir, 'docs', 'README.md'), 'docs\n');
+        execFileSync('git', ['add', '.'], { cwd: appDir });
+        execFileSync('git', ['commit', '-qm', 'add docs'], { cwd: appDir });
+
+        const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+        const data = parse(result) as { structural_change: boolean };
+        assert.equal(data.structural_change, true, 'new top-level dir is a structural change');
+
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+  });
 });
