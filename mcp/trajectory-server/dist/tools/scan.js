@@ -57,6 +57,22 @@ function runScan(sessionDir) {
     }
     return parsed;
 }
+// Pick the repo whose path encloses (or equals) the scan session_dir. This is
+// the cwd-aware default for `tmb_default_repo` — without it, scan picked the
+// alphabetically-first repo, which surprises users launching CC from a deeper
+// sibling (#2885). Falls back to repos[0].name when no repo encloses session_dir
+// (e.g. session_dir is the workspace root above all repos).
+export function preferredDefaultRepo(repos, sessionDir) {
+    if (repos.length === 0)
+        return '';
+    const norm = (p) => p.replace(/\/+$/, '');
+    const sd = norm(sessionDir);
+    const enclosing = repos.find((r) => {
+        const rp = norm(r.path);
+        return sd === rp || sd.startsWith(rp + '/');
+    });
+    return (enclosing ?? repos[0]).name;
+}
 // Persist repos[] + files[] from a scan output. Transactional.
 // Drift detection is md5-only: rows with matching md5 keep their summary
 // (so re-running /scan doesn't blow away populated descriptions); rows
@@ -165,11 +181,16 @@ export function scanTools(db) {
                 JSON.stringify({ ...stats, session_dir: out.session_dir, scanned_at: out.scanned_at }),
                 nowISO(),
             ]);
-            // Set tmb_default_repo to the first discovered repo if not already set.
-            // Helps resolveSpawnCwd pick a sensible default for issue_sync (#2877).
+            // Set tmb_default_repo to the cwd-enclosing repo if possible, else
+            // fall back to the first discovered repo. Helps resolveSpawnCwd pick a
+            // sensible default for issue_sync (#2877) AND avoids the surprise where
+            // alphabetical-first wins on workspace-pattern repos (#2885: a user
+            // launching CC from ~/Git/GitHub/TMB/plugin saw tmb_default_repo set to
+            // 'enterprise' just because it sorted first alphabetically among sibling
+            // repos — every fallback path then targeted the wrong project).
             const existing = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
             if (!existing && out.repos.length > 0) {
-                db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES (?, ?, ?)`, ['tmb_default_repo', JSON.stringify(out.repos[0].name), nowISO()]);
+                db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES (?, ?, ?)`, ['tmb_default_repo', JSON.stringify(preferredDefaultRepo(out.repos, sessionDir)), nowISO()]);
             }
             return ok({
                 session_dir: out.session_dir,
