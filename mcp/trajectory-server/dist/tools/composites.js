@@ -62,16 +62,6 @@ function intentToType(text) {
     }
     return { prefix: 'chore', confidence: 0.3 };
 }
-// Architecture-touching signal → triage='difficult'. Otherwise simple.
-function classifyTriage(text) {
-    const lower = text.toLowerCase();
-    const archSignals = [
-        /\barchitecture\b/, /\bschema\b/, /\bmigration\b/, /\bpublic api\b/,
-        /\bservice boundary\b/, /\bcross[\s-]?cutting\b/, /\badr\b/,
-        /\bnew (service|module|package)\b/, /\bdata model\b/,
-    ];
-    return archSignals.some((p) => p.test(lower)) ? 'difficult' : 'simple';
-}
 function md5OfBuffer(buf) {
     return createHash('md5').update(buf).digest('hex');
 }
@@ -88,7 +78,7 @@ export function compositeTools(db, dbPath) {
         {
             name: 'branch_id_propose',
             description: 'Heuristic-only branch_id derivation: takes free-text intent + objective, returns ' +
-                '{ branch_id, triage, confidence }. Pure function — no DB writes. Bro confirms with ' +
+                '{ branch_id, confidence }. Pure function — no DB writes. Bro confirms with ' +
                 'Human via AskUserQuestion before persisting.',
             inputSchema: {
                 type: 'object',
@@ -188,14 +178,13 @@ export function compositeTools(db, dbPath) {
             }
             const objective = args['objective'] ?? intent;
             const { prefix, confidence } = intentToType(intent);
-            const triage = classifyTriage(intent + ' ' + objective);
             const slug = slugify(objective) || slugify(intent) || 'task';
             const branchId = `${prefix}/${slug}`;
             if (!BRANCH_ID_RE.test(branchId)) {
                 return err(`Derived branch_id "${branchId}" does not match the conventional regex. ` +
                     `Pick a clearer objective and re-call.`);
             }
-            return ok({ branch_id: branchId, triage, confidence });
+            return ok({ branch_id: branchId, confidence });
         })),
         task_retry_batch: requireRoles('task_retry_batch', ['bro'], wrap(async (args) => {
             const failedTaskId = args['failed_task_id'];

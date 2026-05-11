@@ -115,12 +115,17 @@ INSERT OR IGNORE INTO agents (name, kind, scope, file_path, tmb_owner) VALUES
     ('ceo',          'consultant', 'template', 'templates/agents/ceo.md',       'bro'),
     ('pm',           'consultant', 'template', 'templates/agents/pm.md',        'bro');
 
--- Synthetic "system" issue (id=999999) — parent FK for system-level audit and
+-- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
 -- discussion writes that don't belong to any user-created work issue. The
 -- tmb_recovery doctrine and the /onboard headless-block path target this id.
 -- Schema-seeded so every fresh DB has it without fixtures needing to add it.
+--
+-- Negative sentinel rather than a high positive (e.g. 999999) so SQLite's
+-- AUTOINCREMENT counter remains at 0 and the first user-created issue gets
+-- id=1 — production installs see clean 1, 2, 3... numbering without a
+-- million-id gap polluting the issue space.
 INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
-VALUES (999999, 'system', 'parent issue for headless-recovery / system-level audit and discussion events', 'open', datetime('now'), datetime('now'));
+VALUES (-1, 'system', 'parent issue for headless-recovery / system-level audit and discussion events', 'open', datetime('now'), datetime('now'));
 
 CREATE TABLE IF NOT EXISTS roundtables (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -2,6 +2,6 @@
   "expected_writes": {
     "roundtables": "=0",
     "tasks": "=0",
-    "issues WHERE id != 999999": "=0"
+    "issues WHERE id != -1": "=0"
   }
 }

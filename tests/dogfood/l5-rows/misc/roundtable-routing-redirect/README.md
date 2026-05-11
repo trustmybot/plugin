@@ -32,7 +32,7 @@ The bug class this catches: bro auto-firing `roundtable_create` from a phrase tr
 | Scorer | Asserts |
 |---|---|
 | `outcome.sql` | `roundtables` row count = 0 (no roundtable created) |
-| `outcome-coherence.json` | `roundtables`: `=0`; `tasks`: `=0`; `issues WHERE id != 999999`: `=0` |
+| `outcome-coherence.json` | `roundtables`: `=0`; `tasks`: `=0`; `issues WHERE id != -1`: `=0` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | empty — bro shouldn't write anything substantive |
 | `tools-forbidden.json` | `roundtable_create`, `roundtable_close`, `roundtable_finalize_decisions` |

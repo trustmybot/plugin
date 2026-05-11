@@ -23,8 +23,8 @@ async function setupClosedTask(client, branch, sha) {
     waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
     waive_intent_gate: true,
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
-    waive_triage_gate: true,
-    waive_triage_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{ branch_id: branch, title: 't', description: 'd', success_criteria: 's', spec_body: '## body' }],
   });
   const taskId = batch.data[0].id;
@@ -110,7 +110,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
   }
 
   // Bro records the escalation note (uses the issueId returned from setup —
-  // not a hardcoded 1, since schema-seeded system issue at id=999999 bumps
+  // not a hardcoded 1, since schema-seeded system issue at id=-1 bumps
   // AUTOINCREMENT past the legacy assumption).
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'bro', kind: 'note',

@@ -63,7 +63,7 @@ plugin/
 plugin/
 ├── CLAUDE.md                                          # bro planning chain (issue_create → task_create_batch)
 ├── skills/
-│   └── tmb_planning/SKILL.md                         # full code-touching flow (simple + difficult triage)
+│   └── tmb_planning/SKILL.md                         # full code-touching flow (spec authoring + SWE spawn + V1/V2/V3)
 ├── commands/
 │   └── scan.md                                       # /scan — must run before task_create_batch (registry-cold gate)
 ├── scripts/hooks/
@@ -72,7 +72,7 @@ plugin/
 └── mcp/trajectory-server/src/tools/
     ├── issues.ts                                     # issue_create
     ├── tasks.ts                                      # task_create_batch (scope/branch/registry-cold gates)
-    ├── discussions.ts                                # discussion_append (intent + triage note)
+    ├── discussions.ts                                # discussion_append (intent + decision audit)
     ├── composites.ts                                 # branch_id_propose
     ├── scan.ts                                       # scan_run (Phase 1 of /scan)
     └── audit.ts                                      # audit_log(kind='event', planning_complete)

@@ -46,8 +46,8 @@ async function createTask(
     waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
     waive_intent_gate: true,
     waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
-    waive_triage_gate: true,
-    waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
     agent: 'bro',
     issue_id: String(issueId),
     tasks: [

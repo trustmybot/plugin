@@ -188,7 +188,7 @@ describe('discussions + snapshot integration', () => {
   it('step 3d: discussion_list for unknown issue returns empty with warning', async () => {
     const disc = discussionTools(db);
 
-    // Use an id below the schema-seeded system issue (999999) but definitely
+    // Use an id below the schema-seeded system issue (-1) but definitely
     // not created by any test setup. 8 has no fixtures or upstream creates.
     const result = await call(disc.handlers, 'discussion_list', {
       agent: 'bro',
@@ -208,7 +208,7 @@ describe('discussions + snapshot integration', () => {
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_triage_gate: true, waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
       agent: 'bro',
       issue_id: issueId,
       tasks: [
@@ -305,7 +305,7 @@ describe('discussions + snapshot integration', () => {
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_triage_gate: true, waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
       agent: 'bro',
       issue_id: issueId,
       tasks: [

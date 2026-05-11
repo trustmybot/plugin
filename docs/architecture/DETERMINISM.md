@@ -30,13 +30,13 @@ Recognizable by the verb. **Anything that is *classifying*, *composing*, or *wei
 
 | Verb class | TMB examples |
 |---|---|
-| **Classify / decide** | "Is this triage difficult or simple?" "Is this scope creep?" "Should I downgrade triage?" "Is this an emergent ADR or routine task?" |
+| **Classify / decide** | "Is this an architectural change that warrants an ADR?" "Is this scope creep?" "Is this an emergent ADR or routine task?" |
 | **Draft / compose** | Spec body, ADR prose, commit messages, issue descriptions, Q+A wording, discussion notes |
 | **Weigh / trade off** | "Should I raise this concern with the human?" "Is the simpler alternative acceptable?" "Should the scope split into multiple tasks?" |
 | **Synthesize from novel context** | Roundtable participant arguments, code review qualitative assessment, consultant-style analysis |
 | **Recognize patterns in unfamiliar input** | Codebase memory verify, "does this diff match the spec?", "is this a regression in the diff?" |
 
-These have no deterministic substitute. Code cannot classify "difficult" universally because the criteria require contextual judgment over an open-ended input space.
+These have no deterministic substitute. Code cannot classify "is this architectural" universally because the criteria require contextual judgment over an open-ended input space.
 
 ---
 

@@ -24,7 +24,7 @@ export async function startClient() {
     name: 'audit_log',
     arguments: {
       agent: 'bro',
-      issue_id: '999999',
+      issue_id: '-1',
       from_node: 'bro',
       kind: 'event',
       event_type: 'deep_scan_completed',

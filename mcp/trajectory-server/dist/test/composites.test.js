@@ -25,7 +25,6 @@ describe('branch_id_propose', () => {
         });
         const out = parse(r);
         assert.equal(out['branch_id'], 'fix/auth-crash');
-        assert.equal(out['triage'], 'simple');
     });
     it('maps "add export feature" to feat/ prefix', async () => {
         const r = await call(composites.handlers, 'branch_id_propose', {
@@ -35,13 +34,15 @@ describe('branch_id_propose', () => {
         const out = parse(r);
         assert.equal(out['branch_id'], 'feat/add-export-feature');
     });
-    it('flags architecture-touching intent as triage=difficult', async () => {
+    it('omits any triage field on the return shape', async () => {
+        // The simple/difficult triage classifier was retired — branch_id_propose
+        // returns only { branch_id, confidence } now.
         const r = await call(composites.handlers, 'branch_id_propose', {
             agent: 'bro',
             intent: 'add new public API for billing',
         });
         const out = parse(r);
-        assert.equal(out['triage'], 'difficult');
+        assert.equal(out['triage'], undefined);
     });
     it('rejects empty intent', async () => {
         const r = await call(composites.handlers, 'branch_id_propose', {
@@ -95,8 +96,8 @@ describe('task_retry_batch', () => {
             issue_id: issueId,
             waive_intent_gate: true,
             waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
-            waive_triage_gate: true,
-            waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
+            waive_decision_gate: true,
+            waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             tasks: [{
                     branch_id: 'fix/initial',
                     description: 'do thing',
@@ -148,7 +149,7 @@ describe('task_retry_batch', () => {
         const created = parse(await call(tasks.handlers, 'task_create_batch', {
             agent: 'bro', issue_id: issueId,
             waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
-            waive_triage_gate: true, waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'sc', spec_body: 's' }],
         }));
         const id = String(created[0].id);
@@ -186,7 +187,7 @@ describe('bro_atomic_close', () => {
         const created = parse(await call(tasks.handlers, 'task_create_batch', {
             agent: 'bro', issue_id: issueId,
             waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
-            waive_triage_gate: true, waive_triage_gate_reason: 'unit-test synthetic triage; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'sc', spec_body: 's' }],
         }));
         const id = String(created[0].id);

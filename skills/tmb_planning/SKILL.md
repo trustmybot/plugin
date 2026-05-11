@@ -1,6 +1,6 @@
 ---
 name: tmb_planning
-description: Bro's full code-touching flow — cold-start judgment, triage, branch_id confirm, spec authoring (simple defaults table or difficult Q+A + ADR), SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail. Loaded on the first code-touching ask of a session. Self-contained — everything bro needs is here.
+description: Bro's full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail. Loaded on the first code-touching ask of a session. Self-contained — everything bro needs is here.
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_trajectory-server
 ---
 
@@ -19,18 +19,18 @@ This skill is what bro decides.
 a deny-and-recover round trip per question. The 8-step recipe below is
 fully self-contained.
 
-1. `branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)`
-   → take returned `branch_id` + `triage`.
+1. `branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)` → take returned `branch_id`.
 2. `issue_create(agent='bro', objective=<short>, description=<2-sentence summary>)`.
 3. **One** combined headless-fallback record — both writes required:
-   - `audit_log(agent='bro', issue_id=<I>, kind='event', event_type='headless_fallback', summary='tmb_planning headless: branch_id confirm → Yes, proceed; cold-start → lazy fill; difficult Q+A (if applicable) → proceed as proposed')`
+   - `audit_log(agent='bro', issue_id=<I>, kind='event', event_type='headless_fallback', summary='tmb_planning headless: branch_id confirm → Yes, proceed; cold-start → lazy fill; defaults applied')`
    - `discussion_append(agent='bro', issue_id=<I>, author='bro', kind='note', body='Headless fallback: no Human in loop; defaults applied.')`
 4. `discussion_append(issue_id=<I>, author='bro', kind='intent', body='Human intent verbatim: "<the request>"')`.
    Use `author='bro'`; `author='human'` is server-gated by the `verified_human=true` flag from the UserPromptSubmit hook.
-5. `git switch -c <branch_id>` (the WorktreeCreate hook routes to the right inner repo when in a workspace).
-6. Author the spec body inline using the template in §"Spec body template". Difficult-path: pick conservative defaults, name them in `## Description` "Assumptions:" bullets.
-7. `task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, description, success_criteria, spec_body}], emit_planning_complete=true, waive_scope_gate=true, waive_scope_gate_reason='headless mode: defaults applied; <one-line scope summary>')`.
-8. Spawn SWE: `git worktree add .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`.
+5. `discussion_append(issue_id=<I>, author='bro', kind='decision', body='<chosen approach: what, why, trade-offs>')`. One short paragraph — the audit trail for "what did bro decide here." Required by the server-side decision gate on `task_create_batch`.
+6. `git switch -c <branch_id>` (the WorktreeCreate hook routes to the right inner repo when in a workspace).
+7. Author the spec body inline using the template in §"Spec body template". For architectural changes (touches `docs/trustmybot/architecture/`, schema, public API, or external side effects) also co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` and apply the blast-radius checklist (see §"Architectural changes" below).
+8. `task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, description, success_criteria, spec_body}], emit_planning_complete=true, waive_scope_gate=true, waive_scope_gate_reason='headless mode: defaults applied; <one-line scope summary>')`.
+9. Spawn SWE: `git worktree add .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`.
 
 Interactive (Human-present) flow continues at Step 0.
 
@@ -44,22 +44,13 @@ If bro tries `task_create_batch` without `/scan` having ever run, the server ret
 
 Drift (warm + dirty / branch behind / HEAD moved) is handled automatically by the post-task-close auto-rescan hook — md5-only invalidation preserves summaries on unchanged files; only changed files lose their summary so the next Read repopulates.
 
-## Step 1 — Triage (judgment)
+## Step 1 — Architectural-change check (judgment)
 
-`simple` — narrow scope, no architecture impact, no public API change.
+Most code-touching work is everyday: bro picks defaults, writes a one-paragraph `kind='decision'` body, and dispatches SWE. A small subset needs more rigor — those changes also require an ADR + the blast-radius checklist. See §"Architectural changes" below for the criteria + ceremony.
 
-`difficult` — touches `docs/trustmybot/architecture/`, introduces a new service boundary, modifies a public API, commits to a strategic stack choice, or names multiple unrelated surfaces. When a default choice carries strategic weight (production DB, auth scheme, retention policy) or the spec can't fit in 8000 chars, it's difficult.
+Either way bro writes **one** `kind='decision'` discussion summarizing the chosen approach. The server's **decision gate** on `task_create_batch` rejects when no `kind='decision'` row exists. For everyday work this is a sentence or two; for architectural changes it's the planned rationale that also lands in the ADR.
 
-Examples of intents that are **always difficult** (even when phrased casually):
-
-- "switch to <Library> for auth" / "swap our auth from X to Y" — auth-scheme change is strategic
-- "migrate storage from JSON to SQLite" / "swap our DB from Postgres to MySQL" — DB choice is strategic
-- "let's use <Framework> instead of the homegrown thing" — strategic stack choice
-- "refactor TODO storage to <X>" / "replace <module> with <library>" — likely names multiple surfaces
-
-Even one-line user prompts that imply a stack swap (`switch to`, `swap`, `migrate to`, `replace ... with`, `use <X> instead of`) trigger `difficult`. Casual phrasing doesn't downgrade the classification.
-
-`discussion_append(kind='note', body='Triage: <simple|difficult>')` — server-enforced via the **triage gate** on `task_create_batch`: a `kind='note'` row whose body contains `Triage:` must exist or the call is rejected. If `Triage: difficult`, a follow-up `kind='decision'` row is also required by the **decision gate**.
+(Note: when the human wants alignment before bro commits to a plan, they enter Claude Code's native plan mode — bro doesn't drive a bespoke Q+A loop. The decision-audit row captures the outcome of that conversation.)
 
 ## Step 2 — Branch-id + Human confirm (interactive)
 
@@ -77,14 +68,14 @@ Any git error: halt and surface.
 Then derive + propose:
 
 ```
-{ branch_id, triage, confidence } = branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)
+{ branch_id, confidence } = branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)
 ```
 
 Render branch-id confirm AUQ:
 
 ```
-AskUserQuestion: "Proceed with branch_id <X>, triage: <Y>?"
-options: [Yes, proceed | Downgrade to simple OR Upgrade to difficult | Suggest different branch_id]
+AskUserQuestion: "Proceed with branch_id <X>?"
+options: [Yes, proceed | Suggest different branch_id]
 ```
 
 On Yes:
@@ -92,7 +83,7 @@ On Yes:
 ```
 issue_create(agent='bro', objective=<short>)             # if no open issue
 discussion_append(issue_id, author='human', kind='intent', body=<verbatim>)
-discussion_append(issue_id, author='bro',   kind='note',   body='Beginning planning on ${branch_id}, triage: ${triage}')
+discussion_append(issue_id, author='bro',   kind='note',   body='Beginning planning on ${branch_id}.')
 git switch -c "${branch_id}"
 audit_log(agent='bro', issue_id=<I>, branch_id=<branch_id>, kind='event', event_type='branch_id_proposed', summary='Branch <branch_id> created from origin/<base>.')
 ```
@@ -101,7 +92,7 @@ Conventional-format regex + the `branch_id_proposed` audit gate are both server-
 
 ## Step 3 — Spec authoring
 
-### Simple — pick defaults; no ceremonial Q+A
+Pick conservative defaults, name them in `## Description` "Assumptions:" bullets. If the project already uses a different tool, **match the existing pattern** — convention wins over default.
 
 | Dimension | Default |
 |---|---|
@@ -114,30 +105,32 @@ Conventional-format regex + the `branch_id_proposed` audit gate are both server-
 | Python version | `python3` (system) |
 | Concurrency model | single-user, single-process |
 
-If the project already uses a different tool, **match the existing pattern** — convention wins over default.
-
-### Difficult — Q+A loop + ADR
-
-Use AskUserQuestion (radio for single picks, tabbed for 2-4 stacked decisions). Persist every Q+A verbatim:
+Before `task_create_batch` write the decision audit:
 
 ```
-discussion_append(kind='question', body=<verbatim>)
-discussion_append(kind='answer', author='human', body=<verbatim>)
+discussion_append(kind='decision', body='<chosen approach: what, why, trade-offs>')
 ```
 
-Topics that ALWAYS need Q+A: storage backend, library choice, command surface, feature scope, persistence location, runtime target, file layout. **Scope-ambiguity gate** (server-enforced): `task_create_batch` returns `forbidden` if the issue has zero `kind='question'` rows.
+Server-enforced via the **decision gate** on `task_create_batch`: at least one `kind='decision'` row must exist or the call is rejected. Body is short for everyday work; longer + sibling ADR for architectural changes (next section).
 
-After alignment:
+The **scope-ambiguity gate** also stays: `task_create_batch` returns `forbidden` if the issue has zero `kind='question'` rows. Waivable for truly trivial changes.
 
-```
-discussion_append(kind='decision', body='<plan: changes, why, trade-offs, risks>')
-```
+### Architectural changes — ADR + blast-radius check
 
-Server-enforced via the **decision gate** on `task_create_batch`: when the latest Triage note says `Triage: difficult`, a `kind='decision'` row must exist or the call is rejected.
+When the change does any of the following, also co-author an ADR + apply the blast-radius check:
 
-Co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` when the change warrants a durable record.
+- Touches `docs/trustmybot/architecture/` directly
+- Introduces a new service boundary or top-level module
+- Modifies a public API surface
+- Commits to a strategic stack choice (auth provider, production DB, retention policy)
+- Names multiple unrelated surfaces in one task
+- Has external side effects (network, real API mutations, billing, message-sending, writes outside the worktree)
 
-**Blast-radius check** (difficult only): if the feature has external side effects (network, real API mutations, billing, message-sending, writes outside the worktree): default config MUST be the safe state (opt-in); tests MUST NOT hit live services on the default `:memory:` DB; spec MUST require a pre-merge `bash tests/run-all.sh` yielding zero external mutations. Any miss → spec back for revision.
+ADR location: `docs/trustmybot/architecture/manual/decisions/N-*.md` (see `templates/docs-trustmybot/architecture/manual/decisions/0001-example.md`).
+
+Blast-radius checklist (external side effects only): default config MUST be the safe state (opt-in); tests MUST NOT hit live services on the default `:memory:` DB; spec MUST require a pre-merge `bash tests/run-all.sh` yielding zero external mutations. Any miss → spec back for revision.
+
+If the human wants to deliberate on the architectural direction before bro commits, they enter **Claude Code's native plan mode** (Shift+Tab); bro doesn't run a bespoke Q+A loop. The decision-audit row captures the outcome of that deliberation either way.
 
 ## Spec body template (max 8000 chars)
 
@@ -182,13 +175,12 @@ task_create_batch(
 
 `emit_planning_complete=true` emits the closing audit row in the same DB transaction.
 
-**`waive_scope_gate` use cases** — three valid:
+**`waive_scope_gate` use cases** — two valid:
 
-1. **Truly trivial work** (typo fix, one-line doc, mechanical rename per the user's exact request). Reason: `'simple-triage trivial: <what>'`.
-2. **Headless mode (TMB_HEADLESS=1) on simple OR difficult path.** No Human in the loop means the Q+A loop has nothing to wait for; the server-side gate would block forever. Reason: `'headless mode, defaults applied; <one-line scope summary>'`.
-3. **Difficult-path with a recorded `kind='decision'` discussion** — the server already counts your decisions as scope alignment; waive is redundant but honest. Reason: `'difficult-path with recorded decision; gate redundant'`.
+1. **Truly trivial work** (typo fix, one-line doc, mechanical rename per the user's exact request). Reason: `'trivial: <what>'`.
+2. **Headless mode (TMB_HEADLESS=1).** No Human in the loop means no chance to ask a clarifying question; the gate would block forever. Reason: `'headless mode, defaults applied; <one-line scope summary>'`.
 
-For interactive difficult-path runs (Human present), **do not** waive — let the scope-ambiguity gate enforce the Q+A loop.
+For interactive runs (Human present) on substantive changes, **do not** waive — let the scope-ambiguity gate enforce at least one clarifying question.
 
 Spawn commands:
 
@@ -253,9 +245,9 @@ task_retry_batch(
 
 If `bro_atomic_close` returns `is_error: true`, halt and surface — see `tmb_recovery` §B.
 
-## Step 6 — Architecture refresh (difficult only, post-close)
+## Step 6 — Architecture refresh (architectural changes only, post-close)
 
-When a difficult-path task introduces a structural change (new module boundary, schema change, public API change, new dependency), after closing:
+When an architectural task (per §"Architectural changes" — new module boundary, schema change, public API change, new dependency) closes:
 
 ```
 architecture_regen(agent='bro', scope='full')
@@ -265,18 +257,17 @@ Surface one line if `changed > 0`.
 
 ## Headless fallback (interactive flow falls back here on AUQ error)
 
-If an AUQ in Steps 0/2/3 errors mid-interactive-run OR `TMB_HEADLESS=1` flips on:
+If an AUQ in Steps 0/2 errors mid-interactive-run OR `TMB_HEADLESS=1` flips on:
 
 | AUQ | Default |
 |---|---|
 | Cold-start (Step 0) | Lazy fill |
 | Base-branch (Step 2) | `${pr_target}` |
 | Branch-id confirm (Step 2) | "Yes, proceed" |
-| Difficult Q+A (Step 3) | "proceed as proposed" — still author the ADR |
 
-Record both audit + discussion writes for each fallback (`event_type='headless_fallback'`). Do not auto-pick Upgrade-to-difficult, Suggest-different-branch_id, or any "halt + ask" choice headlessly — those need explicit Human intent.
+Record both audit + discussion writes for each fallback (`event_type='headless_fallback'`). Do not auto-pick "Suggest different branch_id" or any "halt + ask" choice headlessly — those need explicit Human intent.
 
-For difficult-path in headless mode, waive the scope gate (Step 4 case 2).
+For architectural changes in headless mode, still author the ADR with conservative assumptions. Waive the scope gate (Step 4 case 2).
 
 ## Learning (post-retry or escalation)
 
@@ -284,6 +275,6 @@ Capture the lesson once the retry is in flight:
 
 1. **Is this new or known?** Check the patterns + criteria documented in `tmb_review` skill body.
 2. **Where should the knowledge live?** Specific code pattern → `tmb_review` Living-patterns section. Design-time question or implementation rule → `tmb_review` Code-quality criteria, or a new lint hook in `scripts/hooks/`.
-3. **Was the task underspecified?** If SWE had to guess, update the spec template above or the difficult-path Q+A topics list.
+3. **Was the task underspecified?** If SWE had to guess, update the spec template above.
 
 Skip one-off typos, tooling glitches, and bugs from stale task files.

@@ -81,7 +81,7 @@ sequenceDiagram
     participant DB as SQLite
 
     H->>B: "implement X"
-    B->>B: triage simple/difficult; tmb_planning skill on demand
+    B->>B: tmb_planning skill loaded; pick approach; write kind='decision'
     B->>DB: issue_create + discussion_append(kind='intent') + branch_id_propose
     B->>B: pre-create branch from origin/<pr_target>; author spec_body
 
@@ -116,15 +116,15 @@ sequenceDiagram
 
 ---
 
-## 3. Difficult task (Δ vs flow 2)
+## 3. Architectural change (Δ vs flow 2)
 
-Same chain as flow 2, plus: between triage and `task_create_batch`, bro runs an alignment Q+A loop + writes an ADR.
+Same chain as flow 2, plus: before `task_create_batch`, bro co-authors an ADR and applies the blast-radius checklist. The universal decision gate still requires a `kind='decision'` row regardless of flow.
 
-- Skills: `tmb_planning` enters the difficult sub-flow when the change touches `docs/trustmybot/architecture/`.
-- Sequential `AskUserQuestion` (one question at a time, not batched) — better UX than a tabbed AUQ for long deliberations.
-- Each round writes `discussion_append(kind='question')` + `discussion_append(kind='answer')`.
-- Final `discussion_append(kind='decision')` + ADR file at `docs/trustmybot/architecture/manual/decisions/N-*.md`.
-- Bro's V1/V2/V3 verification after SWE returns is unchanged — never skipped, even when difficult-triaged.
+- Skills: `tmb_planning` triggers the architectural ceremony when the change touches `docs/trustmybot/architecture/`, schema, public API, or has external side effects (see SKILL.md §"Architectural changes").
+- Hook: `adr-required-hint.sh` (UserPromptSubmit) detects architectural intent (`switch to clerk`, `migrate to postgres`, etc.) and injects an advisory pointing at the ADR template + the blast-radius checklist.
+- ADR file lands at `docs/trustmybot/architecture/manual/decisions/N-*.md` (template: `templates/docs-trustmybot/architecture/manual/decisions/0001-example.md`).
+- For human-driven deliberation, the user enters Claude Code's native plan mode (Shift+Tab) — bro doesn't run a bespoke Q+A loop. The `kind='decision'` row captures the outcome.
+- Bro's V1/V2/V3 verification after SWE returns is unchanged — never skipped, even for architectural changes.
 
 ---
 

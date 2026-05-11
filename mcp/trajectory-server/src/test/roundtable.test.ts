@@ -32,7 +32,7 @@ describe('roundtable tools', () => {
     // Tests targeting the gate explicitly use a fresh DB without this seed.
     db.run(
       `INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-       VALUES (999999, NULL, 'system', 'event', 'roundtable_slash_invoked', 'test fixture: gate cleared', '{}', datetime('now'))`,
+       VALUES (-1, NULL, 'system', 'event', 'roundtable_slash_invoked', 'test fixture: gate cleared', '{}', datetime('now'))`,
     );
 
     const issues = issueTools(db);
@@ -339,13 +339,13 @@ describe('roundtable tools', () => {
 
       const result = await call(rt.handlers, 'roundtable_vote', {
         agent: 'bro',
-        roundtable_id: 999999,
+        roundtable_id: -1,
         participant: 'ceo',
         vote: 'in favor',
       });
       assert.ok(result.isError, 'Expected isError=true for unknown roundtable');
       const data = parseResult(result);
-      assert.ok(data.error.includes('999999'), 'Error should mention the missing ID');
+      assert.ok(data.error.includes('-1'), 'Error should mention the missing ID');
     });
   });
 
@@ -527,12 +527,12 @@ describe('roundtable tools', () => {
 
       const result = await call(rt.handlers, 'roundtable_close', {
         agent: 'bro',
-        roundtable_id: 999999,
+        roundtable_id: -1,
         outcome: 'Some outcome',
       });
       assert.ok(result.isError, 'Expected isError=true for unknown roundtable');
       const data = parseResult(result);
-      assert.ok(data.error.includes('999999'), 'Error should mention the missing ID');
+      assert.ok(data.error.includes('-1'), 'Error should mention the missing ID');
     });
   });
 

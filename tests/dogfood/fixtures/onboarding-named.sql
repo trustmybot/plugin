@@ -6,7 +6,7 @@
 --   - plugin_config defaults (branching_model='github-flow', pr_target='main',
 --     protected_branches=["main"], remotes=[], issue_sync='off')
 --   - agents registry (swe, pr-reviewer, architect, cto, ceo, pm)
---   - system issue (id=999999) — parent FK for headless-recovery audit writes
+--   - system issue (id=-1) — parent FK for headless-recovery audit writes
 --
 -- Filename retained for backward compat; the legacy "named vs anonymous"
 -- distinction no longer applies — identity is just an onboarded flag.
@@ -19,4 +19,4 @@ VALUES (1, datetime('now'), datetime('now'));
 -- audit row stands in. Flows targeting the gate (or scan_run) start from
 -- the empty fixture instead.
 INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-VALUES (999999, NULL, 'bro', 'event', 'deep_scan_completed', 'L5/L6 fixture: gate cleared', '{}', datetime('now'));
+VALUES (-1, NULL, 'bro', 'event', 'deep_scan_completed', 'L5/L6 fixture: gate cleared', '{}', datetime('now'));

@@ -30,7 +30,7 @@ The bug class this catches: bro misrouting non-code asks through `tmb_planning` 
 | Scorer | Asserts |
 |---|---|
 | `outcome.sql` | a `regen_state` row updated (or just any audit row tied to architecture_regen) — substantive check is in `tools-required.json` below |
-| `outcome-coherence.json` | `tasks`: `=0`; `issues WHERE id != 999999`: `=0` |
+| `outcome-coherence.json` | `tasks`: `=0`; `issues WHERE id != -1`: `=0` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `architecture_regen` |
 | `tools-forbidden.json` | `task_create_batch`, `issue_create`, `Agent` (no SWE dispatch — this is a non-code op) |

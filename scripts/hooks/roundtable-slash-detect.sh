@@ -47,7 +47,7 @@ SUMMARY=$(printf '%s' "$PROMPT" | head -c 200 | sed "s/'/''/g")
 
 sqlite3 "$DB_PATH" <<SQL >/dev/null 2>&1 || true
 INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-VALUES (999999, NULL, 'system', 'event', 'roundtable_slash_invoked',
+VALUES (-1, NULL, 'system', 'event', 'roundtable_slash_invoked',
         'User typed /roundtable: $SUMMARY', '{}', datetime('now'));
 SQL
 

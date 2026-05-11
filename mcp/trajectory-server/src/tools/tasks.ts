@@ -175,15 +175,15 @@ export function taskTools(db: TrajectoryDB): {
             description:
               "Required when waive_intent_gate=true. Min 10 chars. Explain why intent capture is unnecessary.",
           },
-          waive_triage_gate: {
+          waive_decision_gate: {
             type: 'boolean',
             description:
-              "Set true to bypass the triage-note gate AND the linked decision-when-difficult gate. Acceptable only for trivial waives where triage classification is obvious. If false or omitted, the issue MUST have a kind='note' discussion whose body contains 'Triage:' before tasks can be created — and if triage='difficult', also a kind='decision' discussion.",
+              "Set true to bypass the decision-audit gate. Acceptable only for trivial work where capturing a chosen approach as a kind='decision' discussion is ceremony (typo fix, mechanical rename, etc.). If false or omitted, the issue MUST have at least one kind='decision' discussion summarizing bro's chosen approach (1-3 sentences: what, why, trade-offs) before tasks can be created.",
           },
-          waive_triage_gate_reason: {
+          waive_decision_gate_reason: {
             type: 'string',
             description:
-              "Required when waive_triage_gate=true. Min 10 chars. Explain why triage classification is unnecessary.",
+              "Required when waive_decision_gate=true. Min 10 chars. Explain why an explicit decision-audit row is unnecessary.",
           },
         },
         required: ['agent', 'issue_id', 'tasks'],
@@ -421,59 +421,25 @@ export function taskTools(db: TrajectoryDB): {
         }
       }
 
-      // --- Triage-note gate (MCP-level enforcement) ---
-      // tmb_planning Step 1 mandates discussion_append(kind='note', body='Triage:
-      // <simple|difficult>') before task_create_batch. The audit row of the
-      // triage classification is load-bearing for downstream verification.
-      // The body must contain "Triage:" — case-sensitive match on the canonical
-      // form bro is supposed to write.
-      const triageGateWaived = args['waive_triage_gate'] === true;
-      const triageGateWaiverReason = (args['waive_triage_gate_reason'] ?? '') as string;
-      let triageNoteBody: string | null = null;
+      // --- Decision-audit gate (MCP-level enforcement) ---
+      // Universal: every issue must have at least one kind='decision' discussion
+      // summarizing bro's chosen approach (what, why, trade-offs) before
+      // task_create_batch. Replaces the older simple/difficult triage gate +
+      // decision-when-difficult gate combo. The audit trail is uniformly useful
+      // — for trivial work the decision body can be one short sentence; for
+      // architectural work it's bro's planned rationale (and a sibling ADR
+      // file lands under docs/trustmybot/architecture/manual/decisions/).
+      const decisionGateWaived = args['waive_decision_gate'] === true;
+      const decisionGateWaiverReason = (args['waive_decision_gate_reason'] ?? '') as string;
 
-      if (triageGateWaived) {
+      if (decisionGateWaived) {
         if (
-          typeof triageGateWaiverReason !== 'string' ||
-          triageGateWaiverReason.trim().length < 10
+          typeof decisionGateWaiverReason !== 'string' ||
+          decisionGateWaiverReason.trim().length < 10
         ) {
-          return err('waive_triage_gate_reason must be a string ≥10 chars.');
+          return err('waive_decision_gate_reason must be a string ≥10 chars.');
         }
       } else {
-        const triageRow = db.get<{ body: string }>(
-          `SELECT body FROM discussions
-           WHERE issue_id = ? AND kind = 'note' AND body LIKE '%Triage:%'
-           ORDER BY id DESC LIMIT 1`,
-          [issueId],
-        );
-        if (!triageRow) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'triage_gate_violation',
-                  message:
-                    `Triage gate: issue ${issueId} has zero kind='note' discussions whose body contains 'Triage:'. ` +
-                    `tmb_planning Step 1 mandates discussion_append(kind='note', body='Triage: <simple|difficult>') ` +
-                    `before task_create_batch. For exceptional cases, pass waive_triage_gate=true with waive_triage_gate_reason="<why>".`,
-                  issue_id: issueId,
-                }),
-              },
-            ],
-          };
-        }
-        triageNoteBody = triageRow.body;
-      }
-
-      // --- Decision-when-difficult gate (MCP-level enforcement) ---
-      // When the Triage note classified the issue as 'difficult', bro must
-      // also have written a kind='decision' discussion before task_create_batch.
-      // Captures the production pattern where bro skipped the difficult-path
-      // ceremony in headless mode.
-      const isDifficult =
-        triageNoteBody !== null && /Triage:\s*difficult/i.test(triageNoteBody);
-      if (isDifficult && !triageGateWaived) {
         const decisionRow = db.get<{ c: number }>(
           `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'decision'`,
           [issueId],
@@ -487,10 +453,10 @@ export function taskTools(db: TrajectoryDB): {
                 text: JSON.stringify({
                   error: 'decision_gate_violation',
                   message:
-                    `Decision gate: issue ${issueId} is triaged 'difficult' but has zero kind='decision' discussions. ` +
-                    `tmb_planning Step 3 mandates discussion_append(kind='decision', body='<plan: changes, why, trade-offs, risks>') ` +
-                    `for difficult-path issues before task_create_batch (an ADR also lands at docs/trustmybot/architecture/manual/decisions/). ` +
-                    `If this issue should be triaged as simple, downgrade the Triage note. For exceptional cases, pass waive_triage_gate=true with waive_triage_gate_reason="<why>".`,
+                    `Decision gate: issue ${issueId} has zero kind='decision' discussions. ` +
+                    `tmb_planning mandates discussion_append(kind='decision', body='<chosen approach: what, why, trade-offs>') ` +
+                    `before task_create_batch. For architectural changes also author an ADR at docs/trustmybot/architecture/manual/decisions/. ` +
+                    `For trivial waives, pass waive_decision_gate=true with waive_decision_gate_reason="<why>".`,
                   issue_id: issueId,
                 }),
               },

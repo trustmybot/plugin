@@ -158,9 +158,9 @@ export function scanTools(db) {
             const out = runScan(sessionDir);
             const stats = persistScan(db, out);
             // Emit deep_scan_completed audit row. Attach to the system issue
-            // (id=999999) — this is a session-level event, not work-issue scoped.
+            // (id=-1) — this is a session-level event, not work-issue scoped.
             db.run(`INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-           VALUES (999999, NULL, 'bro', 'event', 'deep_scan_completed', ?, ?, ?)`, [
+           VALUES (-1, NULL, 'bro', 'event', 'deep_scan_completed', ?, ?, ?)`, [
                 `Scanned ${out.repos.length} repos, ${out.files.length} files (${stats.files_md5_changed} md5-changed)`,
                 JSON.stringify({ ...stats, session_dir: out.session_dir, scanned_at: out.scanned_at }),
                 nowISO(),

@@ -1,6 +1,6 @@
 {
   "expected_writes": {
-    "issues WHERE id != 999999": ">=1",
+    "issues WHERE id != -1": ">=1",
     "tasks": ">=1",
     "discussions": ">=2",
     "audit WHERE event_type = 'planning_complete'": ">=1",
