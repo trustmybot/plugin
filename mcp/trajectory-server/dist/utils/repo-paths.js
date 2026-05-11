@@ -1,5 +1,8 @@
 import { dirname, join } from 'node:path';
 export function resolveDefaultRepoPath(db, dbPath) {
+    return resolveDefaultRepo(db, dbPath)?.path;
+}
+export function resolveDefaultRepo(db, dbPath) {
     if (!dbPath)
         return undefined;
     const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
@@ -19,7 +22,7 @@ export function resolveDefaultRepoPath(db, dbPath) {
     // to the legacy workspace-join only when the repo isn't in the table.
     const repoRow = db.get(`SELECT path FROM repos WHERE name = ?`, [defaultRepo]);
     if (repoRow?.path)
-        return repoRow.path;
+        return { name: defaultRepo, path: repoRow.path };
     // Legacy fallback: synthesize the path from the workspace root + repo
     // name. Works for workspace-pattern projects
     // (`<workspace>/<repo>/.claude/tmb/trajectory.db`) but mis-resolves
@@ -28,6 +31,6 @@ export function resolveDefaultRepoPath(db, dbPath) {
     // exist on disk — that mis-resolution is what motivated reading
     // `repos.path` first).
     const workspaceRoot = dirname(dirname(dirname(dbPath)));
-    return join(workspaceRoot, defaultRepo);
+    return { name: defaultRepo, path: join(workspaceRoot, defaultRepo) };
 }
 //# sourceMappingURL=repo-paths.js.map
