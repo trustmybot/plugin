@@ -134,27 +134,8 @@ test('discussion_append — workflow agents (bro/architect) can append questions
   }
 });
 
-test('architecture_regen — architect/bro/pr-reviewer allowed, swe forbidden', async (t) => {
-  const { client, close } = await startClient();
-  t.after(async () => { await close(); });
-
-  const res = await call(client, 'architecture_regen', { agent: 'swe' });
-  assert.equal(res.ok, false, `swe must be forbidden`);
-  assert.equal(res.error?.error, 'forbidden');
-});
-
-test('regen_state_set — architect/bro/pr-reviewer allowed, swe forbidden', async (t) => {
-  const { client, close } = await startClient();
-  t.after(async () => { await close(); });
-
-  const res = await call(client, 'regen_state_set', {
-    agent: 'swe',
-    target: 'file_registry',
-    last_seen_sha: 'abc1234',
-  });
-  assert.equal(res.ok, false, `swe must be forbidden`);
-  assert.equal(res.error?.error, 'forbidden');
-});
+// architecture_regen + regen_state_set tests removed 2026-05 (#2881 follow-up):
+// the MCP tools were retired. scan_run is the single scan-side surface now.
 
 // --- bro-as-planner role contract (Human → bro → SWE; everyone else consults) ---
 

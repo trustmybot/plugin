@@ -6,12 +6,10 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_tr
 
 # Planning — bro's code-touching flow
 
-The deterministic substrate (project inventory, registry warmth, regen
-drift) lands as `additionalContext` from `session-start-prescan.sh` and
-`session-start-regen-check.sh` before this skill loads. The mechanical
-pre-checks (scope-ambiguity gate, branch-id-proposed audit,
-greenfield architecture_regen, source-edit guard) are wire-enforced.
-This skill is what bro decides.
+The deterministic substrate (project inventory, registry warmth) lands
+as `additionalContext` from `session-start-prescan.sh` before this skill
+loads. The mechanical pre-checks (scope-ambiguity gate, branch-id-proposed
+audit, source-edit guard) are wire-enforced. This skill is what bro decides.
 
 ## Headless fast path (TMB_HEADLESS=1)
 
@@ -245,15 +243,9 @@ task_retry_batch(
 
 If `bro_atomic_close` returns `is_error: true`, halt and surface — see `tmb_recovery` §B.
 
-## Step 6 — Architecture refresh (architectural changes only, post-close)
+## Step 6 — Architecture refresh (post-close)
 
-When an architectural task (per §"Architectural changes" — new module boundary, schema change, public API change, new dependency) closes:
-
-```
-architecture_regen(agent='bro', scope='full')
-```
-
-Surface one line if `changed > 0`.
+The `post-task-close-rescan.sh` hook fires automatically after `bro_atomic_close` and runs `scan_run(source='bro_auto_post_close')`. The scan's audit row carries `structural_change: true|false` so downstream tooling can decide whether the project shape changed. There is no separate `architecture_regen` step bro fires — scan is the single scan-side surface (#2881).
 
 ## Headless fallback (interactive flow falls back here on AUQ error)
 

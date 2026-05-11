@@ -256,13 +256,6 @@ CREATE TABLE IF NOT EXISTS identity (
     updated_at       TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS regen_state (
-    target        TEXT PRIMARY KEY,
-    last_regen_at TEXT,
-    last_seen_sha TEXT,
-    notes         TEXT NOT NULL DEFAULT ''
-);
-
 -- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
 -- via swe-atomic-close.sh on every SWE completion. Zero overhead when the
 -- hook fires for non-task agents — graceful fallback to all-zero fields.

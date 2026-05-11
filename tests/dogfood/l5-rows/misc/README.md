@@ -7,7 +7,6 @@ These scenarios capture bug classes that aren't part of the canonical TODO-CLI j
 | `legacy-onboard-then-task/` | Pre-reframe scenario: bro creates a worktree from `main` without first making a feature branch (2026-05 bug). Superseded by the row-4/row-5 split in the journey. |
 | `reonboard-redirect/` | Re-onboarding-style ask ("switch to gitflow") — bro must redirect to `/onboard`, not auto-fire. The journey covers reonboard explicitly in row 3 (partial-test). |
 | `roundtable-routing-redirect/` | Phrase-trigger `/roundtable` attempt — bro must redirect. Captured-bug-as-failing. Row 11 covers the slash-invoked happy path. |
-| `architecture-regen-direct/` | "Refresh the architecture docs" → `architecture_regen` direct, no planning. Edge case; not in the journey. |
 | `triage-discussion-before-task/` | Triage discussion gate (legacy — retired with the simple/difficult triage). Kept for historical reference; the universal decision gate replaces it. |
 
 Run individually if you need to debug one:

@@ -22,7 +22,6 @@ describe('schema — current table set, default values, constraints', () => {
             'file_registry',
             'plugin_config',
             'identity',
-            'regen_state',
             'agent_runs',
             'pr_review_runs',
             'repos',
@@ -81,12 +80,6 @@ describe('schema — current table set, default values, constraints', () => {
             { key: 'protected_branches', value_json: '["main"]' },
             { key: 'remotes', value_json: '[]' },
         ]);
-        db.close();
-    });
-    it('regen_state has zero rows on init', () => {
-        const db = tempDB();
-        const rows = db.all('SELECT * FROM regen_state');
-        assert.equal(rows.length, 0);
         db.close();
     });
     it('file_registry has zero rows on init', () => {
