@@ -135,11 +135,29 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   l6c_snapshot_db "$PROJECT" "$STEP_DIR/pre-state.sql"
   cp "$ROW_DIR/prompt.txt" "$STEP_DIR/user-input.txt"
 
-  # Write the pre-run git snapshot the git scorer reads. Mirrors what
-  # l5_run_claude does so the chain runner doesn't fail every git scorer.
+  # If plugin_config.pr_target points at a branch that doesn't exist in
+  # git, create it from main. The chain seeds flip pr_target mid-chain
+  # (e.g. row 3 → gitflow → dev) but seeds are SQL-only and can't create
+  # git branches. Without this, bro stalls in row 4 with a config-vs-git
+  # mismatch ("dev branch demanded but doesn't exist").
+  cfg_pr_target=$(sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
+    "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null)
+  cfg_pr_target="${cfg_pr_target:-main}"
+  if [ -n "$cfg_pr_target" ] && ! git -C "$PROJECT" rev-parse --verify "$cfg_pr_target" >/dev/null 2>&1; then
+    if git -C "$PROJECT" rev-parse --verify main >/dev/null 2>&1; then
+      git -C "$PROJECT" branch "$cfg_pr_target" main 2>/dev/null || true
+      printf "  ensured branch '%s' exists (from main)\n" "$cfg_pr_target"
+    fi
+  fi
+
+  # Write the pre-run git snapshot the git scorer reads. Capture the
+  # HEAD of pr_target (NOT current branch HEAD) so the scorer's pre/post
+  # comparison is meaningful when pr_target changed mid-chain.
   if git -C "$PROJECT" rev-parse HEAD >/dev/null 2>&1; then
-    pre_head=$(git -C "$PROJECT" rev-parse HEAD 2>/dev/null || echo "")
-    pre_branch=$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    pre_head=$(git -C "$PROJECT" rev-parse "$cfg_pr_target" 2>/dev/null \
+              || git -C "$PROJECT" rev-parse HEAD 2>/dev/null \
+              || echo "")
+    pre_branch="$cfg_pr_target"
     mkdir -p "$PROJECT/.claude/tmb"
     printf '{"head":"%s","branch":"%s"}\n' "$pre_head" "$pre_branch" \
       > "$PROJECT/.claude/tmb/_l5_pre_run_git.json"
