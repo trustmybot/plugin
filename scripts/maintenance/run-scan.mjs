@@ -15,7 +15,14 @@ async function main() {
   try {
     const tools = scanTools(db);
     const handler = tools.handlers.scan_run;
-    const result = await handler({ agent: 'bro', session_dir: process.cwd() });
+    // #2881: tag the scan as bro_auto_post_close so audit content_json
+    // records the trigger. Distinguishes this from user-typed /scan +
+    // bro's own remediation scans.
+    const result = await handler({
+      agent: 'bro',
+      session_dir: process.cwd(),
+      source: 'bro_auto_post_close',
+    });
     if (result.isError) {
       console.error(`[post-close-rescan] scan_run error: ${result.content?.[0]?.text ?? '?'}`);
       return;

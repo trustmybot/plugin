@@ -86,6 +86,48 @@ function runScan(sessionDir: string): ScanOutput {
   return parsed;
 }
 
+// Valid `source` values for scan_run (#2881). The default — bro_auto_initial —
+// matches the historical un-tagged behavior (bro hit the registry-cold gate
+// and remediated by running scan).
+const VALID_SCAN_SOURCES = new Set([
+  'user_manual',
+  'bro_auto_post_close',
+  'bro_auto_post_change',
+  'bro_auto_initial',
+]);
+
+// Compute whether the current scan differs from the previous deep_scan_completed
+// audit row in a way that warrants architecture-regen (#2881). Currently a
+// coarse heuristic: repo-set delta OR top-level dir set delta. Refinable later
+// with package-manager / language-set deltas.
+export function detectStructuralChange(
+  db: TrajectoryDB,
+  currentRepos: Array<{ name: string }>,
+  currentTopDirs: Set<string>,
+): boolean {
+  const prev = db.get<{ content_json: string }>(
+    `SELECT content_json FROM audit
+     WHERE event_type = 'deep_scan_completed'
+     ORDER BY id DESC
+     LIMIT 1`,
+  );
+  if (!prev?.content_json) return true; // First scan ever — always structural.
+  let parsed: { repos_seen?: string[]; top_dirs?: string[] } = {};
+  try {
+    parsed = JSON.parse(prev.content_json);
+  } catch {
+    return true;
+  }
+  const prevRepos = new Set(parsed.repos_seen ?? []);
+  const curRepos = new Set(currentRepos.map((r) => r.name));
+  if (prevRepos.size !== curRepos.size) return true;
+  for (const r of curRepos) if (!prevRepos.has(r)) return true;
+  const prevDirs = new Set(parsed.top_dirs ?? []);
+  if (prevDirs.size !== currentTopDirs.size) return true;
+  for (const d of currentTopDirs) if (!prevDirs.has(d)) return true;
+  return false;
+}
+
 // Pick the repo whose path encloses (or equals) the scan session_dir. This is
 // the cwd-aware default for `tmb_default_repo` — without it, scan picked the
 // alphabetically-first repo, which surprises users launching CC from a deeper
@@ -171,7 +213,7 @@ export function scanTools(db: TrajectoryDB): {
     {
       name: 'scan_run',
       description:
-        'Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo\'s tracked files, computes md5 + size + last_commit_sha, and persists to repos + file_registry. Drift detection is md5-only (no git diff). Emits a deep_scan_completed audit event so the registry-cold gate clears. Phase 1 only — file summaries are filled by parallel subagents in Phase 2 (see commands/scan.md).',
+        'Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo\'s tracked files, computes md5 + size + last_commit_sha, and persists to repos + file_registry. Drift detection is md5-only (no git diff). Emits a deep_scan_completed audit event so the registry-cold gate clears. The audit content_json carries a `source` field naming who fired the scan (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) plus `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan) — useful for diagnostics + future architecture-regen auto-trigger (#2881). Phase 1 only — file summaries are filled by parallel subagents in Phase 2 (see commands/scan.md).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -180,6 +222,12 @@ export function scanTools(db: TrajectoryDB): {
             type: 'string',
             description:
               'Absolute path to the session directory (workspace root). Defaults to the MCP server\'s CWD.',
+          },
+          source: {
+            type: 'string',
+            enum: ['user_manual', 'bro_auto_post_close', 'bro_auto_post_change', 'bro_auto_initial'],
+            description:
+              'Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan.sh hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation. Defaults to bro_auto_initial.',
           },
         },
         required: ['agent'],
@@ -232,8 +280,18 @@ export function scanTools(db: TrajectoryDB): {
       ['bro'],
       wrap(async (args) => {
         const sessionDir = (args['session_dir'] as string | undefined) ?? process.cwd();
+        const rawSource = (args['source'] as string | undefined) ?? 'bro_auto_initial';
+        const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
+
         const out = runScan(sessionDir);
         const stats = persistScan(db, out);
+
+        // #2881: structural-change detection vs previous deep_scan_completed
+        // audit. The flag rides in the audit content_json so downstream
+        // tooling (eventual architecture_regen auto-trigger, manual diagnostic
+        // queries) can decide whether the scan changed the project shape.
+        const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
+        const structuralChange = detectStructuralChange(db, out.repos, topDirs);
 
         // Emit deep_scan_completed audit row. Attach to the system issue
         // (id=-1) — this is a session-level event, not work-issue scoped.
@@ -241,8 +299,17 @@ export function scanTools(db: TrajectoryDB): {
           `INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
            VALUES (-1, NULL, 'bro', 'event', 'deep_scan_completed', ?, ?, ?)`,
           [
-            `Scanned ${out.repos.length} repos, ${out.files.length} files (${stats.files_md5_changed} md5-changed)`,
-            JSON.stringify({ ...stats, session_dir: out.session_dir, scanned_at: out.scanned_at }),
+            `Scanned ${out.repos.length} repos, ${out.files.length} files (${stats.files_md5_changed} md5-changed) — source=${source}${structuralChange ? ', structural-change' : ''}`,
+            JSON.stringify({
+              ...stats,
+              session_dir: out.session_dir,
+              scanned_at: out.scanned_at,
+              source,
+              structural_change: structuralChange,
+              regen_invoked: false, // wired up in the architecture_regen auto-trigger follow-up
+              repos_seen: out.repos.map((r) => r.name),
+              top_dirs: Array.from(topDirs).sort(),
+            }),
             nowISO(),
           ],
         );
@@ -268,6 +335,9 @@ export function scanTools(db: TrajectoryDB): {
           session_dir: out.session_dir,
           scanned_at: out.scanned_at,
           repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
+          source,
+          structural_change: structuralChange,
+          regen_invoked: false,
           ...stats,
         });
       }),
