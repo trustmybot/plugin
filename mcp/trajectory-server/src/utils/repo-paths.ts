@@ -5,6 +5,13 @@ export function resolveDefaultRepoPath(
   db: TrajectoryDB,
   dbPath: string,
 ): string | undefined {
+  return resolveDefaultRepo(db, dbPath)?.path;
+}
+
+export function resolveDefaultRepo(
+  db: TrajectoryDB,
+  dbPath: string,
+): { name: string; path: string } | undefined {
   if (!dbPath) return undefined;
   const row = db.get<{ value_json: string }>(
     `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
@@ -25,7 +32,7 @@ export function resolveDefaultRepoPath(
     `SELECT path FROM repos WHERE name = ?`,
     [defaultRepo],
   );
-  if (repoRow?.path) return repoRow.path;
+  if (repoRow?.path) return { name: defaultRepo, path: repoRow.path };
 
   // Legacy fallback: synthesize the path from the workspace root + repo
   // name. Works for workspace-pattern projects
@@ -35,5 +42,5 @@ export function resolveDefaultRepoPath(
   // exist on disk — that mis-resolution is what motivated reading
   // `repos.path` first).
   const workspaceRoot = dirname(dirname(dirname(dbPath)));
-  return join(workspaceRoot, defaultRepo);
+  return { name: defaultRepo, path: join(workspaceRoot, defaultRepo) };
 }

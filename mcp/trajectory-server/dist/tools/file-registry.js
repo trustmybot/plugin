@@ -4,34 +4,13 @@ import { resolve, isAbsolute } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
+import { resolveDefaultRepoPath, resolveDefaultRepo } from '../utils/repo-paths.js';
 function md5OfPath(absPath) {
     const buf = readFileSync(absPath);
     return createHash('md5').update(buf).digest('hex');
 }
 function md5OfBuffer(buf) {
     return createHash('md5').update(buf).digest('hex');
-}
-// Read file content from a specific git commit. Used when bro updates
-// file_registry from a SWE commit whose files live in a worktree (not at
-// the project root). The MCP server runs at the project root and can't see
-// worktree files via relative path; `git show <sha>:<path>` reads the
-// committed content directly from .git, regardless of working tree layout.
-// Returns null on any failure (path missing in commit, sha invalid, git
-// missing, etc.) — callers fall back to disk read.
-function makeReadFromCommit(projectRoot) {
-    return function readFromCommit(commitSha, path) {
-        try {
-            return execFileSync('git', ['show', `${commitSha}:${path}`], {
-                cwd: projectRoot,
-                stdio: ['ignore', 'pipe', 'ignore'],
-                maxBuffer: 64 * 1024 * 1024,
-            });
-        }
-        catch {
-            return null;
-        }
-    };
 }
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -97,7 +76,6 @@ export function fileRegistryTools(db, dbPath = '') {
             return resolve(projectRoot, path);
         return resolve(process.cwd(), path);
     }
-    const readFromCommit = makeReadFromCommit(resolveDefaultRepoPath(db, dbPath) ?? process.cwd());
     const definitions = [
         {
             name: 'file_registry_upsert',
@@ -185,7 +163,7 @@ export function fileRegistryTools(db, dbPath = '') {
         },
         {
             name: 'file_registry_update_summaries',
-            description: 'Atomic-close write path (#45): for each {path, summary}, read the file from disk, md5 it, INSERT OR REPLACE the row with content_md5 + summary + summary_updated_at = now. Optionally advance plugin_config.last_verified_sha so the next session can trust the index. Bro + SWE only.',
+            description: 'Atomic-close write path (#45): for each {path, summary, repo?}, read the file from disk, md5 it, INSERT OR REPLACE the row with content_md5 + summary + summary_updated_at = now. Optionally advance plugin_config.last_verified_sha so the next session can trust the index. Bro + SWE only.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -196,10 +174,14 @@ export function fileRegistryTools(db, dbPath = '') {
                             properties: {
                                 path: { type: 'string' },
                                 summary: { type: 'string' },
+                                repo: {
+                                    type: 'string',
+                                    description: 'Optional repo name from repos table. When omitted, server uses tmb_default_repo.',
+                                },
                             },
                             required: ['path', 'summary'],
                         },
-                        description: 'List of path + summary pairs. Server reads each path from disk to compute md5.',
+                        description: 'List of path + summary pairs (with optional per-update repo). Server reads each path from disk to compute md5.',
                     },
                     advance_verified_sha: {
                         type: 'string',
@@ -404,6 +386,17 @@ export function fileRegistryTools(db, dbPath = '') {
                 if (update.summary.trim().length === 0) {
                     return err('each update.summary must be a non-empty 1–2 line description (got empty / whitespace-only)');
                 }
+                if (update.repo !== undefined && update.repo !== null) {
+                    if (typeof update.repo !== 'string' || update.repo.length === 0) {
+                        return err('each update.repo must be a non-empty string when provided');
+                    }
+                    if (update.repo.length > 128) {
+                        return err('each update.repo must be 128 characters or fewer');
+                    }
+                    if (update.repo.includes('..') || update.repo.includes('/')) {
+                        return err('each update.repo must not contain ".." or "/" characters');
+                    }
+                }
             }
             const advance = args['advance_verified_sha'];
             if (advance !== undefined && advance !== null && typeof advance !== 'string') {
@@ -414,9 +407,42 @@ export function fileRegistryTools(db, dbPath = '') {
             const errors = [];
             const commitSha = typeof advance === 'string' && advance.length > 0 ? advance : null;
             for (const u of updates) {
-                const abs = resolveProjectPath(u.path);
+                const explicitRepo = typeof u.repo === 'string' && u.repo.length > 0 ? u.repo : null;
+                let resolvedRepoName = null;
+                let repoRoot = null;
+                if (explicitRepo !== null) {
+                    const repoRow = db.get(`SELECT path FROM repos WHERE name = ?`, [explicitRepo]);
+                    if (!repoRow?.path) {
+                        errors.push({
+                            path: u.path,
+                            error: `repo '${explicitRepo}' not found in repos table — run /scan to populate`,
+                        });
+                        continue;
+                    }
+                    resolvedRepoName = explicitRepo;
+                    repoRoot = repoRow.path;
+                }
+                else {
+                    const defaultRepo = resolveDefaultRepo(db, dbPath);
+                    if (defaultRepo) {
+                        resolvedRepoName = defaultRepo.name;
+                        repoRoot = defaultRepo.path;
+                    }
+                    else if (!dbPath) {
+                        resolvedRepoName = '';
+                        repoRoot = process.cwd();
+                    }
+                    else {
+                        errors.push({
+                            path: u.path,
+                            error: 'no repo specified and tmb_default_repo not set — pass repo or run /scan first',
+                        });
+                        continue;
+                    }
+                }
+                const abs = isAbsolute(u.path) ? u.path : resolve(repoRoot, u.path);
                 let md5 = null;
-                // Try the project-root disk path first (cheap; covers the steady
+                // Try the resolved repo disk path first (cheap; covers the steady
                 // state where the file has merged back to main).
                 if (existsSync(abs)) {
                     try {
@@ -430,7 +456,18 @@ export function fileRegistryTools(db, dbPath = '') {
                 // commit whose changes live in .claude/worktrees/<slug>/, not at
                 // the project root). Read the committed content via `git show`.
                 if (md5 === null && commitSha !== null) {
-                    const buf = readFromCommit(commitSha, u.path);
+                    const buf = (() => {
+                        try {
+                            return execFileSync('git', ['show', `${commitSha}:${u.path}`], {
+                                cwd: repoRoot,
+                                stdio: ['ignore', 'pipe', 'ignore'],
+                                maxBuffer: 64 * 1024 * 1024,
+                            });
+                        }
+                        catch {
+                            return null;
+                        }
+                    })();
                     if (buf !== null)
                         md5 = md5OfBuffer(buf);
                 }
@@ -444,11 +481,11 @@ export function fileRegistryTools(db, dbPath = '') {
                     continue;
                 }
                 db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
-             VALUES ('', ?, 'unknown', ?, ?, ?)
+             VALUES (?, ?, 'unknown', ?, ?, ?)
              ON CONFLICT(repo, path) DO UPDATE SET
                content_md5        = excluded.content_md5,
                summary            = excluded.summary,
-               summary_updated_at = excluded.summary_updated_at`, [u.path, md5, u.summary, now]);
+               summary_updated_at = excluded.summary_updated_at`, [resolvedRepoName, u.path, md5, u.summary, now]);
                 updated += 1;
             }
             if (typeof advance === 'string' && advance.length > 0) {
