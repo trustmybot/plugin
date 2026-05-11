@@ -27,20 +27,18 @@ function defaultSpawnFn(cmd, args, opts) {
         stderr: result.stderr ? String(result.stderr) : '',
     };
 }
-function parseRemoteIid(stdout, kind) {
-    const trimmed = stdout.trim();
-    if (kind === 'github') {
-        // gh issue create returns a URL like https://github.com/owner/repo/issues/42
-        const match = trimmed.match(/\/issues\/(\d+)/);
-        if (match)
-            return parseInt(match[1], 10);
-    }
-    else {
-        // glab issue create returns a URL like https://gitlab.com/owner/repo/-/issues/42
-        const match = trimmed.match(/\/issues\/(\d+)/);
-        if (match)
-            return parseInt(match[1], 10);
-    }
+function parseRemoteIid(stdout, _kind) {
+    // #2875: glab ≥1.40 (2026-Q1) switched issue_create stdout from
+    //   `https://gitlab.com/o/r/-/issues/42`
+    // to
+    //   `https://gitlab.com/o/r/-/work_items/42`
+    // Accept both URL forms plus the older bare-iid form `#42` (some gh
+    // versions and the glab --output=text shape). Single pattern handles
+    // both backends — the URL host + provider mapping is decided upstream
+    // by the caller's `kind` arg, so the parser only needs the trailing iid.
+    const match = stdout.match(/(?:#|\/(?:issues|work_items)\/)(\d+)/);
+    if (match)
+        return parseInt(match[1], 10);
     return null;
 }
 function isFailure(r) {
