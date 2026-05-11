@@ -70,8 +70,11 @@ describe('TrajectoryDB', () => {
     assert.equal(single.name, 'skill-a');
     assert.equal(single.description, 'Skill A');
 
+    // Scope to the test's inserted rows — schema seeds bundled tmb_* skills
+    // (#2884) so the table is never empty on a fresh DB. Filter on the names
+    // this test wrote to keep the assertion local to the test's intent.
     const all = db.all<{ name: string }>(
-      'SELECT name FROM skills ORDER BY name',
+      "SELECT name FROM skills WHERE name IN ('skill-a','skill-b') ORDER BY name",
     );
     assert.equal(all.length, 2);
     assert.equal(all[0].name, 'skill-a');
