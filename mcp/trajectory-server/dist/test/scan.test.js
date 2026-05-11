@@ -99,6 +99,52 @@ describe('scan_run — workspace discovery + persistence', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
+    // #2885: workspace-pattern with multiple sibling repos. Old behaviour picked
+    // repos[0] alphabetically, so a user launching from ~/Git/GitHub/TMB/plugin
+    // got tmb_default_repo='enterprise' just because it sorted first. New
+    // behaviour: prefer the repo whose path encloses session_dir.
+    it('prefers the cwd-enclosing repo as tmb_default_repo, not alphabetical-first (#2885)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-prefer-'));
+        try {
+            // Three sibling repos. Alphabetical-first is 'enterprise'.
+            mkRepo(ws, 'enterprise', { 'README.md': 'e\n' });
+            mkRepo(ws, 'marketplace', { 'README.md': 'm\n' });
+            mkRepo(ws, 'plugin', { 'README.md': 'p\n' });
+            const db = tempDB();
+            const tools = scanTools(db);
+            // Scan from inside plugin/ — user clearly working there.
+            await call(tools.handlers, 'scan_run', {
+                agent: 'bro',
+                session_dir: join(ws, 'plugin'),
+            });
+            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
+            assert.ok(cfg, 'tmb_default_repo should be set');
+            assert.equal(cfg.value_json, '"plugin"', 'cwd-enclosing repo wins over alphabetical-first');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('falls back to alphabetical when session_dir encloses no repo (#2885 edge case)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-fallback-'));
+        try {
+            mkRepo(ws, 'enterprise', { 'README.md': 'e\n' });
+            mkRepo(ws, 'plugin', { 'README.md': 'p\n' });
+            const db = tempDB();
+            const tools = scanTools(db);
+            // Scan from the workspace ROOT (above both repos). No enclosing repo —
+            // alphabetical fallback applies.
+            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
+            assert.ok(cfg);
+            assert.equal(cfg.value_json, '"enterprise"');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
     it('repos_list returns rows ordered by name', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-list-'));
         try {
