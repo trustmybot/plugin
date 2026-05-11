@@ -559,65 +559,65 @@ describe('fileRegistryTools', () => {
     describe('file_registry_update_summaries multi-repo path resolution', () => {
         it('update_summaries with repo resolves path under named repo root and writes non-empty repo to DB', async () => {
             const tmpDir = mkdtempSync(join(tmpdir(), 'frmr-'));
-            const pluginDir = join(tmpDir, 'plugin');
-            const enterpriseDir = join(tmpDir, 'enterprise');
-            execFileSync('mkdir', ['-p', join(pluginDir, 'src')]);
-            execFileSync('mkdir', ['-p', enterpriseDir]);
-            writeFileSync(join(pluginDir, 'src', 'index.ts'), 'export const x = 1;\n');
+            const appDir = join(tmpDir, 'app');
+            const serviceDir = join(tmpDir, 'service');
+            execFileSync('mkdir', ['-p', join(appDir, 'src')]);
+            execFileSync('mkdir', ['-p', serviceDir]);
+            writeFileSync(join(appDir, 'src', 'index.ts'), 'export const x = 1;\n');
             const db = tempDB();
-            db.run(`INSERT INTO repos (name, path) VALUES ('plugin', ?)`, [pluginDir]);
-            db.run(`INSERT INTO repos (name, path) VALUES ('enterprise', ?)`, [enterpriseDir]);
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [appDir]);
+            db.run(`INSERT INTO repos (name, path) VALUES ('service', ?)`, [serviceDir]);
             const tools = fileRegistryTools(db);
             const result = await call(tools.handlers, 'file_registry_update_summaries', {
-                updates: [{ path: 'src/index.ts', summary: 'plugin index', repo: 'plugin' }],
+                updates: [{ path: 'src/index.ts', summary: 'app index', repo: 'app' }],
             });
             assert.ok(!result.isError);
             const data = parseResult(result);
             assert.equal(data.updated, 1);
             assert.deepEqual(data.errors, []);
-            const row = db.get(`SELECT repo, path, summary FROM file_registry WHERE summary = 'plugin index'`);
+            const row = db.get(`SELECT repo, path, summary FROM file_registry WHERE summary = 'app index'`);
             assert.ok(row, 'row must exist in file_registry');
-            assert.equal(row.repo, 'plugin', 'repo column must be non-empty and match the named repo');
+            assert.equal(row.repo, 'app', 'repo column must be non-empty and match the named repo');
             assert.equal(row.path, 'src/index.ts');
             db.close();
         });
         it('update_summaries with omitted repo and tmb_default_repo set resolves via default repo', async () => {
             const tmpDir = mkdtempSync(join(tmpdir(), 'frmr-'));
-            const pluginDir = join(tmpDir, 'plugin');
-            const enterpriseDir = join(tmpDir, 'enterprise');
-            execFileSync('mkdir', ['-p', pluginDir]);
-            execFileSync('mkdir', ['-p', join(enterpriseDir, 'lib')]);
-            writeFileSync(join(enterpriseDir, 'lib', 'core.ts'), 'export const core = true;\n');
+            const appDir = join(tmpDir, 'app');
+            const serviceDir = join(tmpDir, 'service');
+            execFileSync('mkdir', ['-p', appDir]);
+            execFileSync('mkdir', ['-p', join(serviceDir, 'lib')]);
+            writeFileSync(join(serviceDir, 'lib', 'core.ts'), 'export const core = true;\n');
             const dbPath = join(tmpDir, '.claude', 'tmb', 'trajectory.db');
             execFileSync('mkdir', ['-p', join(tmpDir, '.claude', 'tmb')]);
             const db = tempDB();
-            db.run(`INSERT INTO repos (name, path) VALUES ('plugin', ?)`, [pluginDir]);
-            db.run(`INSERT INTO repos (name, path) VALUES ('enterprise', ?)`, [enterpriseDir]);
-            db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"enterprise"', datetime('now'))`);
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [appDir]);
+            db.run(`INSERT INTO repos (name, path) VALUES ('service', ?)`, [serviceDir]);
+            db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"service"', datetime('now'))`);
             const tools = fileRegistryTools(db, dbPath);
             const result = await call(tools.handlers, 'file_registry_update_summaries', {
-                updates: [{ path: 'lib/core.ts', summary: 'core enterprise module' }],
+                updates: [{ path: 'lib/core.ts', summary: 'core service module' }],
             });
             assert.ok(!result.isError);
             const data = parseResult(result);
             assert.equal(data.updated, 1);
             assert.deepEqual(data.errors, []);
-            const row = db.get(`SELECT repo, path, summary FROM file_registry WHERE summary = 'core enterprise module'`);
+            const row = db.get(`SELECT repo, path, summary FROM file_registry WHERE summary = 'core service module'`);
             assert.ok(row, 'row must exist in file_registry');
-            assert.equal(row.repo, 'enterprise', 'repo must match tmb_default_repo');
+            assert.equal(row.repo, 'service', 'repo must match tmb_default_repo');
             db.close();
         });
         it('update_summaries with omitted repo and unset tmb_default_repo returns clear error naming both options', async () => {
             const tmpDir = mkdtempSync(join(tmpdir(), 'frmr-'));
-            const pluginDir = join(tmpDir, 'plugin');
-            const enterpriseDir = join(tmpDir, 'enterprise');
-            execFileSync('mkdir', ['-p', pluginDir]);
-            execFileSync('mkdir', ['-p', enterpriseDir]);
+            const appDir = join(tmpDir, 'app');
+            const serviceDir = join(tmpDir, 'service');
+            execFileSync('mkdir', ['-p', appDir]);
+            execFileSync('mkdir', ['-p', serviceDir]);
             const dbPath = join(tmpDir, '.claude', 'tmb', 'trajectory.db');
             execFileSync('mkdir', ['-p', join(tmpDir, '.claude', 'tmb')]);
             const db = tempDB();
-            db.run(`INSERT INTO repos (name, path) VALUES ('plugin', ?)`, [pluginDir]);
-            db.run(`INSERT INTO repos (name, path) VALUES ('enterprise', ?)`, [enterpriseDir]);
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [appDir]);
+            db.run(`INSERT INTO repos (name, path) VALUES ('service', ?)`, [serviceDir]);
             const tools = fileRegistryTools(db, dbPath);
             const result = await call(tools.handlers, 'file_registry_update_summaries', {
                 updates: [{ path: 'src/missing.ts', summary: 'something' }],
@@ -634,14 +634,14 @@ describe('fileRegistryTools', () => {
     describe('file_registry_update_summaries workspace-pattern regression (#177)', () => {
         it('resolves relative paths via tmb_default_repo when dbPath is provided (workspace pattern)', async () => {
             const tmpDir = mkdtempSync(join(tmpdir(), 'frws-'));
-            const pluginDir = join(tmpDir, 'plugin');
-            const fooDir = join(pluginDir, 'foo');
+            const appDir = join(tmpDir, 'app');
+            const fooDir = join(appDir, 'foo');
             execFileSync('mkdir', ['-p', fooDir]);
             writeFileSync(join(fooDir, 'bar.txt'), 'workspace-content\n');
             const dbPath = join(tmpDir, '.claude', 'tmb', 'trajectory.db');
             execFileSync('mkdir', ['-p', join(tmpDir, '.claude', 'tmb')]);
             const db = tempDB();
-            db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"plugin"', datetime('now'))`);
+            db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"app"', datetime('now'))`);
             const tools = fileRegistryTools(db, dbPath);
             const result = await call(tools.handlers, 'file_registry_update_summaries', {
                 updates: [{ path: 'foo/bar.txt', summary: 'test' }],

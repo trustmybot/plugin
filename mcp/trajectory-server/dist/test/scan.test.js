@@ -86,13 +86,13 @@ describe('scan_run — workspace discovery + persistence', () => {
     it('sets tmb_default_repo on first scan if not already configured', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-default-'));
         try {
-            mkRepo(ws, 'plugin', { 'README.md': 'p\n' });
+            mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
             const db = tempDB();
             const tools = scanTools(db);
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
             const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
             assert.ok(cfg, 'tmb_default_repo should be set');
-            assert.equal(cfg.value_json, '"plugin"');
+            assert.equal(cfg.value_json, "\"repo-c\"");
             db.close();
         }
         finally {
@@ -101,25 +101,25 @@ describe('scan_run — workspace discovery + persistence', () => {
     });
     // #2885: workspace-pattern with multiple sibling repos. Old behaviour picked
     // repos[0] alphabetically, so a user launching from ~/Git/GitHub/TMB/plugin
-    // got tmb_default_repo='enterprise' just because it sorted first. New
+    // got tmb_default_repo='repo-a' just because it sorted first. New
     // behaviour: prefer the repo whose path encloses session_dir.
     it('prefers the cwd-enclosing repo as tmb_default_repo, not alphabetical-first (#2885)', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-prefer-'));
         try {
-            // Three sibling repos. Alphabetical-first is 'enterprise'.
-            mkRepo(ws, 'enterprise', { 'README.md': 'e\n' });
-            mkRepo(ws, 'marketplace', { 'README.md': 'm\n' });
-            mkRepo(ws, 'plugin', { 'README.md': 'p\n' });
+            // Three sibling repos. Alphabetical-first is 'repo-a' (placeholder names — must be sorted alphabetically to test the bug correctly).
+            mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
+            mkRepo(ws, 'repo-b', { 'README.md': 'm\n' });
+            mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
             const db = tempDB();
             const tools = scanTools(db);
-            // Scan from inside plugin/ — user clearly working there.
+            // Scan from inside the 'repo-c' subdir — user clearly working there.
             await call(tools.handlers, 'scan_run', {
                 agent: 'bro',
-                session_dir: join(ws, 'plugin'),
+                session_dir: join(ws, 'repo-c'),
             });
             const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
             assert.ok(cfg, 'tmb_default_repo should be set');
-            assert.equal(cfg.value_json, '"plugin"', 'cwd-enclosing repo wins over alphabetical-first');
+            assert.equal(cfg.value_json, '"repo-c"', 'cwd-enclosing repo wins over alphabetical-first');
             db.close();
         }
         finally {
@@ -129,8 +129,8 @@ describe('scan_run — workspace discovery + persistence', () => {
     it('falls back to alphabetical when session_dir encloses no repo (#2885 edge case)', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-fallback-'));
         try {
-            mkRepo(ws, 'enterprise', { 'README.md': 'e\n' });
-            mkRepo(ws, 'plugin', { 'README.md': 'p\n' });
+            mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
+            mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
             const db = tempDB();
             const tools = scanTools(db);
             // Scan from the workspace ROOT (above both repos). No enclosing repo —
@@ -138,7 +138,7 @@ describe('scan_run — workspace discovery + persistence', () => {
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
             const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
             assert.ok(cfg);
-            assert.equal(cfg.value_json, '"enterprise"');
+            assert.equal(cfg.value_json, '"repo-a"');
             db.close();
         }
         finally {
