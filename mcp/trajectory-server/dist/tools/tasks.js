@@ -89,7 +89,7 @@ export function taskTools(db) {
                                 success_criteria: { type: 'string' },
                                 spec_body: {
                                     type: 'string',
-                                    description: 'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 64000 chars.',
+                                    description: 'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 8000 chars — over this, the architect should split into multiple tasks via depends_on, or cite existing code/conventions rather than restating them. See issue #55.',
                                 },
                                 repo: {
                                     type: 'string',
