@@ -1,6 +1,6 @@
 {
   "$schema": "./schema.json",
-  "description": "Single chained L6 integration test. 13 sequential rows over ONE claude --session-id / --resume session. Each step's pre-state is the prior step's post-state plus any between-row seed (post-AUQ pseudo-data + chain-state bridges). See tests/EVALUATION.md for the journey spec.",
+  "description": "Single chained L6 integration test. 12 sequential rows fired via fresh `claude -p` each, against a cumulative trajectory DB. Step 5 (05-swe-atomic-close) is intentionally absent from the chain — under DB-driven semantics row 4 already runs the full SWE atomic-close (V1/V2/V3 + bro_atomic_close), making a separate row 5 step redundant and prone to bro re-building the CLI a second time on the duplicate prompt. The L5 outcome bundle at l5-rows/05-swe-atomic-close/ remains for standalone unit testing. See tests/EVALUATION.md for the journey spec.",
   "initial_fixture": "empty",
   "initial_setup": null,
   "steps": [
@@ -35,15 +35,6 @@
       "id": 4,
       "name": "04-first-task-hits-gate",
       "row_dir": "l5-rows/04-first-task-hits-gate",
-      "partial_test": false,
-      "seed_before": null,
-      "seed_after": null,
-      "halt_on_fail": true
-    },
-    {
-      "id": 5,
-      "name": "05-swe-atomic-close",
-      "row_dir": "l5-rows/05-swe-atomic-close",
       "partial_test": false,
       "seed_before": null,
       "seed_after": null,
