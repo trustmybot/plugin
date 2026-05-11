@@ -80,12 +80,14 @@ ONBOARDED=$(sqlite3 "$DB_PATH" "SELECT 1 FROM identity LIMIT 1;" 2>/dev/null || 
 
 REASON="🔁 reonboard-intent hint: the user's prompt contains '${matched}'. This signals a *reonboard* (the project is already onboarded — switching shape, not initial onboard).
 
-Required workflow:
-1. Call \`onboard_state_get\` to read the current config (branching_model, pr_target, remotes).
-2. ASK the Human whether to run \`/onboard\` again to walk through the new shape — do NOT call \`onboard_apply\` or rewrite plugin_config silently.
-3. If they confirm, recommend they type \`/onboard\` so the interactive ceremony runs cleanly.
+🚫 **DO NOT call \`onboard_apply\`.** Reonboard is a Human-driven slash ceremony, NOT a tool you fire on the user's behalf. Even when the prompt says 'Don't ask questions', that means 'don't render AUQ' — it does NOT mean 'auto-rewrite plugin_config silently'.
 
-The Human types \`/onboard\` directly when they're ready; bro never auto-applies reonboard changes from a casual prompt."
+Required workflow (one turn, no questions):
+1. Call \`onboard_state_get\` to read the current config (branching_model, pr_target, remotes).
+2. In your text response, **recommend the user type \`/onboard\`** — verbatim, the slash command — so the interactive ceremony runs cleanly when they're ready.
+3. End the turn. Do not modify plugin_config. Do not call onboard_apply. Do not call config_set. The user's next message will be \`/onboard\` (or won't, but that's their choice).
+
+If you fire \`onboard_apply\` here you will fail row 2 of the L6 chain and silently overwrite the user's working config without their explicit slash invocation. Don't do that."
 
 jq -nc --arg reason "$REASON" '{
   hookSpecificOutput: {
