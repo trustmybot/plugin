@@ -280,7 +280,7 @@ test('task_create_batch — registry_cold_gate clears after a deep_scan_complete
 
   const seed = await call(client, 'audit_log', {
     agent: 'bro',
-    issue_id: '999999',
+    issue_id: '-1',
     from_node: 'bro',
     kind: 'event',
     event_type: 'deep_scan_completed',
@@ -507,7 +507,7 @@ test('roundtable_create — slash-invoke gate clears after a /roundtable audit l
 
   await call(client, 'audit_log', {
     agent: 'bro',
-    issue_id: '999999',
+    issue_id: '-1',
     from_node: 'system',
     kind: 'event',
     event_type: 'roundtable_slash_invoked',

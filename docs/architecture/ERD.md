@@ -210,7 +210,7 @@ erDiagram
 | From | Column | → To | Semantics |
 |---|---|---|---|
 | `tasks` | `issue_id` | `issues.id` | every task belongs to one issue |
-| `audit` | `issue_id` | `issues.id` | every event row scoped to an issue (use system issue id=999999 for project-level events) |
+| `audit` | `issue_id` | `issues.id` | every event row scoped to an issue (use system issue id=-1 for project-level events) |
 | `discussions` | `issue_id` | `issues.id` | bro ↔ human ↔ consultants conversation per issue |
 | `roundtables` | `issue_id` | `issues.id` | a multi-agent debate belongs to an issue |
 | `roundtable_votes` | `roundtable_id` | `roundtables.id` | one vote row per agent per roundtable |

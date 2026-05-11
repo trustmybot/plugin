@@ -1,6 +1,6 @@
 {
   "expected_writes": {
-    "issues WHERE id != 999999": "=0",
+    "issues WHERE id != -1": "=0",
     "tasks": "=0"
   }
 }

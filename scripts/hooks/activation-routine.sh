@@ -78,7 +78,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 IDENTITY_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM identity WHERE id = 1;" 2>/dev/null)
 PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" \
-  "SELECT id, objective FROM issues WHERE status='open' AND id < 999999 ORDER BY id DESC LIMIT 1;" \
+  "SELECT id, objective FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;" \
   2>/dev/null)
 
 # Two states the hook must distinguish:

@@ -156,7 +156,7 @@ describe('discussions + snapshot integration', () => {
     });
     it('step 3d: discussion_list for unknown issue returns empty with warning', async () => {
         const disc = discussionTools(db);
-        // Use an id below the schema-seeded system issue (999999) but definitely
+        // Use an id below the schema-seeded system issue (-1) but definitely
         // not created by any test setup. 8 has no fixtures or upstream creates.
         const result = await call(disc.handlers, 'discussion_list', {
             agent: 'bro',

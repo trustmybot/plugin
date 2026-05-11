@@ -9,7 +9,7 @@ export function tempDB(opts = {}) {
     const db = new TrajectoryDB(':memory:');
     if (opts.seedScan !== false) {
         db.run(`INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-       VALUES (999999, NULL, 'bro', 'event', 'deep_scan_completed', 'test fixture: gate cleared', '{}', datetime('now'))`);
+       VALUES (-1, NULL, 'bro', 'event', 'deep_scan_completed', 'test fixture: gate cleared', '{}', datetime('now'))`);
     }
     return db;
 }

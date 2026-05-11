@@ -110,7 +110,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
   }
 
   // Bro records the escalation note (uses the issueId returned from setup —
-  // not a hardcoded 1, since schema-seeded system issue at id=999999 bumps
+  // not a hardcoded 1, since schema-seeded system issue at id=-1 bumps
   // AUTOINCREMENT past the legacy assumption).
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'bro', kind: 'note',

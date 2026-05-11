@@ -26,7 +26,7 @@ The bug class this catches: bro calling `onboard_apply` (or `onboard_get_questio
 | Scorer | Asserts |
 |---|---|
 | `outcome.sql` | `plugin_config.value` for `branching_model` is still `github-flow` (no mutation happened); `identity` row count is still 1 |
-| `outcome-coherence.json` | `issues WHERE id != 999999`: `=0`; `tasks`: `=0` (bro didn't open work for this) |
+| `outcome-coherence.json` | `issues WHERE id != -1`: `=0`; `tasks`: `=0` (bro didn't open work for this) |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | empty — bro shouldn't write anything substantive |
 | `tools-forbidden.json` | `onboard_apply`, `onboard_get_questions` (the mutation tools); `task_create_batch` (no work to plan); `issue_create` |

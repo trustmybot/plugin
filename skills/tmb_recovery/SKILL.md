@@ -22,7 +22,7 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
    audit_log(agent='bro', kind='event', event_type='headless_fallback', summary='<skill_name>: <question_short> → <chosen_default>')
    discussion_append(agent='bro', kind='note', body='Headless fallback: <skill> asked "<question>", no Human in loop, defaulted to <default>. Reason: <one-line>.')
    ```
-   For `issue_id`: use the parent issue of the calling skill when one exists; otherwise use the system issue (`issue_id='999999'`, seeded for system-level events that have no parent issue). Never invent a placeholder string — `audit` and `discussions` enforce a FK to `issues`.
+   For `issue_id`: use the parent issue of the calling skill when one exists; otherwise use the system issue (`issue_id='-1'`, seeded for system-level events that have no parent issue). Never invent a placeholder string — `audit` and `discussions` enforce a FK to `issues`.
 3. **Continue the skill's flow** with the default as if the Human typed it.
 
 ### Per-skill defaults
