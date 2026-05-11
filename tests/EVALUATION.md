@@ -296,16 +296,16 @@ Rules:
 
 Rows 1–3 are bootstrap (cold → onboarded → remote-onboarded). Rows 4–7 are the happy-path code-touching loop (first task hits the gate + recovery → SWE close → post-close cleanup → push). Rows 8–11 are the four advanced patterns bro must support without bypassing doctrine (difficult path, concerns-protocol, consultant invocation, roundtable). Rows 12–13 cover the post-merge / cross-session edges (resume, PR comments).
 
-L5 runs each row alone against its fixture. L6 walks all 13 in a single chained CC session, with state carrying across rows and per-step logs written under `tests/dogfood/l6-chain/runs/<run-id>/` (format spec is in the L6 section above).
+L5 runs each row alone against its fixture. L6 walks all 13 against a single cumulative trajectory DB — each row fires a fresh `claude -p` invocation, and bro's `tmb_recovery` + state-aware MCPs pick up real cross-session state from the DB. Per-step logs written under `~/.claude/tmb/l6-chain-runs/<run-id>/` (format spec is in the L6 section above).
 
 For the 🟡 partial-test rows, between-row seeds bridge the AUQ gap:
 
 | Row | Post-AUQ seed |
 |---|---|
-| 1 Cold start | (nothing — test asserts AUQ intent and ends; row 2's seed fills in) |
+| 1 Cold start | `after-01-cold-start.sql` → seeds `identity` + `plugin_config` defaults + `deep_scan_completed` audit, in case bro didn't fully complete onboard in his one turn |
 | 2 Onboard local | `onboarding-named.sql` → `identity` + `plugin_config` (branching_model='github-flow', pr_target='main', protected_branches=["main"], remotes=[], issue_sync='off') + `deep_scan_completed` audit |
 | 3 Reonboard remote | extension flipping `branching_model='gitflow'`, `pr_target='dev'`, `remotes=[{name:'origin',provider:'gitlab'}]` |
-| 8 Difficult-path Q+A | injects `kind='question'` + `kind='answer'` rows |
-| 11 Roundtable ratification | injects ratify=true + human's `roundtable_vote` row |
+| 8 Difficult-path Q+A | `after-08-difficult-path.sql` injects `kind='question'` + `kind='answer'` rows for downstream consistency |
+| 11 Roundtable ratification | `after-11-roundtable.sql` injects ratify=true + human's `roundtable_vote` row |
 
 The full AUQ ceremony (rendering, option labels, multi-round flow, "selected" highlighting) is covered by manual smoke — `tests/manual/scenarios.md` §② onboarding + §roundtable.
