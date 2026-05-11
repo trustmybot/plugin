@@ -15,10 +15,8 @@
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro implement an add command for the TODO CLI in src/cli.py` |
-| → | bro | full plan + `task_create_batch` + spawn SWE via `Agent`; SWE commits, calls `task_update_status(completed)`; `SubagentStop` fires `swe-atomic-close.sh` writing the `agent_runs` row |
-| 2 | user | `Wrap it up.` |
-| → | bro | terminal |
+| 1 | user | `@bro make a todo CLI in Python.\n\nDon't ask questions.` |
+| → | bro | full plan + `task_create_batch` + spawn SWE via `Agent`; SWE commits, calls `task_update_status(completed)`; `SubagentStop` fires `swe-atomic-close.sh` writing the `agent_runs` row. Single turn — terminates when atomic-close lands. |
 
 ## Pass criteria
 

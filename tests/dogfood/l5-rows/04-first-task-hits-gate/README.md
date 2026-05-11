@@ -12,10 +12,8 @@
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro implement an add command for the TODO CLI in cli.py` |
-| → | bro | tries `task_create_batch` → server returns `registry_cold_violation` → bro reads error → calls `scan_run` (auto-fire path per `commands/scan.md`) → re-tries `task_create_batch` |
-| 2 | user | `Wrap it up.` |
-| → | bro | terminal |
+| 1 | user | `@bro make a todo CLI in Python.\n\nDon't ask questions.` |
+| → | bro | tries `task_create_batch` → server returns `registry_cold_violation` → bro reads error → calls `scan_run` (auto-fire path per `commands/scan.md`) → re-tries `task_create_batch` and spawns SWE. Single turn — terminates when atomic-close lands. |
 
 ## Pass criteria
 

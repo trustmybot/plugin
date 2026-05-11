@@ -156,8 +156,16 @@ Scorer runs `SELECT COUNT(*) FROM <table> [WHERE <suffix>]` per key and checks a
 L6 walks all 13 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation — **continuity is DB-driven**, not LLM-session-driven. Bro's `tmb_recovery` skill + state-aware MCPs (`issue_state_get`, `task_first_actionable`, `issue_resume`, etc.) pick up real cross-session state from the DB. Row N's bro turn writes to the DB; row N+1's fresh bro reads those writes on startup. This mirrors how cross-session resume actually works in production. The TODO CLI codebase grows row by row.
 
 ```bash
-bash tests/dogfood/run-l6.sh                  # full chain, all 13 rows
-bash tests/dogfood/run-l6.sh --from row-7     # resume from a specific row
+bash tests/dogfood/run-l6-chain.sh                  # full chain, all 13 rows
+bash tests/dogfood/run-l6-chain.sh --from 7         # resume from a specific row
+bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
+```
+
+Per-row standalone (L5 per-row layer, despite the historical filename):
+
+```bash
+bash tests/dogfood/run-l6.sh 07-push-gate     # one row by substring
+bash tests/dogfood/run-l6.sh                  # all rows independently
 ```
 
 When to use L6: integration smoke before any release; verifying cross-row continuity after fixes that span multiple rows.
