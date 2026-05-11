@@ -73,7 +73,6 @@ run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE
 run_step "L4 workflow-sim: flow-02 simple-task"            bun test "$HERE/workflow-sim/flow-02-simple-task.test.mjs"
 run_step "L4 workflow-sim: flow-03 difficult-task"          bun test "$HERE/workflow-sim/flow-03-difficult-task.test.mjs"
 run_step "L4 workflow-sim: flow-06 push-gate"               bun test "$HERE/workflow-sim/flow-06-push-gate.test.mjs"
-run_step "L4 workflow-sim: flow-07 architecture-regen"      bun test "$HERE/workflow-sim/flow-07-architecture-regen.test.mjs"
 run_step "L4 workflow-sim: flow-08 swe-retry"               bun test "$HERE/workflow-sim/flow-08-swe-retry.test.mjs"
 run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test "$HERE/workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
 

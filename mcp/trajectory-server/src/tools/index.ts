@@ -11,12 +11,16 @@ import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
 import { identityTools } from './identity.js';
-import { regenStateTools } from './regen-state.js';
 import { fileRegistryTools } from './file-registry.js';
-import { architectureRegenTools } from './architecture-regen.js';
 import { branchReportMdTools } from './branch_report_md.js';
 // labelTools removed in #179 — issues.labels column was always-empty in
 // production; local label storage retired.
+// regenStateTools + architectureRegenTools removed in 2026-05 (#2881-followup):
+// scan_run is the single scan-side tool now. The regen_state table + the
+// regen_state_get/set/architecture_regen MCP surface were retired to stop
+// confusing bro about which tool to use. Renderer code still lives in
+// `renderers/` for an eventual scan_run-internal call when structural_change
+// detection fires (currently inert).
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
 import { prCommentsTools } from './pr_comments.js';
@@ -65,9 +69,7 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
   const reports = reportTools(db);
   const config = configTools(db);
   const identity = identityTools(db);
-  const regenState = regenStateTools(db);
   const fileRegistry = fileRegistryTools(db, dbPath);
-  const architectureRegen = architectureRegenTools(db);
   const branchReport = branchReportMdTools(db);
   const stats = statsTools(db);
   const roundtable = roundtableTools(db);
@@ -87,9 +89,7 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...reports.definitions,
     ...config.definitions,
     ...identity.definitions,
-    ...regenState.definitions,
     ...fileRegistry.definitions,
-    ...architectureRegen.definitions,
     ...branchReport.definitions,
     ...stats.definitions,
     ...roundtable.definitions,
@@ -110,9 +110,7 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...wrapAll(reports.handlers),
     ...wrapAll(config.handlers),
     ...wrapAll(identity.handlers),
-    ...wrapAll(regenState.handlers),
     ...wrapAll(fileRegistry.handlers),
-    ...wrapAll(architectureRegen.handlers),
     ...wrapAll(branchReport.handlers),
     ...wrapAll(stats.handlers),
     ...wrapAll(roundtable.handlers),

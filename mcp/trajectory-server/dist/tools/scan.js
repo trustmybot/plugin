@@ -224,7 +224,7 @@ export function scanTools(db) {
             const stats = persistScan(db, out);
             // #2881: structural-change detection vs previous deep_scan_completed
             // audit. The flag rides in the audit content_json so downstream
-            // tooling (eventual architecture_regen auto-trigger, manual diagnostic
+            // tooling (eventual scan_run-internal renderer call, manual diagnostic
             // queries) can decide whether the scan changed the project shape.
             const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
             const structuralChange = detectStructuralChange(db, out.repos, topDirs);
@@ -239,7 +239,7 @@ export function scanTools(db) {
                     scanned_at: out.scanned_at,
                     source,
                     structural_change: structuralChange,
-                    regen_invoked: false, // wired up in the architecture_regen auto-trigger follow-up
+                    regen_invoked: false, // reserved for the scan_run-internal renderer call follow-up
                     repos_seen: out.repos.map((r) => r.name),
                     top_dirs: Array.from(topDirs).sort(),
                 }),

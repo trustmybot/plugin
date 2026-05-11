@@ -116,11 +116,24 @@ export class TrajectoryDB {
     this.migrateValidationSubagentSessionId();
     this.migrateDiscussionsVerifiedHuman();
     this.migrateFileRegistryRepoColumn();
+    // 2026-05: scan_run is the single scan-side tool now (#2881 follow-up).
+    // The regen_state table backed architecture_regen's drift cache — both
+    // are retired. Drop the table from existing DBs. Idempotent.
+    this.migrateDropRegenState();
     // #179 destructive drops run LAST so they aren't undone by additive
     // ALTERs above. Idempotent — subsequent boots see the columns already
     // gone and skip the DROP.
     this.migrate179DropDeadColumns();
     this.syncPluginVersion();
+  }
+
+  private migrateDropRegenState(): void {
+    const exists = this.db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='regen_state'`)
+      .get() as { name: string } | undefined;
+    if (exists) {
+      this.db.exec(`DROP TABLE regen_state`);
+    }
   }
 
   private migrateLedgerIntoAudit(): void {

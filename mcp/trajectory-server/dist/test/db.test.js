@@ -22,7 +22,6 @@ describe('TrajectoryDB', () => {
             'file_registry',
             'plugin_config',
             'identity',
-            'regen_state',
             'agent_runs',
             'pr_review_runs',
             'repos',
