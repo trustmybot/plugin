@@ -2,7 +2,7 @@
 
 **Scenario under test:** the Human asks bro a question that requires reading a file for context. The file is registered in `file_registry` but its `summary` column is NULL. After bro Reads the file, bro must call `file_registry_update_summaries` to populate the summary so future sessions don't have to re-read.
 
-> **Status: currently FAILING** (as of the L6 round-4 MR). This scenario documents a *captured bug class* — bro Read `src/auth.py`, gave a high-quality summary in chat, but skipped the `file_registry_update_summaries` call. The registry stays stale, future sessions re-Read, context gets burned. Daisy's "L6 capture more bugs" directive is satisfied by leaving this scenario as-failing; a follow-up should add a registry-update reminder to `tmb_recovery` or the post-Read hook.
+Now passing after the MCP path-resolution fix (`resolveDefaultRepoPath` now reads `repos.path` first instead of synthesizing a workspace-pattern path). Pre-fix bro called the tool correctly but the MCP rejected with "file not found on disk." Post-fix bro's summary lands.
 
 ## What this captures
 
@@ -20,10 +20,8 @@ The bug class this catches: bro reading a file for context but skipping the regi
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro what does src/auth.py do? Just summarize it.` |
-| → | bro | calls `Read("src/auth.py")`, then `file_registry_update_summaries` to populate the summary |
-| 2 | user | `Got it. Anything else?` |
-| → | bro | terminal |
+| 1 | user | `@bro what does src/auth.py do? Just summarize it for me.\n\nDon't ask questions.` |
+| → | bro | calls `Read("src/auth.py")`, then `file_registry_update_summaries` to populate the summary; emits a concise summary in text |
 
 ## Pass criteria
 

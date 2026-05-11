@@ -10,26 +10,24 @@ The bug class this catches: bro overplanning — re-creating an issue / re-runni
 
 ## Pre-state
 
-`onboarding-named` fixture + a pre-seeded issue and task on `feat/seed-cli`:
-- `issues(id=1, status='open', objective='Add a CLI entry point')`
-- `tasks(id=1, issue_id=1, branch_id='feat/seed-cli', status='pending')`
-- `audit(issue_id=1, event_type='planning_complete')`
+`onboarding-named` fixture + a pre-seeded resume issue and task on `feat/seed-cli` (id auto-increment for L6-chain compatibility):
+- `issues(objective='Add a CLI entry point (resume)', status='open')`
+- `tasks(branch_id='feat/seed-cli', status='pending')`
+- `audit(event_type='planning_complete')` linked to the resume issue
 
 ## Turns
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro let's keep going on issue 1 — the CLI entry point. Pick it up and dispatch SWE.` |
-| → | bro | reads existing state via `issue_state_get(issue_id=1)`, dispatches SWE for task 1 — does NOT call `issue_create` or `task_create_batch` |
-| 2 | user | `Looks good. Wrap it up.` |
-| → | bro | terminal |
+| 1 | user | `@bro let's keep going on the CLI entry-point work.\n\nDon't ask questions.` |
+| → | bro | the `resume-intent-hint.sh` hook detects "keep going" and injects context with the specific `task_id` / `branch_id` to resume; bro calls `task_get` + spawns SWE for the existing task. Does NOT call `issue_create` or `task_create_batch`. Single turn. |
 
 ## Pass criteria
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | exactly 1 issue (id=1) — bro did NOT create a duplicate; tasks count is exactly 1 (no duplicate planning) |
-| `outcome-coherence.json` | `issues WHERE id != 999999`: `=1`; `tasks`: `=1` |
+| `outcome.sql` | resume issue exists exactly once (`objective='Add a CLI entry point (resume)'`); task on `feat/seed-cli` exists exactly once — bro did NOT replan |
+| `outcome-coherence.json` | resume issue count `=1`; task on `feat/seed-cli` count `=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `Agent` (SWE dispatch). The "must read existing state" half is asserted by `outcome.sql` + `outcome-coherence.json` — if bro replanned, those would show 2/2. |
 | `tools-forbidden.json` | `issue_create`, `task_create_batch` — bro must NOT replan |

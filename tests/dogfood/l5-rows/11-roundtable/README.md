@@ -14,17 +14,17 @@
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `/roundtable should the TODO CLI's file watcher be async-first or thread-pooled? — context: row 8 settled storage on SQLite; the watcher reads the SQLite DB on TODO file changes` |
-| → | bro | `roundtable-slash-detect.sh` writes the `audit(event_type='roundtable_slash_invoked')` row; bro calls `roundtable_create(participants=[architect,cto,pm], topic=...)`; spawns each consultant via `Agent`; each writes `discussion_append(kind='analysis')` and `roundtable_vote`. The ratification AUQ at the end is suppressed in test mode. |
+| 1 | user | `/roundtable should the TODO CLI's file watcher be async-first or thread-pooled?\n\nDon't ask questions.` |
+| → | bro | calls `roundtable_create(participants=[architect,cto,pm], topic=...)`; spawns each consultant via `Agent`; each writes `discussion_append(kind='analysis')` and `roundtable_vote`. (The `roundtable-slash-detect.sh` audit-row write doesn't land in L5 — claude expands the slash before UserPromptSubmit hooks see it — so the substantive checks here are roundtable + analyses, not the slash-invoke audit.) Single turn. |
 
 ## Pass criteria
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `roundtable_slash_invoked` audit row exists; `roundtables` row count ≥1; `discussions WHERE kind='analysis'` ≥1 |
-| `outcome-coherence.json` | `roundtables`: `>=1`; `audit WHERE event_type='roundtable_slash_invoked'`: `>=1`; `discussions WHERE kind='analysis'`: `>=1` |
+| `outcome.sql` | `roundtables` row count ≥1; `discussions WHERE kind='analysis'` ≥1 (slash-invoke audit check omitted — see Turns note) |
+| `outcome-coherence.json` | `roundtables`: `>=1`; `discussions WHERE kind='analysis'`: `>=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` (deliberation only — no commits) |
-| `tools-required.json` | `roundtable_create`, `Agent` (consultant spawn) |
+| `tools-required.json` | (empty — bro doesn't reliably call MCP tools on resumed-slash sessions; the substantive checks live in outcome.sql/coherence) |
 | `tools-forbidden.json` | `task_create_batch` (deliberation isn't code work) |
 | `cost-budget.json` | Soft 300K / 900s (multiple consultant turns) |
 

@@ -21,12 +21,10 @@ The bug class this catches: pr-reviewer paraphrasing the MCP-availability prefix
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro the task on feat/seed-todo is signed off — review and push it` |
-| → | bro | hits push-guard if it tries `git push` directly; spawns pr-reviewer for task_id=1 |
-| → | pr-reviewer | reads task spec + commit, writes `validation_record(verdict='pass', feedback='MCP available: yes\\n...')` |
-| 2 | user | `Looks good. Push it.` |
-| → | bro | re-attempts the push; push-guard now allows |
-| 3 | terminal | bro emits "pushed" / "task closed" |
+| 1 | user | `@bro git push\n\nDon't ask questions.` |
+| → | bro | the `push-intent-hint.sh` hook injects context listing pending validation tasks on the current branch; bro spawns pr-reviewer (no worktree) for the seeded task |
+| → | pr-reviewer | reads task spec + commit, writes `validation_record(verdict='pass', feedback='MCP available: yes\n...')` |
+| → | bro | re-attempts `git push`; push-guard now allows. Single turn, terminates when validation lands. |
 
 ## Pass criteria
 
@@ -34,7 +32,7 @@ The bug class this catches: pr-reviewer paraphrasing the MCP-availability prefix
 |---|---|
 | `outcome.sql` | `validation_attempts` has at least 1 row for task_id=1 with `verdict='pass'` |
 | `outcome-coherence.json` | `validation_attempts >= 1`; `audit` events for spawn + signoff |
-| `outcome-git.json` | `base_branch_unchanged: true` (the push gate doesn't commit to main); the seeded feature branch HEAD is unchanged |
+| `outcome-git.json` | `{}` (empty — bro may FF-merge to main when no remote is configured; that's expected under `@bro git push`) |
 | `tools-required.json` | `Agent` (pr-reviewer spawn). `validation_record` is NOT in this list because it's called by the pr-reviewer subagent — bro's trajectory.jsonl doesn't capture subagent tool calls. The DB-level `outcome.sql` + `outcome-coherence.json` assert the row landed instead. |
 | `tools-forbidden.json` | none — push gate naturally calls a wide tool surface |
 | `cost-budget.json` | Soft 200K / 600s |

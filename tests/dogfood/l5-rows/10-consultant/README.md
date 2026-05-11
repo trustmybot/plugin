@@ -21,10 +21,8 @@ The unified row exercises the "template-copy required" path because it's a stric
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro spawn the cto and have them weigh in on whether we should switch from a monolith to microservices for our auth service` |
-| → | bro | calls `agent_list`, sees cto is template-scope, invokes `tmb_agent-creator` (template-copy → file landed at `.claude/agents/cto.md` + `agent_register` + `audit_log` with `event_type='tmb_agent_created'`), then spawns cto via `Agent` |
-| 2 | user | `Good. Move on.` |
-| → | bro | terminal |
+| 1 | user | `@bro let cto weigh in on monolith vs microservices for auth.\n\nDon't ask questions.` |
+| → | bro | calls `agent_list`, sees cto is template-scope, invokes `tmb_agent-creator` (template-copy → file landed at `.claude/agents/cto.md` + `agent_register` + `audit_log` with `event_type='tmb_agent_created'`), then spawns cto via `Agent`. Single turn. |
 
 ## Pass criteria
 
