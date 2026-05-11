@@ -33,14 +33,18 @@ case "$PROMPT" in
 esac
 
 # Pattern detection — reonboard intent. Precision over recall.
+# Patterns tolerate intermediate words (e.g. "make THIS PROJECT available
+# on github" matches "available on github").
 matched=""
 for pat in \
-  'make available on github' 'make available on gitlab' 'host on github' \
-  'host on gitlab' 'push to github' 'push to gitlab' 'put this on github' \
-  'put this on gitlab' 'put it on github' 'put it on gitlab' \
+  'available on github' 'available on gitlab' 'available on a remote' \
+  'host on github' 'host on gitlab' 'host it on github' 'host it on gitlab' \
+  'push to github' 'push to gitlab' 'put this on github' 'put this on gitlab' \
+  'put it on github' 'put it on gitlab' 'publish to github' 'publish to gitlab' \
   'switch to remote' 'go remote' 'add a remote' 'set up a remote' \
-  'add github remote' 'add gitlab remote' 'change my issue tracker' \
-  'switch issue tracker'; do
+  'set up the remote' 'add github remote' 'add gitlab remote' \
+  'change my issue tracker' 'switch issue tracker' \
+  'on github' 'on gitlab'; do
   case "$PROMPT" in
     *"$pat"*)
       matched="$pat"
