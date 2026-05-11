@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # L6 chain runner helpers. The chain walks all 13 journey rows sequentially
-# in one continuous CC session via `claude --session-id` (turn 1) +
-# `--resume` (subsequent turns). State carries across rows. See
+# against ONE cumulative trajectory DB. Each row fires a fresh `claude -p`
+# invocation — continuity is DB-driven, not LLM-session-driven. Bro's
+# tmb_recovery + state-aware MCPs (issue_state_get, task_first_actionable)
+# pick up from the DB on every cold start. See
 # tests/dogfood/l6-chain/chain-manifest.json for the row order + between-row
 # seeds, and tests/EVALUATION.md for the journey spec.
 
@@ -47,11 +49,16 @@ l6c_apply_seed() {
   sqlite3 "$project/.claude/tmb/trajectory.db" < "$seed"
 }
 
-# l6c_send_turn <project> <session_id> <is_first> <prompt> <turn_jsonl_out>
-# Sends one user message to the chained session. First turn registers the
-# session via --session-id; subsequent turns use --resume.
+# l6c_send_turn <project> <unused_session_id> <unused_is_first> <prompt> <turn_jsonl_out>
+# Fires one fresh `claude -p` invocation against the project's cumulative
+# trajectory DB. No --session-id / --resume — continuity is DB-driven via
+# bro's tmb_recovery / state-aware MCPs (issue_state_get,
+# task_first_actionable, etc.). That's the *workflow* under test in L6.
+#
+# Argument 2 and 3 are kept for backwards-compat with the prior signature
+# but ignored — see commit history if you need the old session-pinned form.
 l6c_send_turn() {
-  local project="$1" session_id="$2" is_first="$3" prompt="$4" out_jsonl="$5"
+  local project="$1" prompt="$4" out_jsonl="$5"
 
   (
     cd "$project" || exit 1
@@ -68,12 +75,6 @@ l6c_send_turn() {
       --verbose
       -p "$prompt"
     )
-
-    if [ "$is_first" = "1" ]; then
-      cc_args=(--session-id "$session_id" "${cc_args[@]}")
-    else
-      cc_args=(--resume "$session_id" "${cc_args[@]}")
-    fi
 
     _l5_timeout "${TMB_CLAUDE_TIMEOUT:-600}" claude "${cc_args[@]}" \
       > "$out_jsonl" 2>/tmp/tmb-l6c-stderr.$$ || true

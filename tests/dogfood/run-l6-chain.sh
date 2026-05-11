@@ -79,8 +79,7 @@ INITIAL_FIXTURE=$(jq -r '.initial_fixture' "$MANIFEST")
 printf '  fixture:  %s\n' "$INITIAL_FIXTURE"
 l5_seed_db "$PROJECT" "$INITIAL_FIXTURE" || { printf "❌ fixture seed failed\n" >&2; exit 1; }
 
-SESSION_ID=$(l6c_uuid)
-printf '  session:  %s\n' "$SESSION_ID"
+printf '  mode:     fresh `claude -p` per row (DB-driven resume)\n'
 printf '\n'
 
 CHAIN_TRAJECTORY="$RUN_DIR/chain-trajectory.jsonl"
@@ -163,19 +162,18 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
       > "$PROJECT/.claude/tmb/_l5_pre_run_git.json"
   fi
 
-  # Prepend the test-mode AUQ-suppression prefix on the FIRST turn only.
-  IS_FIRST=0
-  if [ "$step_id" = "1" ] || ! [ -s "$CHAIN_TRAJECTORY" ]; then
-    IS_FIRST=1
-  fi
-  PROMPT=$(cat "$ROW_DIR/prompt.txt")
-  if [ "$IS_FIRST" = "1" ]; then
-    PROMPT="$(_l5_test_prompt_prefix)$PROMPT"
-  fi
+  # Every step is a fresh `claude -p` invocation. Continuity comes from
+  # the cumulative trajectory DB, not from --session-id/--resume. Bro's
+  # native design uses tmb_recovery + state-aware MCPs (issue_state_get,
+  # task_first_actionable, etc.) to pick up from the DB on every cold
+  # start — that's the *workflow* under test. Using --resume would mask
+  # whether bro actually consults the DB and instead let him rely on LLM
+  # session history (which doesn't exist in real cross-session resumes).
+  PROMPT="$(_l5_test_prompt_prefix)$(cat "$ROW_DIR/prompt.txt")"
 
   TURN_JSONL="$STEP_DIR/turn.jsonl"
-  printf "  turn: claude --%s\n" "$([ "$IS_FIRST" = "1" ] && echo "session-id $SESSION_ID" || echo "resume $SESSION_ID")"
-  l6c_send_turn "$PROJECT" "$SESSION_ID" "$IS_FIRST" "$PROMPT" "$TURN_JSONL"
+  printf "  turn: claude -p (fresh session, DB-driven resume)\n"
+  l6c_send_turn "$PROJECT" "" "1" "$PROMPT" "$TURN_JSONL"
 
   cat "$TURN_JSONL" >> "$CHAIN_TRAJECTORY"
   # Per-step scoring reads $PROJECT/trajectory.jsonl. Required/forbidden

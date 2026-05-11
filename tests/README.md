@@ -124,7 +124,7 @@ CI runs L5 on tag pushes and on PRs labeled `L5`. The workflow at `.github/workf
 
 ## Run L6 dogfood (multi-turn integration)
 
-L6 drives real Claude Code through a multi-turn continuous session via `--session-id` / `--resume`, asserting cumulative state across the whole user journey.
+L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-row DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, `file_registry` on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
 Two runners share the per-row outcome bundles under `tests/dogfood/l5-rows/`:
 
@@ -134,8 +134,9 @@ Two runners share the per-row outcome bundles under `tests/dogfood/l5-rows/`:
 bash tests/dogfood/run-l6.sh                  # all rows
 bash tests/dogfood/run-l6.sh 07-push-gate     # one row by name substring
 
-# Chained run — walks all 13 rows in ONE Claude session via --session-id /
-# --resume. State carries across rows. Per-step logs land at
+# Chained run — walks all 13 rows against a cumulative trajectory DB.
+# Each row fires a fresh `claude -p`; DB continuity (not LLM-session
+# continuity) drives the chain. Per-step logs land at
 # ~/.claude/tmb/l6-chain-runs/<run-id>/. See tests/dogfood/l6-chain/README.md.
 bash tests/dogfood/run-l6-chain.sh                  # full chain
 bash tests/dogfood/run-l6-chain.sh --from 7         # resume from row 7

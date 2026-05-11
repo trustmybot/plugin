@@ -5,7 +5,7 @@ Two automated dogfood layers drive **real Claude Code through pre-seeded TMB wor
 | Layer | Purpose | Scope per run | When to run |
 |---|---|---|---|
 | **L5** | Per-row independent unit tests. Each test starts from a fixture that pre-seeds the **cumulative state up to this row** (codebase, MCP DB, discussions, issues, tasks, audit, etc.). One row = one test. | Single bro turn (or short multi-turn) against pre-seeded state. Fast, isolated, ~$0.20/test. | Debug or regression-test a single row's contract. **First-line check after a fix** — if the L5 for that row doesn't pass, don't run L6. |
-| **L6** | Single **chained integration test** that walks ALL 13 journey rows sequentially in one continuous session via `claude --session-id` / `--resume`. State carries across rows: row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 13-row chain in one session. Slow, ~$0.30–1/scenario × 13 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row continuity holds end-to-end. |
+| **L6** | Single **chained integration test** that walks ALL 13 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_state_get` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 13-row chain. Slow, ~$0.30–1/scenario × 13 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
 
 The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration → L4 workflow-sim → L5 → L6) lives in [`README.md`](./README.md). This doc is the reference for how L5 + L6 work and what each catches.
 
@@ -153,7 +153,7 @@ Scorer runs `SELECT COUNT(*) FROM <table> [WHERE <suffix>]` per key and checks a
 
 ## L6 — chained integration runner
 
-L6 walks all 13 journey rows sequentially in **one** continuous CC session via `claude --session-id` / `--resume`. State carries across rows: row N's bro turn produces real DB writes that row N+1 inherits. The TODO CLI codebase grows row by row.
+L6 walks all 13 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation — **continuity is DB-driven**, not LLM-session-driven. Bro's `tmb_recovery` skill + state-aware MCPs (`issue_state_get`, `task_first_actionable`, `issue_resume`, etc.) pick up real cross-session state from the DB. Row N's bro turn writes to the DB; row N+1's fresh bro reads those writes on startup. This mirrors how cross-session resume actually works in production. The TODO CLI codebase grows row by row.
 
 ```bash
 bash tests/dogfood/run-l6.sh                  # full chain, all 13 rows
@@ -189,7 +189,7 @@ tests/dogfood/
 1. `l6_setup_scratch_project` — single project, single DB, single git repo. Initialised once at chain start.
 2. For each row in `chain-manifest.json`:
    - Apply pre-state seed (fixture or prior-row carry-forward).
-   - Send `prompt.txt` via `claude --resume <session_id>`.
+   - Send `prompt.txt` via a fresh `claude -p` invocation (no `--resume`).
    - Score the post-state against the row's outcome bundle.
    - For 🟡 partial-test rows: inject post-AUQ pseudo-data before row N+1.
    - Write per-step log section.
@@ -202,7 +202,7 @@ Every L6 run produces a per-step log so failures are debuggable without replayin
 ```
 <run-id>/
 ├── chain-summary.md             # one-page report: row-by-row pass/fail + cost + duration
-├── chain-trajectory.jsonl       # cumulative claude --resume stream-json across all turns
+├── chain-trajectory.jsonl       # cumulative stream-json concatenated across all per-row claude -p turns
 ├── step-01-cold-start/
 │   ├── pre-state.sql            # DB snapshot before this row fires
 │   ├── user-input.txt           # the user prompt sent this turn
