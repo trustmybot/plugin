@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { dirname } from 'node:path';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { resolveDefaultRepo } from '../utils/repo-paths.js';
 import { BRANCH_ID_RE } from './tasks.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -64,14 +64,6 @@ function intentToType(text) {
 }
 function md5OfBuffer(buf) {
     return createHash('md5').update(buf).digest('hex');
-}
-function resolveProjectPath(p, dbPath) {
-    if (isAbsolute(p))
-        return p;
-    // Project root is two levels above the trajectory DB:
-    //   <root>/.claude/<plugin>/trajectory.db
-    const root = dirname(dirname(dirname(dbPath)));
-    return resolve(root, p);
 }
 export function compositeTools(db, dbPath) {
     const definitions = [
@@ -152,6 +144,10 @@ export function compositeTools(db, dbPath) {
                             properties: {
                                 path: { type: 'string' },
                                 summary: { type: 'string' },
+                                repo: {
+                                    type: 'string',
+                                    description: 'Optional repo name from repos table. Defaults to tasks.repo, then tmb_default_repo. Required for workspace-pattern projects so paths resolve against the right inner repo.',
+                                },
                             },
                             required: ['path', 'summary'],
                         },
@@ -271,7 +267,7 @@ export function compositeTools(db, dbPath) {
                     return err('each file_summaries entry must have string { path, summary }.');
                 }
             }
-            const task = db.get('SELECT id, issue_id, branch_id, status FROM tasks WHERE id = ? LIMIT 1', [taskId]);
+            const task = db.get('SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ? LIMIT 1', [taskId]);
             if (!task)
                 return err(`No task with id=${taskId}`);
             if (task.status !== 'completed' && task.status !== 'needs_validation') {
@@ -279,7 +275,6 @@ export function compositeTools(db, dbPath) {
                     `bro_atomic_close runs after SWE flips status to completed.`);
             }
             const now = nowISO();
-            const projectRoot = dirname(dirname(dirname(dbPath)));
             const result = db.transaction(() => {
                 // 1. bro_verification_pass audit row.
                 db.run(`INSERT INTO audit
@@ -291,12 +286,37 @@ export function compositeTools(db, dbPath) {
                     JSON.stringify({ task_id: task.id, commit_sha: commitSha, file_count: summaries.length }),
                     now,
                 ]);
-                // 2. file_registry summaries — md5 each path against the commit.
+                // 2. file_registry summaries — per-update repo resolution + md5 each
+                // path against the commit. Multi-repo workspace pattern requires
+                // resolving paths under the right inner repo, not the workspace root.
+                // Resolution order (per #2885 sibling fix): explicit s.repo → task.repo
+                // → tmb_default_repo → error mentioning all three.
                 const summaryErrors = [];
                 let summarized = 0;
+                const defaultRepo = resolveDefaultRepo(db, dbPath);
                 for (const s of summaries) {
+                    const explicit = typeof s.repo === 'string' && s.repo.length > 0 ? s.repo : null;
+                    const repoName = explicit ?? task.repo ?? defaultRepo?.name ?? null;
+                    if (!repoName) {
+                        summaryErrors.push({
+                            path: s.path,
+                            error: 'no repo specified, task.repo unset, and tmb_default_repo not set — ' +
+                                'pass `repo` on the file_summaries entry, or set task.repo via task_create_batch, ' +
+                                'or run /scan to populate tmb_default_repo',
+                        });
+                        continue;
+                    }
+                    const repoRow = db.get(`SELECT path FROM repos WHERE name = ?`, [repoName]);
+                    if (!repoRow?.path) {
+                        summaryErrors.push({
+                            path: s.path,
+                            error: `repo '${repoName}' not found in repos table — run /scan first`,
+                        });
+                        continue;
+                    }
+                    const repoRoot = repoRow.path;
                     let md5 = null;
-                    const abs = resolveProjectPath(s.path, dbPath);
+                    const abs = isAbsolute(s.path) ? s.path : resolve(repoRoot, s.path);
                     if (existsSync(abs)) {
                         try {
                             md5 = md5OfBuffer(readFileSync(abs));
@@ -308,23 +328,26 @@ export function compositeTools(db, dbPath) {
                     if (md5 === null) {
                         try {
                             const buf = execFileSync('git', ['show', `${commitSha}:${s.path}`], {
-                                cwd: projectRoot,
+                                cwd: repoRoot,
                                 stdio: ['ignore', 'pipe', 'ignore'],
                                 maxBuffer: 64 * 1024 * 1024,
                             });
                             md5 = md5OfBuffer(buf);
                         }
                         catch {
-                            summaryErrors.push({ path: s.path, error: `not on disk and not in commit ${commitSha}` });
+                            summaryErrors.push({
+                                path: s.path,
+                                error: `not on disk at ${abs} and not in commit ${commitSha} of ${repoName}`,
+                            });
                             continue;
                         }
                     }
-                    db.run(`INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
-               VALUES (?, 'unknown', ?, ?, ?)
-               ON CONFLICT(path) DO UPDATE SET
+                    db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+               VALUES (?, ?, 'unknown', ?, ?, ?)
+               ON CONFLICT(repo, path) DO UPDATE SET
                  content_md5        = excluded.content_md5,
                  summary            = excluded.summary,
-                 summary_updated_at = excluded.summary_updated_at`, [s.path, md5, s.summary, now]);
+                 summary_updated_at = excluded.summary_updated_at`, [repoName, s.path, md5, s.summary, now]);
                     summarized += 1;
                 }
                 if (summaryErrors.length > 0) {
