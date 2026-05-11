@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { tempDB } from './helpers.js';
 import { compositeTools } from '../tools/composites.js';
 import { issueTools } from '../tools/issues.js';
@@ -237,6 +240,207 @@ describe('bro_atomic_close', () => {
         });
         assert.equal(r.isError, true);
         assert.equal(parse(r)['error'], 'forbidden');
+    });
+});
+// #2873-sibling: workspace-pattern multi-repo path resolution on
+// bro_atomic_close.file_summaries. Per-update repo: explicit `repo` →
+// task.repo → tmb_default_repo → error. Each test uses a tmp workspace
+// shape with at least two on-disk inner repos and a trajectory DB at
+// <ws>/.claude/tmb/trajectory.db so resolveDefaultRepo + the inner-repo
+// path resolution exercise correctly.
+describe('bro_atomic_close multi-repo file_summaries', () => {
+    // Helper: build a workspace-pattern fixture with two inner repos, return
+    // { ws, dbPath, repoARoot, repoBRoot, db, composites, taskFactory }.
+    function makeMultiRepoFixture() {
+        const ws = mkdtempSync(join(tmpdir(), 'bac-mr-'));
+        const repoARoot = join(ws, 'app');
+        const repoBRoot = join(ws, 'service');
+        mkdirSync(repoARoot, { recursive: true });
+        mkdirSync(repoBRoot, { recursive: true });
+        // Touchable source files so disk-md5 path wins. `app` and `service`
+        // each get one file at a known relative path.
+        mkdirSync(join(repoARoot, 'src'), { recursive: true });
+        writeFileSync(join(repoARoot, 'src', 'index.ts'), 'export const x = 1;\n');
+        mkdirSync(join(repoBRoot, 'lib'), { recursive: true });
+        writeFileSync(join(repoBRoot, 'lib', 'core.ts'), 'export const core = true;\n');
+        // Workspace-pattern DB location: <ws>/.claude/tmb/trajectory.db.
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoARoot]);
+        db.run(`INSERT INTO repos (name, path) VALUES ('service', ?)`, [repoBRoot]);
+        const composites = compositeTools(db, dbPath);
+        const issues = issueTools(db, dbPath);
+        const tasks = taskTools(db);
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        const issueFactory = async (objective) => {
+            const out = parse(await call(issues.handlers, 'issue_create', {
+                agent: 'bro',
+                objective,
+                description: 'multi-repo fixture',
+            }));
+            return out['id'];
+        };
+        const taskFactory = async (issueId, repo) => {
+            // Satisfy decision_gate + branch_id_proposed gate first.
+            await call(discussions.handlers, 'discussion_append', {
+                agent: 'bro',
+                issue_id: String(issueId),
+                author: 'bro',
+                kind: 'decision',
+                body: 'multi-repo fixture decision',
+            });
+            await call(audit.handlers, 'audit_log', {
+                agent: 'bro',
+                issue_id: String(issueId),
+                kind: 'event',
+                event_type: 'branch_id_proposed',
+                from_node: 'bro',
+                branch_id: `fix/multi-repo-${issueId}`,
+                summary: 'fixture',
+            });
+            const taskArgs = {
+                agent: 'bro',
+                issue_id: String(issueId),
+                waive_intent_gate: true,
+                waive_intent_gate_reason: 'unit-test fixture; intent gate not under test',
+                waive_branch_gate: true,
+                waive_branch_gate_reason: 'unit-test fixture; branch gate not under test',
+                waive_scope_gate: true,
+                waive_scope_gate_reason: 'unit-test fixture; scope-ambiguity gate not under test',
+                tasks: [
+                    {
+                        branch_id: `fix/multi-repo-${issueId}`,
+                        description: 'multi-repo fixture',
+                        success_criteria: 'sc',
+                        spec_body: 'fixture',
+                        ...(repo !== null ? { repo } : {}),
+                    },
+                ],
+            };
+            const created = (await call(tasks.handlers, 'task_create_batch', taskArgs));
+            const arr = parse(created);
+            const id = arr[0].id;
+            // Flip status so bro_atomic_close accepts the row.
+            await call(tasks.handlers, 'task_update_status', {
+                agent: 'swe',
+                task_id: String(id),
+                status: 'running',
+            });
+            await call(tasks.handlers, 'task_update_status', {
+                agent: 'swe',
+                task_id: String(id),
+                status: 'completed',
+                commit_sha: 'abc1234',
+            });
+            return id;
+        };
+        return {
+            ws,
+            dbPath,
+            repoARoot,
+            repoBRoot,
+            db,
+            composites,
+            issueFactory,
+            taskFactory,
+            cleanup: () => {
+                db.close();
+                rmSync(ws, { recursive: true, force: true });
+            },
+        };
+    }
+    it('explicit `repo` on the file_summaries entry wins over task.repo + tmb_default_repo', async () => {
+        const fx = makeMultiRepoFixture();
+        try {
+            fx.db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"app"', datetime('now'))`);
+            const issueId = await fx.issueFactory('explicit-repo wins');
+            const taskId = await fx.taskFactory(issueId, 'app'); // task.repo='app'
+            const result = await call(fx.composites.handlers, 'bro_atomic_close', {
+                agent: 'bro',
+                task_id: String(taskId),
+                commit_sha: 'abc1234',
+                // explicit repo='service' on the file_summaries entry — should win.
+                file_summaries: [{ path: 'lib/core.ts', summary: 'core', repo: 'service' }],
+                verification_summary: 'ok',
+            });
+            assert.ok(!result.isError, `expected ok, got: ${JSON.stringify(parse(result))}`);
+            const row = fx.db.get(`SELECT repo, summary FROM file_registry WHERE summary = 'core'`);
+            assert.ok(row);
+            assert.equal(row.repo, 'service', 'explicit per-update repo wins');
+        }
+        finally {
+            fx.cleanup();
+        }
+    });
+    it('falls back to task.repo when file_summaries entry omits repo', async () => {
+        const fx = makeMultiRepoFixture();
+        try {
+            // Set tmb_default_repo to the OTHER repo to prove task.repo wins.
+            fx.db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"service"', datetime('now'))`);
+            const issueId = await fx.issueFactory('task.repo fallback');
+            const taskId = await fx.taskFactory(issueId, 'app'); // task.repo='app'
+            const result = await call(fx.composites.handlers, 'bro_atomic_close', {
+                agent: 'bro',
+                task_id: String(taskId),
+                commit_sha: 'abc1234',
+                file_summaries: [{ path: 'src/index.ts', summary: 'index' }],
+                verification_summary: 'ok',
+            });
+            assert.ok(!result.isError, `expected ok, got: ${JSON.stringify(parse(result))}`);
+            const row = fx.db.get(`SELECT repo, summary FROM file_registry WHERE summary = 'index'`);
+            assert.ok(row);
+            assert.equal(row.repo, 'app', 'task.repo wins over tmb_default_repo');
+        }
+        finally {
+            fx.cleanup();
+        }
+    });
+    it('falls back to tmb_default_repo when neither explicit nor task.repo is set', async () => {
+        const fx = makeMultiRepoFixture();
+        try {
+            fx.db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"service"', datetime('now'))`);
+            const issueId = await fx.issueFactory('tmb_default_repo fallback');
+            const taskId = await fx.taskFactory(issueId, null); // task.repo NULL
+            const result = await call(fx.composites.handlers, 'bro_atomic_close', {
+                agent: 'bro',
+                task_id: String(taskId),
+                commit_sha: 'abc1234',
+                file_summaries: [{ path: 'lib/core.ts', summary: 'core via default' }],
+                verification_summary: 'ok',
+            });
+            assert.ok(!result.isError, `expected ok, got: ${JSON.stringify(parse(result))}`);
+            const row = fx.db.get(`SELECT repo, summary FROM file_registry WHERE summary = 'core via default'`);
+            assert.ok(row);
+            assert.equal(row.repo, 'service', 'tmb_default_repo wins when task.repo is null');
+        }
+        finally {
+            fx.cleanup();
+        }
+    });
+    it('throws transaction-aborted error when no repo can be resolved', async () => {
+        const fx = makeMultiRepoFixture();
+        try {
+            // No tmb_default_repo. task.repo also null.
+            const issueId = await fx.issueFactory('no repo anywhere');
+            const taskId = await fx.taskFactory(issueId, null);
+            const result = await call(fx.composites.handlers, 'bro_atomic_close', {
+                agent: 'bro',
+                task_id: String(taskId),
+                commit_sha: 'abc1234',
+                file_summaries: [{ path: 'src/index.ts', summary: 'no repo' }],
+                verification_summary: 'ok',
+            });
+            assert.equal(result.isError, true);
+            const err = parse(result)['error'];
+            assert.match(err, /no repo specified/i);
+            assert.match(err, /task\.repo/i);
+            assert.match(err, /tmb_default_repo/i);
+        }
+        finally {
+            fx.cleanup();
+        }
     });
 });
 //# sourceMappingURL=composites.test.js.map
