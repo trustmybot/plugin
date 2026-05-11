@@ -42,7 +42,15 @@ PY
 # Compute md5 of the file content the same way file_registry_upsert would.
 content_md5=$(md5 -q "$PROJECT/src/auth.py" 2>/dev/null || md5sum "$PROJECT/src/auth.py" | cut -d' ' -f1)
 
+# Seed `repos` AND `file_registry` consistently. The post-read-summary-hint
+# hook walks `repos` to convert the Read tool's absolute path back to a
+# repo-relative path; without a `repos` row matching the scratch project's
+# absolute path, the hook falls back to absolute and the registry lookup
+# never finds 'src/auth.py'. Wire both up so the hint fires.
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
-INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
-VALUES ('src/auth.py', 'source', '$content_md5', NULL, NULL);
+INSERT OR REPLACE INTO repos (name, path, default_branch)
+VALUES ('todo-cli', '$PROJECT', 'main');
+
+INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+VALUES ('todo-cli', 'src/auth.py', 'source', '$content_md5', NULL, NULL);
 SQL
