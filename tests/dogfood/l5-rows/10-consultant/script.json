@@ -1,7 +1,5 @@
 {
-  "max_turns": 3,
-  "user_after_bro": [
-    "Good. Move on."
-  ],
+  "max_turns": 1,
+  "user_after_bro": [],
   "terminal_pattern": "moving on|let me know|ready when|nothing else|all set"
 }
