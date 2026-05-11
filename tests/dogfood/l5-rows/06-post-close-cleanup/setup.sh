@@ -44,12 +44,15 @@ content_md5=$(md5 -q "$PROJECT/src/auth.py" 2>/dev/null || md5sum "$PROJECT/src/
 
 # Seed `repos` AND `file_registry` consistently. The post-read-summary-hint
 # hook walks `repos` to convert the Read tool's absolute path back to a
-# repo-relative path; without a `repos` row matching the scratch project's
-# absolute path, the hook falls back to absolute and the registry lookup
-# never finds 'src/auth.py'. Wire both up so the hint fires.
+# repo-relative path. Use the *physical* (symlink-resolved) project path
+# because Read resolves symlinks: on macOS, mktemp returns
+# /var/folders/.../tmb-l5-X but Read sees /private/var/folders/.../tmb-l5-X.
+# The hook's prefix match needs the same canonical form.
+PROJECT_REAL=$(cd "$PROJECT" && pwd -P)
+
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
 INSERT OR REPLACE INTO repos (name, path, default_branch)
-VALUES ('todo-cli', '$PROJECT', 'main');
+VALUES ('todo-cli', '$PROJECT_REAL', 'main');
 
 INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
 VALUES ('todo-cli', 'src/auth.py', 'source', '$content_md5', NULL, NULL);
