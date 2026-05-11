@@ -115,6 +115,21 @@ INSERT OR IGNORE INTO agents (name, kind, scope, file_path, tmb_owner) VALUES
     ('ceo',          'consultant', 'template', 'templates/agents/ceo.md',       'bro'),
     ('pm',           'consultant', 'template', 'templates/agents/pm.md',        'bro');
 
+-- Schema-seed the bundled tmb_* skills (#2884). Without this seed the skills
+-- table sits empty on every install — none of the shipped skills register
+-- themselves at session start. Mirrors the `agents` seed pattern above.
+-- Descriptions come from each SKILL.md's frontmatter (kept short — full
+-- routing logic lives in the SKILL.md body, this row is just the index).
+INSERT OR IGNORE INTO skills (name, description, file_path, created_by, trust_tier, status, created_at, updated_at) VALUES
+    ('tmb_planning',           'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'system', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_concerns-protocol',  'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'system', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_recovery',           'Bro''s response when something fails — AskUserQuestion errors / TMB_HEADLESS=1, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                  'skills/tmb_recovery/SKILL.md',           'system', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_review',             'Review surface — pr-reviewer''s qualitative phases at the push gate, bro''s PR/MR comment triage flow, and bro''s push-time orchestration.',                                                                 'skills/tmb_review/SKILL.md',             'system', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_swe-checklist',      'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'system', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_docs-conventions',   'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'system', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_skill-creator',      'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'system', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_agent-creator',      'Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn.',                  'skills/tmb_agent-creator/SKILL.md',      'system', 'curated', 'active', datetime('now'), datetime('now'));
+
 -- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
 -- discussion writes that don't belong to any user-created work issue. The
 -- tmb_recovery doctrine and the /onboard headless-block path target this id.
