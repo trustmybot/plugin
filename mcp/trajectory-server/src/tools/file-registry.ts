@@ -487,6 +487,11 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
           if (typeof update.summary !== 'string') {
             return err('each update.summary must be a string');
           }
+          if (update.summary.trim().length === 0) {
+            return err(
+              'each update.summary must be a non-empty 1–2 line description (got empty / whitespace-only)',
+            );
+          }
         }
 
         const advance = args['advance_verified_sha'];

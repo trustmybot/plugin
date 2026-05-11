@@ -1,3 +1,3 @@
-@bro I want to make this project available on GitHub.
+@bro I want to make this project available on GitLab.
 
 Don't ask questions.

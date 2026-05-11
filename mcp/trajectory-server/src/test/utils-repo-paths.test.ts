@@ -40,4 +40,18 @@ describe('resolveDefaultRepoPath', () => {
     assert.equal(result, undefined);
     db.close();
   });
+
+  it('single-repo: returns repos.path verbatim when the row exists', () => {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO repos (name, path, default_branch) VALUES ('my-repo', '/abs/path/to/my-repo', 'main')`,
+    );
+    db.run(
+      `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"my-repo"', datetime('now'))`,
+    );
+    const result = resolveDefaultRepoPath(db, '/elsewhere/.claude/tmb/trajectory.db');
+    // repos.path wins over the workspace synthesis — this is the bug fix.
+    assert.equal(result, '/abs/path/to/my-repo');
+    db.close();
+  });
 });
