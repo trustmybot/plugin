@@ -72,6 +72,42 @@ describe('syncIssueCreate', () => {
     assert.equal(result.remote_kind, 'gitlab');
   });
 
+  it('parses gitlab work_items URL from glab stdout (current glab ≥1.40, #2875)', async () => {
+    const spawnFn = makeSpawnFn([
+      {
+        status: 0,
+        stdout: 'https://gitlab.com/trustmybot/plugin/-/work_items/2874\n',
+        stderr: '',
+      },
+    ]);
+    const result = await syncIssueCreate({
+      issueId: 1,
+      title: 'Test',
+      body: 'Body',
+      _backend: 'glab',
+      _spawnFn: spawnFn,
+    });
+    assert.ok(!isSyncFailure(result));
+    assert.equal(result.remote_iid, 2874);
+    assert.equal(result.remote_kind, 'gitlab');
+  });
+
+  it('parses bare-iid `#42` stdout form (older gh/glab, #2875)', async () => {
+    const spawnFn = makeSpawnFn([
+      { status: 0, stdout: '#42\n', stderr: '' },
+    ]);
+    const result = await syncIssueCreate({
+      issueId: 1,
+      title: 'Test',
+      body: 'Body',
+      _backend: 'gh',
+      _spawnFn: spawnFn,
+    });
+    assert.ok(!isSyncFailure(result));
+    assert.equal(result.remote_iid, 42);
+    assert.equal(result.remote_kind, 'github');
+  });
+
   it('returns SyncFailure with stderr+exit_code when command fails (#2871)', async () => {
     const spawnFn = makeSpawnFn([
       { status: 1, stdout: '', stderr: 'auth error' },
