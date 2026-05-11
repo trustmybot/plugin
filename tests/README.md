@@ -147,10 +147,11 @@ CI gates L6 the same way as L5 — on tag pushes and PRs labeled `L6`.
 
 ### Writing prompts for L5/L6 rows
 
-L5/L6 test against bro's ability to translate user intent into the right orchestration. Prompts must sound like a real engineer typing — not like a workflow spec. Two rules:
+L5/L6 test against bro's ability to translate user intent into the right orchestration. Prompts must sound like a real engineer typing — not like a workflow spec. Three rules:
 
 1. **Lazy human tone.** Default to short and vague (`@bro git push`, `@bro hi`). Narrow + tight is fine **only** when needed to scope the assertion ("appends to ~/.todos" pins the file paths so outcome.sql can check them).
 2. **Implicit workflows stay bro-side.** Never have the user invoke a step that bro should auto-fire — that bypasses the contract under test.
+3. **Always end with `Don't ask questions.`** on a separate line. AUQ is suppressed in test mode, but bro still defaults to asking clarifying questions for ambiguous prompts — the chain then stalls because the synthetic user has no follow-up. This trailing line forces bro to apply documented defaults and proceed, mirroring a real-user "just do the thing" expectation.
 
 | ✓ Natural | ✗ Robotic / over-specified |
 |---|---|
