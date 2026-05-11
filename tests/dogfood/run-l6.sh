@@ -55,6 +55,12 @@ for scenario_dir in "$SCENARIOS_ROOT"/*/; do
   [ -d "$scenario_dir" ] || continue
   scenario_name=$(basename "$scenario_dir")
 
+  # Skip the misc/ bucket — those aren't journey rows. Run them explicitly via
+  # the filter if needed (e.g. `bash run-l6.sh legacy-onboard-then-task`).
+  if [ "$scenario_name" = "misc" ]; then
+    continue
+  fi
+
   if [ -n "$FILTER" ] && [[ "$scenario_name" != *"$FILTER"* ]]; then
     continue
   fi

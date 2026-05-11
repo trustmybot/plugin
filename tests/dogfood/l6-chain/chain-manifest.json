@@ -1,0 +1,125 @@
+{
+  "$schema": "./schema.json",
+  "description": "Single chained L6 integration test. 13 sequential rows over ONE claude --session-id / --resume session. Each step's pre-state is the prior step's post-state plus any between-row seed (post-AUQ pseudo-data + chain-state bridges). See tests/EVALUATION.md for the journey spec.",
+  "initial_fixture": "empty",
+  "initial_setup": null,
+  "steps": [
+    {
+      "id": 1,
+      "name": "01-cold-start",
+      "row_dir": "l5-rows/01-cold-start",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": "seeds/after-01-cold-start.sql",
+      "halt_on_fail": true
+    },
+    {
+      "id": 2,
+      "name": "02-onboard-local",
+      "row_dir": "l5-rows/02-onboard-local",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "id": 3,
+      "name": "03-reonboard-remote",
+      "row_dir": "l5-rows/03-reonboard-remote",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": "seeds/after-03-reonboard-remote.sql",
+      "halt_on_fail": true
+    },
+    {
+      "id": 4,
+      "name": "04-first-task-hits-gate",
+      "row_dir": "l5-rows/04-first-task-hits-gate",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "id": 5,
+      "name": "05-swe-atomic-close",
+      "row_dir": "l5-rows/05-swe-atomic-close",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "id": 6,
+      "name": "06-post-close-cleanup",
+      "row_dir": "l5-rows/06-post-close-cleanup",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "id": 7,
+      "name": "07-push-gate",
+      "row_dir": "l5-rows/07-push-gate",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "id": 8,
+      "name": "08-difficult-path",
+      "row_dir": "l5-rows/08-difficult-path",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": "seeds/after-08-difficult-path.sql",
+      "halt_on_fail": true
+    },
+    {
+      "id": 9,
+      "name": "09-concerns-protocol",
+      "row_dir": "l5-rows/09-concerns-protocol",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "id": 10,
+      "name": "10-consultant",
+      "row_dir": "l5-rows/10-consultant",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "id": 11,
+      "name": "11-roundtable",
+      "row_dir": "l5-rows/11-roundtable",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": "seeds/after-11-roundtable.sql",
+      "halt_on_fail": true
+    },
+    {
+      "id": 12,
+      "name": "12-issue-resume",
+      "row_dir": "l5-rows/12-issue-resume",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "id": 13,
+      "name": "13-pr-comment-review",
+      "row_dir": "l5-rows/13-pr-comment-review",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": false
+    }
+  ]
+}

@@ -1,7 +1,0 @@
-{
-  "max_turns": 3,
-  "user_after_bro": [
-    "Thanks, that's clear. We can move on."
-  ],
-  "terminal_pattern": "thanks|moving on|next step|let me know"
-}

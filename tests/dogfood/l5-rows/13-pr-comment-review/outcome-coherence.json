@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "tasks WHERE status='closed'": ">=1"
+  }
+}

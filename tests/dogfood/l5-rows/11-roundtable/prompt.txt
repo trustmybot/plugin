@@ -1,0 +1,1 @@
+/roundtable should the TODO CLI's file watcher be async-first or thread-pooled? — context: row 8 settled storage on SQLite; the watcher reads the SQLite DB on TODO file changes

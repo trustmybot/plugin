@@ -1,0 +1,7 @@
+{
+  "max_turns": 2,
+  "user_after_bro": [
+    "Sounds good. Capture the decision and move on."
+  ],
+  "terminal_pattern": "roundtable closed|decision recorded|finalize|ratified|deliberation complete"
+}

@@ -1,6 +1,0 @@
-{
-  "expected_writes": {
-    "agent_runs": ">=1",
-    "agent_runs WHERE task_id IS NOT NULL": ">=1"
-  }
-}
