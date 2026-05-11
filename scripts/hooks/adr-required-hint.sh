@@ -37,7 +37,11 @@ for pat in \
   'strategic stack' 'production db' 'retention policy' \
   'use react instead' 'use vue instead' 'use svelte instead' \
   'use fastapi instead' 'use django instead' 'use flask instead' \
-  'rewrite ... in' 'port ... to' 'replatform'; do
+  'rewrite ... in' 'port ... to' 'replatform' \
+  'extract the storage layer' 'extract the storage' 'storage interface' \
+  'storage backend' 'backend interface' 'pluggable backend' \
+  'pluggable storage' 'swap between' 'plugin loader' \
+  'plugin architecture' 'dependency inversion'; do
   case "$PROMPT" in
     *"$pat"*)
       matched="$pat"
