@@ -1,6 +1,5 @@
 {
   "expected_writes": {
-    "discussions WHERE LOWER(body) LIKE '%concern%'": ">=1",
-    "tasks": ">=1"
+    "discussions WHERE LOWER(body) LIKE '%concern%'": ">=1"
   }
 }

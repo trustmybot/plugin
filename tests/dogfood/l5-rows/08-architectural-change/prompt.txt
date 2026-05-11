@@ -1,3 +1,1 @@
-@bro let's switch to Clerk for auth.
-
-Don't ask questions.
+@bro extract the storage layer in `src/cli.py` into a backend interface so we can swap between JSON file and SQLite implementations later. Don't ask questions.

@@ -6,9 +6,9 @@
 -- their own issues.
 
 INSERT INTO discussions (issue_id, author, kind, body, created_at)
-SELECT id, 'bro', 'question', 'Q: which auth provider should we standardize on?', datetime('now')
+SELECT id, 'bro', 'question', 'Q: keep the interface in src/cli.py for now or move it under src/storage/?', datetime('now')
 FROM issues WHERE status IN ('open', 'closed') ORDER BY id DESC LIMIT 1;
 
 INSERT INTO discussions (issue_id, author, kind, body, created_at)
-SELECT id, 'user', 'answer', 'A: Clerk — managed, SOC2, decent SDK ergonomics.', datetime('now')
+SELECT id, 'user', 'answer', 'A: keep it in src/cli.py for the interface and JSON impl; split out only when the SQLite impl lands.', datetime('now')
 FROM issues WHERE status IN ('open', 'closed') ORDER BY id DESC LIMIT 1;
