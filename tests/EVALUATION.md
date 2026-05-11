@@ -268,7 +268,7 @@ Rules:
 - **One row = one L5 unit + one L6 chain step.**
 - **Cells without an actor write `—`.** Empty cells make it explicit which actors are dormant in that step.
 - **Outcome assertions cite DB tables / files / audit events** — what the scorers check.
-- **Partial-test pattern** for AUQ-bearing rows. The L5/L6 runner injects `[TEST MODE] Do not call AskUserQuestion. Apply documented defaults from skills/CLAUDE.md and continue.` so AUQ rarely fires. For rows whose production behaviour is "bro renders AUQ rounds" (e.g. onboard, branch-id confirm, difficult Q+A loop), the test cannot drive AUQ. The pattern is:
+- **Partial-test pattern** for AUQ-bearing rows. The L5/L6 runner injects `[TEST MODE] Do not call AskUserQuestion. Apply documented defaults from skills/CLAUDE.md and continue.` so AUQ rarely fires. For rows whose production behaviour is "bro renders AUQ rounds" (e.g. onboard, branch-id confirm), the test cannot drive AUQ. The pattern is:
   1. **Success criterion = bro initiates the AUQ chain.** Observable via the MCP calls bro makes BEFORE rendering AUQ — for onboard, that's `onboard_state_get` and/or `onboard_get_questions`. Asserted via `tools-required.json`.
   2. **Stop the test.** The scenario terminates after the intent signal.
   3. **Fixture seeds the post-AUQ state** so the next row can run. `onboarding-named.sql` seeds `identity` + `plugin_config` keys + `deep_scan_completed` audit; etc.
