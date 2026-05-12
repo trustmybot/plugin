@@ -33,11 +33,15 @@ def verify_token(token: str) -> str:
     return payload.split(b":", 1)[0].decode()
 PY
 
-(
-  cd "$PROJECT" || exit 1
-  git add src/auth.py
-  git commit -qm 'feat: add session-token utility'
-) >/dev/null
+# #2855-followup: do NOT commit src/auth.py. The hooks this row tests
+# (post-task-close-rescan + post-read-summary-hint) only need the file
+# to EXIST on disk + have a file_registry row. Committing here used to
+# pollute `main` with an unrelated commit — which then leaked into
+# row 7's `feat/seed-todo` (branched off main), causing pr-reviewer at
+# the push gate to correctly flag scope-creep ('feat: add session-token
+# utility' was not in task #2's spec_body ## Files). The L6 chain was
+# blocking pr-reviewer doing its job rather than letting the push-gate
+# happy path land. Leave the file untracked here.
 
 # Compute md5 of the file content the same way file_registry_upsert would.
 content_md5=$(md5 -q "$PROJECT/src/auth.py" 2>/dev/null || md5sum "$PROJECT/src/auth.py" | cut -d' ' -f1)
