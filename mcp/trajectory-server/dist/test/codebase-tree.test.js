@@ -18,7 +18,7 @@ function makeRow(overrides) {
 describe('renderCodebaseTree', () => {
     it('empty input produces valid doc with "0 files indexed."', () => {
         const out = renderCodebaseTree([], OPTS);
-        assert.ok(out.startsWith('<!-- Generated 2026-04-21 via /tmb refresh-architecture. Do not edit; regenerate. -->'), `Expected header:\n${out}`);
+        assert.ok(out.startsWith('<!-- Auto-rendered 2026-04-21. Do not edit. -->'), `Expected header:\n${out}`);
         assert.ok(out.includes('0 files indexed.'), `Expected "0 files indexed." in:\n${out}`);
         assert.ok(out.includes('# Codebase Tree'), `Expected heading in:\n${out}`);
     });
@@ -28,7 +28,7 @@ describe('renderCodebaseTree', () => {
     });
     it('output starts with generated-header line exactly', () => {
         const out = renderCodebaseTree([], OPTS);
-        assert.ok(out.startsWith('<!-- Generated 2026-04-21 via /tmb refresh-architecture.'));
+        assert.ok(out.startsWith('<!-- Auto-rendered 2026-04-21.'));
     });
     it('single file renders one leaf with correct annotation', () => {
         const rows = [makeRow({ path: 'src/index.ts', type: 'source', language: 'ts' })];

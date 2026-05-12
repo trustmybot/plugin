@@ -101,7 +101,7 @@ describe('renderChangelog', () => {
 
   it('output includes generation comment header', () => {
     const out = renderChangelog([], OPTS_WITH_SINCE);
-    assert.ok(out.startsWith('<!-- Generated 2026-04-21 via /tmb refresh-architecture.'), `Expected HTML comment header:\n${out}`);
+    assert.ok(out.startsWith('<!-- Auto-rendered 2026-04-21.'), `Expected HTML comment header:\n${out}`);
   });
 
   it('unique file count across all commits', () => {

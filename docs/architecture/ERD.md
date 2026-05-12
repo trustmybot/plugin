@@ -4,14 +4,14 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` base
 
 ## Overview
 
-15 tables in two groups (post-MR !156 + !159: `regen_state` and `identity` retired):
+15 tables in two groups (post-MR !156 + !159: the legacy scan-side drift-cache table and `identity` retired):
 
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
 | **Registries** (standalone) | `skills`, `repos`, `file_registry`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 
-The onboarded marker (formerly the `identity` table) is now `plugin_config('onboarded': true)` per #2876. The `regen_state` cache was retired with `architecture_regen` per #2881; scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json` instead.
+The onboarded marker (formerly the `identity` table) is now `plugin_config('onboarded': true)` per #2876. The legacy scan-side drift cache was retired alongside the standalone arch-refresh MCP tool per #2881; scan-side drift state now rides in `audit(event_type='deep_scan_completed').content_json` instead, with `scan_run` as the single scan-side surface.
 
 ## Diagram
 

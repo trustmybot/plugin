@@ -216,7 +216,7 @@ describe('scan_run — workspace discovery + persistence', () => {
   });
 
   // #2881: scan_run accepts a `source` arg + enriches the deep_scan_completed
-  // audit content_json with source / structural_change / regen_invoked.
+  // audit content_json with source / structural_change / repos_seen / top_dirs.
   describe('scan_run source + audit enrichment (#2881)', () => {
     it('persists source=user_manual in audit content_json when caller passes it', async () => {
       const ws = mkdtempSync(join(tmpdir(), 'scan-src-'));
@@ -231,9 +231,8 @@ describe('scan_run — workspace discovery + persistence', () => {
           source: 'user_manual',
         });
         assert.ok(!result.isError);
-        const data = parse(result) as { source: string; structural_change: boolean; regen_invoked: boolean };
+        const data = parse(result) as { source: string; structural_change: boolean };
         assert.equal(data.source, 'user_manual');
-        assert.equal(data.regen_invoked, false);
 
         const audit = db.get<{ content_json: string }>(
           `SELECT content_json FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1`,
@@ -241,7 +240,6 @@ describe('scan_run — workspace discovery + persistence', () => {
         assert.ok(audit);
         const parsedAudit = JSON.parse(audit!.content_json);
         assert.equal(parsedAudit.source, 'user_manual');
-        assert.equal(parsedAudit.regen_invoked, false);
         assert.ok(Array.isArray(parsedAudit.repos_seen));
         assert.ok(Array.isArray(parsedAudit.top_dirs));
 

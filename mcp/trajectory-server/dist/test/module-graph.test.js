@@ -19,7 +19,7 @@ function makeRow(path, language, imports) {
 describe('renderModuleGraph', () => {
     it('empty input → Modules: 0, Edges: 0, valid empty graph LR, no throw', () => {
         const out = renderModuleGraph([], OPTS);
-        assert.ok(out.startsWith('<!-- Generated 2026-04-21 via /tmb refresh-architecture.'));
+        assert.ok(out.startsWith('<!-- Auto-rendered 2026-04-21.'));
         assert.ok(out.includes('Modules: 0'));
         assert.ok(out.includes('Edges: 0'));
         assert.ok(out.includes('graph LR'));
@@ -134,7 +134,7 @@ describe('renderModuleGraph', () => {
     });
     it('output starts with generated-header comment', () => {
         const out = renderModuleGraph([], OPTS);
-        assert.ok(out.startsWith('<!-- Generated'));
+        assert.ok(out.startsWith('<!-- Auto-rendered'));
     });
     it('header contains generatedAt value', () => {
         const out = renderModuleGraph([], { generatedAt: '2099-01-01' });

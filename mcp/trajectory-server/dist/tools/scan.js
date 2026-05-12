@@ -67,7 +67,7 @@ const VALID_SCAN_SOURCES = new Set([
     'bro_auto_initial',
 ]);
 // Compute whether the current scan differs from the previous deep_scan_completed
-// audit row in a way that warrants architecture-regen (#2881). Currently a
+// audit row in a way that warrants an arch-doc refresh (#2881). Currently a
 // coarse heuristic: repo-set delta OR top-level dir set delta. Refinable later
 // with package-manager / language-set deltas.
 export function detectStructuralChange(db, currentRepos, currentTopDirs) {
@@ -159,7 +159,7 @@ export function scanTools(db) {
     const definitions = [
         {
             name: 'scan_run',
-            description: 'Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo\'s tracked files, computes md5 + size + last_commit_sha, and persists to repos + file_registry. Drift detection is md5-only (no git diff). Emits a deep_scan_completed audit event so the registry-cold gate clears. The audit content_json carries a `source` field naming who fired the scan (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) plus `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan) — useful for diagnostics + future architecture-regen auto-trigger (#2881). Phase 1 only — file summaries are filled by parallel subagents in Phase 2 (see commands/scan.md).',
+            description: 'Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo\'s tracked files, computes md5 + size + last_commit_sha, and persists to repos + file_registry. Drift detection is md5-only (no git diff). Emits a deep_scan_completed audit event so the registry-cold gate clears. The audit content_json carries a `source` field naming who fired the scan (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) plus `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan) — useful for diagnostics + the scan-side renderer pass (#2881). Phase 1 only — file summaries are filled by parallel subagents in Phase 2 (see commands/scan.md).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -224,8 +224,8 @@ export function scanTools(db) {
             const stats = persistScan(db, out);
             // #2881: structural-change detection vs previous deep_scan_completed
             // audit. The flag rides in the audit content_json so downstream
-            // tooling (eventual scan_run-internal renderer call, manual diagnostic
-            // queries) can decide whether the scan changed the project shape.
+            // tooling (the scan-side renderer pass, manual diagnostic queries)
+            // can decide whether the scan changed the project shape.
             const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
             const structuralChange = detectStructuralChange(db, out.repos, topDirs);
             // Emit deep_scan_completed audit row. Attach to the system issue
@@ -239,7 +239,6 @@ export function scanTools(db) {
                     scanned_at: out.scanned_at,
                     source,
                     structural_change: structuralChange,
-                    regen_invoked: false, // reserved for the scan_run-internal renderer call follow-up
                     repos_seen: out.repos.map((r) => r.name),
                     top_dirs: Array.from(topDirs).sort(),
                 }),
@@ -262,7 +261,6 @@ export function scanTools(db) {
                 repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
                 source,
                 structural_change: structuralChange,
-                regen_invoked: false,
                 ...stats,
             });
         })),

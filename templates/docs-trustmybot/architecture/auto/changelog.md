@@ -1,3 +1,3 @@
-<!-- Generated YYYY-MM-DD via /tmb refresh-architecture. Do not edit; regenerate. -->
+<!-- Auto-rendered placeholder. Do not edit. -->
 
-Run `/tmb refresh-architecture` to populate.
+Auto-rendered changelog lives here. Currently inert (see #2881 follow-up).

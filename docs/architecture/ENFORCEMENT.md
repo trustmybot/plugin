@@ -28,7 +28,6 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Activation routine (onboarded marker + pending issue injection) | 2 | `scripts/hooks/activation-routine.sh` |
 | Auto-fire `/onboard` on first contact | 2 | hook-injected `additionalContext` directs bro |
 | Bro never edits source code (every code change → SWE) | 2 | `scripts/hooks/no-source-edit-from-main.sh` |
-| Architecture-doc regen lazy nudge | 2 | `scripts/hooks/session-start-regen-check.sh` |
 | Project `.gitignore` excludes `.claude/` | 2 | `scripts/hooks/ensure-gitignore.sh` |
 | Bro creates the task branch (SWE may not invent / abbreviate) | 2 | `scripts/hooks/no-worktree-branch-create.sh` (also blocks `--detach`) |
 | Branch up-to-date with `origin/<pr_target>` before SWE attach | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
@@ -92,9 +91,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Conventional-commit subject format | 2 | `scripts/hooks/commit-msg-lint.sh` |
 | Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `scripts/hooks/code-quality-lint.sh` |
 | Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` (reports `file_registry: cold`/`warm`; bulk population belongs to `/scan`) |
-| Greenfield project must run `architecture_regen` before `task_create_batch` | 2 | `scripts/hooks/greenfield-arch-required.sh` |
 | Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/consultant-spawn-required.sh` |
-| Lazy-regen drift warning after `file_registry_update_summaries` | 2 | `scripts/hooks/lazy-regen-postcheck.sh` |
 | Roundtable capture-surface verification on `roundtable_close` | 2 | `scripts/hooks/roundtable-cleanup-postcheck.sh` |
 | Bro task-close atomic invariants (audit + summaries + status + issue close in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:bro_atomic_close` |
 | SWE retry composite (rationale + new task + audit in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:task_retry_batch` |

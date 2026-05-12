@@ -278,7 +278,7 @@ git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing trac
 
 ---
 
-## S-26: /monitor end-to-end — 5 mocked comments → 3 tasks → 1 arch-impact → SWE dispatch → arch regen → push gate
+## S-26: /monitor end-to-end — 5 mocked comments → 3 tasks → 1 arch-impact → SWE dispatch → scan refresh → push gate
 
 **Setup:**
 1. Fresh scratch project with TMB plugin active.
@@ -322,7 +322,7 @@ git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing trac
 **Expect — Phase 9 (dispatch):**
 - `task_create_batch` called once per task.
 - SWE spawned for each.
-- After SWE completes the arch-impact task: `architecture_regen MCP tool` is invoked before moving to the next task or push gate.
+- After SWE completes the arch-impact task: `scan_run(source='bro_auto_post_change')` is invoked before moving to the next task or push gate.
 
 **Expect — Phase 10 (state update):**
 ```sql
@@ -355,7 +355,7 @@ After all SWE tasks close, run `git push` — verify push gate requires pr-revie
 - 5 comments fetched, 3 remain after bot + informational filter.
 - Tasks grouped by file (A+B merged if grouping works).
 - AUQ shows tasks with `(arch-impact)` suffix on the schema task.
-- `architecture_regen MCP tool` invoked after the arch-impact task's SWE returns.
+- `scan_run(source='bro_auto_post_change')` invoked after the arch-impact task's SWE returns.
 - `pr_review_runs` row has correct counts.
 - Discussion entries created for all 5 fetched comments.
 

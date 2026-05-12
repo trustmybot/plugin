@@ -40,11 +40,9 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Skills | `tools/skills.ts` | `skill_register`, `skill_get`, `skill_record_outcome` |
 | Reports | `tools/reports.ts` | `issue_report_md` |
 | Config | `tools/config.ts` | `config_get`, `config_set`, `config_list` |
-| Identity | `tools/identity.ts` | `identity_get`, `identity_set` |
-| Regen state | `tools/regen-state.ts` | `regen_state_get`, `regen_state_update` |
+| Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
 | File registry | `tools/file-registry.ts` | `file_registry_upsert`, `file_registry_list`, `file_registry_verify`, `file_registry_delete`, `file_registry_update_summaries` |
 | Scan (workspace + repos + bulk file rows) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery), `repos_list`, `file_registry_bulk_upsert` |
-| Architecture regen | `tools/architecture-regen.ts` | `architecture_regen` |
 
 Role-gating is enforced per-tool via `requireRoles()` in `middleware/agent-scope.ts`. Valid roles: `bro`, `architect`, `swe`, `pr-reviewer`.
 

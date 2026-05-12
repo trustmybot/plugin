@@ -128,7 +128,7 @@ Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes w
 
 **Big token dividend — no codebase-rediscovery tax.** A cold-start agent without persistent memory has to re-derive what your project even *is* every session: glob the tree, read scattered files, walk git log, query the schema. Hundreds of tool round-trips, each one pulling content back into context. TMB sidesteps this two ways:
 
-- **Auto-regenerated architecture docs.** A handful of pre-computed snapshots (codebase tree, module graph, schema map, recent changelog) live under your project's docs dir, refreshed lazily as commits drift. Bro reads those once at session start and has the project's shape — no glob-and-read bounce.
+- **Auto-rendered architecture docs.** A handful of pre-computed snapshots (codebase tree, module graph, schema map, recent changelog) live under your project's docs dir, refreshed lazily as commits drift. Bro reads those once at session start and has the project's shape — no glob-and-read bounce.
 - **Local SQLite, no remote round-trips.** Trajectory lives in your project, not in a cloud service. No API call, no rate limit, no auth dance. Resume is one local read.
 
 > **Single-agent (amnesia + rediscovery tax):** kill Claude → lose your place. Re-explain context every session. Worse, the agent re-derives the codebase from scratch on every cold start — globbing, reading, walking git log — paying the discovery tax in tokens before it can do any actual work.

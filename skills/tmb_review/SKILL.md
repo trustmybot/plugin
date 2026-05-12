@@ -156,7 +156,7 @@ multiSelect: true
 options: [<task title (with optional (arch-impact) suffix)> per ratified group]
 ```
 
-For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `architecture_regen` after SWE returns.
+For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the file_registry.
 
 ## Code-quality criteria (qualitative reference)
 

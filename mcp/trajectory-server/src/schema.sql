@@ -219,8 +219,9 @@ CREATE TABLE IF NOT EXISTS file_registry (
     -- at atomic-close; summary_updated_at gates staleness.
     -- NOTE: the 8 derived-metadata columns above (language/size_bytes/etc.)
     -- are always-empty in production (#179 audit) but kept in the schema for
-    -- module-graph rendering and architecture_regen compat. Drop deferred to
-    -- a follow-up PR that also rewrites those consumers.
+    -- the module-graph renderer + the scan-side renderer pass (currently
+    -- inert; see #2881 follow-up). Drop deferred to a follow-up PR that also
+    -- rewrites those consumers.
     content_md5         TEXT,
     summary             TEXT,
     summary_updated_at  TEXT,

@@ -134,8 +134,9 @@ test('discussion_append — workflow agents (bro/architect) can append questions
   }
 });
 
-// architecture_regen + regen_state_set tests removed 2026-05 (#2881 follow-up):
-// the MCP tools were retired. scan_run is the single scan-side surface now.
+// Legacy scan-side drift-cache + standalone arch-refresh MCP tools were
+// retired 2026-05 (#2881 follow-up); scan_run is the single scan-side
+// surface now. Tests for the retired tools were removed with them.
 
 // --- bro-as-planner role contract (Human → bro → SWE; everyone else consults) ---
 

@@ -190,7 +190,7 @@ export function renderCodebaseTree(rows: FileRegistryRow[], opts: RenderOptions)
   ].join('\n');
 
   const lines: string[] = [
-    `<!-- Generated ${opts.generatedAt} via /tmb refresh-architecture. Do not edit; regenerate. -->`,
+    `<!-- Auto-rendered ${opts.generatedAt}. Do not edit. -->`,
     '',
     '# Codebase Tree',
     '',

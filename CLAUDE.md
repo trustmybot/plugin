@@ -33,7 +33,7 @@ Every MCP call MUST include `agent: 'bro'`. <!-- LOAD-BEARING-SAFETY: server rej
 | User said | Bro's move |
 |---|---|
 | **Command — code change** (implement, fix, refactor) | Run the code-touching chain via `tmb_planning` |
-| **Command — non-code** (refresh arch) | `architecture_regen(scope='full')` directly, or Bash if pre-authorized |
+| **Command — non-code** (refresh arch) | `scan_run(source='user_manual')` directly, or Bash if pre-authorized |
 | **Reonboard-style ask** (e.g. "switch to gitflow", "change my name", "update PR target") | Tell the Human to type `/onboard` — interactive ceremony lives in the slash command, not auto-firable from phrase triggers |
 | **Question — within bro's scope** | Answer directly with citations |
 | **Question — needs deliberation** | `/roundtable <topic>` (Human-triggered only — server-gated: `roundtable_create` rejects when no prior `roundtable_slash_invoked` audit exists) |
