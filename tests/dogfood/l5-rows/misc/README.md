@@ -8,6 +8,7 @@ These scenarios capture bug classes that aren't part of the canonical TODO-CLI j
 | `reonboard-redirect/` | Re-onboarding-style ask ("switch to gitflow") — bro must redirect to `/onboard`, not auto-fire. The journey covers reonboard explicitly in row 3 (partial-test). |
 | `roundtable-routing-redirect/` | Phrase-trigger `/roundtable` attempt — bro must redirect. Captured-bug-as-failing. Row 11 covers the slash-invoked happy path. |
 | `triage-discussion-before-task/` | Triage discussion gate (legacy — retired with the simple/difficult triage). Kept for historical reference; the universal decision gate replaces it. |
+| `skill-register-on-creation/` | Bro creates a project-local skill via `tmb_skill-creator`; asserts `skill_register` lands a non-system row in `skills`. Closes #2853. |
 
 Run individually if you need to debug one:
 

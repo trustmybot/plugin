@@ -21,11 +21,11 @@
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `roundtables` row count ≥1; `discussions WHERE kind='analysis'` ≥1 (slash-invoke audit check omitted — see Turns note) |
-| `outcome-coherence.json` | `roundtables`: `>=1`; `discussions WHERE kind='analysis'`: `>=1` |
+| `outcome.sql` | `roundtables` row count ≥1; `discussions WHERE kind='analysis'` ≥1; `roundtable_votes` ≥1 (slash-invoke audit check omitted — see Turns note; finalize/close items 5-8 of #2854 left to partial-test territory) |
+| `outcome-coherence.json` | `roundtables`: `>=1`; `discussions WHERE kind='analysis'`: `>=1`; `roundtable_votes`: `>=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` (deliberation only — no commits) |
 | `tools-required.json` | (empty — bro doesn't reliably call MCP tools on resumed-slash sessions; the substantive checks live in outcome.sql/coherence) |
 | `tools-forbidden.json` | `task_create_batch` (deliberation isn't code work) |
 | `cost-budget.json` | Soft 300K / 900s (multiple consultant turns) |
 
-**Failure modes captured:** bro auto-fires `roundtable_create` from a phrase trigger without the slash-invoke audit (the gate would reject); bro spawns consultants directly without the registry consult; consultants don't write their analysis to `discussions(kind='analysis')`.
+**Failure modes captured:** bro auto-fires `roundtable_create` from a phrase trigger without the slash-invoke audit (the gate would reject); bro spawns consultants directly without the registry consult; consultants don't write their analysis to `discussions(kind='analysis')`; consultants leave no `roundtable_votes` rows (the auto state-flip from `collecting → awaiting_human` depends on those rows arriving — #2854).
