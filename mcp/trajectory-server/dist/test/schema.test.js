@@ -21,7 +21,6 @@ describe('schema — current table set, default values, constraints', () => {
             'plugin_meta',
             'file_registry',
             'plugin_config',
-            'identity',
             'agent_runs',
             'pr_review_runs',
             'repos',
@@ -59,12 +58,6 @@ describe('schema — current table set, default values, constraints', () => {
         assert.ok(fk !== undefined, 'task_id must have a foreign key');
         assert.equal(fk.table, 'tasks');
         assert.equal(fk.to, 'id');
-        db.close();
-    });
-    it('identity has zero rows on init', () => {
-        const db = tempDB();
-        const rows = db.all('SELECT * FROM identity');
-        assert.equal(rows.length, 0);
         db.close();
     });
     it('plugin_config has the 5 schema-seeded default policy keys on init', () => {
@@ -241,15 +234,6 @@ describe('schema — current table set, default values, constraints', () => {
         finally {
             rmSync(tmpDir, { recursive: true, force: true });
         }
-    });
-    it('identity CHECK constraint rejects a second row with id != 1', () => {
-        const db = tempDB();
-        const now = new Date().toISOString();
-        db.run(`INSERT INTO identity (id, created_at, updated_at) VALUES (1, ?, ?)`, [now, now]);
-        assert.throws(() => {
-            db.run(`INSERT INTO identity (id, created_at, updated_at) VALUES (2, ?, ?)`, [now, now]);
-        }, /CHECK constraint failed/);
-        db.close();
     });
 });
 //# sourceMappingURL=schema.test.js.map

@@ -244,17 +244,10 @@ INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at) VALUES
     ('remotes',            '[]',            datetime('now')),
     ('issue_sync',         '"off"',         datetime('now'));
 
--- The identity table is now a pure onboarded-marker. Row presence at id=1
--- means /onboard has been completed in this project; row absence means
--- first-contact, fire /onboard. We deliberately don't store the user's name
--- — bro doesn't need it for any workflow, and asking for it bloated the
--- onboarding ceremony with a free-text question that AUQ's radio model
--- fits poorly. The legacy `human_name` column is migrated away in db.ts.
-CREATE TABLE IF NOT EXISTS identity (
-    id               INTEGER PRIMARY KEY CHECK (id = 1),
-    created_at       TEXT NOT NULL,
-    updated_at       TEXT NOT NULL
-);
+-- The "onboarded" marker lives in plugin_config now (#2876). The legacy
+-- identity table was a single-row marker with no columns of meaning —
+-- folded into plugin_config('onboarded': true). Migration in db.ts
+-- (`migrateDropIdentityTable`) carries the marker forward on next boot.
 
 -- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
 -- via swe-atomic-close.sh on every SWE completion. Zero overhead when the

@@ -120,6 +120,11 @@ export class TrajectoryDB {
     // The regen_state table backed architecture_regen's drift cache — both
     // are retired. Drop the table from existing DBs. Idempotent.
     this.migrateDropRegenState();
+    // 2026-05: the identity table was a one-row "onboarded" marker. Folded
+    // into plugin_config('onboarded': true) (#2876). Migration reads any
+    // pre-existing identity row → seeds the config key → drops the table.
+    // Idempotent.
+    this.migrateDropIdentityTable();
     // #179 destructive drops run LAST so they aren't undone by additive
     // ALTERs above. Idempotent — subsequent boots see the columns already
     // gone and skip the DROP.
@@ -134,6 +139,32 @@ export class TrajectoryDB {
     if (exists) {
       this.db.exec(`DROP TABLE regen_state`);
     }
+  }
+
+  private migrateDropIdentityTable(): void {
+    const exists = this.db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='identity'`)
+      .get() as { name: string } | undefined;
+    if (!exists) return;
+
+    // Carry forward the "onboarded" semantic: if the legacy table had a row
+    // at id=1, the project was onboarded. Seed plugin_config('onboarded')
+    // when it's not already set.
+    const identityRow = this.db
+      .prepare(`SELECT id FROM identity WHERE id = 1`)
+      .get() as { id: number } | undefined;
+    const existingConfig = this.db
+      .prepare(`SELECT value_json FROM plugin_config WHERE key = 'onboarded'`)
+      .get() as { value_json: string } | undefined;
+    if (identityRow && !existingConfig) {
+      const now = new Date().toISOString();
+      this.db
+        .prepare(
+          `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', ?)`,
+        )
+        .run(now);
+    }
+    this.db.exec(`DROP TABLE identity`);
   }
 
   private migrateLedgerIntoAudit(): void {

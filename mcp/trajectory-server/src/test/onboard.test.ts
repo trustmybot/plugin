@@ -36,7 +36,7 @@ describe('onboard tools', () => {
     it('reports first_run=false once identity row has been written', async () => {
       const db = tempDB();
       db.run(
-        `INSERT INTO identity (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'))`,
+        `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'))`,
       );
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_state_get', {});
@@ -90,7 +90,7 @@ describe('onboard tools', () => {
     it('local re-onboard round=main returns Branching only (with Keep option)', async () => {
       const db = tempDB();
       db.run(
-        `INSERT INTO identity (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'))`,
+        `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'))`,
       );
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_get_questions', {
@@ -167,8 +167,8 @@ describe('onboard tools', () => {
       assert.deepEqual(applied.protected_branches, ['main']);
 
       // Identity row should now exist as the onboarded marker.
-      const row = db.get<{ id: number }>('SELECT id FROM identity WHERE id = 1');
-      assert.ok(row, 'identity row must be written');
+      const row = db.get<{ value_json: string }>("SELECT value_json FROM plugin_config WHERE key='onboarded'");
+      assert.ok(row && row.value_json === 'true', 'plugin_config onboarded must be true');
       db.close();
     });
 
@@ -338,8 +338,8 @@ describe('onboard tools', () => {
       assert.deepEqual((map.protected_branches as string[]).sort(), ['dev', 'main']);
       assert.equal(map.issue_sync, 'auto');
       // identity row also written as marker
-      const id = db.get<{ id: number }>('SELECT id FROM identity WHERE id = 1');
-      assert.ok(id, 'identity row written as onboarded marker');
+      const cfg = db.get<{ value_json: string }>("SELECT value_json FROM plugin_config WHERE key='onboarded'");
+      assert.ok(cfg && cfg.value_json === 'true', 'plugin_config onboarded marker written');
       db.close();
     });
   });

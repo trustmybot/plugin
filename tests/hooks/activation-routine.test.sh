@@ -20,10 +20,9 @@ TRANSCRIPT_PLAIN="$TMPDIR/transcript-plain.jsonl"
 export TRAJECTORY_DB_PATH="$DB"
 
 sqlite3 "$DB" "
-  CREATE TABLE identity (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    human_name TEXT,
-    created_at TEXT NOT NULL,
+  CREATE TABLE plugin_config (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
   CREATE TABLE issues (
@@ -75,8 +74,8 @@ assert_contains "$out" 'auto-fire /onboard' "auto-fire instruction injected"
 assert_contains "$out" 'pending=<none>' "pending reported as none"
 
 test_case "identity row present (post-onboard, #95): emits onboarded=yes, NOT first-contact"
-sqlite3 "$DB" "DELETE FROM identity;"
-sqlite3 "$DB" "INSERT INTO identity (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'));"
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='onboarded';"
+sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'));"
 out=$(run_hook "$(input '@bro hi')")
 assert_contains "$out" 'onboarded=yes' "onboarded marker present"
 # Critical: the first-contact auto-fire must NOT fire for an existing row
@@ -84,10 +83,10 @@ if echo "$out" | grep -q 'FIRST CONTACT'; then
   echo "  FAIL onboarded row should NOT trigger FIRST CONTACT auto-fire (#95 regression)"
   exit 1
 fi
-sqlite3 "$DB" "DELETE FROM identity;"
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='onboarded';"
 
-test_case "@bro greeting + identity row present: onboarded=yes (no name stored)"
-sqlite3 "$DB" "INSERT INTO identity (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'));"
+test_case "@bro greeting + onboarded marker present: onboarded=yes (no name stored)"
+sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'));"
 out=$(run_hook "$(input '@bro hi')")
 assert_contains "$out" 'onboarded=yes' "onboarded reported"
 
