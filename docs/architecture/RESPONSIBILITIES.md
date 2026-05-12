@@ -21,7 +21,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 
 ### Persistent persona behaviors
 
-- **Activation routine** — `activation-routine.sh` UserPromptSubmit hook reads identity + pending issue from the trajectory DB and injects them as `additionalContext`. Bro consumes the injected data; doesn't redundantly call those MCP tools.
+- **Activation routine** — `activation-routine.sh` UserPromptSubmit hook reads `plugin_config('onboarded')` + pending issue from the trajectory DB and injects them as `additionalContext`. Bro consumes the injected data; doesn't redundantly call those MCP tools.
 - **First-contact auto-fire** — when the hook reports `onboarded=no`, bro fires `/onboard` immediately before any reply.
 - **Welcome banner** on first activation in a session.
 - **Verify context before answering** — query trajectory DB first; branch by git-clean state; web for upstream specs; flag training-data fallbacks.
@@ -49,13 +49,12 @@ Bro is the only agent allowed to call:
 - `task_update_status` (shared with SWE; bro writes `closed`, SWE writes `completed`/`failed`)
 - `issue_create`, `issue_close`, `issue_resume`
 - `file_registry_update_summaries`
-- `identity_set`, `identity_reset`
 - `discussion_append` for `kind='intent'`
-- `regen_state_set` (shared with consultants and pr-reviewer)
 - `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
 - `pr_comments_get` (shared with pr-reviewer)
 - `issue_sync_retry`
-- `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
+- `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (these write `plugin_config('onboarded')` and the related policy keys; replaced the retired `identity_get`/`set`/`reset` surface per #2876)
+- `scan_run` (single scan-side tool; replaced the retired `architecture_regen` per #2881)
 
 ### Hooks fired on bro's behalf
 
@@ -148,7 +147,6 @@ For each task, diff against the spec's `## Files`, `## Success Criteria`, `## Ve
 ### Server-enforced privileges (Layer 1)
 
 - `validation_record` — pr-reviewer is the **only** writer
-- `regen_state_set` (shared with bro and consultants)
 - `issue_snapshot_md` (shared with consultants)
 - `pr_comments_get` (shared with bro)
 - `audit_log`, `discussion_append`
@@ -174,7 +172,7 @@ Templates in `templates/agents/<name>.md`, instantiated per-project on demand vi
 
 Consultants **cannot write workflow state**: `task_create_batch`, `task_update_status`, `issue_create`, `issue_close`, `validation_record`, `file_registry_update_summaries` all return `forbidden`.
 
-They **can write analyses**: `discussion_append(kind='analysis'|'concern')`, `audit_log(kind='event')`. Architect specifically also gets `regen_state_set` and `issue_snapshot_md`.
+They **can write analyses**: `discussion_append(kind='analysis'|'concern')`, `audit_log(kind='event')`. Architect specifically also gets `issue_snapshot_md`.
 
 ### Spawn pattern
 
