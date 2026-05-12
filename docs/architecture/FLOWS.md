@@ -10,31 +10,31 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 
 | # | Flow | Trigger | Agents | DB tables touched | Distinguishing hooks |
 |---|---|---|---|---|---|
-| 1 | First contact | `identity_get().onboarded === false` | bro | `plugin_config`, `identity`, `audit` | `activation-routine` (auto-fire trigger) |
+| 1 | First contact | `onboard_state_get().first_run === true` (i.e. `plugin_config('onboarded')` absent) | bro | `plugin_config`, `audit` | `activation-routine` (auto-fire trigger) |
 | 2 | **Code-touching task** (canonical) | Code change ask | bro → swe; pr-reviewer at push | `issues`, `tasks`, `discussions`, `audit` (+ `validation_attempts` at push) | `require-task-spec`, `git-push-guard`, `git-guards`, `cleanup-worktree-on-task-close` |
-| 3 | Difficult task (Δ vs 2) | Touches `docs/trustmybot/architecture/` | + alignment Q+A + ADR | + `discussions(kind='question'/'answer'/'decision')` | same |
+| 3 | Architectural change | Touches `docs/trustmybot/architecture/`, schema, public API, external side effects | bro authors ADR + decision audit, then standard SWE flow | + `discussions(kind='decision')`; ADR file lands at `docs/trustmybot/architecture/manual/decisions/N-*.md` | `adr-required-hint`, universal `decision_gate` on `task_create_batch` |
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
-| 5 | Skill creation | Recurring pattern needs encoding | bro | `skills` (optional tracking) | — |
+| 5 | Skill creation | Recurring pattern needs encoding | bro | `skills` (registered via `skill_register`) | — |
 | 6 | Push gate / PR review | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `validation_attempts` | `git-push-guard` |
-| 7 | Architecture regen | First code-touching ask of session OR `/tmb refresh-architecture` | bro | `regen_state`, `file_registry` | `session-start-regen-check`, `lazy-regen-postcheck` |
+| 7 | Scan + architecture refresh | First code-touching ask of session, `/scan`, OR `post-task-close-rescan.sh` hook fires after `bro_atomic_close` | bro (or hook in background) | `repos`, `file_registry`, `audit(event_type='deep_scan_completed')` — `content_json` carries `source`, `structural_change`, `regen_invoked`, `repos_seen`, `top_dirs` | `post-task-close-rescan` |
 | 8 | SWE retry / escalation | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer at push) | `validation_attempts` (multiple), `discussions` | `task_retry_batch` composite |
 | 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
-| 33 | Multi-repo path discipline | `tmb_default_repo` set; bro indexes inner repo | bro | `file_registry` (repo-relative paths) | — |
+| 33 | Multi-repo path discipline | `tmb_default_repo` set; bro indexes inner repo | bro | `file_registry` (repo-relative paths via per-update `repo` arg) | — |
 | **C** | Consultant invocation | Human asks for second opinion | bro → consultant | `discussions(kind='analysis'/'concern')` | — |
-| **M** | Monitor PR comments | `/monitor <PR_number>` | bro → pr-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
+| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_review` §C) | bro → pr-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
 
 ---
 
 ## 1. First contact (auto-fired `/onboard`)
 
-Bro's `activation-routine.sh` UserPromptSubmit hook reads the identity row count. If the row is absent it injects a `FIRST CONTACT` directive. Bro reads the directive, fires `/onboard` immediately, and runs the slash command's branched ceremony before any reply.
+Bro's `activation-routine.sh` UserPromptSubmit hook reads `plugin_config('onboarded')`. If the key is absent (or `value_json != 'true'`) it injects a `FIRST CONTACT` directive. Bro reads the directive, fires `/onboard` immediately, and runs the slash command's branched ceremony before any reply.
 
 **Round 1** asks the project shape (local-only vs remote-tracked). **Round 2** asks the per-shape question set:
 
 | Shape | Round 2 questions | Persisted |
 |---|---|---|
-| Local-only | (none — github-flow defaulted silently) | `identity`, `branching_model`, derived `pr_target`, `remotes=[]`, `issue_sync='off'` |
+| Local-only | (none — github-flow defaulted silently) | `plugin_config('onboarded')`, `branching_model`, derived `pr_target`, `remotes=[]`, `issue_sync='off'` |
 | Remote-tracked | Branching, PR target, Remote (multiSelect) | + `remotes` array, then a Round 3 for `issue_sync` |
 
 A **silent probe** (origin URL, gh/glab installed/authed) pre-selects defaults so most questions become 1-tap confirms. Local re-onboard adds the Branching question with a `Keep` option so the user can change models without first switching shape.
@@ -186,13 +186,24 @@ sequenceDiagram
 
 ---
 
-## 7. Architecture regen
+## 7. Scan + architecture refresh
 
-Bro-only. No SWE spawn. Triggered by `session-start-regen-check.sh` on first code-touching ask of a session, or by `/tmb refresh-architecture`.
+`scan_run` is the single scan-side MCP tool (#2881). Triggered three ways:
 
-- Reads `regen_state` per target (`file_registry`, `architecture/auto/*.md`)
-- Calls `architecture_regen` MCP tool which walks git log since `last_seen_sha`, updates `file_registry`, regenerates `auto/*.md` outputs, advances cursor.
-- `lazy-regen-postcheck.sh` verifies the regen actually advanced state; nudges bro if it didn't.
+| Trigger | `source` value | Who fires |
+|---|---|---|
+| User typed `/scan` | `user_manual` | The slash command body passes it |
+| `post-task-close-rescan.sh` hook on `bro_atomic_close` | `bro_auto_post_close` | Hook runs `scripts/maintenance/run-scan.mjs` in background |
+| Bro hits the registry-cold gate and remediates | `bro_auto_initial` | Default when no `source` is passed |
+
+`scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
+
+- `source` (one of the four values above)
+- `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
+- `regen_invoked` — reserved; currently always false (the scan_run-internal renderer call is a deferred follow-up — see [#2881 part 2 design notes](https://gitlab.com/trustmybot/plugin/-/issues/2881))
+- `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
+
+The legacy `regen_state` table + the `architecture_regen` MCP tool were retired with this flow.
 
 ---
 

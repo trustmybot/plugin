@@ -50,10 +50,10 @@ Routing SWE's commits through your local branch (rather than letting SWE push st
 **Idle**
 ```text
 plugin/
-├── CLAUDE.md                                          # bro persona; reads identity + issue_resume on activation
-├── scripts/hooks/activation-routine.sh               # UserPromptSubmit: pre-fetches identity + pending issue
+├── CLAUDE.md                                          # bro persona; reads plugin_config('onboarded') + issue_resume on activation
+├── scripts/hooks/activation-routine.sh               # UserPromptSubmit: pre-fetches plugin_config('onboarded') + pending issue
 └── mcp/trajectory-server/src/
-    ├── tools/identity.ts                             # identity_get
+    ├── tools/onboard.ts                              # onboard_state_get (reads plugin_config marker)
     ├── tools/issues.ts                               # issue_resume
     └── schema.sql                                    # plugin_config defaults seeded at DB init
 ```
@@ -142,5 +142,5 @@ plugin/
 ├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
     ├── audit.ts                                      # audit_log(kind='event', post-merge state)
-    └── regen-state.ts                                # regen_state_update after merge contents
+    └── scan.ts                                       # scan_run rerun via post-task-close-rescan hook updates file_registry + emits deep_scan_completed audit
 ```

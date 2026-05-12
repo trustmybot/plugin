@@ -112,19 +112,16 @@ mcp/trajectory-server/
 | File | Tools |
 |---|---|
 | `agents.ts` | `agent_list`, `agent_register` |
-| `architecture-regen.ts` | `architecture_regen` |
 | `audit.ts` | `audit_log`, `audit_log_list` (event-only since #179) |
 | `branch_report_md.ts` | `branch_report_md` |
-| `composites.ts` | `branch_id_propose`, `task_retry_batch`, `bro_atomic_close` |
+| `composites.ts` | `branch_id_propose`, `task_retry_batch`, `bro_atomic_close` (per-update `repo` resolution post-#2873) |
 | `config.ts` | `config_get`, `config_set`, `config_list` |
 | `discussions.ts` | `discussion_append` (verified_human gate), `discussion_list`, `issue_get_with_discussions` |
 | `file-registry.ts` | `file_registry_upsert/list/verify/delete/update_summaries` (bro-only) |
-| `scan.ts` | `scan_run` (forks `scripts/scan.sh`, persists to `repos` + `file_registry`, emits `deep_scan_completed` audit), `repos_list`, `file_registry_bulk_upsert` |
-| `identity.ts` | `identity_get`, `identity_set`, `identity_reset` (onboarded-marker only — no name stored) |
+| `scan.ts` | `scan_run` (forks `scripts/scan.sh`, persists to `repos` + `file_registry`, emits `deep_scan_completed` audit with `source` + `structural_change` content_json), `repos_list`, `file_registry_bulk_upsert`. Single scan-side tool — `architecture_regen` retired per #2881. |
 | `issues.ts` | `issue_create/get/resume/close/update_description/sync_retry` |
-| `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
+| `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (writes `plugin_config('onboarded')`; replaced the retired `identity_get`/`set`/`reset` surface per #2876) |
 | `pr_comments.ts` | `pr_comments_get` (gh + glab backends, bot-filtered) |
-| `regen-state.ts` | `regen_state_get`, `regen_state_set` |
 | `reports.ts` | `issue_report_md`, `issue_snapshot_md` |
 | `roundtable.ts` | `roundtable_create/vote/close/finalize_decisions/summarize` (state machine) |
 | `skills.ts` | `skill_register`, `skill_promote`, `skill_record_outcome` |

@@ -4,12 +4,14 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` base
 
 ## Overview
 
-19 tables in two groups:
+15 tables in two groups (post-MR !156 + !159: `regen_state` and `identity` retired):
 
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `skills`, `repos`, `file_registry`, `plugin_config`, `identity`, `regen_state`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `skills`, `repos`, `file_registry`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+
+The onboarded marker (formerly the `identity` table) is now `plugin_config('onboarded': true)` per #2876. The `regen_state` cache was retired with `architecture_regen` per #2881; scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json` instead.
 
 ## Diagram
 
@@ -59,18 +61,6 @@ erDiagram
     plugin_config {
         TEXT key PK
         TEXT value_json
-    }
-
-    identity {
-        INT  id PK "always 1"
-        TEXT created_at "row presence = onboarded marker"
-        TEXT updated_at
-    }
-
-    regen_state {
-        TEXT target PK
-        TEXT last_regen_at
-        TEXT last_seen_sha
     }
 
     plugin_meta {
@@ -235,9 +225,7 @@ erDiagram
 | `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). |
 | `file_registry` | One row per `(repo, path)`. Phase 1 of `/scan` populates `path`/`size`/`content_md5`/`last_commit_sha` deterministically (bash + git + md5); Phase 2 fills `summary` via parallel background subagents. Drift detection is md5-only — `last_commit_sha` is metadata, not invalidation signal. Closed-task hook (`post-task-close-rescan.sh`) re-runs scan automatically; rows where md5 matches keep their summary, rows where md5 differs get the summary cleared. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `identity` | Single-row table (`CHECK id=1`) — pure onboarded marker. Row presence at id=1 means `/onboard` ran; row absence is the auto-fire signal. No name or other user data is stored. |
-| `regen_state` | Per-target cursor (`last_seen_sha`) for the lazy architecture regen. |
-| `plugin_meta` | Schema + plugin version (for future migrations). Current row: `schema_version=1, plugin_version='0.0.0'`. |
+| `plugin_meta` | Schema + plugin version (for future migrations). Current row: `schema_version=1, plugin_version='0.6.0-rc.1'`. |
 | `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration, exit_status). Written by `swe-atomic-close.sh` SubagentStop hook. |
 | `pr_review_runs` | Per-PR monitor run state (last fetched comment, counts). Used by `/monitor` flow. Index on `(pr_number, repo)`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
@@ -257,7 +245,7 @@ erDiagram
 
 ## How agents use this
 
-- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `identity_get`/`set`, `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `audit_log(kind='event')`. Also reads `validation_history` to drive the retry loop (flow 8) and runs `architecture_regen` (flow 7). Calls `file_registry_update_summaries` during V3 close (bro-only, server-enforced).
+- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `audit_log(kind='event')`, `scan_run` (writes `repos`, `file_registry`, `deep_scan_completed` audit). Also reads `validation_history` to drive the retry loop (flow 8). Calls `file_registry_update_summaries` during V3 close (bro-only, server-enforced).
 - **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_log` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, `file_registry` summaries, or close tasks.
 - **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, subagent_session_id)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call.
 - **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis'|'concern')` to record their position. Server-rejected on `task_create_batch`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
@@ -276,3 +264,80 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 ## Schema migration policy
 
 Pre-release — every new install is a fresh DB. `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`. Additive column adds happen via `ALTER TABLE` migrations in `db.ts`. Destructive drops (column removals) live in `migrate179DropDeadColumns` (idempotent — re-runs see the column already gone).
+
+## Proposed schema — junction-based capability catalog (per #2886)
+
+The current `skills` table records the **catalog** of available skills + aggregate counters (`uses`, `successes`, `failures`). It does **not** record per-invocation history — which agent on which task invoked which skill. The same gap exists for rules (no table at all today) and slash commands (no table).
+
+#2886 closes this with three table additions + one schema enrichment, designed as a **portable catalog** that's analytics-only in the Claude Code plugin (file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
+
+### Catalog tables
+
+| New / changed | Shape | Why |
+|---|---|---|
+| `skills.scope` (column add) | `TEXT NOT NULL DEFAULT 'global' CHECK (scope IN ('global','template','project-local'))` | Match `agents.scope`. Distinguish schema-seeded `tmb_*` skills (global) from `.claude/skills/<name>/SKILL.md` (project-local). |
+| `rules` (new table) | name (UK), description, file_path, scope, severity (`advisory`/`warning`/`blocking`), tags, status, when_to_apply, invocations counter, violations counter, created_by, timestamps | First-class catalog for `.claude/rules/*.md`. Severity captures enforcement weight (some rules are advisory; some BLOCK). |
+| `commands` (new table) | name (UK), description, file_path, scope, args_schema (JSON), tags, status, invocations counter, created_by, timestamps | First-class catalog for slash commands (`/scan`, `/onboard`, `/monitor`, `/roundtable`). |
+
+### Junction tables — the load-bearing bridge
+
+| New | Shape | Why |
+|---|---|---|
+| `skill_invocations` | `(id, agent_run_id FK, task_id FK nullable, skill_name FK, invoked_at, outcome IN ('completed','failed','partial'))` indexed on `(skill_name)` + `(task_id)` | One row per skill load. Closes the "agent didn't use skill it should have" detection loop. Per-invocation outcome enables real effectiveness analytics (vs the current aggregate counters which lose temporal granularity). |
+| `rule_invocations` | `(id, agent_run_id FK, task_id FK nullable, rule_name FK, applied_at, outcome IN ('applied','violated','skipped'))` indexed on `(rule_name)` + `(task_id)` | Symmetric for rules. `outcome='violated'` is the per-instance record of rules getting tripped. |
+
+Indexes on both `(skill_name | rule_name)` and `(task_id)` make both query directions cheap: **forward** ("what did this run/task touch") and **reverse** ("which runs used skill X").
+
+### Bro as a first-class agent_run
+
+Today `agent_runs` only captures **subagent spawns** (SWE, pr-reviewer, consultants). Bro itself — the main process — has no row, so bro's skill/rule invocations have no `agent_run_id` to attribute to, AND we have no record of bro's token cost per session/task.
+
+Add bro to `agent_runs` at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. Recorded by composites (`task_create_batch` opens the bro row, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
+
+### How this serves both runtimes
+
+| Runtime | What drives loading | What the DB is for |
+|---|---|---|
+| **Plugin (Claude Code)** | File system. CC reads `skills/<name>/SKILL.md`, `.claude/rules/*.md`, `commands/<x>.md` directly. | Catalog + analytics overlay. Junction rows enable the "agent should have used skill Y but didn't" detector. |
+| **Enterprise (LangGraph)** | The DB. LangGraph queries the catalog to discover + load capabilities at runtime. | Source of truth. The catalog IS the runtime. |
+
+Same schema, two read paths. Designed so the enterprise runtime can adopt this without schema churn.
+
+### Example queries this unlocks
+
+```sql
+-- "Which skills did SWE use on task #42, and at what cost?"
+SELECT si.skill_name, ar.tokens_total, ar.duration_ms
+FROM skill_invocations si
+JOIN agent_runs ar ON ar.id = si.agent_run_id
+WHERE si.task_id = 42 AND ar.agent_type LIKE 'tmb:swe%';
+
+-- "Skills bro should have invoked but didn't" — left-join expected-per-task-type
+SELECT t.id, expected_skill
+FROM tasks t
+CROSS JOIN (SELECT 'tmb_planning' AS expected_skill UNION SELECT 'tmb_review') exp
+LEFT JOIN skill_invocations si
+  ON si.task_id = t.id AND si.skill_name = exp.expected_skill
+LEFT JOIN agent_runs ar ON ar.id = si.agent_run_id AND ar.agent_type = 'bro'
+WHERE si.id IS NULL;
+
+-- "Rule effectiveness: applied vs violated"
+SELECT rule_name,
+       SUM(CASE WHEN outcome='applied' THEN 1 ELSE 0 END) AS applied,
+       SUM(CASE WHEN outcome='violated' THEN 1 ELSE 0 END) AS violated
+FROM rule_invocations
+GROUP BY rule_name
+ORDER BY violated DESC;
+
+-- "Total task cost = bro planning + SWE execution"
+SELECT t.id, t.branch_id,
+       SUM(CASE WHEN ar.agent_type = 'bro' THEN ar.tokens_total ELSE 0 END) AS bro_tokens,
+       SUM(CASE WHEN ar.agent_type LIKE 'tmb:swe%' THEN ar.tokens_total ELSE 0 END) AS swe_tokens
+FROM tasks t
+LEFT JOIN agent_runs ar ON ar.task_id = t.id
+GROUP BY t.id, t.branch_id;
+```
+
+### Implementation status
+
+Schema design ratified in #2886; implementation is a separate substantial MR (schema + idempotent migrations + 4 new MCP tool surfaces + skill-invocation PostToolUse hook + bro `agent_run` composite + L5 row for the bro→skill→invocation chain). This doc lands the design ahead of the code so the schema gets reviewed before implementation begins.
