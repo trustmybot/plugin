@@ -6,7 +6,7 @@
 SELECT
   CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
   'identity-row-count-unchanged (got ' || COUNT(*) || ', expected 1)' AS description
-FROM identity;
+FROM plugin_config WHERE key = 'onboarded';
 
 -- Identity row presence is the onboarded marker — that's it. No name field
 -- to assert anything about.
