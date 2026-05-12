@@ -7,7 +7,8 @@ import { skillTools } from './skills.js';
 import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
-import { identityTools } from './identity.js';
+// identityTools removed in 2026-05 (#2876): the onboarded marker moved
+// from the standalone `identity` table to plugin_config('onboarded': true).
 import { fileRegistryTools } from './file-registry.js';
 import { branchReportMdTools } from './branch_report_md.js';
 // labelTools removed in #179 — issues.labels column was always-empty in
@@ -56,7 +57,6 @@ export function registerTools(server, db, dbPath = '') {
     const agents = agentTools(db);
     const reports = reportTools(db);
     const config = configTools(db);
-    const identity = identityTools(db);
     const fileRegistry = fileRegistryTools(db, dbPath);
     const branchReport = branchReportMdTools(db);
     const stats = statsTools(db);
@@ -75,7 +75,6 @@ export function registerTools(server, db, dbPath = '') {
         ...agents.definitions,
         ...reports.definitions,
         ...config.definitions,
-        ...identity.definitions,
         ...fileRegistry.definitions,
         ...branchReport.definitions,
         ...stats.definitions,
@@ -95,7 +94,6 @@ export function registerTools(server, db, dbPath = '') {
         ...wrapAll(agents.handlers),
         ...wrapAll(reports.handlers),
         ...wrapAll(config.handlers),
-        ...wrapAll(identity.handlers),
         ...wrapAll(fileRegistry.handlers),
         ...wrapAll(branchReport.handlers),
         ...wrapAll(stats.handlers),

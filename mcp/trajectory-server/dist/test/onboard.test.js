@@ -26,7 +26,7 @@ describe('onboard tools', () => {
         });
         it('reports first_run=false once identity row has been written', async () => {
             const db = tempDB();
-            db.run(`INSERT INTO identity (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'))`);
+            db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'))`);
             const tools = onboardTools(db);
             const result = await call(tools.handlers, 'onboard_state_get', {});
             const data = parse(result);
@@ -72,7 +72,7 @@ describe('onboard tools', () => {
         });
         it('local re-onboard round=main returns Branching only (with Keep option)', async () => {
             const db = tempDB();
-            db.run(`INSERT INTO identity (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'))`);
+            db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'))`);
             const tools = onboardTools(db);
             const result = await call(tools.handlers, 'onboard_get_questions', {
                 shape: 'local',
@@ -140,8 +140,8 @@ describe('onboard tools', () => {
             assert.equal(applied.issue_sync, 'off');
             assert.deepEqual(applied.protected_branches, ['main']);
             // Identity row should now exist as the onboarded marker.
-            const row = db.get('SELECT id FROM identity WHERE id = 1');
-            assert.ok(row, 'identity row must be written');
+            const row = db.get("SELECT value_json FROM plugin_config WHERE key='onboarded'");
+            assert.ok(row && row.value_json === 'true', 'plugin_config onboarded must be true');
             db.close();
         });
         it('local + gitflow: pr_target derives to dev, protected_branches gets both main + dev (#2878)', async () => {
@@ -299,8 +299,8 @@ describe('onboard tools', () => {
             assert.deepEqual(map.protected_branches.sort(), ['dev', 'main']);
             assert.equal(map.issue_sync, 'auto');
             // identity row also written as marker
-            const id = db.get('SELECT id FROM identity WHERE id = 1');
-            assert.ok(id, 'identity row written as onboarded marker');
+            const cfg = db.get("SELECT value_json FROM plugin_config WHERE key='onboarded'");
+            assert.ok(cfg && cfg.value_json === 'true', 'plugin_config onboarded marker written');
             db.close();
         });
     });

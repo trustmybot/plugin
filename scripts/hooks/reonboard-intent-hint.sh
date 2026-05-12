@@ -75,7 +75,7 @@ fi
 
 # Only inject the hint if the project is already onboarded (identity row
 # exists). If not, the cold-start onboard chain will handle it.
-ONBOARDED=$(sqlite3 "$DB_PATH" "SELECT 1 FROM identity LIMIT 1;" 2>/dev/null || true)
+ONBOARDED=$(sqlite3 "$DB_PATH" "SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true' LIMIT 1;" 2>/dev/null || true)
 [ "$ONBOARDED" = "1" ] || exit 0
 
 REASON="🔁 reonboard-intent hint: the user's prompt contains '${matched}'. This signals a *reonboard* (the project is already onboarded — switching shape, not initial onboard).
