@@ -27,7 +27,7 @@ tail -5 ~/.claude/tmb/logs/mcp-server.log
 ```
 
 Expected `mcp-server.log` entries (one JSONL object per line):
-- `{"kind":"startup","pid":<N>,"version":"0.5.0","db_path":"/tmp/debug-smoke.db","ts":"..."}`
+- `{"kind":"startup","pid":<N>,"version":"0.6.0-rc.1","db_path":"/tmp/debug-smoke.db","ts":"..."}`
 - `{"kind":"tool_entry","tool":"identity_get","agent":"bro","ts":"..."}`
 - `{"kind":"tool_exit","tool":"identity_get","agent":"bro","is_error":false,"duration_ms":<N>,"ts":"..."}`
 
