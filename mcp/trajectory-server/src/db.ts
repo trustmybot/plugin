@@ -116,10 +116,6 @@ export class TrajectoryDB {
     this.migrateValidationSubagentSessionId();
     this.migrateDiscussionsVerifiedHuman();
     this.migrateFileRegistryRepoColumn();
-    // 2026-05: scan_run is the single scan-side tool now (#2881 follow-up).
-    // The legacy `regen_state` table backed the retired standalone
-    // arch-refresh tool. Drop the table from existing DBs. Idempotent.
-    this.migrateDropLegacyDriftCache();
     // 2026-05: the identity table was a one-row "onboarded" marker. Folded
     // into plugin_config('onboarded': true) (#2876). Migration reads any
     // pre-existing identity row → seeds the config key → drops the table.
@@ -130,15 +126,6 @@ export class TrajectoryDB {
     // gone and skip the DROP.
     this.migrate179DropDeadColumns();
     this.syncPluginVersion();
-  }
-
-  private migrateDropLegacyDriftCache(): void {
-    const exists = this.db
-      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='regen_state'`)
-      .get() as { name: string } | undefined;
-    if (exists) {
-      this.db.exec(`DROP TABLE regen_state`);
-    }
   }
 
   private migrateDropIdentityTable(): void {

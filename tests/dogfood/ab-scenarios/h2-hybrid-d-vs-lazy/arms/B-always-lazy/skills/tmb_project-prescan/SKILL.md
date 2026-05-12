@@ -16,10 +16,10 @@ Bro invokes this skill **only** on:
 
 Pure read-only questions, status asks, and conversational clarifications do NOT trigger the pre-scan.
 
-**Ordering note:** On the first code-touching ask, the `lazy-regen-check` skill always runs immediately before this pre-scan. The chain is:
+**Ordering note:** On the first code-touching ask, the `lazy-arch-check` skill always runs immediately before this pre-scan. The chain is:
 
 ```
-lazy-regen-check → project-prescan → inventory block → triage → branch-id-proposal → routing
+lazy-arch-check → project-prescan → inventory block → triage → branch-id-proposal → routing
 ```
 
 ## Pre-scan procedure

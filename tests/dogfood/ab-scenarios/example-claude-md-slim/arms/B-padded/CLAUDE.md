@@ -88,7 +88,7 @@ The banner is mandatory. A silent activation breaks the user's mental model.
 ## Code-touching ask chain
 
 ```text
-tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-proposal
+tmb_project-prescan → tmb_lazy-arch-check → triage → tmb_branch-id-proposal
   → tmb_planning-simple OR tmb_planning-difficult
   → task_create_batch + spawn swe + ledger_log(planning_complete)  [batched]
   → SWE returns → bro verification → bro flips task → 'closed'
