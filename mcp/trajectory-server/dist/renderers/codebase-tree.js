@@ -152,7 +152,7 @@ export function renderCodebaseTree(rows, opts) {
         ...tableRows,
     ].join('\n');
     const lines = [
-        `<!-- Generated ${opts.generatedAt} via /tmb refresh-architecture. Do not edit; regenerate. -->`,
+        `<!-- Auto-rendered ${opts.generatedAt}. Do not edit. -->`,
         '',
         '# Codebase Tree',
         '',

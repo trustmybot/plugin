@@ -59,7 +59,7 @@ templates/
 ├── agents/                   # 4 consultant templates (≤30 lines each, lint-enforced)
 │   ├── architect.md, ceo.md, cto.md, pm.md
 └── docs-trustmybot/          # seeded docs skeleton for downstream projects
-    ├── architecture/auto/    # regen output (changelog, codebase-tree, erd, module-graph)
+    ├── architecture/auto/    # auto-rendered output (changelog, codebase-tree, erd, module-graph)
     ├── architecture/manual/  # hand-curated (decisions/, data-flow, infrastructure, security-model)
     └── snapshots/.gitkeep    # for issue_snapshot_md output
 ```
@@ -80,10 +80,10 @@ Group by event:
 
 | Event | Scripts |
 |---|---|
-| **SessionStart** | `session-start-prescan`, `session-start-regen-check`, `ensure-gitignore`, `deferred-tools-drift-warn`, `write-active-workspace-sentinel` |
+| **SessionStart** | `session-start-prescan`, `ensure-gitignore`, `deferred-tools-drift-warn`, `write-active-workspace-sentinel` |
 | **UserPromptSubmit** | `activation-routine`, `consultant-spawn-required`, `mcp-health-check`, `session-log-capture` |
-| **PreToolUse** | `no-source-edit-from-main`, `no-worktree-branch-create`, `branch-up-to-date-with-remote`, `git-guards`, `git-push-guard`, `commit-msg-lint`, `naming-lint`, `code-quality-lint`, `require-task-spec`, `require-summaries-before-task-close`, `require-feature-branch-active`, `auq-headless-deny`, `askuserquestion-length-lint`, `roundtable-auq-shape`, `greenfield-arch-required`, `debug-trajectory` |
-| **PostToolUse** | `cleanup-worktree-on-task-close`, `lazy-regen-postcheck`, `roundtable-cleanup-postcheck`, `post-task-close-rescan` |
+| **PreToolUse** | `no-source-edit-from-main`, `no-worktree-branch-create`, `branch-up-to-date-with-remote`, `git-guards`, `git-push-guard`, `commit-msg-lint`, `naming-lint`, `code-quality-lint`, `require-task-spec`, `require-summaries-before-task-close`, `require-feature-branch-active`, `auq-headless-deny`, `askuserquestion-length-lint`, `roundtable-auq-shape`, `debug-trajectory` |
+| **PostToolUse** | `cleanup-worktree-on-task-close`, `roundtable-cleanup-postcheck`, `post-task-close-rescan` |
 | **SubagentStop** | `swe-atomic-close` |
 | **WorktreeCreate** | `worktree-create` |
 
@@ -100,7 +100,6 @@ mcp/trajectory-server/
     ├── schema-eval.sql       # eval-mode-only tables (debug_trajectory, eval_results)
     ├── types.ts              # shared TS types
     ├── middleware/agent-scope.ts    # AgentRole, normalizeAgent, requireRoles, redact
-    ├── regen/                # git-walker + ts-import-parser → file_registry feed
     ├── renderers/            # auto-doc generators (changelog/erd/module-graph/codebase-tree)
     ├── sync/                 # gh/glab issue sync (backend.ts + issue_sync.ts)
     ├── tools/                # MCP tool families (one file per domain — see below)
@@ -118,7 +117,7 @@ mcp/trajectory-server/
 | `config.ts` | `config_get`, `config_set`, `config_list` |
 | `discussions.ts` | `discussion_append` (verified_human gate), `discussion_list`, `issue_get_with_discussions` |
 | `file-registry.ts` | `file_registry_upsert/list/verify/delete/update_summaries` (bro-only) |
-| `scan.ts` | `scan_run` (forks `scripts/scan.sh`, persists to `repos` + `file_registry`, emits `deep_scan_completed` audit with `source` + `structural_change` content_json), `repos_list`, `file_registry_bulk_upsert`. Single scan-side tool — `architecture_regen` retired per #2881. |
+| `scan.ts` | `scan_run` (forks `scripts/scan.sh`, persists to `repos` + `file_registry`, emits `deep_scan_completed` audit with `source` + `structural_change` content_json), `repos_list`, `file_registry_bulk_upsert`. Single scan-side tool — the standalone arch-refresh tool was retired per #2881. |
 | `issues.ts` | `issue_create/get/resume/close/update_description/sync_retry` |
 | `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (writes `plugin_config('onboarded')`; replaced the retired `identity_get`/`set`/`reset` surface per #2876) |
 | `pr_comments.ts` | `pr_comments_get` (gh + glab backends, bot-filtered) |

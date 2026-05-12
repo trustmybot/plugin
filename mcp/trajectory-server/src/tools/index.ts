@@ -16,12 +16,11 @@ import { fileRegistryTools } from './file-registry.js';
 import { branchReportMdTools } from './branch_report_md.js';
 // labelTools removed in #179 — issues.labels column was always-empty in
 // production; local label storage retired.
-// regenStateTools + architectureRegenTools removed in 2026-05 (#2881-followup):
-// scan_run is the single scan-side tool now. The regen_state table + the
-// regen_state_get/set/architecture_regen MCP surface were retired to stop
-// confusing bro about which tool to use. Renderer code still lives in
-// `renderers/` for an eventual scan_run-internal call when structural_change
-// detection fires (currently inert).
+// Legacy scan-side drift-cache + standalone arch-refresh MCP tools were
+// retired in 2026-05 (#2881 follow-up): scan_run is the single scan-side
+// tool now. Renderer code still lives in `renderers/` for an eventual
+// scan_run-internal call when structural_change detection fires (currently
+// inert).
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
 import { prCommentsTools } from './pr_comments.js';

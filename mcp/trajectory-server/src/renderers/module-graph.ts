@@ -35,7 +35,7 @@ export function renderModuleGraph(
   const languages = opts.languages ?? DEFAULT_LANGUAGES;
   const langSet = new Set(languages);
 
-  const header = `<!-- Generated ${opts.generatedAt} via /tmb refresh-architecture. Do not edit; regenerate. -->`;
+  const header = `<!-- Auto-rendered ${opts.generatedAt}. Do not edit. -->`;
 
   const filtered = rows.filter(r => r.type === 'source' && r.language !== null && langSet.has(r.language));
 

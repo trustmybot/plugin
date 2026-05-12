@@ -16,7 +16,7 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | `skills` (registered via `skill_register`) | — |
 | 6 | Push gate / PR review | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `validation_attempts` | `git-push-guard` |
-| 7 | Scan + architecture refresh | First code-touching ask of session, `/scan`, OR `post-task-close-rescan.sh` hook fires after `bro_atomic_close` | bro (or hook in background) | `repos`, `file_registry`, `audit(event_type='deep_scan_completed')` — `content_json` carries `source`, `structural_change`, `regen_invoked`, `repos_seen`, `top_dirs` | `post-task-close-rescan` |
+| 7 | Scan + architecture refresh | First code-touching ask of session, `/scan`, OR `post-task-close-rescan.sh` hook fires after `bro_atomic_close` | bro (or hook in background) | `repos`, `file_registry`, `audit(event_type='deep_scan_completed')` — `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs` | `post-task-close-rescan` |
 | 8 | SWE retry / escalation | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer at push) | `validation_attempts` (multiple), `discussions` | `task_retry_batch` composite |
 | 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
@@ -200,10 +200,9 @@ sequenceDiagram
 
 - `source` (one of the four values above)
 - `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
-- `regen_invoked` — reserved; currently always false (the scan_run-internal renderer call is a deferred follow-up — see [#2881 part 2 design notes](https://gitlab.com/trustmybot/plugin/-/issues/2881))
 - `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
 
-The legacy `regen_state` table + the `architecture_regen` MCP tool were retired with this flow.
+The legacy scan-side drift-cache table + the standalone arch-refresh MCP tool were retired with this flow per #2881; `scan_run` is the single scan-side surface.
 
 ---
 

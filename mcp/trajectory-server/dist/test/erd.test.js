@@ -9,7 +9,7 @@ const OPTS = { generatedAt: '2026-04-21', schemaSource: 'mcp/trajectory-server/s
 describe('renderErd', () => {
     it('empty input produces valid doc with 0 tables and empty erDiagram', () => {
         const out = renderErd('', OPTS);
-        assert.ok(out.startsWith('<!-- Generated 2026-04-21 via /tmb refresh-architecture.'));
+        assert.ok(out.startsWith('<!-- Auto-rendered 2026-04-21.'));
         assert.ok(out.includes('Tables: 0'));
         assert.ok(out.includes('Relations: 0'));
         assert.ok(out.includes('erDiagram'));
@@ -20,7 +20,7 @@ describe('renderErd', () => {
     });
     it('output starts with generated-header comment', () => {
         const out = renderErd('', OPTS);
-        assert.ok(out.startsWith('<!-- Generated'));
+        assert.ok(out.startsWith('<!-- Auto-rendered'));
     });
     it('malformed SQL emits no throw', () => {
         assert.doesNotThrow(() => renderErd('CREATE TABLE foo (; garbage)', OPTS));
@@ -111,7 +111,7 @@ describe('renderErd', () => {
         assert.ok(relCount > 0, `Expected >0 relations, got ${relCount}`);
         assert.ok(out.includes('||--o{'), 'Expected at least one ||--o{ relation');
         assert.ok(out.includes('issue_id'), 'Expected issue_id FK to appear');
-        assert.ok(out.startsWith('<!-- Generated'));
+        assert.ok(out.startsWith('<!-- Auto-rendered'));
         assert.ok(out.includes('Source: `mcp/trajectory-server/src/schema.sql`'));
     });
 });

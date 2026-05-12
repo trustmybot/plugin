@@ -151,16 +151,6 @@
         ]
       },
       {
-        "matcher": "mcp__.*trajectory-server__task_create_batch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/greenfield-arch-required.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
         "matcher": "AskUserQuestion",
         "hooks": [
           {
@@ -219,16 +209,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cleanup-worktree-on-task-close.sh",
             "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__file_registry_update_summaries",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/lazy-regen-postcheck.sh",
-            "timeout": 5
           }
         ]
       },

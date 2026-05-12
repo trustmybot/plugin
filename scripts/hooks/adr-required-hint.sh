@@ -56,7 +56,7 @@ REASON="🏛️  architectural-change hint: the user's prompt contains '${matche
 
 1. Co-author an ADR at \`docs/trustmybot/architecture/manual/decisions/N-*.md\`. Template: \`templates/docs-trustmybot/architecture/manual/decisions/0001-example.md\`.
 2. Apply the blast-radius checklist if the feature has external side effects (network, real API mutations, billing, message-sending, writes outside the worktree) — default config opt-in / safe; tests use \`:memory:\` / no live services; spec requires pre-merge \`bash tests/run-all.sh\` with zero external mutations.
-3. After atomic-close, run \`architecture_regen(scope='full')\` to update the auto-generated architecture docs (Step 6 of the planning skill).
+3. Architecture-doc refresh is automatic — \`post-task-close-rescan.sh\` runs \`scan_run\` after \`bro_atomic_close\` (Step 6 of the planning skill).
 
 If the user wants to deliberate before bro commits, recommend they enter Claude Code plan mode (Shift+Tab) — bro doesn't run a bespoke Q+A loop."
 

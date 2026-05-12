@@ -4,11 +4,14 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0-rc.1 — 2026-05-12
+
 ### Changed
 
+- 🧹 **Total scrub of the retired arch-refresh surface** following the standalone-tool → `scan_run` consolidation (#2881). Deleted two dead hooks (one read a dropped legacy drift-cache table; the other checked for an audit event no longer written) and their `hooks/hooks.json` registrations. Deleted the dead arch-walker directory under `mcp/trajectory-server/src/` (no importers). Dropped the unused drift-cache trigger field from `scan_run` return + the `deep_scan_completed` audit `content_json`. Deleted the legacy drift-cache type and migration entirely (pre-release; no released DBs need the drop). Renderer headers (`changelog/codebase-tree/erd/module-graph`) switched to `<!-- Auto-rendered YYYY-MM-DD. Do not edit. -->`. Templates under `templates/docs-trustmybot/architecture/auto/` simplified to "currently inert" placeholders. Retired the architecture-refresh-complete audit event_type (replaced by `deep_scan_completed`). CLAUDE.md routing now points "refresh arch" at `scan_run(source='user_manual')`. Docs / skills / tests across the repo scrubbed for retired-tool mentions. Audit-merge legacy fixture no longer recreates the dropped drift-cache table.
 - 🔢 **Production `issues.id` now starts at 1.** The schema-seeded system sentinel issue moved from `id=999999` to `id=-1` (negative sentinel — SQLite AUTOINCREMENT picks `MAX(MAX(id), 0) + 1`, so the first user-created issue gets `id=1`). Fresh `tmb` installs see clean 1, 2, 3… numbering instead of starting at 1000000. All FK references and hook filters (scan.ts, activation-routine.sh, roundtable-slash-detect.sh, harness/fixtures/L5 outcome SQL, ERD.md, tmb_recovery skill) updated to the new sentinel.
 - ♻️ **Retired the simple/difficult triage.** The triage gate and decision-when-difficult gate in `mcp/trajectory-server/src/tools/tasks.ts` are replaced by a single universal **decision gate**: every `task_create_batch` requires ≥1 `kind='decision'` discussion on the issue. The `Triage:` note + `simple|difficult` classifier are gone. ADR authoring + blast-radius check now trigger on architectural intent (file patterns + keyword heuristics in the new `scripts/hooks/adr-required-hint.sh` UserPromptSubmit hook), not on a user-classified label. Q+A deliberation is delegated to Claude Code's native plan mode (Shift+Tab). `composites.ts:branch_id_propose` no longer returns a `triage` field. `waive_triage_gate` → `waive_decision_gate`. L5 row `08-difficult-path` renamed to `08-architectural-change`; outcome.sql asserts the universal decision row + a tasks row, no `Triage:` requirement.
-- 🚚 Skill→determinism migration phase 1 (#181): 5 skills deleted (`tmb_naming-conventions`, `tmb_git-conventions`, `tmb_create-hook`, `tmb_lazy-regen-check`, `tmb_roundtable-cleanup`); 9 skills shrunk to judgment-only (`tmb_swe-checklist`, `tmb_review-protocol`, `tmb_refresh-architecture`, `tmb_branch-id-proposal`, `tmb_pr-review-handler`, `tmb_push-gate`, `tmb_swe-spawn-workflow`, `tmb_feedback-loop`, `tmb_project-prescan`); 2 skills shrunk to qualitative criteria (`tmb_code-quality`, `tmb_docs-conventions`).
+- 🚚 Skill→determinism migration phase 1 (#181): 5 skills deleted (`tmb_naming-conventions`, `tmb_git-conventions`, `tmb_create-hook`, `tmb_lazy-arch-check`, `tmb_roundtable-cleanup`); 9 skills shrunk to judgment-only (`tmb_swe-checklist`, `tmb_review-protocol`, `tmb_refresh-architecture`, `tmb_branch-id-proposal`, `tmb_pr-review-handler`, `tmb_push-gate`, `tmb_swe-spawn-workflow`, `tmb_feedback-loop`, `tmb_project-prescan`); 2 skills shrunk to qualitative criteria (`tmb_code-quality`, `tmb_docs-conventions`).
 - 🔖 Polish ledger→audit prose in 5 skills + extend lint to flag bare ledger word (#171)
 - ♻️ Split eval_results + debug_trajectory out of prod schema.sql; load via TMB_EVAL_MODE=1 (#163)
 - 🧪 L5 dogfood scorers updated post-#170 audit merge; add coverage for skills + roundtable_votes table writes (#159, #160)
@@ -17,10 +20,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 - **Determinism layer expansion (#181):** 8 new hooks + 3 new MCP composites absorb the deterministic content the deleted/shrunk skills used to carry.
   - PreToolUse lints: `naming-lint.sh` (Edit/Write — file naming per language), `commit-msg-lint.sh` (Bash — Conventional Commits + emoji), `code-quality-lint.sh` (Edit/Write — bare except, mutable defaults, f-string SQL, etc.).
-  - PreToolUse gate: `greenfield-arch-required.sh` blocks `task_create_batch` when no `docs/trustmybot/` and no prior `architecture_regen` audit.
+  - PreToolUse gate: `greenfield-arch-required.sh` blocks `task_create_batch` when no `docs/trustmybot/` and no prior architecture-refresh audit.
   - UserPromptSubmit hint: `consultant-spawn-required.sh` injects advisory `additionalContext` on domain-expert keywords (security, perf, legal, architecture).
   - SessionStart inventory: `session-start-prescan.sh` injects the deterministic project inventory (git state, stacks, registry warmth, open issues) so bro doesn't re-derive it on the first ask.
-  - PostToolUse: `lazy-regen-postcheck.sh` (file_registry_update_summaries — drift warn), `roundtable-cleanup-postcheck.sh` (roundtable_close — capture-surface verification).
+  - PostToolUse: `lazy-arch-postcheck.sh` (file_registry_update_summaries — drift warn), `roundtable-cleanup-postcheck.sh` (roundtable_close — capture-surface verification).
   - MCP composites (`mcp/.../tools/composites.ts`): `branch_id_propose(intent, objective?)` (heuristic mapping → conventional branch_id + triage), `task_retry_batch(failed_task_id, …)` (one transaction for retry rationale + new task + audit), `bro_atomic_close(task_id, sha, summaries, …)` (one transaction for V3 audit + summaries + status flip + optional issue close — eliminates the L5 close-step drift failure mode).
 
 - **Enforcement:** New PreToolUse hook `require-feature-branch-active.sh` blocks SWE spawn when the main checkout is not on the task's `branch_id`. New MCP gate in `task_create_batch` requires a prior `branch_id_proposed` ledger event. `tmb_branch-id-proposal` skill now runs `git switch -c` itself instead of only logging intent. (#155)
@@ -59,7 +62,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Fixed
 
-- 🐛 lazy-regen-check skips nudge for hand-curated arch projects (#162)
+- 🐛 lazy-arch-check skips nudge for hand-curated arch projects (#162)
 
 - 🐛 Drop stale git-worktree literal check from local-agent-primitives lint (#169)
 
@@ -106,7 +109,7 @@ The h3 + h4 A/B scenarios proved prompt-only doctrine compliance is 0/10 in both
 |---|---|---|
 | `activation-routine.sh` | UserPromptSubmit | Pre-fetches `identity` + pending issue from the trajectory DB on every bro-triggered message; injects as `additionalContext` so bro never has to remember to call `identity_get` / `issue_resume` |
 | `no-source-edit-from-main.sh` | PreToolUse on Edit/Write/MultiEdit/NotebookEdit | Blocks bro from editing source files outside an SWE worktree (allowlist: markdown, LICENSE, agent/skill prompts, plugin/hooks manifests, `.github/`). Bypass: `TMB_ALLOW_SOURCE_EDIT=1` |
-| `session-start-regen-check.sh` | SessionStart | Computes git drift vs `regen_state.last_seen_sha`; nudges bro to run `tmb_refresh-architecture` when drift > 25 commits (override: `TMB_REGEN_DRIFT_THRESHOLD`) |
+| `session-start-arch-check.sh` | SessionStart | Computes git drift vs the legacy arch-cache last-seen SHA; nudges bro to run `tmb_refresh-architecture` when drift > 25 commits (override: `TMB_ARCH_DRIFT_THRESHOLD`) |
 | `ensure-gitignore.sh` | SessionStart | Ensures `.claude/` is in the project's `.gitignore`. Creates `.gitignore` if missing; appends if rule absent; idempotent. Prevents the trajectory.db-leaking-into-worktrees footgun |
 | `no-worktree-branch-create.sh` | PreToolUse on Bash | Blocks `git worktree add -b/-B/--create-branch ...`. Branch authority is bro's: bro pre-creates `<task.branch_id>` from the latest origin, SWE attaches via `git worktree add <path> <branch>` (no creation, no abbreviation). Bypass: `TMB_ALLOW_WORKTREE_BRANCH_CREATE=1` |
 | `branch-up-to-date-with-remote.sh` | PreToolUse on Bash | Fetches `origin/<pr_target>`, denies worktree-add if `<branch>` is behind. Catches the stale-local-main bug. Bypass: `TMB_ALLOW_STALE_BRANCH=1` |
@@ -142,7 +145,7 @@ Also:
 Per the doctrine "prompt-only enforcement caps at the LLM compliance ceiling — promote load-bearing rules to a harder layer," two new hooks land:
 
 - **`scripts/hooks/no-source-edit-from-main.sh`** (PreToolUse on `Edit|Write|MultiEdit|NotebookEdit`). Blocks the call when bro mode is active *and* the target is source code *and* the current shell isn't inside an SWE worktree. Allowlist covers markdown, `LICENSE`, `.gitignore`-class configs, agent/skill prompts, plugin/hooks manifests, `.github/`. Bypass via `TMB_ALLOW_SOURCE_EDIT=1` for emergencies. Enforces the "bro is a pure planner — every code change goes through SWE" rule that until now was prompt-only.
-- **`scripts/hooks/session-start-regen-check.sh`** (SessionStart). Reads `regen_state.last_seen_sha`, computes drift to `HEAD`, and emits `additionalContext` suggesting `tmb_refresh-architecture` when drift exceeds the threshold (default 25 commits, override via `TMB_REGEN_DRIFT_THRESHOLD`). Pre-empts the manual lazy-regen check bro is supposed to do at the start of every code-touching ask.
+- **`scripts/hooks/session-start-arch-check.sh`** (SessionStart). Reads the legacy arch-cache last-seen SHA, computes drift to `HEAD`, and emits `additionalContext` suggesting `tmb_refresh-architecture` when drift exceeds the threshold (default 25 commits, override via `TMB_ARCH_DRIFT_THRESHOLD`). Pre-empts the manual lazy arch-check bro is supposed to do at the start of every code-touching ask.
 
 New doc: **`docs/architecture/ENFORCEMENT.md`** — canonical reference for the 6 enforcement layers (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` auto-load → prompts) plus a per-agent × per-interaction coverage matrix showing which layer covers what. Includes a section listing remaining Layer-6-only doctrine items as promotion candidates.
 
@@ -356,7 +359,7 @@ This is the doctrine half of #38. The DB-side half (`issue_labels` table + 4 MCP
 
 #### Architecture docs bootstrap on small projects (issue #94)
 
-`tmb_lazy-regen-check` previously did nothing on first-ever session, waiting for the Human to manually request `/tmb refresh-architecture`. Tiny dogfood projects rarely cross the 25-commit threshold, so they never got `docs/trustmybot/architecture/auto/` populated.
+`tmb_lazy-arch-check` previously did nothing on first-ever session, waiting for the Human to manually request `/tmb refresh-architecture`. Tiny dogfood projects rarely cross the 25-commit threshold, so they never got `docs/trustmybot/architecture/auto/` populated.
 
 New behavior: on first-ever session, count source files (`git ls-files | exclude .claude/, node_modules/, dist/, etc.`):
 - 0 files → skip (empty repo)
@@ -448,7 +451,7 @@ Manual L5 dogfood was the release bottleneck. L6 automates it by pre-seeding DB 
 - `D-direct-mode` — ≤3-line typo fix → Edit + commit, no SWE spawn (with hard invariant assertions)
 - `95-anonymous-cold-restart` — regression for #95; cold session must skip re-onboarding
 
-**12 scaffolded flows** (auto-skip until expected-trajectory authored): `03-difficult-task`, `04-agent-creator`, `05-skill-creation`, `06-push-gate`, `07-architecture-regen`, `08-swe-retry`, `09-roundtable`, `C-consultant`, `32-team-config`, `92-base-branch`, `94-arch-bootstrap`, `96-halt-on-error`.
+**12 scaffolded flows** (auto-skip until expected-trajectory authored): `03-difficult-task`, `04-agent-creator`, `05-skill-creation`, `06-push-gate`, `07-architecture-refresh`, `08-swe-retry`, `09-roundtable`, `C-consultant`, `32-team-config`, `92-base-branch`, `94-arch-bootstrap`, `96-halt-on-error`.
 
 **CI workflow** `.github/workflows/l6-dogfood.yml`:
 - Triggers: tag pushes, PRs labeled `L6`, manual dispatch
@@ -677,7 +680,7 @@ New directory `tests/workflow-sim/` holds **5 trajectory tests**, one per FLOWS.
 | 2 — Simple task | `flow-02-simple-task.test.mjs` | bro plans → swe completes → bro closes; **no per-task pr-reviewer** (push gate is amortized); planning_complete event lands in ledger |
 | 3 — Difficult task | `flow-03-difficult-task.test.mjs` | Q+A discussion sequence satisfies scope gate without `waive_scope_gate`; decision row queryable for ADR generation; positive + negative cases |
 | 6 — Push gate | `flow-06-push-gate.test.mjs` | bro forbidden from `validation_record` (only pr-reviewer); fail-then-pass attempt sequence preserved in `validation_history` |
-| 7 — Architecture regen | `flow-07-architecture-regen.test.mjs` | regen_state cursor lifecycle; swe forbidden from `architecture_regen` and `regen_state_set` |
+| 7 — Architecture refresh | `flow-07-architecture-refresh.test.mjs` | legacy arch-cache cursor lifecycle; swe forbidden from the legacy arch-refresh tool and cache-writer tool |
 | 8 — SWE retry | `flow-08-swe-retry.test.mjs` | 3-attempt sequence preserved; UNIQUE(task_id, attempt_n) yields upsert (latest verdict wins); `'escalated'` is a valid terminal status |
 | D — Direct Mode | `flow-D-direct-mode.test.mjs` | `direct_mode_used` ledger event; no task / validation rows created |
 
@@ -880,7 +883,7 @@ The chain is **Human → bro → SWE**, with `pr-reviewer` as a push gate and `a
 
 - **Bro as the single Human entry point.** Triggered by the literal word "bro" in any message. Plans, captures intent in MCP, writes task specs, spawns SWE, verifies SWE's work, drives retry loops. Stays out of the way for non-"bro" messages.
 - **Lego templates.** Plugin's `agents/` is empty. `templates/agents/` ships 6 minimal agent templates (≤30 lines each, lint-enforced): swe, pr-reviewer, architect, cto, ceo, pm. Bro copies them into `<project>/.claude/agents/` verbatim — never edits the body. Project customization happens by extending the `skills:` array via `tmb_skill-creator`.
-- **Bundled SQLite trajectory MCP server.** Node + `better-sqlite3` + `@modelcontextprotocol/sdk` in `mcp/trajectory-server/`. ~30 tools spanning issues, tasks, discussions, validation, ledger, audit, file-registry, architecture-regen, identity, config, skills.
+- **Bundled SQLite trajectory MCP server.** Node + `better-sqlite3` + `@modelcontextprotocol/sdk` in `mcp/trajectory-server/`. ~30 tools spanning issues, tasks, discussions, validation, ledger, audit, file-registry, architecture-refresh, identity, config, skills.
 - **Server-enforced role-based access.** `requireRoles` middleware structurally rejects calls that violate the decision chain (e.g. consultants can't write task rows; only pr-reviewer can write `validation_record`). Doctrine isn't just prompt-discipline — it's wire-enforced.
 - **Two distinct gates.**
   - **Bro's task gate** — runs after every SWE return: re-runs the spec's `## Verification` commands, sanity-checks diff against `## Files`, confirms each `## Success Criteria` bullet. Fast, mandatory, never skipped.
@@ -899,7 +902,7 @@ The chain is **Human → bro → SWE**, with `pr-reviewer` as a push gate and `a
 
 **Plugin protocol skills** (in `skills/`, `tmb_*` prefix to prevent project-skill collisions):
 
-`tmb_first-run-onboarding`, `tmb_planning-simple`, `tmb_planning-difficult`, `tmb_swe-spawn-workflow`, `tmb_branch-id-proposal`, `tmb_agent-creator`, `tmb_skill-creator`, `tmb_bootstrap` (recovery), `tmb_project-prescan`, `tmb_lazy-regen-check`, `tmb_refresh-architecture`, `tmb_reonboard`, `tmb_create-hook`, `tmb_feedback-loop`, `tmb_roundtable`, `tmb_roundtable-cleanup`, `tmb_validate-swe-output`.
+`tmb_first-run-onboarding`, `tmb_planning-simple`, `tmb_planning-difficult`, `tmb_swe-spawn-workflow`, `tmb_branch-id-proposal`, `tmb_agent-creator`, `tmb_skill-creator`, `tmb_bootstrap` (recovery), `tmb_project-prescan`, `tmb_lazy-arch-check`, `tmb_refresh-architecture`, `tmb_reonboard`, `tmb_create-hook`, `tmb_feedback-loop`, `tmb_roundtable`, `tmb_roundtable-cleanup`, `tmb_validate-swe-output`.
 
 **Template skills** (in `templates/skills/`, copied into projects via onboarding):
 

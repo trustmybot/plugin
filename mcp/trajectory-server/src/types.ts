@@ -130,13 +130,6 @@ export interface IdentityRow {
   updated_at: string;
 }
 
-export interface RegenStateRow {
-  target: string;
-  last_regen_at: string | null;
-  last_seen_sha: string | null;
-  notes: string;
-}
-
 export interface ValidationAttemptsRow {
   id: number;
   task_id: number;

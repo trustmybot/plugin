@@ -14,7 +14,7 @@ export function renderChangelog(
   const totalFiles = countUniqueFiles(commits);
 
   const lines: string[] = [
-    `<!-- Generated ${opts.generatedAt} via /tmb refresh-architecture. Do not edit; regenerate. -->`,
+    `<!-- Auto-rendered ${opts.generatedAt}. Do not edit. -->`,
     '',
     '# Changelog',
     '',

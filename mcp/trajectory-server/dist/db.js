@@ -108,10 +108,6 @@ export class TrajectoryDB {
         this.migrateValidationSubagentSessionId();
         this.migrateDiscussionsVerifiedHuman();
         this.migrateFileRegistryRepoColumn();
-        // 2026-05: scan_run is the single scan-side tool now (#2881 follow-up).
-        // The regen_state table backed architecture_regen's drift cache — both
-        // are retired. Drop the table from existing DBs. Idempotent.
-        this.migrateDropRegenState();
         // 2026-05: the identity table was a one-row "onboarded" marker. Folded
         // into plugin_config('onboarded': true) (#2876). Migration reads any
         // pre-existing identity row → seeds the config key → drops the table.
@@ -122,14 +118,6 @@ export class TrajectoryDB {
         // gone and skip the DROP.
         this.migrate179DropDeadColumns();
         this.syncPluginVersion();
-    }
-    migrateDropRegenState() {
-        const exists = this.db
-            .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='regen_state'`)
-            .get();
-        if (exists) {
-            this.db.exec(`DROP TABLE regen_state`);
-        }
     }
     migrateDropIdentityTable() {
         const exists = this.db
@@ -272,9 +260,10 @@ export class TrajectoryDB {
             },
             // file_registry derived-metadata cols (language/size_bytes/imports_json/
             // exports_json/metadata_json/last_commit_sha/last_change_type/
-            // last_change_at) are always-empty in production but kept for
-            // module-graph + architecture_regen compat. Drop deferred to a
-            // follow-up PR that also refactors those consumers.
+            // last_change_at) are always-empty in production but kept for the
+            // module-graph renderer + the scan-side renderer pass (currently inert,
+            // see #2881 follow-up). Drop deferred to a follow-up PR that also
+            // refactors those consumers.
             { table: 'agent_runs', columns: ['started_at'] },
             // identity.human_name dropped — bro doesn't ask for or store the
             // user's name. The identity table stays as a pure onboarded-marker

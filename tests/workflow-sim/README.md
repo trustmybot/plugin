@@ -16,7 +16,7 @@ Cross-reference: [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md
 | 4 — Agent-creator | n/a | **L5 only** — pure filesystem write |
 | 5 — Skill creation | n/a | **L5 only** — pure filesystem write |
 | 6 — Push gate | `flow-06-push-gate.test.mjs` | ✅ closed-task + validation_record + retry |
-| 7 — Architecture regen | `flow-07-architecture-regen.test.mjs` | ✅ regen_state + file_registry orchestration |
+| 7 — Scan + architecture refresh | covered by `mcp/trajectory-server/src/test/scan.test.ts` (unit) | ✅ scan_run + deep_scan_completed audit |
 | 8 — SWE retry / escalation | `flow-08-swe-retry.test.mjs` | ✅ multiple validation_attempts + status='escalated' |
 | 9 — Roundtable | n/a | covered by audit 'roundtable_summary' event in flow-03 + role-matrix |
 | C — Consultant invocation | n/a | covered by `tests/mcp-integration/role-matrix.test.mjs` |

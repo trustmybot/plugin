@@ -233,7 +233,7 @@ export function renderErd(
   const warningBlock = warnings.length > 0 ? '\n' + warnings.join('\n') + '\n' : '';
 
   return [
-    `<!-- Generated ${opts.generatedAt} via /tmb refresh-architecture. Do not edit; regenerate. -->`,
+    `<!-- Auto-rendered ${opts.generatedAt}. Do not edit. -->`,
     '',
     '# Entity-Relationship Diagram',
     '',

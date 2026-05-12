@@ -162,7 +162,7 @@ Every code change should add or update tests.
 - [ ] `CHANGELOG.md` updated for user-visible changes.
 - [ ] If the edit affects a workflow contract, update every agent template body AND every consuming skill that cites it — not just one. Remember: agent templates are the immutable Lego stud, skills are the bricks. Behavior changes go in skills; identity changes go in templates.
 - [ ] If the edit changes a `tmb_*` skill's contract, also update the lint assertions in `tests/lint/` if a contract is involved.
-- [ ] If the edit touches the SQLite schema, regenerate the ER diagram in `docs/architecture/ERD.md` and update the `requireRoles` matrix in `mcp/trajectory-server/src/middleware/agent-scope.ts`.
+- [ ] If the edit touches the SQLite schema, rebuild the ER diagram in `docs/architecture/ERD.md` and update the `requireRoles` matrix in `mcp/trajectory-server/src/middleware/agent-scope.ts`.
 - [ ] PR description names the issue (`Closes #N`).
 
 ## Filing an issue

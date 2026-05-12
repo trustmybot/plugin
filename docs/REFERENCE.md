@@ -7,7 +7,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. The `<plugin-name>` segment matches `plugin.json.name`, so the stable channel writes to `.claude/tmb/` and the RC channel writes to `.claude/tmb-rc/` — full filesystem isolation when both are installed (#87). Project-local, gitignored, per-developer.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **ADRs** — `docs/trustmybot/architecture/manual/decisions/N-*.md`, hand-curated.
-- **Auto-regenerated architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed via `architecture_regen`.
+- **Auto-rendered architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed by the scan-side renderer pass (currently inert; see #2881 follow-up).
 - **Snapshots** — `docs/trustmybot/snapshots/<issue_id>.md`, generated via `issue_snapshot_md`.
 
 ## Other docs
@@ -28,9 +28,9 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS)
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
 - **file_registry**: `file_registry_upsert`, `file_registry_update_summaries` (bro-only; close-gate-enforced), `file_registry_list`, `file_registry_verify`, `file_registry_delete`
-- **identity**: `identity_set`, `identity_get`, `identity_reset`
+- **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (replaced the legacy identity surface per #2876)
 - **config**: `config_get`, `config_list`, `config_set`
-- **regen**: `regen_state_get`, `regen_state_set`, `architecture_regen`
+- **scan**: `scan_run`, `repos_list`, `file_registry_bulk_upsert` (replaced the legacy standalone arch-refresh surface per #2881)
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
 - **skills**: `skill_register`, `skill_promote`, `skill_record_outcome`
 - **audit**: `audit_log`, `audit_log_list`
@@ -38,7 +38,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 ## Slash commands
 
 - `/roundtable <topic>` — multi-agent deliberation with checkbox/radio AUQ ratification (full procedure in `commands/roundtable.md`)
-- `/onboard` — interactive policy ceremony with two branches based on project shape (local-only vs remote-tracked). Auto-fired on first contact when `identity_get()` is empty; Human-typed for later changes (full procedure in `commands/onboard.md`)
+- `/onboard` — interactive policy ceremony with two branches based on project shape (local-only vs remote-tracked). Auto-fired on first contact when `plugin_config('onboarded')` is unset; Human-typed for later changes (full procedure in `commands/onboard.md`)
 - `/monitor <PR_number>` — invokes `tmb_review` skill (PR comment triage section): fetches review comments, plans tasks, dispatches SWE per ratified comment
 
 Catalog: `docs/commands/README.md`.
@@ -76,7 +76,6 @@ Catalog: `docs/commands/README.md`.
 | `require-task-spec.sh` | PreToolUse Task | SWE spawn requires task_id + worktree |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human (#141) |
 | `ensure-gitignore.sh` | SessionStart | Project .gitignore must exclude .claude/ |
-| `session-start-regen-check.sh` | SessionStart | Lazy nudge for arch-doc regen |
 | `session-log-capture.sh` | SessionStart | Track current cc.log for diagnostics |
 | `write-active-workspace-sentinel.sh` | SessionStart | Sentinel for cross-session workspace resolution |
 | `mcp-health-check.sh` | UserPromptSubmit (periodic) | MCP server liveness probe |

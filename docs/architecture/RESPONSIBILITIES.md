@@ -30,7 +30,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 
 ### Code-touching chain
 
-1. `session-start-prescan.sh` (auto hook — inventory) → `session-start-regen-check.sh` (auto hook — drift) → decide
+1. `session-start-prescan.sh` (auto hook — inventory) → decide
 2. `branch_id_propose` MCP composite (open MCP issue + propose `branch_id`)
 3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + ADR when the change touches `docs/trustmybot/architecture/`, schema, public API, or external side effects)
 4. **bro pre-creates the task branch** from `origin/<pr_target>` — `git fetch origin && git branch <task.branch_id> origin/<pr_target>`
@@ -54,7 +54,7 @@ Bro is the only agent allowed to call:
 - `pr_comments_get` (shared with pr-reviewer)
 - `issue_sync_retry`
 - `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (these write `plugin_config('onboarded')` and the related policy keys; replaced the retired `identity_get`/`set`/`reset` surface per #2876)
-- `scan_run` (single scan-side tool; replaced the retired `architecture_regen` per #2881)
+- `scan_run` (single scan-side tool; replaced the retired standalone arch-refresh surface per #2881)
 
 ### Hooks fired on bro's behalf
 
@@ -62,7 +62,6 @@ Bro is the only agent allowed to call:
 |---|---|---|
 | `activation-routine.sh` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
 | `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, registry warmth) |
-| `session-start-regen-check.sh` | SessionStart | Nudge architecture refresh if docs are stale |
 | `ensure-gitignore.sh` | SessionStart | Ensure `.claude/` is gitignored |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |

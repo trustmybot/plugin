@@ -245,7 +245,7 @@ If `bro_atomic_close` returns `is_error: true`, halt and surface — see `tmb_re
 
 ## Step 6 — Architecture refresh (post-close)
 
-The `post-task-close-rescan.sh` hook fires automatically after `bro_atomic_close` and runs `scan_run(source='bro_auto_post_close')`. The scan's audit row carries `structural_change: true|false` so downstream tooling can decide whether the project shape changed. There is no separate `architecture_regen` step bro fires — scan is the single scan-side surface (#2881).
+The `post-task-close-rescan.sh` hook fires automatically after `bro_atomic_close` and runs `scan_run(source='bro_auto_post_close')`. The scan's audit row carries `structural_change: true|false` so downstream tooling can decide whether the project shape changed. There is no separate arch-refresh step bro fires — `scan_run` is the single scan-side surface (#2881).
 
 ## Headless fallback (interactive flow falls back here on AUQ error)
 
