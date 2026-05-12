@@ -9,10 +9,9 @@
 --   - system issue (id=-1) — parent FK for headless-recovery audit writes
 --
 -- Filename retained for backward compat; the legacy "named vs anonymous"
--- distinction no longer applies — identity is just an onboarded flag.
+-- distinction no longer applies — the marker is plugin_config('onboarded': true).
 
-INSERT INTO identity (id, created_at, updated_at)
-VALUES (1, datetime('now'), datetime('now'));
+INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'));
 
 -- Pre-clear the registry-cold gate. /scan would normally run before any
 -- task_create_batch; for flows that don't exercise scan itself, the seed

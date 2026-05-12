@@ -7,7 +7,7 @@
 SELECT
   CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
   'identity-empty-after-headless-halt (got ' || COUNT(*) || ', expected 0)' AS description
-FROM identity;
+FROM plugin_config WHERE key = 'onboarded';
 
 -- 2. Schema-seeded defaults stayed put (no partial onboard_apply write).
 SELECT

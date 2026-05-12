@@ -10,4 +10,4 @@ SELECT 1 AS pass, 'cold-start: bro initiated onboard chain (asserted via tools-r
 SELECT
   CASE WHEN COUNT(*) <= 1 THEN 1 ELSE 0 END AS pass,
   'identity row count (got ' || COUNT(*) || ', expected 0 or 1 — headless may auto-apply)' AS description
-FROM identity;
+FROM plugin_config WHERE key = 'onboarded';

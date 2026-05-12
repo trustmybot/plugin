@@ -1,8 +1,8 @@
 {
   "expected_writes": {
-    "identity": "=1",
     "tasks": "=0",
     "issues WHERE id != -1": "=0",
-    "audit WHERE event_type='deep_scan_completed'": ">=1"
+    "audit WHERE event_type='deep_scan_completed'": ">=1",
+    "plugin_config WHERE key='onboarded' AND value_json='true'": "=1"
   }
 }

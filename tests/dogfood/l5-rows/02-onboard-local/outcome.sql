@@ -8,7 +8,7 @@
 SELECT
   CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
   'identity row count (got ' || COUNT(*) || ', expected =1)' AS description
-FROM identity;
+FROM plugin_config WHERE key = 'onboarded';
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,

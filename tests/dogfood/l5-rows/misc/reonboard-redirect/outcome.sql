@@ -12,4 +12,4 @@ WHERE key = 'branching_model';
 SELECT
   CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
   'identity row count = 1 (got ' || COUNT(*) || ')' AS description
-FROM identity;
+FROM plugin_config WHERE key = 'onboarded';
