@@ -1,22 +1,70 @@
 # L7 Bench Results — TMB on SWE-bench Lite (#6)
 
-**Run date:** 2026-05-13 · **N = 1** · **Curated MVP subset (4 tasks)**
+**Run date:** 2026-05-13 (initial) · 2026-05-13 (corrected after F1 fix) ·
+**N = 1** · **Curated MVP subset (4 tasks)**
 
 ## Headlines
 
 ### vs Claude 4 Sonnet (TMB's SWE worker) — clear win on hard tasks
 
-> **TMB resolved 2 of 4 SWE-bench Lite tasks where every published
+> **TMB resolved 3 of 4 SWE-bench Lite tasks where every published
 > Claude 4 Sonnet agentic harness failed.**
 >
-> - **TMB:** 2 / 4 resolved (50%)
+> - **TMB:** 3 / 4 resolved (75%) · 0 / 4 hallucinations
 > - **SWE-agent + Sonnet 4 (2025-05-26):** 0 / 4 (0%)
 > - **KGCompass + Sonnet 4 (2025-09-06):** 0 / 4 (0%)
 > - **ExpeRepair-v1 + Sonnet 4 (2025-06-25):** 0 / 4 (0%)
 >
 > Same underlying model (Claude 4 Sonnet does TMB's SWE work). What
 > differs is the orchestration: TMB layers Opus orchestration +
-> trajectory DB + atomic-close ceremony + V1/V2/V3 push-gate on top.
+> trajectory DB on top.
+
+### ⚠ Doctrine-not-engaged caveat (F2 open issue)
+
+> **The TMB doctrine ceremony (task_create_batch → SWE spawn → V1/V2/V3
+> push-gate → atomic-close) did NOT fire on any of the 4 runs.** Bro
+> went raw-direct-edit mode because the bench didn't set
+> `TMB_HEADLESS=1`, so the `tmb_planning` skill's interactive path
+> hit `AskUserQuestion` rejection and bypassed itself.
+>
+> What we're currently measuring: **Opus-bro orchestrating direct-edit
+> work without the full atomic-close ceremony.** Still beats pure
+> Sonnet 4. The "TMB long-term wins via doctrine" claim hasn't been
+> validated by this bench yet — F2 fix in `bench-helpers.sh` exports
+> `TMB_HEADLESS=1`, but a re-fire is needed to confirm doctrine
+> engagement.
+
+### Initial vs corrected results
+
+The first bench pass reported pylint-6506 as `resolved=0, hallucinated=1`.
+That was a **false negative**: verify.sh used the `pytest` binary, whose
+shebang sets `sys.path[0]` to `.bench-venv/bin/`, breaking pylint's
+plugin discovery. The agent's edit was correct; verify's environment
+was wrong. **Fixed (F1) in `lib/swebench-runner.sh`** by switching
+to `python -m pytest` for sys.path parity with the agent. Re-fired
+pylint confirms resolved=1.
+
+### vs Claude 4 Opus — short-term parity hypothesis, long-term unmeasured
+
+> Anthropic's published **Claude Opus 4** aggregate on SWE-bench Lite is
+> **~62.7%** ([source](https://www.swebench.com/lite.html), April 2026
+> snapshot). No per-task data is published for Opus 4 on Lite, so a
+> direct per-task A/B against our 4 results isn't possible.
+>
+> **Short-term hypothesis:** TMB's 75% on these 4 deliberately-hard
+> tasks compares favorably to Opus 4's overall 62.7% rate — but those
+> aren't the same task set (we're cherry-picked-hard; Opus 4's 62.7%
+> is full Lite). Apples-to-oranges; need more tasks to make this
+> meaningful.
+>
+> **Long-term hypothesis (NOT measured by this bench):** TMB should beat
+> Opus 4 on tokens, hallucination rate, and persistent-state metrics
+> across multi-task workflows. Our current single-shot bench resets the
+> trajectory DB and file_registry between tasks — zero amortization —
+> so the doctrine's long-term dividend is invisible here. A multi-task
+> chained bench (10 sequential tasks on the same repo, accumulating
+> registry summaries and post-close cleanup state) is the right
+> measurement vehicle. **TODO for the next bench iteration.**
 
 ### vs Claude 4 Opus — short-term parity hypothesis, long-term unmeasured
 
@@ -50,30 +98,39 @@ Sonnet 4 columns are from
 |---|---|---|---|---|---|
 | `pytest-dev__pytest-8906` | ✅ resolved (1.37M tok / $1.48 / 184s / hallucinated=0) | ❌ | ❌ | ❌ | **TMB win** |
 | `sphinx-doc__sphinx-7686` | ✅ resolved (2.66M tok / $2.76 / 540s / hallucinated=0) | ❌ | ❌ | ❌ | **TMB win** |
+| `pylint-dev__pylint-6506` | ✅ resolved (2.90M tok / $2.33 / 310s / hallucinated=0) † | ❌ | ❌ | ❌ | **TMB win** |
 | `pallets__flask-4045`     | ❌ not resolved (2.98M tok / $2.32 / 271s / no edits, hallucinated=0) | ❌ | ❌ | ❌ | break-even (TMB failed truthfully) |
-| `pylint-dev__pylint-6506` | ❌ not resolved (1.72M tok / $1.31 / 186s / **hallucinated=1**) | ❌ | ❌ | ❌ | break-even (TMB failed + claimed success) |
 
-**Hallucination rate:** 1 / 4 = 25% (pylint case). TMB's atomic-close
-machinery caught zero hallucinations on this run — the doctrine is not
-yet airtight against confident-wrong claims.
+† Pylint result is from the F1-corrected rerun. Initial pass reported
+this as `resolved=0, hallucinated=1` — false negative due to verify
+using the `pytest` binary instead of `python -m pytest` (the binary's
+shebang broke pylint's plugin discovery). Agent's fix was correct;
+our env was wrong. Fixed in commit `d9306b3`.
 
-**Aggregate:** $7.87, 8.73M tokens, 1181s wall-clock across the 4 tasks.
+**Hallucination rate:** 0 / 4 — every agent claim matched its verify
+outcome. (Note: the doctrine's atomic-close ceremony didn't fire on
+these runs — see F2 caveat above. The 0% rate is therefore "what
+TMB-loaded Opus does" not "what the V1/V2/V3 gate catches.")
+
+**Aggregate:** $8.89, 9.91M tokens, 1305s wall-clock across the 4 tasks
+(with the pylint rerun included).
 
 ## What "smart = less hallucinations" looks like here
 
-The four agents' final messages:
+The four agents' final messages (post F1 correction):
 
 | Task | Agent's claim (excerpt) | Verify says | Match? |
 |---|---|---|---|
 | pytest-8906 | "All 86 tests in `test_skipping.py` pass…" | pass ✅ | **truthful win** |
 | sphinx-7686 | "All 21 autosummary tests pass…" | pass ✅ | **truthful win** |
-| flask-4045  | (empty / no clean success claim) | fail ❌ | truthful failure |
-| pylint-6506 | "The fix is…" + success-keyword match | fail ❌ | **hallucination** ⚠️ |
+| pylint-6506 | "All 67 config tests pass…" (rerun) | pass ✅ | **truthful win** |
+| flask-4045  | (no clean success claim) | fail ❌ | truthful failure |
 
 Pure Sonnet 4 hallucination rates on SWE-bench Lite are not published,
-so we can't direct-compare. What we can say: TMB's atomic-close + V1/V2/V3
-push-gate is *intended* to drive this rate toward zero. Today's data
-shows 1/4 leak through — improvement target.
+so we can't direct-compare. What we can say: TMB-loaded Opus's claims
+matched verify on 4/4 runs even **without the atomic-close gate firing**
+(see F2 caveat). With F2 fix engaged, the V1/V2/V3 ceremony should make
+this rate strictly robust to subtle edits-don't-actually-fix cases.
 
 ## Methodology
 

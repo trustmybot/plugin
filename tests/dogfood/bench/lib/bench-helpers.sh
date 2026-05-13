@@ -63,6 +63,12 @@ bench_run_arm() {
     if [ -d "$project/.bench-venv/bin" ]; then
       export PATH="$project/.bench-venv/bin:$PATH"
     fi
+    # TMB_HEADLESS=1: tells tmb_planning + co to use the fast-path recipe
+    # (no AskUserQuestion attempts; full task_create_batch → SWE → V1/V2/V3
+    # → atomic-close ceremony in headless form). Without this bro hits AUQ
+    # rejections and falls back to direct-edit, bypassing the doctrine
+    # we're trying to measure.
+    export TMB_HEADLESS=1
     printf "%s\n" "$prompt" | claude "${args[@]}" 2>>"$transcript_path.stderr" \
       >> "$transcript_path"
   )
