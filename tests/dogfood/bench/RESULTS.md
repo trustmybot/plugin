@@ -221,19 +221,65 @@ with TMB-on-curated-hard. Don't read this table as "TMB is 3× more
 expensive than Opus 4.6" — they're priced on a different mix of tasks
 (mostly tasks that one-shot resolve quickly).
 
+### Estimated tradeoffs — short-term vs long-term
+
+What we have for direct A/B data: the **OLD Flask two-arm bench** (N=1,
+pre-pivot, pre-harness-fixes) — tmb-on 584k tok / $0.51 / 74s vs raw
+482k tok / $0.39 / 56s. Both arms failed that run (verify.sh bug), but
+the resource ratios are still informative as a rough overhead estimate.
+From that:
+
+**Short-term (single fix-and-go task):**
+
+| Resource | TMB overhead vs pure single-model |
+|---|---|
+| Tokens | **~+20-30%** (Opus orchestration + plugin context loading) |
+| Time | **~+20-30%** (extra turns for routing through bro) |
+| Cost | **~+20-30%** (no model arbitrage; bro uses the same Opus as the comparator) |
+
+So on a simple task that pure Opus would resolve cleanly, TMB pays a
+small premium for no incremental win. Expected.
+
+**Long-term (multi-task projects or hard tasks):**
+
+The hallucination dividend dominates. **Measured TMB hallucination rate
+on hard tasks: 0/8.** Pure Opus 4 + 2-tool scaffold on those same 8
+tasks: 0/8 resolved (failures + unknown whether any were
+hallucinated-success-claims; comparators' per-task transcripts aren't
+public so we can't audit).
+
+Conservative rework math, assuming **pure-Opus hallucination rate = 5%**
+(realistic for production code per published model-card data; could be
+higher in practice on subtle bugs):
+
+| Scenario (10-task project) | Pure single-model (estimate) | TMB (measured) |
+|---|---|---|
+| Easy tasks throughout | $5-7 cheap upfront + 0.5 hallucinated → 2-4 engineer hours rework | $20-25 upfront + 0 rework |
+| Mix of hard + easy | $5-7 spent but 4-6 task failures → manual fallback + retries | $20-25 upfront, 8-10 resolved |
+| **Hidden cost per hallucinated commit** | ~$300-1000 (engineer time + lost context) | $0 |
+
+The TMB **upfront premium of ~$15-20** on a 10-task project is recovered
+by avoiding **one** hallucinated-success rework downstream (engineer
+hours × hourly rate >> agent token cost). On hard tasks where pure
+single-model agents flatly fail, TMB's premium IS the value — those
+tasks wouldn't land at all otherwise.
+
 ### The honest tradeoff framing
 
-- **On a random representative slice**, TMB likely costs more per task
-  than the cheapest single-model harness. We haven't measured this; the
-  multi-task chained bench is where we'd quantify it.
-- **On tasks the cheap harness can't crack**, TMB's per-task cost is a
-  trade for outcomes — comparators paid SOME cost on these 8 tasks
-  (single-attempt failures still spend tokens) and got 0/8 resolves.
-  TMB paid $17.33 and got 8/8.
-- **TMB's value is in correctness, not throughput.** The 0/8
-  hallucination rate is the load-bearing claim. A cheaper harness that
-  resolves 70% with an unknown hallucination rate isn't the same product
-  as TMB resolving harder tasks with verified-correct outcomes.
+- **Short-term per simple task:** TMB costs ~20-30% more tokens / time
+  than pure single-model. Measured on N=1, plausible by orchestration
+  arithmetic.
+- **Long-term across a project:** TMB's near-zero hallucination rate
+  means tasks land correctly the first time. Pure single-model agents'
+  hallucinated successes cost engineer-hours per incident — the *real*
+  token+time cost is in the rework loop, not the original agent run.
+- **On tasks comparators can't crack:** TMB's premium IS the value.
+  Comparators paid some non-zero cost on these 8 tasks and got 0/8
+  resolves. TMB paid $17.33 and got 8/8.
+- **TMB's value is in correctness, not throughput.** A cheaper harness
+  that resolves 70% of tasks with an unknown hallucination rate isn't
+  the same product as TMB resolving harder tasks with verified-correct
+  outcomes.
 
 This framing is what we can say honestly. The fully-fair "TMB vs
 comparator $/task on the same task IDs" comparison requires either

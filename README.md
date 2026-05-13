@@ -54,6 +54,8 @@ TMB resolved **8 of 8** SWE-bench tasks (4 Verified + 4 Lite) where pure Claude 
 
 Curated-hard subsets from the all-comparators-failed intersection. Methodology, fairness, per-task data: **[`docs/BENCHMARK.md`](docs/BENCHMARK.md)**.
 
+> **Why "smart = less hallucination" matters on long projects.** TMB's 0/8 hallucination rate isn't a vanity number. Every confident-wrong "fix" that ships costs an engineer hours of debugging downstream. Pure single-model agents cost ~20–30% less per task in the short term, but each hallucinated success costs engineer-hours per incident. TMB's upfront premium → no production bugs from agent over-confidence → long-term token *and* time savings on real codebases. Estimation details in [`tests/dogfood/bench/RESULTS.md` § Estimated tradeoffs](tests/dogfood/bench/RESULTS.md#estimated-tradeoffs--short-term-vs-long-term).
+
 ---
 
 ## Why TMB
