@@ -76,6 +76,30 @@ describe('auditTools', () => {
         assert.ok(row.content_json.length < bigContent.length, 'content_json should be truncated');
         db.close();
     });
+    // Slim contract — audit is event-only. `kind` and `is_truncated` are gone
+    // from the schema; the audit_log handler must not surface them on output
+    // rows. Verify both via PRAGMA + the returned row shape.
+    it('audit table has no kind or is_truncated columns after the slim cleanup', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = auditTools(db);
+        const result = await call(tools.handlers, 'audit_log', {
+            agent: 'bro',
+            issue_id: String(issueId),
+            from_node: 'bro',
+            event_type: 'planning_complete',
+            summary: 'slim event',
+        });
+        const row = parseResult(result);
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
+        assert.equal(row.kind, undefined, 'returned audit row must not expose a `kind` field');
+        assert.equal(row.is_truncated, undefined, 'returned audit row must not expose `is_truncated`');
+        const colInfo = db.all(`PRAGMA table_info(audit)`);
+        const present = new Set(colInfo.map((c) => c.name));
+        assert.ok(!present.has('kind'), 'audit.kind must be dropped from the schema');
+        assert.ok(!present.has('is_truncated'), 'audit.is_truncated must be dropped from the schema');
+        db.close();
+    });
 });
 describe('validationTools', () => {
     it('validation_record rejects invalid verdict', async () => {

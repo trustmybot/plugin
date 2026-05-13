@@ -217,6 +217,102 @@ describe('pr_comments_get — GitHub backend', () => {
 
     db.close();
   });
+
+  // Incremental polling — the FILL wired in MR A (#2886 follow-up). The
+  // cursor in pr_review_runs.last_fetched_at must be read on the next call
+  // and applied as the since-filter so comments older than the cursor are
+  // skipped. Test by handing the second call a sample with one old + one new
+  // comment, presetting the cursor to between them.
+  it('consumes pr_review_runs.last_fetched_at as the since-filter on the next call', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`,
+    );
+
+    // Stage a cursor row indicating we last fetched at 2024-01-15T11:30:00Z —
+    // between the two comments in MIXED_SAMPLE below.
+    db.run(
+      `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id)
+       VALUES (9, 'owner/repo', '2024-01-15T11:30:00Z', 'old')`,
+    );
+
+    const MIXED_SAMPLE = JSON.stringify({
+      state: 'OPEN',
+      comments: [
+        {
+          id: 'old',
+          author: { login: 'alice' },
+          body: 'old comment (should be filtered out)',
+          createdAt: '2024-01-15T11:00:00Z',
+        },
+        {
+          id: 'new',
+          author: { login: 'bob' },
+          body: 'new comment (after cursor)',
+          createdAt: '2024-01-15T12:00:00Z',
+        },
+      ],
+      reviews: [],
+    });
+
+    const tools = prCommentsTools(db, makeSpawnFn([
+      { status: 0, stdout: MIXED_SAMPLE, stderr: '' },
+    ]));
+    const result = (await tools.handlers['pr_comments_get']!({
+      agent: 'bro',
+      pr_number: 9,
+      repo: 'owner/repo',
+    })) as RawResult;
+
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const data = parseResult(result);
+    // Only the new comment should survive the cursor filter.
+    assert.equal(
+      data.comments.length, 1,
+      `Expected 1 post-cursor comment, got ${data.comments.length}: ${JSON.stringify(data.comments)}`,
+    );
+    assert.equal(data.comments[0].id, 'new', 'The post-cursor comment must be the survivor');
+
+    // And the cursor must advance to the new comment.
+    const row = db.get<{ last_fetched_at: string; last_comment_id: string }>(
+      `SELECT last_fetched_at, last_comment_id FROM pr_review_runs WHERE pr_number = 9 AND repo = 'owner/repo'`,
+    );
+    assert.ok(row);
+    assert.equal(row!.last_comment_id, 'new', 'Cursor must advance to the new comment id');
+    assert.notEqual(
+      row!.last_fetched_at, '2024-01-15T11:30:00Z',
+      'last_fetched_at must be overwritten with the new fetch time',
+    );
+
+    db.close();
+  });
+
+  // Cursor is per (pr_number, repo) — distinct repos with the same pr_number
+  // must NOT share the cursor.
+  it('isolates the cursor by (pr_number, repo) — different repos do not share state', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`,
+    );
+    const tools = prCommentsTools(
+      db,
+      makeSpawnFn([
+        { status: 0, stdout: GH_SAMPLE, stderr: '' },
+        { status: 0, stdout: GH_SAMPLE, stderr: '' },
+      ]),
+    );
+    await tools.handlers['pr_comments_get']!({ agent: 'bro', pr_number: 42, repo: 'org/repo-a' });
+    await tools.handlers['pr_comments_get']!({ agent: 'bro', pr_number: 42, repo: 'org/repo-b' });
+
+    const rows = db.all<{ repo: string }>(
+      `SELECT repo FROM pr_review_runs WHERE pr_number = 42 ORDER BY repo`,
+    );
+    assert.equal(rows.length, 2, 'Each (pr_number, repo) gets its own cursor row');
+    assert.equal(rows[0]!.repo, 'org/repo-a');
+    assert.equal(rows[1]!.repo, 'org/repo-b');
+
+    db.close();
+  });
 });
 
 describe('pr_comments_get — GitLab backend', () => {
