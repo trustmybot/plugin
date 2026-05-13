@@ -100,7 +100,11 @@ run_one() {
   local transcript="$out_dir/transcript.jsonl"
   printf "%s" "$prompt" > "$out_dir/prompt.txt"
   bench_log "  $task / $arm / run-$run_idx — invoking claude"
+  local t_start t_end duration_s
+  t_start=$(date +%s)
   bench_run_arm "$arm" "$project" "$prompt" "$transcript" || true
+  t_end=$(date +%s)
+  duration_s=$((t_end - t_start))
 
   # 3. Capture trajectory.db (arm A only) for post-mortem.
   local db
@@ -109,31 +113,45 @@ run_one() {
     cp "$db" "$out_dir/trajectory.db" 2>/dev/null || true
   fi
 
-  # 4. Score the three axes.
-  local probsol token quality
+  # 4. Score the axes (SWE-bench: resolved + apply + tokens + cost + duration;
+  #    TMB-specific: quality composite).
+  local probsol applied token quality
   probsol=$("$HERE/scorers/problem-solving.sh" "$task_dir" "$project" 2>/dev/null || echo '{"axis":"problem_solving","pass":0}')
+  applied=$("$HERE/scorers/apply.sh" "$project" 2>/dev/null || echo '{"axis":"apply","applied":0,"files_changed":0}')
   token=$("$HERE/scorers/token-saving.sh" "$transcript" "$out_dir/trajectory.db" 2>/dev/null || echo '{"axis":"token_saving","total_tokens":0}')
   quality=$("$HERE/scorers/quality.sh" "$project" "$out_dir/trajectory.db" 2>/dev/null || echo '{"axis":"quality","score":0}')
 
-  # 5. Persist scores + emit run record.
+  # 5. Persist scores + emit run record. `resolved` is the SWE-bench-aligned
+  #    canonical name for problem-solving; we keep `problem_solving` as an
+  #    alias for backwards compat with downstream readers.
   jq -nc \
     --arg task "$task" --arg arm "$arm" --argjson run "$run_idx" \
-    --argjson ps "$probsol" --argjson tk "$token" --argjson ql "$quality" \
+    --argjson duration "$duration_s" \
+    --argjson ps "$probsol" --argjson ap "$applied" \
+    --argjson tk "$token" --argjson ql "$quality" \
     '{task: $task, arm: $arm, run: $run,
+      resolved: $ps.pass,
       problem_solving: $ps.pass,
+      applied: $ap.applied,
+      files_changed: $ap.files_changed,
       tokens: $tk.total_tokens,
+      cost_usd: ($tk.cost_usd // 0),
+      duration_s: $duration,
       quality_score: $ql.score,
       problem_solving_detail: $ps,
+      apply_detail: $ap,
       token_detail: $tk,
       quality_detail: $ql}' \
     | tee -a "$RESULTS_JSONL" > "$out_dir/scores.json"
 
-  local ps_pass tk_total ql_score
+  local ps_pass ap_pass tk_total tk_cost ql_score
   ps_pass=$(jq -r '.pass' <<< "$probsol")
+  ap_pass=$(jq -r '.applied' <<< "$applied")
   tk_total=$(jq -r '.total_tokens' <<< "$token")
+  tk_cost=$(jq -r '.cost_usd // 0' <<< "$token")
   ql_score=$(jq -r '.score' <<< "$quality")
-  printf '    → problem_solving=%s  tokens=%s  quality=%s/5\n' \
-    "$ps_pass" "$tk_total" "$ql_score"
+  printf '    → resolved=%s  applied=%s  tokens=%s  cost=$%s  duration=%ss  quality=%s/5\n' \
+    "$ps_pass" "$ap_pass" "$tk_total" "$tk_cost" "$duration_s" "$ql_score"
 }
 
 for task in "${TASKS[@]}"; do
@@ -146,25 +164,39 @@ for task in "${TASKS[@]}"; do
   printf "\n"
 done
 
-# Emit summary table.
+# Emit summary table aligned with the SWE-bench leaderboard columns
+# (resolved / apply / tokens / cost / duration) plus our quality composite.
 SUMMARY="$RUN_DIR/summary.md"
 {
   printf "# L7 bench summary — %s\n\n" "$RUN_ID"
-  printf "| Task | Arm | Run | Solved | Tokens | Quality |\n"
-  printf "|---|---|---|---|---|---|\n"
+  printf "## Per-run results\n\n"
+  printf "| Task | Arm | Run | Resolved | Apply | Tokens | Cost \$ | Duration s | Quality |\n"
+  printf "|---|---|---|---|---|---|---|---|---|\n"
   jq -r '"| " + .task + " | " + .arm + " | " + (.run|tostring)
-         + " | " + (if .problem_solving == 1 then "✅" else "❌" end)
+         + " | " + (if .resolved == 1 then "✅" else "❌" end)
+         + " | " + (if .applied  == 1 then "✅" else "❌" end)
          + " | " + (.tokens|tostring)
+         + " | " + (.cost_usd|tostring)
+         + " | " + (.duration_s|tostring)
          + " | " + (.quality_score|tostring) + "/5 |"' "$RESULTS_JSONL"
+
   printf "\n## Per-axis arm comparison (means)\n\n"
-  printf "| Axis | tmb-on | raw | Δ (tmb-on − raw) |\n"
-  printf "|---|---|---|---|\n"
-  for axis in problem_solving tokens quality_score; do
+  printf "| Axis | tmb-on | raw | Δ (tmb-on − raw) | Aligns with |\n"
+  printf "|---|---|---|---|---|\n"
+  emit_row() {
+    local axis="$1" label="$2" align="$3"
+    local tmb raw delta
     tmb=$(jq -s "map(select(.arm == \"tmb-on\") | .${axis}) | add / length // 0" "$RESULTS_JSONL")
     raw=$(jq -s "map(select(.arm == \"raw\")    | .${axis}) | add / length // 0" "$RESULTS_JSONL")
     delta=$(awk -v a="$tmb" -v b="$raw" 'BEGIN{printf "%.2f", a-b}')
-    printf "| %s | %s | %s | %s |\n" "$axis" "$tmb" "$raw" "$delta"
-  done
+    printf "| %s | %s | %s | %s | %s |\n" "$label" "$tmb" "$raw" "$delta" "$align"
+  }
+  emit_row resolved      "% Resolved"   "SWE-bench %Resolved (primary)"
+  emit_row applied       "% Apply"      "SWE-bench %Apply"
+  emit_row tokens        "Avg tokens"   "SWE-bench Avg tokens"
+  emit_row cost_usd      "Avg cost \$"  "SWE-bench Cost"
+  emit_row duration_s    "Avg duration s" "SWE-bench Time"
+  emit_row quality_score "Quality /5"   "TMB-specific composite"
 } > "$SUMMARY"
 
 printf "\n========================================\n"

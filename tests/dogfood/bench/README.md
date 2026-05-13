@@ -5,13 +5,16 @@ Quantitative comparison of two arms on the same set of agentic-SWE tasks:
 - **Arm A (tmb-on):** `claude -p --plugin-dir <plugin>` — bro persona, MCP-backed trajectory, file_registry, atomic-close, hooks, skills, the works.
 - **Arm B (raw):** `claude -p` with no plugin loaded — vanilla Claude on the same prompt.
 
-Both arms see the **same task prompt** + the **same project state**. The only variable is whether the TMB plugin is loaded. Three orthogonal axes get scored:
+Both arms see the **same task prompt** + the **same project state**. The only variable is whether the TMB plugin is loaded. Six scored axes — 5 align with the SWE-bench leaderboard, 1 is TMB-specific:
 
-| Axis | What it measures | Scorer |
-|---|---|---|
-| **Problem solving** | Did the agent solve the task correctly? | Per-task `verify.sh` (test suite, lint, build — depending on task) returns 0 on pass |
-| **Token saving** | Total tokens consumed end-to-end | `SUM(tokens_total)` from `agent_runs` (bro + SWE rows on arm A; the single session on arm B) + parser fallback on raw transcript |
-| **Long-term engineering quality** | Does the work pay dividends for future sessions? | Composite: lint pass + Conventional Commits message + `file_registry` summaries fresh + ADR present for arch-impact + first-attempt `validation_attempts.verdict='pass'` |
+| Axis | What it measures | Aligns with | Scorer |
+|---|---|---|---|
+| **Resolved** | Did the agent solve the task? (FAIL_TO_PASS pass + PASS_TO_PASS still pass) | SWE-bench %Resolved (primary leaderboard metric) | per-task `verify.sh` exits 0 |
+| **Apply** | Did the agent leave the project in a state where a diff would apply? Distinguishes "malformed patch / no edits" from "wrong logic." | SWE-bench %Apply | `scorers/apply.sh` — ≥1 tracked file changed vs initial commit |
+| **Tokens** | Total tokens consumed (input + cache_creation + cache_read + output) | SWE-bench Avg tokens | transcript `usage` block on the terminal `type=result` event |
+| **Cost** | $ spent end-to-end | SWE-bench Cost | transcript `total_cost_usd` |
+| **Duration** | Wall-clock seconds | SWE-bench Time | runner-measured `$(date +%s)` start/end |
+| **Quality** | Composite engineering-quality score (lint + commit-msg + summaries fresh + ADR present + first-attempt validation pass) | **TMB-specific** | `scorers/quality.sh` (5 sub-checks, 0–5 composite) |
 
 ## Why this exists
 

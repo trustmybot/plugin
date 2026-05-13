@@ -25,6 +25,7 @@ TRANSCRIPT="${1:?transcript_path required}"
 DB="${2:-}"
 
 TRANSCRIPT_TOKENS=$(bench_tokens_from_transcript "$TRANSCRIPT")
+COST_USD=$(bench_cost_from_transcript "$TRANSCRIPT")
 AGENT_RUNS_TOKENS=0
 if [ -n "$DB" ] && [ -f "$DB" ]; then
   AGENT_RUNS_TOKENS=$(bench_tokens_from_agent_runs "$DB")
@@ -46,5 +47,6 @@ if [ -n "$DB" ] && [ -f "$DB" ] && [ "$AGENT_RUNS_TOKENS" -gt 0 ]; then
 fi
 
 jq -nc --argjson total "$TOTAL" --argjson tt "$TRANSCRIPT_TOKENS" \
-       --argjson ar "$AGENT_RUNS_TOKENS" --argjson warn "$WARNINGS" \
-  '{axis: "token_saving", total_tokens: $total, transcript_tokens: $tt, agent_runs_tokens: $ar, warnings: $warn}'
+       --argjson ar "$AGENT_RUNS_TOKENS" --argjson cost "$COST_USD" \
+       --argjson warn "$WARNINGS" \
+  '{axis: "token_saving", total_tokens: $total, cost_usd: $cost, transcript_tokens: $tt, agent_runs_tokens: $ar, warnings: $warn}'

@@ -63,15 +63,32 @@ bench_run_arm() {
 }
 
 # bench_tokens_from_transcript <transcript_path>: sum tokens across the
-# stream-json output. Each `type=result` event carries `total_tokens` for
-# the turn; we sum every one. Handles missing/zero fields gracefully.
+# stream-json output. The terminal `type=result` event carries a `usage`
+# block with input_tokens + cache_creation_input_tokens +
+# cache_read_input_tokens + output_tokens. Sum all four for the total.
 # Echoes a single integer on stdout.
 bench_tokens_from_transcript() {
   local transcript_path="$1"
   [ -f "$transcript_path" ] || { echo 0; return 0; }
   jq -s '
-    [.[] | select(.type == "result") | .total_tokens // 0]
-      | add // 0
+    [.[] | select(.type == "result") | .usage // {} |
+      ((.input_tokens // 0) +
+       (.cache_creation_input_tokens // 0) +
+       (.cache_read_input_tokens // 0) +
+       (.output_tokens // 0))
+    ] | add // 0
+  ' "$transcript_path" 2>/dev/null || echo 0
+}
+
+# bench_cost_from_transcript <transcript_path>: sum total_cost_usd across
+# the stream-json output. Cleaner signal than token count when comparing
+# arms — collapses input/output/cache pricing differences.
+# Echoes a decimal on stdout (or 0).
+bench_cost_from_transcript() {
+  local transcript_path="$1"
+  [ -f "$transcript_path" ] || { echo 0; return 0; }
+  jq -s '
+    [.[] | select(.type == "result") | .total_cost_usd // 0] | add // 0
   ' "$transcript_path" 2>/dev/null || echo 0
 }
 

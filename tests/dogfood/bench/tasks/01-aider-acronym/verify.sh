@@ -7,4 +7,11 @@ PROJECT="${1:?project dir required}"
 TASK_DIR="${2:-}"
 
 cd "$PROJECT" || exit 2
-python -m pytest -q tests/test_acronym.py
+# Use pytest directly (PATH-resolved). `python -m pytest` picks the wrong
+# python on systems where the default `python` is from a user-local venv
+# that lacks pytest.
+if ! command -v pytest >/dev/null 2>&1; then
+  echo "verify.sh: pytest not found in PATH" >&2
+  exit 2
+fi
+pytest -q tests/test_acronym.py

@@ -11,6 +11,11 @@ TASK_DIR="${2:-}"
 
 cd "$PROJECT" || exit 2
 
+if ! command -v pytest >/dev/null 2>&1; then
+  echo "verify.sh: pytest not found in PATH" >&2
+  exit 2
+fi
+
 FAIL_TO_PASS=(
   "tests/test_blueprints.py::test_dotted_name_not_allowed"
   "tests/test_blueprints.py::test_empty_name_not_allowed"
@@ -21,9 +26,9 @@ PASS_TO_PASS_SAMPLE=(
 )
 
 # Run the new tests — these are the load-bearing signal.
-python -m pytest -q "${FAIL_TO_PASS[@]}" || exit 1
+pytest -q "${FAIL_TO_PASS[@]}" || exit 1
 
 # Regression: spot-check a couple of existing tests still pass. Soft —
 # we exit 0 if these don't exist (Flask's test layout may have moved),
 # but fail if they exist AND fail.
-python -m pytest -q "${PASS_TO_PASS_SAMPLE[@]}" 2>/dev/null || true
+pytest -q "${PASS_TO_PASS_SAMPLE[@]}" 2>/dev/null || true

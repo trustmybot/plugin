@@ -7,4 +7,8 @@ PROJECT="${1:?project dir required}"
 TASK_DIR="${2:-}"
 
 cd "$PROJECT" || exit 2
-python -m pytest -q tests/test_word_count.py
+if ! command -v pytest >/dev/null 2>&1; then
+  echo "verify.sh: pytest not found in PATH" >&2
+  exit 2
+fi
+pytest -q tests/test_word_count.py

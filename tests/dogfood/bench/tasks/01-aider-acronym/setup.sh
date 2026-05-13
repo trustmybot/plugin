@@ -64,6 +64,12 @@ cat > "$PROJECT/pyproject.toml" <<'TOML'
 name = "acronym-bench"
 version = "0.1.0"
 requires-python = ">=3.10"
+
+# pytest needs the project root on sys.path so `from acronym import abbreviate`
+# resolves. pythonpath = ["."] makes it import-friendly without conftest.py.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 TOML
 
 (
