@@ -11,9 +11,9 @@ SCENARIO_DIR="$2"
 # Make sure plugin_config has the local-shape baseline so onboard_state_get
 # sees first_run=false (identity exists from the fixture).
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
-INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at)
+INSERT OR REPLACE INTO plugin_config (key, value_json)
 VALUES
-  ('branching_model', '"github-flow"', datetime('now')),
-  ('pr_target',       '"main"',        datetime('now')),
-  ('remotes',         '[]',            datetime('now'));
+  ('branching_model', '"github-flow"'),
+  ('pr_target',       '"main"'),
+  ('remotes',         '[]');
 SQL

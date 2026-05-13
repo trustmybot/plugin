@@ -9,11 +9,11 @@ PROJECT="$1"
 SCENARIO_DIR="$2"
 
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
-INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at)
+INSERT OR REPLACE INTO plugin_config (key, value_json)
 VALUES
-  ('branching_model', '"github-flow"', datetime('now')),
-  ('pr_target',       '"main"',        datetime('now')),
-  ('protected_branches', '["main"]',   datetime('now')),
-  ('remotes',         '[]',            datetime('now')),
-  ('issue_sync',      '"off"',         datetime('now'));
+  ('branching_model', '"github-flow"'),
+  ('pr_target',       '"main"'),
+  ('protected_branches', '["main"]'),
+  ('remotes',         '[]'),
+  ('issue_sync',      '"off"');
 SQL

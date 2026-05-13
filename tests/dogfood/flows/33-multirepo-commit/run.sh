@@ -28,7 +28,7 @@ l5_seed_db "$PROJECT" "onboarding-named"
 
 # Configure the workspace's default repo.
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
-  "INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '\"api\"', datetime('now'));"
+  "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '\"api\"');"
 
 # --- Build the multi-repo workspace ---
 # api/ is the "default" inner repo bro should target.
