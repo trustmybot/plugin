@@ -147,12 +147,21 @@ EOF
   verify)
     cd "$PROJECT" || exit 2
 
-    # Prefer the per-task venv's pytest (matches what the agent used).
-    if [ -x "$PROJECT/.bench-venv/bin/pytest" ]; then
+    # Prefer the per-task venv's python (matches what the agent used).
+    # Critically: invoke via `python -m pytest` (not the pytest binary) so
+    # sys.path[0] = $PROJECT, matching how an agent inside $PROJECT would
+    # naturally run tests. The bare `pytest` binary's shebang puts
+    # .bench-venv/bin at sys.path[0], which breaks plugin discovery for
+    # repos that ship their own importable plugins (e.g. pylint reporters).
+    # This was a real false-negative source pre-fix.
+    if [ -x "$PROJECT/.bench-venv/bin/python" ]; then
       export PATH="$PROJECT/.bench-venv/bin:$PATH"
+      PYTEST_CMD="$PROJECT/.bench-venv/bin/python -m pytest"
+    else
+      PYTEST_CMD="python3 -m pytest"
     fi
-    if ! command -v pytest >/dev/null 2>&1; then
-      echo "verify: pytest not found in PATH (looked in $PROJECT/.bench-venv/bin and \$PATH)" >&2
+    if ! $PYTEST_CMD --version >/dev/null 2>&1; then
+      echo "verify: pytest not invokable via '$PYTEST_CMD'" >&2
       exit 2
     fi
 
@@ -173,7 +182,7 @@ EOF
       exit 2
     fi
 
-    run_pytest() { pytest -q --no-header "$@" 2>&1; }
+    run_pytest() { $PYTEST_CMD -q --no-header "$@" 2>&1; }
 
     # First attempt — straight pytest. If imports fail, run env_install_cmd
     # and retry. Keeps the install side-effect lazy: tasks that don't need
@@ -197,8 +206,8 @@ EOF
     # have shifted); hard on regressions.
     if [ "${#PTP[@]}" -gt 0 ]; then
       for t in "${PTP[@]}"; do
-        if pytest --collect-only -q "$t" >/dev/null 2>&1; then
-          if ! pytest -q --no-header "$t" >/dev/null 2>&1; then
+        if $PYTEST_CMD --collect-only -q "$t" >/dev/null 2>&1; then
+          if ! $PYTEST_CMD -q --no-header "$t" >/dev/null 2>&1; then
             echo "verify: PASS_TO_PASS regression at $t" >&2
             exit 1
           fi
