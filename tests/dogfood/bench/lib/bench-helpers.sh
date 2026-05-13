@@ -69,7 +69,19 @@ bench_run_arm() {
     # rejections and falls back to direct-edit, bypassing the doctrine
     # we're trying to measure.
     export TMB_HEADLESS=1
-    printf "%s\n" "$prompt" | claude "${args[@]}" 2>>"$transcript_path.stderr" \
+    # TMB_BENCH_ENRICH_PROMPT=1 (opt-in): append the "I will go to sleep…"
+    # suffix that matches how a real TMB user invokes bro for overnight
+    # autonomous work. This is the "TMB-as-designed" measurement tier —
+    # the verbatim problem_statement (no suffix) is the "autonomous"
+    # tier that compares fairly against published Sonnet 4 harnesses.
+    # See docs/BENCHMARK.md for the two-tier framing.
+    local final_prompt="$prompt"
+    if [ "${TMB_BENCH_ENRICH_PROMPT:-0}" = "1" ]; then
+      final_prompt="${prompt}
+
+I will go to sleep. You solve all of the issues automatically. Don't ask questions."
+    fi
+    printf "%s\n" "$final_prompt" | claude "${args[@]}" 2>>"$transcript_path.stderr" \
       >> "$transcript_path"
   )
   return $?

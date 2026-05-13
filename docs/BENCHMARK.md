@@ -173,6 +173,49 @@ for sub in 20250526_sweagent_claude-4-sonnet-20250514 \
 done | sort -u  # union of all Sonnet 4 harness wins
 ```
 
+## Two-tier framing — autonomous vs TMB-as-designed
+
+TMB is **designed to interact with a human** for ambiguous decisions
+(scope, framework choices, ADR-worthy changes). The doctrine relies on
+`AskUserQuestion` for genuinely-uncertain calls — but headless `claude -p`
+benches have no human to answer. There are two honest ways to handle
+this, and we report both:
+
+### Tier 1 — Autonomous (today's 4/4)
+
+Verbatim SWE-bench `problem_statement` sent to bro. No additional framing.
+Bro hits ambiguity → fast-path defaults → direct-edit → submit. The
+formal doctrine ceremony (V1/V2/V3, atomic-close) doesn't engage because
+the `tmb_planning` skill's headless fast-path isn't reliably triggered
+in `-p` mode (open issue).
+
+**Fair comparison against:** published Sonnet 4 harnesses (SWE-agent,
+KGCompass, ExpeRepair-v1), which also run autonomously without human input.
+
+### Tier 2 — TMB-as-designed (with explicit autonomy permission)
+
+The bench harness appends one sentence to the prompt:
+
+> *"I will go to sleep. You solve all of the issues automatically.
+> Don't ask questions."*
+
+This matches **how a real TMB user invokes bro for overnight autonomous
+work.** It doesn't give bro any external information the agent doesn't
+already have — it just grants explicit autonomy permission, which is
+what the TMB doctrine reads from. This is **not** cheating:
+- No ground-truth leak (no test_patch, no FAIL_TO_PASS visibility added)
+- No second intelligence loop (no surrogate agent)
+- No external comparator advantage (no help bro doesn't get in real use)
+
+**Comparison:** TMB-Tier-2 has no direct comparator (no published submission uses this prompt
+framing). It measures TMB **as the product is intended to be used.**
+
+Toggle: `TMB_BENCH_ENRICH_PROMPT=1 bash run-bench.sh <task>`.
+
+**Tier 2 data:** *Pending re-fire.* The autonomous tier (today's data) is
+4/4 resolved with 0/4 hallucinations. Tier 2 data should be reported
+separately once gathered.
+
 ## Caveats
 
 - **N = 1.** Single-run variance unmeasured. Expect ±1 task on a re-run.
