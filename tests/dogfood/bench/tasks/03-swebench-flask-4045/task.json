@@ -1,0 +1,18 @@
+{
+  "source": "swe-bench-lite",
+  "id": "pallets__flask-4045",
+  "repo_url": "https://github.com/pallets/flask",
+  "base_commit": "d8c37f43724cd9fb0cdda61c7ca6d92e8b1a3e98",
+  "language": "python",
+  "class": "real-world-bug-fix",
+  "internet_required": true,
+  "fail_to_pass": [
+    "tests/test_blueprints.py::test_dotted_name_not_allowed",
+    "tests/test_blueprints.py::test_empty_name_not_allowed"
+  ],
+  "pass_to_pass_sample": [
+    "tests/test_blueprints.py::test_blueprint_specific_error_handling",
+    "tests/test_blueprints.py::test_blueprint_url_processors"
+  ],
+  "expected_solution_loc": "≤10 lines in src/flask/blueprints.py"
+}

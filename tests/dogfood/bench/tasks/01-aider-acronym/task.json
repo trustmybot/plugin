@@ -1,0 +1,9 @@
+{
+  "source": "exercism / Aider's benchmark suite",
+  "exercise": "acronym",
+  "language": "python",
+  "class": "small-feature",
+  "internet_required": false,
+  "expected_solution_loc": "≤10 lines",
+  "test_count": 7
+}

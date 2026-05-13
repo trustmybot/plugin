@@ -1,0 +1,7 @@
+Flask's Blueprint class currently accepts any string as a name, but blueprint nesting uses dots (.) as a separator internally — so a user-supplied name containing a dot will collide with the internal scheme and cause confusing routing bugs. The empty string is also nonsensical as a blueprint name.
+
+Update src/flask/blueprints.py so the Blueprint constructor raises ValueError when the name contains a dot or is empty. Two new tests have been added in tests/test_blueprints.py (test_dotted_name_not_allowed, test_empty_name_not_allowed) that describe the contract — make them pass without breaking the rest of the suite.
+
+Run `python -m pytest -q tests/test_blueprints.py` to verify before finishing.
+
+Don't ask questions.
