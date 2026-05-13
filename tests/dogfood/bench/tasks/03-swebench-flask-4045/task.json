@@ -1,0 +1,23 @@
+{
+  "source": "swe-bench-lite",
+  "id": "pallets__flask-4045",
+  "repo": "pallets/flask",
+  "base_commit": "d8c37f43724cd9fb0870f77877b7c4c7e38a19e0",
+  "language": "python",
+  "version": "2.0",
+  "python_version": "3.9",
+  "all_sonnet_4_failed": true,
+  "fail_to_pass": [
+    "tests/test_blueprints.py::test_dotted_name_not_allowed",
+    "tests/test_blueprints.py::test_route_decorator_custom_endpoint_with_dots"
+  ],
+  "pass_to_pass_sample": [
+    "tests/test_blueprints.py::test_blueprint_specific_error_handling",
+    "tests/test_blueprints.py::test_blueprint_url_processors",
+    "tests/test_blueprints.py::test_route_decorator_custom_endpoint",
+    "tests/test_blueprints.py::test_template_test_with_name"
+  ],
+  "env_install_cmd": "SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FLASK=2.0.0 pip install --quiet -e . 'werkzeug==2.0.3' 'jinja2==3.0.3' 'itsdangerous==2.0.1' 'click==8.0.4' 'markupsafe==2.0.1'",
+  "pythonpath": "src",
+  "test_patch_file": "test_patch.diff"
+}
