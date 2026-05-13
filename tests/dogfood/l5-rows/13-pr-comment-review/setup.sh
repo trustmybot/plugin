@@ -26,4 +26,11 @@ VALUES (13, 13, 'feat/todo-add', 'main', 'Add TODO add command',
         'See spec.', 'See spec.', 'closed',
         'abcdef1234567890abcdef1234567890abcdef12',
         datetime('now'), datetime('now'));
+
+-- Pre-seed an incremental-polling cursor as if a prior /monitor 123 run had
+-- happened. The current /monitor turn can't reach a real upstream PR so it
+-- won't advance the cursor, but the outcome scorer should still find this
+-- row intact — proves the cursor table is persisted across sessions.
+INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id)
+VALUES (123, 'org/todo-cli', '2026-05-12T10:00:00Z', 'rc-pre-seed');
 SQL

@@ -254,10 +254,25 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
           },
           since: {
             type: 'string',
-            description: 'ISO 8601 timestamp. Only return comments created after this time.',
+            description: 'ISO 8601 timestamp. Only return comments created after this time. When omitted, the server reads the cursor from pr_review_runs.last_fetched_at so the next fetch returns only comments newer than the last one.',
           },
         },
         required: ['pr_number'],
+      },
+    },
+    {
+      name: 'pr_review_runs_list',
+      description:
+        'List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_comments_get.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          pr_number: {
+            type: 'number',
+            description: 'Optional filter — only return rows for this PR number.',
+          },
+        },
       },
     },
   ];
@@ -339,6 +354,45 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
       );
 
       return ok(fetchResult);
+    }),
+
+    pr_review_runs_list: requireRoles('pr_review_runs_list', ['bro'], async (args) => {
+      const prFilter = args['pr_number'];
+      const filterPrNumber =
+        prFilter === undefined || prFilter === null ? null : Number(prFilter);
+
+      if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
+        return err('pr_number must be a positive integer when provided');
+      }
+
+      const rows =
+        filterPrNumber === null
+          ? db.all<{
+              id: number;
+              pr_number: number;
+              repo: string;
+              last_fetched_at: string;
+              last_comment_id: string | null;
+            }>(
+              `SELECT id, pr_number, repo, last_fetched_at, last_comment_id
+                 FROM pr_review_runs
+                 ORDER BY pr_number, repo`,
+            )
+          : db.all<{
+              id: number;
+              pr_number: number;
+              repo: string;
+              last_fetched_at: string;
+              last_comment_id: string | null;
+            }>(
+              `SELECT id, pr_number, repo, last_fetched_at, last_comment_id
+                 FROM pr_review_runs
+                 WHERE pr_number = ?
+                 ORDER BY repo`,
+              [filterPrNumber],
+            );
+
+      return ok({ rows, count: rows.length });
     }),
   };
 

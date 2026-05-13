@@ -316,4 +316,62 @@ describe('pr_review_runs table state capture', () => {
         db.close();
     });
 });
+describe('pr_review_runs_list', () => {
+    it('returns all cursors in order when called without a filter', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id) VALUES
+         (3, 'org/b', '2024-01-02T00:00:00Z', 'b3'),
+         (3, 'org/a', '2024-01-01T00:00:00Z', 'a3'),
+         (1, 'org/a', '2024-01-03T00:00:00Z', 'a1')`);
+        const tools = prCommentsTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_review_runs_list']({ agent: 'bro' }));
+        assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+        const data = parseResult(result);
+        assert.equal(data.count, 3);
+        // ORDER BY pr_number, repo
+        assert.equal(data.rows[0].pr_number, 1);
+        assert.equal(data.rows[1].pr_number, 3);
+        assert.equal(data.rows[1].repo, 'org/a');
+        assert.equal(data.rows[2].pr_number, 3);
+        assert.equal(data.rows[2].repo, 'org/b');
+        db.close();
+    });
+    it('filters by pr_number when supplied', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id) VALUES
+         (5, 'org/a', '2024-01-01T00:00:00Z', 'a5'),
+         (5, 'org/b', '2024-01-02T00:00:00Z', 'b5'),
+         (6, 'org/a', '2024-01-03T00:00:00Z', 'a6')`);
+        const tools = prCommentsTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_review_runs_list']({
+            agent: 'bro',
+            pr_number: 5,
+        }));
+        assert.ok(!result.isError);
+        const data = parseResult(result);
+        assert.equal(data.count, 2);
+        for (const row of data.rows)
+            assert.equal(row.pr_number, 5);
+        db.close();
+    });
+    it('returns empty array when no cursors exist', async () => {
+        const db = tempDB();
+        const tools = prCommentsTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_review_runs_list']({ agent: 'bro' }));
+        const data = parseResult(result);
+        assert.equal(data.count, 0);
+        assert.deepEqual(data.rows, []);
+        db.close();
+    });
+    it('rejects non-bro callers', async () => {
+        const db = tempDB();
+        const tools = prCommentsTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_review_runs_list']({
+            agent: 'swe',
+        }));
+        assert.ok(result.isError);
+        assert.equal(parseResult(result).error, 'forbidden');
+        db.close();
+    });
+});
 //# sourceMappingURL=pr-comments.test.js.map
