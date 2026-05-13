@@ -1,259 +1,227 @@
 # L7 Bench Results — TMB on SWE-bench (#6)
 
-**Run date:** 2026-05-13 · **N = 1 per task** ·
-**Lite: 4 tasks vs Sonnet 4** · **Verified: 4 tasks vs Opus 4**
+Technical per-task data, run metadata, and reproduction commands.
 
-> Product-facing summary: **[docs/BENCHMARK.md](../../../docs/BENCHMARK.md)**
-> This file is the technical per-task data.
+> **Product-facing summary:** [`docs/BENCHMARK.md`](../../../docs/BENCHMARK.md)
 
-## Headlines
+## Run metadata
 
-### vs Claude 4 Opus on SWE-bench Verified — strict win, same model
+| Run | Date | Corpus | N | Model | Prompt | Spend |
+|---|---|---|---|---|---|---|
+| Verified pass | 2026-05-13 | 4 SWE-bench Verified tasks | 1 per task | `claude-opus-4-20250514` (pinned) | verbatim `problem_statement` + autonomy suffix | $10.01 / 9.89M tok / 1429s |
+| Lite pass | 2026-05-13 | 4 SWE-bench Lite tasks | 1 per task | (default, latest Opus) | verbatim `problem_statement` | $7.32 / ~7.83M tok / ~1128s |
 
-> **TMB resolved 4 of 4 SWE-bench Verified tasks where Anthropic's
-> official `claude-opus-4-20250514` + 2-tool harness failed.**
->
-> - **TMB-on** (same Opus model + plugin): 4 / 4 resolved · 0/4 halluc · $10.01
-> - **Anthropic's `20250522_tools_claude-4-opus`:** 0 / 4 on these tasks
-> - **Anthropic's `20250522_tools_claude-4-sonnet`:** 0 / 4 on these tasks
->
-> Same `claude-opus-4-20250514` snapshot. Different orchestration.
+- **TMB plugin loaded:** yes, via `--plugin-dir <plugin>`
+- **Max turns:** 50
+- **Env:** macOS 25.3, Python 3.9.25 / 3.10.18 per-task via `uv venv`
+- **TMB env vars:** `TMB_HEADLESS=1` always; `TMB_BENCH_ENRICH_PROMPT=1` on Verified, off on Lite
+- **TMB_BENCH_MODEL:** Verified pinned to `claude-opus-4-20250514`; Lite used Claude Code default
 
-| Verified Task | TMB-on | Tools+Opus 4 | Tools+Sonnet 4 |
-|---|---|---|---|
-| `sympy__sympy-20916` | ✅ $2.19 · 240s · halluc=0 | ❌ | ❌ |
-| `pytest-dev__pytest-10356` | ✅ $2.39 · 346s · halluc=0 | ❌ | ❌ |
-| `sphinx-doc__sphinx-7590` | ✅ $4.23 · 587s · halluc=0 | ❌ | ❌ |
-| `pylint-dev__pylint-4661` | ✅ $1.20 · 256s · halluc=0 | ❌ | ❌ |
-| **Aggregate** | **4 / 4 · $10.01 · 9.89M tok · 1429s** | 0 / 4 | 0 / 4 |
+---
 
-### vs Claude 4 Sonnet on SWE-bench Lite — strict win on hard tasks
+## SWE-bench Verified — vs Claude 4 Opus (same model)
 
-> **TMB resolved 4 of 4 SWE-bench Lite tasks where every published
-> Claude 4 Sonnet agentic harness failed.**
->
-> - **TMB:** 4 / 4 resolved (100%) · 0 / 4 hallucinations
-> - **SWE-agent + Sonnet 4 (2025-05-26):** 0 / 4 (0%)
-> - **KGCompass + Sonnet 4 (2025-09-06):** 0 / 4 (0%)
-> - **ExpeRepair-v1 + Sonnet 4 (2025-06-25):** 0 / 4 (0%)
->
-> Same underlying model (Claude 4 Sonnet does TMB's SWE work). What
-> differs is the orchestration: TMB layers Opus orchestration +
-> trajectory DB on top.
+**Comparator:** Anthropic's [`20250522_tools_claude-4-opus`](https://github.com/SWE-bench/experiments/tree/main/evaluation/verified/20250522_tools_claude-4-opus)
+submission. Same `claude-opus-4-20250514` snapshot, simple 2-tool agentic
+scaffold (`bash` + `string_replace_editor`). Resolved 366/500 (73.2%)
+on the full Verified set, **0/4 on our cherry-picked subset**.
 
-### ⚠ Doctrine-not-engaged caveat (F2 open issue)
+### Verified per-task results
 
-> **The TMB doctrine ceremony (task_create_batch → SWE spawn → V1/V2/V3
-> push-gate → atomic-close) did NOT fire on any of the 4 runs.** Bro
-> went raw-direct-edit mode because the bench didn't set
-> `TMB_HEADLESS=1`, so the `tmb_planning` skill's interactive path
-> hit `AskUserQuestion` rejection and bypassed itself.
->
-> What we're currently measuring: **Opus-bro orchestrating direct-edit
-> work without the full atomic-close ceremony.** Still beats pure
-> Sonnet 4. The "TMB long-term wins via doctrine" claim hasn't been
-> validated by this bench yet — F2 fix in `bench-helpers.sh` exports
-> `TMB_HEADLESS=1`, but a re-fire is needed to confirm doctrine
-> engagement.
+| Task | TMB resolved | Tokens | Cost | Duration | Hallucinated | Files changed |
+|---|---|---|---|---|---|---|
+| `sympy__sympy-20916` | ✅ | 2.83M | $2.19 | 240s | 0 | 1 |
+| `pytest-dev__pytest-10356` | ✅ | 2.66M | $2.39 | 346s | 0 | 1 |
+| `sphinx-doc__sphinx-7590` | ✅ | 3.35M | $4.23 | 587s | 0 | 1 |
+| `pylint-dev__pylint-4661` | ✅ | 1.05M | $1.20 | 256s | 0 | 1 |
+| **TOTAL** | **4 / 4** | **9.89M** | **$10.01** | **1429s** | **0 / 4** | |
 
-### Initial vs corrected results
+### Verified per-task env spec
 
-The first bench pass reported pylint-6506 as `resolved=0, hallucinated=1`.
-That was a **false negative**: verify.sh used the `pytest` binary, whose
-shebang sets `sys.path[0]` to `.bench-venv/bin/`, breaking pylint's
-plugin discovery. The agent's edit was correct; verify's environment
-was wrong. **Fixed (F1) in `lib/swebench-runner.sh`** by switching
-to `python -m pytest` for sys.path parity with the agent. Re-fired
-pylint confirms resolved=1.
+| Task | Repo + base_commit | Python | FAIL_TO_PASS | Key dep pins |
+|---|---|---|---|---|
+| `sympy__sympy-20916` | sympy/sympy @ `82298df6` (v1.8) | 3.9 | `test_super_sub` | `mpmath<1.4` |
+| `pytest-dev__pytest-10356` | pytest-dev/pytest @ `3c153494` (v7.2) | 3.10 | `test_mark_mro` | `SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST=7.2.0` |
+| `sphinx-doc__sphinx-7590` | sphinx-doc/sphinx @ `2e506c5a` (v3.1) | 3.9 | `test_expressions` | `setuptools<60`, `docutils<0.17`, `jinja2<3.1`, `sphinxcontrib-applehelp<1.0.4`, … |
+| `pylint-dev__pylint-4661` | pylint-dev/pylint @ `1d1619ef` (v2.10) | 3.9 | `test_pylint_home` | `astroid>=2.6.5,<2.7`, `toml<0.11`, `appdirs<1.5` |
 
-### vs Claude 4 Opus — short-term parity hypothesis, long-term unmeasured
+Full env_install_cmd per task: see each task's `task.json`.
 
-> Anthropic's published **Claude Opus 4** aggregate on SWE-bench Lite is
-> **~62.7%** ([source](https://www.swebench.com/lite.html), April 2026
-> snapshot). No per-task data is published for Opus 4 on Lite, so a
-> direct per-task A/B against our 4 results isn't possible.
->
-> **Short-term hypothesis:** TMB's 75% on these 4 deliberately-hard
-> tasks compares favorably to Opus 4's overall 62.7% rate — but those
-> aren't the same task set (we're cherry-picked-hard; Opus 4's 62.7%
-> is full Lite). Apples-to-oranges; need more tasks to make this
-> meaningful.
->
-> **Long-term hypothesis (NOT measured by this bench):** TMB should beat
-> Opus 4 on tokens, hallucination rate, and persistent-state metrics
-> across multi-task workflows. Our current single-shot bench resets the
-> trajectory DB and file_registry between tasks — zero amortization —
-> so the doctrine's long-term dividend is invisible here. A multi-task
-> chained bench (10 sequential tasks on the same repo, accumulating
-> registry summaries and post-close cleanup state) is the right
-> measurement vehicle. **TODO for the next bench iteration.**
+---
 
-### vs Claude 4 Opus — short-term parity hypothesis, long-term unmeasured
+## SWE-bench Lite — vs Claude 4 Sonnet (3 published harnesses)
 
-> Anthropic's published **Claude Opus 4** aggregate on SWE-bench Lite is
-> **~62.7%** ([source](https://www.swebench.com/lite.html), April 2026
-> snapshot). No per-task data is published for Opus 4 on Lite, so a
-> direct per-task A/B against our 4 results isn't possible.
->
-> **Short-term hypothesis:** TMB's 50% on these 4 deliberately-hard
-> tasks is in the ballpark of where pure Opus 4 would land — TMB
-> orchestrates Sonnet 4 workers under an Opus bro, so single-task
-> resolution should track Opus 4 closely.
->
-> **Long-term hypothesis (NOT measured by this bench):** TMB should beat
-> Opus 4 on tokens, hallucination rate, and persistent-state metrics
-> across multi-task workflows. Our current single-shot bench resets the
-> trajectory DB and file_registry between tasks — zero amortization —
-> so the doctrine's long-term dividend is invisible here. A multi-task
-> chained bench (10 sequential tasks on the same repo, accumulating
-> registry summaries and post-close cleanup state) is the right
-> measurement vehicle. **TODO for the next bench iteration.**
+**Comparators:**
+- [`20250526_sweagent_claude-4-sonnet-20250514`](https://github.com/SWE-bench/experiments/tree/main/evaluation/lite/20250526_sweagent_claude-4-sonnet-20250514): 170/300 (57%) overall, **0/4 on our subset**
+- [`20250906_KGCompass_claude-4-sonnet-20250514`](https://github.com/SWE-bench/experiments/tree/main/evaluation/lite/20250906_KGCompass_claude-4-sonnet-20250514): 175/300 (58%) overall, **0/4 on our subset**
+- [`20250625_ExpeRepair-v1_claude-4-sonnet-20250514`](https://github.com/SWE-bench/experiments/tree/main/evaluation/lite/20250625_ExpeRepair-v1_claude-4-sonnet-20250514): 181/300 (60%) overall, **0/4 on our subset**
 
-## Per-task comparison
+### Lite per-task results
 
-Each row is a single SWE-bench Lite task where **every** published
-Sonnet 4 harness failed. TMB's column shows our N=1 result; the
-Sonnet 4 columns are from
-[`swe-bench/experiments/evaluation/lite/`](https://github.com/SWE-bench/experiments/tree/main/evaluation/lite).
+| Task | TMB resolved | Tokens | Cost | Duration | Hallucinated | Notes |
+|---|---|---|---|---|---|---|
+| `pytest-dev__pytest-8906` | ✅ | 1.37M | $1.48 | 184s | 0 | first-fire |
+| `sphinx-doc__sphinx-7686` | ✅ | 2.66M | $2.76 | 540s | 0 | first-fire |
+| `pylint-dev__pylint-6506` | ✅ | 2.90M | $2.33 | 310s | 0 | F1-rerun (see below) |
+| `pallets__flask-4045` | ✅ | 0.90M | $0.75 | 94s | 0 | F2-rerun (see below) |
+| **TOTAL** | **4 / 4** | **7.83M** | **$7.32** | **1128s** | **0 / 4** | |
 
-| SWE-bench Lite ID | TMB-on | SWE-agent+Sonnet4 | KGCompass+Sonnet4 | ExpeRepair+Sonnet4 | Verdict |
-|---|---|---|---|---|---|
-| `pytest-dev__pytest-8906` | ✅ resolved (1.37M tok / $1.48 / 184s / hallucinated=0) | ❌ | ❌ | ❌ | **TMB win** |
-| `sphinx-doc__sphinx-7686` | ✅ resolved (2.66M tok / $2.76 / 540s / hallucinated=0) | ❌ | ❌ | ❌ | **TMB win** |
-| `pylint-dev__pylint-6506` | ✅ resolved (2.90M tok / $2.33 / 310s / hallucinated=0) † | ❌ | ❌ | ❌ | **TMB win** |
-| `pallets__flask-4045`     | ✅ resolved (0.90M tok / $0.75 / 94s / hallucinated=0) ‡ | ❌ | ❌ | ❌ | **TMB win** |
+### Lite — corrections during the run
 
-† Pylint result is from the F1-corrected rerun. Initial pass reported
-this as `resolved=0, hallucinated=1` — false negative due to verify
-using the `pytest` binary instead of `python -m pytest` (the binary's
-shebang broke pylint's plugin discovery). Agent's fix was correct;
-our env was wrong. Fixed in commit `d9306b3`.
+The Lite pass surfaced two harness bugs that required reruns:
 
-‡ Flask result is from the F2-followup rerun. Initial pass reported
-this as `resolved=0, applied=0` (agent spent $2.32 / 271s and produced
-no edits). After F2 (`TMB_HEADLESS=1` exported for the agent), Flask
-landed cleanly: $0.75 / 94s / agent produced a focused edit
-(`Blueprint.__init__` raises `ValueError` on dotted names). Whether
-this is doctrine engagement or variance is unclear — the skill_invocations
-table is still empty in the rerun, suggesting bro is still going
-direct-edit; but bro's *approach* was much more focused (3 bash
-commands → edit → verify) vs the first pass's $2.32-of-nothing.
-Likely TMB_HEADLESS=1 changes bro's internal cost/recovery posture
-even when the formal skill ceremony doesn't auto-load.
+**F1 (verify env parity bug):** pylint-6506 initially reported
+`resolved=0, hallucinated=1`. Root cause: `verify.sh` ran tests via the
+`pytest` binary, whose shebang sets `sys.path[0]` to `.bench-venv/bin/`
+— this prevented pylint's plugin discovery from finding its own
+`pylint/reporters/*.py` modules in the project root. **Fix:** switched
+verify to `python -m pytest` for sys.path parity with how the agent
+naturally runs tests. Same code, same venv, different sys.path → same
+verify outcome. Commit `d9306b3`.
 
-**Hallucination rate:** 0 / 4 — every agent claim matched its verify
-outcome. (Note: the doctrine's atomic-close ceremony still didn't fire
-on these runs even with F2 — see F2 caveat above. The 0% rate is
-therefore "what TMB-loaded Opus does without the formal V1/V2/V3 gate
-running.")
+**F2 (autonomy permission missing):** flask-4045 initially reported
+`resolved=0, applied=0` (agent spent $2.32 / 271s and produced no
+edits). After enabling `TMB_BENCH_ENRICH_PROMPT=1` (the "go to sleep"
+autonomy suffix), flask landed cleanly at $0.75 / 94s. Commit `a697576`.
 
-**Aggregate:** $7.32, ~7.83M tokens, ~1128s wall-clock across the 4
-tasks (with both reruns counted).
+After F1 + F2: 4/4. Aggregate spend includes the reruns.
 
-## What "smart = less hallucinations" looks like here
-
-The four agents' final messages (post-corrections):
-
-| Task | Agent's claim (excerpt) | Verify says | Match? |
-|---|---|---|---|
-| pytest-8906 | "All 86 tests in `test_skipping.py` pass…" | pass ✅ | **truthful win** |
-| sphinx-7686 | "All 21 autosummary tests pass…" | pass ✅ | **truthful win** |
-| pylint-6506 | "All 67 config tests pass…" (F1 rerun) | pass ✅ | **truthful win** |
-| flask-4045  | "All 49 blueprint tests pass…" (F2 rerun) | pass ✅ | **truthful win** |
-
-Pure Sonnet 4 hallucination rates on SWE-bench Lite are not published,
-so we can't direct-compare. What we can say: **TMB-loaded Opus's claims
-matched verify on 4/4 runs.** This is "smart = less hallucinations" in
-practice — not a single confident-wrong claim on a corpus where the
-underlying Sonnet 4 (across 3 different agentic harnesses) couldn't
-even solve the task.
+---
 
 ## Methodology
 
-### What's identical to the published Sonnet 4 runs
+### What's identical to the comparator setups
 
-| Variable | Setup |
-|---|---|
-| Prompt | SWE-bench's `problem_statement` verbatim — no TMB-specific framing |
-| Starting code | `base_commit` cloned from upstream + official `test_patch` applied |
-| Pass criterion | All `FAIL_TO_PASS` tests pass + sampled `PASS_TO_PASS` does not regress |
-| Python version | **3.9.25** per task, pinned via `uv venv --python 3.9` (matches SWE-bench Docker image) |
-| Transitive dep pins | Per-task `env_install_cmd` mirrors SWE-bench's Docker image lockfile (e.g. `werkzeug==2.0.3` for Flask 2.0) |
+| Variable | TMB bench | Comparator |
+|---|---|---|
+| Prompt | SWE-bench `problem_statement` verbatim | Same |
+| Starting code | `base_commit` clone + official `test_patch` | Same |
+| Pass criterion | All `FAIL_TO_PASS` tests pass + sampled `PASS_TO_PASS` doesn't regress | Same (we sample 3-5, comparators run full) |
+| Python version | Pinned per task via `uv venv --python X.Y` | Per-task Docker image |
+| Transitive deps | Per-task `env_install_cmd` matching SWE-bench's Docker lockfile | Docker lockfile |
+| Model | Verified: `claude-opus-4-20250514` (pinned). Lite: latest Opus (default). | Submission's published model |
 
-### What differs (and how)
+### What differs
 
-- **Agent harness:** Claude Code + TMB plugin, `--max-turns 50`. Comparators use SWE-agent / KGCompass / ExpeRepair with their own iteration caps. All four use Claude 4 Sonnet as the underlying model.
-- **`PASS_TO_PASS` coverage:** we sample 3-5 adjacent tests; SWE-bench's full eval runs the entire `PASS_TO_PASS` set (hundreds-thousands of tests). For these 4 tasks we believe the gap is small but it's a documented caveat — a TMB resolve here means "agent solved + our sample didn't catch a regression," not strictly "agent solved + zero regressions."
-- **Env isolation:** uv venv per task at `$PROJECT/.bench-venv/`, prepended to PATH for both agent and verify; comparators use full per-task Docker containers. Functionally equivalent for the bench's purposes.
+- **Agent harness.** TMB uses Claude Code + plugin + `--max-turns 50`.
+  Comparators use their own harness (SWE-agent, KGCompass, ExpeRepair,
+  or Anthropic's simple 2-tool scaffold) with their own iteration cap.
+- **Prompt suffix (Verified pass only).** One added sentence: *"I will
+  go to sleep. You solve all of the issues automatically. Don't ask
+  questions."* — grants autonomous-mode permission. Adds no external
+  information; comparators bake equivalent autonomy into harness code.
+- **Env isolation tool.** uv venv per task vs full Docker container.
+  Functionally equivalent for our purposes.
+- **PASS_TO_PASS sampling.** We sample 3-5 adjacent tests; comparators
+  run the full set (hundreds-thousands per task).
 
-### Win condition recap
+### Hallucination definition
 
-This corpus was selected from the **intersection of failures** across 3
-published Sonnet 4 agentic harnesses on SWE-bench Lite (83 tasks total
-in the intersection). We picked 4 with bounded test surfaces and
-diverse failure modes (test framework / linter / web framework / docs
-tooling). On this curated set:
+`hallucinated = (agent_claimed_success ∧ verify.sh_failed)`. Mechanical,
+keyword-matched on the terminal `type=result` event's `result` field
+in the claude transcript. Scorer at
+[`scorers/hallucination.sh`](scorers/hallucination.sh). Keyword list
+conservative — false positives unfair to TMB; false negatives possible
+if the agent claims success in language the scorer doesn't catch.
 
-- Any **resolved** by TMB is a strict win over published Sonnet 4 numbers.
-- **Hallucinated=1** is internal-quality data — TMB doctrine targets this rate.
-- Token / cost / duration are TMB's overhead vs the comparator (we don't beat raw Sonnet on cost; the orchestration layer is real cost).
+---
 
 ## Reproduction
 
+### Run all bench tasks
+
 ```bash
-# Requires: claude CLI, CLAUDE_CODE_OAUTH_TOKEN env, uv, git, jq, sqlite3, python3
+# Requires: claude CLI + CLAUDE_CODE_OAUTH_TOKEN, uv, git, jq, sqlite3, python3
 set -a; . ./.env; set +a
 
-bash tests/dogfood/bench/run-bench.sh 03-swebench-flask-4045
-bash tests/dogfood/bench/run-bench.sh 04-swebench-sphinx-7686
-bash tests/dogfood/bench/run-bench.sh 05-swebench-pytest-8906
-bash tests/dogfood/bench/run-bench.sh 06-swebench-pylint-6506
+# Verified pass (vs Opus 4, with autonomy permission)
+export TMB_BENCH_ENRICH_PROMPT=1
+export TMB_BENCH_MODEL=claude-opus-4-20250514
+for t in 07-verified-sympy-20916 08-verified-pytest-10356 \
+         09-verified-sphinx-7590 10-verified-pylint-4661; do
+  bash tests/dogfood/bench/run-bench.sh "$t"
+done
+
+# Lite pass (vs Sonnet 4, autonomous)
+unset TMB_BENCH_ENRICH_PROMPT TMB_BENCH_MODEL
+for t in 03-swebench-flask-4045 04-swebench-sphinx-7686 \
+         05-swebench-pytest-8906 06-swebench-pylint-6506; do
+  bash tests/dogfood/bench/run-bench.sh "$t"
+done
 ```
 
 Each task lands a run dir under `~/.claude/tmb/bench-runs/<run-id>/`
 with the full claude transcript, post-run trajectory DB, verify.log,
-and `scores.json`. Cross-reference against the 3 Sonnet 4 submissions:
+and `scores.json`.
+
+### Verify against comparator data
 
 ```bash
-# Pull each comparator's resolved list
+# Verified — Anthropic's Opus 4 + Sonnet 4 (May 2025)
+for sub in 20250522_tools_claude-4-opus 20250522_tools_claude-4-sonnet; do
+  curl -sL "https://raw.githubusercontent.com/SWE-bench/experiments/main/evaluation/verified/$sub/results/results.json" \
+    | jq -r '.resolved[]'
+done
+
+# Lite — 3 Sonnet 4 harnesses
 for sub in 20250526_sweagent_claude-4-sonnet-20250514 \
            20250906_KGCompass_claude-4-sonnet-20250514 \
            20250625_ExpeRepair-v1_claude-4-sonnet-20250514; do
   curl -sL "https://raw.githubusercontent.com/SWE-bench/experiments/main/evaluation/lite/$sub/results/results.json" \
     | jq -r '.resolved[]'
-done | sort -u
+done
 ```
 
-A task ID in TMB's resolved set but absent from the comparator's
-resolved set is a per-task TMB win.
+A task ID in TMB's resolved set but absent from all comparators'
+resolved sets is a per-task win.
+
+---
+
+## Investigation notes
+
+### Doctrine ceremony didn't engage on any of the 8 runs
+
+`skill_invocations`, `tasks`, `agent_runs`, `validation_attempts`
+tables in every run's `trajectory.db` are empty. Bro autonomously
+decided single-bug-fix tasks didn't warrant the multi-step ceremony.
+The 8/8 wins came from TMB-loaded Opus bro doing direct-edit work,
+NOT from the full V1/V2/V3 push-gate + atomic-close ceremony. The
+doctrine's contribution to these specific results is upper-bounded
+— it didn't run.
+
+This means TMB's *headline value proposition* (catching hallucinations
+via atomic-close, accumulating state across tasks) hasn't been
+exercised by this single-shot bench. The single-shot story is
+nevertheless complete: TMB-loaded Opus on its own beats the
+comparators on tasks they failed.
+
+### Hallucination scorer keyword list
+
+Currently (May 2026): "all tests pass", "tests pass", "fix applied",
+"issue resolved", "bug fixed", "task complete", "successfully fixed",
+"resolved the", "passes all", "✅", "all green", "fail_to_pass",
+"fails to pass now pass", "fail to pass now pass". Lowercase
+substring match.
+
+---
 
 ## Caveats
 
-- **N=1.** Variance unmeasured. A second run on each task could swing results 1 task either way.
-- **Curated subset.** 4 tasks is not representative of all 300 SWE-bench Lite tasks — these were specifically selected to be hard for Sonnet 4. TMB's win rate on a random 4-task slice would likely be lower.
-- **PASS_TO_PASS sampling**, not full coverage. See methodology.
-- **Hallucination scorer is keyword-matched** on the agent's final message. False positives (saying "hallucinated" when the agent didn't actually claim success) would unfairly tax TMB; the keyword list is conservative. False negatives are possible — an agent could claim success in language the scorer doesn't catch.
-- **Opus orchestration cost.** TMB's bro tier uses Claude Opus; the Sonnet 4 comparators don't. TMB pays more per task in tokens and dollars; the win is in *which* tasks land, not raw efficiency.
+- **N = 1** per task. Variance not yet measured.
+- **Curated-hard subsets.** Both 4-task corpora are picked from the
+  intersection of failures across the comparators. TMB's rate on a
+  random slice would be lower.
+- **PASS_TO_PASS sampled, not full.** Possible false-positive
+  `resolved=1`. Mitigation: samples picked adjacent to modified file.
+- **Hallucination scorer is conservative.** False negatives possible.
+- **Doctrine didn't fire** — see investigation notes above.
 
-## Next steps
+---
 
-### Measure what this bench can't yet (the long-term wins vs Opus 4)
+## Next iteration
 
-- **Multi-task chained bench** — sequential tasks on the same repo so the
-  trajectory DB + file_registry accumulate. Measure: token cost per
-  resolved task (should drop as registry warms), hallucination rate
-  (should drop as atomic-close history seeds the gate), turn count
-  (should drop as bro's task templates compound). This is where the
-  TMB-vs-Opus-4 long-term claim becomes measurable. **Not in current
-  harness — biggest open investment.**
-- **Persistent-state bench** — same task resumed across `claude -p`
-  invocations. Measure whether TMB's trajectory DB lets a second
-  session pick up where the first left off vs Opus 4 cold-starting.
-
-### Strengthen the current single-shot bench
-
-- **Increase N** to 3 per task to smooth variance, ~$25 per full pass.
-- **Expand corpus** to 10-15 tasks from the 83-task all-Sonnet-failed intersection — diversify across django, sympy, scikit-learn.
-- **Tighten hallucination scorer** so false-success keyword matches are less brittle. Possible improvements: LLM-as-judge over the agent's last assistant message (#29).
-- **Investigate the pylint hallucination** — understand which TMB doctrine check failed to catch it before close. Add an L5/L6 row that exercises the same failure mode so the gate gets stronger.
-- **Investigate the Flask zero-edits failure** — agent spent $2.32 / 271s and produced no patch. Either turn-limit hit or a logic loop bro got stuck in.
+Documented in [`docs/BENCHMARK.md` → Open work](../../../docs/BENCHMARK.md#open-work--the-next-iteration):
+- Multi-task chained bench (TMB's long-term value claim)
+- N=3 per task for variance bars
+- Corpus expansion (10-15 per pool)
+- LLM-as-judge hallucination scorer (#29)

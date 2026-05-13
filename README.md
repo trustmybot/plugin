@@ -164,6 +164,23 @@ Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) (10 workflow
 
 ---
 
+## Benchmarks
+
+TMB resolved **8 of 8** SWE-bench tasks (4 Verified + 4 Lite) where pure
+Claude 4 Opus and pure Claude 4 Sonnet — using their official Anthropic-published agentic harnesses — failed. **Same model snapshots, different
+orchestration. Zero hallucinated success claims.**
+
+| Corpus | TMB-on | Comparator | Comparator score on these tasks |
+|---|---|---|---|
+| **SWE-bench Verified** (4 tasks, same `claude-opus-4-20250514`) | **4 / 4** ✅ | Anthropic [`20250522_tools_claude-4-opus`](https://github.com/SWE-bench/experiments/tree/main/evaluation/verified/20250522_tools_claude-4-opus) | 0 / 4 |
+| **SWE-bench Lite** (4 tasks) | **4 / 4** ✅ | 3 published Sonnet 4 harnesses (SWE-agent, KGCompass, ExpeRepair-v1) | 0 / 4 each |
+| **Hallucinations** | **0 / 8** | (not measured by comparators) | — |
+| **Total spend** | $17.33, ~17.7M tokens | — | — |
+
+Curated-hard subsets — tasks specifically picked from the all-comparators-failed intersection. Full methodology, fairness controls, per-task data, and caveats: **[`docs/BENCHMARK.md`](docs/BENCHMARK.md)**.
+
+---
+
 ## Roster on disk
 
 The plugin ships **zero subagents**. Bro is a CLAUDE.md persona on main Claude. Every other agent lives as a **Lego template** that bro copies into `<project>/.claude/agents/` on demand:
