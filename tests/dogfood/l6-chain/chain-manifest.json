@@ -111,6 +111,15 @@
       "seed_before": null,
       "seed_after": null,
       "halt_on_fail": false
+    },
+    {
+      "id": 14,
+      "name": "14-skill-invocation-recorded",
+      "row_dir": "l5-rows/14-skill-invocation-recorded",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": false
     }
   ]
 }

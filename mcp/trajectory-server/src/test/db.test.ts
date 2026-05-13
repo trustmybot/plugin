@@ -7,7 +7,7 @@ import { tempDB } from './helpers.js';
 import { nowISO, genId, TrajectoryDB } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all 15 prod tables exist with schema_version=1', () => {
+  it('opens an in-memory DB and verifies all 19 prod tables exist with schema_version=1', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -26,6 +26,11 @@ describe('TrajectoryDB', () => {
       'agent_runs',
       'pr_review_runs',
       'repos',
+      // #2886 capability catalog + junctions
+      'rules',
+      'commands',
+      'skill_invocations',
+      'rule_invocations',
     ];
 
     const rows = db.all<{ name: string }>(

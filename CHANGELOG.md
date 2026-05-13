@@ -4,6 +4,18 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Added (#2886 — capability catalog + junction-based analytics)
+
+- 📚 **Catalog enrichment**: the trajectory DB now carries a portable catalog of every capability (skills + rules + commands) plus per-invocation junction rows. Designed so the enterprise LangGraph runtime can adopt the same schema with the DB as source-of-truth, while in the plugin the catalog acts as an analytics overlay on top of the file system.
+  - **`skills.scope`** column add (`global` / `template` / `project-local`, mirrors `agents.scope`). Plugin-shipped `tmb_*` skills schema-seeded as `global`; `skill_register` defaults new entries to `project-local`.
+  - **`rules`** table (new) — first-class registry for `<project>/.claude/rules/*.md`. Severity enum captures enforcement weight (`advisory` / `warning` / `blocking`). MCP tools: `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list`.
+  - **`commands`** table (new) — first-class registry for slash commands. Schema-seeds the 4 plugin-shipped commands (`/scan`, `/onboard`, `/monitor`, `/roundtable`). MCP tools: `command_register`, `command_list`.
+  - **`skill_invocations`** + **`rule_invocations`** junction tables — one row per skill/rule activation. Both indexed on the capability name AND on `task_id` for cheap forward queries ("what did this run touch?") and reverse queries ("which runs used skill X?"). MCP tools: `skill_record_invocation`, `skill_invocations_list`, `rule_record_invocation`, `rule_invocations_list`.
+  - **Bro as a first-class `agent_runs` row** — composites now insert one `agent_type='bro'` row per task at `task_create_batch` / `task_retry_batch` time (with `started_at`, `completed_at NULL`) and finalize it at `bro_atomic_close` (sets `completed_at` + computes `duration_ms` from `started_at`). Lets skill/rule invocations from bro attribute to a tracked `agent_run_id`, closing the analytics loop. `agent_runs.completed_at` relaxed to nullable; new `started_at` column.
+  - **Skill `PostToolUse` hook** (`scripts/hooks/skill-invocation-record.sh`) writes one `skill_invocations` row every time the `Skill` tool fires. Resolves `agent_run_id` from bro's open row (NULL if no run open — onboarding / scan-only sessions). Analytics-only, never blocks; bypass via `TMB_DISABLE_SKILL_INVOCATION_HOOK=1`.
+  - **L5 row 14** (`14-skill-invocation-recorded`) — exercises the full Skill→hook→junction chain with assertions on `skill_invocations` count + schema shape. Wired into the L6 chain manifest as the final step.
+  - **L2 unit coverage**: +17 tests in `rules-commands-junctions.test.ts` covering catalog registries, junction writes, bidirectional list filtering, and the bro-as-agent_run composite lifecycle. **401/401 pass** (was 384).
+
 ### Changed (breaking — pre-release schema slim)
 
 - 🧹 **Schema cleanup — dropped dead columns + collapsed the migration layer.** Production-data audit (run against `eb1` and the dev fixture) showed ~25 columns across 14 tables that were either never written, never read, or constant-by-construction. Dropped them all in one pass. Pre-release means no migration shim — `db.ts` shed every `migrateXxx` helper (~250 lines), `schema.sql` is now the single source of truth applied via `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`. Users on rc bumps re-init `.claude/<plugin>/trajectory.db`.

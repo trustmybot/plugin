@@ -231,6 +231,10 @@ export function compositeTools(db, dbPath) {
                 const newTask = db.get('SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!newTask)
                     throw new Error('insert succeeded but row lookup failed');
+                // Bro-as-agent_run (#2886): open a bro row for the retry task,
+                // mirror of the task_create_batch case.
+                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
+             VALUES (?, ?, 'bro', ?)`, [newTask.id, failed.issue_id, now]);
                 db.run(`INSERT INTO audit
                (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
              VALUES (?, ?, 'bro', 'task_retry_attempted', ?, ?, ?)`, [
@@ -362,6 +366,20 @@ export function compositeTools(db, dbPath) {
                 db.run(`UPDATE tasks
                 SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
               WHERE id=?`, [commitSha, now, now, task.id]);
+                // 3b. Bro-as-agent_run (#2886): finalize the bro row opened by
+                // task_create_batch. duration_ms is the wall-clock between started_at
+                // and now; tokens stay at 0 here — a follow-up hook will accumulate
+                // them from the transcript_path. Only update the row that hasn't
+                // been completed yet (idempotent on re-close).
+                db.run(`UPDATE agent_runs
+                SET completed_at = ?,
+                    duration_ms = COALESCE(
+                      (strftime('%s', ?) - strftime('%s', started_at)) * 1000,
+                      0
+                    )
+              WHERE task_id = ?
+                AND agent_type = 'bro'
+                AND completed_at IS NULL`, [now, now, task.id]);
                 // 4. optional issue_close — only when this was the last open/active task.
                 let issueClosed = false;
                 if (closeIssueIfLast) {

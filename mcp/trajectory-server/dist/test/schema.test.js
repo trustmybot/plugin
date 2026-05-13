@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 describe('schema — current table set, default values, constraints', () => {
-    it('fresh prod-mode DB contains 17 tables (no ledger, no eval/debug tables)', () => {
+    it('fresh prod-mode DB contains 19 tables (no ledger, no eval/debug tables)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -24,6 +24,11 @@ describe('schema — current table set, default values, constraints', () => {
             'agent_runs',
             'pr_review_runs',
             'repos',
+            // #2886 capability catalog + junctions
+            'rules',
+            'commands',
+            'skill_invocations',
+            'rule_invocations',
         ];
         const rows = db.all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
         const actualNames = rows.map((r) => r.name).sort();
