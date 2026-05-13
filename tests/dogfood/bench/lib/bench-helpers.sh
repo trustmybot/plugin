@@ -73,8 +73,11 @@ bench_run_arm() {
     # (no AskUserQuestion attempts; full task_create_batch → SWE → V1/V2/V3
     # → atomic-close ceremony in headless form). Without this bro hits AUQ
     # rejections and falls back to direct-edit, bypassing the doctrine
-    # we're trying to measure.
-    export TMB_HEADLESS=1
+    # we're trying to measure. Only set for tmb-on (raw arm has no plugin
+    # that reads it).
+    if [ "$arm" = "tmb-on" ]; then
+      export TMB_HEADLESS=1
+    fi
     # TMB_BENCH_ENRICH_PROMPT=1 (opt-in): append the "I will go to sleep…"
     # suffix that matches how a real TMB user invokes bro for overnight
     # autonomous work. This is the "TMB-as-designed" measurement tier —

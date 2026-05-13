@@ -76,8 +76,13 @@ RESULTS_JSONL="$RUN_DIR/_results.jsonl"
 
 printf '=== L7 bench %s ===\n' "$RUN_ID"
 printf '  tasks:    %s\n' "${TASKS[*]}"
-printf '  arm:      tmb-on (compare against published claude-sonnet on the\n'
-printf '            SWE-bench Lite leaderboard — see summary footer)\n'
+if [ "${TMB_BENCH_RAW:-0}" = "1" ]; then
+  printf '  arm:      raw (pure model baseline, no plugin loaded;\n'
+  printf '            model: %s)\n' "${TMB_BENCH_MODEL:-claude-opus-4-20250514}"
+else
+  printf '  arm:      tmb-on (TMB plugin loaded; compare against\n'
+  printf '            published comparators — see RESULTS.md)\n'
+fi
 printf '  N:        %d per task\n' "$N"
 printf '  logs:     %s\n\n' "$RUN_DIR"
 
@@ -163,10 +168,13 @@ run_one() {
     "$ps_pass" "$ap_pass" "$tk_total" "$tk_cost" "$duration_s" "$ql_score" "$hl_flag"
 }
 
+ARM="tmb-on"
+[ "${TMB_BENCH_RAW:-0}" = "1" ] && ARM="raw"
+
 for task in "${TASKS[@]}"; do
   printf "── %s ──\n" "$task"
   for run_idx in $(seq 1 "$N"); do
-    run_one "$task" "tmb-on" "$run_idx"
+    run_one "$task" "$ARM" "$run_idx"
   done
   printf "\n"
 done
