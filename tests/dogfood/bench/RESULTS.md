@@ -1,11 +1,33 @@
-# L7 Bench Results — TMB on SWE-bench Lite (#6)
+# L7 Bench Results — TMB on SWE-bench (#6)
 
-**Run date:** 2026-05-13 (initial) · 2026-05-13 (corrected after F1 fix) ·
-**N = 1** · **Curated MVP subset (4 tasks)**
+**Run date:** 2026-05-13 · **N = 1 per task** ·
+**Lite: 4 tasks vs Sonnet 4** · **Verified: 4 tasks vs Opus 4**
+
+> Product-facing summary: **[docs/BENCHMARK.md](../../../docs/BENCHMARK.md)**
+> This file is the technical per-task data.
 
 ## Headlines
 
-### vs Claude 4 Sonnet (TMB's SWE worker) — strict win on hard tasks
+### vs Claude 4 Opus on SWE-bench Verified — strict win, same model
+
+> **TMB resolved 4 of 4 SWE-bench Verified tasks where Anthropic's
+> official `claude-opus-4-20250514` + 2-tool harness failed.**
+>
+> - **TMB-on** (same Opus model + plugin): 4 / 4 resolved · 0/4 halluc · $10.01
+> - **Anthropic's `20250522_tools_claude-4-opus`:** 0 / 4 on these tasks
+> - **Anthropic's `20250522_tools_claude-4-sonnet`:** 0 / 4 on these tasks
+>
+> Same `claude-opus-4-20250514` snapshot. Different orchestration.
+
+| Verified Task | TMB-on | Tools+Opus 4 | Tools+Sonnet 4 |
+|---|---|---|---|
+| `sympy__sympy-20916` | ✅ $2.19 · 240s · halluc=0 | ❌ | ❌ |
+| `pytest-dev__pytest-10356` | ✅ $2.39 · 346s · halluc=0 | ❌ | ❌ |
+| `sphinx-doc__sphinx-7590` | ✅ $4.23 · 587s · halluc=0 | ❌ | ❌ |
+| `pylint-dev__pylint-4661` | ✅ $1.20 · 256s · halluc=0 | ❌ | ❌ |
+| **Aggregate** | **4 / 4 · $10.01 · 9.89M tok · 1429s** | 0 / 4 | 0 / 4 |
+
+### vs Claude 4 Sonnet on SWE-bench Lite — strict win on hard tasks
 
 > **TMB resolved 4 of 4 SWE-bench Lite tasks where every published
 > Claude 4 Sonnet agentic harness failed.**

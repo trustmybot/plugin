@@ -1,21 +1,18 @@
 # L7 Bench — TMB-augmented Claude vs Claude 4 Sonnet & Opus 4 (#6)
 
-> **Latest results: [RESULTS.md](./RESULTS.md)** —
-> - **vs Sonnet 4:** TMB resolved **4/4** SWE-bench Lite tasks where every
->   published Sonnet 4 agentic harness failed (SWE-agent, KGCompass,
->   ExpeRepair-v1). **0/4 hallucinations.** Strict win on a curated-hard
->   subset.
-> - **vs Opus 4:** Short-term parity hypothesis (no per-task Lite data
->   published for Opus 4); long-term wins on tokens / hallucinations /
->   persistence not yet measured by single-shot bench. **Multi-task
->   chained bench is the next investment.**
-> - **Caveat:** the formal doctrine ceremony (task_create_batch → SWE →
->   V1/V2/V3 → atomic-close) did NOT fire on any run (skill_invocations
->   = 0 across all 4 task DBs). Bro went direct-edit. Even so, results
->   are strictly better than every published Sonnet 4 harness — the
->   doctrine's contribution is upper-bounded.
+> **Latest results: [docs/BENCHMARK.md](../../../docs/BENCHMARK.md)** —
+> - **vs Claude 4 Opus** (Anthropic's published tools-harness, May 2025):
+>   TMB resolved **4/4 SWE-bench Verified tasks** where pure Opus 4
+>   failed. Same model snapshot (`claude-opus-4-20250514`). 0/4 hallucinations.
+> - **vs Claude 4 Sonnet** (3 published agentic harnesses):
+>   TMB resolved **4/4 SWE-bench Lite tasks** where every published
+>   Sonnet 4 agentic harness failed. 0/4 hallucinations.
+> - **Caveat:** formal doctrine ceremony didn't fire on any of the 8
+>   single-shot tasks. Wins are TMB-loaded Opus bro + plugin context,
+>   not V1/V2/V3. The doctrine's contribution is upper-bounded by these
+>   results. Multi-task chained bench is the next investment.
 >
-> N=1; needs higher N for variance bars.
+> N=1 per task; needs higher N for variance bars.
 
 Single-arm benchmark. We run **TMB-on** (Opus orchestrator + Sonnet SWE
 workers under the plugin) against **public** SWE-bench Lite tasks, then
