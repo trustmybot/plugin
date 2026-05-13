@@ -2,20 +2,42 @@
 
 **Run date:** 2026-05-13 · **N = 1** · **Curated MVP subset (4 tasks)**
 
-## Headline
+## Headlines
+
+### vs Claude 4 Sonnet (TMB's SWE worker) — clear win on hard tasks
 
 > **TMB resolved 2 of 4 SWE-bench Lite tasks where every published
 > Claude 4 Sonnet agentic harness failed.**
 >
-> Strict win on a curated-hard subset:
 > - **TMB:** 2 / 4 resolved (50%)
-> - **SWE-agent + Sonnet 4 (published 2025-05-26):** 0 / 4 (0%)
-> - **KGCompass + Sonnet 4 (published 2025-09-06):** 0 / 4 (0%)
-> - **ExpeRepair-v1 + Sonnet 4 (published 2025-06-25):** 0 / 4 (0%)
+> - **SWE-agent + Sonnet 4 (2025-05-26):** 0 / 4 (0%)
+> - **KGCompass + Sonnet 4 (2025-09-06):** 0 / 4 (0%)
+> - **ExpeRepair-v1 + Sonnet 4 (2025-06-25):** 0 / 4 (0%)
 >
 > Same underlying model (Claude 4 Sonnet does TMB's SWE work). What
 > differs is the orchestration: TMB layers Opus orchestration +
 > trajectory DB + atomic-close ceremony + V1/V2/V3 push-gate on top.
+
+### vs Claude 4 Opus — short-term parity hypothesis, long-term unmeasured
+
+> Anthropic's published **Claude Opus 4** aggregate on SWE-bench Lite is
+> **~62.7%** ([source](https://www.swebench.com/lite.html), April 2026
+> snapshot). No per-task data is published for Opus 4 on Lite, so a
+> direct per-task A/B against our 4 results isn't possible.
+>
+> **Short-term hypothesis:** TMB's 50% on these 4 deliberately-hard
+> tasks is in the ballpark of where pure Opus 4 would land — TMB
+> orchestrates Sonnet 4 workers under an Opus bro, so single-task
+> resolution should track Opus 4 closely.
+>
+> **Long-term hypothesis (NOT measured by this bench):** TMB should beat
+> Opus 4 on tokens, hallucination rate, and persistent-state metrics
+> across multi-task workflows. Our current single-shot bench resets the
+> trajectory DB and file_registry between tasks — zero amortization —
+> so the doctrine's long-term dividend is invisible here. A multi-task
+> chained bench (10 sequential tasks on the same repo, accumulating
+> registry summaries and post-close cleanup state) is the right
+> measurement vehicle. **TODO for the next bench iteration.**
 
 ## Per-task comparison
 
@@ -121,6 +143,21 @@ resolved set is a per-task TMB win.
 - **Opus orchestration cost.** TMB's bro tier uses Claude Opus; the Sonnet 4 comparators don't. TMB pays more per task in tokens and dollars; the win is in *which* tasks land, not raw efficiency.
 
 ## Next steps
+
+### Measure what this bench can't yet (the long-term wins vs Opus 4)
+
+- **Multi-task chained bench** — sequential tasks on the same repo so the
+  trajectory DB + file_registry accumulate. Measure: token cost per
+  resolved task (should drop as registry warms), hallucination rate
+  (should drop as atomic-close history seeds the gate), turn count
+  (should drop as bro's task templates compound). This is where the
+  TMB-vs-Opus-4 long-term claim becomes measurable. **Not in current
+  harness — biggest open investment.**
+- **Persistent-state bench** — same task resumed across `claude -p`
+  invocations. Measure whether TMB's trajectory DB lets a second
+  session pick up where the first left off vs Opus 4 cold-starting.
+
+### Strengthen the current single-shot bench
 
 - **Increase N** to 3 per task to smooth variance, ~$25 per full pass.
 - **Expand corpus** to 10-15 tasks from the 83-task all-Sonnet-failed intersection — diversify across django, sympy, scikit-learn.

@@ -1,9 +1,15 @@
-# L7 Bench — TMB-augmented Claude vs published claude-sonnet (#6)
+# L7 Bench — TMB-augmented Claude vs Claude 4 Sonnet & Opus 4 (#6)
 
-> **Latest results: [RESULTS.md](./RESULTS.md)** — TMB resolved 2/4 SWE-bench
-> Lite tasks where every published Claude 4 Sonnet agentic harness failed
-> (SWE-agent, KGCompass, ExpeRepair-v1). Strict win on a curated-hard
-> subset. N=1; hallucination rate 1/4 (improvement target).
+> **Latest results: [RESULTS.md](./RESULTS.md)** —
+> - **vs Sonnet 4:** TMB resolved 2/4 SWE-bench Lite tasks where every
+>   published Sonnet 4 agentic harness failed (SWE-agent, KGCompass,
+>   ExpeRepair-v1). Strict win on a curated-hard subset.
+> - **vs Opus 4:** Short-term parity hypothesis (no per-task Lite data
+>   published for Opus 4); long-term wins on tokens / hallucinations /
+>   persistence not yet measured by single-shot bench. **Multi-task
+>   chained bench is the next investment.**
+>
+> N=1; hallucination rate 1/4 (improvement target).
 
 Single-arm benchmark. We run **TMB-on** (Opus orchestrator + Sonnet SWE
 workers under the plugin) against **public** SWE-bench Lite tasks, then
