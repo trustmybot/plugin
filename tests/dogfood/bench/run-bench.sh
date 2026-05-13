@@ -215,5 +215,5 @@ SUMMARY="$RUN_DIR/summary.md"
 } > "$SUMMARY"
 
 printf "\n========================================\n"
-printf "Bench complete: %d tasks × 2 arms × N=%d\n" "${#TASKS[@]}" "$N"
+printf "Bench complete: %d task(s) × tmb-on × N=%d\n" "${#TASKS[@]}" "$N"
 printf "Summary: %s\n" "$SUMMARY"
