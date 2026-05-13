@@ -6,7 +6,7 @@
 
 TMB turns Claude Code from a clever code-generator into a disciplined engineering workflow: one Human entry point (`bro`), a separate executor (`swe`), state that survives session kills, and structural gates that close around every commit.
 
-> **Claude Code today.** Current release ships the Claude Code adapter only. Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/MULTI_PLATFORM.md`](docs/MULTI_PLATFORM.md).
+> **Claude Code today.** v0.6.0 ships the Claude Code adapter only. Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/MULTI_PLATFORM.md`](docs/MULTI_PLATFORM.md).
 
 ---
 
