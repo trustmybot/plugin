@@ -82,49 +82,44 @@ open work below for where the long-term differentiation would surface.
 
 ## Measured token & time overhead
 
-We ran a local raw-arm baseline (same setup.sh / verify.sh / env / dep
-pins, **no plugin**, model pinned to match the comparator tier) to
-quantify TMB's per-task overhead. Our raw baseline uses Claude Code's
-full toolset — a stronger harness than Anthropic's published 2-tool
-scaffold, which is why our raw arm resolves 6/8 vs Anthropic's published
-0/8 on this subset. The headline resolution claim (TMB vs Anthropic's
-official submission) stays from public records; this section is only
-about token + time delta.
+**Resolution counts above come from public records** (`swe-bench/experiments`).
+**Token + time data isn't published per-task by any comparator**, so we
+measured it locally: ran a raw-arm baseline (same setup.sh / verify.sh /
+env / dep pins, **no plugin**, model pinned to match each tier). This
+section reports only the tokens / cost / time figures we collected — for
+the resolution comparison see the tables above.
 
-### Verified — clean same-model A/B (both arms at `claude-opus-4-20250514`)
+### Verified — same-model A/B (both arms at `claude-opus-4-20250514`)
 
-| | TMB (4 tasks) | Raw Opus 4 in CC | TMB Δ |
+| | TMB (4 tasks) | Local raw Opus 4 baseline | TMB Δ |
 |---|---|---|---|
-| Resolved | 4 / 4 | 3 / 4 | **+1 strict win (sympy)** |
 | Tokens | 9.89M | 7.23M | **+37%** |
 | Cost | $10.01 | $6.21 | **+61%** |
 | Time | 1429s | 852s | **+68%** |
-| Hallucinated | 0 / 4 | 0 / 4 | same |
 
-### Lite — model-confounded (TMB default Opus vs raw Sonnet 4)
+### Lite — TMB used CC default Opus; raw used `claude-sonnet-4-20250514`
 
-| | TMB (4 tasks) | Raw Sonnet 4 in CC | TMB Δ |
+| | TMB (4 tasks) | Local raw Sonnet 4 baseline | TMB Δ |
 |---|---|---|---|
-| Resolved | 4 / 4 | 3 / 4 | **+1 strict win (sphinx-7686)** |
 | Tokens | 7.83M | 8.64M | −9% |
 | Cost | $7.32 | $4.10 | +78% (Opus pricier than Sonnet) |
 | Time | 1128s | 1038s | +9% |
-| Hallucinated | 0 / 4 | 0 / 4 | same |
 
 ### Reading the overhead
 
-- **TMB pays ~60% more cost / ~70% more time per task** vs raw single-model
-  in Claude Code, when both arms can solve the task. This is the real
-  short-term overhead — bro's orchestration + plugin context.
-- **On tasks raw fails**, TMB's premium IS the value. Raw arm spent
-  $2.02 (sympy) / $1.31 (sphinx-7686) and produced no working fix.
-  TMB landed both.
-- **Hallucination edge isn't differentiated by this corpus.** Both 0/8.
-  Longer tasks or messier verification paths is where over-claiming
-  would surface; we haven't measured those yet.
-
-Full per-task data + reproduction commands in
-[`tests/dogfood/bench/RESULTS.md`](../tests/dogfood/bench/RESULTS.md).
+- **TMB pays ~60% more cost / ~70% more time per task** vs a same-model
+  raw baseline in Claude Code, on tasks both can solve. This is the
+  real short-term overhead — bro's orchestration + plugin context.
+- **Hallucination axis** (claim/verify mismatch): 0/8 for TMB and 0/8
+  for the local raw baseline on this corpus. **Not differentiated by
+  these single-bug-fix tasks** — longer/messier tasks would surface
+  it. Future work in the chained-bench iteration.
+- The raw arm's resolution count was 6/8 locally (CC's full toolset is
+  a stronger harness than Anthropic's published 2-tool scaffold).
+  We don't use that number as a comparator — the comparator claim
+  is anchored to public submissions only. See
+  [`tests/dogfood/bench/RESULTS.md`](../tests/dogfood/bench/RESULTS.md)
+  for full local-measurement transparency.
 
 ---
 
