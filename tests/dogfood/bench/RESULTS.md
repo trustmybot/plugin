@@ -221,65 +221,108 @@ with TMB-on-curated-hard. Don't read this table as "TMB is 3× more
 expensive than Opus 4.6" — they're priced on a different mix of tasks
 (mostly tasks that one-shot resolve quickly).
 
-### Estimated tradeoffs — short-term vs long-term
+### Measured cost overhead — TMB vs raw single-model in Claude Code
 
-What we have for direct A/B data: the **OLD Flask two-arm bench** (N=1,
-pre-pivot, pre-harness-fixes) — tmb-on 584k tok / $0.51 / 74s vs raw
-482k tok / $0.39 / 56s. Both arms failed that run (verify.sh bug), but
-the resource ratios are still informative as a rough overhead estimate.
-From that:
+We ran a local raw-arm baseline (same setup.sh / verify.sh / env / dep
+pins, **no plugin loaded**, model pinned to match) to measure the
+TMB-vs-pure-model cost delta. The headline resolution claim above stays
+from published comparators (`swe-bench/experiments`); this section is
+**only** about the token + time overhead.
 
-**Short-term (single fix-and-go task):**
+**Important caveat:** our raw arm uses **Claude Code's full toolset**
+(Read, Edit, Bash, Glob, Grep, Write, etc.). Anthropic's published
+`tools_claude-4-opus` submission used a simpler **2-tool scaffold**
+(bash + string_replace_editor). CC's richer harness is a stronger
+baseline — that's why our raw arm resolves more tasks than the official
+comparator did. We disclose both fairly.
 
-| Resource | TMB overhead vs pure single-model |
-|---|---|
-| Tokens | **~+20-30%** (Opus orchestration + plugin context loading) |
-| Time | **~+20-30%** (extra turns for routing through bro) |
-| Cost | **~+20-30%** (no model arbitrage; bro uses the same Opus as the comparator) |
+### Verified — clean same-model A/B (both arms at `claude-opus-4-20250514`)
 
-So on a simple task that pure Opus would resolve cleanly, TMB pays a
-small premium for no incremental win. Expected.
+| Metric | TMB (4 tasks) | Raw Opus 4 in CC (4 tasks) | TMB Δ |
+|---|---|---|---|
+| Resolved | 4 / 4 | 3 / 4 (sympy failed) | **+1 strict win** |
+| Total tokens | 9.89M | 7.23M | **+37%** |
+| Total cost | $10.01 | $6.21 | **+61%** |
+| Total time | 1429s (24min) | 852s (14min) | **+68%** |
+| Hallucinated | 0 / 4 | 0 / 4 | same |
 
-**Long-term (multi-task projects or hard tasks):**
+Per-task Verified detail:
 
-The hallucination dividend dominates. **Measured TMB hallucination rate
-on hard tasks: 0/8.** Pure Opus 4 + 2-tool scaffold on those same 8
-tasks: 0/8 resolved (failures + unknown whether any were
-hallucinated-success-claims; comparators' per-task transcripts aren't
-public so we can't audit).
+| Task | TMB | Raw Opus 4 | Notes |
+|---|---|---|---|
+| `sympy__sympy-20916` | ✅ $2.19 · 2.83M · 240s | **❌ $2.02 · 2.49M · 248s · zero edits** | **TMB strict resolution win** |
+| `pytest-dev__pytest-10356` | ✅ $2.39 · 2.66M · 346s | ✅ $1.39 · 1.69M · 187s | TMB +72% cost |
+| `sphinx-doc__sphinx-7590` | ✅ $4.23 · 3.35M · 587s | ✅ $1.97 · 2.08M · 293s | TMB +115% cost |
+| `pylint-dev__pylint-4661` | ✅ $1.20 · 1.05M · 256s | ✅ $0.83 · 0.97M · 124s | TMB +44% cost |
 
-Conservative rework math, assuming **pure-Opus hallucination rate = 5%**
-(realistic for production code per published model-card data; could be
-higher in practice on subtle bugs):
+### Lite — model-confounded (TMB used CC default; raw pinned to `claude-sonnet-4-20250514`)
 
-| Scenario (10-task project) | Pure single-model (estimate) | TMB (measured) |
-|---|---|---|
-| Easy tasks throughout | $5-7 cheap upfront + 0.5 hallucinated → 2-4 engineer hours rework | $20-25 upfront + 0 rework |
-| Mix of hard + easy | $5-7 spent but 4-6 task failures → manual fallback + retries | $20-25 upfront, 8-10 resolved |
-| **Hidden cost per hallucinated commit** | ~$300-1000 (engineer time + lost context) | $0 |
+TMB Lite ran on Claude Code's default model (latest Opus); raw Lite was
+pinned to Sonnet 4 to match the published Sonnet 4 comparator. Different
+models = the cost delta isn't pure-TMB-overhead, but the resolution
+comparison is fair (each side using the appropriate baseline for its
+tier).
 
-The TMB **upfront premium of ~$15-20** on a 10-task project is recovered
-by avoiding **one** hallucinated-success rework downstream (engineer
-hours × hourly rate >> agent token cost). On hard tasks where pure
-single-model agents flatly fail, TMB's premium IS the value — those
-tasks wouldn't land at all otherwise.
+| Metric | TMB (4 tasks, default Opus) | Raw Sonnet 4 in CC (4 tasks) | TMB Δ |
+|---|---|---|---|
+| Resolved | 4 / 4 | 3 / 4 (sphinx failed) | **+1 strict win** |
+| Total tokens | ~7.83M | 8.64M | -9% |
+| Total cost | $7.32 | $4.10 | +78% (Opus pricier than Sonnet) |
+| Total time | 1128s (19min) | 1038s (17min) | +9% |
+| Hallucinated | 0 / 4 | 0 / 4 | same |
+
+Per-task Lite detail:
+
+| Task | TMB | Raw Sonnet 4 | Notes |
+|---|---|---|---|
+| `pallets__flask-4045` | ✅ $0.75 · 0.90M · 94s | ✅ $0.68 · 1.34M · 173s | |
+| `pytest-dev__pytest-8906` | ✅ $1.48 · 1.37M · 184s | ✅ $0.98 · 2.17M · 240s | |
+| `pylint-dev__pylint-6506` | ✅ $2.33 · 2.90M · 310s | ✅ $1.13 · 2.42M · 280s | |
+| `sphinx-doc__sphinx-7686` | ✅ $2.76 · 2.66M · 540s | **❌ $1.31 · 2.71M · 345s · failed verify** | **TMB strict resolution win** |
+
+### What the measured cost delta tells us
+
+- **TMB pays a real per-task premium** when both arms can solve the
+  same task. On Verified (clean same-model A/B): **+37% tokens, +61%
+  cost, +68% time**. That's the cost of bro's orchestration loop +
+  plugin context + atomic-close ceremony scaffolding (even though the
+  ceremony didn't formally fire on these single-shot tasks).
+- **On tasks pure model can't crack** (sympy Verified, sphinx Lite),
+  TMB's premium IS the value. The raw arm spent $2.02 (sympy) / $1.31
+  (sphinx) and produced no working fix. TMB spent slightly more and
+  resolved both.
+- **2 of 8 strict wins** vs same-environment raw baseline.
+- **8 of 8 strict wins** vs Anthropic's published 2-tool-harness
+  submission (per their public `results.json` — they reported 0/4
+  on each of these 8 task IDs across `tools_claude-4-opus` +
+  `tools_claude-4-sonnet`).
+
+### Hallucination on this corpus
+
+**Both arms hallucinated 0/8 on these single-shot tasks.** The keyword-
+matched hallucination scorer flagged zero claim/verify mismatches in
+the raw arm transcripts either. This is honest signal — on bounded
+single-bug-fix tasks, neither TMB nor raw-in-CC over-claims.
+
+The "TMB hallucinates less" claim **isn't differentiated by this
+corpus.** Where it should differentiate: longer multi-step tasks where
+raw might over-confidently report partial progress, or messier
+codebases where the verification path is non-obvious. Future
+multi-task chained bench is where this would surface.
 
 ### The honest tradeoff framing
 
-- **Short-term per simple task:** TMB costs ~20-30% more tokens / time
-  than pure single-model. Measured on N=1, plausible by orchestration
-  arithmetic.
-- **Long-term across a project:** TMB's near-zero hallucination rate
-  means tasks land correctly the first time. Pure single-model agents'
-  hallucinated successes cost engineer-hours per incident — the *real*
-  token+time cost is in the rework loop, not the original agent run.
-- **On tasks comparators can't crack:** TMB's premium IS the value.
-  Comparators paid some non-zero cost on these 8 tasks and got 0/8
-  resolves. TMB paid $17.33 and got 8/8.
-- **TMB's value is in correctness, not throughput.** A cheaper harness
-  that resolves 70% of tasks with an unknown hallucination rate isn't
-  the same product as TMB resolving harder tasks with verified-correct
-  outcomes.
+- **vs Anthropic's official 2-tool submission** (verifiable, public):
+  TMB resolves all 8, the submission resolved 0/8. Strict win on the
+  load-bearing benchmark numbers.
+- **vs raw single-model in Claude Code** (our local measurement):
+  TMB resolves +2/8 strict wins, pays ~60% premium in cost / time for
+  the matched cases. Hallucination rates equal on this corpus.
+- **TMB's value-per-dollar shape:** on hard tasks where raw fails,
+  premium is justified. On easy-enough tasks where raw resolves, TMB
+  is a more expensive way to get the same answer. The product's pitch
+  is "use TMB when correctness matters more than cost," not "TMB is
+  cheaper than pure model on every task."
 
 This framing is what we can say honestly. The fully-fair "TMB vs
 comparator $/task on the same task IDs" comparison requires either
