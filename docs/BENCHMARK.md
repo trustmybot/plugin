@@ -212,9 +212,35 @@ framing). It measures TMB **as the product is intended to be used.**
 
 Toggle: `TMB_BENCH_ENRICH_PROMPT=1 bash run-bench.sh <task>`.
 
-**Tier 2 data:** *Pending re-fire.* The autonomous tier (today's data) is
-4/4 resolved with 0/4 hallucinations. Tier 2 data should be reported
-separately once gathered.
+**Tier 2 data (pytest-8906, N=1):**
+
+| Metric | Tier 1 (autonomous) | Tier 2 (enriched) | Δ |
+|---|---|---|---|
+| Resolved | ✅ | ✅ | same |
+| Hallucinated | 0 | 0 | same |
+| Tokens | 1.37M | 2.96M | **+115%** |
+| Cost | $1.48 | $2.37 | +60% |
+| Duration | 184s | 371s | +102% |
+| Doctrine engaged? | No | **No** | same |
+
+**Informative null result.** With the explicit "go to sleep, solve it
+automatically" prompt — TMB's real-world headless invocation pattern —
+bro still doesn't trigger `task_create_batch` / SWE / V1/V2/V3 / atomic-
+close ceremony. `skill_invocations`, `tasks`, and `agent_runs` remain
+empty in the run DB. Bro autonomously decides single-bug-fix tasks
+are too small to warrant the ceremony. **That decision is correct** —
+the outcome is the same as Tier 1, just more expensive.
+
+**What this tells us:** the TMB doctrine is **not designed for the
+SWE-bench Lite task shape** (single bug, ≤2 FAIL_TO_PASS tests, fix
+in one file). The ceremony has fixed overhead that doesn't pay off
+at that scale. TMB's value proposition lives at a different scale —
+multi-file refactors, multi-task workflows, persistent state across
+sessions. See the multi-task chained bench design below.
+
+We did not re-fire Tier 2 on the other 3 tasks — the pattern is clear
+from N=1 and the cost-without-incremental-value isn't worth $6 to
+fully populate the table.
 
 ## Caveats
 
@@ -240,18 +266,57 @@ separately once gathered.
 
 ## Open work
 
-### To make the Opus 4 comparison real
+### Multi-task chained bench — the real product measurement
 
-- **Multi-task chained bench.** 10 sequential SWE-bench tasks against
-  the same repo, preserving trajectory.db + file_registry **across
-  tasks**. Measure per-task token decay (should drop as registry warms),
-  hallucination rate, and per-task duration. Compare against a raw
-  Opus 4 baseline that cold-starts each task. This is where the
-  "TMB long-term wins" claim becomes measurable. **Biggest open
-  investment.**
-- **Or: switch corpus to SWE-bench Verified** where Opus 4 has
-  per-task data published. Different 500-task set; would mean
-  rebuilding setup.sh for Verified-specific paths.
+The Tier 2 null result confirms that single-shot benchmarks don't
+exercise TMB's actual value. TMB's design is for **multi-task work
+where state accumulates** — file_registry warms, atomic-close history
+seeds the push-gate, trajectory DB cross-references work over time.
+The right bench shape:
+
+**Setup:**
+- Pick a repo with many Sonnet-failed Lite tasks (django has 21; sympy
+  has 30).
+- Pick N sequential tasks (e.g., 5) from different subsystems of that repo.
+- Clone the repo ONCE into a scratch project. Initialize
+  `.claude/tmb/trajectory.db`.
+
+**Per task in sequence:**
+- Apply the task's `test_patch` to the same project.
+- Run bro on the task's `problem_statement` (with Tier 2 enrichment).
+- Score: resolved, tokens, cost, hallucinated, duration.
+- **Do NOT reset** `.claude/tmb/` or `git` — let trajectory accumulate.
+- Continue to next task.
+
+**Tracked metrics with chain position:**
+
+| Metric | Hypothesis |
+|---|---|
+| Tokens per task | Should *drop monotonically* as the registry warms and bro can lookup-not-read |
+| Hallucination rate | Should stay 0 as atomic-close history seeds the gate |
+| Duration per task | Should drop as bro's task templates compound |
+| First-attempt pass rate | Should rise as bro's decision audit informs future calls |
+
+**Comparators:**
+- **TMB-chained** (single project, accumulating state) vs
+- **TMB-cold** (fresh project per task — today's single-shot pattern) on the same N tasks
+- vs **raw Opus 4** (no plugin, cold each task) on the same N tasks
+
+If TMB-chained's per-task cost drops while TMB-cold and raw Opus 4 stay
+flat, that's the differentiation story.
+
+**Cost estimate:** 5 tasks × 3 arms × ~$1-2 per task = **$15-30** per
+full pass.
+
+**Status:** stub at `tests/dogfood/bench/run-chained-bench.sh` —
+design captured, implementation pending.
+
+### Alternate path: SWE-bench Verified
+
+Switch corpus to SWE-bench Verified where Opus 4 has per-task data
+published. Different 500-task set; would mean rebuilding setup.sh for
+Verified-specific paths. Less compelling than the chained bench because
+it would still be single-shot, but enables direct per-task Opus 4 A/B.
 
 ### To strengthen the current single-shot story
 
