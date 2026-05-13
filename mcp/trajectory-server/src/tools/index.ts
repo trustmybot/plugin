@@ -7,6 +7,8 @@ import { taskTools } from './tasks.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
+import { ruleTools } from './rules.js';
+import { commandTools } from './commands.js';
 import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
@@ -65,6 +67,8 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
   const audit = auditTools(db);
   const validation = validationTools(db);
   const skills = skillTools(db);
+  const rules = ruleTools(db);
+  const commands = commandTools(db);
   const agents = agentTools(db);
   const reports = reportTools(db);
   const config = configTools(db);
@@ -84,6 +88,8 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...audit.definitions,
     ...validation.definitions,
     ...skills.definitions,
+    ...rules.definitions,
+    ...commands.definitions,
     ...agents.definitions,
     ...reports.definitions,
     ...config.definitions,
@@ -104,6 +110,8 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...wrapAll(audit.handlers),
     ...wrapAll(validation.handlers),
     ...wrapAll(skills.handlers),
+    ...wrapAll(rules.handlers),
+    ...wrapAll(commands.handlers),
     ...wrapAll(agents.handlers),
     ...wrapAll(reports.handlers),
     ...wrapAll(config.handlers),

@@ -581,7 +581,18 @@ export function taskTools(db: TrajectoryDB): {
           const row = db.get<Task>(
             'SELECT * FROM tasks WHERE rowid = last_insert_rowid()',
           );
-          if (row) results.push(row);
+          if (row) {
+            results.push(row);
+            // Bro-as-agent_run (#2886): open a bro row per task at planning
+            // time. `completed_at` stays NULL until bro_atomic_close finalizes
+            // the row with duration + (eventually) tokens. Makes bro's
+            // skill/rule invocations attributable to a tracked agent_run.
+            db.run(
+              `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
+               VALUES (?, ?, 'bro', ?)`,
+              [row.id, issueId, now],
+            );
+          }
         }
 
         // Optional atomic audit emission: when emit_planning_complete=true, insert
