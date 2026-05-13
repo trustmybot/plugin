@@ -1,0 +1,19 @@
+{
+  "source": "swe-bench-verified",
+  "id": "sphinx-doc__sphinx-7590",
+  "repo": "sphinx-doc/sphinx",
+  "base_commit": "2e506c5ab457cba743bb47eb5b8c8eb9dd51d23d",
+  "language": "python",
+  "version": "3.1",
+  "python_version": "3.9",
+  "both_failed_opus4_sonnet4": true,
+  "fail_to_pass": [
+    "tests/test_domain_cpp.py::test_expressions"
+  ],
+  "pass_to_pass_sample": [
+    "tests/test_domain_cpp.py::test_fundamental_types",
+    "tests/test_domain_cpp.py::test_function_definitions"
+  ],
+  "env_install_cmd": "SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SPHINX=3.1.0 pip install --quiet -e .[test] 'setuptools<60' 'docutils<0.17' 'jinja2<3.1' 'markupsafe<2.1' 'sphinxcontrib-applehelp<1.0.4' 'sphinxcontrib-devhelp<1.0.4' 'sphinxcontrib-htmlhelp<2.0.1' 'sphinxcontrib-qthelp<1.0.4' 'sphinxcontrib-serializinghtml<1.1.6' 'alabaster<0.7.13'",
+  "test_patch_file": "test_patch.diff"
+}

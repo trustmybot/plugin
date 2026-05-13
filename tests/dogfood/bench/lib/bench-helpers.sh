@@ -55,6 +55,12 @@ bench_run_arm() {
     --dangerously-skip-permissions
     --max-turns 50
   )
+  # Pin bro's underlying model so we match the published comparator's
+  # model version exactly. Default is the May 2025 Claude 4 Opus snapshot
+  # — same model Anthropic used for their `20250522_tools_claude-4-opus`
+  # SWE-bench Verified submission. Override via TMB_BENCH_MODEL env var.
+  local model="${TMB_BENCH_MODEL:-claude-opus-4-20250514}"
+  args+=(--model "$model")
   if [ "$arm" = "tmb-on" ]; then
     args+=(--plugin-dir "$PLUGIN_ROOT")
   fi
