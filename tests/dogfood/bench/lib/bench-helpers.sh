@@ -40,6 +40,11 @@ bench_setup_scratch_project() {
 # invocation against $project with $prompt. arm='tmb-on' loads the plugin via
 # --plugin-dir; arm='raw' runs vanilla claude with no plugin. Captures
 # stream-json transcript to $transcript_path. Returns claude's exit code.
+#
+# If $project/.bench-venv exists (created by setup.sh for SWE-bench tasks),
+# its bin/ is prepended to PATH so the agent's `pytest`/`python` resolve to
+# the same isolated env that verify.sh will use. This matches SWE-bench's
+# per-task Docker image isolation without needing Docker.
 bench_run_arm() {
   local arm="$1" project="$2" prompt="$3" transcript_path="$4"
   : > "$transcript_path"
@@ -48,14 +53,16 @@ bench_run_arm() {
     --output-format stream-json
     --verbose
     --dangerously-skip-permissions
-    --max-turns 30
+    --max-turns 50
   )
   if [ "$arm" = "tmb-on" ]; then
     args+=(--plugin-dir "$PLUGIN_ROOT")
   fi
-  # Run claude inside the project so any project-local state is visible.
   (
     cd "$project" || exit 1
+    if [ -d "$project/.bench-venv/bin" ]; then
+      export PATH="$project/.bench-venv/bin:$PATH"
+    fi
     printf "%s\n" "$prompt" | claude "${args[@]}" 2>>"$transcript_path.stderr" \
       >> "$transcript_path"
   )

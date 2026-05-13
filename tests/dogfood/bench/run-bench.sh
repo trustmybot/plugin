@@ -75,10 +75,11 @@ RESULTS_JSONL="$RUN_DIR/_results.jsonl"
 : > "$RESULTS_JSONL"
 
 printf '=== L7 bench %s ===\n' "$RUN_ID"
-printf '  tasks:   %s\n' "${TASKS[*]}"
-printf '  arms:    tmb-on, raw\n'
-printf '  N:       %d per (task, arm)\n' "$N"
-printf '  logs:    %s\n\n' "$RUN_DIR"
+printf '  tasks:    %s\n' "${TASKS[*]}"
+printf '  arm:      tmb-on (compare against published claude-sonnet on the\n'
+printf '            SWE-bench Lite leaderboard — see summary footer)\n'
+printf '  N:        %d per task\n' "$N"
+printf '  logs:     %s\n\n' "$RUN_DIR"
 
 run_one() {
   local task="$1" arm="$2" run_idx="$3"
@@ -114,12 +115,16 @@ run_one() {
   fi
 
   # 4. Score the axes (SWE-bench: resolved + apply + tokens + cost + duration;
-  #    TMB-specific: quality composite).
-  local probsol applied token quality
+  #    TMB-specific: quality composite + hallucination check).
+  local probsol applied token quality halluc verify_ec
   probsol=$("$HERE/scorers/problem-solving.sh" "$task_dir" "$project" 2>/dev/null || echo '{"axis":"problem_solving","pass":0}')
   applied=$("$HERE/scorers/apply.sh" "$project" 2>/dev/null || echo '{"axis":"apply","applied":0,"files_changed":0}')
   token=$("$HERE/scorers/token-saving.sh" "$transcript" "$out_dir/trajectory.db" 2>/dev/null || echo '{"axis":"token_saving","total_tokens":0}')
   quality=$("$HERE/scorers/quality.sh" "$project" "$out_dir/trajectory.db" 2>/dev/null || echo '{"axis":"quality","score":0}')
+  # Hallucination axis: did the agent claim success when verify says no?
+  verify_ec=$(jq -r '.pass // 0' <<< "$probsol")
+  [ "$verify_ec" = "1" ] && verify_ec="0" || verify_ec="1"
+  halluc=$("$HERE/scorers/hallucination.sh" "$transcript" "$verify_ec" 2>/dev/null || echo '{"axis":"hallucination","hallucinated":0,"claimed_success":0,"verify_passed":0}')
 
   # 5. Persist scores + emit run record. `resolved` is the SWE-bench-aligned
   #    canonical name for problem-solving; we keep `problem_solving` as an
@@ -128,7 +133,7 @@ run_one() {
     --arg task "$task" --arg arm "$arm" --argjson run "$run_idx" \
     --argjson duration "$duration_s" \
     --argjson ps "$probsol" --argjson ap "$applied" \
-    --argjson tk "$token" --argjson ql "$quality" \
+    --argjson tk "$token" --argjson ql "$quality" --argjson hl "$halluc" \
     '{task: $task, arm: $arm, run: $run,
       resolved: $ps.pass,
       problem_solving: $ps.pass,
@@ -138,41 +143,45 @@ run_one() {
       cost_usd: ($tk.cost_usd // 0),
       duration_s: $duration,
       quality_score: $ql.score,
+      hallucinated: $hl.hallucinated,
+      claimed_success: $hl.claimed_success,
       problem_solving_detail: $ps,
       apply_detail: $ap,
       token_detail: $tk,
-      quality_detail: $ql}' \
+      quality_detail: $ql,
+      hallucination_detail: $hl}' \
     | tee -a "$RESULTS_JSONL" > "$out_dir/scores.json"
 
-  local ps_pass ap_pass tk_total tk_cost ql_score
+  local ps_pass ap_pass tk_total tk_cost ql_score hl_flag
   ps_pass=$(jq -r '.pass' <<< "$probsol")
   ap_pass=$(jq -r '.applied' <<< "$applied")
   tk_total=$(jq -r '.total_tokens' <<< "$token")
   tk_cost=$(jq -r '.cost_usd // 0' <<< "$token")
   ql_score=$(jq -r '.score' <<< "$quality")
-  printf '    → resolved=%s  applied=%s  tokens=%s  cost=$%s  duration=%ss  quality=%s/5\n' \
-    "$ps_pass" "$ap_pass" "$tk_total" "$tk_cost" "$duration_s" "$ql_score"
+  hl_flag=$(jq -r '.hallucinated' <<< "$halluc")
+  printf '    → resolved=%s  applied=%s  tokens=%s  cost=$%s  duration=%ss  quality=%s/5  hallucinated=%s\n' \
+    "$ps_pass" "$ap_pass" "$tk_total" "$tk_cost" "$duration_s" "$ql_score" "$hl_flag"
 }
 
 for task in "${TASKS[@]}"; do
   printf "── %s ──\n" "$task"
-  for arm in tmb-on raw; do
-    for run_idx in $(seq 1 "$N"); do
-      run_one "$task" "$arm" "$run_idx"
-    done
+  for run_idx in $(seq 1 "$N"); do
+    run_one "$task" "tmb-on" "$run_idx"
   done
   printf "\n"
 done
 
-# Emit summary table aligned with the SWE-bench leaderboard columns
-# (resolved / apply / tokens / cost / duration) plus our quality composite.
+# Single-arm summary — we compare against the published SWE-bench leaderboard
+# (claude-sonnet entries), not against a local raw arm. TMB's SWE worker is
+# Sonnet, so the relevant comparator is "pure Sonnet" results on the same
+# task IDs. See README.md for the comparison protocol.
 SUMMARY="$RUN_DIR/summary.md"
 {
   printf "# L7 bench summary — %s\n\n" "$RUN_ID"
-  printf "## Per-run results\n\n"
-  printf "| Task | Arm | Run | Resolved | Apply | Tokens | Cost \$ | Duration s | Quality |\n"
-  printf "|---|---|---|---|---|---|---|---|---|\n"
-  jq -r '"| " + .task + " | " + .arm + " | " + (.run|tostring)
+  printf "## Per-run results (tmb-on)\n\n"
+  printf "| Task | Run | Resolved | Apply | Tokens | Cost \$ | Duration s | Quality |\n"
+  printf "|---|---|---|---|---|---|---|---|\n"
+  jq -r '"| " + .task + " | " + (.run|tostring)
          + " | " + (if .resolved == 1 then "✅" else "❌" end)
          + " | " + (if .applied  == 1 then "✅" else "❌" end)
          + " | " + (.tokens|tostring)
@@ -180,23 +189,29 @@ SUMMARY="$RUN_DIR/summary.md"
          + " | " + (.duration_s|tostring)
          + " | " + (.quality_score|tostring) + "/5 |"' "$RESULTS_JSONL"
 
-  printf "\n## Per-axis arm comparison (means)\n\n"
-  printf "| Axis | tmb-on | raw | Δ (tmb-on − raw) | Aligns with |\n"
-  printf "|---|---|---|---|---|\n"
+  printf "\n## Per-axis means (tmb-on, all tasks)\n\n"
+  printf "| Axis | tmb-on mean | Aligns with |\n"
+  printf "|---|---|---|\n"
   emit_row() {
     local axis="$1" label="$2" align="$3"
-    local tmb raw delta
-    tmb=$(jq -s "map(select(.arm == \"tmb-on\") | .${axis}) | add / length // 0" "$RESULTS_JSONL")
-    raw=$(jq -s "map(select(.arm == \"raw\")    | .${axis}) | add / length // 0" "$RESULTS_JSONL")
-    delta=$(awk -v a="$tmb" -v b="$raw" 'BEGIN{printf "%.2f", a-b}')
-    printf "| %s | %s | %s | %s | %s |\n" "$label" "$tmb" "$raw" "$delta" "$align"
+    local tmb
+    tmb=$(jq -s "map(.${axis}) | add / length // 0" "$RESULTS_JSONL")
+    printf "| %s | %s | %s |\n" "$label" "$tmb" "$align"
   }
-  emit_row resolved      "% Resolved"   "SWE-bench %Resolved (primary)"
-  emit_row applied       "% Apply"      "SWE-bench %Apply"
-  emit_row tokens        "Avg tokens"   "SWE-bench Avg tokens"
-  emit_row cost_usd      "Avg cost \$"  "SWE-bench Cost"
+  emit_row resolved      "% Resolved"     "SWE-bench %Resolved (primary)"
+  emit_row applied       "% Apply"        "SWE-bench %Apply"
+  emit_row tokens        "Avg tokens"     "SWE-bench Avg tokens"
+  emit_row cost_usd      "Avg cost \$"    "SWE-bench Cost"
   emit_row duration_s    "Avg duration s" "SWE-bench Time"
-  emit_row quality_score "Quality /5"   "TMB-specific composite"
+  emit_row quality_score "Quality /5"     "TMB-specific composite"
+  emit_row hallucinated  "% Hallucinated" "TMB-specific (smart = less hallucination)"
+
+  printf "\n## Comparator: pure claude-sonnet on SWE-bench Lite\n\n"
+  printf "Per-task pass/fail for claude-sonnet (no TMB) lives on the\n"
+  printf "[SWE-bench Lite leaderboard](https://www.swebench.com/lite.html).\n"
+  printf "Look up each task ID's status in the published submission, then\n"
+  printf "compare against this table. **Win condition:** TMB resolves at\n"
+  printf "least one task pure Sonnet couldn't, even at higher token cost.\n"
 } > "$SUMMARY"
 
 printf "\n========================================\n"
