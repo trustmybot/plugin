@@ -53,8 +53,8 @@ async function createTask(db, issueId, branchId) {
  */
 function insertTaskDirect(db, issueId, branchId) {
     const now = nowISO();
-    const result = db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, tools_required, skills_required, success_criteria, status, attempts, spec_body, created_at, updated_at)
-     VALUES (?, ?, '', 'Direct insert for unit test', '[]', '[]', 'Done', 'pending', 0, '', ?, ?)`, [issueId, branchId, now, now]);
+    const result = db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, attempts, spec_body, created_at, updated_at)
+     VALUES (?, ?, '', 'Direct insert for unit test', 'pending', 0, '', ?, ?)`, [issueId, branchId, now, now]);
     return Number(result.lastInsertRowid);
 }
 describe('branchReportMdTools', () => {

@@ -6,7 +6,6 @@ function makeIssue(overrides = {}) {
         id: 1,
         objective: 'A'.repeat(200),
         description: 'SECRET DESCRIPTION',
-        post_commit_hash: null,
         status: 'open',
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',

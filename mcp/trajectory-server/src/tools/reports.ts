@@ -114,7 +114,7 @@ export function reportTools(db: TrajectoryDB): {
       }
 
       const auditEntries = db.all<AuditEventEntry>(
-        `SELECT * FROM audit WHERE issue_id = ? AND kind = 'event' ORDER BY id ASC`,
+        `SELECT * FROM audit WHERE issue_id = ? ORDER BY id ASC`,
         [issueId],
       );
 

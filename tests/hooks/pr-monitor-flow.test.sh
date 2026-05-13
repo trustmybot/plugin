@@ -93,7 +93,7 @@ test_case "skill invokes with explicit PR number: pr_review_runs row created"
 DB1="$TMPDIR_BASE/db1.db"
 setup_db "$DB1"
 # Set backend to gh so we skip glab
-sqlite3 "$DB1" "INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '\"gh\"', datetime('now'))"
+sqlite3 "$DB1" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '\"gh\"')"
 
 MOCK_BIN=$(setup_mock_bin)
 
@@ -134,7 +134,7 @@ assert_contains "$PR_INFO" '"state":"OPEN"' "mock gh pr view output contains sta
 test_case "empty PR fetch returns empty comments array"
 DB3="$TMPDIR_BASE/db3.db"
 setup_db "$DB3"
-sqlite3 "$DB3" "INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '\"gh\"', datetime('now'))"
+sqlite3 "$DB3" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '\"gh\"')"
 
 EMPTY_GH_OUTPUT='{"state":"OPEN","comments":[],"reviews":[]}'
 MOCK_BIN3="$TMPDIR_BASE/bin3"

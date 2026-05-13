@@ -13,7 +13,6 @@ SCAN_FILES=(
 fail=0
 for f in "${SCAN_FILES[@]}"; do
   [ -f "$f" ] || continue
-  # Match destructive SQL patterns (skip false positive: `is_truncated` column name)
   while IFS=: read -r linenum content; do
     [ -z "$linenum" ] && continue
     # Require LINT-ALLOW: marker on previous line
@@ -24,7 +23,7 @@ for f in "${SCAN_FILES[@]}"; do
     printf '✗ %s:%s — destructive SQL without LINT-ALLOW marker\n' "$f" "$linenum" >&2
     printf '    %s\n' "$content" >&2
     fail=1
-  done < <(grep -nE "$DESTRUCTIVE_REGEX" "$f" | grep -vE 'is_truncated' || true)
+  done < <(grep -nE "$DESTRUCTIVE_REGEX" "$f" || true)
 done
 
 if [ "$fail" = "1" ]; then

@@ -100,7 +100,6 @@ mcp/trajectory-server/
     ├── schema-eval.sql       # eval-mode-only tables (debug_trajectory, eval_results)
     ├── types.ts              # shared TS types
     ├── middleware/agent-scope.ts    # AgentRole, normalizeAgent, requireRoles, redact
-    ├── renderers/            # auto-doc generators (changelog/erd/module-graph/codebase-tree)
     ├── sync/                 # gh/glab issue sync (backend.ts + issue_sync.ts)
     ├── tools/                # MCP tool families (one file per domain — see below)
     └── test/                 # node:test unit tests (~480 tests across 35 files)

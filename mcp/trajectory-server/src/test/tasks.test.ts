@@ -1010,7 +1010,7 @@ describe('taskTools', () => {
   it('task_create_batch defaults repo to tmb_default_repo config when task.repo omitted', async () => {
     const db = tempDB();
     db.run(
-      `INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"plugin"', datetime('now'))`,
+      `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"plugin"')`,
     );
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -1077,6 +1077,40 @@ describe('taskTools', () => {
     });
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+
+    db.close();
+  });
+
+  // Slim contract — only branch_id + description are required now. The full
+  // task body lives in spec_body. Dropped: tools_required, skills_required,
+  // success_criteria. Verifies a minimal payload lands a row without any of
+  // the dropped columns.
+  it('task_create_batch accepts the minimal slim payload (branch_id + description only)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
+      waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/slim', description: 'minimal' }],
+    });
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const tasks = parseResult(result);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].branch_id, 'feat/slim');
+    assert.equal(tasks[0].description, 'minimal');
+
+    // Verify the dropped columns no longer exist on the row.
+    const colInfo = db.all<{ name: string }>(`PRAGMA table_info(tasks)`);
+    const present = new Set(colInfo.map((c) => c.name));
+    assert.ok(!present.has('tools_required'), 'tasks.tools_required must be dropped');
+    assert.ok(!present.has('skills_required'), 'tasks.skills_required must be dropped');
+    assert.ok(!present.has('success_criteria'), 'tasks.success_criteria must be dropped');
 
     db.close();
   });

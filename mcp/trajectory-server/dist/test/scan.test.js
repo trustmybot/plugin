@@ -45,10 +45,9 @@ describe('scan_run — workspace discovery + persistence', () => {
             assert.deepEqual(repoNames, ['app', 'lib']);
             const fileCount = db.get('SELECT COUNT(*) as c FROM file_registry')?.c ?? 0;
             assert.ok(fileCount >= 3, `expected ≥3 files, got ${fileCount}`);
-            const appMain = db.get(`SELECT content_md5, last_commit_sha FROM file_registry WHERE repo='app' AND path='src/main.py'`);
+            const appMain = db.get(`SELECT content_md5 FROM file_registry WHERE repo='app' AND path='src/main.py'`);
             assert.ok(appMain, 'src/main.py row should exist');
             assert.equal(appMain.content_md5.length, 32, 'md5 should be populated');
-            assert.equal(appMain.last_commit_sha.length, 40, 'last_commit_sha should be populated');
             const auditRow = db.get(`SELECT event_type FROM audit WHERE event_type='deep_scan_completed' ORDER BY id DESC LIMIT 1`);
             assert.ok(auditRow, 'deep_scan_completed audit row should exist');
             db.close();

@@ -5,9 +5,15 @@
 # and tests/dogfood/l6-chain/chain-manifest.json for the step manifest.
 #
 # Usage:
-#   bash tests/dogfood/run-l6-chain.sh                         # full chain
-#   bash tests/dogfood/run-l6-chain.sh --from 7                # start at row 7
-#   bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0        # don't halt
+#   bash tests/dogfood/run-l6-chain.sh                         # auto-resume (or fresh if nothing to resume)
+#   bash tests/dogfood/run-l6-chain.sh --fresh                 # force fresh full chain from row 1
+#   bash tests/dogfood/run-l6-chain.sh --from 7                # explicit resume from row 7
+#   bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0        # don't halt on first fail
+#
+# Auto-resume: with no flag, the runner scans the most recent prior run's
+# _results.jsonl for the first non-passing step and resumes from there,
+# restoring its per-row immutable checkpoint (step-NN/checkpoint.db).
+# Pass `--fresh` to override.
 #
 # Per-step logs land under ~/.claude/tmb/l6-chain-runs/<run-id>/
 # (or $L6C_RUNS_DIR if set). Each step writes:
@@ -19,6 +25,7 @@
 #     post-state.sql     — DB snapshot after the row's turn
 #     post-state.diff    — pre→post text diff
 #     scorers.json       — per-scorer pass/fail
+#     checkpoint.db      — immutable DB snapshot (passing rows only)
 #     seed-applied.sql   — between-row seed (post-AUQ pseudo-data), if any
 
 set -uo pipefail
@@ -30,12 +37,14 @@ export TMB_HEADLESS=1
 
 MANIFEST="$HERE/l6-chain/chain-manifest.json"
 
-START_FROM=1
+START_FROM=""
 HALT_ON_FAIL=1
+FRESH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --from)         START_FROM="$2"; shift 2 ;;
     --halt-on-fail) HALT_ON_FAIL="$2"; shift 2 ;;
+    --fresh)        FRESH=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -70,13 +79,147 @@ printf '=== L6 chain run %s ===\n' "$RUN_ID"
 printf '  manifest: %s\n' "$MANIFEST"
 printf '  logs:     %s\n' "$RUN_DIR"
 
-# One scratch project for the whole chain.
-PROJECT=$(l5_setup_scratch_project)
-trap 'l5_cleanup_project "$PROJECT"' EXIT
+# Scratch project lives INSIDE the run dir so subsequent invocations can
+# reuse the prior run's cumulative trajectory DB natively (the trajectory
+# DB IS the resume mechanism — no special flag).
+#
+# Resume strategy (priority order):
+# 1. Explicit `--fresh` → start from row 1, no inheritance.
+# 2. Explicit `--from N` → inherit prior state for row N.
+# 3. Default (no flag) → auto-detect: scan the most recent prior run's
+#    _results.jsonl, find the first non-passing step, start from there.
+#    If everything passed, start fresh from row 1.
+#
+# For any non-fresh start we prefer the prior run's per-row immutable
+# checkpoint (step-(N-1)/checkpoint.db) over its live project — the
+# checkpoint is the known-good post-row-(N-1) state, whereas the live
+# project may carry partial writes from a crashed later row.
+PROJECT="$RUN_DIR/project"
+
+# Most recent prior run dir (excluding $RUN_DIR), sorted by mtime desc.
+# BSD-stat compatible.
+l6c_find_recent_prior_runs() {
+  while IFS= read -r d; do
+    [ "$d" = "$RUN_DIR" ] && continue
+    [ -d "$d" ] && echo "$d"
+  done < <(find "$RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d -print0 \
+            | xargs -0 stat -f '%m %N' 2>/dev/null \
+            | sort -rn \
+            | awk '{$1=""; sub(/^ /,""); print}')
+}
+
+l6c_first_nonpassing_step() {
+  # Return the id of the first step that needs re-running. Two cases:
+  # 1. A logged step has status != "✅ pass" → that id.
+  # 2. The log is shorter than the manifest (setup.sh failed before
+  #    the row could log, OR the runner was killed) → the first manifest
+  #    id NOT present in the log.
+  # Empty output means every manifest step is logged + passed.
+  local results_file="$1"
+  [ -f "$results_file" ] || return 0
+  local scorer_fail
+  scorer_fail=$(jq -r 'select(.status != "✅ pass") | .id' "$results_file" 2>/dev/null | head -1)
+  if [ -n "$scorer_fail" ]; then
+    echo "$scorer_fail"
+    return 0
+  fi
+  # No scorer fail → compare manifest ids to logged ids.
+  local manifest_ids logged_ids missing
+  manifest_ids=$(jq -r '.steps[].id' "$MANIFEST" 2>/dev/null)
+  logged_ids=$(jq -r '.id' "$results_file" 2>/dev/null | sort -n)
+  missing=$(comm -23 <(echo "$manifest_ids" | sort -n) <(echo "$logged_ids") | head -1)
+  echo "$missing"
+}
+
+# Auto-detect default --from N if not explicitly set.
+if [ "$FRESH" = "1" ]; then
+  START_FROM=1
+elif [ -z "$START_FROM" ]; then
+  AUTO_RESUME=""
+  while IFS= read -r prior; do
+    [ -z "$prior" ] && continue
+    [ -f "$prior/_results.jsonl" ] || continue
+    FIRST_FAIL=$(l6c_first_nonpassing_step "$prior/_results.jsonl")
+    if [ -n "$FIRST_FAIL" ]; then
+      AUTO_RESUME="$prior:$FIRST_FAIL"
+    fi
+    break
+  done < <(l6c_find_recent_prior_runs)
+
+  if [ -n "$AUTO_RESUME" ]; then
+    PRIOR_DIR="${AUTO_RESUME%:*}"
+    AUTO_FROM="${AUTO_RESUME##*:}"
+    printf '  auto-resume: prior run %s halted at step %s; resuming from there\n' \
+      "$(basename "$PRIOR_DIR")" "$AUTO_FROM"
+    START_FROM="$AUTO_FROM"
+  else
+    START_FROM=1
+  fi
+fi
+
+if [ "$START_FROM" -gt 1 ]; then
+  # Resume: find the most recent prior run's checkpoint for step-(N-1).
+  PRIOR_RUN=""
+  while IFS= read -r prior; do
+    [ -z "$prior" ] && continue
+    PRIOR_RUN="$prior/"
+    break
+  done < <(l6c_find_recent_prior_runs)
+
+  CHECKPOINT_DB=""
+  if [ -n "${PRIOR_RUN:-}" ]; then
+    PREV_STEP=$((START_FROM - 1))
+    CHECKPOINT_DIR=$(find "$PRIOR_RUN" -mindepth 1 -maxdepth 1 -type d \
+      -name "step-$(printf '%02d' "$PREV_STEP")-*" 2>/dev/null | head -1)
+    if [ -n "$CHECKPOINT_DIR" ] && [ -f "$CHECKPOINT_DIR/checkpoint.db" ]; then
+      CHECKPOINT_DB="$CHECKPOINT_DIR/checkpoint.db"
+    fi
+  fi
+
+  if [ -n "$CHECKPOINT_DB" ]; then
+    printf '  resume:   --from %d restoring step-%02d checkpoint from %s\n' \
+      "$START_FROM" "$PREV_STEP" "$(basename "$PRIOR_RUN")"
+    mkdir -p "$PROJECT/.claude/tmb"
+    (
+      cd "$PROJECT" || exit 1
+      git init -q -b main
+      git config user.email l6@l6.test
+      git config user.name "L6 Test"
+      echo "init" > README.md
+      printf '.claude/\n' > .gitignore
+      git add . && git commit -qm init
+    )
+    cp "$CHECKPOINT_DB" "$PROJECT/.claude/tmb/trajectory.db"
+  elif [ -n "${PRIOR_RUN:-}" ] && [ -d "${PRIOR_RUN}project" ]; then
+    printf '  resume:   --from %d no checkpoint for step-%02d; falling back to live project from %s\n' \
+      "$START_FROM" "$((START_FROM - 1))" "$(basename "$PRIOR_RUN")"
+    cp -R "${PRIOR_RUN}project" "$PROJECT"
+  else
+    printf '  ⚠ --from %d but no prior run with checkpoint or project found; starting from empty state (standalone-row mode)\n' "$START_FROM" >&2
+    SCRATCH=$(l5_setup_scratch_project)
+    mv "$SCRATCH" "$PROJECT"
+  fi
+else
+  # Full run: fresh project. Mirror l5_setup_scratch_project's init steps
+  # but put the project inside RUN_DIR so it survives for later resumes.
+  mkdir -p "$PROJECT"
+  (
+    cd "$PROJECT" || exit 1
+    git init -q -b main
+    git config user.email l6@l6.test
+    git config user.name "L6 Test"
+    echo "init" > README.md
+    printf '.claude/\n' > .gitignore
+    git add . && git commit -qm init
+    mkdir -p .claude/tmb
+  )
+fi
 
 INITIAL_FIXTURE=$(jq -r '.initial_fixture' "$MANIFEST")
 printf '  fixture:  %s\n' "$INITIAL_FIXTURE"
-l5_seed_db "$PROJECT" "$INITIAL_FIXTURE" || { printf "❌ fixture seed failed\n" >&2; exit 1; }
+if [ "$START_FROM" -eq 1 ]; then
+  l5_seed_db "$PROJECT" "$INITIAL_FIXTURE" || { printf "❌ fixture seed failed\n" >&2; exit 1; }
+fi
 
 printf '  mode:     fresh `claude -p` per row (DB-driven resume)\n'
 printf '\n'
@@ -232,6 +375,16 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
     printf "  seed_after: %s\n" "$seed_after"
     l6c_apply_seed "$PROJECT" "$SEED_AFTER_PATH"
     cp "$SEED_AFTER_PATH" "$STEP_DIR/seed-applied.sql" 2>/dev/null || true
+  fi
+
+  # Per-row immutable checkpoint: snapshot the live trajectory DB AFTER
+  # the row passed + any seed_after applied. Resumes from row N restore
+  # step-(N-1)/checkpoint.db rather than copying the live project (which
+  # could be mid-write if a later row crashed). Only on pass — failed
+  # rows leave no checkpoint, so a resume from a failed row naturally
+  # falls back to the previous row's good state.
+  if [ "$STEP_FAILS" -eq 0 ]; then
+    cp "$PROJECT/.claude/tmb/trajectory.db" "$STEP_DIR/checkpoint.db" 2>/dev/null || true
   fi
 done
 

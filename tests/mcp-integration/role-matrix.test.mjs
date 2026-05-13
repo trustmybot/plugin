@@ -8,11 +8,11 @@ import { startClient, call } from './harness.mjs';
 // filed alongside this test file). When requireRoles is added there, add tests
 // to this file covering them.
 
-test('identity_set — bro allowed, others forbidden, missing agent forbidden', async (t) => {
+test('onboard_apply — bro allowed, others forbidden, missing agent forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const missing = await call(client, 'identity_set', {});
+  const missing = await call(client, 'onboard_apply', { shape: 'local' });
   assert.equal(missing.ok, false, 'call without agent must fail');
   assert.equal(missing.error?.error, 'forbidden');
   assert.equal(missing.error?.caller_role, 'unknown');
@@ -20,28 +20,15 @@ test('identity_set — bro allowed, others forbidden, missing agent forbidden', 
   // Architect normalizes to 'consultant' role; first-class roles keep their literal name.
   const expectedRole = (n) => (n === 'architect' ? 'consultant' : n);
   for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
-    const res = await call(client, 'identity_set', { agent: wrongRole });
-    assert.equal(res.ok, false, `${wrongRole} must be forbidden from identity_set`);
+    const res = await call(client, 'onboard_apply', { agent: wrongRole, shape: 'local' });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from onboard_apply`);
     assert.equal(res.error?.error, 'forbidden');
     assert.equal(res.error?.caller_role, expectedRole(wrongRole));
   }
 
-  const allowed = await call(client, 'identity_set', { agent: 'bro' });
+  const allowed = await call(client, 'onboard_apply', { agent: 'bro', shape: 'local' });
   assert.equal(allowed.ok, true, `bro should be allowed; got ${JSON.stringify(allowed)}`);
-  assert.equal(allowed.data?.onboarded, true);
-});
-
-test('identity_reset — bro only', async (t) => {
-  const { client, close } = await startClient();
-  t.after(async () => { await close(); });
-
-  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
-    const res = await call(client, 'identity_reset', { agent: wrongRole });
-    assert.equal(res.ok, false);
-    assert.equal(res.error?.error, 'forbidden');
-  }
-  const allowed = await call(client, 'identity_reset', { agent: 'bro' });
-  assert.equal(allowed.ok, true, `bro should reset; got ${JSON.stringify(allowed)}`);
+  assert.equal(allowed.data?.applied?.onboarded, true);
 });
 
 test('config_set — bro only; architect/swe/pr-reviewer all forbidden', async (t) => {
@@ -191,7 +178,6 @@ test('task_create_batch — bro only; architect/swe/pr-reviewer all forbidden', 
       branch_id: 'feat/role-matrix-task',
       title: 't',
       description: 'd',
-      success_criteria: 'ok',
       spec_body: '# spec',
     }],
   };
@@ -216,7 +202,7 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
     waive_scope_gate: true, waive_scope_gate_reason: 'role-matrix test seed',
     waive_branch_gate: true, waive_branch_gate_reason: 'role-matrix test; branch gate not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic triage; not under test',
     issue_id: seed.data.id,
-    tasks: [{ branch_id: 'feat/tus-test', title: 't', description: 'd', success_criteria: 'ok', spec_body: '# spec' }],
+    tasks: [{ branch_id: 'feat/tus-test', title: 't', description: 'd', spec_body: '# spec' }],
   });
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
 
@@ -243,7 +229,7 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
     waive_scope_gate: true, waive_scope_gate_reason: 'role-matrix test seed',
     waive_branch_gate: true, waive_branch_gate_reason: 'role-matrix test; branch gate not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic triage; not under test',
     issue_id: seed.data.id,
-    tasks: [{ branch_id: 'feat/vr-test', title: 't', description: 'd', success_criteria: 'ok', spec_body: '# spec' }],
+    tasks: [{ branch_id: 'feat/vr-test', title: 't', description: 'd', spec_body: '# spec' }],
   });
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
   await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
@@ -262,4 +248,21 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
     subagent_session_id: 'role-matrix-test-session',
   });
   assert.equal(ok.ok, true, `pr-reviewer should record; got ${JSON.stringify(ok)}`);
+});
+
+// pr_review_runs_list — read-side companion to pr_comments_get's cursor
+// wire-up. Bro-only diagnostic surface; other roles must be forbidden.
+test('pr_review_runs_list — bro allowed, others forbidden', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+    const res = await call(client, 'pr_review_runs_list', { agent: wrongRole });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from pr_review_runs_list`);
+    assert.equal(res.error?.error, 'forbidden');
+  }
+
+  const ok = await call(client, 'pr_review_runs_list', { agent: 'bro' });
+  assert.equal(ok.ok, true, `bro should be allowed; got ${JSON.stringify(ok)}`);
+  assert.equal(ok.data.count, 0, 'fresh DB has no cursors yet');
 });

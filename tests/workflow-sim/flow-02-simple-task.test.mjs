@@ -16,9 +16,6 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  // Setup: minimal identity + config so role checks are cleaner
-  await call(client, 'identity_set', { agent: 'bro' });
-
   // 1. bro creates issue
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
@@ -57,7 +54,6 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
       branch_id: 'feat/hello',
       title: 'Add /hello endpoint',
       description: 'Wire /hello → 200 OK {msg:"hello"}.',
-      success_criteria: 'GET /hello returns 200 with documented body',
       spec_body: '## Files\n- app/routes.py\n## Verification\n```\ncurl localhost/hello\n```\n## Success Criteria\n- 200 OK',
     }],
   });
@@ -68,7 +64,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
 
   const planning = await call(client, 'audit_log', {
     agent: 'bro', issue_id: issueId, branch_id: 'feat/hello',
-    from_node: 'bro', kind: 'event',
+    from_node: 'bro',
     event_type: 'planning_complete', summary: 'Triage simple. Spec authored for task_id=' + taskId,
   });
   assert.equal(planning.ok, true, `audit_log: ${JSON.stringify(planning)}`);
@@ -120,7 +116,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(finalTask.data.commit_sha, 'aaaaaaa1111111111111111111111111111aaaaa');
 
   // audit event recorded
-  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId, kind: 'event' });
+  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId });
   assert.equal(audit.ok, true);
   assert.ok(audit.data.some(e => e.event_type === 'planning_complete'),
     'planning_complete event must land in audit');

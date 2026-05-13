@@ -31,8 +31,6 @@ erDiagram
     repos {
         TEXT  name PK
         TEXT  path
-        TEXT  default_branch
-        TEXT  head_commit_sha
         INT   file_count
         TEXT  last_scanned_at
     }
@@ -41,9 +39,6 @@ erDiagram
         TEXT  repo PK
         TEXT  path PK
         TEXT  type
-        TEXT  language
-        TEXT  last_commit_sha
-        TEXT  last_change_type
         TEXT  content_md5
         TEXT  summary
         TEXT  summary_updated_at
@@ -74,10 +69,8 @@ erDiagram
         TEXT objective
         TEXT description
         TEXT status
-        TEXT post_commit_hash
         INT  remote_iid
         TEXT remote_kind
-        DATETIME remote_synced_at
     }
 
     tasks {
@@ -87,9 +80,6 @@ erDiagram
         TEXT parent_branch_id "branch this one was cut from"
         TEXT title
         TEXT description
-        TEXT tools_required "JSON array"
-        TEXT skills_required "JSON array"
-        TEXT success_criteria
         TEXT status
         INT  attempts
         TEXT spec_body
@@ -113,11 +103,9 @@ erDiagram
         INT  issue_id FK
         TEXT branch_id
         TEXT from_node
-        TEXT kind "always 'event' (CHECK)"
         TEXT event_type
         TEXT summary
         TEXT content_json
-        INT  is_truncated
     }
 
     discussions {
@@ -126,23 +114,19 @@ erDiagram
         TEXT author
         TEXT kind
         TEXT body
-        INT  verified_human
     }
 
     roundtables {
         INT  id PK
         INT  issue_id FK
         TEXT topic
-        TEXT status
         TEXT state "collecting|awaiting_human|closed|skipped"
         INT  expected_participants
-        TEXT ratification_received_at
     }
 
     roundtable_votes {
         INT  id PK
         INT  roundtable_id FK
-        TEXT agent
         TEXT participant
         TEXT vote
         TEXT rationale
@@ -157,18 +141,14 @@ erDiagram
         INT  tokens_out
         INT  tool_uses
         INT  duration_ms
-        TEXT exit_status
     }
 
     pr_review_runs {
         INT      id PK
         INT      pr_number
         TEXT     repo
-        TEXT     remote_kind
         DATETIME last_fetched_at
         TEXT     last_comment_id
-        INT      comments_processed
-        INT      tasks_created
     }
 
     debug_trajectory {
@@ -221,13 +201,13 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `skills` | Registry of curated + agent-created skills with effectiveness stats (`uses`, `successes`, `failures`, `effectiveness`). Looked up by name. |
+| `skills` | Registry of curated + agent-created skills with effectiveness stats (`uses`, `successes`, `effectiveness`). Looked up by name. |
 | `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). |
 | `file_registry` | One row per `(repo, path)`. Phase 1 of `/scan` populates `path`/`size`/`content_md5`/`last_commit_sha` deterministically (bash + git + md5); Phase 2 fills `summary` via parallel background subagents. Drift detection is md5-only — `last_commit_sha` is metadata, not invalidation signal. Closed-task hook (`post-task-close-rescan.sh`) re-runs scan automatically; rows where md5 matches keep their summary, rows where md5 differs get the summary cleared. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
 | `plugin_meta` | Schema + plugin version (for future migrations). Current row: `schema_version=1, plugin_version='0.6.0-rc.1'`. |
-| `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration, exit_status). Written by `swe-atomic-close.sh` SubagentStop hook. |
-| `pr_review_runs` | Per-PR monitor run state (last fetched comment, counts). Used by `/monitor` flow. Index on `(pr_number, repo)`. |
+| `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. |
+| `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`). Used by `/monitor` flow — `pr_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments. UNIQUE index on `(pr_number, repo)`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
 
@@ -245,7 +225,7 @@ erDiagram
 
 ## How agents use this
 
-- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `audit_log(kind='event')`, `scan_run` (writes `repos`, `file_registry`, `deep_scan_completed` audit). Also reads `validation_history` to drive the retry loop (flow 8). Calls `file_registry_update_summaries` during V3 close (bro-only, server-enforced).
+- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `audit_log`, `scan_run` (writes `repos`, `file_registry`, `deep_scan_completed` audit). Also reads `validation_history` to drive the retry loop (flow 8). Calls `file_registry_update_summaries` during V3 close (bro-only, server-enforced).
 - **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_log` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, `file_registry` summaries, or close tasks.
 - **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, subagent_session_id)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call.
 - **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis'|'concern')` to record their position. Server-rejected on `task_create_batch`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
@@ -256,14 +236,14 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 
 | Table | Scope | When written | Read by |
 |---|---|---|---|
-| `audit` | per-issue | always; bro/SWE/pr-reviewer write `kind='event'` rows for lifecycle markers | `branch_report_md`, `issue_report_md`, audit trail rendering |
+| `audit` | per-issue | always; bro/SWE/pr-reviewer write event rows for lifecycle markers | `branch_report_md`, `issue_report_md`, audit trail rendering |
 | `debug_trajectory` | per-session | only when `TMB_DEBUG_TRAJECTORY=1` (eval mode); MCP server wraps every tool dispatch and writes here | L5 eval pipeline, scorers |
 
-`audit` is event-only since #179 (the `kind='tool_call'` branch was retired; tool-call records live in `debug_trajectory`). `debug_trajectory` schema is in `schema-eval.sql`, applied only when `TMB_EVAL_MODE=1` so production DBs don't carry it.
+`audit` is event-only — every row is a lifecycle event with `(event_type, summary, content_json)`. Tool-call records live in `debug_trajectory` (eval-mode only), whose schema is in `schema-eval.sql` and applied only when `TMB_EVAL_MODE=1` so production DBs don't carry it.
 
 ## Schema migration policy
 
-Pre-release — every new install is a fresh DB. `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`. Additive column adds happen via `ALTER TABLE` migrations in `db.ts`. Destructive drops (column removals) live in `migrate179DropDeadColumns` (idempotent — re-runs see the column already gone).
+Pre-release — every new install is a fresh DB. `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`. No migration shims — until v1.0 the schema is rewriteable in place; users wipe their `.claude/<plugin>/trajectory.db` between rc bumps.
 
 ## Proposed schema — junction-based capability catalog (per #2886)
 

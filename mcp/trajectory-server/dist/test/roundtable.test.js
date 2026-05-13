@@ -18,8 +18,8 @@ describe('roundtable tools', () => {
         db = tempDB();
         // Seed the slash-invoke audit so the roundtable_create gate clears.
         // Tests targeting the gate explicitly use a fresh DB without this seed.
-        db.run(`INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-       VALUES (-1, NULL, 'system', 'event', 'roundtable_slash_invoked', 'test fixture: gate cleared', '{}', datetime('now'))`);
+        db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+       VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'test fixture: gate cleared', '{}', datetime('now'))`);
         const issues = issueTools(db);
         const result = await call(issues.handlers, 'issue_create', {
             agent: 'bro',
@@ -377,7 +377,6 @@ describe('roundtable tools', () => {
             assert.ok(!closeResult.isError, 'Skip close should succeed');
             const data = parseResult(closeResult);
             assert.equal(data.state, 'skipped', 'State must be skipped');
-            assert.equal(data.status, 'closed', 'Status must be closed');
         });
         it('happy path: closes a roundtable in awaiting_human with human vote', async () => {
             const rt = roundtableTools(db);
@@ -406,7 +405,6 @@ describe('roundtable tools', () => {
             assert.ok(!closeResult.isError, `Expected no error: ${JSON.stringify(parseResult(closeResult))}`);
             const data = parseResult(closeResult);
             assert.equal(data.state, 'closed');
-            assert.equal(data.status, 'closed');
             assert.ok(data.closed_at, 'closed_at must be set');
         });
         it('role rejection: consultant (architect) cannot call roundtable_close', async () => {
@@ -541,7 +539,6 @@ describe('roundtable tools', () => {
             assert.equal(data.discussion_rows_written, 6, '2 ratified * 2 rows each + 1 unratified note + 1 resolution decision = 6');
             assert.equal(data.vote_rows_written, 3, '2 ratified votes + 1 resolution vote');
             assert.equal(data.state, 'awaiting_human');
-            assert.ok(data.ratification_received_at, 'ratification_received_at must be set');
         });
         it('rolls back on error (invalid topic_slug triggers early rejection)', async () => {
             const rt = roundtableTools(db);

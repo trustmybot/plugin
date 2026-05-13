@@ -71,7 +71,7 @@ l5_score_coherence "$P" "test" "$FD" "run-4" >/dev/null 2>&1
 assert_exit 1 $? "issues>=5 with one row → fail"
 
 echo "== coherence: WHERE clause filtering =="
-sqlite3 "$P/.claude/tmb/trajectory.db" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, success_criteria, status, created_at, updated_at) VALUES (1, 1, 'feat/foo', 'main', '', '', 'pending', datetime('now'), datetime('now'));"
+sqlite3 "$P/.claude/tmb/trajectory.db" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (1, 1, 'feat/foo', 'main', '', 'pending', datetime('now'), datetime('now'));"
 echo '{"expected_writes": {"tasks WHERE branch_id != \"main\"": ">=1"}}' > "$FD/outcome-coherence.json"
 l5_score_coherence "$P" "test" "$FD" "run-5" >/dev/null 2>&1
 assert_exit 0 $? "tasks WHERE branch != main → pass"
@@ -120,7 +120,7 @@ assert_exit 1 $? "no pre-run snapshot → fail (loud signal)"
 
 echo "== git: worktree HEAD on expected branch =="
 P=$(mk_project) && FD=$(mk_flow_dir)
-sqlite3 "$P/.claude/tmb/trajectory.db" "INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'x', '', 'open', datetime('now'), datetime('now')); INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, success_criteria, status, created_at, updated_at) VALUES (1, 1, 'feat/check', 'main', '', '', 'pending', datetime('now'), datetime('now'));"
+sqlite3 "$P/.claude/tmb/trajectory.db" "INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'x', '', 'open', datetime('now'), datetime('now')); INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (1, 1, 'feat/check', 'main', '', 'pending', datetime('now'), datetime('now'));"
 (cd "$P" && git branch feat/check HEAD && mkdir -p .claude/worktrees && git worktree add -q .claude/worktrees/check feat/check)
 echo '{"worktrees": [{"path": ".claude/worktrees/<slug>", "head_branch": "<task.branch_id>"}]}' > "$FD/outcome-git.json"
 l5_score_git "$P" "test" "$FD" "run-g4" >/dev/null 2>&1

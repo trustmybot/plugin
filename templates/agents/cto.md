@@ -1,7 +1,6 @@
 ---
 name: cto
 description: Consultant. Technical strategy + tech-stack trade-offs. Scaling, dependency posture, build/CI direction.
-tmb_owner: bro
 model: opus
 tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server
 skills: []

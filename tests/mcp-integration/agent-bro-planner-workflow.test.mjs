@@ -40,7 +40,6 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
       branch_id: 'feat/hello-endpoint',
       title: 'Add /hello endpoint',
       description: 'Wire up a 200 OK handler returning {msg:"hello"}.',
-      success_criteria: '200 OK body matches',
       spec_body: '# Task: /hello endpoint\n\nAdd handler, test, commit.',
     }],
   });
@@ -69,7 +68,6 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
   const closed = await call(client, 'issue_close', {
     agent: 'bro',
     issue_id: issueId,
-    post_git_sha: 'abc1234',
   });
   assert.equal(closed.ok, true, `issue_close: ${JSON.stringify(closed)}`);
 });
@@ -124,7 +122,6 @@ test('bro (planner) — skill_register + skill_promote lifecycle', async (t) => 
     description: 'smoke',
     file_path: 'skills/test-skill/SKILL.md',
     trust_tier: 'curated',
-    created_by: 'bro',
   });
   assert.equal(reg.ok, true, `skill_register: ${JSON.stringify(reg)}`);
 

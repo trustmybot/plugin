@@ -60,7 +60,7 @@ export function branchReportMdTools(db) {
             const taskIds = tasks.map((t) => String(t.id));
             const placeholders = taskIds.map(() => '?').join(', ');
             const validationAttempts = db.all(`SELECT * FROM validation_attempts WHERE task_id IN (${placeholders}) ORDER BY task_id ASC, attempt_n ASC`, taskIds);
-            const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? AND kind = 'event' ORDER BY id ASC`, [issueId, branchId]);
+            const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? ORDER BY id ASC`, [issueId, branchId]);
             const commitShas = tasks
                 .map((t) => t.commit_sha)
                 .filter((sha) => sha !== null && sha !== '');

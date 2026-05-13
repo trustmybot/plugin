@@ -12,6 +12,19 @@ export const BRANCH_ID_RE =
 
 const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
 
+// Hard cap on tasks.spec_body. Architect should cite existing code/conventions
+// rather than restate them; a spec longer than ~8k is usually a sign the task
+// should be split via depends_on. Very long specs push SWE cold-start into the
+// minutes range (issue #55: a 55k-char spec hung the session). Tunable via
+// the TMB_SPEC_BODY_MAX_BYTES env var for downstream users with a different
+// SWE token budget; defaults to 8000 chars.
+export const SPEC_BODY_MAX_BYTES = (() => {
+  const raw = process.env['TMB_SPEC_BODY_MAX_BYTES'];
+  if (raw === undefined) return 8000;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8000;
+})();
+
 function validateBranchId(branchId: string): void {
   if (!BRANCH_ID_RE.test(branchId)) {
     throw new Error(
@@ -110,9 +123,6 @@ export function taskTools(db: TrajectoryDB): {
                 parent_branch_id: { type: 'string' },
                 title: { type: 'string' },
                 description: { type: 'string' },
-                tools_required: { type: 'array', items: { type: 'string' } },
-                skills_required: { type: 'array', items: { type: 'string' } },
-                success_criteria: { type: 'string' },
                 spec_body: {
                   type: 'string',
                   description:
@@ -126,7 +136,7 @@ export function taskTools(db: TrajectoryDB): {
                     'Used by the WorktreeCreate hook to route worktree creation to the right repo.',
                 },
               },
-              required: ['branch_id', 'description', 'success_criteria'],
+              required: ['branch_id', 'description'],
             },
           },
           waive_scope_gate: {
@@ -303,7 +313,7 @@ export function taskTools(db: TrajectoryDB): {
       }
 
       // --- Branch-id-proposal gate (MCP-level enforcement, #155) ---
-      // task_create_batch must be preceded by an audit event (kind='event') with
+      // task_create_batch must be preceded by an audit event with
       // event_type='branch_id_proposed' for this issue. Stops bro from spawning
       // SWE without first running tmb_planning §Step 2 (which calls
       // branch_id_propose, asks the Human to confirm, runs git switch -c, and
@@ -317,7 +327,7 @@ export function taskTools(db: TrajectoryDB): {
         }
       } else {
         const proposed = db.get<{ c: number }>(
-          `SELECT COUNT(*) as c FROM audit WHERE issue_id = ? AND kind = 'event' AND event_type = 'branch_id_proposed'`,
+          `SELECT COUNT(*) as c FROM audit WHERE issue_id = ? AND event_type = 'branch_id_proposed'`,
           [issueId],
         );
         if ((proposed?.c ?? 0) === 0) {
@@ -360,7 +370,7 @@ export function taskTools(db: TrajectoryDB): {
         }
       } else {
         const scanRow = db.get<{ c: number }>(
-          `SELECT COUNT(*) as c FROM audit WHERE kind = 'event' AND event_type = 'deep_scan_completed'`,
+          `SELECT COUNT(*) as c FROM audit WHERE event_type = 'deep_scan_completed'`,
         );
         if ((scanRow?.c ?? 0) === 0) {
           return {
@@ -483,23 +493,19 @@ export function taskTools(db: TrajectoryDB): {
           validateBranchId(t.branch_id);
           if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
           if (!t.description) throw new Error('Missing required arg: description');
-          if (!t.success_criteria) throw new Error('Missing required arg: success_criteria');
           if (t.spec_body !== undefined) {
             if (typeof t.spec_body !== 'string') {
               throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
             }
-            // Hard cap: 8000 chars per task. Architect should cite existing
-            // code/conventions rather than restate them; a spec longer than
-            // ~8k is usually a sign the task should be split. Over-long specs
-            // force SWE to spend tokens reading instead of coding.
-            // See issue #55 (P0: architect over-engineered 55k-char spec
-            // → session hang).
-            if (t.spec_body.length > 8000) {
+            // Hard cap: SPEC_BODY_MAX_BYTES (default 8000) per task. See the
+            // export at the top of the file for rationale + env override.
+            if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
               throw new Error(
-                `spec_body exceeds 8000 char limit (actual: ${t.spec_body.length}). ` +
+                `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
                 `Split into multiple tasks via depends_on, or cite existing code/` +
                 `conventions rather than restating them inline. Very long specs ` +
-                `push SWE cold-start into the minutes range; see issue #55.`,
+                `push SWE cold-start into the minutes range; see issue #55. ` +
+                `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
               );
             }
           }
@@ -557,18 +563,14 @@ export function taskTools(db: TrajectoryDB): {
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                tools_required, skills_required, success_criteria,
                 status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
               parentBranchId,
               t.title ?? '',
               t.description,
-              JSON.stringify(t.tools_required ?? []),
-              JSON.stringify(t.skills_required ?? []),
-              t.success_criteria,
               t.spec_body ?? '',
               repoValue,
               now,
@@ -603,8 +605,8 @@ export function taskTools(db: TrajectoryDB): {
           const fromNode = (args['agent'] as string) ?? 'bro';
           db.run(
             `INSERT INTO audit
-               (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
-             VALUES (?, ?, ?, 'event', 'planning_complete', ?, ?, 0, ?)`,
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
             [issueId, branchForAudit, fromNode, summary, contentJson, now],
           );
         }
@@ -617,8 +619,8 @@ export function taskTools(db: TrajectoryDB): {
       if (waived) {
         const now = nowISO();
         db.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-           VALUES (?, ?, ?, 'event', 'scope_gate_waived', ?, ?, ?)`,
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`,
           [
             issueId,
             inserted[0]?.branch_id ?? '',

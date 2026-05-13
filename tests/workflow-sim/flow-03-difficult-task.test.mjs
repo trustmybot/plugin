@@ -18,8 +18,6 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro' });
-
   // 1. Issue
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
@@ -87,7 +85,6 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
       branch_id: 'refactor/jwt-auth',
       title: 'Replace session middleware with JWT (RS256)',
       description: 'Per ADR-0042: implement RS256, force re-login on cutover.',
-      success_criteria: 'All routes accept JWT; old session middleware removed; integration tests green.',
       spec_body: '## Files\n- middleware/auth.py\n## Verification\n```\npytest tests/auth\n```\n## Success Criteria\n- JWT validates RS256\n- old session code removed',
     }],
   });
@@ -117,8 +114,6 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro' });
-
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'Difficult thing', description: 'd',
   });
@@ -130,7 +125,7 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
     issue_id: issueId,
     tasks: [{
       branch_id: 'refactor/x',
-      title: 't', description: 'd', success_criteria: 's',
+      title: 't', description: 'd',
       spec_body: '## body',
     }],
   });

@@ -27,12 +27,12 @@ VALUES ('Seed todo CLI (push-gate)', 'pre-seed for push-gate scenario', 'open',
         datetime('now'), datetime('now'));
 
 INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, spec_body,
-                   description, success_criteria, status, commit_sha,
+                   description, status, commit_sha,
                    created_at, updated_at)
 SELECT id, 'feat/seed-todo', 'main', 'Seed todo CLI',
        '## Files
 todo.py
-', '', '', 'needs_validation', '$SEED_SHA',
+', '', 'needs_validation', '$SEED_SHA',
        datetime('now'), datetime('now')
 FROM issues
 WHERE objective = 'Seed todo CLI (push-gate)'

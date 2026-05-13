@@ -246,7 +246,7 @@ else
   AR_ISSUE_FRAGMENT="NULL"
 fi
 
-AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at, exit_status) VALUES (${TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'), 'completed');"
+AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (${TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
 sqlite3 "$DB" "$AR_INSERT" 2>/dev/null || \
   printf '{"ts":"%s","kind":"agent-runs-capture-skipped","reason":"sqlite3 insert failed","task_id":%s}\n' \
     "$ts" "$TASK_ID" >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true

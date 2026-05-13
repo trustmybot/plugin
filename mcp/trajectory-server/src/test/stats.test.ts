@@ -33,7 +33,7 @@ describe('statsTools — task_stats', () => {
     const issueId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
 
     db.run(
-      "INSERT INTO tasks (issue_id, branch_id, title, description, success_criteria, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'criteria', 'pending', ?, ?)",
+      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'pending', ?, ?)",
       [issueId, now, now],
     );
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
@@ -68,17 +68,17 @@ describe('statsTools — task_stats', () => {
     const issueId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
 
     db.run(
-      "INSERT INTO tasks (issue_id, branch_id, title, description, success_criteria, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'criteria', 'pending', ?, ?)",
+      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'pending', ?, ?)",
       [issueId, now, now],
     );
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
 
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at, exit_status) VALUES (?, ?, 'swe', 100, 200, 300, 5, 1000, datetime('now'), 'completed')",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 100, 200, 300, 5, 1000, datetime('now'))",
       [taskId, issueId],
     );
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at, exit_status) VALUES (?, ?, 'swe', 150, 250, 400, 8, 2000, datetime('now'), 'completed')",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 150, 250, 400, 8, 2000, datetime('now'))",
       [taskId, issueId],
     );
 
@@ -149,7 +149,7 @@ describe('statsTools — task_stats', () => {
     );
     const issueId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
     db.run(
-      "INSERT INTO tasks (issue_id, branch_id, title, description, success_criteria, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'criteria', 'pending', ?, ?)",
+      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'pending', ?, ?)",
       [issueId, now, now],
     );
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;

@@ -180,19 +180,15 @@ describe('configTools', () => {
     db.close();
   });
 
-  it('config_set called twice on same key updates value and bumps updated_at', async () => {
+  it('config_set called twice on same key updates value', async () => {
     const db = tempDB();
     const tools = configTools(db);
 
     const first = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'evolving', value: 'v1' });
-    const firstTs = parseResult(first).updated_at as string;
-
-    await new Promise((res) => setTimeout(res, 5));
+    assert.ok(!first.isError);
 
     const second = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'evolving', value: 'v2' });
-    const secondTs = parseResult(second).updated_at as string;
-
-    assert.ok(secondTs >= firstTs, 'second updated_at must be >= first');
+    assert.ok(!second.isError);
 
     const getResult = await call(tools.handlers, 'config_get', { key: 'evolving' });
     assert.equal(parseResult(getResult), 'v2');

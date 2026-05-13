@@ -46,9 +46,8 @@ export function skillTools(db) {
                     description: { type: 'string' },
                     file_path: { type: 'string' },
                     trust_tier: { type: 'string', enum: ['curated', 'agent'] },
-                    created_by: { type: 'string' },
                 },
-                required: ['agent', 'name', 'description', 'file_path', 'trust_tier', 'created_by'],
+                required: ['agent', 'name', 'description', 'file_path', 'trust_tier'],
             },
         },
         {
@@ -86,14 +85,13 @@ export function skillTools(db) {
             const description = requireArg(args, 'description');
             const filePath = requireArg(args, 'file_path');
             const trustTier = requireArg(args, 'trust_tier');
-            const createdBy = requireArg(args, 'created_by');
             if (!VALID_TRUST_TIERS.has(trustTier)) {
                 throw new Error(`Invalid trust_tier: "${trustTier}". Allowed values: ${[...VALID_TRUST_TIERS].join(', ')}`);
             }
             const now = nowISO();
             db.run(`INSERT INTO skills
-           (name, description, file_path, trust_tier, created_by, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)`, [name, description, filePath, trustTier, createdBy, now, now]);
+           (name, description, file_path, trust_tier, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'draft', ?, ?)`, [name, description, filePath, trustTier, now, now]);
             const row = db.get('SELECT * FROM skills WHERE rowid = last_insert_rowid()');
             return ok(row);
         }),

@@ -22,7 +22,7 @@ VALUES ('Add a CLI entry point (resume)', 'Pre-seeded for the resume scenario.',
         'open', datetime('now'), datetime('now'));
 
 INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, spec_body,
-                   description, success_criteria, status,
+                   description, status,
                    created_at, updated_at)
 SELECT id, 'feat/seed-cli', 'main', 'Add CLI entry point',
        '## Description
@@ -37,15 +37,15 @@ Add a CLI entry script at cli.py that calls into the existing add() function.
 
 ## Verification
 - python cli.py 2 3
-', 'See spec.', 'See success criteria.', 'pending',
+', 'See spec.', 'pending',
        datetime('now'), datetime('now')
 FROM issues
 WHERE objective = 'Add a CLI entry point (resume)'
 ORDER BY id DESC LIMIT 1;
 
-INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary,
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary,
                    content_json, created_at)
-SELECT id, 'feat/seed-cli', 'bro', 'event', 'planning_complete',
+SELECT id, 'feat/seed-cli', 'bro', 'planning_complete',
        'Pre-seeded planning_complete for resume scenario.',
        '{}', datetime('now')
 FROM issues

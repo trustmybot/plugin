@@ -5,15 +5,15 @@
 -- This mirrors fixtures/onboarding-named.sql but is applied AFTER row 1
 -- ran rather than seeded as the initial fixture.
 
-INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'));
+INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');
 
-INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at)
+INSERT OR REPLACE INTO plugin_config (key, value_json)
 VALUES
-  ('branching_model',    '"github-flow"', datetime('now')),
-  ('pr_target',          '"main"',        datetime('now')),
-  ('protected_branches', '["main"]',      datetime('now')),
-  ('remotes',            '[]',            datetime('now')),
-  ('issue_sync',         '"off"',         datetime('now'));
+  ('branching_model',    '"github-flow"'),
+  ('pr_target',          '"main"'),
+  ('protected_branches', '["main"]'),
+  ('remotes',            '[]'),
+  ('issue_sync',         '"off"');
 
-INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-VALUES (-1, NULL, 'bro', 'event', 'deep_scan_completed', 'L6 chain bridge: row 1 → 2 (post-AUQ seed)', '{}', datetime('now'));
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'L6 chain bridge: row 1 → 2 (post-AUQ seed)', '{}', datetime('now'));

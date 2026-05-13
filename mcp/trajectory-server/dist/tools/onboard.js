@@ -95,10 +95,9 @@ function readConfig(db, key) {
     }
 }
 function writeConfig(db, key, value) {
-    const now = nowISO();
-    db.run(`INSERT INTO plugin_config (key, value_json, updated_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`, [key, JSON.stringify(value), now]);
+    db.run(`INSERT INTO plugin_config (key, value_json)
+     VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [key, JSON.stringify(value)]);
 }
 function readOnboardedFlag(db) {
     // #2876: onboarded state is a plugin_config marker now, not its own table.

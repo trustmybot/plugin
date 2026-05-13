@@ -25,16 +25,14 @@ function wrapHandler(fn) {
         }
     };
 }
-// Audit table is event-only after the #179 schema cleanup. The kind='tool_call'
-// branch was retired (always-empty across production data; tool-call records
-// live in debug_trajectory). All audit_log inserts must specify event_type +
-// summary; the schema CHECK enforces kind='event' and the handler rejects any
-// caller that tries to pass kind='tool_call' for backward compatibility.
+// Audit table is event-only — every row is a lifecycle event with
+// (event_type, summary, content_json). Tool-call records live in
+// debug_trajectory (eval mode), not here.
 export function auditTools(db) {
     const definitions = [
         {
             name: 'audit_log',
-            description: "Insert an audit lifecycle event (planning_complete, bro_verification_pass, headless_fallback, etc.). All rows are kind='event'; the kind='tool_call' branch was retired in #179. Both event_type and summary are required.",
+            description: 'Insert an audit lifecycle event (planning_complete, bro_verification_pass, headless_fallback, etc.). Both event_type and summary are required.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -42,11 +40,6 @@ export function auditTools(db) {
                     issue_id: { type: 'string' },
                     branch_id: { type: 'string' },
                     from_node: { type: 'string' },
-                    kind: {
-                        type: 'string',
-                        enum: ['event'],
-                        description: "Always 'event'. Retained for backward-compatible callers; defaults to 'event' if omitted.",
-                    },
                     event_type: { type: 'string', description: 'Required. Lifecycle event identifier (e.g. planning_complete).' },
                     summary: { type: 'string', description: 'Required. One-line human-readable summary.' },
                     content_json: { type: 'string', description: 'Optional. JSON string with structured event payload, max 1 MB.' },
@@ -77,25 +70,19 @@ export function auditTools(db) {
             requireArg(args, 'from_node');
             const fromNode = args['from_node'];
             const branchId = args['branch_id'] ?? null;
-            const kind = args['kind'] ?? 'event';
             const now = nowISO();
-            if (kind !== 'event') {
-                throw new Error(`Invalid kind: "${kind}". Only 'event' is supported after the #179 schema cleanup. The 'tool_call' kind was retired — log tool calls via debug_trajectory instead.`);
-            }
             requireArg(args, 'event_type');
             requireArg(args, 'summary');
             const eventType = args['event_type'];
             const summary = args['summary'];
             let contentJson = args['content_json'] ?? '{}';
-            let isTruncated = 0;
             const byteLength = Buffer.byteLength(contentJson, 'utf8');
             if (byteLength > MAX_CONTENT_BYTES) {
                 contentJson = Buffer.from(contentJson, 'utf8').slice(0, MAX_CONTENT_BYTES).toString('utf8');
-                isTruncated = 1;
             }
             db.run(`INSERT INTO audit
-           (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
-         VALUES (?, ?, ?, 'event', ?, ?, ?, ?, ?)`, [issueId, branchId, fromNode, eventType, summary, contentJson, isTruncated, now]);
+           (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`, [issueId, branchId, fromNode, eventType, summary, contentJson, now]);
             const row = db.get('SELECT * FROM audit WHERE rowid = last_insert_rowid()');
             return ok(row);
         }),

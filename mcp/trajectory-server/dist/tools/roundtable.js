@@ -176,8 +176,7 @@ export function roundtableTools(db) {
                 }
             }
             else {
-                const slashRow = db.get(`SELECT COUNT(*) as c FROM audit
-             WHERE kind = 'event' AND event_type = 'roundtable_slash_invoked'`);
+                const slashRow = db.get(`SELECT COUNT(*) as c FROM audit WHERE event_type = 'roundtable_slash_invoked'`);
                 if ((slashRow?.c ?? 0) === 0) {
                     return {
                         isError: true,
@@ -198,8 +197,8 @@ export function roundtableTools(db) {
                 }
             }
             const now = nowISO();
-            db.run(`INSERT INTO roundtables (issue_id, topic, status, outcome, created_at, state, expected_participants)
-           VALUES (?, ?, 'open', '', ?, 'collecting', ?)`, [issueId, topic, now, expectedParticipants]);
+            db.run(`INSERT INTO roundtables (issue_id, topic, outcome, created_at, state, expected_participants)
+           VALUES (?, ?, '', ?, 'collecting', ?)`, [issueId, topic, now, expectedParticipants]);
             const row = db.get('SELECT * FROM roundtables WHERE rowid = last_insert_rowid()');
             return ok({ roundtable_id: row.id, state: row.state });
         })),
@@ -224,8 +223,8 @@ export function roundtableTools(db) {
                 throw new Error(`invalid_state: roundtable ${roundtableId} is in state '${currentState}'; votes only allowed in collecting or awaiting_human`);
             }
             const now = nowISO();
-            db.run(`INSERT INTO roundtable_votes (roundtable_id, agent, participant, vote, rationale, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`, [roundtableId, participant, participant, vote, rationale, now]);
+            db.run(`INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at)
+           VALUES (?, ?, ?, ?, ?)`, [roundtableId, participant, vote, rationale, now]);
             const row = db.get('SELECT * FROM roundtable_votes WHERE rowid = last_insert_rowid()');
             let newState = currentState;
             if (participant !== 'human' && currentState === 'collecting') {
@@ -253,11 +252,10 @@ export function roundtableTools(db) {
             }
             if (skip) {
                 const now = nowISO();
-                db.run(`UPDATE roundtables SET state = 'skipped', status = 'closed', outcome = ?, closed_at = ? WHERE id = ?`, [outcome, now, roundtableId]);
+                db.run(`UPDATE roundtables SET state = 'skipped', outcome = ?, closed_at = ? WHERE id = ?`, [outcome, now, roundtableId]);
                 const updated = db.get('SELECT * FROM roundtables WHERE id = ?', [roundtableId]);
                 return ok({
                     roundtable_id: updated.id,
-                    status: updated.status,
                     state: updated.state,
                     closed_at: updated.closed_at,
                 });
@@ -273,11 +271,10 @@ export function roundtableTools(db) {
                 }
             }
             const now = nowISO();
-            db.run(`UPDATE roundtables SET state = 'closed', status = 'closed', outcome = ?, closed_at = ? WHERE id = ?`, [outcome, now, roundtableId]);
+            db.run(`UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`, [outcome, now, roundtableId]);
             const updated = db.get('SELECT * FROM roundtables WHERE id = ?', [roundtableId]);
             return ok({
                 roundtable_id: updated.id,
-                status: updated.status,
                 state: updated.state,
                 closed_at: updated.closed_at,
             });
@@ -314,7 +311,7 @@ export function roundtableTools(db) {
                     discussionRowsWritten++;
                     db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`, [issueId, `Ratified: ${agreement}`, now]);
                     discussionRowsWritten++;
-                    db.run(`INSERT INTO roundtable_votes (roundtable_id, agent, participant, vote, rationale, created_at) VALUES (?, 'human', 'human', 'ratified', ?, ?)`, [roundtableId, `Ratified: ${agreement}`, now]);
+                    db.run(`INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`, [roundtableId, `Ratified: ${agreement}`, now]);
                     voteRowsWritten++;
                 }
                 for (const agreement of unratified) {
@@ -324,15 +321,13 @@ export function roundtableTools(db) {
                 for (const r of resolutions) {
                     db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`, [issueId, `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, now]);
                     discussionRowsWritten++;
-                    db.run(`INSERT INTO roundtable_votes (roundtable_id, agent, participant, vote, rationale, created_at) VALUES (?, 'human', 'human', ?, ?, ?)`, [roundtableId, r.winning_stance, r.rationale ?? '', now]);
+                    db.run(`INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`, [roundtableId, r.winning_stance, r.rationale ?? '', now]);
                     voteRowsWritten++;
                 }
-                db.run(`UPDATE roundtables SET ratification_received_at = ? WHERE id = ?`, [now, roundtableId]);
             });
             return ok({
                 discussion_rows_written: discussionRowsWritten,
                 vote_rows_written: voteRowsWritten,
-                ratification_received_at: now,
                 state: 'awaiting_human',
             });
         })),

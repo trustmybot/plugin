@@ -45,7 +45,6 @@ describe('agentTools', () => {
             kind: 'consultant',
             scope: 'project-local',
             file_path: '.claude/agents/legal-reviewer.md',
-            tmb_owner: 'bro',
         });
         const row = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
@@ -53,7 +52,6 @@ describe('agentTools', () => {
         assert.equal(row.kind, 'consultant');
         assert.equal(row.scope, 'project-local');
         assert.equal(row.file_path, '.claude/agents/legal-reviewer.md');
-        assert.equal(row.tmb_owner, 'bro');
         const count = db.get('SELECT COUNT(*) AS cnt FROM agents');
         assert.ok(count !== undefined);
         assert.equal(count.cnt, 7, 'Expected 7 agents after registering one project-local');
@@ -68,12 +66,10 @@ describe('agentTools', () => {
             kind: 'consultant',
             scope: 'project-local',
             file_path: '.claude/agents/architect.md',
-            tmb_owner: 'user',
         });
         const firstRow = parseResult(first);
         assert.ok(!first.isError, `Expected no error: ${JSON.stringify(firstRow)}`);
         assert.equal(firstRow.scope, 'template', 'Existing row should not be overwritten');
-        assert.equal(firstRow.tmb_owner, 'bro', 'tmb_owner should remain bro from seed');
         const count = db.get('SELECT COUNT(*) AS cnt FROM agents');
         assert.ok(count !== undefined);
         assert.equal(count.cnt, 6, 'Row count must not grow when INSERT OR IGNORE hits existing name');

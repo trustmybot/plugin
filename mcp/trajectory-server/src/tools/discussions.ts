@@ -60,7 +60,7 @@ export function discussionTools(db: TrajectoryDB): {
           verified_human: {
             type: 'boolean',
             description:
-              'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries.',
+              'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only — not persisted.',
           },
         },
         required: ['agent', 'issue_id', 'author', 'body'],
@@ -132,9 +132,9 @@ export function discussionTools(db: TrajectoryDB): {
 
         const now = nowISO();
         db.run(
-          `INSERT INTO discussions (issue_id, author, kind, body, created_at, verified_human)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [issueId, author, kind, body, now, verifiedHuman ? 1 : 0],
+          `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [issueId, author, kind, body, now],
         );
 
         const row = db.get<Discussion>(

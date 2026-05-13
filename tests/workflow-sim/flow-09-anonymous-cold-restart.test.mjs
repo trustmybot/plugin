@@ -1,38 +1,39 @@
 // Flow 09 — Cold-restart after onboarding (regression for issue #95)
 //
 // Trajectory: Human completes /onboard (any path). Server MUST persist the
-// identity row at id=1 (the onboarded marker). On any subsequent cold session,
-// identity_get must return onboarded=true so bro's first-action chain skips
-// re-firing /onboard.
+// onboarded marker (plugin_config 'onboarded'='true'). On any subsequent
+// cold session, onboard_state_get must return first_run=false so bro's
+// first-action chain skips re-firing /onboard.
 //
 // Pre-fix bug (v0.3.x): the onboarding skill said "skip identity_set if
-// Anonymous", so no row was ever written. Cold restart found onboarded=false
-// → re-triggered full onboarding every time.
+// Anonymous", so no row was ever written. Cold restart found
+// onboarded=false → re-triggered full onboarding every time.
 //
-// Post-fix doctrine (current): the identity table is a pure marker. Bro
-// doesn't store names; row presence alone signals onboarded.
+// Post-fix doctrine (current): the onboarded marker lives in plugin_config
+// (#2876). The legacy identity table was a single-row marker with no columns
+// of meaning — folded into plugin_config('onboarded': true).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startClient, call } from '../mcp-integration/harness.mjs';
 
-test('Flow 09 — Cold-restart: identity_set marks onboarded; row persists', async (t) => {
+test('Flow 09 — Cold-restart: onboard_apply marks first_run=false; marker persists', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  // Step 1: /onboard completes → identity_set marks the project onboarded.
-  const setResult = await call(client, 'identity_set', { agent: 'bro' });
-  assert.equal(setResult.ok, true, 'identity_set must succeed');
-  assert.equal(setResult.data.onboarded, true);
-  assert.ok(setResult.data.created_at, 'created_at must be set after onboard');
+  // Step 1: /onboard completes → onboard_apply marks the project onboarded.
+  const apply = await call(client, 'onboard_apply', { agent: 'bro', shape: 'local' });
+  assert.equal(apply.ok, true, `onboard_apply must succeed: ${JSON.stringify(apply)}`);
+  assert.equal(apply.data.applied.onboarded, true);
 
-  // Step 2: Simulate cold session — bro's first-action chain calls identity_get
-  const probe = await call(client, 'identity_get', {});
+  // Step 2: Simulate cold session — bro's first-action chain calls
+  // onboard_state_get. first_run must be false so /onboard does not re-fire.
+  const probe = await call(client, 'onboard_state_get', { agent: 'bro' });
   assert.equal(probe.ok, true);
   assert.equal(
-    probe.data.onboarded,
-    true,
-    'onboarded MUST be true — this is the signal that prevents re-firing /onboard (issue #95)',
+    probe.data.first_run,
+    false,
+    'first_run MUST be false — this is the signal that prevents re-firing /onboard (issue #95)',
   );
 });
 
@@ -40,8 +41,8 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  // Set up identity + an issue + task so validation_record has a valid target
-  await call(client, 'identity_set', { agent: 'bro' });
+  // Set up onboarded marker + an issue + task so validation_record has a valid target
+  await call(client, 'onboard_apply', { agent: 'bro', shape: 'local' });
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
     objective: 'Verify role enforcement',
@@ -64,7 +65,6 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
       branch_id: 'feat/role-test',
       title: 'role test',
       description: 'fixture',
-      success_criteria: 'fixture',
       spec_body: '## Description\nfixture\n## Files\n- none\n## Success Criteria\n- none\n## Verification\n```\necho ok\n```',
     }],
   });
@@ -96,7 +96,7 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro' });
+  await call(client, 'onboard_apply', { agent: 'bro', shape: 'local' });
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
     objective: 'Verify bro_verification_pass audit event',
@@ -119,7 +119,6 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
       branch_id: 'feat/audit-event-test',
       title: 'audit event test',
       description: 'fixture',
-      success_criteria: 'fixture',
       spec_body: '## Description\nfixture',
     }],
   });
@@ -132,7 +131,6 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
     issue_id: issueId,
     branch_id: branchId,
     from_node: 'bro',
-    kind: 'event',
     event_type: 'bro_verification_pass',
     summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
   });
@@ -147,7 +145,7 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
   assert.equal(closed.ok, true);
 
   // Verify the audit table has the bro_verification_pass event
-  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId, kind: 'event' });
+  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId });
   const verifEvents = audit.data.filter(e => e.event_type === 'bro_verification_pass');
   assert.equal(verifEvents.length, 1, 'exactly one bro_verification_pass event recorded');
   assert.equal(verifEvents[0].from_node, 'bro');

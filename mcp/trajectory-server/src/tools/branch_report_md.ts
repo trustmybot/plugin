@@ -109,7 +109,7 @@ export function branchReportMdTools(db: TrajectoryDB): {
         );
 
         const auditEntries = db.all<AuditEventEntry>(
-          `SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? AND kind = 'event' ORDER BY id ASC`,
+          `SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? ORDER BY id ASC`,
           [issueId, branchId],
         );
 

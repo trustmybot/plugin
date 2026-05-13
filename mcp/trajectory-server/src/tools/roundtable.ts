@@ -37,20 +37,17 @@ interface RoundtableRow {
   id: number;
   issue_id: number;
   topic: string;
-  status: string;
   outcome: string;
   created_at: string;
   closed_at: string | null;
   state: string;
   expected_participants: number | null;
-  ratification_received_at: string | null;
 }
 
 interface RoundtableVoteRow {
   id: number;
   roundtable_id: number;
-  agent: string;
-  participant: string | null;
+  participant: string;
   vote: string;
   rationale: string;
   created_at: string;
@@ -227,8 +224,7 @@ export function roundtableTools(db: TrajectoryDB): {
           }
         } else {
           const slashRow = db.get<{ c: number }>(
-            `SELECT COUNT(*) as c FROM audit
-             WHERE kind = 'event' AND event_type = 'roundtable_slash_invoked'`,
+            `SELECT COUNT(*) as c FROM audit WHERE event_type = 'roundtable_slash_invoked'`,
           );
           if ((slashRow?.c ?? 0) === 0) {
             return {
@@ -253,8 +249,8 @@ export function roundtableTools(db: TrajectoryDB): {
 
         const now = nowISO();
         db.run(
-          `INSERT INTO roundtables (issue_id, topic, status, outcome, created_at, state, expected_participants)
-           VALUES (?, ?, 'open', '', ?, 'collecting', ?)`,
+          `INSERT INTO roundtables (issue_id, topic, outcome, created_at, state, expected_participants)
+           VALUES (?, ?, '', ?, 'collecting', ?)`,
           [issueId, topic, now, expectedParticipants],
         );
 
@@ -299,9 +295,9 @@ export function roundtableTools(db: TrajectoryDB): {
 
         const now = nowISO();
         db.run(
-          `INSERT INTO roundtable_votes (roundtable_id, agent, participant, vote, rationale, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [roundtableId, participant, participant, vote, rationale, now],
+          `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [roundtableId, participant, vote, rationale, now],
         );
 
         const row = db.get<RoundtableVoteRow>(
@@ -352,13 +348,12 @@ export function roundtableTools(db: TrajectoryDB): {
         if (skip) {
           const now = nowISO();
           db.run(
-            `UPDATE roundtables SET state = 'skipped', status = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
+            `UPDATE roundtables SET state = 'skipped', outcome = ?, closed_at = ? WHERE id = ?`,
             [outcome, now, roundtableId],
           );
           const updated = db.get<RoundtableRow>('SELECT * FROM roundtables WHERE id = ?', [roundtableId]);
           return ok({
             roundtable_id: updated!.id,
-            status: updated!.status,
             state: updated!.state,
             closed_at: updated!.closed_at,
           });
@@ -385,14 +380,13 @@ export function roundtableTools(db: TrajectoryDB): {
 
         const now = nowISO();
         db.run(
-          `UPDATE roundtables SET state = 'closed', status = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
+          `UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
           [outcome, now, roundtableId],
         );
 
         const updated = db.get<RoundtableRow>('SELECT * FROM roundtables WHERE id = ?', [roundtableId]);
         return ok({
           roundtable_id: updated!.id,
-          status: updated!.status,
           state: updated!.state,
           closed_at: updated!.closed_at,
         });
@@ -459,7 +453,7 @@ export function roundtableTools(db: TrajectoryDB): {
             );
             discussionRowsWritten++;
             db.run(
-              `INSERT INTO roundtable_votes (roundtable_id, agent, participant, vote, rationale, created_at) VALUES (?, 'human', 'human', 'ratified', ?, ?)`,
+              `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
               [roundtableId, `Ratified: ${agreement}`, now],
             );
             voteRowsWritten++;
@@ -480,22 +474,17 @@ export function roundtableTools(db: TrajectoryDB): {
             );
             discussionRowsWritten++;
             db.run(
-              `INSERT INTO roundtable_votes (roundtable_id, agent, participant, vote, rationale, created_at) VALUES (?, 'human', 'human', ?, ?, ?)`,
+              `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
               [roundtableId, r.winning_stance, r.rationale ?? '', now],
             );
             voteRowsWritten++;
           }
 
-          db.run(
-            `UPDATE roundtables SET ratification_received_at = ? WHERE id = ?`,
-            [now, roundtableId],
-          );
         });
 
         return ok({
           discussion_rows_written: discussionRowsWritten,
           vote_rows_written: voteRowsWritten,
-          ratification_received_at: now,
           state: 'awaiting_human',
         });
       }),

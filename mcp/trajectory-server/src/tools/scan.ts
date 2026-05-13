@@ -12,16 +12,12 @@ type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 interface ScanFile {
   repo: string;
   path: string;
-  size_bytes: number;
   content_md5: string;
-  last_commit_sha: string;
 }
 
 interface ScanRepo {
   name: string;
   path: string;
-  default_branch: string;
-  head_commit_sha: string;
   file_count: number;
 }
 
@@ -164,16 +160,13 @@ function persistScan(db: TrajectoryDB, out: ScanOutput): {
   db.transaction(() => {
     for (const r of out.repos) {
       db.run(
-        `INSERT INTO repos (name, path, default_branch, head_commit_sha, file_count, last_scanned_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO repos (name, path, file_count, last_scanned_at)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
-           default_branch = excluded.default_branch,
-           head_commit_sha = excluded.head_commit_sha,
            file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at,
-           updated_at = excluded.updated_at`,
-        [r.name, r.path, r.default_branch, r.head_commit_sha, r.file_count, now, now, now],
+           last_scanned_at = excluded.last_scanned_at`,
+        [r.name, r.path, r.file_count, now],
       );
       repos_upserted++;
     }
@@ -194,9 +187,9 @@ function persistScan(db: TrajectoryDB, out: ScanOutput): {
 
       db.run(
         `INSERT OR REPLACE INTO file_registry
-           (repo, path, type, size_bytes, last_commit_sha, content_md5, summary, summary_updated_at, imports_json, exports_json, metadata_json)
-         VALUES (?, ?, 'source', ?, ?, ?, ${summaryClause}, '[]', '[]', '{}')`,
-        [f.repo, f.path, f.size_bytes, f.last_commit_sha, f.content_md5, ...summaryArgs],
+           (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES (?, ?, 'source', ?, ${summaryClause})`,
+        [f.repo, f.path, f.content_md5, ...summaryArgs],
       );
       files_upserted++;
     }
@@ -296,8 +289,8 @@ export function scanTools(db: TrajectoryDB): {
         // Emit deep_scan_completed audit row. Attach to the system issue
         // (id=-1) — this is a session-level event, not work-issue scoped.
         db.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'event', 'deep_scan_completed', ?, ?, ?)`,
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
           [
             `Scanned ${out.repos.length} repos, ${out.files.length} files (${stats.files_md5_changed} md5-changed) — source=${source}${structuralChange ? ', structural-change' : ''}`,
             JSON.stringify({
@@ -325,8 +318,8 @@ export function scanTools(db: TrajectoryDB): {
         );
         if (!existing && out.repos.length > 0) {
           db.run(
-            `INSERT INTO plugin_config (key, value_json, updated_at) VALUES (?, ?, ?)`,
-            ['tmb_default_repo', JSON.stringify(preferredDefaultRepo(out.repos, sessionDir)), nowISO()],
+            `INSERT INTO plugin_config (key, value_json) VALUES (?, ?)`,
+            ['tmb_default_repo', JSON.stringify(preferredDefaultRepo(out.repos, sessionDir))],
           );
         }
 
@@ -348,11 +341,9 @@ export function scanTools(db: TrajectoryDB): {
         const rows = db.all<{
           name: string;
           path: string;
-          default_branch: string;
-          head_commit_sha: string;
           file_count: number;
           last_scanned_at: string;
-        }>(`SELECT name, path, default_branch, head_commit_sha, file_count, last_scanned_at FROM repos ORDER BY name`);
+        }>(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
         return ok({ repos: rows });
       }),
     ),

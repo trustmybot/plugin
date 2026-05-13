@@ -11,11 +11,11 @@
 -- Filename retained for backward compat; the legacy "named vs anonymous"
 -- distinction no longer applies — the marker is plugin_config('onboarded': true).
 
-INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'));
+INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');
 
 -- Pre-clear the registry-cold gate. /scan would normally run before any
 -- task_create_batch; for flows that don't exercise scan itself, the seed
 -- audit row stands in. Flows targeting the gate (or scan_run) start from
 -- the empty fixture instead.
-INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-VALUES (-1, NULL, 'bro', 'event', 'deep_scan_completed', 'L5/L6 fixture: gate cleared', '{}', datetime('now'));
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'L5/L6 fixture: gate cleared', '{}', datetime('now'));

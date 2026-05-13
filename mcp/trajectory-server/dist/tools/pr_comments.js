@@ -152,10 +152,24 @@ export function prCommentsTools(db, _spawnFn) {
                     },
                     since: {
                         type: 'string',
-                        description: 'ISO 8601 timestamp. Only return comments created after this time.',
+                        description: 'ISO 8601 timestamp. Only return comments created after this time. When omitted, the server reads the cursor from pr_review_runs.last_fetched_at so the next fetch returns only comments newer than the last one.',
                     },
                 },
                 required: ['pr_number'],
+            },
+        },
+        {
+            name: 'pr_review_runs_list',
+            description: 'List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_comments_get.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    pr_number: {
+                        type: 'number',
+                        description: 'Optional filter — only return rows for this PR number.',
+                    },
+                },
             },
         },
     ];
@@ -165,7 +179,16 @@ export function prCommentsTools(db, _spawnFn) {
             if (!Number.isInteger(prNumber) || prNumber <= 0) {
                 return err('pr_number must be a positive integer');
             }
-            const since = typeof args['since'] === 'string' ? args['since'] : undefined;
+            const repo = typeof args['repo'] === 'string' ? args['repo'] : '';
+            // Wire incremental polling: prefer the explicit `since` arg, otherwise
+            // read the cursor from pr_review_runs and pass `last_fetched_at` as the
+            // since-filter on the next backend fetch.
+            let since = typeof args['since'] === 'string' ? args['since'] : undefined;
+            if (since === undefined) {
+                const cursor = db.get(`SELECT last_fetched_at FROM pr_review_runs WHERE pr_number = ? AND repo = ?`, [prNumber, repo]);
+                if (cursor?.last_fetched_at)
+                    since = cursor.last_fetched_at;
+            }
             const configRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
             const configValue = configRow ? JSON.parse(configRow.value_json) : 'auto';
             let backend;
@@ -195,16 +218,36 @@ export function prCommentsTools(db, _spawnFn) {
             if (!fetchResult) {
                 return err('Failed to fetch PR comments — check gh/glab auth and PR number');
             }
-            const repo = typeof args['repo'] === 'string' ? args['repo'] : '';
             const now = nowISO();
             const lastCommentId = fetchResult.comments.length > 0
                 ? (fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null)
                 : null;
+            // Upsert the cursor: a re-fetch of the same (pr_number, repo) should
+            // overwrite last_fetched_at + last_comment_id rather than insert a
+            // duplicate row. Idempotency comes from idx_pr_review_runs_pr (UNIQUE).
             db.run(`INSERT INTO pr_review_runs
-          (pr_number, repo, remote_kind, last_fetched_at, last_comment_id,
-           comments_processed, tasks_created)
-         VALUES (?, ?, ?, ?, ?, ?, 0)`, [prNumber, repo, fetchResult.remote_kind, now, lastCommentId, fetchResult.comments.length]);
+          (pr_number, repo, last_fetched_at, last_comment_id)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(pr_number, repo) DO UPDATE SET
+           last_fetched_at = excluded.last_fetched_at,
+           last_comment_id = excluded.last_comment_id`, [prNumber, repo, now, lastCommentId]);
             return ok(fetchResult);
+        }),
+        pr_review_runs_list: requireRoles('pr_review_runs_list', ['bro'], async (args) => {
+            const prFilter = args['pr_number'];
+            const filterPrNumber = prFilter === undefined || prFilter === null ? null : Number(prFilter);
+            if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
+                return err('pr_number must be a positive integer when provided');
+            }
+            const rows = filterPrNumber === null
+                ? db.all(`SELECT id, pr_number, repo, last_fetched_at, last_comment_id
+                 FROM pr_review_runs
+                 ORDER BY pr_number, repo`)
+                : db.all(`SELECT id, pr_number, repo, last_fetched_at, last_comment_id
+                 FROM pr_review_runs
+                 WHERE pr_number = ?
+                 ORDER BY repo`, [filterPrNumber]);
+            return ok({ rows, count: rows.length });
         }),
     };
     return { definitions, handlers };

@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { resolveDefaultRepo } from '../utils/repo-paths.js';
-import { BRANCH_ID_RE } from './tasks.js';
+import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -103,7 +103,7 @@ export function compositeTools(db, dbPath) {
                         type: 'string',
                         description: "Branch_id for the retry (must be different from the failed task's branch_id; same conventional format).",
                     },
-                    corrected_spec_body: { type: 'string', description: 'The new spec_body — ≤8000 chars.' },
+                    corrected_spec_body: { type: 'string', description: `The new spec_body — ≤${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).` },
                     retry_rationale: {
                         type: 'string',
                         description: "≤200 chars — the root cause and corrected approach. Persisted as discussion(kind='decision').",
@@ -193,8 +193,8 @@ export function compositeTools(db, dbPath) {
             if (!BRANCH_ID_RE.test(newBranchId)) {
                 return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
             }
-            if (!spec || spec.length > 8000) {
-                return err('corrected_spec_body must be 1..8000 chars.');
+            if (!spec || spec.length > SPEC_BODY_MAX_BYTES) {
+                return err(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
             }
             if (!rationale || rationale.length > 200) {
                 return err('retry_rationale must be 1..200 chars.');
@@ -216,15 +216,13 @@ export function compositeTools(db, dbPath) {
              VALUES (?, 'bro', 'decision', ?, ?)`, [failed.issue_id, `Retry rationale (failed task ${failedTaskId}): ${rationale}`, now]);
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                tools_required, skills_required, success_criteria,
                 status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, '[]', '[]', ?, 'pending', 0, ?, ?, ?, ?)`, [
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`, [
                     failed.issue_id,
                     newBranchId,
                     failed.parent_branch_id ?? failed.branch_id,
                     title,
                     description,
-                    successCriteria,
                     spec,
                     failed.repo,
                     now,
@@ -234,8 +232,8 @@ export function compositeTools(db, dbPath) {
                 if (!newTask)
                     throw new Error('insert succeeded but row lookup failed');
                 db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
-             VALUES (?, ?, 'bro', 'event', 'task_retry_attempted', ?, ?, 0, ?)`, [
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'task_retry_attempted', ?, ?, ?)`, [
                     failed.issue_id,
                     newBranchId,
                     `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
@@ -278,8 +276,8 @@ export function compositeTools(db, dbPath) {
             const result = db.transaction(() => {
                 // 1. bro_verification_pass audit row.
                 db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
-             VALUES (?, ?, 'bro', 'event', 'bro_verification_pass', ?, ?, 0, ?)`, [
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`, [
                     task.issue_id,
                     task.branch_id,
                     verificationSummary.slice(0, 200),
@@ -356,11 +354,10 @@ export function compositeTools(db, dbPath) {
                         `). Aborted before status flip.`);
                 }
                 // Advance last_verified_sha — invariant the close-gate hook checks.
-                db.run(`INSERT INTO plugin_config (key, value_json, updated_at)
-             VALUES ('last_verified_sha', ?, ?)
+                db.run(`INSERT INTO plugin_config (key, value_json)
+             VALUES ('last_verified_sha', ?)
              ON CONFLICT(key) DO UPDATE SET
-               value_json = excluded.value_json,
-               updated_at = excluded.updated_at`, [JSON.stringify(commitSha), now]);
+               value_json = excluded.value_json`, [JSON.stringify(commitSha)]);
                 // 3. flip task to closed.
                 db.run(`UPDATE tasks
                 SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?

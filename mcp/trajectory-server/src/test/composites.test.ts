@@ -414,7 +414,7 @@ describe('bro_atomic_close multi-repo file_summaries', () => {
     const fx = makeMultiRepoFixture();
     try {
       fx.db.run(
-        `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"app"', datetime('now'))`,
+        `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"app"')`,
       );
       const issueId = await fx.issueFactory('explicit-repo wins');
       const taskId = await fx.taskFactory(issueId, 'app'); // task.repo='app'
@@ -444,7 +444,7 @@ describe('bro_atomic_close multi-repo file_summaries', () => {
     try {
       // Set tmb_default_repo to the OTHER repo to prove task.repo wins.
       fx.db.run(
-        `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"service"', datetime('now'))`,
+        `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"service"')`,
       );
       const issueId = await fx.issueFactory('task.repo fallback');
       const taskId = await fx.taskFactory(issueId, 'app'); // task.repo='app'
@@ -472,7 +472,7 @@ describe('bro_atomic_close multi-repo file_summaries', () => {
     const fx = makeMultiRepoFixture();
     try {
       fx.db.run(
-        `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"service"', datetime('now'))`,
+        `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"service"')`,
       );
       const issueId = await fx.issueFactory('tmb_default_repo fallback');
       const taskId = await fx.taskFactory(issueId, null); // task.repo NULL

@@ -36,7 +36,7 @@ describe('onboard tools', () => {
     it('reports first_run=false once identity row has been written', async () => {
       const db = tempDB();
       db.run(
-        `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'))`,
+        `INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true')`,
       );
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_state_get', {});
@@ -90,7 +90,7 @@ describe('onboard tools', () => {
     it('local re-onboard round=main returns Branching only (with Keep option)', async () => {
       const db = tempDB();
       db.run(
-        `INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'))`,
+        `INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true')`,
       );
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_get_questions', {
