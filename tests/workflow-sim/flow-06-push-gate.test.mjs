@@ -21,8 +21,6 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro' });
-
   // Setup: 2 closed tasks ready to push (simulating Flow 2 already ran twice)
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'Two things', description: 'd',
@@ -40,8 +38,8 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
     waive_decision_gate: true,
     waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [
-      { branch_id: 'feat/a', title: 'A', description: 'd', success_criteria: 's', spec_body: '## A' },
-      { branch_id: 'feat/b', title: 'B', description: 'd', success_criteria: 's', spec_body: '## B' },
+      { branch_id: 'feat/a', title: 'A', description: 'd', spec_body: '## A' },
+      { branch_id: 'feat/b', title: 'B', description: 'd', spec_body: '## B' },
     ],
   });
   assert.equal(batch.ok, true, JSON.stringify(batch));
@@ -107,7 +105,6 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro' });
   const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd' });
   const issueId = issue.data.id;
   const batch = await call(client, 'task_create_batch', {
@@ -120,7 +117,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
     waive_decision_gate: true,
     waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
-    tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', success_criteria: 's', spec_body: '## body' }],
+    tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', spec_body: '## body' }],
   });
   const taskId = batch.data[0].id;
 

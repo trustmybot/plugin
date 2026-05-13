@@ -42,20 +42,17 @@ setup_db() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       issue_id INTEGER NOT NULL REFERENCES issues(id),
       topic TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open',
       outcome TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       closed_at TEXT,
       state TEXT NOT NULL DEFAULT 'collecting'
         CHECK (state IN ('collecting','awaiting_human','closed','skipped')),
-      expected_participants INTEGER,
-      ratification_received_at TEXT
+      expected_participants INTEGER
     );
     CREATE TABLE IF NOT EXISTS roundtable_votes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       roundtable_id INTEGER NOT NULL REFERENCES roundtables(id),
-      agent TEXT NOT NULL,
-      participant TEXT,
+      participant TEXT NOT NULL,
       vote TEXT NOT NULL,
       rationale TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
@@ -91,8 +88,8 @@ assert_eq "" "$out" "no roundtable in db passes silently"
 # Setup: insert a roundtable in state=collecting
 # ──────────────────────────────────────────────────────────────
 sqlite3 "$DB" "
-  INSERT INTO roundtables (issue_id, topic, status, created_at, state)
-    VALUES (1, 'test topic', 'open', datetime('now'), 'collecting');
+  INSERT INTO roundtables (issue_id, topic, created_at, state)
+    VALUES (1, 'test topic', datetime('now'), 'collecting');
 "
 test_case "pass-through when state=collecting (votes still coming in)"
 q1=$(make_question "false")
@@ -104,8 +101,8 @@ assert_eq "" "$out" "collecting state passes silently"
 # Setup: insert a roundtable in state=awaiting_human
 # ──────────────────────────────────────────────────────────────
 sqlite3 "$DB" "
-  INSERT INTO roundtables (issue_id, topic, status, created_at, state)
-    VALUES (1, 'awaiting topic', 'open', datetime('now'), 'awaiting_human');
+  INSERT INTO roundtables (issue_id, topic, created_at, state)
+    VALUES (1, 'awaiting topic', datetime('now'), 'awaiting_human');
 "
 RT_AWAITING=$(sqlite3 "$DB" "SELECT id FROM roundtables WHERE state='awaiting_human' ORDER BY id DESC LIMIT 1")
 
@@ -114,8 +111,8 @@ RT_AWAITING=$(sqlite3 "$DB" "SELECT id FROM roundtables WHERE state='awaiting_hu
 # ──────────────────────────────────────────────────────────────
 test_case "pass-through when state=awaiting_human but human vote already recorded"
 sqlite3 "$DB" "
-  INSERT INTO roundtable_votes (roundtable_id, agent, participant, vote, created_at)
-    VALUES ($RT_AWAITING, 'human', 'human', 'ratified', datetime('now'));
+  INSERT INTO roundtable_votes (roundtable_id, participant, vote, created_at)
+    VALUES ($RT_AWAITING, 'human', 'ratified', datetime('now'));
 "
 q1=$(make_question "true")
 input=$(make_auq_input "[$q1]")
@@ -125,8 +122,8 @@ assert_eq "" "$out" "human vote already recorded passes silently"
 # Remove the human vote for subsequent tests, add new awaiting_human roundtable
 sqlite3 "$DB" "
   DELETE FROM roundtable_votes WHERE roundtable_id = $RT_AWAITING;
-  INSERT INTO roundtables (issue_id, topic, status, created_at, state)
-    VALUES (1, 'awaiting topic 2', 'open', datetime('now'), 'awaiting_human');
+  INSERT INTO roundtables (issue_id, topic, created_at, state)
+    VALUES (1, 'awaiting topic 2', datetime('now'), 'awaiting_human');
 "
 # ──────────────────────────────────────────────────────────────
 # Case 4: all-radios (no multiSelect on Q1) — block

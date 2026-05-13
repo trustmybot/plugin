@@ -268,7 +268,20 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
         return err('pr_number must be a positive integer');
       }
-      const since = typeof args['since'] === 'string' ? args['since'] : undefined;
+      const repo = typeof args['repo'] === 'string' ? args['repo'] : '';
+
+      // Wire incremental polling: prefer the explicit `since` arg, otherwise
+      // read the cursor from pr_review_runs and pass `last_fetched_at` as the
+      // since-filter on the next backend fetch.
+      let since: string | undefined =
+        typeof args['since'] === 'string' ? args['since'] : undefined;
+      if (since === undefined) {
+        const cursor = db.get<{ last_fetched_at: string }>(
+          `SELECT last_fetched_at FROM pr_review_runs WHERE pr_number = ? AND repo = ?`,
+          [prNumber, repo],
+        );
+        if (cursor?.last_fetched_at) since = cursor.last_fetched_at;
+      }
 
       const configRow = db.get<{ value_json: string }>(
         `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`,
@@ -306,19 +319,23 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
         return err('Failed to fetch PR comments — check gh/glab auth and PR number');
       }
 
-      const repo = typeof args['repo'] === 'string' ? args['repo'] : '';
       const now = nowISO();
       const lastCommentId =
         fetchResult.comments.length > 0
           ? (fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null)
           : null;
 
+      // Upsert the cursor: a re-fetch of the same (pr_number, repo) should
+      // overwrite last_fetched_at + last_comment_id rather than insert a
+      // duplicate row. Idempotency comes from idx_pr_review_runs_pr (UNIQUE).
       db.run(
         `INSERT INTO pr_review_runs
-          (pr_number, repo, remote_kind, last_fetched_at, last_comment_id,
-           comments_processed, tasks_created)
-         VALUES (?, ?, ?, ?, ?, ?, 0)`,
-        [prNumber, repo, fetchResult.remote_kind, now, lastCommentId, fetchResult.comments.length],
+          (pr_number, repo, last_fetched_at, last_comment_id)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(pr_number, repo) DO UPDATE SET
+           last_fetched_at = excluded.last_fetched_at,
+           last_comment_id = excluded.last_comment_id`,
+        [prNumber, repo, now, lastCommentId],
       );
 
       return ok(fetchResult);

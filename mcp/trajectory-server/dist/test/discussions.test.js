@@ -376,7 +376,7 @@ describe('discussion_append verified_human gate (#145)', () => {
         assert.ok(data.error.includes('precondition_failed'), `Error must cite precondition_failed: ${data.error}`);
         assert.ok(data.error.includes('verified_human=true'), `Error must mention verified_human=true: ${data.error}`);
     });
-    it('accepts author="human" with verified_human=true; stores verified_human=1', async () => {
+    it('accepts author="human" with verified_human=true', async () => {
         const disc = discussionTools(db);
         const result = await call(disc.handlers, 'discussion_append', {
             agent: 'bro',
@@ -389,9 +389,8 @@ describe('discussion_append verified_human gate (#145)', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         const data = parseResult(result);
         assert.equal(data.author, 'human');
-        assert.equal(data.verified_human, 1, 'verified_human must be stored as 1');
     });
-    it('accepts author="bro" without verified_human; stores verified_human=0', async () => {
+    it('accepts author="bro" without verified_human', async () => {
         const disc = discussionTools(db);
         const result = await call(disc.handlers, 'discussion_append', {
             agent: 'bro',
@@ -403,9 +402,8 @@ describe('discussion_append verified_human gate (#145)', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         const data = parseResult(result);
         assert.equal(data.author, 'bro');
-        assert.equal(data.verified_human, 0);
     });
-    it('accepts consultant authors (ceo, cto, pm) without verified_human; stores verified_human=0', async () => {
+    it('accepts consultant authors (ceo, cto, pm) without verified_human', async () => {
         const disc = discussionTools(db);
         for (const consultantAuthor of ['ceo', 'cto', 'pm']) {
             const result = await call(disc.handlers, 'discussion_append', {
@@ -416,16 +414,7 @@ describe('discussion_append verified_human gate (#145)', () => {
                 body: `${consultantAuthor} analysis entry`,
             });
             assert.ok(!result.isError, `author="${consultantAuthor}" must be accepted: ${JSON.stringify(parseResult(result))}`);
-            const data = parseResult(result);
-            assert.equal(data.verified_human, 0);
         }
-    });
-    it('backward compat: direct INSERT without verified_human column defaults to 0', () => {
-        const now = new Date().toISOString();
-        db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, ?, ?, ?, ?)`, [issueId, 'bro', 'note', 'Legacy row omitting verified_human in INSERT', now]);
-        const rows = db.all(`SELECT verified_human FROM discussions WHERE body = ? LIMIT 1`, ['Legacy row omitting verified_human in INSERT']);
-        assert.equal(rows.length, 1, 'Legacy row must be present');
-        assert.equal(rows[0].verified_human, 0, 'verified_human must default to 0');
     });
 });
 //# sourceMappingURL=discussions.test.js.map

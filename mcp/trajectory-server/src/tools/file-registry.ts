@@ -46,7 +46,6 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 }
 
 const VALID_TYPES = new Set(['source', 'test', 'config', 'doc', 'unknown']);
-const VALID_CHANGE_TYPES = new Set(['added', 'modified', 'deleted', 'renamed']);
 
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 5000;
@@ -66,30 +65,22 @@ function validatePath(path: unknown): string | null {
 }
 
 type FileRegistryRow = {
+  repo: string;
   path: string;
   type: string;
-  language: string | null;
-  size_bytes: number | null;
-  last_commit_sha: string | null;
-  last_change_type: string | null;
-  last_change_at: string | null;
-  imports_json: string;
-  exports_json: string;
-  metadata_json: string;
+  content_md5: string | null;
+  summary: string | null;
+  summary_updated_at: string | null;
 };
 
 function decodeRow(row: FileRegistryRow): Record<string, unknown> {
   return {
+    repo: row.repo,
     path: row.path,
     type: row.type,
-    language: row.language,
-    size_bytes: row.size_bytes,
-    last_commit_sha: row.last_commit_sha,
-    last_change_type: row.last_change_type,
-    last_change_at: row.last_change_at,
-    imports: JSON.parse(row.imports_json),
-    exports: JSON.parse(row.exports_json),
-    metadata: JSON.parse(row.metadata_json),
+    content_md5: row.content_md5,
+    summary: row.summary,
+    summary_updated_at: row.summary_updated_at,
   };
 }
 
@@ -108,39 +99,21 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'file_registry_upsert',
       description:
-        'INSERT OR REPLACE a file record in file_registry. Idempotent — calling twice with the same path replaces the row.',
+        'INSERT OR REPLACE a file record in file_registry. Idempotent — calling twice with the same (repo, path) replaces the row.',
       inputSchema: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'File path (primary key). Max 1024 chars. No ".." segments.',
+            description: 'File path (primary key with repo). Max 1024 chars. No ".." segments.',
           },
           type: {
             type: 'string',
             description: 'One of: source | test | config | doc | unknown',
           },
-          language: { type: 'string', description: 'Programming language, e.g. "typescript"' },
-          size_bytes: { type: 'number', description: 'File size in bytes' },
-          last_commit_sha: { type: 'string', description: 'SHA of the last commit touching this file' },
-          last_change_type: {
+          repo: {
             type: 'string',
-            description: 'One of: added | modified | deleted | renamed (or omit for null)',
-          },
-          last_change_at: { type: 'string', description: 'ISO timestamp of last change' },
-          imports: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of imported module paths (stored as JSON)',
-          },
-          exports: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of exported symbol names (stored as JSON)',
-          },
-          metadata: {
-            type: 'object',
-            description: 'Arbitrary key-value metadata (stored as JSON)',
+            description: 'Repo name from repos table. Defaults to empty string (single-repo project).',
           },
         },
         required: ['path', 'type'],
@@ -149,7 +122,7 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'file_registry_list',
       description:
-        'SELECT from file_registry with optional filters. Returns { rows, count, total }. imports/exports/metadata are decoded back to arrays/objects.',
+        'SELECT from file_registry with optional filters. Returns { rows, count, total }.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -157,7 +130,6 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
             type: 'string',
             description: 'Filter by file type (source | test | config | doc | unknown)',
           },
-          language: { type: 'string', description: 'Filter by language' },
           limit: {
             type: 'number',
             description: `Max rows to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT})`,
@@ -239,79 +211,18 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
         );
       }
 
-      const rawChangeType = args['last_change_type'];
-      if (rawChangeType !== undefined && rawChangeType !== null) {
-        if (typeof rawChangeType !== 'string' || !VALID_CHANGE_TYPES.has(rawChangeType)) {
-          return err(
-            `Invalid last_change_type ${JSON.stringify(rawChangeType)}: must be one of added | modified | deleted | renamed`,
-          );
-        }
-      }
-
-      const rawImports = args['imports'] ?? [];
-      if (!Array.isArray(rawImports) || rawImports.some((v) => typeof v !== 'string')) {
-        return err('imports must be an array of strings');
-      }
-
-      const rawExports = args['exports'] ?? [];
-      if (!Array.isArray(rawExports) || rawExports.some((v) => typeof v !== 'string')) {
-        return err('exports must be an array of strings');
-      }
-
-      const rawMetadata = args['metadata'] ?? {};
-      if (
-        typeof rawMetadata !== 'object' ||
-        rawMetadata === null ||
-        Array.isArray(rawMetadata)
-      ) {
-        return err('metadata must be a plain object');
-      }
-
-      const language = args['language'] !== undefined ? (args['language'] as string | null) : null;
-      const sizeBytes =
-        args['size_bytes'] !== undefined ? (args['size_bytes'] as number | null) : null;
-      const lastCommitSha =
-        args['last_commit_sha'] !== undefined ? (args['last_commit_sha'] as string | null) : null;
-      const lastChangeType =
-        rawChangeType !== undefined && rawChangeType !== null ? (rawChangeType as string) : null;
-      const lastChangeAt =
-        args['last_change_at'] !== undefined ? (args['last_change_at'] as string | null) : null;
-
-      const importsJson = JSON.stringify(rawImports);
-      const exportsJson = JSON.stringify(rawExports);
-      const metadataJson = JSON.stringify(rawMetadata);
+      const repo = typeof args['repo'] === 'string' ? (args['repo'] as string) : '';
 
       db.run(
-        `INSERT INTO file_registry
-           (repo, path, type, language, size_bytes, last_commit_sha, last_change_type, last_change_at, imports_json, exports_json, metadata_json)
-         VALUES ('', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(repo, path) DO UPDATE SET
-           type             = excluded.type,
-           language         = excluded.language,
-           size_bytes       = excluded.size_bytes,
-           last_commit_sha  = excluded.last_commit_sha,
-           last_change_type = excluded.last_change_type,
-           last_change_at   = excluded.last_change_at,
-           imports_json     = excluded.imports_json,
-           exports_json     = excluded.exports_json,
-           metadata_json    = excluded.metadata_json`,
-        [
-          path,
-          type,
-          language,
-          sizeBytes,
-          lastCommitSha,
-          lastChangeType,
-          lastChangeAt,
-          importsJson,
-          exportsJson,
-          metadataJson,
-        ],
+        `INSERT INTO file_registry (repo, path, type)
+         VALUES (?, ?, ?)
+         ON CONFLICT(repo, path) DO UPDATE SET type = excluded.type`,
+        [repo, path, type],
       );
 
       const row = db.get<FileRegistryRow>(
-        `SELECT * FROM file_registry WHERE path = ?`,
-        [path],
+        `SELECT * FROM file_registry WHERE repo = ? AND path = ?`,
+        [repo, path],
       );
 
       return ok(decodeRow(row!));
@@ -324,13 +235,6 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
           return err(
             `Invalid type filter ${JSON.stringify(filterType)}: must be one of source | test | config | doc | unknown`,
           );
-        }
-      }
-
-      const filterLanguage = args['language'];
-      if (filterLanguage !== undefined && filterLanguage !== null) {
-        if (typeof filterLanguage !== 'string') {
-          return err('language filter must be a string');
         }
       }
 
@@ -358,10 +262,6 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
       if (filterType) {
         conditions.push('type = ?');
         params.push(filterType);
-      }
-      if (filterLanguage) {
-        conditions.push('language = ?');
-        params.push(filterLanguage);
       }
 
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -586,12 +486,10 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
 
         if (typeof advance === 'string' && advance.length > 0) {
           db.run(
-            `INSERT INTO plugin_config (key, value_json, updated_at)
-             VALUES ('last_verified_sha', ?, ?)
-             ON CONFLICT(key) DO UPDATE SET
-               value_json = excluded.value_json,
-               updated_at = excluded.updated_at`,
-            [JSON.stringify(advance), now],
+            `INSERT INTO plugin_config (key, value_json)
+             VALUES ('last_verified_sha', ?)
+             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+            [JSON.stringify(advance)],
           );
         }
 

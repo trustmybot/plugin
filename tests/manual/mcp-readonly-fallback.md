@@ -103,7 +103,7 @@ Expected JSON shape:
 {"id": <N>, "issue_id": <N>, "branch_id": "feat/...", "status": "pending", ...}
 ```
 
-Assert: all Task fields present: `id`, `issue_id`, `branch_id`, `parent_branch_id`, `title`, `description`, `tools_required`, `skills_required`, `success_criteria`, `status`, `attempts`, `spec_body`, `commit_sha`, `created_at`, `updated_at`, `completed_at`.
+Assert: all Task fields present: `id`, `issue_id`, `branch_id`, `parent_branch_id`, `title`, `description`, `status`, `attempts`, `spec_body`, `commit_sha`, `repo`, `created_at`, `updated_at`, `completed_at`.
 
 ### 5. task_first_actionable
 

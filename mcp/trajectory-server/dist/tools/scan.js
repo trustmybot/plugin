@@ -126,15 +126,12 @@ function persistScan(db, out) {
     const now = nowISO();
     db.transaction(() => {
         for (const r of out.repos) {
-            db.run(`INSERT INTO repos (name, path, default_branch, head_commit_sha, file_count, last_scanned_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
-           default_branch = excluded.default_branch,
-           head_commit_sha = excluded.head_commit_sha,
            file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at,
-           updated_at = excluded.updated_at`, [r.name, r.path, r.default_branch, r.head_commit_sha, r.file_count, now, now, now]);
+           last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
             repos_upserted++;
         }
         for (const f of out.files) {
@@ -148,8 +145,8 @@ function persistScan(db, out) {
                 : `(SELECT summary FROM file_registry WHERE repo = ? AND path = ?), (SELECT summary_updated_at FROM file_registry WHERE repo = ? AND path = ?)`;
             const summaryArgs = md5Changed ? [] : [f.repo, f.path, f.repo, f.path];
             db.run(`INSERT OR REPLACE INTO file_registry
-           (repo, path, type, size_bytes, last_commit_sha, content_md5, summary, summary_updated_at, imports_json, exports_json, metadata_json)
-         VALUES (?, ?, 'source', ?, ?, ?, ${summaryClause}, '[]', '[]', '{}')`, [f.repo, f.path, f.size_bytes, f.last_commit_sha, f.content_md5, ...summaryArgs]);
+           (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES (?, ?, 'source', ?, ${summaryClause})`, [f.repo, f.path, f.content_md5, ...summaryArgs]);
             files_upserted++;
         }
     });
@@ -230,8 +227,8 @@ export function scanTools(db) {
             const structuralChange = detectStructuralChange(db, out.repos, topDirs);
             // Emit deep_scan_completed audit row. Attach to the system issue
             // (id=-1) — this is a session-level event, not work-issue scoped.
-            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'event', 'deep_scan_completed', ?, ?, ?)`, [
+            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`, [
                 `Scanned ${out.repos.length} repos, ${out.files.length} files (${stats.files_md5_changed} md5-changed) — source=${source}${structuralChange ? ', structural-change' : ''}`,
                 JSON.stringify({
                     ...stats,
@@ -253,7 +250,7 @@ export function scanTools(db) {
             // repos — every fallback path then targeted the wrong project).
             const existing = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
             if (!existing && out.repos.length > 0) {
-                db.run(`INSERT INTO plugin_config (key, value_json, updated_at) VALUES (?, ?, ?)`, ['tmb_default_repo', JSON.stringify(preferredDefaultRepo(out.repos, sessionDir)), nowISO()]);
+                db.run(`INSERT INTO plugin_config (key, value_json) VALUES (?, ?)`, ['tmb_default_repo', JSON.stringify(preferredDefaultRepo(out.repos, sessionDir))]);
             }
             return ok({
                 session_dir: out.session_dir,
@@ -265,7 +262,7 @@ export function scanTools(db) {
             });
         })),
         repos_list: requireRoles('repos_list', ['bro', 'swe', 'pr-reviewer'], wrap(async () => {
-            const rows = db.all(`SELECT name, path, default_branch, head_commit_sha, file_count, last_scanned_at FROM repos ORDER BY name`);
+            const rows = db.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
             return ok({ repos: rows });
         })),
         file_registry_bulk_upsert: requireRoles('file_registry_bulk_upsert', ['bro', 'swe'], wrap(async (args) => {

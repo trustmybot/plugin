@@ -72,7 +72,7 @@ export function reportTools(db) {
                 const placeholders = taskIds.map(() => '?').join(', ');
                 validationAttempts = db.all(`SELECT * FROM validation_attempts WHERE task_id IN (${placeholders}) ORDER BY task_id ASC, attempt_n ASC`, taskIds);
             }
-            const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? AND kind = 'event' ORDER BY id ASC`, [issueId]);
+            const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? ORDER BY id ASC`, [issueId]);
             const skillsUsed = db.all(`SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`);
             const lines = [];
             lines.push(`# Issue Report: ${issue.id}`);

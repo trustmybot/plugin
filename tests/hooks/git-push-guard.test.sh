@@ -75,8 +75,8 @@ insert_task() {
   sqlite3 "$db" "
     INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
       VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
-    INSERT INTO tasks (id, issue_id, branch_id, title, description, success_criteria, status, spec_body, commit_sha, created_at, updated_at)
-      VALUES ($task_id, 1, 'feat/x-$task_id', 'task $task_id', 'd', 'sc', 'closed', '## body', '$sha', datetime('now'), datetime('now'));
+    INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, commit_sha, created_at, updated_at)
+      VALUES ($task_id, 1, 'feat/x-$task_id', 'task $task_id', 'd', 'closed', '## body', '$sha', datetime('now'), datetime('now'));
   " >/dev/null
 }
 

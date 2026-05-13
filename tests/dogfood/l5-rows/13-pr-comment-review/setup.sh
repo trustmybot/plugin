@@ -20,10 +20,10 @@ VALUES (13, 'Add TODO add command', 'Pre-seeded — upstream MR opened on this w
         'closed', datetime('now'), datetime('now'));
 
 INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, title, spec_body,
-                   description, success_criteria, status, commit_sha,
+                   description, status, commit_sha,
                    created_at, updated_at)
 VALUES (13, 13, 'feat/todo-add', 'main', 'Add TODO add command',
-        'See spec.', 'See spec.', 'See success criteria.', 'closed',
+        'See spec.', 'See spec.', 'closed',
         'abcdef1234567890abcdef1234567890abcdef12',
         datetime('now'), datetime('now'));
 SQL

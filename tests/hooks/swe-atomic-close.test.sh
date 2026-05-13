@@ -41,9 +41,6 @@ sqlite3 "$DB" "
     parent_branch_id TEXT,
     title TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
-    tools_required TEXT NOT NULL DEFAULT '[]',
-    skills_required TEXT NOT NULL DEFAULT '[]',
-    success_criteria TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     attempts INTEGER NOT NULL DEFAULT 0,
     spec_body TEXT NOT NULL DEFAULT '',
@@ -56,12 +53,8 @@ sqlite3 "$DB" "
   CREATE TABLE repos (
     name TEXT PRIMARY KEY,
     path TEXT NOT NULL,
-    default_branch TEXT NOT NULL DEFAULT 'main',
-    head_commit_sha TEXT NOT NULL DEFAULT '',
     file_count INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT ''
+    last_scanned_at TEXT NOT NULL DEFAULT ''
   );
   CREATE TABLE agent_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,8 +66,7 @@ sqlite3 "$DB" "
     tokens_total INTEGER NOT NULL DEFAULT 0,
     tool_uses INTEGER NOT NULL DEFAULT 0,
     duration_ms INTEGER NOT NULL DEFAULT 0,
-    completed_at TEXT NOT NULL DEFAULT (datetime('now')),
-    exit_status TEXT NOT NULL DEFAULT 'completed'
+    completed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE plugin_config (
     key TEXT PRIMARY KEY,

@@ -22,7 +22,6 @@ async function seedIssueAndTask(client) {
       branch_id: 'feat/swe-test',
       title: 't',
       description: 'd',
-      success_criteria: 'ok',
       spec_body: '# spec',
     }],
   });
@@ -54,7 +53,6 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     issue_id: issueId,
     branch_id: 'feat/swe-test',
     from_node: 'swe',
-    kind: 'event',
     event_type: 'swe_progress',
     summary: 'wrote initial handler',
   });
@@ -66,7 +64,6 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     agent: 'swe',
     path: 'src/hello.py',
     type: 'file',
-    language: 'python',
   });
   assert.equal(upsert.ok, false, 'file_registry_upsert is currently architect/bro only');
   assert.equal(upsert.error?.error, 'forbidden');
@@ -77,7 +74,6 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     issue_id: issueId,
     branch_id: 'feat/swe-test',
     from_node: 'swe',
-    kind: 'event',
     event_type: 'tool_output_logged',
     summary: 'pytest tests/ — OK: 12 passed',
   });

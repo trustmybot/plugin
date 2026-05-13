@@ -1,7 +1,6 @@
 ---
 name: pm
 description: Consultant. Product strategy + user research framing. Connects user need → feature shape, surfaces evidence gaps.
-tmb_owner: bro
 model: opus
 tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server
 skills: []

@@ -31,9 +31,9 @@ VALUES (11, 'bro', 'decision', 'Decision (row 8): switched TODO storage from JSO
 
 -- Re-register consultants at project-local scope so Agent picks them up
 -- without re-running the template-copy ceremony in this row.
-INSERT OR REPLACE INTO agents (name, kind, scope, file_path, tmb_owner, created_at)
+INSERT OR REPLACE INTO agents (name, kind, scope, file_path, created_at)
 VALUES
-  ('architect', 'consultant', 'project-local', '.claude/agents/architect.md', 'bro', datetime('now')),
-  ('cto',       'consultant', 'project-local', '.claude/agents/cto.md',       'bro', datetime('now')),
-  ('pm',        'consultant', 'project-local', '.claude/agents/pm.md',        'bro', datetime('now'));
+  ('architect', 'consultant', 'project-local', '.claude/agents/architect.md', datetime('now')),
+  ('cto',       'consultant', 'project-local', '.claude/agents/cto.md',       datetime('now')),
+  ('pm',        'consultant', 'project-local', '.claude/agents/pm.md',        datetime('now'));
 SQL

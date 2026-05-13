@@ -60,7 +60,6 @@ describe('agentTools', () => {
       kind: 'consultant',
       scope: 'project-local',
       file_path: '.claude/agents/legal-reviewer.md',
-      tmb_owner: 'bro',
     });
     const row = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
@@ -68,7 +67,6 @@ describe('agentTools', () => {
     assert.equal(row.kind, 'consultant');
     assert.equal(row.scope, 'project-local');
     assert.equal(row.file_path, '.claude/agents/legal-reviewer.md');
-    assert.equal(row.tmb_owner, 'bro');
 
     const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
     assert.ok(count !== undefined);
@@ -86,13 +84,11 @@ describe('agentTools', () => {
       kind: 'consultant',
       scope: 'project-local',
       file_path: '.claude/agents/architect.md',
-      tmb_owner: 'user',
     });
     const firstRow = parseResult(first);
     assert.ok(!first.isError, `Expected no error: ${JSON.stringify(firstRow)}`);
 
     assert.equal(firstRow.scope, 'template', 'Existing row should not be overwritten');
-    assert.equal(firstRow.tmb_owner, 'bro', 'tmb_owner should remain bro from seed');
 
     const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
     assert.ok(count !== undefined);

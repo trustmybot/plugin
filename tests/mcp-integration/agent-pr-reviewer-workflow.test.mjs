@@ -20,7 +20,6 @@ async function seedCompletedTask(client) {
       branch_id: 'feat/pr-test',
       title: 't',
       description: 'd',
-      success_criteria: 'ok',
       spec_body: '# spec',
     }],
   });

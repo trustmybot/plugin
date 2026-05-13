@@ -87,7 +87,6 @@ export function issueTools(db, dbPath = '') {
                 properties: {
                     agent: { type: 'string' },
                     issue_id: { type: 'string' },
-                    post_git_sha: { type: 'string', description: 'Git SHA after issue work is done' },
                 },
                 required: ['agent', 'issue_id'],
             },
@@ -189,7 +188,7 @@ export function issueTools(db, dbPath = '') {
                         _cwd: resolveSpawnCwd(db, dbPath),
                     });
                     if (!isSyncFailure(syncResult)) {
-                        db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);
+                        db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);
                     }
                     else {
                         serverLog({
@@ -264,22 +263,14 @@ export function issueTools(db, dbPath = '') {
         issue_close: requireRoles('issue_close', ['bro'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
-            const postGitSha = args['post_git_sha'] ?? null;
             const now = nowISO();
             const existing = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             if (!existing) {
                 throw new Error(`Not found: ${issueId}`);
             }
-            if (postGitSha !== null) {
-                db.run(`UPDATE issues
-           SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?), post_commit_hash = ?
-           WHERE id = ?`, [now, now, postGitSha, issueId]);
-            }
-            else {
-                db.run(`UPDATE issues
-           SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-           WHERE id = ?`, [now, now, issueId]);
-            }
+            db.run(`UPDATE issues
+         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
+         WHERE id = ?`, [now, now, issueId]);
             const remoteRow = db.get(`SELECT remote_iid, remote_kind FROM issues WHERE id = ?`, [issueId]);
             if (remoteRow?.remote_iid != null && remoteRow.remote_kind != null) {
                 const closeResult = await syncIssueClose({
@@ -420,7 +411,7 @@ export function issueTools(db, dbPath = '') {
                 _cwd: resolveSpawnCwd(db, dbPath),
             });
             if (!isSyncFailure(syncResult)) {
-                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);
+                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, issueId]);
                 return ok({ action: 'create', success: true, remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind });
             }
             // #2871: surface the diagnostic so bro can see why the create failed

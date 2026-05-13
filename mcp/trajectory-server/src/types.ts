@@ -2,28 +2,24 @@ export interface Issue {
   id: number;
   objective: string;
   description: string;
-  post_commit_hash: string | null;
   status: string;
   created_at: string;
   updated_at: string;
   closed_at: string | null;
   remote_iid?: number | null;
   remote_kind?: 'github' | 'gitlab' | null;
-  remote_synced_at?: string | null;
 }
 
 export interface IssueRow {
   id: number;
   objective: string;
   description: string;
-  post_commit_hash: string | null;
   status: string;
   created_at: string;
   updated_at: string;
   closed_at: string | null;
   remote_iid: number | null;
   remote_kind: 'github' | 'gitlab' | null;
-  remote_synced_at: string | null;
 }
 
 export interface Task {
@@ -35,9 +31,6 @@ export interface Task {
   parent_branch_id: string | null;
   title: string;
   description: string;
-  tools_required: string;
-  skills_required: string;
-  success_criteria: string;
   status: string;
   attempts: number;
   spec_body: string;
@@ -56,7 +49,6 @@ export interface Discussion {
   kind: string;
   body: string;
   created_at: string;
-  verified_human: number;
 }
 
 export interface AuditEventEntry {
@@ -64,11 +56,9 @@ export interface AuditEventEntry {
   issue_id: number;
   branch_id: string | null;
   from_node: string;
-  kind: 'event';
-  event_type: string | null;
-  summary: string | null;
+  event_type: string;
+  summary: string;
   content_json: string;
-  is_truncated: number;
   created_at: string;
 }
 
@@ -96,38 +86,23 @@ export interface TaskInput {
   parent_branch_id?: string;
   title?: string;
   description: string;
-  tools_required?: string[];
-  skills_required?: string[];
-  success_criteria: string;
   spec_body?: string;
   /** Optional relative path to the git repo for this task. Must not contain ".." or start with "/". */
   repo?: string;
 }
 
 export interface FileRegistryRow {
+  repo: string;
   path: string;
   type: string;
-  language: string | null;
-  size_bytes: number | null;
-  last_commit_sha: string | null;
-  last_change_type: string | null;
-  last_change_at: string | null;
-  imports_json: string;
-  exports_json: string;
-  metadata_json: string;
+  content_md5: string | null;
+  summary: string | null;
+  summary_updated_at: string | null;
 }
 
 export interface PluginConfigRow {
   key: string;
   value_json: string;
-  updated_at: string;
-}
-
-export interface IdentityRow {
-  id: number;
-  human_name: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface ValidationAttemptsRow {

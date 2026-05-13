@@ -160,8 +160,8 @@ setup_detached_worktree_repo() {
     sqlite3 .claude/tmb/trajectory.db "
       INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
         VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
-      INSERT INTO tasks (id, issue_id, branch_id, title, description, success_criteria, status, spec_body, created_at, updated_at)
-        VALUES (1, 1, 'feat/cli-todo', 'test task', 'd', 'sc', 'pending', '', datetime('now'), datetime('now'));
+      INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+        VALUES (1, 1, 'feat/cli-todo', 'test task', 'd', 'pending', '', datetime('now'), datetime('now'));
     " >/dev/null
   )
   REPO_PATH="$dir"

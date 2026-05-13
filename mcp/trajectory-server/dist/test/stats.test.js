@@ -18,7 +18,7 @@ describe('statsTools — task_stats', () => {
         const now = nowISO();
         db.run("INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES (?, '', 'open', ?, ?)", ['test issue', now, now]);
         const issueId = db.get('SELECT last_insert_rowid() AS id').id;
-        db.run("INSERT INTO tasks (issue_id, branch_id, title, description, success_criteria, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'criteria', 'pending', ?, ?)", [issueId, now, now]);
+        db.run("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'pending', ?, ?)", [issueId, now, now]);
         const taskId = db.get('SELECT last_insert_rowid() AS id').id;
         const result = await call(tools.handlers, 'task_stats', { agent: 'bro', task_id: taskId });
         assert.ok(!result.isError);
@@ -41,10 +41,10 @@ describe('statsTools — task_stats', () => {
         const now = nowISO();
         db.run("INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES (?, '', 'open', ?, ?)", ['test issue', now, now]);
         const issueId = db.get('SELECT last_insert_rowid() AS id').id;
-        db.run("INSERT INTO tasks (issue_id, branch_id, title, description, success_criteria, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'criteria', 'pending', ?, ?)", [issueId, now, now]);
+        db.run("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'pending', ?, ?)", [issueId, now, now]);
         const taskId = db.get('SELECT last_insert_rowid() AS id').id;
-        db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at, exit_status) VALUES (?, ?, 'swe', 100, 200, 300, 5, 1000, datetime('now'), 'completed')", [taskId, issueId]);
-        db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at, exit_status) VALUES (?, ?, 'swe', 150, 250, 400, 8, 2000, datetime('now'), 'completed')", [taskId, issueId]);
+        db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 100, 200, 300, 5, 1000, datetime('now'))", [taskId, issueId]);
+        db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 150, 250, 400, 8, 2000, datetime('now'))", [taskId, issueId]);
         const result = await call(tools.handlers, 'task_stats', { agent: 'bro', task_id: taskId });
         assert.ok(!result.isError);
         const payload = parseResult(result);
@@ -95,7 +95,7 @@ describe('statsTools — task_stats', () => {
         const now = nowISO();
         db.run("INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES (?, '', 'open', ?, ?)", ['test issue', now, now]);
         const issueId = db.get('SELECT last_insert_rowid() AS id').id;
-        db.run("INSERT INTO tasks (issue_id, branch_id, title, description, success_criteria, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'criteria', 'pending', ?, ?)", [issueId, now, now]);
+        db.run("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'pending', ?, ?)", [issueId, now, now]);
         const taskId = db.get('SELECT last_insert_rowid() AS id').id;
         for (const agent of ['bro', 'swe', 'architect', 'cto', 'legal-reviewer', 'pr-reviewer']) {
             const result = await call(tools.handlers, 'task_stats', { agent, task_id: taskId });

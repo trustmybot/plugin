@@ -31,9 +31,9 @@ INSERT INTO issues (id, objective, description, status, created_at, updated_at)
 VALUES (1, 'Seed todo CLI', 'pre-seed for push-gate flow', 'open',
         datetime('now'), datetime('now'));
 INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, title, spec_body,
-                   description, success_criteria, status, commit_sha, created_at, updated_at)
+                   description, status, commit_sha, created_at, updated_at)
 VALUES (1, 1, 'feat/seed-todo', 'main', 'Seed todo CLI',
-        '## Files\ntodo.py\n', '', '', 'needs_validation', '$SEED_SHA',
+        '## Files\ntodo.py\n', '', 'needs_validation', '$SEED_SHA',
         datetime('now'), datetime('now'));
 SQL
 

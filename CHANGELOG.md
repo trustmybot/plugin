@@ -4,6 +4,17 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Changed (breaking — pre-release schema slim)
+
+- 🧹 **Schema cleanup — dropped dead columns + collapsed the migration layer.** Production-data audit (run against `eb1` and the dev fixture) showed ~25 columns across 14 tables that were either never written, never read, or constant-by-construction. Dropped them all in one pass. Pre-release means no migration shim — `db.ts` shed every `migrateXxx` helper (~250 lines), `schema.sql` is now the single source of truth applied via `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`. Users on rc bumps re-init `.claude/<plugin>/trajectory.db`.
+  - **Workflow side:** `issues.{post_commit_hash, remote_synced_at}`, `tasks.{tools_required, skills_required, success_criteria}` (the spec lives in `spec_body`; `task_create_batch` no longer requires `success_criteria`), `audit.{kind, is_truncated}` (kind was CHECK-constrained to a single value), `discussions.verified_human` (the human-author gate stays at write time; the stored flag was never read), `roundtables.{status, ratification_received_at}` (status superseded by `state`), `roundtable_votes.agent` (legacy duplicate of `participant`).
+  - **Registry side:** `skills.{tags, when_to_use, when_not_to_use, failures, created_by}`, `agents.tmb_owner`, `agent_runs.exit_status` (constant `'completed'` from the only writer), `repos.{default_branch, head_commit_sha, created_at, updated_at}`, `plugin_config.updated_at`, `plugin_meta.updated_at`, `eval_results.metadata_json`, `debug_trajectory.{tokens_in, tokens_out, latency_ms}` (eval-mode columns never populated).
+  - **file_registry:** dropped the 8 derived-metadata columns (`language`, `size_bytes`, `last_commit_sha`, `last_change_type`, `last_change_at`, `imports_json`, `exports_json`, `metadata_json`) flagged all-NULL in production. Only `repo`, `path`, `type`, `content_md5`, `summary`, `summary_updated_at` remain.
+  - **Renderers retired:** `mcp/trajectory-server/src/renderers/{changelog,codebase-tree,erd,module-graph,types}.ts` deleted along with their four test files — the scan-side renderer pass was inert and the columns it consumed are gone. Auto-rendered templates in `templates/docs-trustmybot/architecture/auto/*.md` remain as inert placeholders.
+- ✨ **Wired the `/monitor` incremental-polling cursor.** `pr_review_runs` was redesigned to `(id, pr_number, repo, last_fetched_at, last_comment_id)` with a UNIQUE index on `(pr_number, repo)`. `pr_comments_get` now reads `last_fetched_at` from the prior row and passes it as the `since=` filter, then upserts the cursor on exit. Prior shape (`comments_processed`, `tasks_created`, `remote_kind`, `created_at`) was pure telemetry no consumer read. Net result: re-running `/monitor 42` fetches only new comments instead of re-paginating every time.
+- 🪪 **Manifest-shape lint accepts SemVer pre-release tags.** `tests/lint/manifest-shape.sh` now matches `X.Y.Z` or `X.Y.Z-<pre>` (so `0.6.0-rc.1` validates).
+- 🔧 **bro inputSchema slim.** `task_create_batch`'s task-item schema drops the (now-unwritten) `tools_required` / `skills_required` / `success_criteria` properties.
+
 ## v0.6.0-rc.1 — 2026-05-12
 
 ### Changed

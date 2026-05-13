@@ -46,7 +46,6 @@ async function createTask(
       {
         branch_id: branchId,
         description: 'Test task',
-        success_criteria: 'Done',
       },
     ],
   });
@@ -55,12 +54,7 @@ async function createTask(
 }
 
 describe('auditTools', () => {
-  // The kind='tool_call' branch was retired in #179 (always-empty in
-  // production data; tool-call records live in debug_trajectory). The
-  // tests below verify the current event-only contract: small + large
-  // content_json payloads, plus that tool_call calls are rejected.
-
-  it('audit_log kind=event stores small content_json intact', async () => {
+  it('audit_log stores small content_json intact', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
@@ -69,7 +63,6 @@ describe('auditTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
-      kind: 'event',
       event_type: 'planning_complete',
       summary: 'Plan done',
       content_json: JSON.stringify({ cmd: 'echo hi' }),
@@ -78,15 +71,13 @@ describe('auditTools', () => {
     const row = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
     assert.equal(row.issue_id, issueId);
-    assert.equal(row.kind, 'event');
     assert.equal(row.event_type, 'planning_complete');
-    assert.equal(row.is_truncated, 0);
     assert.equal(row.content_json, JSON.stringify({ cmd: 'echo hi' }));
 
     db.close();
   });
 
-  it('audit_log kind=event truncates content_json > 1 MB and sets is_truncated = 1', async () => {
+  it('audit_log truncates content_json > 1 MB', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
@@ -97,7 +88,6 @@ describe('auditTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
-      kind: 'event',
       event_type: 'planning_complete',
       summary: 'Plan done',
       content_json: bigContent,
@@ -105,28 +95,7 @@ describe('auditTools', () => {
 
     const row = parseResult(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-    assert.equal(row.is_truncated, 1);
     assert.ok(row.content_json.length < bigContent.length, 'content_json should be truncated');
-
-    db.close();
-  });
-
-  it('audit_log rejects kind=tool_call (retired in #179)', async () => {
-    const db = tempDB();
-    const issueId = await createIssue(db);
-    const tools = auditTools(db);
-
-    const result = await call(tools.handlers, 'audit_log', {
-      agent: 'bro',
-      issue_id: String(issueId),
-      from_node: 'executor',
-      kind: 'tool_call',
-      tool_name: 'bash',
-    });
-
-    assert.ok(result.isError, 'Expected error for retired kind=tool_call');
-    const data = parseResult(result);
-    assert.match(data.error, /tool_call/i);
 
     db.close();
   });
@@ -259,7 +228,6 @@ describe('skillTools', () => {
       description: 'A test skill',
       file_path: 'skills/my-skill.md',
       trust_tier: 'agent',
-      created_by: 'swe',
     });
 
     const result = await call(tools.handlers, 'skill_record_outcome', {
@@ -287,7 +255,6 @@ describe('skillTools', () => {
       description: 'A test skill',
       file_path: 'skills/my-skill.md',
       trust_tier: 'agent',
-      created_by: 'swe',
     });
 
     const result = await call(tools.handlers, 'skill_promote', {
@@ -314,7 +281,6 @@ describe('skillTools', () => {
       description: 'A test skill',
       file_path: 'skills/my-skill.md',
       trust_tier: 'agent',
-      created_by: 'swe',
     });
 
     const result = await call(tools.handlers, 'skill_promote', {
@@ -343,7 +309,6 @@ describe('reportTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'swe',
-      kind: 'event',
       event_type: 'task_started',
       summary: 'SWE began work',
     });

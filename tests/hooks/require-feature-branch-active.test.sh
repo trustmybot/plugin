@@ -46,8 +46,8 @@ insert_task() {
   sqlite3 "$db" "
     INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
       VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
-    INSERT INTO tasks (id, issue_id, branch_id, title, description, success_criteria, status, spec_body, created_at, updated_at)
-      VALUES ($task_id, 1, '$branch_id', 'task $task_id', 'd', 'sc', 'pending', '## body', datetime('now'), datetime('now'));
+    INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+      VALUES ($task_id, 1, '$branch_id', 'task $task_id', 'd', 'pending', '## body', datetime('now'), datetime('now'));
   " >/dev/null
 }
 
@@ -154,12 +154,12 @@ WS_DB="$WORKSPACE/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WS_DB")"
 sqlite3 "$WS_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 sqlite3 "$WS_DB" "
-  INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at)
-    VALUES ('tmb_default_repo', '\"plugin\"', datetime('now'));
+  INSERT OR REPLACE INTO plugin_config (key, value_json)
+    VALUES ('tmb_default_repo', '\"plugin\"');
   INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
-  INSERT INTO tasks (id, issue_id, branch_id, title, description, success_criteria, status, spec_body, repo, created_at, updated_at)
-    VALUES (10, 1, 'fix/1-foo', 'task 10', 'd', 'sc', 'pending', '', NULL, datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+    VALUES (10, 1, 'fix/1-foo', 'task 10', 'd', 'pending', '', NULL, datetime('now'), datetime('now'));
 " >/dev/null
 REPO_PATH="$INNER_REPO"
 payload=$(make_payload "swe" "task_id=10 You are SWE.")
@@ -187,8 +187,8 @@ sqlite3 "$WS_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/nul
 sqlite3 "$WS_DB" "
   INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
-  INSERT INTO tasks (id, issue_id, branch_id, title, description, success_criteria, status, spec_body, repo, created_at, updated_at)
-    VALUES (11, 1, 'fix/1-foo', 'task 11', 'd', 'sc', 'pending', '', NULL, datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+    VALUES (11, 1, 'fix/1-foo', 'task 11', 'd', 'pending', '', NULL, datetime('now'), datetime('now'));
 " >/dev/null
 REPO_PATH="$WORKSPACE"
 payload=$(make_payload "swe" "task_id=11 You are SWE.")

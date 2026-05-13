@@ -869,7 +869,7 @@ describe('taskTools', () => {
     });
     it('task_create_batch defaults repo to tmb_default_repo config when task.repo omitted', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '"plugin"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"plugin"')`);
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const result = await call(tools.handlers, 'task_create_batch', {

@@ -29,10 +29,10 @@ else
       fail "$PLUGIN_MANIFEST missing required field: $field"
     fi
   done
-  # version must be semver-like
+  # version must be semver-like: X.Y.Z or X.Y.Z-<pre> (rc.1, alpha.2, etc.)
   ver=$(jq -r '.version' "$PLUGIN_MANIFEST")
-  if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    fail "$PLUGIN_MANIFEST .version '$ver' is not a valid semver (X.Y.Z)"
+  if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+    fail "$PLUGIN_MANIFEST .version '$ver' is not a valid semver (X.Y.Z or X.Y.Z-<pre>)"
   fi
   pass "$PLUGIN_MANIFEST has all required fields and a valid semver"
 fi

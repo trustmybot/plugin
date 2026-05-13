@@ -5,14 +5,12 @@ CREATE TABLE IF NOT EXISTS issues (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     objective         TEXT    NOT NULL,
     description       TEXT    NOT NULL DEFAULT '',
-    post_commit_hash  TEXT,
     status            TEXT    NOT NULL DEFAULT 'open',
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     closed_at         TEXT,
     remote_iid        INTEGER,
-    remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
-    remote_synced_at  DATETIME
+    remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab'))
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -22,9 +20,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     parent_branch_id  TEXT,
     title             TEXT    NOT NULL DEFAULT '',
     description       TEXT    NOT NULL,
-    tools_required    TEXT    NOT NULL DEFAULT '[]',
-    skills_required   TEXT    NOT NULL DEFAULT '[]',
-    success_criteria  TEXT    NOT NULL,
     status            TEXT    NOT NULL DEFAULT 'pending',
     attempts          INTEGER NOT NULL DEFAULT 0,
     spec_body         TEXT    NOT NULL DEFAULT '',
@@ -42,18 +37,9 @@ CREATE TABLE IF NOT EXISTS audit (
     issue_id     INTEGER NOT NULL REFERENCES issues(id),
     branch_id    TEXT,
     from_node    TEXT    NOT NULL DEFAULT 'executor',
-
-    -- All audit rows are kind='event'. The kind='tool_call' branch was retired
-    -- in #179 (always-empty across production data; tool-call records live in
-    -- debug_trajectory). The CHECK keeps 'event' as the only valid value so
-    -- writers fail loudly if they regress to the old discriminator.
-    kind         TEXT    NOT NULL DEFAULT 'event' CHECK(kind = 'event'),
-
     event_type   TEXT    NOT NULL,
     summary      TEXT    NOT NULL,
     content_json TEXT    NOT NULL DEFAULT '{}',
-
-    is_truncated INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL
 );
 
@@ -81,15 +67,10 @@ CREATE TABLE IF NOT EXISTS skills (
     name            TEXT    NOT NULL UNIQUE,
     description     TEXT    NOT NULL,
     file_path       TEXT    NOT NULL,
-    tags            TEXT    NOT NULL DEFAULT '[]',
-    created_by      TEXT    NOT NULL DEFAULT 'system',
     trust_tier      TEXT    NOT NULL DEFAULT 'curated',
     status          TEXT    NOT NULL DEFAULT 'active',
-    when_to_use     TEXT    NOT NULL DEFAULT '',
-    when_not_to_use TEXT    NOT NULL DEFAULT '',
     uses            INTEGER NOT NULL DEFAULT 0,
     successes       INTEGER NOT NULL DEFAULT 0,
-    failures        INTEGER NOT NULL DEFAULT 0,
     effectiveness   REAL,
     created_at      TEXT    NOT NULL,
     updated_at      TEXT    NOT NULL
@@ -101,34 +82,33 @@ CREATE TABLE IF NOT EXISTS agents (
     kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
     scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
     file_path   TEXT    NOT NULL,
-    tmb_owner   TEXT    NOT NULL DEFAULT 'bro' CHECK (tmb_owner IN ('bro','user-adopted','user')),
     status      TEXT    NOT NULL DEFAULT 'active',
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO agents (name, kind, scope, file_path, tmb_owner) VALUES
-    ('swe',          'backbone',   'global',   'agents/swe.md',                 'bro'),
-    ('pr-reviewer',  'backbone',   'global',   'agents/pr-reviewer.md',         'bro'),
-    ('architect',    'consultant', 'template', 'templates/agents/architect.md', 'bro'),
-    ('cto',          'consultant', 'template', 'templates/agents/cto.md',       'bro'),
-    ('ceo',          'consultant', 'template', 'templates/agents/ceo.md',       'bro'),
-    ('pm',           'consultant', 'template', 'templates/agents/pm.md',        'bro');
+INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
+    ('swe',          'backbone',   'global',   'agents/swe.md'),
+    ('pr-reviewer',  'backbone',   'global',   'agents/pr-reviewer.md'),
+    ('architect',    'consultant', 'template', 'templates/agents/architect.md'),
+    ('cto',          'consultant', 'template', 'templates/agents/cto.md'),
+    ('ceo',          'consultant', 'template', 'templates/agents/ceo.md'),
+    ('pm',           'consultant', 'template', 'templates/agents/pm.md');
 
 -- Schema-seed the bundled tmb_* skills (#2884). Without this seed the skills
 -- table sits empty on every install — none of the shipped skills register
 -- themselves at session start. Mirrors the `agents` seed pattern above.
 -- Descriptions come from each SKILL.md's frontmatter (kept short — full
 -- routing logic lives in the SKILL.md body, this row is just the index).
-INSERT OR IGNORE INTO skills (name, description, file_path, created_by, trust_tier, status, created_at, updated_at) VALUES
-    ('tmb_planning',           'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'system', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_concerns-protocol',  'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'system', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_recovery',           'Bro''s response when something fails — AskUserQuestion errors / TMB_HEADLESS=1, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                  'skills/tmb_recovery/SKILL.md',           'system', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_review',             'Review surface — pr-reviewer''s qualitative phases at the push gate, bro''s PR/MR comment triage flow, and bro''s push-time orchestration.',                                                                 'skills/tmb_review/SKILL.md',             'system', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_swe-checklist',      'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'system', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_docs-conventions',   'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'system', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_skill-creator',      'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'system', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_agent-creator',      'Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn.',                  'skills/tmb_agent-creator/SKILL.md',      'system', 'curated', 'active', datetime('now'), datetime('now'));
+INSERT OR IGNORE INTO skills (name, description, file_path, trust_tier, status, created_at, updated_at) VALUES
+    ('tmb_planning',           'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_concerns-protocol',  'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_recovery',           'Bro''s response when something fails — AskUserQuestion errors / TMB_HEADLESS=1, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                  'skills/tmb_recovery/SKILL.md',           'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_review',             'Review surface — pr-reviewer''s qualitative phases at the push gate, bro''s PR/MR comment triage flow, and bro''s push-time orchestration.',                                                                 'skills/tmb_review/SKILL.md',             'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_swe-checklist',      'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_docs-conventions',   'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_skill-creator',      'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_agent-creator',      'Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn.',                  'skills/tmb_agent-creator/SKILL.md',      'curated', 'active', datetime('now'), datetime('now'));
 
 -- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
 -- discussion writes that don't belong to any user-created work issue. The
@@ -146,21 +126,18 @@ CREATE TABLE IF NOT EXISTS roundtables (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id                INTEGER NOT NULL REFERENCES issues(id),
     topic                   TEXT    NOT NULL,
-    status                  TEXT    NOT NULL DEFAULT 'open',
     outcome                 TEXT    NOT NULL DEFAULT '',
     created_at              TEXT    NOT NULL,
     closed_at               TEXT,
     state                   TEXT    NOT NULL DEFAULT 'collecting'
                               CHECK (state IN ('collecting','awaiting_human','closed','skipped')),
-    expected_participants   INTEGER,
-    ratification_received_at TEXT
+    expected_participants   INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS roundtable_votes (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     roundtable_id  INTEGER NOT NULL REFERENCES roundtables(id),
-    agent          TEXT    NOT NULL,
-    participant    TEXT,
+    participant    TEXT    NOT NULL,
     vote           TEXT    NOT NULL,
     rationale      TEXT    NOT NULL DEFAULT '',
     created_at     TEXT    NOT NULL
@@ -172,8 +149,7 @@ CREATE TABLE IF NOT EXISTS discussions (
     author         TEXT    NOT NULL,
     kind           TEXT    NOT NULL DEFAULT 'note',
     body           TEXT    NOT NULL,
-    created_at     TEXT    NOT NULL,
-    verified_human INTEGER NOT NULL DEFAULT 0
+    created_at     TEXT    NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
@@ -182,8 +158,7 @@ CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
 CREATE TABLE IF NOT EXISTS plugin_meta (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     schema_version INTEGER NOT NULL,
-    plugin_version TEXT    NOT NULL,
-    updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+    plugin_version TEXT    NOT NULL
 );
 
 INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 1, '0.0.0');
@@ -194,34 +169,17 @@ INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1
 CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
-    default_branch    TEXT    NOT NULL DEFAULT 'main',
-    head_commit_sha   TEXT    NOT NULL DEFAULT '',
     file_count        INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-    created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS file_registry (
     repo                TEXT NOT NULL DEFAULT '',
     path                TEXT NOT NULL,
     type                TEXT NOT NULL DEFAULT 'unknown',
-    language            TEXT,
-    size_bytes          INTEGER,
-    last_commit_sha     TEXT,
-    last_change_type    TEXT,
-    last_change_at      TEXT,
-    imports_json        TEXT NOT NULL DEFAULT '[]',
-    exports_json        TEXT NOT NULL DEFAULT '[]',
-    metadata_json       TEXT NOT NULL DEFAULT '{}',
     -- Codebase-memory columns (#45). content_md5 is the cheap drift probe;
     -- summary is the LLM-generated summary written by bro on Read or by SWE
     -- at atomic-close; summary_updated_at gates staleness.
-    -- NOTE: the 8 derived-metadata columns above (language/size_bytes/etc.)
-    -- are always-empty in production (#179 audit) but kept in the schema for
-    -- the module-graph renderer + the scan-side renderer pass (currently
-    -- inert; see #2881 follow-up). Drop deferred to a follow-up PR that also
-    -- rewrites those consumers.
     content_md5         TEXT,
     summary             TEXT,
     summary_updated_at  TEXT,
@@ -230,25 +188,23 @@ CREATE TABLE IF NOT EXISTS file_registry (
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    value_json TEXT NOT NULL
 );
 
 -- Default policy keys, seeded at DB init so bro never has to "apply defaults"
 -- on first contact. Modern-agent UX: the system gives bro working state out
 -- of the box; the user changes anything via tmb_reonboard. INSERT OR IGNORE
 -- makes this safe to re-run on existing DBs (no overwrite of user choices).
-INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at) VALUES
-    ('branching_model',    '"github-flow"', datetime('now')),
-    ('pr_target',          '"main"',        datetime('now')),
-    ('protected_branches', '["main"]',      datetime('now')),
-    ('remotes',            '[]',            datetime('now')),
-    ('issue_sync',         '"off"',         datetime('now'));
+INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
+    ('branching_model',    '"github-flow"'),
+    ('pr_target',          '"main"'),
+    ('protected_branches', '["main"]'),
+    ('remotes',            '[]'),
+    ('issue_sync',         '"off"');
 
 -- The "onboarded" marker lives in plugin_config now (#2876). The legacy
 -- identity table was a single-row marker with no columns of meaning —
--- folded into plugin_config('onboarded': true). Migration in db.ts
--- (`migrateDropIdentityTable`) carries the marker forward on next boot.
+-- folded into plugin_config('onboarded': true).
 
 -- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
 -- via swe-atomic-close.sh on every SWE completion. Zero overhead when the
@@ -263,24 +219,22 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     tokens_total INTEGER NOT NULL DEFAULT 0,
     tool_uses    INTEGER NOT NULL DEFAULT 0,
     duration_ms  INTEGER NOT NULL DEFAULT 0,
-    -- started_at retired in #179 (never written; only completed_at is set).
-    completed_at TEXT    NOT NULL,
-    exit_status  TEXT    NOT NULL DEFAULT 'completed'
+    completed_at TEXT    NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
 
+-- Incremental polling state for the /monitor flow (#2886 follow-up). One row
+-- per (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the
+-- next `since` query; `last_comment_id` is the comment-id cursor when the
+-- backend supports id-based deltas (gh REST does; glab uses created_at).
 CREATE TABLE IF NOT EXISTS pr_review_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pr_number INTEGER NOT NULL,
   repo TEXT NOT NULL,
-  remote_kind TEXT NOT NULL CHECK(remote_kind IN ('github','gitlab')),
   last_fetched_at DATETIME NOT NULL,
-  last_comment_id TEXT,
-  comments_processed INTEGER NOT NULL DEFAULT 0,
-  tasks_created INTEGER NOT NULL DEFAULT 0,
-  created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+  last_comment_id TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo);

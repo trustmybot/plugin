@@ -12,7 +12,6 @@ import assert from 'node:assert/strict';
 import { startClient, call } from '../mcp-integration/harness.mjs';
 
 async function setupClosedTask(client, branch, sha) {
-  await call(client, 'identity_set', { agent: 'bro' });
   const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd' });
   const issueId = issue.data.id;
   const batch = await call(client, 'task_create_batch', {
@@ -25,7 +24,7 @@ async function setupClosedTask(client, branch, sha) {
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
     waive_decision_gate: true,
     waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
-    tasks: [{ branch_id: branch, title: 't', description: 'd', success_criteria: 's', spec_body: '## body' }],
+    tasks: [{ branch_id: branch, title: 't', description: 'd', spec_body: '## body' }],
   });
   const taskId = batch.data[0].id;
   await call(client, 'task_update_status', {

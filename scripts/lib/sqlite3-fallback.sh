@@ -3,7 +3,7 @@
 # Each wrapper:
 #   1. Validates the agent has the role required for the underlying MCP tool
 #   2. Performs the equivalent INSERT/UPDATE via sqlite3 directly
-#   3. Synthesizes an audit row (kind='event', event_type=mcp_unavailable_fallback_invoked)
+#   3. Synthesizes an audit row (event_type=mcp_unavailable_fallback_invoked)
 #      capturing operation + agent + timestamp
 # All wrappers fail-loud (echo error to stderr + return non-zero) when:
 #   - DB cannot be located
@@ -51,8 +51,8 @@ _tmb_fallback_audit_log() {
   local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
   local extra_json_esc; extra_json_esc=$(printf '%s' "$extra_json" | sed "s/'/''/g")
   sqlite3 "$db" <<SQL 2>/dev/null || true
-INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-VALUES (0, '', '$agent', 'event', 'mcp_unavailable_fallback_invoked', 'sqlite3 fallback used for $tool', '$extra_json_esc', '$ts');
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (0, '', '$agent', 'mcp_unavailable_fallback_invoked', 'sqlite3 fallback used for $tool', '$extra_json_esc', '$ts');
 SQL
 }
 
@@ -118,33 +118,26 @@ tmb_fallback_audit_log() {
   local content_esc; content_esc=$(printf '%s' "$content" | sed "s/'/''/g")
   local branch_esc; branch_esc=$(printf '%s' "$branch_id" | sed "s/'/''/g")
   sqlite3 "$db" <<SQL
-INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-VALUES ($issue_id, '$branch_esc', '$from_node', 'event', '$event_type', '$summary_esc', '$content_esc', '$ts');
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES ($issue_id, '$branch_esc', '$from_node', '$event_type', '$summary_esc', '$content_esc', '$ts');
 SQL
   _tmb_fallback_audit_log "$db" audit_log "$agent" "{\"issue_id\":$issue_id,\"event_type\":\"$event_type\"}"
 }
 
 # tmb_fallback_issue_close <issue_id> <agent> [post_git_sha]
+# post_git_sha kept positional for backward-compat with callers, but no longer
+# persisted (issues.post_commit_hash dropped). Pass-through is a no-op.
 tmb_fallback_issue_close() {
-  local issue_id="$1" agent="$2" post_git_sha="${3:-}"
+  local issue_id="$1" agent="$2"
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role issue_close "$agent" || return 1
   local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  if [ -n "$post_git_sha" ]; then
-    local sha_esc; sha_esc=$(printf '%s' "$post_git_sha" | sed "s/'/''/g")
-    sqlite3 "$db" <<SQL
-UPDATE issues
-SET status = 'closed', updated_at = '$ts', closed_at = COALESCE(closed_at, '$ts'), post_commit_hash = '$sha_esc'
-WHERE id = $issue_id;
-SQL
-  else
-    sqlite3 "$db" <<SQL
+  sqlite3 "$db" <<SQL
 UPDATE issues
 SET status = 'closed', updated_at = '$ts', closed_at = COALESCE(closed_at, '$ts')
 WHERE id = $issue_id;
 SQL
-  fi
   _tmb_fallback_audit_log "$db" issue_close "$agent" "{\"issue_id\":$issue_id}"
 }
 

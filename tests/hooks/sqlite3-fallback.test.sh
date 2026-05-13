@@ -20,11 +20,7 @@ CREATE TABLE issues (
   id INTEGER PRIMARY KEY,
   objective TEXT NOT NULL DEFAULT '',
   description TEXT NOT NULL DEFAULT '',
-  pre_commit_hash TEXT NOT NULL DEFAULT '',
-  post_commit_hash TEXT,
   status TEXT NOT NULL DEFAULT 'open',
-  current_task_id INTEGER,
-  labels TEXT,
   created_at TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT '',
   closed_at TEXT
@@ -36,9 +32,6 @@ CREATE TABLE tasks (
   parent_branch_id TEXT,
   title TEXT NOT NULL DEFAULT '',
   description TEXT NOT NULL DEFAULT '',
-  tools_required TEXT NOT NULL DEFAULT '[]',
-  skills_required TEXT NOT NULL DEFAULT '[]',
-  success_criteria TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending',
   attempts INTEGER NOT NULL DEFAULT 0,
   spec_body TEXT NOT NULL DEFAULT '',
@@ -52,16 +45,9 @@ CREATE TABLE audit (
   issue_id INTEGER NOT NULL DEFAULT 0,
   branch_id TEXT,
   from_node TEXT NOT NULL DEFAULT 'executor',
-  kind TEXT NOT NULL DEFAULT 'event',
   event_type TEXT,
   summary TEXT,
   content_json TEXT NOT NULL DEFAULT '{}',
-  round INTEGER NOT NULL DEFAULT 0,
-  tool_name TEXT,
-  tool_args TEXT NOT NULL DEFAULT '{}',
-  output TEXT NOT NULL DEFAULT '',
-  output_chars INTEGER NOT NULL DEFAULT 0,
-  is_truncated INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE TABLE validation_attempts (
@@ -85,14 +71,6 @@ CREATE TABLE discussions (
 CREATE TABLE file_registry (
   path TEXT PRIMARY KEY,
   type TEXT NOT NULL DEFAULT 'unknown',
-  language TEXT,
-  size_bytes INTEGER,
-  last_commit_sha TEXT,
-  last_change_type TEXT,
-  last_change_at TEXT,
-  imports_json TEXT NOT NULL DEFAULT '[]',
-  exports_json TEXT NOT NULL DEFAULT '[]',
-  metadata_json TEXT NOT NULL DEFAULT '{}',
   content_md5 TEXT,
   summary TEXT,
   summary_updated_at TEXT
@@ -194,7 +172,7 @@ assert_eq "it's bro's note" "$body" "single-quote in body"
 
 test_case "audit_log happy path: row inserted"
 call_lib "tmb_fallback_audit_log 1 'fix/test' bro planning_complete 'done' '{}' bro" >/dev/null
-count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='planning_complete' AND kind='event';")
+count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='planning_complete';")
 assert_eq "1" "$count" "audit_log row"
 
 test_case "audit_log happy path: audit self-row written"
@@ -221,12 +199,6 @@ closed_at=$(sqlite3 "$DB" "SELECT closed_at FROM issues WHERE id=1;")
 test_case "issue_close happy path: audit row written"
 count=$(audit_count_for "issue_close")
 assert_eq "1" "$count" "audit row after issue_close"
-
-test_case "issue_close with post_git_sha: post_commit_hash written"
-sqlite3 "$DB" "UPDATE issues SET status='open', closed_at=NULL WHERE id=1;"
-call_lib "tmb_fallback_issue_close 1 bro deadbeef" >/dev/null
-sha=$(sqlite3 "$DB" "SELECT post_commit_hash FROM issues WHERE id=1;")
-assert_eq "deadbeef" "$sha" "post_commit_hash"
 
 test_case "issue_close role rejection: swe not allowed"
 out=$(call_lib "tmb_fallback_issue_close 1 swe" 2>&1 || true)

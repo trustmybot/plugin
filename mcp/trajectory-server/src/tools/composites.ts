@@ -267,16 +267,14 @@ export function compositeTools(
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                tools_required, skills_required, success_criteria,
                 status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, '[]', '[]', ?, 'pending', 0, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
               failed.parent_branch_id ?? failed.branch_id,
               title,
               description,
-              successCriteria,
               spec,
               failed.repo,
               now,
@@ -291,8 +289,8 @@ export function compositeTools(
 
           db.run(
             `INSERT INTO audit
-               (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
-             VALUES (?, ?, 'bro', 'event', 'task_retry_attempted', ?, ?, 0, ?)`,
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'task_retry_attempted', ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -363,8 +361,8 @@ export function compositeTools(
           // 1. bro_verification_pass audit row.
           db.run(
             `INSERT INTO audit
-               (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
-             VALUES (?, ?, 'bro', 'event', 'bro_verification_pass', ?, ?, 0, ?)`,
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`,
             [
               task.issue_id,
               task.branch_id,
@@ -455,12 +453,11 @@ export function compositeTools(
 
           // Advance last_verified_sha — invariant the close-gate hook checks.
           db.run(
-            `INSERT INTO plugin_config (key, value_json, updated_at)
-             VALUES ('last_verified_sha', ?, ?)
+            `INSERT INTO plugin_config (key, value_json)
+             VALUES ('last_verified_sha', ?)
              ON CONFLICT(key) DO UPDATE SET
-               value_json = excluded.value_json,
-               updated_at = excluded.updated_at`,
-            [JSON.stringify(commitSha), now],
+               value_json = excluded.value_json`,
+            [JSON.stringify(commitSha)],
           );
 
           // 3. flip task to closed.

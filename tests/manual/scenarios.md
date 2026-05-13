@@ -147,7 +147,7 @@ Validates the `tmb_agent-creator` collision flow.
 
 **Setup:**
 1. Fresh scratch project (or any project without `.claude/agents/legal-reviewer.md`).
-2. Hand-create `<project>/.claude/agents/legal-reviewer.md` with minimal content + no `tmb_owner` field:
+2. Hand-create `<project>/.claude/agents/legal-reviewer.md` with minimal content:
    ```yaml
    ---
    name: legal-reviewer
@@ -160,9 +160,9 @@ Validates the `tmb_agent-creator` collision flow.
 
 **Expect:**
 - bro detects the collision, shows a unified diff, calls AskUserQuestion with 3 options (Skip / Adopt+manage / Overwrite).
-- **Pick Skip** → file unchanged, no `tmb_owner` added; audit has `tmb_agent_collision_skipped` event.
-- **Pick Adopt + manage** → file content unchanged BUT frontmatter now has `tmb_owner: user-adopted`; audit has `tmb_agent_adopted` event.
-- **Pick Overwrite** → file content replaced with template/from-scratch; frontmatter has `tmb_owner: bro`; audit has `tmb_agent_overwritten` event.
+- **Pick Skip** → file unchanged; audit has `tmb_agent_collision_skipped` event.
+- **Pick Adopt + manage** → file content unchanged; audit has `tmb_agent_adopted` event.
+- **Pick Overwrite** → file content replaced with template/from-scratch; audit has `tmb_agent_overwritten` event.
 
 **Headless variant:** with `TMB_HEADLESS=1`, the same flow halts before any of the three writes.
 
@@ -202,7 +202,7 @@ surfaces, and follow-up issue creation.
 
 **Expect — Phase 5 (finalize):**
 - ONE `roundtable_finalize_decisions(ratified=[...], unratified=[...], resolutions=[...])`
-  call. Server writes all discussion + vote rows atomically; sets `ratification_received_at`.
+  call. Server writes all discussion + vote rows atomically.
 - Attempting `roundtable_close` BEFORE `roundtable_finalize_decisions` results
   in `precondition_failed` (no human votes yet).
 
@@ -219,7 +219,7 @@ surfaces, and follow-up issue creation.
 **DB verification (via sqlite3 or MCP):**
 ```sql
 -- State machine columns
-SELECT id, topic, state, status, expected_participants, ratification_received_at, closed_at
+SELECT id, topic, state, expected_participants, closed_at
 FROM roundtables WHERE issue_id = <N>;
 
 -- 1. kind='analysis' rows (one per participant)
@@ -229,16 +229,16 @@ SELECT author, kind, body FROM discussions WHERE issue_id = <N> AND kind = 'anal
 SELECT author, kind, body FROM discussions WHERE issue_id = <N> AND kind IN ('answer','decision');
 
 -- 3. roundtable record state
-SELECT id, topic, state, status, outcome, closed_at FROM roundtables WHERE issue_id = <N>;
+SELECT id, topic, state, outcome, closed_at FROM roundtables WHERE issue_id = <N>;
 
 -- 4. vote attribution (participant column)
 SELECT participant, vote, rationale FROM roundtable_votes WHERE roundtable_id = <id>;
 
 -- 5. audit event summary
-SELECT event_type, summary FROM audit WHERE issue_id = <N> AND kind = 'event' AND event_type = 'roundtable_summary';
+SELECT event_type, summary FROM audit WHERE issue_id = <N> AND event_type = 'roundtable_summary';
 ```
 
-All five surfaces must have data; `state='closed'`, `ratification_received_at` non-null.
+All five surfaces must have data; `state='closed'`.
 
 **Optional local mirror:**
 ```bash
@@ -299,7 +299,6 @@ git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing trac
 
 **Expect — Phase 3 (fetch):**
 - `pr_comments_get` returns all 5 comments.
-- `remote_kind` matches the backend (gh or glab).
 
 **Expect — Phase 5 (classify):**
 - Comment D filtered as `author_kind='bot'`.
@@ -326,12 +325,11 @@ git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing trac
 
 **Expect — Phase 10 (state update):**
 ```sql
-SELECT pr_number, comments_processed, tasks_created, last_comment_id
+SELECT pr_number, repo, last_fetched_at, last_comment_id
 FROM pr_review_runs
 WHERE pr_number = 42;
 ```
-- `comments_processed` = 5 (all fetched, including bot and informational).
-- `tasks_created` = 2 or 3 (matching dispatched count).
+- A single row per (pr_number, repo); `last_fetched_at` advanced on each fetch.
 - `last_comment_id` is non-null.
 
 **DB verification:**

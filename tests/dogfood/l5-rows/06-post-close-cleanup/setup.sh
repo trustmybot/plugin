@@ -64,8 +64,8 @@ EXISTING_REPO=$(sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
 REPO_NAME="${EXISTING_REPO:-todo-cli}"
 
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
-INSERT OR REPLACE INTO repos (name, path, default_branch)
-VALUES ('$REPO_NAME', '$PROJECT_REAL', 'main');
+INSERT OR REPLACE INTO repos (name, path)
+VALUES ('$REPO_NAME', '$PROJECT_REAL');
 
 INSERT OR REPLACE INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
 VALUES ('$REPO_NAME', 'src/auth.py', 'source', '$content_md5', NULL, NULL);

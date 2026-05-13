@@ -107,26 +107,6 @@ describe('TrajectoryDB', () => {
             rmSync(tmpDir, { recursive: true, force: true });
         }
     });
-    it('migratePluginMetaDuplicates collapses pre-existing duplicates to id=1 (GL #23)', () => {
-        const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-db-test-'));
-        try {
-            const dbPath = join(tmpDir, 'trajectory.db');
-            const db1 = new TrajectoryDB(dbPath);
-            db1.run(`INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (?, ?, ?)`, [2, 1, '0.0.0']);
-            db1.close();
-            const db2 = new TrajectoryDB(dbPath);
-            const count = db2.get('SELECT COUNT(*) AS cnt FROM plugin_meta');
-            assert.ok(count !== undefined);
-            assert.equal(count.cnt, 1, 'migration must collapse duplicates to 1 row');
-            const surviving = db2.get('SELECT id FROM plugin_meta');
-            assert.ok(surviving !== undefined);
-            assert.equal(surviving.id, 1, 'surviving row must be id=1');
-            db2.close();
-        }
-        finally {
-            rmSync(tmpDir, { recursive: true, force: true });
-        }
-    });
     it('updates plugin_version on next init when manifest version changes', () => {
         const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-test-'));
         try {

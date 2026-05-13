@@ -1,6 +1,5 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -102,23 +101,20 @@ export function configTools(db: TrajectoryDB): {
         return err('config value not JSON-serializable');
       }
 
-      const now = nowISO();
       db.run(
-        `INSERT INTO plugin_config (key, value_json, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET
-           value_json = excluded.value_json,
-           updated_at = excluded.updated_at`,
-        [key, valueJson, now],
+        `INSERT INTO plugin_config (key, value_json)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+        [key, valueJson],
       );
 
-      return ok({ key, updated_at: now });
+      return ok({ key });
     })),
 
     config_get: wrapHandler(async (args) => {
       const key = args['key'] as string;
-      const row = db.get<{ key: string; value_json: string; updated_at: string }>(
-        `SELECT key, value_json, updated_at FROM plugin_config WHERE key = ?`,
+      const row = db.get<{ key: string; value_json: string }>(
+        `SELECT key, value_json FROM plugin_config WHERE key = ?`,
         [key],
       );
 

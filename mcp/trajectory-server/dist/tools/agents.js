@@ -25,7 +25,6 @@ function wrapHandler(fn) {
 }
 const VALID_KINDS = new Set(['backbone', 'consultant']);
 const VALID_SCOPES = new Set(['global', 'template', 'project-local']);
-const VALID_TMB_OWNERS = new Set(['bro', 'user-adopted', 'user']);
 export function agentTools(db) {
     const definitions = [
         {
@@ -51,7 +50,6 @@ export function agentTools(db) {
                     kind: { type: 'string', enum: ['backbone', 'consultant'] },
                     scope: { type: 'string', enum: ['global', 'template', 'project-local'] },
                     file_path: { type: 'string' },
-                    tmb_owner: { type: 'string', enum: ['bro', 'user-adopted', 'user'] },
                 },
                 required: ['agent', 'name', 'kind', 'scope', 'file_path'],
             },
@@ -75,18 +73,14 @@ export function agentTools(db) {
             const kind = requireArg(args, 'kind');
             const scope = requireArg(args, 'scope');
             const filePath = requireArg(args, 'file_path');
-            const tmbOwner = args['tmb_owner'] ?? 'bro';
             if (!VALID_KINDS.has(kind)) {
                 throw new Error(`Invalid kind: "${kind}". Allowed values: ${[...VALID_KINDS].join(', ')}`);
             }
             if (!VALID_SCOPES.has(scope)) {
                 throw new Error(`Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES].join(', ')}`);
             }
-            if (!VALID_TMB_OWNERS.has(tmbOwner)) {
-                throw new Error(`Invalid tmb_owner: "${tmbOwner}". Allowed values: ${[...VALID_TMB_OWNERS].join(', ')}`);
-            }
-            db.run(`INSERT OR IGNORE INTO agents (name, kind, scope, file_path, tmb_owner)
-         VALUES (?, ?, ?, ?, ?)`, [name, kind, scope, filePath, tmbOwner]);
+            db.run(`INSERT OR IGNORE INTO agents (name, kind, scope, file_path)
+         VALUES (?, ?, ?, ?)`, [name, kind, scope, filePath]);
             const row = db.get('SELECT * FROM agents WHERE name = ?', [name]);
             return ok(row);
         }),

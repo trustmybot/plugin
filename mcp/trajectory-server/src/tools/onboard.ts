@@ -117,12 +117,11 @@ function readConfig(db: TrajectoryDB, key: string): unknown {
 }
 
 function writeConfig(db: TrajectoryDB, key: string, value: unknown): void {
-  const now = nowISO();
   db.run(
-    `INSERT INTO plugin_config (key, value_json, updated_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
-    [key, JSON.stringify(value), now],
+    `INSERT INTO plugin_config (key, value_json)
+     VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+    [key, JSON.stringify(value)],
   );
 }
 

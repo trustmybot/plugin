@@ -109,7 +109,7 @@ test('task_create_batch — rejects when issue has 0 question rows and no waiver
   const attempt = await call(client, 'task_create_batch', {
     agent: 'bro',
     issue_id: issueId,
-    tasks: [{ branch_id: 'feat/gate-fail', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'feat/gate-fail', description: 'd' }],
   });
 
   assert.equal(attempt.ok, false, 'must be rejected');
@@ -153,7 +153,7 @@ test('task_create_batch — accepts when a kind=question row exists', async (t) 
     waive_intent_gate_reason: 'scope-gate test; intent gate not under test in this case',
     waive_decision_gate: true,
     waive_decision_gate_reason: 'scope-gate test; decision gate not under test in this case',
-    tasks: [{ branch_id: 'feat/gate-ok', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'feat/gate-ok', description: 'd' }],
   });
 
   assert.equal(attempt.ok, true, `should be accepted with question present: ${JSON.stringify(attempt)}`);
@@ -181,7 +181,7 @@ test('task_create_batch — accepts with waiver + reason ≥10 chars', async (t)
     waive_intent_gate_reason: 'scope-gate test; intent gate not under test in this case',
     waive_decision_gate: true,
     waive_decision_gate_reason: 'scope-gate test; decision gate not under test in this case',
-    tasks: [{ branch_id: 'fix/readme-typo', description: 'fix recieve', success_criteria: 'green spellcheck' }],
+    tasks: [{ branch_id: 'fix/readme-typo', description: 'fix recieve' }],
   });
 
   assert.equal(attempt.ok, true, `waiver with valid reason must be accepted: ${JSON.stringify(attempt)}`);
@@ -203,7 +203,7 @@ test('task_create_batch — rejects waiver with missing/short reason', async (t)
     agent: 'bro',
     issue_id: issueId,
     waive_scope_gate: true,
-    tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'fix/x', description: 'd' }],
   });
   assert.equal(noReason.ok, false);
   assert.match(noReason.error?.error ?? '', /waive_scope_gate_reason/);
@@ -214,7 +214,7 @@ test('task_create_batch — rejects waiver with missing/short reason', async (t)
     issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'short',
-    tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'fix/x', description: 'd' }],
   });
   assert.equal(shortReason.ok, false);
   assert.match(shortReason.error?.error ?? '', /≥10|>=10|\b10 chars\b/);
@@ -260,7 +260,7 @@ test('task_create_batch — registry_cold_gate rejects when no deep_scan_complet
     waive_scope_gate_reason: 'gate-test: scope-gate not under test here',
     waive_branch_gate: true,
     waive_branch_gate_reason: 'gate-test: branch-gate not under test here',
-    tasks: [{ branch_id: 'fix/gate', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'fix/gate', description: 'd' }],
   });
   assert.equal(result.ok, false);
   assert.equal(result.error.error, 'registry_cold_violation');
@@ -282,7 +282,6 @@ test('task_create_batch — registry_cold_gate clears after a deep_scan_complete
     agent: 'bro',
     issue_id: '-1',
     from_node: 'bro',
-    kind: 'event',
     event_type: 'deep_scan_completed',
     summary: 'manual seed (gate test)',
   });
@@ -299,7 +298,7 @@ test('task_create_batch — registry_cold_gate clears after a deep_scan_complete
     waive_intent_gate_reason: 'gate-test: intent-gate not under test here',
     waive_decision_gate: true,
     waive_decision_gate_reason: 'gate-test: triage-gate not under test here',
-    tasks: [{ branch_id: 'fix/unlock', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'fix/unlock', description: 'd' }],
   });
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.ok(Array.isArray(result.data));
@@ -330,7 +329,7 @@ test('task_create_batch — waive_registry_gate accepts an explicit reason ≥10
     waive_decision_gate_reason: 'gate-test: triage-gate not under test here',
     waive_registry_gate: true,
     waive_registry_gate_reason: 'scratch fixture; scan cannot run here',
-    tasks: [{ branch_id: 'fix/waived', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'fix/waived', description: 'd' }],
   });
   assert.equal(result.ok, true, JSON.stringify(result));
 });
@@ -355,7 +354,7 @@ test('task_create_batch — waive_registry_gate rejects too-short reason', async
     waive_branch_gate_reason: 'gate-test: branch-gate not under test here',
     waive_registry_gate: true,
     waive_registry_gate_reason: 'short',
-    tasks: [{ branch_id: 'fix/waived', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'fix/waived', description: 'd' }],
   });
   assert.equal(result.ok, false);
   assert.match(result.error.error ?? '', /waive_registry_gate_reason|≥10/);
@@ -382,7 +381,7 @@ test('task_create_batch — intent_gate rejects when no kind=intent discussion e
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
   await call(client, 'audit_log', {
-    agent: 'bro', issue_id: issueId, from_node: 'bro', kind: 'event',
+    agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
   // Triage note exists so decision gate clears; intent does NOT.
@@ -393,7 +392,7 @@ test('task_create_batch — intent_gate rejects when no kind=intent discussion e
   const result = await call(client, 'task_create_batch', {
     agent: 'bro',
     issue_id: issueId,
-    tasks: [{ branch_id: 'feat/x', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'feat/x', description: 'd' }],
   });
   assert.equal(result.ok, false);
   assert.equal(result.error?.error, 'intent_gate_violation');
@@ -417,7 +416,7 @@ test('task_create_batch — decision_gate rejects when no kind=decision discussi
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
   await call(client, 'audit_log', {
-    agent: 'bro', issue_id: issueId, from_node: 'bro', kind: 'event',
+    agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
   await call(client, 'discussion_append', {
@@ -428,7 +427,7 @@ test('task_create_batch — decision_gate rejects when no kind=decision discussi
   const result = await call(client, 'task_create_batch', {
     agent: 'bro',
     issue_id: issueId,
-    tasks: [{ branch_id: 'feat/x', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'feat/x', description: 'd' }],
   });
   assert.equal(result.ok, false);
   assert.equal(result.error?.error, 'decision_gate_violation');
@@ -452,7 +451,7 @@ test('task_create_batch — decision_gate clears when a kind=decision discussion
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
   await call(client, 'audit_log', {
-    agent: 'bro', issue_id: issueId, from_node: 'bro', kind: 'event',
+    agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
   await call(client, 'discussion_append', {
@@ -466,7 +465,7 @@ test('task_create_batch — decision_gate clears when a kind=decision discussion
   const result = await call(client, 'task_create_batch', {
     agent: 'bro',
     issue_id: issueId,
-    tasks: [{ branch_id: 'feat/x', description: 'd', success_criteria: 'x' }],
+    tasks: [{ branch_id: 'feat/x', description: 'd' }],
   });
   assert.equal(result.ok, true, JSON.stringify(result));
 });
@@ -509,7 +508,6 @@ test('roundtable_create — slash-invoke gate clears after a /roundtable audit l
     agent: 'bro',
     issue_id: '-1',
     from_node: 'system',
-    kind: 'event',
     event_type: 'roundtable_slash_invoked',
     summary: 'manual seed (gate test)',
   });

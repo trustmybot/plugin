@@ -68,7 +68,7 @@ const GLAB_SAMPLE = JSON.stringify({
 describe('pr_comments_get — GitHub backend', () => {
     it('returns structured comments from gh pr view output', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"gh"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
         const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
         const result = (await tools.handlers['pr_comments_get']({
             agent: 'bro',
@@ -94,7 +94,7 @@ describe('pr_comments_get — GitHub backend', () => {
     });
     it('filters comments by since timestamp', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"gh"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
         const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
         const result = (await tools.handlers['pr_comments_get']({
             agent: 'bro',
@@ -109,7 +109,7 @@ describe('pr_comments_get — GitHub backend', () => {
     });
     it('returns error when gh command fails', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"gh"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
         const tools = prCommentsTools(db, makeSpawnFn([{ status: 1, stdout: '', stderr: 'auth error' }]));
         const result = (await tools.handlers['pr_comments_get']({
             agent: 'bro',
@@ -120,20 +120,34 @@ describe('pr_comments_get — GitHub backend', () => {
         assert.ok(data.error.includes('Failed to fetch'), `Error should mention fetch failure: ${data.error}`);
         db.close();
     });
-    it('writes a pr_review_runs row on success', async () => {
+    it('writes a pr_review_runs row on success (upsert by (pr_number, repo))', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"gh"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
         const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
         await tools.handlers['pr_comments_get']({
             agent: 'bro',
             pr_number: 7,
             repo: 'owner/repo',
         });
-        const row = db.get(`SELECT pr_number, comments_processed, remote_kind FROM pr_review_runs WHERE pr_number = 7`);
+        const row = db.get(`SELECT pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs WHERE pr_number = 7`);
         assert.ok(row, 'pr_review_runs row should exist');
         assert.equal(row.pr_number, 7);
-        assert.equal(row.comments_processed, 3);
-        assert.equal(row.remote_kind, 'github');
+        assert.equal(row.repo, 'owner/repo');
+        assert.ok(row.last_fetched_at, 'last_fetched_at should be set');
+        assert.equal(row.last_comment_id, 'rc1');
+        db.close();
+    });
+    it('upserts by (pr_number, repo): re-fetching the same PR overwrites the existing row', async () => {
+        const db = tempDB();
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+        const tools = prCommentsTools(db, makeSpawnFn([
+            { status: 0, stdout: GH_SAMPLE, stderr: '' },
+            { status: 0, stdout: GH_SAMPLE, stderr: '' },
+        ]));
+        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 8, repo: 'owner/repo' });
+        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 8, repo: 'owner/repo' });
+        const rows = db.all(`SELECT id FROM pr_review_runs WHERE pr_number = 8 AND repo = ?`, ['owner/repo']);
+        assert.equal(rows.length, 1, 'UPSERT must keep exactly one row per (pr_number, repo)');
         db.close();
     });
     it('rejects non-bro callers', async () => {
@@ -165,7 +179,7 @@ describe('pr_comments_get — GitLab backend', () => {
     });
     it('returns structured comments from glab mr view output', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"glab"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
         const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GLAB_SAMPLE, stderr: '' }]));
         const result = (await tools.handlers['pr_comments_get']({
             agent: 'bro',
@@ -188,7 +202,7 @@ describe('pr_comments_get — GitLab backend', () => {
     });
     it('filters GitLab comments by since timestamp', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"glab"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
         const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GLAB_SAMPLE, stderr: '' }]));
         const result = (await tools.handlers['pr_comments_get']({
             agent: 'bro',
@@ -204,7 +218,7 @@ describe('pr_comments_get — GitLab backend', () => {
 describe('pr_comments_get — issue_sync=off', () => {
     it('works when issue_sync=off (independent of issue-sync config)', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"off"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"off"')`);
         const tools = prCommentsTools(db, makeSpawnFn([
             { status: 0, stdout: '', stderr: '' },
             { status: 0, stdout: GH_SAMPLE, stderr: '' },
@@ -217,31 +231,21 @@ describe('pr_comments_get — issue_sync=off', () => {
         const data = parseResult(result);
         assert.equal(data.remote_kind, 'github');
         assert.equal(data.comments.length, 3);
-        const row = db.get(`SELECT pr_number, comments_processed FROM pr_review_runs WHERE pr_number = 20`);
+        const row = db.get(`SELECT pr_number, last_comment_id FROM pr_review_runs WHERE pr_number = 20`);
         assert.ok(row, 'pr_review_runs row should exist');
-        assert.equal(row.comments_processed, 3);
+        assert.equal(row.pr_number, 20);
         db.close();
     });
 });
 describe('pr_review_runs table state capture', () => {
     it('records last_comment_id from final comment', async () => {
         const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"gh"', datetime('now'))`);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
         const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
         await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 10 });
         const row = db.get(`SELECT last_comment_id FROM pr_review_runs WHERE pr_number = 10`);
         assert.ok(row, 'Row should exist');
         assert.equal(row.last_comment_id, 'rc1', 'last_comment_id should be the last comment id');
-        db.close();
-    });
-    it('records tasks_created=0 on initial insert (updated post-dispatch)', async () => {
-        const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('issue_sync', '"gh"', datetime('now'))`);
-        const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 11 });
-        const row = db.get(`SELECT tasks_created FROM pr_review_runs WHERE pr_number = 11`);
-        assert.ok(row, 'Row should exist');
-        assert.equal(row.tasks_created, 0);
         db.close();
     });
 });

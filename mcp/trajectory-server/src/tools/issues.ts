@@ -108,7 +108,6 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string' },
-          post_git_sha: { type: 'string', description: 'Git SHA after issue work is done' },
         },
         required: ['agent', 'issue_id'],
       },
@@ -226,7 +225,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           });
           if (!isSyncFailure(syncResult)) {
             db.run(
-              `UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`,
+              `UPDATE issues SET remote_iid = ?, remote_kind = ? WHERE id = ?`,
               [syncResult.remote_iid, syncResult.remote_kind, issueId],
             );
           } else {
@@ -313,7 +312,6 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
 
-      const postGitSha = (args['post_git_sha'] as string | undefined) ?? null;
       const now = nowISO();
 
       const existing = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
@@ -321,21 +319,12 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         throw new Error(`Not found: ${issueId}`);
       }
 
-      if (postGitSha !== null) {
-        db.run(
-          `UPDATE issues
-           SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?), post_commit_hash = ?
-           WHERE id = ?`,
-          [now, now, postGitSha, issueId],
-        );
-      } else {
-        db.run(
-          `UPDATE issues
-           SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-           WHERE id = ?`,
-          [now, now, issueId],
-        );
-      }
+      db.run(
+        `UPDATE issues
+         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
+         WHERE id = ?`,
+        [now, now, issueId],
+      );
 
       const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null }>(
         `SELECT remote_iid, remote_kind FROM issues WHERE id = ?`,
@@ -520,7 +509,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
 
       if (!isSyncFailure(syncResult)) {
         db.run(
-          `UPDATE issues SET remote_iid = ?, remote_kind = ?, remote_synced_at = datetime('now') WHERE id = ?`,
+          `UPDATE issues SET remote_iid = ?, remote_kind = ? WHERE id = ?`,
           [syncResult.remote_iid, syncResult.remote_kind, issueId],
         );
         return ok({ action: 'create', success: true, remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind });

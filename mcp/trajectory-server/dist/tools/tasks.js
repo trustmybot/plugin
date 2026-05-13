@@ -84,9 +84,6 @@ export function taskTools(db) {
                                 parent_branch_id: { type: 'string' },
                                 title: { type: 'string' },
                                 description: { type: 'string' },
-                                tools_required: { type: 'array', items: { type: 'string' } },
-                                skills_required: { type: 'array', items: { type: 'string' } },
-                                success_criteria: { type: 'string' },
                                 spec_body: {
                                     type: 'string',
                                     description: 'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 8000 chars — over this, the architect should split into multiple tasks via depends_on, or cite existing code/conventions rather than restating them. See issue #55.',
@@ -98,7 +95,7 @@ export function taskTools(db) {
                                         'Used by the WorktreeCreate hook to route worktree creation to the right repo.',
                                 },
                             },
-                            required: ['branch_id', 'description', 'success_criteria'],
+                            required: ['branch_id', 'description'],
                         },
                     },
                     waive_scope_gate: {
@@ -254,7 +251,7 @@ export function taskTools(db) {
                 }
             }
             // --- Branch-id-proposal gate (MCP-level enforcement, #155) ---
-            // task_create_batch must be preceded by an audit event (kind='event') with
+            // task_create_batch must be preceded by an audit event with
             // event_type='branch_id_proposed' for this issue. Stops bro from spawning
             // SWE without first running tmb_planning §Step 2 (which calls
             // branch_id_propose, asks the Human to confirm, runs git switch -c, and
@@ -267,7 +264,7 @@ export function taskTools(db) {
                 }
             }
             else {
-                const proposed = db.get(`SELECT COUNT(*) as c FROM audit WHERE issue_id = ? AND kind = 'event' AND event_type = 'branch_id_proposed'`, [issueId]);
+                const proposed = db.get(`SELECT COUNT(*) as c FROM audit WHERE issue_id = ? AND event_type = 'branch_id_proposed'`, [issueId]);
                 if ((proposed?.c ?? 0) === 0) {
                     return {
                         isError: true,
@@ -303,7 +300,7 @@ export function taskTools(db) {
                 }
             }
             else {
-                const scanRow = db.get(`SELECT COUNT(*) as c FROM audit WHERE kind = 'event' AND event_type = 'deep_scan_completed'`);
+                const scanRow = db.get(`SELECT COUNT(*) as c FROM audit WHERE event_type = 'deep_scan_completed'`);
                 if ((scanRow?.c ?? 0) === 0) {
                     return {
                         isError: true,
@@ -410,8 +407,6 @@ export function taskTools(db) {
                         validateParentBranchId(t.parent_branch_id);
                     if (!t.description)
                         throw new Error('Missing required arg: description');
-                    if (!t.success_criteria)
-                        throw new Error('Missing required arg: success_criteria');
                     if (t.spec_body !== undefined) {
                         if (typeof t.spec_body !== 'string') {
                             throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
@@ -473,17 +468,13 @@ export function taskTools(db) {
                     void genId('task');
                     db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                tools_required, skills_required, success_criteria,
                 status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`, [
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`, [
                         issueId,
                         t.branch_id,
                         parentBranchId,
                         t.title ?? '',
                         t.description,
-                        JSON.stringify(t.tools_required ?? []),
-                        JSON.stringify(t.skills_required ?? []),
-                        t.success_criteria,
                         t.spec_body ?? '',
                         repoValue,
                         now,
@@ -512,8 +503,8 @@ export function taskTools(db) {
                     });
                     const fromNode = args['agent'] ?? 'bro';
                     db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, kind, event_type, summary, content_json, is_truncated, created_at)
-             VALUES (?, ?, ?, 'event', 'planning_complete', ?, ?, 0, ?)`, [issueId, branchForAudit, fromNode, summary, contentJson, now]);
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`, [issueId, branchForAudit, fromNode, summary, contentJson, now]);
                 }
                 return results;
             });
@@ -521,8 +512,8 @@ export function taskTools(db) {
             // tasks that skipped the alignment loop.
             if (waived) {
                 const now = nowISO();
-                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-           VALUES (?, ?, ?, 'event', 'scope_gate_waived', ?, ?, ?)`, [
+                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`, [
                     issueId,
                     inserted[0]?.branch_id ?? '',
                     args['agent'],
