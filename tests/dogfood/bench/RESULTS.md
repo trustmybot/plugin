@@ -177,6 +177,71 @@ resolved sets is a per-task win.
 
 ---
 
+## Cost-vs-outcome tradeoff
+
+TMB likely uses **more tokens per task** than the simple agentic scaffolds
+we compared against. That's expected — Opus orchestration + plugin
+context isn't free. The question worth asking is **what those extra
+tokens buy.**
+
+### What we can say with public data
+
+**Per-task cost/time data for our 4 comparators is not published.**
+The `swe-bench/experiments` submissions ship `metadata.yaml` + a
+`results.json` listing only the resolved task IDs. Real trajectories
+live on a private S3 bucket
+(`s3://swe-bench-submissions/`) with no public listing. We can't pull
+exact comparator per-task spend.
+
+### TMB's spend on these 8 tasks
+
+| Metric | TMB-on (these 8 tasks) | Comparators (these 8 tasks) |
+|---|---|---|
+| Tasks resolved | **8 / 8** | 0 / 8 each |
+| Total spend | $17.33 | unpublished, but ≥ $0 per attempt × N harnesses |
+| Per resolved task | **$2.17** | undefined (zero resolves) |
+| Hallucination rate | **0 / 8** | unmeasured |
+
+### Reference points (apples-to-oranges — NOT the comparators we A/B'd)
+
+Anthropic + Princeton publish aggregate cost on `swebench.com` for
+**newer** 2026 submissions using the `mini-SWE-agent v2` harness on
+full SWE-bench Verified (500 tasks, random distribution including
+easy tasks):
+
+| Model + harness | Avg. $/task | % Resolved | Implied $/resolved |
+|---|---|---|---|
+| Claude Opus 4.6 + mini-SWE-agent v2 | $0.55 | 75.6% | ~$0.73 |
+| Claude 4.5 Opus + mini-SWE-agent v2 | $0.75 | 76.8% | ~$0.98 |
+| Claude 4.5 Sonnet + mini-SWE-agent v2 | $0.66 | 71.4% | ~$0.92 |
+
+These are on **full Verified** (mix of easy + hard) and use a **newer
+harness + newer model** than our comparator. Not a direct apples-to-apples
+with TMB-on-curated-hard. Don't read this table as "TMB is 3× more
+expensive than Opus 4.6" — they're priced on a different mix of tasks
+(mostly tasks that one-shot resolve quickly).
+
+### The honest tradeoff framing
+
+- **On a random representative slice**, TMB likely costs more per task
+  than the cheapest single-model harness. We haven't measured this; the
+  multi-task chained bench is where we'd quantify it.
+- **On tasks the cheap harness can't crack**, TMB's per-task cost is a
+  trade for outcomes — comparators paid SOME cost on these 8 tasks
+  (single-attempt failures still spend tokens) and got 0/8 resolves.
+  TMB paid $17.33 and got 8/8.
+- **TMB's value is in correctness, not throughput.** The 0/8
+  hallucination rate is the load-bearing claim. A cheaper harness that
+  resolves 70% with an unknown hallucination rate isn't the same product
+  as TMB resolving harder tasks with verified-correct outcomes.
+
+This framing is what we can say honestly. The fully-fair "TMB vs
+comparator $/task on the same task IDs" comparison requires either
+running our own raw-Opus baseline ($10-20) or getting the comparator's
+S3 trajectories. Neither has been done.
+
+---
+
 ## Investigation notes
 
 ### Doctrine ceremony didn't engage on any of the 8 runs
