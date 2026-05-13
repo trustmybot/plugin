@@ -12,6 +12,19 @@ export const BRANCH_ID_RE =
 
 const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
 
+// Hard cap on tasks.spec_body. Architect should cite existing code/conventions
+// rather than restate them; a spec longer than ~8k is usually a sign the task
+// should be split via depends_on. Very long specs push SWE cold-start into the
+// minutes range (issue #55: a 55k-char spec hung the session). Tunable via
+// the TMB_SPEC_BODY_MAX_BYTES env var for downstream users with a different
+// SWE token budget; defaults to 8000 chars.
+export const SPEC_BODY_MAX_BYTES = (() => {
+  const raw = process.env['TMB_SPEC_BODY_MAX_BYTES'];
+  if (raw === undefined) return 8000;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8000;
+})();
+
 function validateBranchId(branchId: string): void {
   if (!BRANCH_ID_RE.test(branchId)) {
     throw new Error(
@@ -484,18 +497,15 @@ export function taskTools(db: TrajectoryDB): {
             if (typeof t.spec_body !== 'string') {
               throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
             }
-            // Hard cap: 8000 chars per task. Architect should cite existing
-            // code/conventions rather than restate them; a spec longer than
-            // ~8k is usually a sign the task should be split. Over-long specs
-            // force SWE to spend tokens reading instead of coding.
-            // See issue #55 (P0: architect over-engineered 55k-char spec
-            // → session hang).
-            if (t.spec_body.length > 8000) {
+            // Hard cap: SPEC_BODY_MAX_BYTES (default 8000) per task. See the
+            // export at the top of the file for rationale + env override.
+            if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
               throw new Error(
-                `spec_body exceeds 8000 char limit (actual: ${t.spec_body.length}). ` +
+                `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
                 `Split into multiple tasks via depends_on, or cite existing code/` +
                 `conventions rather than restating them inline. Very long specs ` +
-                `push SWE cold-start into the minutes range; see issue #55.`,
+                `push SWE cold-start into the minutes range; see issue #55. ` +
+                `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
               );
             }
           }

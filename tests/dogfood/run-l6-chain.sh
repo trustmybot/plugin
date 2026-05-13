@@ -70,13 +70,61 @@ printf '=== L6 chain run %s ===\n' "$RUN_ID"
 printf '  manifest: %s\n' "$MANIFEST"
 printf '  logs:     %s\n' "$RUN_DIR"
 
-# One scratch project for the whole chain.
-PROJECT=$(l5_setup_scratch_project)
-trap 'l5_cleanup_project "$PROJECT"' EXIT
+# Scratch project lives INSIDE the run dir so subsequent `--from N` invocations
+# can reuse the prior run's cumulative trajectory DB natively (no `--resume`
+# flag needed — the trajectory DB IS the resume mechanism). For full runs
+# (--from 1) we start clean; for resumes we adopt the most recent prior
+# run's project verbatim. Aged run dirs are user-cleaned (or future GC).
+PROJECT="$RUN_DIR/project"
+
+if [ "$START_FROM" -gt 1 ]; then
+  # Native resume: find the most recent prior run dir that has a project on
+  # disk and copy it forward. Mirrors L5 setup behaviour (init git, set test
+  # identity) only if no prior project is found, which would degrade to
+  # standalone-row mode with a warning.
+  # Most recent run dir with a project on disk, excluding the just-created
+  # one for this invocation. Sorted by mtime descending via find -printf
+  # surrogate (BSD find lacks -printf, so use stat).
+  PRIOR_RUN=""
+  while IFS= read -r d; do
+    [ "$d" = "$RUN_DIR" ] && continue
+    if [ -d "$d/project" ]; then
+      PRIOR_RUN="$d/"
+      break
+    fi
+  done < <(find "$RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d -print0 \
+            | xargs -0 stat -f '%m %N' 2>/dev/null \
+            | sort -rn \
+            | awk '{$1=""; sub(/^ /,""); print}')
+  if [ -n "${PRIOR_RUN:-}" ]; then
+    printf '  resume:   --from %d adopting state from %s\n' "$START_FROM" "$(basename "$PRIOR_RUN")"
+    cp -R "${PRIOR_RUN}project" "$PROJECT"
+  else
+    printf '  ⚠ --from %d but no prior run dir with project found; starting from empty state (standalone-row mode)\n' "$START_FROM" >&2
+    SCRATCH=$(l5_setup_scratch_project)
+    mv "$SCRATCH" "$PROJECT"
+  fi
+else
+  # Full run: fresh project. Mirror l5_setup_scratch_project's init steps
+  # but put the project inside RUN_DIR so it survives for later resumes.
+  mkdir -p "$PROJECT"
+  (
+    cd "$PROJECT" || exit 1
+    git init -q -b main
+    git config user.email l6@l6.test
+    git config user.name "L6 Test"
+    echo "init" > README.md
+    printf '.claude/\n' > .gitignore
+    git add . && git commit -qm init
+    mkdir -p .claude/tmb
+  )
+fi
 
 INITIAL_FIXTURE=$(jq -r '.initial_fixture' "$MANIFEST")
 printf '  fixture:  %s\n' "$INITIAL_FIXTURE"
-l5_seed_db "$PROJECT" "$INITIAL_FIXTURE" || { printf "❌ fixture seed failed\n" >&2; exit 1; }
+if [ "$START_FROM" -eq 1 ]; then
+  l5_seed_db "$PROJECT" "$INITIAL_FIXTURE" || { printf "❌ fixture seed failed\n" >&2; exit 1; }
+fi
 
 printf '  mode:     fresh `claude -p` per row (DB-driven resume)\n'
 printf '\n'

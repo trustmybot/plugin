@@ -7,7 +7,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { resolveDefaultRepo } from '../utils/repo-paths.js';
-import { BRANCH_ID_RE } from './tasks.js';
+import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -117,7 +117,7 @@ export function compositeTools(
             description:
               "Branch_id for the retry (must be different from the failed task's branch_id; same conventional format).",
           },
-          corrected_spec_body: { type: 'string', description: 'The new spec_body — ≤8000 chars.' },
+          corrected_spec_body: { type: 'string', description: `The new spec_body — ≤${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).` },
           retry_rationale: {
             type: 'string',
             description: "≤200 chars — the root cause and corrected approach. Persisted as discussion(kind='decision').",
@@ -226,8 +226,8 @@ export function compositeTools(
         if (!BRANCH_ID_RE.test(newBranchId)) {
           return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
         }
-        if (!spec || spec.length > 8000) {
-          return err('corrected_spec_body must be 1..8000 chars.');
+        if (!spec || spec.length > SPEC_BODY_MAX_BYTES) {
+          return err(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
         }
         if (!rationale || rationale.length > 200) {
           return err('retry_rationale must be 1..200 chars.');
