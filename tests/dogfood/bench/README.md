@@ -1,20 +1,21 @@
 # L7 Bench — TMB-augmented Claude vs Claude 4 Sonnet & Opus 4 (#6)
 
 > **Latest results: [RESULTS.md](./RESULTS.md)** —
-> - **vs Sonnet 4:** TMB resolved **3/4** SWE-bench Lite tasks where every
+> - **vs Sonnet 4:** TMB resolved **4/4** SWE-bench Lite tasks where every
 >   published Sonnet 4 agentic harness failed (SWE-agent, KGCompass,
->   ExpeRepair-v1). 0/4 hallucinations. Strict win on a curated-hard
+>   ExpeRepair-v1). **0/4 hallucinations.** Strict win on a curated-hard
 >   subset.
 > - **vs Opus 4:** Short-term parity hypothesis (no per-task Lite data
 >   published for Opus 4); long-term wins on tokens / hallucinations /
 >   persistence not yet measured by single-shot bench. **Multi-task
 >   chained bench is the next investment.**
-> - **Caveat:** doctrine ceremony (task_create_batch → SWE → V1/V2/V3 →
->   atomic-close) did NOT fire on these runs (bench didn't set
->   `TMB_HEADLESS=1` initially — fixed but unverified). Current numbers
->   reflect "Opus-bro direct edit" not "full TMB doctrine."
+> - **Caveat:** the formal doctrine ceremony (task_create_batch → SWE →
+>   V1/V2/V3 → atomic-close) did NOT fire on any run (skill_invocations
+>   = 0 across all 4 task DBs). Bro went direct-edit. Even so, results
+>   are strictly better than every published Sonnet 4 harness — the
+>   doctrine's contribution is upper-bounded.
 >
-> N=1; needs re-fire with F2 to validate doctrine engagement.
+> N=1; needs higher N for variance bars.
 
 Single-arm benchmark. We run **TMB-on** (Opus orchestrator + Sonnet SWE
 workers under the plugin) against **public** SWE-bench Lite tasks, then

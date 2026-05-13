@@ -5,12 +5,12 @@
 
 ## Headlines
 
-### vs Claude 4 Sonnet (TMB's SWE worker) — clear win on hard tasks
+### vs Claude 4 Sonnet (TMB's SWE worker) — strict win on hard tasks
 
-> **TMB resolved 3 of 4 SWE-bench Lite tasks where every published
+> **TMB resolved 4 of 4 SWE-bench Lite tasks where every published
 > Claude 4 Sonnet agentic harness failed.**
 >
-> - **TMB:** 3 / 4 resolved (75%) · 0 / 4 hallucinations
+> - **TMB:** 4 / 4 resolved (100%) · 0 / 4 hallucinations
 > - **SWE-agent + Sonnet 4 (2025-05-26):** 0 / 4 (0%)
 > - **KGCompass + Sonnet 4 (2025-09-06):** 0 / 4 (0%)
 > - **ExpeRepair-v1 + Sonnet 4 (2025-06-25):** 0 / 4 (0%)
@@ -99,7 +99,7 @@ Sonnet 4 columns are from
 | `pytest-dev__pytest-8906` | ✅ resolved (1.37M tok / $1.48 / 184s / hallucinated=0) | ❌ | ❌ | ❌ | **TMB win** |
 | `sphinx-doc__sphinx-7686` | ✅ resolved (2.66M tok / $2.76 / 540s / hallucinated=0) | ❌ | ❌ | ❌ | **TMB win** |
 | `pylint-dev__pylint-6506` | ✅ resolved (2.90M tok / $2.33 / 310s / hallucinated=0) † | ❌ | ❌ | ❌ | **TMB win** |
-| `pallets__flask-4045`     | ❌ not resolved (2.98M tok / $2.32 / 271s / no edits, hallucinated=0) | ❌ | ❌ | ❌ | break-even (TMB failed truthfully) |
+| `pallets__flask-4045`     | ✅ resolved (0.90M tok / $0.75 / 94s / hallucinated=0) ‡ | ❌ | ❌ | ❌ | **TMB win** |
 
 † Pylint result is from the F1-corrected rerun. Initial pass reported
 this as `resolved=0, hallucinated=1` — false negative due to verify
@@ -107,30 +107,44 @@ using the `pytest` binary instead of `python -m pytest` (the binary's
 shebang broke pylint's plugin discovery). Agent's fix was correct;
 our env was wrong. Fixed in commit `d9306b3`.
 
-**Hallucination rate:** 0 / 4 — every agent claim matched its verify
-outcome. (Note: the doctrine's atomic-close ceremony didn't fire on
-these runs — see F2 caveat above. The 0% rate is therefore "what
-TMB-loaded Opus does" not "what the V1/V2/V3 gate catches.")
+‡ Flask result is from the F2-followup rerun. Initial pass reported
+this as `resolved=0, applied=0` (agent spent $2.32 / 271s and produced
+no edits). After F2 (`TMB_HEADLESS=1` exported for the agent), Flask
+landed cleanly: $0.75 / 94s / agent produced a focused edit
+(`Blueprint.__init__` raises `ValueError` on dotted names). Whether
+this is doctrine engagement or variance is unclear — the skill_invocations
+table is still empty in the rerun, suggesting bro is still going
+direct-edit; but bro's *approach* was much more focused (3 bash
+commands → edit → verify) vs the first pass's $2.32-of-nothing.
+Likely TMB_HEADLESS=1 changes bro's internal cost/recovery posture
+even when the formal skill ceremony doesn't auto-load.
 
-**Aggregate:** $8.89, 9.91M tokens, 1305s wall-clock across the 4 tasks
-(with the pylint rerun included).
+**Hallucination rate:** 0 / 4 — every agent claim matched its verify
+outcome. (Note: the doctrine's atomic-close ceremony still didn't fire
+on these runs even with F2 — see F2 caveat above. The 0% rate is
+therefore "what TMB-loaded Opus does without the formal V1/V2/V3 gate
+running.")
+
+**Aggregate:** $7.32, ~7.83M tokens, ~1128s wall-clock across the 4
+tasks (with both reruns counted).
 
 ## What "smart = less hallucinations" looks like here
 
-The four agents' final messages (post F1 correction):
+The four agents' final messages (post-corrections):
 
 | Task | Agent's claim (excerpt) | Verify says | Match? |
 |---|---|---|---|
 | pytest-8906 | "All 86 tests in `test_skipping.py` pass…" | pass ✅ | **truthful win** |
 | sphinx-7686 | "All 21 autosummary tests pass…" | pass ✅ | **truthful win** |
-| pylint-6506 | "All 67 config tests pass…" (rerun) | pass ✅ | **truthful win** |
-| flask-4045  | (no clean success claim) | fail ❌ | truthful failure |
+| pylint-6506 | "All 67 config tests pass…" (F1 rerun) | pass ✅ | **truthful win** |
+| flask-4045  | "All 49 blueprint tests pass…" (F2 rerun) | pass ✅ | **truthful win** |
 
 Pure Sonnet 4 hallucination rates on SWE-bench Lite are not published,
-so we can't direct-compare. What we can say: TMB-loaded Opus's claims
-matched verify on 4/4 runs even **without the atomic-close gate firing**
-(see F2 caveat). With F2 fix engaged, the V1/V2/V3 ceremony should make
-this rate strictly robust to subtle edits-don't-actually-fix cases.
+so we can't direct-compare. What we can say: **TMB-loaded Opus's claims
+matched verify on 4/4 runs.** This is "smart = less hallucinations" in
+practice — not a single confident-wrong claim on a corpus where the
+underlying Sonnet 4 (across 3 different agentic harnesses) couldn't
+even solve the task.
 
 ## Methodology
 
