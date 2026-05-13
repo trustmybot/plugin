@@ -251,6 +251,16 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/skill-invocation-record.sh",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "SubagentStop": [

@@ -122,7 +122,9 @@ mcp/trajectory-server/
 | `pr_comments.ts` | `pr_comments_get` (gh + glab backends, bot-filtered) |
 | `reports.ts` | `issue_report_md`, `issue_snapshot_md` |
 | `roundtable.ts` | `roundtable_create/vote/close/finalize_decisions/summarize` (state machine) |
-| `skills.ts` | `skill_register`, `skill_promote`, `skill_record_outcome` |
+| `skills.ts` | `skill_register` (scope arg, #2886), `skill_promote`, `skill_record_outcome`, `skill_record_invocation` + `skill_invocations_list` (#2886 junction) |
+| `rules.ts` | `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list` (#2886) |
+| `commands.ts` | `command_register`, `command_list` — schema-seeds the 4 plugin-shipped slash commands (#2886) |
 | `stats.ts` | `task_stats`, `task_first_actionable` |
 | `tasks.ts` | `task_create_batch`, `task_get`, `task_update_status` |
 | `validation.ts` | `validation_record` (pr-reviewer-only + subagent_session_id + MCP-availability prefix), `validation_history` |

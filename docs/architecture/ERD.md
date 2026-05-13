@@ -4,12 +4,13 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` base
 
 ## Overview
 
-15 tables in two groups (post-MR !156 + !159: the legacy scan-side drift-cache table and `identity` retired):
+19 tables in three groups (post-MR !166 #2886 catalog enrichment):
 
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `skills`, `repos`, `file_registry`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `skills`, `rules`, `commands`, `agents`, `repos`, `file_registry`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Junctions** (catalog ↔ run) | `skill_invocations`, `rule_invocations` | FK to both `skills`/`rules` and `agent_runs` — bridges the catalog to per-run analytics |
 
 The onboarded marker (formerly the `identity` table) is now `plugin_config('onboarded': true)` per #2876. The legacy scan-side drift cache was retired alongside the standalone arch-refresh MCP tool per #2881; scan-side drift state now rides in `audit(event_type='deep_scan_completed').content_json` instead, with `scan_run` as the single scan-side surface.
 
@@ -245,7 +246,7 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 
 Pre-release — every new install is a fresh DB. `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`. No migration shims — until v1.0 the schema is rewriteable in place; users wipe their `.claude/<plugin>/trajectory.db` between rc bumps.
 
-## Proposed schema — junction-based capability catalog (per #2886)
+## Capability catalog — junction-based (#2886, landed)
 
 The current `skills` table records the **catalog** of available skills + aggregate counters (`uses`, `successes`, `failures`). It does **not** record per-invocation history — which agent on which task invoked which skill. The same gap exists for rules (no table at all today) and slash commands (no table).
 
