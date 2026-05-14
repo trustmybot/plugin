@@ -1,6 +1,6 @@
 -- 95 outcome: state must be UNCHANGED from pre-fixture (bro reads, doesn't write).
 -- Fixture seeded the identity row (onboarded marker — no name stored). Bro
--- reads onboard_state_get/identity_get + issue_resume, sees onboarded=true,
+-- reads onboard_state_get + issue_resume, sees onboarded=true,
 -- emits the welcome banner without re-firing /onboard.
 
 SELECT

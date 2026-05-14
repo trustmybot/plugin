@@ -12,7 +12,7 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 1` base
 | **Registries** (standalone) | `skills`, `rules`, `commands`, `agents`, `repos`, `file_registry`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 | **Junctions** (catalog ↔ run) | `skill_invocations`, `rule_invocations` | FK to both `skills`/`rules` and `agent_runs` — bridges the catalog to per-run analytics |
 
-The onboarded marker (formerly the `identity` table) is now `plugin_config('onboarded': true)` per #2876. The legacy scan-side drift cache was retired alongside the standalone arch-refresh MCP tool per #2881; scan-side drift state now rides in `audit(event_type='deep_scan_completed').content_json` instead, with `scan_run` as the single scan-side surface.
+The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json`; `scan_run` is the single scan-side surface.
 
 ## Diagram
 

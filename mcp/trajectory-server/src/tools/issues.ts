@@ -17,9 +17,8 @@ type SpawnFn = (
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-// Labels were retired from the issues table in #179 (always-empty in
-// production). Sync paths still pass labels through to the remote (GitLab/
-// GitHub) via syncIssueCreate; we just don't persist them locally anymore.
+// Sync paths pass labels through to the remote (GitLab / GitHub) via
+// syncIssueCreate, but they aren't persisted in the local issues table.
 function decodeIssue(row: IssueRow): Issue {
   return { ...row };
 }

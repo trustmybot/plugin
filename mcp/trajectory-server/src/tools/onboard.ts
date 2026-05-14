@@ -126,7 +126,6 @@ function writeConfig(db: TrajectoryDB, key: string, value: unknown): void {
 }
 
 function readOnboardedFlag(db: TrajectoryDB): boolean {
-  // #2876: onboarded state is a plugin_config marker now, not its own table.
   // value_json is JSON-encoded — `"true"` is the canonical truthy value.
   const row = db.get<{ value_json: string }>(
     `SELECT value_json FROM plugin_config WHERE key = 'onboarded'`,
@@ -535,9 +534,8 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
 
         const now = nowISO();
         db.transaction(() => {
-          // Mark project as onboarded via plugin_config (#2876). The legacy
-          // `identity` table is dropped by `migrateDropIdentityTable` in
-          // db.ts on next boot; this writer no longer touches it.
+          // Mark project as onboarded via plugin_config (#2876).
+          // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.
           writeConfig(db, 'onboarded', true);
 
           writeConfig(db, 'branching_model', branching_model);

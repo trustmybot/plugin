@@ -4,6 +4,8 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0-rc.2 — 2026-05-13
+
 ### Added (#2886 — capability catalog + junction-based analytics)
 
 - 📚 **Catalog enrichment**: the trajectory DB now carries a portable catalog of every capability (skills + rules + commands) plus per-invocation junction rows. Designed so the enterprise LangGraph runtime can adopt the same schema with the DB as source-of-truth, while in the plugin the catalog acts as an analytics overlay on top of the file system.
@@ -26,6 +28,26 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 - ✨ **Wired the `/monitor` incremental-polling cursor.** `pr_review_runs` was redesigned to `(id, pr_number, repo, last_fetched_at, last_comment_id)` with a UNIQUE index on `(pr_number, repo)`. `pr_comments_get` now reads `last_fetched_at` from the prior row and passes it as the `since=` filter, then upserts the cursor on exit. Prior shape (`comments_processed`, `tasks_created`, `remote_kind`, `created_at`) was pure telemetry no consumer read. Net result: re-running `/monitor 42` fetches only new comments instead of re-paginating every time.
 - 🪪 **Manifest-shape lint accepts SemVer pre-release tags.** `tests/lint/manifest-shape.sh` now matches `X.Y.Z` or `X.Y.Z-<pre>` (so `0.6.0-rc.1` validates).
 - 🔧 **bro inputSchema slim.** `task_create_batch`'s task-item schema drops the (now-unwritten) `tools_required` / `skills_required` / `success_criteria` properties.
+
+### Added (#2887 — schema migration framework + upgrade tooling)
+
+- ⚠️ **Upgrade action required.** Schema discipline starts at v0.6.0. When CC delivers this version, **run `/reload-plugins`** in your CC session (or restart the session) so the new MCP server boots and applies the v1→v2 migration to your existing `trajectory.db`. A pre-migration backup is written to `<dbpath>.pre-v2.<timestamp>.bak` automatically. See `docs/UPGRADE.md` for the full ceremony + recovery instructions.
+
+- 🛠️ **Reintroduced the trajectory DB migration layer.** v0.6.0 is now the floor for schema discipline: `db.ts` carries a `TARGET_SCHEMA_VERSION` constant and a versioned migration chain that runs on boot before `applySchema`. Reverses the pre-release "no shim" stance (line 21 above): the shim was right for the rc cycle, but stable users need smooth upgrades from rc → 0.6.0 → 0.7.0. Behavior:
+  - **Pre-migration backup** — when `plugin_meta.schema_version < TARGET`, the DB is copied to `<dbpath>.pre-v<TARGET>.<timestamp>.bak` before any migration step runs. One backup per target version (existence-check prevents per-boot churn).
+  - **v1 → v2 migration** drops zombie tables (`identity`, `regen_state`, `project_metadata`), adds `skills.scope` if absent, and rebuilds `tasks` / `roundtables` / `roundtable_votes` / `file_registry` via the SQLite `CREATE _new` + copy + `DROP` + `RENAME` recipe when pre-v2 columns are present. `agent_runs.started_at` added if missing; `completed_at` rebuilt as nullable if it was previously NOT NULL.
+  - **Downgrade protection** — refuses to open a DB whose `schema_version` is newer than the code's `TARGET`, with a clear error pointing at the backup file.
+  - **L2 coverage** — `mcp/trajectory-server/src/test/schema-upgrade.test.ts` adds 4 cases: legacy pre-#2886 → v2, rc-current → v2, idempotent re-open (no second backup), downgrade-protection throw. **406/406 pass** (was 401).
+
+- 📄 **`docs/UPGRADE.md`** — end-to-end upgrade guide covering plugin-file refresh, channel switches (stable ↔ rc), DB migration behavior, failure-mode diagnostics, and rollback via `.bak` restore. Maintainer section documents the rc→stable promotion ceremony + when/how to bump `TARGET_SCHEMA_VERSION`.
+
+- 🔧 **`scripts/maintenance/bump-version.sh`** — atomic version bump across the four sync'd version locations: `.claude-plugin/plugin.json`, `package.json`, `mcp/trajectory-server/package.json`, and the `serverLog('startup', version: …)` literal in `mcp/trajectory-server/src/index.ts`. Validates SemVer, stages to tempfiles, only commits if every file matches. Re-running with the same version is a no-op.
+
+### Fixed (#2887 follow-up — stale-ref sweep)
+
+- 🐛 **`branch_report_md` dead-path crash.** `tools/branch_report_md.ts` was selecting `last_commit_sha` from `file_registry` — a column dropped from the schema. Tests passed because no test set `tasks.commit_sha`, so `commitShas.length > 0` was always false. In production, the first task that closed with a real commit sha would have crashed the report with `no such column: last_commit_sha`. The `## file_registry entries touched on this branch` section is dropped from the rendered markdown (the column was its only sensible scoping mechanism; a flat repo-scoped list would have been noise). New regression test exercises `tasks.commit_sha` populated.
+- 🧹 **Stale field names** in `scan_run` + `file_registry_bulk_upsert` MCP tool descriptions and the `commands` seed for `/scan` (`size_bytes`, `last_commit_sha`) scrubbed. No runtime impact — handlers already ignored them — but the descriptions misled callers.
+- 🧹 **Vestigial migration comment** in `tools/onboard.ts` updated to point at the new v1→v2 migration step that actually drops the legacy `identity` table.
 
 ## v0.6.0-rc.1 — 2026-05-12
 

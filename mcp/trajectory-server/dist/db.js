@@ -1,11 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { join, dirname } from 'node:path';
+import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
+const TARGET_SCHEMA_VERSION = 2;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -85,10 +86,12 @@ function findExistingDbUp(startDir, pluginName, opts) {
 }
 export class TrajectoryDB {
     db;
+    dbPath;
     constructor(dbPath) {
         // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
         // on 22.x, stable on 24+. The plugin's .mcp.json passes --experimental-sqlite
         // unconditionally — it's required on 22 and a no-op on 24+.
+        this.dbPath = dbPath;
         this.db = new DatabaseSync(dbPath);
         this.db.exec('PRAGMA journal_mode = WAL');
         this.db.exec('PRAGMA foreign_keys = ON');
@@ -99,17 +102,60 @@ export class TrajectoryDB {
     applySchema() {
         const schemaDir = dirname(fileURLToPath(import.meta.url));
         const sql = readFileSync(join(schemaDir, 'schema.sql'), 'utf8');
-        this.db.exec(sql);
-        if (process.env['TMB_EVAL_MODE'] === '1') {
-            const evalSql = readFileSync(join(schemaDir, 'schema-eval.sql'), 'utf8');
-            this.db.exec(evalSql);
+        const applyEvalIfNeeded = () => {
+            if (process.env['TMB_EVAL_MODE'] === '1') {
+                const evalSql = readFileSync(join(schemaDir, 'schema-eval.sql'), 'utf8');
+                this.db.exec(evalSql);
+            }
+        };
+        const verifySeed = () => {
+            const row = this.db
+                .prepare('SELECT schema_version FROM plugin_meta LIMIT 1')
+                .get();
+            if (row === undefined) {
+                throw new Error('TrajectoryDB: schema applied but plugin_meta has no rows — verify schema.sql seeds it.');
+            }
+        };
+        const pluginMetaExists = this.db
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_meta'")
+            .get();
+        if (pluginMetaExists === undefined) {
+            // Fresh DB — apply schema and confirm the seed landed.
+            this.db.exec(sql);
+            applyEvalIfNeeded();
+            verifySeed();
+            return;
         }
-        const row = this.db
+        const versionRow = this.db
             .prepare('SELECT schema_version FROM plugin_meta LIMIT 1')
             .get();
-        if (row === undefined) {
-            throw new Error('TrajectoryDB: schema applied but plugin_meta has no rows — verify schema.sql seeds it.');
+        if (versionRow === undefined) {
+            // plugin_meta table exists but is unseeded — treat as fresh; INSERT OR
+            // IGNORE in schema.sql seeds it at the current TARGET_SCHEMA_VERSION.
+            this.db.exec(sql);
+            applyEvalIfNeeded();
+            verifySeed();
+            return;
         }
+        const storedVersion = versionRow.schema_version;
+        if (storedVersion > TARGET_SCHEMA_VERSION) {
+            throw new Error(`TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`);
+        }
+        if (storedVersion < TARGET_SCHEMA_VERSION) {
+            backupDbBeforeMigration(this.dbPath, TARGET_SCHEMA_VERSION);
+            runMigrations(this.db, storedVersion, TARGET_SCHEMA_VERSION);
+            this.db.exec(sql);
+            this.db
+                .prepare('UPDATE plugin_meta SET schema_version = ? WHERE id = 1')
+                .run(TARGET_SCHEMA_VERSION);
+            applyEvalIfNeeded();
+            verifySeed();
+            return;
+        }
+        // storedVersion === TARGET_SCHEMA_VERSION — idempotent reapply.
+        this.db.exec(sql);
+        applyEvalIfNeeded();
+        verifySeed();
     }
     syncPluginVersion(env = process.env) {
         const root = env['CLAUDE_PLUGIN_ROOT'];
@@ -241,5 +287,240 @@ export function nowISO() {
 }
 export function genId(prefix) {
     return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString('hex')}`;
+}
+function backupDbBeforeMigration(dbPath, targetVersion) {
+    if (!dbPath || dbPath === ':memory:')
+        return;
+    const dir = dirname(dbPath);
+    const base = basename(dbPath);
+    const prefix = `${base}.pre-v${targetVersion}.`;
+    try {
+        const existing = readdirSync(dir).some((f) => f.startsWith(prefix) && f.endsWith('.bak'));
+        if (existing)
+            return;
+    }
+    catch {
+        // Directory not readable — fall through; copy will surface the real error.
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = `${dbPath}.pre-v${targetVersion}.${timestamp}.bak`;
+    copyFileSync(dbPath, backupPath);
+}
+function runMigrations(db, fromVersion, toVersion) {
+    if (fromVersion < 2 && toVersion >= 2) {
+        migrateV1toV2(db);
+    }
+}
+function hasColumn(db, table, column) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    return cols.some((c) => c.name === column);
+}
+function tableExists(db, table) {
+    const row = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get(table);
+    return row !== undefined;
+}
+function migrateV1toV2(db) {
+    db.exec('BEGIN');
+    try {
+        // Translate the legacy onboarded marker forward before dropping its table.
+        // Pre-#2876, `identity` was a single-row marker (presence == onboarded).
+        // Post-#2876 the marker lives in plugin_config('onboarded': true). Without
+        // this translation, an upgraded user re-fires the onboarding ceremony.
+        if (tableExists(db, 'identity') && tableExists(db, 'plugin_config')) {
+            const row = db
+                .prepare('SELECT COUNT(*) AS n FROM identity')
+                .get();
+            if (row && row.n > 0) {
+                db.exec("INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true')");
+            }
+        }
+        // LINT-ALLOW: v1->v2 migration drops zombie tables retired pre-#2886.
+        db.exec('DROP TABLE IF EXISTS identity');
+        // LINT-ALLOW: v1->v2 migration drops zombie tables retired pre-#2886.
+        db.exec('DROP TABLE IF EXISTS regen_state');
+        // LINT-ALLOW: v1->v2 migration drops zombie tables retired pre-#2886.
+        db.exec('DROP TABLE IF EXISTS project_metadata');
+        if (tableExists(db, 'skills') && !hasColumn(db, 'skills', 'scope')) {
+            db.exec("ALTER TABLE skills ADD COLUMN scope TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','template','project-local'))");
+        }
+        if (tableExists(db, 'tasks') && hasColumn(db, 'tasks', 'success_criteria')) {
+            // LINT-ALLOW: scratch table for SQLite-style column drop via rebuild.
+            db.exec('DROP TABLE IF EXISTS tasks_new');
+            db.exec(`
+        CREATE TABLE tasks_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_id          INTEGER NOT NULL REFERENCES issues(id),
+            branch_id         TEXT    NOT NULL,
+            parent_branch_id  TEXT,
+            title             TEXT    NOT NULL DEFAULT '',
+            description       TEXT    NOT NULL,
+            status            TEXT    NOT NULL DEFAULT 'pending',
+            attempts          INTEGER NOT NULL DEFAULT 0,
+            spec_body         TEXT    NOT NULL DEFAULT '',
+            commit_sha        TEXT,
+            repo              TEXT,
+            created_at        TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            completed_at      TEXT
+        )
+      `);
+            db.exec(`
+        INSERT INTO tasks_new (id, issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, commit_sha, repo, created_at, updated_at, completed_at)
+        SELECT id, issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, commit_sha, repo, created_at, updated_at, completed_at FROM tasks
+      `);
+            // LINT-ALLOW: column-drop rebuild — data already copied into tasks_new.
+            db.exec('DROP TABLE tasks');
+            db.exec('ALTER TABLE tasks_new RENAME TO tasks');
+            db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)');
+        }
+        if (tableExists(db, 'roundtables') && hasColumn(db, 'roundtables', 'agent')) {
+            // LINT-ALLOW: scratch table for SQLite-style column drop via rebuild.
+            db.exec('DROP TABLE IF EXISTS roundtables_new');
+            db.exec(`
+        CREATE TABLE roundtables_new (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_id                INTEGER NOT NULL REFERENCES issues(id),
+            topic                   TEXT    NOT NULL,
+            outcome                 TEXT    NOT NULL DEFAULT '',
+            created_at              TEXT    NOT NULL,
+            closed_at               TEXT,
+            state                   TEXT    NOT NULL DEFAULT 'collecting'
+                                      CHECK (state IN ('collecting','awaiting_human','closed','skipped')),
+            expected_participants   INTEGER
+        )
+      `);
+            const hasState = hasColumn(db, 'roundtables', 'state');
+            const hasExpected = hasColumn(db, 'roundtables', 'expected_participants');
+            const stateExpr = hasState ? 'state' : "'collecting' AS state";
+            const expectedExpr = hasExpected
+                ? 'expected_participants'
+                : 'NULL AS expected_participants';
+            db.exec(`
+        INSERT INTO roundtables_new (id, issue_id, topic, outcome, created_at, closed_at, state, expected_participants)
+        SELECT id, issue_id, topic, outcome, created_at, closed_at, ${stateExpr}, ${expectedExpr} FROM roundtables
+      `);
+            // LINT-ALLOW: column-drop rebuild — data already copied into roundtables_new.
+            db.exec('DROP TABLE roundtables');
+            db.exec('ALTER TABLE roundtables_new RENAME TO roundtables');
+        }
+        if (tableExists(db, 'roundtable_votes') &&
+            hasColumn(db, 'roundtable_votes', 'agent')) {
+            // LINT-ALLOW: scratch table for SQLite-style column drop via rebuild.
+            db.exec('DROP TABLE IF EXISTS roundtable_votes_new');
+            db.exec(`
+        CREATE TABLE roundtable_votes_new (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            roundtable_id  INTEGER NOT NULL REFERENCES roundtables(id),
+            participant    TEXT    NOT NULL,
+            vote           TEXT    NOT NULL,
+            rationale      TEXT    NOT NULL DEFAULT '',
+            created_at     TEXT    NOT NULL
+        )
+      `);
+            const hasParticipant = hasColumn(db, 'roundtable_votes', 'participant');
+            const participantExpr = hasParticipant ? 'participant' : 'agent AS participant';
+            db.exec(`
+        INSERT INTO roundtable_votes_new (id, roundtable_id, participant, vote, rationale, created_at)
+        SELECT id, roundtable_id, ${participantExpr}, vote, rationale, created_at FROM roundtable_votes
+      `);
+            // LINT-ALLOW: column-drop rebuild — data already copied into roundtable_votes_new.
+            db.exec('DROP TABLE roundtable_votes');
+            db.exec('ALTER TABLE roundtable_votes_new RENAME TO roundtable_votes');
+        }
+        if (tableExists(db, 'file_registry')) {
+            const stale = [
+                'size_bytes',
+                'last_commit_sha',
+                'language',
+                'last_change_type',
+                'last_change_at',
+                'imports_json',
+                'exports_json',
+                'metadata_json',
+            ];
+            const hasStale = stale.some((c) => hasColumn(db, 'file_registry', c));
+            if (hasStale) {
+                // LINT-ALLOW: scratch table for SQLite-style column drop via rebuild.
+                db.exec('DROP TABLE IF EXISTS file_registry_new');
+                db.exec(`
+          CREATE TABLE file_registry_new (
+              repo                TEXT NOT NULL DEFAULT '',
+              path                TEXT NOT NULL,
+              type                TEXT NOT NULL DEFAULT 'unknown',
+              content_md5         TEXT,
+              summary             TEXT,
+              summary_updated_at  TEXT,
+              PRIMARY KEY (repo, path)
+          )
+        `);
+                const hasRepo = hasColumn(db, 'file_registry', 'repo');
+                const hasType = hasColumn(db, 'file_registry', 'type');
+                const hasContentMd5 = hasColumn(db, 'file_registry', 'content_md5');
+                const hasSummary = hasColumn(db, 'file_registry', 'summary');
+                const hasSummaryUpdated = hasColumn(db, 'file_registry', 'summary_updated_at');
+                const repoExpr = hasRepo ? 'repo' : "'' AS repo";
+                const typeExpr = hasType ? 'type' : "'unknown' AS type";
+                const md5Expr = hasContentMd5 ? 'content_md5' : 'NULL AS content_md5';
+                const summaryExpr = hasSummary ? 'summary' : 'NULL AS summary';
+                const summaryUpdatedExpr = hasSummaryUpdated
+                    ? 'summary_updated_at'
+                    : 'NULL AS summary_updated_at';
+                db.exec(`
+          INSERT OR IGNORE INTO file_registry_new (repo, path, type, content_md5, summary, summary_updated_at)
+          SELECT ${repoExpr}, path, ${typeExpr}, ${md5Expr}, ${summaryExpr}, ${summaryUpdatedExpr} FROM file_registry
+        `);
+                // LINT-ALLOW: column-drop rebuild — data already copied into file_registry_new.
+                db.exec('DROP TABLE file_registry');
+                db.exec('ALTER TABLE file_registry_new RENAME TO file_registry');
+            }
+        }
+        if (tableExists(db, 'agent_runs')) {
+            if (!hasColumn(db, 'agent_runs', 'started_at')) {
+                db.exec('ALTER TABLE agent_runs ADD COLUMN started_at TEXT');
+            }
+            const cols = db.prepare('PRAGMA table_info(agent_runs)').all();
+            const completedCol = cols.find((c) => c.name === 'completed_at');
+            if (completedCol && completedCol.notnull === 1) {
+                // LINT-ALLOW: scratch table for SQLite-style NOT NULL drop via rebuild.
+                db.exec('DROP TABLE IF EXISTS agent_runs_new');
+                db.exec(`
+          CREATE TABLE agent_runs_new (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              task_id      INTEGER REFERENCES tasks(id),
+              issue_id     INTEGER REFERENCES issues(id),
+              agent_type   TEXT    NOT NULL,
+              tokens_in    INTEGER NOT NULL DEFAULT 0,
+              tokens_out   INTEGER NOT NULL DEFAULT 0,
+              tokens_total INTEGER NOT NULL DEFAULT 0,
+              tool_uses    INTEGER NOT NULL DEFAULT 0,
+              duration_ms  INTEGER NOT NULL DEFAULT 0,
+              started_at   TEXT,
+              completed_at TEXT
+          )
+        `);
+                db.exec(`
+          INSERT INTO agent_runs_new (id, task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, started_at, completed_at)
+          SELECT id, task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, started_at, completed_at FROM agent_runs
+        `);
+                // LINT-ALLOW: NOT-NULL-relaxation rebuild — data already copied into agent_runs_new.
+                db.exec('DROP TABLE agent_runs');
+                db.exec('ALTER TABLE agent_runs_new RENAME TO agent_runs');
+                db.exec('CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id)');
+                db.exec('CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id)');
+            }
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
 }
 //# sourceMappingURL=db.js.map

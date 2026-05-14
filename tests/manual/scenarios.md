@@ -56,7 +56,7 @@ ls .claude/agents/ 2>&1   # should NOT exist OR be empty
 ls .claude/skills/ 2>&1   # should NOT exist OR be empty
 ```
 
-✅ Pass criteria: **`.claude/agents/` and `.claude/skills/` are EMPTY (or don't exist).** swe + pr-reviewer + 7 default skills serve from the plugin globally. The trajectory DB at `.claude/<plugin-name>/trajectory.db` (`.claude/tmb/` for stable, `.claude/tmb-rc/` for the RC channel) SHOULD exist with identity + config rows. Onboarding only writes to MCP, never to the filesystem.
+✅ Pass criteria: **`.claude/agents/` and `.claude/skills/` are EMPTY (or don't exist).** swe + pr-reviewer + 7 default skills serve from the plugin globally. The trajectory DB at `.claude/<plugin-name>/trajectory.db` (`.claude/tmb/` for stable, `.claude/tmb-rc/` for the RC channel) SHOULD exist with the onboarded marker + 5 config rows (`branching_model`, `pr_target`, `protected_branches`, `remotes`, `issue_sync`, plus `onboarded` if set). Onboarding only writes to MCP, never to the filesystem.
 
 ---
 

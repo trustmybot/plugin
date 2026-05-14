@@ -137,14 +137,6 @@ Inspired by typical lifecycle states; not from a single named convention.
 
 Currently `1`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration script.
 
-### `agent_runs.exit_status`
-
-| Value | Meaning |
-|---|---|
-| `completed` | Subagent stopped cleanly |
-| `failed` | Subagent reported error / non-zero exit |
-| `timeout` | Subagent hit its turn or wall-clock cap |
-
 ### `agent_runs.agent_type` (open enum)
 
 Common values: `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.

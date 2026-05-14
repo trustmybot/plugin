@@ -124,7 +124,6 @@ describe('task_retry_batch', () => {
       tasks: [{
         branch_id: 'fix/initial',
         description: 'do thing',
-        success_criteria: 'thing done',
         spec_body: 'placeholder',
       }],
     })) as unknown as Array<{ id: number }>;
@@ -144,7 +143,6 @@ describe('task_retry_batch', () => {
       corrected_spec_body: 'fixed approach',
       retry_rationale: 'wrong path; use approach B',
       description: 'retry desc',
-      success_criteria: 'thing done correctly',
     });
     assert.equal(retry.isError, undefined);
     const out = parse(retry) as { task_id: number; branch_id: string };
@@ -185,7 +183,7 @@ describe('task_retry_batch', () => {
       agent: 'bro', issue_id: issueId,
       waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
       waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
-      tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'sc', spec_body: 's' }],
+      tasks: [{ branch_id: 'fix/x', description: 'd', spec_body: 's' }],
     })) as unknown as Array<{ id: number }>;
     const id = String(created[0]!.id);
 
@@ -196,7 +194,6 @@ describe('task_retry_batch', () => {
       corrected_spec_body: 's',
       retry_rationale: 'r',
       description: 'd',
-      success_criteria: 'sc',
     });
     assert.equal(r.isError, true);
     assert.match(parse(r)['error'] as string, /status is "pending"/);
@@ -226,7 +223,7 @@ describe('bro_atomic_close', () => {
       agent: 'bro', issue_id: issueId,
       waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
       waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
-      tasks: [{ branch_id: 'fix/x', description: 'd', success_criteria: 'sc', spec_body: 's' }],
+      tasks: [{ branch_id: 'fix/x', description: 'd', spec_body: 's' }],
     })) as unknown as Array<{ id: number }>;
     const id = String(created[0]!.id);
 
@@ -370,7 +367,6 @@ describe('bro_atomic_close multi-repo file_summaries', () => {
           {
             branch_id: `fix/multi-repo-${issueId}`,
             description: 'multi-repo fixture',
-            success_criteria: 'sc',
             spec_body: 'fixture',
             ...(repo !== null ? { repo } : {}),
           },

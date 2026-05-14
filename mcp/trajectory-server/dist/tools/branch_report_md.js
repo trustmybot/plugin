@@ -28,7 +28,7 @@ export function branchReportMdTools(db) {
     const definitions = [
         {
             name: 'branch_report_md',
-            description: 'Assemble a markdown summary scoped to a single (issue_id, branch_id) pair: tasks, audit events, validation attempts, and file_registry entries touched on that branch.',
+            description: 'Assemble a markdown summary scoped to a single (issue_id, branch_id) pair: tasks, audit events, and validation attempts on that branch.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -61,14 +61,6 @@ export function branchReportMdTools(db) {
             const placeholders = taskIds.map(() => '?').join(', ');
             const validationAttempts = db.all(`SELECT * FROM validation_attempts WHERE task_id IN (${placeholders}) ORDER BY task_id ASC, attempt_n ASC`, taskIds);
             const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? ORDER BY id ASC`, [issueId, branchId]);
-            const commitShas = tasks
-                .map((t) => t.commit_sha)
-                .filter((sha) => sha !== null && sha !== '');
-            let fileRegistryRows = [];
-            if (commitShas.length > 0) {
-                const shaPlaceholders = commitShas.map(() => '?').join(', ');
-                fileRegistryRows = db.all(`SELECT path, last_commit_sha, summary FROM file_registry WHERE last_commit_sha IN (${shaPlaceholders}) ORDER BY path ASC`, commitShas);
-            }
             const lines = [];
             lines.push(`# Branch Report — ${branchId} (issue #${issueId})`);
             lines.push('');
@@ -108,21 +100,6 @@ export function branchReportMdTools(db) {
                 lines.push('|---|---|---|---|---|');
                 for (const v of validationAttempts) {
                     lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.agent} | ${v.verdict} | ${v.created_at} |`);
-                }
-            }
-            lines.push('');
-            lines.push('## file_registry entries touched on this branch');
-            lines.push('');
-            if (fileRegistryRows.length === 0) {
-                lines.push('_No file_registry entries found for this branch._');
-            }
-            else {
-                lines.push('| Path | Last commit_sha | Summary |');
-                lines.push('|---|---|---|');
-                for (const f of fileRegistryRows) {
-                    const sha = f.last_commit_sha || '—';
-                    const summary = f.summary || '—';
-                    lines.push(`| ${f.path} | ${sha} | ${summary} |`);
                 }
             }
             return ok({ markdown: lines.join('\n') });

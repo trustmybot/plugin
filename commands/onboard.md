@@ -19,7 +19,7 @@ Allowed:
 - `mcp__plugin_tmb_trajectory-server__onboard_get_questions`
 - `mcp__plugin_tmb_trajectory-server__onboard_apply`
 
-Out of scope: every other MCP tool, Bash, Read, Edit, Write. The slash command persists state via `onboard_apply` only — no direct `config_set` / `identity_set` / Bash probes from bro.
+Out of scope: every other MCP tool, Bash, Read, Edit, Write. The slash command persists state via `onboard_apply` only — no direct `config_set` / Bash probes from bro.
 
 ## Step 1 — Read state (one MCP call)
 

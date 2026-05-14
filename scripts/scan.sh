@@ -9,7 +9,7 @@
 #   {
 #     "session_dir": "<absolute path>",
 #     "scanned_at": "<ISO timestamp>",
-#     "repos":  [ { name, path, default_branch, head_commit_sha, file_count } ],
+#     "repos":  [ { name, path, file_count } ],
 #     "files":  [ { repo, path, size_bytes, content_md5, last_commit_sha } ]
 #   }
 #
@@ -71,10 +71,6 @@ while IFS= read -r repo_root; do
   [ -d "$repo_root" ] || continue
 
   name=$(basename "$repo_root")
-  default_branch=$(git -C "$repo_root" symbolic-ref --quiet --short HEAD 2>/dev/null \
-    || git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null \
-    || echo 'unknown')
-  head_sha=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || echo '')
 
   files_list=$(git -C "$repo_root" ls-files 2>/dev/null || true)
   file_count=0
@@ -99,9 +95,8 @@ while IFS= read -r repo_root; do
 
   jq -nc \
     --arg name "$name" --arg path "$repo_root" \
-    --arg default_branch "$default_branch" --arg head "$head_sha" \
     --argjson file_count "$file_count" \
-    '{name:$name,path:$path,default_branch:$default_branch,head_commit_sha:$head,file_count:$file_count}' \
+    '{name:$name,path:$path,file_count:$file_count}' \
     >> "$repos_jsonl"
 done < <(discover_repos)
 

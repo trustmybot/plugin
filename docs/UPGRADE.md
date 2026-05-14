@@ -1,0 +1,241 @@
+# Upgrading TMB
+
+Two layers move when you upgrade:
+
+1. **Plugin files** — the SKILL.md, agent prompts, hooks, MCP server source. Claude Code handles this via its marketplace mechanism.
+2. **Trajectory DB** — your `<project>/.claude/tmb/trajectory.db`. The MCP server migrates this on first boot after the upgrade.
+
+Both happen automatically. This doc covers what to expect, what to do if something goes sideways, and how to roll back.
+
+---
+
+## Layer 1 — plugin files
+
+### Check your current version
+
+```bash
+sqlite3 <project>/.claude/tmb/trajectory.db \
+  "SELECT plugin_version FROM plugin_meta;"
+```
+
+Or open Claude Code and inspect the plugin via `/plugin info tmb`.
+
+### How CC delivers an update
+
+Claude Code checks the marketplace for new versions automatically. A new version is detected when the `version` field in `plugin.json` changes — pushing commits without bumping `version` does **not** trigger an update.
+
+When CC pulls a new version, the new files land on disk but the **running MCP server keeps using the old code's path** until you reload. The schema migration is part of the MCP server's boot sequence, so the migration does not apply until the MCP server restarts.
+
+### Trigger the new MCP server (required to apply the migration)
+
+After CC reports the plugin updated, **run `/reload-plugins`** in your session. This restarts the MCP server (and hooks + LSP); the fresh boot detects `plugin_meta.schema_version < TARGET`, backs the DB up, applies the v1→v2 migration, and bumps the version.
+
+If you'd rather restart the whole session, that works too: `Cmd+R` in the desktop app, or close + reopen.
+
+`/plugin marketplace update trustmybot` forces CC to re-check the marketplace immediately rather than waiting for its periodic poll.
+
+### Switching channels (stable ↔ RC)
+
+```
+/plugin uninstall tmb
+/plugin marketplace add trustmybot/marketplace-rc   # or trustmybot/marketplace for stable
+/plugin install tmb@trustmybot-rc                    # or tmb@trustmybot
+```
+
+The trajectory DB is per-project and unaffected by the channel switch — your data carries over.
+
+---
+
+## Layer 2 — trajectory DB migration
+
+### What happens on first boot after upgrade
+
+When the MCP server starts and finds `plugin_meta.schema_version < TARGET_SCHEMA_VERSION`:
+
+1. **Backup.** A copy is written to `<dbpath>.pre-v<TARGET>.<timestamp>.bak` next to the live DB. One backup per target version — re-opening the same DB after migration does not create additional backups.
+2. **Migrate.** Migration steps run inside a single SQLite transaction. If any step fails, the transaction rolls back and your DB is left at the pre-migration version. The backup is still there.
+3. **Bump.** `plugin_meta.schema_version` updates to the new target. Subsequent boots see the new version and skip migrations.
+
+### What's in the v1 → v2 migration
+
+- Drops zombie tables left over from earlier refactors (`identity`, `regen_state`, `project_metadata`).
+- Adds `skills.scope` (default `'global'`).
+- Rebuilds `tasks`, `roundtables`, `roundtable_votes`, `file_registry` if any pre-v2 columns are still present. The new schema drops a handful of columns that were either never written or constant-by-construction; the rebuild copies surviving rows into a fresh table.
+- Adds `agent_runs.started_at` and relaxes `completed_at` to nullable.
+
+Row data on every workflow table is preserved.
+
+### Verifying the upgrade
+
+```bash
+sqlite3 <project>/.claude/tmb/trajectory.db \
+  "SELECT schema_version, plugin_version FROM plugin_meta;"
+```
+
+Both columns should match the version you just installed.
+
+---
+
+## Failure modes
+
+### "stored schema_version N is newer than code's max M"
+
+You're running a plugin that's older than the DB. Two ways out:
+
+- **Re-upgrade the plugin** to a version ≥ N. This is the expected path — you probably downgraded by accident.
+- **Restore the backup** from before the newer-plugin migration:
+  ```bash
+  cp <dbpath>.pre-v<N>.<timestamp>.bak <dbpath>
+  ```
+
+### Migration crashed mid-step
+
+The transaction wrapping `migrateV1toV2` rolls back. Your DB stays at the old version. Common causes: filesystem full, locked DB (another CC session is running against it).
+
+- Free disk space / close the other session, then restart CC. Migration re-runs from scratch.
+- The pre-migration backup is still there if you'd rather roll back: restore the `.bak` file.
+
+### Unknown legacy shape
+
+If your DB has a shape neither v1 nor v2 covers (e.g. you ran the plugin from a development branch with experimental tables), the migration may not know how to upgrade it. Symptoms: `ALTER TABLE ... no such column` or `NOT NULL constraint failed` on first run after upgrade.
+
+- Open an issue with the output of `sqlite3 <dbpath> '.schema'` attached.
+- Workaround: restore the most recent `.bak` and pin to the version that wrote it.
+
+---
+
+## Rolling back
+
+Migrations are forward-only. There is no v2 → v1 migration. To roll back:
+
+1. Restore the `.bak` written at the time of the v1 → v2 migration:
+   ```bash
+   cp <dbpath>.pre-v2.<timestamp>.bak <dbpath>
+   ```
+2. Downgrade the plugin to a version that ships `schema_version=1` code.
+
+Any work done since the upgrade is lost — the rollback restores the DB to the pre-upgrade snapshot.
+
+---
+
+## Maintainer side
+
+### Promoting rc → stable
+
+```bash
+git checkout main
+git merge --ff-only origin/rc            # or the validated commit
+bash scripts/maintenance/bump-version.sh 0.6.0
+git commit -am "🔖 release: v0.6.0"
+git tag v0.6.0
+git push origin main --tags
+```
+
+### Bumping the version
+
+`bump-version.sh` keeps the four version locations in sync atomically:
+
+- `.claude-plugin/plugin.json`
+- `package.json`
+- `mcp/trajectory-server/package.json`
+- The `serverLog('startup', version: '...')` literal in `mcp/trajectory-server/src/index.ts`
+
+It does **not** touch the MCP `Server({ name, version })` constructor in `index.ts` — that's the protocol-handshake version, independent of the plugin version.
+
+### Bumping the schema
+
+When a schema change is breaking (drops a `NOT NULL` column, removes a table, etc.):
+
+1. Bump `TARGET_SCHEMA_VERSION` in `mcp/trajectory-server/src/db.ts`.
+2. Update the `plugin_meta` seed in `mcp/trajectory-server/src/schema.sql` to match.
+3. Add a `migrateVnToVn+1(db)` function with the SQLite recipe (`CREATE TABLE _new`; copy; `DROP`; `RENAME`).
+4. Add an L2 case to `mcp/trajectory-server/src/test/schema-upgrade.test.ts` with a fixture at the previous version + assertions on the upgraded shape.
+5. Update `CHANGELOG.md` with the migration details + the dropped column / table.
+
+### Testing the migration end-to-end through Claude Code
+
+The L0 install-smoke (`tests/docker/install-smoke.Dockerfile`) seeds a synthetic v1-shape DB inside the docker image and asserts the migration applies cleanly. That's the automated gate. To exercise the **real CC user upgrade path** by hand — install old plugin, accumulate state, upgrade, watch the migration run — use one of these three recipes:
+
+**Recipe A — git worktree + `--plugin-dir` (most deterministic, recommended for development).** Spin up an old plugin version as a worktree, then re-launch CC against the new source. Both sides resolve to the same trajectory DB in the test project, so the second launch triggers the migration.
+
+```bash
+# 1. Materialize an old plugin version
+git worktree add /tmp/tmb-v0.5 v0.5.0
+( cd /tmp/tmb-v0.5 && bun install --frozen-lockfile && bun run build )
+
+# 2. Fresh test project
+TEST_PROJ=$(mktemp -d -t tmb-upgrade-XXXX)
+( cd "$TEST_PROJ" && git init -q && git config user.email t@t.t && git config user.name t \
+    && echo init > README.md && git add . && git commit -qm init )
+
+# 3. Run CC with the OLD plugin to populate v1-shape state
+cd "$TEST_PROJ"
+echo '@bro hi' | claude --plugin-dir /tmp/tmb-v0.5 -p --dangerously-skip-permissions
+
+# Confirm pre-upgrade state — schema_version should be 1
+sqlite3 .claude/tmb/trajectory.db 'SELECT schema_version, plugin_version FROM plugin_meta;'
+
+# 4. Run CC again with the NEW plugin — migration fires on MCP server boot
+echo '@bro check status' | claude --plugin-dir /Users/Zax/Git/GitHub/TMB/plugin -p --dangerously-skip-permissions
+
+# 5. Verify the migration applied
+sqlite3 .claude/tmb/trajectory.db 'SELECT schema_version, plugin_version FROM plugin_meta;'
+ls -la .claude/tmb/trajectory.db.pre-v2.*.bak           # one backup per target version
+sqlite3 .claude/tmb/trajectory.db "SELECT value_json FROM plugin_config WHERE key='onboarded';"
+
+# 6. Cleanup
+git worktree remove /tmp/tmb-v0.5
+rm -rf "$TEST_PROJ"
+```
+
+**Recipe B — through the real marketplace (smoke-tests CC's update mechanism too).** Slower; depends on what versions are actually published.
+
+```bash
+# Inside CC:
+/plugin marketplace add trustmybot/marketplace-rc
+/plugin install tmb@trustmybot-rc                # whatever the marketplace currently ships
+```
+
+Use the plugin in a real project — accumulate issues, tasks, run `/onboard`. Then point the marketplace at the in-development source by switching channels or by updating the marketplace ref:
+
+```bash
+/plugin marketplace update trustmybot
+# Restart the CC session (Cmd+R) so the MCP server reboots with new code.
+```
+
+The MCP server log (`~/.claude/tmb/logs/mcp-server.log`) shows the migration steps. Confirm with the same `sqlite3` queries from Recipe A.
+
+**Recipe C — hand-craft a v1 DB (fastest, no install dance).** Useful when iterating on the migration code itself.
+
+```bash
+TEST_PROJ=$(mktemp -d -t tmb-upgrade-XXXX)
+mkdir -p "$TEST_PROJ/.claude/tmb"
+DB="$TEST_PROJ/.claude/tmb/trajectory.db"
+
+# Seed a minimal v1-shape DB matching what a v0.5.x install would have written
+sqlite3 "$DB" "
+  CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY, schema_version INTEGER NOT NULL, plugin_version TEXT NOT NULL);
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+  CREATE TABLE identity (id INTEGER PRIMARY KEY);
+  INSERT INTO plugin_meta VALUES (1, 1, '0.5.0');
+  INSERT INTO identity VALUES (1);
+"
+
+# Trigger the migration by booting the MCP server against this DB
+cd "$TEST_PROJ" && git init -q && git config user.email t@t.t && git config user.name t \
+  && echo init > README.md && git add . && git commit -qm init
+echo '@bro hi' | claude --plugin-dir /Users/Zax/Git/GitHub/TMB/plugin -p --dangerously-skip-permissions
+
+# Verify
+sqlite3 "$DB" 'SELECT schema_version FROM plugin_meta;'        # expect 2
+ls "$DB".pre-v2.*.bak                                          # expect backup present
+sqlite3 "$DB" "SELECT value_json FROM plugin_config WHERE key='onboarded';"   # expect "true"
+rm -rf "$TEST_PROJ"
+```
+
+**Recovery — if the migration goes wrong on a real project:**
+
+```bash
+# Stop CC. Restore the .bak. Downgrade plugin. Re-launch.
+cp <project>/.claude/tmb/trajectory.db.pre-v2.<timestamp>.bak <project>/.claude/tmb/trajectory.db
+```

@@ -1,17 +1,9 @@
-// Flow 09 — Cold-restart after onboarding (regression for issue #95)
+// Flow 09 — Cold-restart after onboarding
 //
-// Trajectory: Human completes /onboard (any path). Server MUST persist the
-// onboarded marker (plugin_config 'onboarded'='true'). On any subsequent
-// cold session, onboard_state_get must return first_run=false so bro's
-// first-action chain skips re-firing /onboard.
-//
-// Pre-fix bug (v0.3.x): the onboarding skill said "skip identity_set if
-// Anonymous", so no row was ever written. Cold restart found
-// onboarded=false → re-triggered full onboarding every time.
-//
-// Post-fix doctrine (current): the onboarded marker lives in plugin_config
-// (#2876). The legacy identity table was a single-row marker with no columns
-// of meaning — folded into plugin_config('onboarded': true).
+// Human completes /onboard (any path). Server MUST persist the onboarded
+// marker (plugin_config 'onboarded'='true'). On any subsequent cold session,
+// onboard_state_get must return first_run=false so bro's first-action chain
+// skips re-firing /onboard.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

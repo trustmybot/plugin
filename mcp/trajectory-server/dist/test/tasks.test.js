@@ -42,9 +42,9 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/task-one', description: 'Task one', success_criteria: 'works' },
-                { branch_id: 'feat/task-two', description: 'Task two', success_criteria: 'passes' },
-                { branch_id: 'feat/task-three', description: 'Task three', success_criteria: 'done' },
+                { branch_id: 'feat/task-one', description: 'Task one' },
+                { branch_id: 'feat/task-two', description: 'Task two' },
+                { branch_id: 'feat/task-three', description: 'Task three' },
             ],
         });
         const inserted = parseResult(result);
@@ -66,7 +66,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/a-task', description: 'A task', success_criteria: 'ok' }],
+            tasks: [{ branch_id: 'feat/a-task', description: 'A task' }],
         });
         const tasks = parseResult(batchResult);
         const result = await call(tools.handlers, 'task_update_status', {
@@ -90,9 +90,9 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/first', description: 'First', success_criteria: 'ok' },
-                { branch_id: 'feat/second', description: 'Second', success_criteria: 'ok' },
-                { branch_id: 'feat/third', description: 'Third', success_criteria: 'ok' },
+                { branch_id: 'feat/first', description: 'First' },
+                { branch_id: 'feat/second', description: 'Second' },
+                { branch_id: 'feat/third', description: 'Third' },
             ],
         });
         const allTasks = db.all('SELECT id, branch_id FROM tasks WHERE issue_id = ? ORDER BY branch_id', [issueId]);
@@ -137,7 +137,7 @@ describe('taskTools', () => {
                 waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
                 agent: 'bro',
                 issue_id: String(issueId),
-                tasks: [{ branch_id: branchId, description: `Task for ${status}`, success_criteria: 'ok' }],
+                tasks: [{ branch_id: branchId, description: `Task for ${status}` }],
             });
             const tasks = parseResult(batchResult);
             const result = await call(tools.handlers, 'task_update_status', {
@@ -160,7 +160,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/user-login', description: 'login feature', success_criteria: 'works' }],
+            tasks: [{ branch_id: 'feat/user-login', description: 'login feature' }],
         });
         const inserted = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
@@ -176,7 +176,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'refactor/extract-helper', description: 'extract helper', success_criteria: 'clean' }],
+            tasks: [{ branch_id: 'refactor/extract-helper', description: 'extract helper' }],
         });
         const inserted = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
@@ -192,7 +192,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'Foo/Bar', description: 'bad', success_criteria: 'n/a' }],
+            tasks: [{ branch_id: 'Foo/Bar', description: 'bad' }],
         });
         const data = parseResult(result);
         assert.ok(result.isError, 'Expected isError=true');
@@ -208,7 +208,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/UPPERCASE', description: 'bad', success_criteria: 'n/a' }],
+            tasks: [{ branch_id: 'feat/UPPERCASE', description: 'bad' }],
         });
         const data = parseResult(result);
         assert.ok(result.isError, 'Expected isError=true');
@@ -224,7 +224,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/-leading-hyphen', description: 'bad', success_criteria: 'n/a' }],
+            tasks: [{ branch_id: 'feat/-leading-hyphen', description: 'bad' }],
         });
         const data = parseResult(result);
         assert.ok(result.isError, 'Expected isError=true');
@@ -240,7 +240,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: '', description: 'bad', success_criteria: 'n/a' }],
+            tasks: [{ branch_id: '', description: 'bad' }],
         });
         const data = parseResult(result);
         assert.ok(result.isError, 'Expected isError=true');
@@ -256,7 +256,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/double//slash', description: 'bad', success_criteria: 'n/a' }],
+            tasks: [{ branch_id: 'feat/double//slash', description: 'bad' }],
         });
         const data = parseResult(result);
         assert.ok(result.isError, 'Expected isError=true');
@@ -277,7 +277,6 @@ describe('taskTools', () => {
                     branch_id: 'feat/foo',
                     parent_branch_id: 'bad value',
                     description: 'bad parent',
-                    success_criteria: 'n/a',
                 },
             ],
         });
@@ -295,7 +294,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/from-dev', parent_branch_id: 'dev', description: 'branches off dev', success_criteria: 'ok' }],
+            tasks: [{ branch_id: 'feat/from-dev', parent_branch_id: 'dev', description: 'branches off dev' }],
         });
         const inserted = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
@@ -311,7 +310,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/from-main', parent_branch_id: 'main', description: 'branches off main', success_criteria: 'ok' }],
+            tasks: [{ branch_id: 'feat/from-main', parent_branch_id: 'main', description: 'branches off main' }],
         });
         const inserted = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
@@ -327,7 +326,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/from-master', parent_branch_id: 'master', description: 'branches off master', success_criteria: 'ok' }],
+            tasks: [{ branch_id: 'feat/from-master', parent_branch_id: 'master', description: 'branches off master' }],
         });
         const inserted = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
@@ -343,7 +342,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/child-task', parent_branch_id: 'feat/foo', description: 'child of feat/foo', success_criteria: 'ok' }],
+            tasks: [{ branch_id: 'feat/child-task', parent_branch_id: 'feat/foo', description: 'child of feat/foo' }],
         });
         const inserted = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
@@ -359,7 +358,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/foo', parent_branch_id: 'random-junk', description: 'bad parent', success_criteria: 'n/a' }],
+            tasks: [{ branch_id: 'feat/foo', parent_branch_id: 'random-junk', description: 'bad parent' }],
         });
         const data = parseResult(result);
         assert.ok(result.isError, 'Expected isError=true');
@@ -375,7 +374,7 @@ describe('taskTools', () => {
             waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'dev', description: 'bad branch_id', success_criteria: 'n/a' }],
+            tasks: [{ branch_id: 'dev', description: 'bad branch_id' }],
         });
         const data = parseResult(result);
         assert.ok(result.isError, 'Expected isError=true');
@@ -396,7 +395,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/spec-body-test',
                     description: 'Test spec body storage',
-                    success_criteria: 'spec_body is stored',
                     spec_body: specBody,
                 },
             ],
@@ -425,7 +423,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/no-spec-body',
                     description: 'No spec body',
-                    success_criteria: 'defaults to empty',
                 },
             ],
         });
@@ -448,7 +445,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/oversize-spec',
                     description: 'Oversize spec body',
-                    success_criteria: 'should be rejected',
                     spec_body: oversizeBody,
                 },
             ],
@@ -469,7 +465,7 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/swe-guard-test', description: 'SWE guard test', success_criteria: 'ok' },
+                { branch_id: 'feat/swe-guard-test', description: 'SWE guard test' },
             ],
         });
         const tasks = parseResult(batchResult);
@@ -498,9 +494,9 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/swe-running-test', description: 'SWE running test', success_criteria: 'ok' },
-                { branch_id: 'feat/swe-completed-test', description: 'SWE completed test', success_criteria: 'ok' },
-                { branch_id: 'feat/swe-failed-test', description: 'SWE failed test', success_criteria: 'ok' },
+                { branch_id: 'feat/swe-running-test', description: 'SWE running test' },
+                { branch_id: 'feat/swe-completed-test', description: 'SWE completed test' },
+                { branch_id: 'feat/swe-failed-test', description: 'SWE failed test' },
             ],
         });
         const tasks = parseResult(batchResult);
@@ -537,8 +533,8 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/bro-closed-test', description: 'Bro closed test', success_criteria: 'ok' },
-                { branch_id: 'feat/bro-needs-validation-test', description: 'Bro needs_validation test', success_criteria: 'ok' },
+                { branch_id: 'feat/bro-closed-test', description: 'Bro closed test' },
+                { branch_id: 'feat/bro-needs-validation-test', description: 'Bro needs_validation test' },
             ],
         });
         const tasks = parseResult(batchResult);
@@ -572,7 +568,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/boundary-spec',
                     description: 'Boundary spec',
-                    success_criteria: 'at limit',
                     spec_body: body,
                 },
             ],
@@ -593,7 +588,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/repo-test',
                     description: 'Task with repo set',
-                    success_criteria: 'repo stored',
                     repo: 'inner',
                 },
             ],
@@ -623,7 +617,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/nested-repo',
                     description: 'Task with nested repo path',
-                    success_criteria: 'stored correctly',
                     repo: 'repos/backend',
                 },
             ],
@@ -646,7 +639,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/no-repo',
                     description: 'Task without repo',
-                    success_criteria: 'repo is null',
                 },
             ],
         });
@@ -668,7 +660,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/empty-repo',
                     description: 'Task with empty repo string',
-                    success_criteria: 'repo is null',
                     repo: '',
                 },
             ],
@@ -691,7 +682,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/bad-repo',
                     description: 'Task with bad repo path',
-                    success_criteria: 'rejected',
                     repo: '../escape',
                 },
             ],
@@ -715,7 +705,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/abs-repo',
                     description: 'Task with absolute repo path',
-                    success_criteria: 'rejected',
                     repo: '/absolute/path',
                 },
             ],
@@ -742,7 +731,6 @@ describe('taskTools', () => {
                     {
                         branch_id: 'feat/my-feature',
                         description: 'Feature task',
-                        success_criteria: 'branch exists',
                         repo: name,
                     },
                 ],
@@ -772,7 +760,6 @@ describe('taskTools', () => {
                     {
                         branch_id: 'feat/nonexistent-branch',
                         description: 'Feature task',
-                        success_criteria: 'should be rejected',
                         repo: name,
                     },
                 ],
@@ -802,7 +789,7 @@ describe('taskTools', () => {
                 waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
                 agent: 'bro',
                 issue_id: String(issueId),
-                tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo A', success_criteria: 'accepted', repo: repoA }],
+                tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo A', repo: repoA }],
             });
             assert.ok(!acceptedResult.isError, `Expected accepted for repoA: ${JSON.stringify(parseResult(acceptedResult))}`);
             const rejectedResult = await call(tools.handlers, 'task_create_batch', {
@@ -810,7 +797,7 @@ describe('taskTools', () => {
                 waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
                 agent: 'bro',
                 issue_id: String(issueId),
-                tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo B (branch absent)', success_criteria: 'rejected', repo: repoB }],
+                tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo B (branch absent)', repo: repoB }],
             });
             assert.ok(rejectedResult.isError, 'Expected rejection when branch absent in repoB');
             assert.match(parseResult(rejectedResult).error, /task_create_batch rejected/);
@@ -834,7 +821,6 @@ describe('taskTools', () => {
                 {
                     branch_id: 'feat/no-repo-set',
                     description: 'Task without explicit repo',
-                    success_criteria: 'no branch check performed',
                 },
             ],
         });
@@ -860,7 +846,7 @@ describe('taskTools', () => {
             waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'fix/test-gate', description: 'd', success_criteria: 'c' }],
+            tasks: [{ branch_id: 'fix/test-gate', description: 'd' }],
         });
         assert.ok(result.isError, 'Expected isError=true');
         const data = parseResult(result);
@@ -878,7 +864,7 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/default-repo-test', description: 'No repo arg', success_criteria: 'uses default' },
+                { branch_id: 'feat/default-repo-test', description: 'No repo arg' },
             ],
         });
         const inserted = parseResult(result);
@@ -896,7 +882,7 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/null-repo-back-compat', description: 'No repo, no config', success_criteria: 'repo is null' },
+                { branch_id: 'feat/null-repo-back-compat', description: 'No repo, no config' },
             ],
         });
         const inserted = parseResult(result);
@@ -923,7 +909,7 @@ describe('taskTools', () => {
             waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'fix/test-gate', description: 'd', success_criteria: 'c' }],
+            tasks: [{ branch_id: 'fix/test-gate', description: 'd' }],
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         db.close();

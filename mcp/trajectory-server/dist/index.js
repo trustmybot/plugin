@@ -130,6 +130,6 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 const transport = new StdioServerTransport();
 await server.connect(transport);
-serverLog({ kind: 'startup', pid: process.pid, version: '0.6.0-rc.1', db_path: dbPath });
+serverLog({ kind: 'startup', pid: process.pid, version: '0.6.0-rc.2', db_path: dbPath });
 process.stderr.write(`server started (db: ${dbPath})\n`);
 //# sourceMappingURL=index.js.map

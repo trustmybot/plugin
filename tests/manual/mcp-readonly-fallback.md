@@ -67,7 +67,7 @@ TRAJECTORY_DB_PATH="$DB" skills/tmb_recovery/scripts/bro-sqlite-readonly.sh issu
 
 Expected JSON shape:
 ```json
-{"id": <N>, "parent_issue_id": null, "objective": "...", "status": "...", ...}
+{"id": <N>, "objective": "...", "status": "...", "remote_iid": null, "remote_kind": null, ...}
 ```
 
 Assert: no `description` field (redacted in default mode). Keys include `id`, `objective`, `status`, `created_at`, `updated_at`.

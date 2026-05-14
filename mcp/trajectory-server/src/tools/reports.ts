@@ -235,8 +235,6 @@ export function reportTools(db: TrajectoryDB): {
       lines.push(`**Status:** ${issue.status}`);
       lines.push(`**Created:** ${issue.created_at}`);
       lines.push(`**Updated:** ${issue.updated_at}`);
-      // current_task_id was retired in #179 (always-null in production); the
-      // open-tasks list below provides the same signal more reliably.
       if (issue.closed_at) {
         lines.push(`**Closed:** ${issue.closed_at}`);
       }

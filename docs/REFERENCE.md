@@ -7,7 +7,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. The `<plugin-name>` segment matches `plugin.json.name`, so the stable channel writes to `.claude/tmb/` and the RC channel writes to `.claude/tmb-rc/` — full filesystem isolation when both are installed (#87). Project-local, gitignored, per-developer.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **ADRs** — `docs/trustmybot/architecture/manual/decisions/N-*.md`, hand-curated.
-- **Auto-rendered architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed by the scan-side renderer pass (currently inert; see #2881 follow-up).
+- **Auto-rendered architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed by the scan-side renderer pass.
 - **Snapshots** — `docs/trustmybot/snapshots/<issue_id>.md`, generated via `issue_snapshot_md`.
 
 ## Other docs
@@ -29,9 +29,9 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS)
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
 - **file_registry**: `file_registry_upsert`, `file_registry_update_summaries` (bro-only; close-gate-enforced), `file_registry_list`, `file_registry_verify`, `file_registry_delete`
-- **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (replaced the legacy identity surface per #2876)
+- **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
 - **config**: `config_get`, `config_list`, `config_set`
-- **scan**: `scan_run`, `repos_list`, `file_registry_bulk_upsert` (replaced the legacy standalone arch-refresh surface per #2881)
+- **scan**: `scan_run`, `repos_list`, `file_registry_bulk_upsert`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
 - **skills**: `skill_register`, `skill_promote`, `skill_record_outcome`
 - **audit**: `audit_log`, `audit_log_list`
@@ -66,7 +66,7 @@ Catalog: `docs/commands/README.md`.
 
 | Hook | Trigger | Purpose |
 |---|---|---|
-| `activation-routine.sh` | UserPromptSubmit | Pre-fetch identity + pending issue for bro banner |
+| `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Bro creates branches; SWE can't `git worktree -b` |
 | `git-push-guard.sh` | PreToolUse Bash | SWE can't push; force-push blocked |

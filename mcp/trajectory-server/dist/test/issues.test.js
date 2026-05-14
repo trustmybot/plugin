@@ -70,8 +70,8 @@ describe('issueTools', () => {
             agent: 'bro',
             issue_id: String(issue.id),
             tasks: [
-                { branch_id: 'feat/first-task', description: 'First task', success_criteria: 'done' },
-                { branch_id: 'feat/second-task', description: 'Second task', success_criteria: 'done' },
+                { branch_id: 'feat/first-task', description: 'First task' },
+                { branch_id: 'feat/second-task', description: 'Second task' },
             ],
         });
         const resumeResult = await call(tools.handlers, 'issue_resume', {
@@ -120,8 +120,8 @@ describe('issueTools', () => {
             agent: 'bro',
             issue_id: String(issue.id),
             tasks: [
-                { branch_id: 'feat/task-1', description: 'Task 1', success_criteria: 'done' },
-                { branch_id: 'feat/task-2', description: 'Task 2', success_criteria: 'done' },
+                { branch_id: 'feat/task-1', description: 'Task 1' },
+                { branch_id: 'feat/task-2', description: 'Task 2' },
             ],
         });
         const phaseResult = await call(tools.handlers, 'issue_get_phase', {

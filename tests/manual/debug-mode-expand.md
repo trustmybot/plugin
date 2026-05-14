@@ -16,7 +16,7 @@ rm -f ~/.claude/tmb/logs/mcp-server.log ~/.claude/tmb/logs/sql.log
 (
   echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
   echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity_get","arguments":{"agent":"bro"}}}'
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"onboard_state_get","arguments":{"agent":"bro"}}}'
   sleep 0.5
 ) | TRAJECTORY_DB_PATH=/tmp/debug-smoke.db \
     node --experimental-sqlite dist/index.js 2>/dev/null
@@ -28,8 +28,8 @@ tail -5 ~/.claude/tmb/logs/mcp-server.log
 
 Expected `mcp-server.log` entries (one JSONL object per line):
 - `{"kind":"startup","pid":<N>,"version":"0.6.0-rc.1","db_path":"/tmp/debug-smoke.db","ts":"..."}`
-- `{"kind":"tool_entry","tool":"identity_get","agent":"bro","ts":"..."}`
-- `{"kind":"tool_exit","tool":"identity_get","agent":"bro","is_error":false,"duration_ms":<N>,"ts":"..."}`
+- `{"kind":"tool_entry","tool":"onboard_state_get","agent":"bro","ts":"..."}`
+- `{"kind":"tool_exit","tool":"onboard_state_get","agent":"bro","is_error":false,"duration_ms":<N>,"ts":"..."}`
 
 Validate JSONL:
 ```bash
@@ -50,7 +50,7 @@ rm -f ~/.claude/tmb/logs/sql.log
 (
   echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
   echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity_get","arguments":{"agent":"bro"}}}'
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"onboard_state_get","arguments":{"agent":"bro"}}}'
   sleep 0.5
 ) | TMB_DEBUG_SQL=1 TRAJECTORY_DB_PATH=/tmp/debug-sql-smoke.db \
     node --experimental-sqlite dist/index.js 2>/dev/null
@@ -61,7 +61,7 @@ tail -3 ~/.claude/tmb/logs/sql.log
 python3 -c "import json; [json.loads(l) for l in open('$HOME/.claude/tmb/logs/sql.log')]" && echo "sql JSONL valid"
 ```
 
-Expected: at least one line like `{"kind":"get","sql":"SELECT * FROM identity LIMIT 1","params":[],"duration_ms":<N>,"row_count":0,"ok":true,"ts":"..."}`.
+Expected: at least one line like `{"kind":"get","sql":"SELECT * FROM plugin_config WHERE key='onboarded' LIMIT 1","params":[],"duration_ms":<N>,"row_count":0,"ok":true,"ts":"..."}`.
 
 ### 2b. Without TMB_DEBUG_SQL (should produce NO sql.log)
 
@@ -71,7 +71,7 @@ rm -f ~/.claude/tmb/logs/sql.log
 (
   echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
   echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity_get","arguments":{"agent":"bro"}}}'
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"onboard_state_get","arguments":{"agent":"bro"}}}'
   sleep 0.5
 ) | TRAJECTORY_DB_PATH=/tmp/debug-nosql-smoke.db \
     node --experimental-sqlite dist/index.js 2>/dev/null

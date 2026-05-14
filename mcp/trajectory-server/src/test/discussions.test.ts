@@ -216,7 +216,6 @@ describe('discussions + snapshot integration', () => {
           branch_id: 'feat/discussions-integration',
           title: 'discussions task',
           description: 'Implement discussion tools',
-          success_criteria: 'All tools work',
           spec_body: 'This is the spec body for the discussions task.',
         },
       ],
@@ -312,7 +311,6 @@ describe('discussions + snapshot integration', () => {
         {
           branch_id: 'feat/commit-sha-optional',
           description: 'Task that finishes without a commit_sha',
-          success_criteria: 'completes without commit_sha argument',
         },
       ],
     });

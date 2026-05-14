@@ -35,7 +35,7 @@ async function createTask(db, issueId) {
         waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
         agent: 'bro',
         issue_id: String(issueId),
-        tasks: [{ branch_id: 'fix/validation-test', description: 'Test task', success_criteria: 'passes' }],
+        tasks: [{ branch_id: 'fix/validation-test', description: 'Test task' }],
     });
     const data = parseResult(result);
     assert.ok(!result.isError, `task_create_batch failed: ${JSON.stringify(data)}`);

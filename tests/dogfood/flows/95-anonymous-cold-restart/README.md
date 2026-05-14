@@ -2,15 +2,15 @@
 
 **Regression test for**: GH issue #95 — Anonymous cold-session re-onboarding bug.
 
-**Pre-state**: identity row exists with `human_name=NULL` (Anonymous), config done.
+**Pre-state**: onboarded marker present in plugin_config (Anonymous), config done.
 
 **Trigger**: `@bro hi` (cold session)
 
-**Expected behavior**: bro's first-action chain reads identity row → sees non-null `created_at` → skips onboarding → calls `issue_resume` → greets in plain second-person.
+**Expected behavior**: bro's first-action chain reads onboarded marker → sees onboarded=true → skips onboarding → calls `issue_resume` → greets in plain second-person.
 
 ## Critical invariants (forbidden tools)
 
-- NO `identity_set` — onboarding must NOT re-trigger
+- NO `onboard_apply` — onboarding must NOT re-trigger
 - NO `config_set` — config must NOT re-write
 
 If either fires, the #95 regression has returned.
@@ -19,7 +19,7 @@ If either fires, the #95 regression has returned.
 
 | Scorer | What it asserts |
 |---|---|
-| `outcome.sql` | identity row count is still 1 (unchanged); 3 plugin_config rows still present |
-| `tools-required.json` | identity_get + config_get + issue_resume (the standard first-action chain) |
-| `tools-forbidden.json` | identity_set, config_set (re-onboarding markers) |
+| `outcome.sql` | onboarded marker still present (unchanged); plugin_config rows still present |
+| `tools-required.json` | onboard_state_get + config_get + issue_resume (the standard first-action chain) |
+| `tools-forbidden.json` | onboard_apply, config_set (re-onboarding markers) |
 | `cost-budget.json` | Tight — cold restart should be ~5K tokens |

@@ -68,13 +68,13 @@ Inside CC, type `@bro hello` (or anything addressing bro). Onboarding should fir
 # In another terminal, from the scratch dir:
 sqlite3 .claude/tmb/trajectory.db <<'SQL'   # plugin name is tmb in both stable and RC channels
 .headers on
-SELECT human_name, created_at FROM identity;
+SELECT key, value_json FROM plugin_config WHERE key='onboarded';
 SELECT key, value_json FROM plugin_config ORDER BY key;
 SELECT id, event_type, summary FROM audit WHERE kind='event' ORDER BY id DESC LIMIT 3;
 SQL
 ```
 
-Expected: 1 identity row (set via `/onboard slash command`), 3 config rows from the schema seed (`branching_model`, `pr_target`, `protected_branches`), and an empty audit if no decisions have fired yet.
+Expected: 1 plugin_config row with `onboarded=true` (set via `/onboard`), 3 config rows from the schema seed (`branching_model`, `pr_target`, `protected_branches`), and an empty audit if no decisions have fired yet.
 
 ### Hot reload (apply edits without restart)
 
@@ -153,11 +153,11 @@ ls "$INSTALLED/mcp/trajectory-server/dist/schema.sql" # must exist
 # 2. Server actually spawns + handles a real DB call
 ( echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
   echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity_get","arguments":{"agent":"bro"}}}'
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"onboard_state_get","arguments":{"agent":"bro"}}}'
   sleep 1
 ) | TRAJECTORY_DB_PATH=/tmp/rc-smoke.db \
   node --experimental-sqlite "$INSTALLED/mcp/trajectory-server/dist/index.js" 2>&1 \
-  | grep -q human_name && echo "✓ MCP responds" || echo "✗ MCP broken — abort RC validation, file v<X.Y.Z>-rc.N+1"
+  | grep -q first_run && echo "✓ MCP responds" || echo "✗ MCP broken — abort RC validation, file v<X.Y.Z>-rc.N+1"
 rm -f /tmp/rc-smoke.db
 ```
 
@@ -228,8 +228,8 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 
 - `dist/index.js` + `dist/schema.sql` present
 - MCP server spawns
-- `tools/list` returns `identity_get`
-- A real `tools/call identity_get` round-trips with a `human_name` field
+- `tools/list` returns `onboard_state_get`
+- A real `tools/call onboard_state_get` round-trips with a `first_run` field
 - All hooks executable + syntactically valid
 - `.mcp.json`'s referenced paths exist
 
