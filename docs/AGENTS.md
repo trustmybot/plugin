@@ -40,7 +40,7 @@ User-created project consultants (via `tmb_agent-creator` from-scratch flow) fol
 
 ## Agent ownership states
 
-Every agent file in `<project>/.claude/agents/` is in one of three ownership states, declared via the `tmb_owner` field in YAML frontmatter:
+Every agent file in `<project>/.claude/agents/` is in one of three ownership states, declared via the `tmb_owner` field in YAML frontmatter. `tmb_owner` is a frontmatter-only convention (read by `tmb_agent-creator` from the file at decision time); it is no longer persisted to the agents DB table.
 
 | Marker | Meaning | Plugin behavior |
 |---|---|---|

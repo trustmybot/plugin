@@ -53,8 +53,8 @@ Bro is the only agent allowed to call:
 - `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
 - `pr_comments_get` (shared with pr-reviewer)
 - `issue_sync_retry`
-- `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (these write `plugin_config('onboarded')` and the related policy keys; replaced the retired `identity_get`/`set`/`reset` surface per #2876)
-- `scan_run` (single scan-side tool; replaced the retired standalone arch-refresh surface per #2881)
+- `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (write `plugin_config('onboarded')` and the related policy keys)
+- `scan_run` (single scan-side tool)
 
 ### Hooks fired on bro's behalf
 
@@ -191,7 +191,6 @@ Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireR
 | `task_update_status(completed/failed)` | ✓ | ✓ | | |
 | `validation_record` | | | ✓ | |
 | `file_registry_update_summaries` | ✓ | | | |
-| `identity_set` / `identity_reset` | ✓ | | | |
 | `onboard_*` (state_get/get_questions/apply) | ✓ | | | |
 | `discussion_append` | any kind | note/concern | any | analysis/concern |
 | `audit_log`, `task_get` | ✓ | ✓ | ✓ | ✓ |

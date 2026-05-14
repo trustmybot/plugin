@@ -9,17 +9,8 @@ import { commandTools } from './commands.js';
 import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
-// identityTools removed in 2026-05 (#2876): the onboarded marker moved
-// from the standalone `identity` table to plugin_config('onboarded': true).
 import { fileRegistryTools } from './file-registry.js';
 import { branchReportMdTools } from './branch_report_md.js';
-// labelTools removed in #179 — issues.labels column was always-empty in
-// production; local label storage retired.
-// Legacy scan-side drift-cache + standalone arch-refresh MCP tools were
-// retired in 2026-05 (#2881 follow-up): scan_run is the single scan-side
-// tool now. Renderer code still lives in `renderers/` for an eventual
-// scan_run-internal call when structural_change detection fires (currently
-// inert).
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
 import { prCommentsTools } from './pr_comments.js';

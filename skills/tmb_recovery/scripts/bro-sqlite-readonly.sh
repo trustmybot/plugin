@@ -41,8 +41,6 @@ KNOWN_WRITE_TOOLS=(
   audit_log
   validation_record
   file_registry_update_summaries
-  identity_set
-  identity_get
 )
 
 # ---------------------------------------------------------------------------
@@ -165,7 +163,7 @@ tool_issue_resume() {
 
   # Fetch issue (redacted for bro: no description field omitted since bro is full-trust)
   local issue_json
-  issue_json=$(run_query "SELECT id, parent_issue_id, objective, post_commit_hash, status, current_task_id, created_at, updated_at, closed_at FROM issues WHERE id = $safe_id;")
+  issue_json=$(run_query "SELECT id, objective, description, status, created_at, updated_at, closed_at, remote_iid, remote_kind FROM issues WHERE id = $safe_id;")
 
   if [[ -z "$issue_json" || "$issue_json" == "[]" ]]; then
     error_json "Not found: $issue_id"
@@ -208,7 +206,7 @@ tool_issue_get() {
   if [[ "$include_description" == "True" || "$include_description" == "true" || "$include_description" == "1" ]]; then
     cols="*"
   else
-    cols="id, parent_issue_id, objective, post_commit_hash, status, current_task_id, created_at, updated_at, closed_at"
+    cols="id, objective, description, status, created_at, updated_at, closed_at, remote_iid, remote_kind"
   fi
 
   local rows

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Activation-routine hook (#108).
 #
-# Pre-fetches identity + pending issue from the trajectory DB on every
+# Pre-fetches onboarded marker + pending issue from the trajectory DB on every
 # bro-triggered UserPromptSubmit, and injects them as additionalContext.
 # Bro composes the welcome banner from the injected data instead of relying
-# on prompt-only doctrine to call identity_get + issue_resume — h4 A/B
+# on prompt-only doctrine to call onboard_state_get + issue_resume — h4 A/B
 # proved that ceiling is 0/10 in both wording arms.
 #
 # Bro mode active when:
@@ -85,7 +85,7 @@ fi
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-IDENTITY_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';" 2>/dev/null)
+ONBOARDED_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';" 2>/dev/null)
 PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" \
   "SELECT id, objective FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;" \
   2>/dev/null)
@@ -94,7 +94,7 @@ PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" \
 #   - row absent  → first contact; bro must auto-fire /onboard
 #   - row present → onboarded (pure marker — no name or other fields are stored)
 FIRST_RUN=0
-if [ "$IDENTITY_ROW_COUNT" = "0" ]; then
+if [ "$ONBOARDED_ROW_COUNT" = "0" ]; then
   FIRST_RUN=1
   ONBOARDED_LINE="onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>"
 else

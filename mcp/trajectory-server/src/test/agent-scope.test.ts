@@ -106,7 +106,7 @@ describe('agent-scope middleware', () => {
       content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
     });
 
-    const wrapped = requireRoles('identity_set', ['bro'], passthrough);
+    const wrapped = requireRoles('task_create_batch', ['bro'], passthrough);
     const result = await wrapped({ agent: 'swe' });
 
     assert.ok(result.isError, 'Expected isError=true');
@@ -123,7 +123,7 @@ describe('agent-scope middleware', () => {
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
     };
 
-    const wrapped = requireRoles('identity_set', ['bro'], passthrough);
+    const wrapped = requireRoles('task_create_batch', ['bro'], passthrough);
     const result = await wrapped({ agent: 'bro' });
 
     assert.ok(!result.isError, 'Expected no error');

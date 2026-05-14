@@ -15,7 +15,7 @@
 5. `/onboard` catches the deny and writes a `headless_reonboard_blocked` audit event with `/onboard` in its summary, attached to issue -1.
 6. Bro halts cleanly with a surface message telling the Human to re-run interactively.
 
-**Identity must remain empty** — `/onboard` couldn't complete, so no `identity_set` and no policy-key writes landed.
+**Identity must remain empty** — `/onboard` couldn't complete, so no `onboard_apply` and no policy-key writes landed.
 
 ## Scorers
 

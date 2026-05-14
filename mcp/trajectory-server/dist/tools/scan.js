@@ -156,7 +156,7 @@ export function scanTools(db) {
     const definitions = [
         {
             name: 'scan_run',
-            description: 'Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo\'s tracked files, computes md5 + size + last_commit_sha, and persists to repos + file_registry. Drift detection is md5-only (no git diff). Emits a deep_scan_completed audit event so the registry-cold gate clears. The audit content_json carries a `source` field naming who fired the scan (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) plus `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan) — useful for diagnostics + the scan-side renderer pass (#2881). Phase 1 only — file summaries are filled by parallel subagents in Phase 2 (see commands/scan.md).',
+            description: 'Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo\'s tracked files, computes content_md5, and persists to repos + file_registry. Drift detection is md5-only (no git diff). Emits a deep_scan_completed audit event so the registry-cold gate clears. The audit content_json carries a `source` field naming who fired the scan (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) plus `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan) — useful for diagnostics + the scan-side renderer pass (#2881). Phase 1 only — file summaries are filled by parallel subagents in Phase 2 (see commands/scan.md).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -194,15 +194,13 @@ export function scanTools(db) {
                     agent: { type: 'string' },
                     files: {
                         type: 'array',
-                        description: 'Array of { repo, path, size_bytes, content_md5, last_commit_sha } objects.',
+                        description: 'Array of { repo, path, content_md5 } objects.',
                         items: {
                             type: 'object',
                             properties: {
                                 repo: { type: 'string' },
                                 path: { type: 'string' },
-                                size_bytes: { type: 'integer' },
                                 content_md5: { type: 'string' },
-                                last_commit_sha: { type: 'string' },
                             },
                             required: ['repo', 'path', 'content_md5'],
                         },

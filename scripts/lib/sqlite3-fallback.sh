@@ -124,9 +124,7 @@ SQL
   _tmb_fallback_audit_log "$db" audit_log "$agent" "{\"issue_id\":$issue_id,\"event_type\":\"$event_type\"}"
 }
 
-# tmb_fallback_issue_close <issue_id> <agent> [post_git_sha]
-# post_git_sha kept positional for backward-compat with callers, but no longer
-# persisted (issues.post_commit_hash dropped). Pass-through is a no-op.
+# tmb_fallback_issue_close <issue_id> <agent>
 tmb_fallback_issue_close() {
   local issue_id="$1" agent="$2"
   local db; db=$(_tmb_require_db) || return 1

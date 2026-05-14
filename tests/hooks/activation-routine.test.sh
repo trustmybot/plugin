@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/activation-routine.sh.
 # Hook contract: on UserPromptSubmit, when bro mode is active, read
-# identity + pending issue from trajectory.db and emit additionalContext
+# onboarded marker + pending issue from trajectory.db and emit additionalContext
 # JSON. Silent no-op otherwise.
 set -euo pipefail
 
@@ -22,8 +22,7 @@ export TRAJECTORY_DB_PATH="$DB"
 sqlite3 "$DB" "
   CREATE TABLE plugin_config (
     key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    value_json TEXT NOT NULL
   );
   CREATE TABLE issues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,9 +72,9 @@ assert_contains "$out" 'FIRST CONTACT' "first-contact marker present in injected
 assert_contains "$out" 'auto-fire /onboard' "auto-fire instruction injected"
 assert_contains "$out" 'pending=<none>' "pending reported as none"
 
-test_case "identity row present (post-onboard, #95): emits onboarded=yes, NOT first-contact"
+test_case "onboarded marker present (post-onboard, #95): emits onboarded=yes, NOT first-contact"
 sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='onboarded';"
-sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'));"
+sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');"
 out=$(run_hook "$(input '@bro hi')")
 assert_contains "$out" 'onboarded=yes' "onboarded marker present"
 # Critical: the first-contact auto-fire must NOT fire for an existing row
@@ -86,7 +85,7 @@ fi
 sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='onboarded';"
 
 test_case "@bro greeting + onboarded marker present: onboarded=yes (no name stored)"
-sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('onboarded', 'true', datetime('now'));"
+sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');"
 out=$(run_hook "$(input '@bro hi')")
 assert_contains "$out" 'onboarded=yes' "onboarded reported"
 

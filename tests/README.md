@@ -238,7 +238,7 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 - **L5** — single-shot, slow, non-deterministic. Cannot substitute for L2/L3 (schema/role bugs should be caught in ms). Cannot catch cross-flow drift — that's L6.
 - **L6** — multi-turn, slow, non-deterministic. Cannot substitute for L5 (which is faster + tighter for one-flow regressions). Cannot catch what only happens with a real Human in the loop — that's manual smoke.
 
-**Regression teeth proof (L3):** removing `requireRoles('identity_set', ['bro'], …)` from `identity.ts` → L3 fails on the next run with *"architect must be forbidden from identity_set"*. Verified 2026-04-24.
+**Regression teeth proof (L3):** removing `requireRoles('task_create_batch', ['bro'], …)` from `tasks.ts` → L3 fails on the next run with *"architect must be forbidden from task_create_batch"*. Verified 2026-04-24.
 
 ## Add a new test
 
@@ -278,7 +278,7 @@ Assertion helpers (`tests/lib/assert.sh`):
 
 ## Anti-patterns
 
-- **"L2 is green, ship it."** L2 bypasses the MCP protocol layer. The 0-tool-uses bug in PR #41 had 235 L2 tests green while every `identity_set` call in production returned `forbidden` because the schema stripped the `agent` param before the handler saw it. Always validate at the wire level (L3).
+- **"L2 is green, ship it."** L2 bypasses the MCP protocol layer. The 0-tool-uses bug in PR #41 had 235 L2 tests green while every bro-only MCP write call in production returned `forbidden` because the schema stripped the `agent` param before the handler saw it. Always validate at the wire level (L3).
 - **"L5 will catch it."** Dogfood is slow (minutes per scenario) and non-deterministic (depends on LLM). Schema bugs, role bugs, and required-arg bugs should be caught in ms by L2/L3. L5 is for what only a real LLM session can reveal.
 - **"The handler already validates args, so schema doesn't matter."** It does. The LLM discovers what params to pass from the inputSchema. If `agent` isn't declared there, the LLM won't pass it, and role enforcement silently fails.
 - **Adding a new MCP tool without an L3 test.** Ship a test alongside the tool, not after. Every protected tool must have a role-matrix test; every tool used in any agent's workflow must appear in that agent's workflow test.

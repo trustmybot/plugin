@@ -188,7 +188,7 @@ sequenceDiagram
 
 ## 7. Scan + architecture refresh
 
-`scan_run` is the single scan-side MCP tool (#2881). Triggered three ways:
+`scan_run` is the single scan-side MCP tool. Triggered three ways:
 
 | Trigger | `source` value | Who fires |
 |---|---|---|
@@ -202,7 +202,6 @@ sequenceDiagram
 - `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
 - `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
 
-The legacy scan-side drift-cache table + the standalone arch-refresh MCP tool were retired with this flow per #2881; `scan_run` is the single scan-side surface.
 
 ---
 

@@ -83,7 +83,7 @@ describe('agent-scope middleware', () => {
         const passthrough = async (_args) => ({
             content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
         });
-        const wrapped = requireRoles('identity_set', ['bro'], passthrough);
+        const wrapped = requireRoles('task_create_batch', ['bro'], passthrough);
         const result = await wrapped({ agent: 'swe' });
         assert.ok(result.isError, 'Expected isError=true');
         const payload = JSON.parse(result.content[0].text);
@@ -97,7 +97,7 @@ describe('agent-scope middleware', () => {
             called = true;
             return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
         };
-        const wrapped = requireRoles('identity_set', ['bro'], passthrough);
+        const wrapped = requireRoles('task_create_batch', ['bro'], passthrough);
         const result = await wrapped({ agent: 'bro' });
         assert.ok(!result.isError, 'Expected no error');
         assert.ok(called, 'Expected underlying handler to be invoked');

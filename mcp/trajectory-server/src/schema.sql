@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 1, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 2, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. file_registry rows reference repos.name via the repo column.
@@ -288,7 +288,7 @@ CREATE TABLE IF NOT EXISTS commands (
 -- Seed the bundled slash commands so a fresh DB doesn't sit empty
 -- (same pattern as agents + skills seeds above).
 INSERT OR IGNORE INTO commands (name, description, file_path, scope, args_schema, status, created_at, updated_at) VALUES
-    ('scan',       'Deterministically populate the file_registry by walking the session dir for git repos, computing md5 + size + last_commit_sha per file. Phase 1 (programmatic) clears the registry-cold gate; Phase 2 (parallel summary fill) runs in the background.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
+    ('scan',       'Deterministically populate the file_registry by walking the session dir for git repos, computing content_md5 per file. Phase 1 (programmatic) clears the registry-cold gate; Phase 2 (parallel summary fill) runs in the background.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
     ('onboard',    'Configure or change identity, branching model, PR target, remotes, and issue-sync. Server-driven — bro orchestrates AskUserQuestion rounds; the MCP `onboard_*` tools own every if/else branch.',                                                       'commands/onboard.md',    'global', '{}',                                                          'active', datetime('now'), datetime('now')),
     ('monitor',    'Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them.',                                                                                                                                                       'commands/monitor.md',    'global', '{"argument_hint":"<PR or MR number>"}',                       'active', datetime('now'), datetime('now')),
     ('roundtable', 'Multi-agent deliberation on a topic with checkbox/radio AUQ ratification.',                                                                                                                                                                            'commands/roundtable.md', 'global', '{"argument_hint":"<topic to deliberate>"}',                   'active', datetime('now'), datetime('now'));

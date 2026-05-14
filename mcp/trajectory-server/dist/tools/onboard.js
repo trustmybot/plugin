@@ -100,7 +100,6 @@ function writeConfig(db, key, value) {
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [key, JSON.stringify(value)]);
 }
 function readOnboardedFlag(db) {
-    // #2876: onboarded state is a plugin_config marker now, not its own table.
     // value_json is JSON-encoded — `"true"` is the canonical truthy value.
     const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'onboarded'`);
     if (!row?.value_json)
@@ -427,9 +426,8 @@ export function onboardTools(db, dbPath = '') {
             const protected_branches = deriveProtectedBranches(branching_model, pr_target);
             const now = nowISO();
             db.transaction(() => {
-                // Mark project as onboarded via plugin_config (#2876). The legacy
-                // `identity` table is dropped by `migrateDropIdentityTable` in
-                // db.ts on next boot; this writer no longer touches it.
+                // Mark project as onboarded via plugin_config (#2876).
+                // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.
                 writeConfig(db, 'onboarded', true);
                 writeConfig(db, 'branching_model', branching_model);
                 writeConfig(db, 'pr_target', pr_target);

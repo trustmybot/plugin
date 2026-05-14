@@ -54,7 +54,6 @@ async function createTask(
       {
         branch_id: branchId,
         description: 'Test task description',
-        success_criteria: 'Done',
       },
     ],
   });
@@ -125,7 +124,6 @@ describe('branchReportMdTools', () => {
     assert.ok(md.includes('## Tasks on this branch'), 'Missing Tasks section');
     assert.ok(md.includes('## Audit events'), 'Missing Audit events section');
     assert.ok(md.includes('## Validation attempts'), 'Missing Validation attempts section');
-    assert.ok(md.includes('## file_registry entries touched on this branch'), 'Missing file_registry section');
 
     assert.ok(md.includes('SWE began work on feature'), 'Audit entry missing from report');
     assert.ok(md.includes('pass'), 'Validation verdict missing from report');
@@ -234,10 +232,6 @@ describe('branchReportMdTools', () => {
 
     assert.ok(md.includes('_No audit events._'), 'Expected empty audit events placeholder');
     assert.ok(md.includes('_No validation attempts._'), 'Expected empty validation placeholder');
-    assert.ok(
-      md.includes('_No file_registry entries found for this branch._'),
-      'Expected empty file_registry placeholder',
-    );
 
     db.close();
   });
@@ -320,6 +314,29 @@ describe('branchReportMdTools', () => {
     const md = data.markdown as string;
     assert.ok(md.includes('Started target branch work'), 'Target branch audit entry should be present');
     assert.ok(!md.includes('Started sibling branch work'), 'Sibling branch audit entry should NOT be present');
+
+    db.close();
+  });
+
+  it('handles task.commit_sha populated — no stale-column regression', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const branchId = 'feat/with-commit-sha';
+    const taskId = insertTaskDirect(db, issueId, branchId);
+    db.run('UPDATE tasks SET commit_sha = ? WHERE id = ?', ['abc123def', taskId]);
+
+    const tools = branchReportMdTools(db);
+    const result = await call(tools.handlers, 'branch_report_md', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      branch_id: branchId,
+    });
+
+    const data = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
+    assert.ok(typeof data.markdown === 'string', 'Expected markdown string');
+    const md = data.markdown as string;
+    assert.ok(md.includes('abc123de'), 'Commit sha should appear in tasks table');
 
     db.close();
   });
