@@ -12,10 +12,10 @@
 #        Mode B — MCP died mid-session (was alive earlier; existing kill
 #                 zombies + relaunch doctrine).
 #   2. Writes a forensic JSONL line on EVERY fire to:
-#        ${HOME}/.claude/tmb/logs/mcp-health.log
+#        ${HOME}/.claude/<plugin-name>/logs/mcp-health.log
 #      so last-hook-fire evidence survives a Claude Code host crash (GL #25).
 #
-# Cross-fire state: ${HOME}/.claude/tmb/logs/mcp-health.state (JSON, single
+# Cross-fire state: ${HOME}/.claude/<plugin-name>/logs/mcp-health.state (JSON, single
 # object) tracks `last_session_id` + `last_alive_at_session_start`. SessionStart
 # resets it; UserPromptSubmit reads it to classify Mode A vs B.
 #
@@ -29,12 +29,17 @@
 
 set -euo pipefail
 
-LOG_DIR="${HOME}/.claude/tmb/logs"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/resolve-plugin-name.sh
+. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+PLUGIN_NAME=$(tmb_resolve_plugin_name)
+
+LOG_DIR="${HOME}/.claude/${PLUGIN_NAME}/logs"
 LOG_FILE="${LOG_DIR}/mcp-health.log"
 STATE_FILE="${LOG_DIR}/mcp-health.state"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 
-db_path="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/tmb/trajectory.db"
+db_path="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/${PLUGIN_NAME}/trajectory.db"
 
 INPUT=$(cat)
 # CC sends snake_case `hook_event_name` on stdin (per
@@ -133,6 +138,8 @@ if [ -z "$plugin_source" ]; then
 fi
 [ -n "$plugin_source" ] || plugin_source="<plugin-source-path>"
 
+MARKETPLACE_OWNER="${PLUGIN_NAME/tmb/trustmybot}"
+
 # --- Emit additionalContext per mode ----------------------------------------
 if [ "$mode_json" = '"A"' ]; then
   CONTEXT="🚨 MCP trajectory-server NEVER STARTED this Claude Code session.
@@ -147,8 +154,8 @@ This is the CC plugin MCP-config cache bug (issue #2888):
 To recover, try IN ORDER (stop at the first one that brings MCP back):
 
   1. claude --plugin-dir ${plugin_source}      (cache-bust via inline)
-  2. /plugin uninstall tmb@trustmybot-rc            (then relaunch, reinstall)
-  3. rm -rf ~/.claude/plugins/cache/trustmybot-rc   (then reinstall)
+  2. /plugin uninstall ${PLUGIN_NAME}@${MARKETPLACE_OWNER}   (then relaunch, reinstall)
+  3. rm -rf ~/.claude/plugins/cache/${MARKETPLACE_OWNER}     (then reinstall)
 
 Full recovery doctrine: skills/tmb_recovery/SKILL.md § C.
 

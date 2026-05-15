@@ -16,15 +16,18 @@
 #   completed         + *                 → metrics-only; write agent_runs; status unchanged
 #   subagent_type != swe                  → silent exit 0
 #
-# Log: ${HOME}/.claude/tmb/logs/mcp-health.log (JSONL, appended)
+# Log: ${HOME}/.claude/<plugin-name>/logs/mcp-health.log (JSONL, appended)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/resolve-plugin-name.sh
+. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+PLUGIN_NAME=$(tmb_resolve_plugin_name)
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || true
 
-mkdir -p "${HOME}/.claude/tmb/logs" 2>/dev/null || true
+mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
 # Parse a JSONL transcript file and return pipe-separated stats:
 #   tokens_in|tokens_out|tool_uses|duration_ms
@@ -65,7 +68,7 @@ ENTRY_KEYS=$(echo "$INPUT" | jq -rc '[paths(scalars) | join(".")] | unique // []
 ENTRY_AGENT=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
 printf '{"ts":"%s","kind":"swe-atomic-close-entry","keys":%s,"agent_type_resolved":"%s"}\n' \
   "$ENTRY_TS" "$ENTRY_KEYS" "$ENTRY_AGENT" \
-  >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+  >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
 
 # Only act on SWE subagent stops.
 AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
@@ -82,10 +85,6 @@ if command -v tmb_db_path >/dev/null 2>&1; then
   DB=$(tmb_db_path 2>/dev/null || true)
 fi
 if [ -z "$DB" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
   # P0 guard: never traverse INTO the user's HOME from a descendant cwd.
   # Project state must not escape into the user's profile (mirrors db.ts).
   dir="$PWD"
@@ -219,7 +218,7 @@ if [ -n "$TRANSCRIPT_PATH" ]; then
   STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
   if [ "$STATS" = "0|0|0|0" ] && [ ! -f "$TRANSCRIPT_PATH" ]; then
     printf '{"ts":"%s","kind":"agent-runs-stats-parse-failed","reason":"transcript file not found","transcript":"%s"}\n' \
-      "$ts" "$TRANSCRIPT_PATH" >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+      "$ts" "$TRANSCRIPT_PATH" >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
   else
     TOKENS_IN=$(echo "$STATS" | cut -d'|' -f1)
     TOKENS_OUT=$(echo "$STATS" | cut -d'|' -f2)
@@ -227,7 +226,7 @@ if [ -n "$TRANSCRIPT_PATH" ]; then
     DURATION_MS=$(echo "$STATS" | cut -d'|' -f4)
     printf '{"ts":"%s","kind":"agent-runs-stats-parsed","task_id":%s,"tokens_total":%s,"tool_uses":%s,"duration_ms":%s,"transcript":"%s"}\n' \
       "$ts" "$TASK_ID" "$((TOKENS_IN + TOKENS_OUT))" "$TOOL_USES" "$DURATION_MS" "$TRANSCRIPT_PATH" \
-      >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+      >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
   fi
 fi
 
@@ -249,17 +248,17 @@ fi
 AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (${TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
 sqlite3 "$DB" "$AR_INSERT" 2>/dev/null || \
   printf '{"ts":"%s","kind":"agent-runs-capture-skipped","reason":"sqlite3 insert failed","task_id":%s}\n' \
-    "$ts" "$TASK_ID" >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+    "$ts" "$TASK_ID" >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
 
 # Log the decision.
 if [ "$DECISION" = "auto-completed" ] || [ "$DECISION" = "auto-complete-failed" ]; then
   printf '{"ts":"%s","kind":"swe-atomic-close","task_id":%s,"branch":"%s","decision":"%s","commit_sha":"%s"}\n' \
     "$ts" "$TASK_ID" "$BRANCH" "$DECISION" "$WT_HEAD" \
-    >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+    >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
 else
   printf '{"ts":"%s","kind":"swe-atomic-close","task_id":%s,"branch":"%s","decision":"%s","worktree":"%s"}\n' \
     "$ts" "$TASK_ID" "$BRANCH" "$DECISION" "$WT_PATH" \
-    >> "${HOME}/.claude/tmb/logs/mcp-health.log" || true
+    >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
 fi
 
 if [ -n "$CONTEXT" ]; then

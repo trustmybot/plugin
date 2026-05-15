@@ -7,7 +7,7 @@
 #            disables an MCP server through CC's UI; it persists across plugin
 #            re-enable, plugin updates, full CC restarts, and rm -rf .claude/.
 #            The plugin cannot read or write this — CC-owned state.
-#   Step B — nuke ~/.claude/plugins/cache/trustmybot-rc/ + remove tmb entries
+#   Step B — nuke ~/.claude/plugins/cache/<marketplace-owner>/ + remove plugin entries
 #            from installed_plugins.json. The Mode A recovery doctrine for
 #            CC's plugin-cache bug.
 #
@@ -18,11 +18,57 @@
 
 set -euo pipefail
 
-CACHE_DIR="${HOME}/.claude/plugins/cache/trustmybot-rc"
 INSTALLED_JSON="${HOME}/.claude/plugins/installed_plugins.json"
 CC_CONFIG="${HOME}/.claude.json"
-PLUGIN_NAME="tmb@trustmybot-rc"
-MCP_SERVER_KEY="plugin:tmb:trajectory-server"
+
+# ---- Channel detection -------------------------------------------------------
+# Detect installed tmb channels from installed_plugins.json.
+# macOS bash 3.2 compatible: use while-read instead of mapfile.
+DETECTED_CHANNELS=()
+if [ -f "$INSTALLED_JSON" ]; then
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && DETECTED_CHANNELS+=("$entry")
+  done < <(jq -r '.plugins | keys[]' "$INSTALLED_JSON" 2>/dev/null | grep -E '^tmb' || true)
+fi
+
+# Allow --channel override (stable or rc).
+CHANNEL_ARG=""
+ARGS=("$@")
+i=0
+while [ $i -lt ${#ARGS[@]} ]; do
+  arg="${ARGS[$i]}"
+  case "$arg" in
+    --channel=*) CHANNEL_ARG="${arg#--channel=}" ;;
+    --channel)
+      i=$((i + 1))
+      [ $i -lt ${#ARGS[@]} ] && CHANNEL_ARG="${ARGS[$i]}" ;;
+  esac
+  i=$((i + 1))
+done
+
+if [ -n "$CHANNEL_ARG" ]; then
+  if [ "$CHANNEL_ARG" = "stable" ]; then
+    PLUGIN_NAME="tmb"
+  else
+    PLUGIN_NAME="tmb-${CHANNEL_ARG}"
+  fi
+elif [ "${#DETECTED_CHANNELS[@]}" -eq 1 ]; then
+  PLUGIN_NAME="${DETECTED_CHANNELS[0]%%@*}"
+elif [ "${#DETECTED_CHANNELS[@]}" -gt 1 ]; then
+  printf 'Multiple tmb channels installed: %s\n' "${DETECTED_CHANNELS[*]}" >&2
+  printf 'Pass --channel stable|rc to choose.\n' >&2
+  exit 2
+else
+  printf 'No tmb installation found in %s\n' "$INSTALLED_JSON" >&2
+  printf 'Pass --channel stable|rc to specify explicitly.\n' >&2
+  exit 1
+fi
+
+MARKETPLACE_OWNER="${PLUGIN_NAME/tmb/trustmybot}"
+
+CACHE_DIR="${HOME}/.claude/plugins/cache/${MARKETPLACE_OWNER}"
+PLUGIN_ENTRY="${PLUGIN_NAME}@${MARKETPLACE_OWNER}"
+MCP_SERVER_KEY="plugin:${PLUGIN_NAME}:trajectory-server"
 
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ] || [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
   printf '⚠️  This script appears to be running INSIDE Claude Code.\n' >&2
@@ -118,8 +164,10 @@ matching_count=0
 total_count=0
 if [ -f "$INSTALLED_JSON" ]; then
   manifest_exists="yes"
-  total_count=$(jq -r '. | length' "$INSTALLED_JSON" 2>/dev/null || echo 0)
-  matching_count=$(jq --arg name "$PLUGIN_NAME" '[.[] | select(.name == $name or .id == $name)] | length' "$INSTALLED_JSON" 2>/dev/null || echo 0)
+  total_count=$(jq -r '.plugins | length' "$INSTALLED_JSON" 2>/dev/null || echo 0)
+  matching_count=$(jq --arg entry "$PLUGIN_ENTRY" --arg name "$PLUGIN_NAME" \
+    '[.plugins | to_entries[] | select(.key == $name or .key == $entry)] | length' \
+    "$INSTALLED_JSON" 2>/dev/null || echo 0)
 fi
 
 printf 'Discovered state:\n'
@@ -127,7 +175,7 @@ printf '  cache dir:           %s (%s)\n' "$CACHE_DIR" "$cache_exists"
 if [ "$manifest_exists" = "yes" ]; then
   printf '  installed_plugins:   %s\n' "$INSTALLED_JSON"
   printf '  total entries:       %s\n' "$total_count"
-  printf '  matching "%s": %s\n' "$PLUGIN_NAME" "$matching_count"
+  printf '  matching "%s": %s\n' "$PLUGIN_ENTRY" "$matching_count"
 else
   printf '  installed_plugins:   %s (missing)\n' "$INSTALLED_JSON"
 fi
@@ -159,12 +207,12 @@ else
 fi
 
 if [ "$cache_exists" = "no" ] && [ "$matching_count" -eq 0 ]; then
-  printf '\n  Nothing to nuke — cache dir already gone and no %s entry in installed_plugins.json.\n' "$PLUGIN_NAME"
+  printf '\n  Nothing to nuke — cache dir already gone and no %s entry in installed_plugins.json.\n' "$PLUGIN_ENTRY"
   printf '  Skipping Step B.\n\n'
   printf 'Done. To reinstall:\n'
   printf '  1. Launch Claude Code.\n'
-  printf '  2. /plugin install %s\n' "$PLUGIN_NAME"
-  printf '  3. Verify with: tail -1 ~/.claude/tmb/logs/mcp-health.log\n'
+  printf '  2. /plugin install %s\n' "$PLUGIN_ENTRY"
+  printf '  3. Verify with: tail -1 ~/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
   printf '     (expect mcp_alive:true and mode:null)\n'
   exit 0
 fi
@@ -174,8 +222,8 @@ if [ "$cache_exists" = "yes" ]; then
   printf '  rm -rf %s\n' "$CACHE_DIR"
 fi
 if [ "$matching_count" -gt 0 ]; then
-  printf '  jq "del(.[] | select(.name == \"%s\" or .id == \"%s\"))" %s   (%s entries)\n' \
-    "$PLUGIN_NAME" "$PLUGIN_NAME" "$INSTALLED_JSON" "$matching_count"
+  printf '  jq "del(.plugins[\"%s\"])" %s   (%s entries)\n' \
+    "$PLUGIN_NAME" "$INSTALLED_JSON" "$matching_count"
 fi
 
 printf '\nProceed with Step B (cache nuke)? (y/N) '
@@ -186,7 +234,7 @@ case "$answer_b" in
   *)
     printf '\nSkipped Step B. Manual recovery options:\n'
     printf '  1. claude --plugin-dir <plugin-source-path>   (cache-bust via inline)\n'
-    printf '  2. Inside CC: /plugin uninstall %s, quit, reinstall\n' "$PLUGIN_NAME"
+    printf '  2. Inside CC: /plugin uninstall %s, quit, reinstall\n' "$PLUGIN_ENTRY"
     printf '  3. Re-run this script and answer y to Step B.\n'
     exit 0
     ;;
@@ -199,7 +247,7 @@ fi
 
 if [ "$matching_count" -gt 0 ]; then
   tmp="${INSTALLED_JSON}.tmp.$$"
-  jq --arg name "$PLUGIN_NAME" 'del(.[] | select(.name == $name or .id == $name))' \
+  jq --arg name "$PLUGIN_NAME" 'del(.plugins[$name])' \
     "$INSTALLED_JSON" > "$tmp"
   mv -f "$tmp" "$INSTALLED_JSON"
   printf 'Removed %s entries from %s\n' "$matching_count" "$INSTALLED_JSON"
@@ -207,6 +255,6 @@ fi
 
 printf '\nDone. To reinstall:\n'
 printf '  1. Launch Claude Code.\n'
-printf '  2. /plugin install %s\n' "$PLUGIN_NAME"
-printf '  3. Verify with: tail -1 ~/.claude/tmb/logs/mcp-health.log\n'
+printf '  2. /plugin install %s\n' "$PLUGIN_ENTRY"
+printf '  3. Verify with: tail -1 ~/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
 printf '     (expect mcp_alive:true and mode:null)\n'
