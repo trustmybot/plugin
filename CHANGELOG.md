@@ -4,6 +4,23 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0-rc.4 — 2026-05-15
+
+### Fixed (#2888 — CC plugin MCP-config cache bug, defense-in-depth)
+
+- 🚨 **`mcp-health-check.sh` now distinguishes two MCP-absent failure modes** and emits a mode-specific `additionalContext` warning. Previously the hook fired the same "kill zombies + relaunch" message in both cases — useless for the cache-bug failure mode where relaunch demonstrably does not recover.
+  - **Mode A — MCP never spawned this session.** Triggered when SessionStart fires with `mcp_alive=false`, or when a subsequent UserPromptSubmit in the same session keeps showing `mcp_alive=false`. The new warning identifies this as the CC cache bug, tells bro to HALT (not silently degrade), and lists the three-step recovery escalation: `claude --plugin-dir`, `/plugin uninstall` + reinstall, or manual cache nuke.
+  - **Mode B — MCP died mid-session.** Triggered when UserPromptSubmit shows `mcp_alive=false` but the SessionStart record for the current session was `mcp_alive=true` (or the session_id changed). The existing kill-zombies + relaunch doctrine applies, with a clear note that if relaunch doesn't recover MCP the failure has escalated into Mode A.
+  - Cross-fire state lives at `~/.claude/tmb/logs/mcp-health.state` (single JSON object, `{last_session_id, last_alive_at_session_start}`) — written on SessionStart, read on UserPromptSubmit. Session ID resolved from CC's hook input JSON or `CLAUDE_SESSION_ID` fallback.
+  - JSONL log shape gains `mode` (`"A"` | `"B"` | `null`) and `session_id` fields. Existing `mcp_alive` / `pgrep_count` / `db_path` / `event` / `ts` unchanged.
+- 🩺 **`scripts/maintenance/heal-mcp-cache.sh`** — interactive remediation helper for Mode A. Discovers the cache dir + installed_plugins.json entries that would be removed, prints a dry-run preview, prompts for confirmation, then nukes only the `trustmybot-rc` cache and the `tmb@trustmybot-rc` entry. Preserves every other installed plugin. Idempotent (a second run sees nothing to do and exits 0). BSD-sed compatible. NOT autorun from any hook — purely a user-invoked tool.
+- 📄 **`skills/tmb_recovery/SKILL.md` § C** restructured to cover both failure modes. C.1 documents Mode A with the escalation order; C.2 keeps the existing degraded-mode read-fallback doctrine for Mode B and adds the cross-pointer ("if relaunch doesn't recover MCP, you're now in Mode A").
+- 📄 **`docs/UPGRADE.md` "Failure modes"** gains a section covering the cache bug with symptoms (CC-log signature, mcp-health.log signature) and the same three-step recovery escalation.
+
+### Reference
+
+- Upstream Claude Code bug: issue #2888. CC's `clearPluginCache` only fires on `--plugin-dir inline plugins`, not on marketplace plugin lifecycle events (`/plugin disable`/enable, auto-update). We can't fix that from inside the plugin; this release is pure defense — loud detection plus a sharp recovery doctrine.
+
 ## v0.6.0-rc.3 — 2026-05-14
 
 ### Fixed
