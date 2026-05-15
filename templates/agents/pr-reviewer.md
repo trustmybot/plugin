@@ -7,6 +7,7 @@ tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
 skills: [tmb_review]
 ---
 
+> **Plugin-global fallback.** Project-local override at `<workspace>/.claude/agents/pr-reviewer.md` (copied from `templates/project-seed/.claude/agents/pr-reviewer.md` during onboard) supports `mcpServers` frontmatter that this plugin-global version cannot. Use the project-local for reliable MCP access.
 # PR Reviewer — Push Gate
 
 Sign off (or fail) one task's commit against its spec.

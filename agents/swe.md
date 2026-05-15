@@ -1,5 +1,6 @@
 ---
 name: swe
+tmb_owner: bro
 description: Executor. Implements task specs in isolated worktrees with atomic close.
 model: sonnet
 maxTurns: 150

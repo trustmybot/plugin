@@ -8,7 +8,6 @@
 #
 # Skips:
 #   - `git push --force` / `-f` (handled by git-guards.sh — destructive ops)
-#   - branches with no upstream (first push) — bro should review at issue close
 #   - commits with no matching tasks row (pre-TMB or non-tracked work)
 set -euo pipefail
 
@@ -106,9 +105,13 @@ fi
 # Determine commits about to be pushed. Use upstream tracking if available.
 PUSH_SHAS=$(git log '@{u}..HEAD' --pretty=%H 2>/dev/null || true)
 if [ -z "$PUSH_SHAS" ]; then
-  # No upstream OR no new commits — nothing to gate.
-  exit 0
+  # No upstream — first push of new branch. Compute commits unique to this
+  # branch vs the configured pr_target base.
+  PR_TARGET=$(sqlite3 "$DB" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target'" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')
+  PR_TARGET="${PR_TARGET:-dev}"
+  PUSH_SHAS=$(git log "origin/${PR_TARGET}..HEAD" --pretty=%H 2>/dev/null || true)
 fi
+[ -z "$PUSH_SHAS" ] && exit 0
 
 # Build a SQL IN clause from the SHA list.
 SHA_LIST=""

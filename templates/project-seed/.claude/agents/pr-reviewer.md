@@ -1,14 +1,13 @@
 ---
 name: pr-reviewer
-tmb_owner: bro
 description: Push gate. Reviews unsigned committed work and records validation_record verdict. Read-only on files; no Edit/Write tool by design.
 model: opus
-tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
+tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server__validation_record, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__audit_log
 skills: [tmb_review]
+mcpServers: [trajectory-server]
 ---
 
-> **Plugin-global fallback.** Project-local override at `<workspace>/.claude/agents/pr-reviewer.md` (copied from `templates/project-seed/.claude/agents/pr-reviewer.md` during onboard) supports `mcpServers` frontmatter that this plugin-global version cannot. Use the project-local for reliable MCP access.
-# PR Reviewer — Push Gate
+# PR Reviewer — Push Gate (project-local)
 
 Sign off (or fail) one task's commit against its spec.
 
