@@ -4,6 +4,58 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0-rc.3 — 2026-05-14
+
+### Fixed
+
+- 🛡️ **Migration backup now flushes WAL before copyFile.** The pre-v2 audit on eb1 (post rc.1→rc.2 upgrade) found an audit row in the live DB that was missing from the `.pre-v2.<ts>.bak` companion — the row was in the SQLite WAL at backup time, and `copyFileSync` captures only the main `.db` file. `backupDbBeforeMigration` now calls `PRAGMA wal_checkpoint(FULL)` on the live DB handle before `copyFileSync` so the backup captures all committed state, not just the checkpointed subset. Try/catch wraps the checkpoint — if a concurrent writer holds the lock, we degrade gracefully to a best-effort backup. New L2 case in `schema-upgrade.test.ts` seeds a WAL-mode DB, writes a row leaving the WAL uncheckpointed, triggers migration, and asserts the row is in the `.bak`.
+- 🐛 **L5 trajectory capture silently failed.** `index.ts` wrote to a `debug_trajectory` table that only exists when `TMB_EVAL_MODE=1` (loaded from `schema-eval.sql`), but the writer was gated only on `TMB_DEBUG_TRAJECTORY=1`. Both flags now required together; comment clarifies the linkage.
+- 🐛 **`post-read-summary-hint.sh` was missing the HOME-boundary guard** the other 5 hooks have. Walk-up could silently adopt a stale `~/.claude/tmb/trajectory.db`. Added the standard guard.
+- 🐛 **`require-summaries-before-task-close.sh` hardcoded git-root DB lookup.** Failed silently in workspace-pattern projects (DB lives at workspace root above the inner repos). Replaced with the standard walk-up + HOME-guard pattern.
+
+### Changed (docs honesty pass)
+
+- 📄 **Dropped the false channel-isolation claim.** `docs/REFERENCE.md` + `docs/architecture/ERD.md` previously said "stable channel writes to `.claude/tmb/`, RC channel writes to `.claude/tmb-rc/`". False today — rc's `plugin.json.name` is still `"tmb"`, so both channels resolve to the same path. Replaced with the honest current state and a pointer at issue #1, where true isolation is tracked.
+- 📄 **ERD.md schema_version baseline updated 1 → 2.** The migration framework target.
+- 📄 **`tests/EVALUATION.md` now documents row 14** (`14-skill-invocation-recorded`) in the journey table; all "13 rows" / "12 steps" references bumped to 14 / 13.
+
+### Removed (dead code + retired surfaces)
+
+- 🗑️ **Vestigial `success_criteria` arg in `task_retry_batch`.** Read by the handler but never used; the task spec lives in `spec_body`. Removed from the inputSchema (`properties` + `required`) and from the handler.
+- 🗑️ **`tasks.ts:561` `void genId('task')` no-op** + its now-unused `genId` import.
+- 🗑️ **`scripts/hooks/diagnostic/probe-bash.sh`** — orphan from #14 debugging; never registered in `hooks.json`. Entire `diagnostic/` directory deleted.
+- 🗑️ **`tests/workflow-sim/flow-M-monitor-cursor.test.mjs`** — never invoked by `run-all.sh`; coverage exists at L2 (`pr-comments.test.ts`) and L5 row 13.
+- 🗑️ **`tests/lint/no-ledger-references.sh`** — post-#170 the `ledger_log` / `ledger_list` tools were merged into `audit`, making this lint structurally impossible to violate.
+- 🗑️ **`scripts/lib/sqlite3-fallback.sh:tmb_fallback_issue_close`** lost its vestigial `[post_git_sha]` positional arg (no caller passed it; column was dropped in the pre-release schema scrub).
+
+### Stale-ref sweep
+
+- 🧹 **Full audit + sweep of references to retired surfaces.** Across docs, hooks, skills, tests:
+  - Dead MCP tool names (`identity_get`, `identity_set`, `identity_reset`) replaced with current equivalents (`onboard_state_get`, `onboard_apply`) in: `commands/onboard.md`, `docs/architecture/RESPONSIBILITIES.md`, `tests/README.md`, `tests/manual/{setup,debug-mode-expand,scenarios,mcp-readonly-fallback}.md`, `tests/dogfood/flows/{01-first-contact,95-anonymous-cold-restart}/`.
+  - `docs/AGENTS.md` — reframed `tmb_owner` as a frontmatter-only convention (column was dropped from the `agents` table; frontmatter still meaningful as file content).
+  - `docs/contributing/ENUMS.md` — dropped the `agent_runs.exit_status` enum section (column gone).
+  - `scripts/hooks/activation-routine.sh` — renamed `IDENTITY_ROW_COUNT` variable + comments to `ONBOARDED_ROW_COUNT` (SQL was already correct).
+  - `scripts/scan.sh` — dropped emission of `default_branch` + `head_commit_sha` JSON fields (zero consumers in repo).
+  - `tests/hooks/activation-routine.test.sh` — fixture no longer references `plugin_config.updated_at` (column dropped).
+  - `mcp/trajectory-server/src/test/agent-scope.test.ts` — `requireRoles` tests use `task_create_batch` instead of the dead `identity_set` tool name.
+  - 47 task-item literals across 6 L2 test files lost the `success_criteria` property (schema dropped it from `task_create_batch` input).
+  - 8+ doc files: dropped "(replaced the retired …)" / "(legacy …)" / "#2876 / #2881 follow-up" historical commentary so the live docs are forward-facing (CHANGELOG keeps the history).
+- 🐛 **Fixed `bro-sqlite-readonly.sh` runtime crash.** The MCP-unreachable fallback's `issue_resume` / `issue_get` selected columns dropped from `issues` (`parent_issue_id`, `post_commit_hash`, `current_task_id`) — would crash with "no such column" on every invocation. SQL rewritten to current columns only.
+- 🐛 **Fixed `tmb_agent-creator` doctrine bug.** The skill instructed bro to call `agent_register(..., tmb_owner='bro')`, but the `tmb_owner` arg was dropped from the MCP tool schema (column dropped from the `agents` table). Stripped from all 3 call sites; clarifying sentence added that `tmb_owner` now lives only in the agent's `.md` frontmatter.
+- 🐛 **Fixed `branch_report_md` dead-path crash.** The MCP tool selected `last_commit_sha` from `file_registry` — a column dropped from the schema. Tests passed because no test set `tasks.commit_sha`, so `commitShas.length > 0` was always false; in production the first task that closed with a real commit sha would have crashed the report with "no such column". The `## file_registry entries touched on this branch` section is dropped from the rendered markdown.
+
+### Added (#2887 follow-up — schema discipline + upgrade tooling)
+
+- 🛠️ **Reintroduced the trajectory DB migration layer.** v0.6.0 is the floor for schema discipline: `db.ts` carries a `TARGET_SCHEMA_VERSION` constant and a versioned migration chain that runs on boot before `applySchema`. Reverses the pre-release "no shim" stance — the shim was right for the rc cycle, but stable users need smooth upgrades from rc → 0.6.0 → 0.7.0. Behavior:
+  - **Pre-migration backup** — when `plugin_meta.schema_version < TARGET`, the DB is copied to `<dbpath>.pre-v<TARGET>.<timestamp>.bak` before any migration step runs. One backup per target version.
+  - **v1 → v2 migration** drops zombie tables (`identity`, `regen_state`, `project_metadata`), translates the legacy `identity` row to `plugin_config('onboarded': true)`, adds `skills.scope` if absent, and rebuilds `tasks` / `roundtables` / `roundtable_votes` / `file_registry` via the SQLite `CREATE _new` + copy + `DROP` + `RENAME` recipe when pre-v2 columns are present. `agent_runs.started_at` added if missing; `completed_at` rebuilt as nullable if it was previously NOT NULL.
+  - **Downgrade protection** — refuses to open a DB whose `schema_version` is newer than the code's `TARGET`, with a clear error pointing at the backup file.
+  - **L2 coverage** — `mcp/trajectory-server/src/test/schema-upgrade.test.ts` adds 5 cases: legacy pre-#2886 → v2, rc-current → v2, idempotent re-open (no second backup), WAL-state preservation, downgrade-protection throw.
+- 📄 **`docs/UPGRADE.md`** — end-to-end upgrade guide covering plugin-file refresh, channel switches (stable ↔ rc), DB migration behavior, failure-mode diagnostics, and rollback via `.bak` restore. Maintainer section covers `/reload-plugins` requirement, rc→stable promotion ceremony, when/how to bump `TARGET_SCHEMA_VERSION`, and three test recipes for the migration end-to-end (`--plugin-dir` worktree, real marketplace, hand-crafted v1 DB).
+- 🔧 **`scripts/maintenance/bump-version.sh`** — atomic version bump across the four sync'd version locations: `.claude-plugin/plugin.json`, `package.json`, `mcp/trajectory-server/package.json`, and the `serverLog('startup', version: …)` literal in `mcp/trajectory-server/src/index.ts`. Validates SemVer, stages to tempfiles, only commits if every file matches. Idempotent. BSD-sed compatible.
+- 🧪 **L0 install-smoke A7 assertion** — seeds a minimal v1-shape DB in `/tmp`, boots the MCP server pointing at it, then asserts: `schema_version` bumped to 2, `onboarded` marker translated to `plugin_config`, `.bak` file written, post-upgrade `onboard_state_get` returns `first_run=false`. Catches end-to-end upgrade regressions under the same install layout users see.
+- 🧪 **L0 install-smoke A3 + A3b assertions** updated — they referenced the removed `identity_get` tool and `human_name` response field. Replaced with `onboard_state_get` + `first_run`. Pattern tolerates MCP's JSON-escaped response wrapper (`grep -qE 'first_run[^a-zA-Z]'`).
+
 ## v0.6.0-rc.2 — 2026-05-13
 
 ### Added (#2886 — capability catalog + junction-based analytics)
