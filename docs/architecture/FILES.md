@@ -70,7 +70,6 @@ templates/
 hooks/hooks.json              # CC hooks manifest (matchers + script paths)
 scripts/hooks/
 ├── lib/query-task.sh         # shared sqlite helpers
-├── diagnostic/               # subagent Bash-bypass probe (#14)
 └── *.sh                      # lifecycle hooks
 scripts/maintenance/
 └── run-scan.mjs              # standalone scan invoker — used by post-task-close-rescan.sh
@@ -80,10 +79,10 @@ Group by event:
 
 | Event | Scripts |
 |---|---|
-| **SessionStart** | `session-start-prescan`, `ensure-gitignore`, `deferred-tools-drift-warn`, `write-active-workspace-sentinel` |
-| **UserPromptSubmit** | `activation-routine`, `consultant-spawn-required`, `mcp-health-check`, `session-log-capture` |
-| **PreToolUse** | `no-source-edit-from-main`, `no-worktree-branch-create`, `branch-up-to-date-with-remote`, `git-guards`, `git-push-guard`, `commit-msg-lint`, `naming-lint`, `code-quality-lint`, `require-task-spec`, `require-summaries-before-task-close`, `require-feature-branch-active`, `auq-headless-deny`, `askuserquestion-length-lint`, `roundtable-auq-shape`, `debug-trajectory` |
-| **PostToolUse** | `cleanup-worktree-on-task-close`, `roundtable-cleanup-postcheck`, `post-task-close-rescan` |
+| **SessionStart** | `ensure-gitignore`, `mcp-health-check`, `deferred-tools-drift-warn`, `write-active-workspace-sentinel`, `session-start-prescan` |
+| **UserPromptSubmit** | `activation-routine`, `mcp-health-check`, `session-log-capture`, `consultant-spawn-required`, `roundtable-slash-detect`, `concerns-protocol-hint`, `push-intent-hint`, `reonboard-intent-hint`, `resume-intent-hint`, `adr-required-hint` |
+| **PreToolUse** | `git-guards`, `git-push-guard`, `no-worktree-branch-create`, `branch-up-to-date-with-remote`, `commit-msg-lint`, `require-task-spec`, `require-feature-branch-active`, `pr-reviewer-no-worktree`, `require-summaries-before-task-close`, `askuserquestion-length-lint`, `roundtable-auq-shape`, `auq-headless-deny`, `no-source-edit-from-main`, `naming-lint`, `code-quality-lint`, `debug-trajectory` |
+| **PostToolUse** | `cleanup-worktree-on-task-close`, `roundtable-cleanup-postcheck`, `post-task-close-rescan`, `post-read-summary-hint`, `post-task-create-spawn-hint`, `skill-invocation-record` |
 | **SubagentStop** | `swe-atomic-close` |
 | **WorktreeCreate** | `worktree-create` |
 

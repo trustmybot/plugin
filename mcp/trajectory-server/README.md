@@ -46,7 +46,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | File registry | `tools/file-registry.ts` | `file_registry_upsert`, `file_registry_list`, `file_registry_verify`, `file_registry_delete`, `file_registry_update_summaries` |
 | Scan (workspace + repos + bulk file rows) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery), `repos_list`, `file_registry_bulk_upsert` |
 
-Role-gating is enforced per-tool via `requireRoles()` in `middleware/agent-scope.ts`. Valid roles: `bro`, `architect`, `swe`, `pr-reviewer`.
+Role-gating is enforced per-tool via `requireRoles()` in `middleware/agent-scope.ts`. Valid first-class roles: `bro`, `swe`, `pr-reviewer`. Consultant roles (`architect`, `cto`, `ceo`, `pm`, and any user-created agent name) are accepted as open-enum values; the server grants them consultant-level access.
 
 ## `branch_id` format
 
@@ -62,6 +62,6 @@ where `<type>` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `pe
 
 ## Schema
 
-Single baseline — `schema_version = 1`. The plugin has no users in the wild, so there is no migration machinery; `schema.sql` is applied on every open with `CREATE TABLE IF NOT EXISTS` semantics. When a future change warrants a breaking upgrade, a `v1 → v2` migration path will land in the same release that ships the new schema.
+Current baseline: `TARGET_SCHEMA_VERSION = 2`. `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` semantics. The v1 → v2 migration framework shipped in rc.2 (`db.ts:runMigrations`): on open, the stored `schema_version` is compared against `TARGET_SCHEMA_VERSION`; if behind, a `.bak` snapshot is written before the migration runs, and `schema_version` is bumped to 2 on success. Rollback is via the `.bak` file. Migration correctness is covered by `src/test/schema-upgrade.test.ts`.
 
-`plugin_meta` tracks `schema_version` + `plugin_version` so the migration path, when it arrives, has somewhere to look. `plugin_version` is synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — fresh and existing DBs auto-update without a migration; the schema placeholder `'0.0.0'` applies only when `CLAUDE_PLUGIN_ROOT` is unset (e.g. test runs).
+`plugin_meta` tracks `schema_version` + `plugin_version`. `plugin_version` is synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — fresh and existing DBs auto-update without a migration; the schema placeholder `'0.0.0'` applies only when `CLAUDE_PLUGIN_ROOT` is unset (e.g. test runs).

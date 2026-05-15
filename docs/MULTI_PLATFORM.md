@@ -1,6 +1,6 @@
 # TMB Multi-Platform Strategy
 
-## Today (v0.1.1)
+## Current state
 
 **TMB ships Claude Code only.** Everything in this repo runs against Claude Code's plugin system: `.claude-plugin/plugin.json`, `agents/*.md` and `skills/<name>/SKILL.md` discovery, the `${CLAUDE_PLUGIN_ROOT}` substitution, the PreToolUse hook event protocol, and the bundled MCP server invoked via `.mcp.json`.
 

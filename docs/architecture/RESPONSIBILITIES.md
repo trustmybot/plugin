@@ -78,7 +78,7 @@ Bro is the only agent allowed to call:
 
 ## SWE (`agents/swe.md`)
 
-Frontmatter: `model: sonnet`, `maxTurns: 55`, `tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server`, `isolation: worktree`, `skills: []`.
+Frontmatter: `model: sonnet`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server`, `skills: [tmb_swe-checklist]`.
 
 ### Spawn contract
 
@@ -171,7 +171,7 @@ Templates in `templates/agents/<name>.md`, instantiated per-project on demand vi
 
 Consultants **cannot write workflow state**: `task_create_batch`, `task_update_status`, `issue_create`, `issue_close`, `validation_record`, `file_registry_update_summaries` all return `forbidden`.
 
-They **can write analyses**: `discussion_append(kind='analysis'|'concern')`, `audit_log(kind='event')`. Architect specifically also gets `issue_snapshot_md`.
+They **can write analyses**: `discussion_append(kind='analysis'|'concern')`, `audit_log`. Architect specifically also gets `issue_snapshot_md`.
 
 ### Spawn pattern
 

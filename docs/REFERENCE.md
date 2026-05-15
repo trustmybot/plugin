@@ -20,20 +20,24 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 ## MCP tools (full list)
 
-50+ tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
+60 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
 
-- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_report_md`, `issue_snapshot_md`, `issue_add_labels`, `issue_remove_labels`, `issue_set_labels`
+- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_report_md`, `issue_snapshot_md`
 - **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`, `task_stats`
 - **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `issue_get_with_discussions`
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
-- **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS)
+- **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS), `pr_review_runs_list`
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
 - **file_registry**: `file_registry_upsert`, `file_registry_update_summaries` (bro-only; close-gate-enforced), `file_registry_list`, `file_registry_verify`, `file_registry_delete`
 - **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
 - **config**: `config_get`, `config_list`, `config_set`
 - **scan**: `scan_run`, `repos_list`, `file_registry_bulk_upsert`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
-- **skills**: `skill_register`, `skill_promote`, `skill_record_outcome`
+- **skills**: `skill_register`, `skill_promote`, `skill_record_outcome`, `skill_record_invocation`, `skill_invocations_list`
+- **rules**: `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list`
+- **commands**: `command_register`, `command_list`
+- **agents**: `agent_list`, `agent_register`
+- **composites**: `branch_id_propose`, `task_retry_batch`, `bro_atomic_close`
 - **audit**: `audit_log`, `audit_log_list`
 
 ## Slash commands
@@ -60,30 +64,49 @@ Catalog: `docs/commands/README.md`.
 - `TRAJECTORY_DB_PATH` — pin DB path for tests/CI (overrides walk-up resolution)
 - `CLAUDE_PLUGIN_ROOT` — set by CC; resolves plugin name for path calculations
 
-## Hooks (PreToolUse / PostToolUse / SessionStart / Stop / SubagentStop / UserPromptSubmit / WorktreeCreate)
+## Hooks (PreToolUse / PostToolUse / SessionStart / SubagentStop / UserPromptSubmit / WorktreeCreate)
 
-Hooks under `scripts/hooks/`:
+39 hooks under `scripts/hooks/`:
 
 | Hook | Trigger | Purpose |
 |---|---|---|
-| `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner |
-| `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |
-| `no-worktree-branch-create.sh` | PreToolUse Bash | Bro creates branches; SWE can't `git worktree -b` |
-| `git-push-guard.sh` | PreToolUse Bash | SWE can't push; force-push blocked |
-| `git-guards.sh` | PreToolUse Bash | Catches reset --hard / clean -fd / force-pushes to main |
-| `swe-atomic-close.sh` | SubagentStop | Auto-close pending SWE task; capture agent_runs metrics |
-| `cleanup-worktree-on-task-close.sh` | PostToolUse task_update_status | Remove worktree on close |
-| `require-summaries-before-task-close.sh` | PreToolUse task_update_status | Block close if file_registry summaries stale |
-| `require-task-spec.sh` | PreToolUse Task | SWE spawn requires task_id + worktree |
-| `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human (#141) |
 | `ensure-gitignore.sh` | SessionStart | Project .gitignore must exclude .claude/ |
-| `session-log-capture.sh` | SessionStart | Track current cc.log for diagnostics |
-| `write-active-workspace-sentinel.sh` | SessionStart | Sentinel for cross-session workspace resolution |
-| `mcp-health-check.sh` | UserPromptSubmit (periodic) | MCP server liveness probe |
-| `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
-| `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Block worktree create if branch behind origin |
-| `worktree-create.sh` | WorktreeCreate | Worktree-creation rules |
+| `mcp-health-check.sh` | SessionStart + UserPromptSubmit (periodic) | MCP server liveness probe |
 | `deferred-tools-drift-warn.sh` | SessionStart | Warn when MCP tools on disk newer than running server |
-| `debug-trajectory.sh` | PreToolUse (debug-mode hook) | Persist trajectory rows when debug enabled |
+| `write-active-workspace-sentinel.sh` | SessionStart | Sentinel for cross-session workspace resolution |
+| `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, registry warmth) |
+| `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner |
+| `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |
+| `consultant-spawn-required.sh` | UserPromptSubmit | Inject domain-expert prompt → suggest consultant spawn |
+| `roundtable-slash-detect.sh` | UserPromptSubmit | Detect `/roundtable` invocation for server gate |
+| `concerns-protocol-hint.sh` | UserPromptSubmit | Surface concerns-protocol guidance when concern raised |
+| `push-intent-hint.sh` | UserPromptSubmit | Inject push-gate guidance on push intent |
+| `reonboard-intent-hint.sh` | UserPromptSubmit | Route reonboard phrases to /onboard |
+| `resume-intent-hint.sh` | UserPromptSubmit | Surface pending issue on resume intent |
+| `adr-required-hint.sh` | UserPromptSubmit | Inject ADR hint on architectural changes |
+| `git-guards.sh` | PreToolUse Bash | Catches reset --hard / clean -fd / force-pushes to main |
+| `git-push-guard.sh` | PreToolUse Bash | SWE can't push; push requires passing validation_attempts |
+| `no-worktree-branch-create.sh` | PreToolUse Bash | Bro creates branches; SWE can't `git worktree -b` |
+| `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Block worktree create if branch behind origin |
+| `commit-msg-lint.sh` | PreToolUse Bash | Enforce conventional-commit subject format |
+| `require-task-spec.sh` | PreToolUse Agent | SWE spawn requires task_id + non-empty spec |
+| `require-feature-branch-active.sh` | PreToolUse Agent | Block issue/task ops without a feature branch |
+| `pr-reviewer-no-worktree.sh` | PreToolUse Agent | Prevent pr-reviewer from creating worktrees |
+| `require-summaries-before-task-close.sh` | PreToolUse task_update_status | Block close if file_registry summaries stale |
+| `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
+| `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
+| `auq-headless-deny.sh` | PreToolUse AskUserQuestion | Deny AUQ when TMB_HEADLESS=1 |
+| `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |
+| `naming-lint.sh` | PreToolUse Edit/Write | Enforce kebab/snake/Pascal naming conventions per language |
+| `code-quality-lint.sh` | PreToolUse Edit/Write | Catch mechanical quality patterns (bare except, mutable defaults, etc.) |
+| `debug-trajectory.sh` | PreToolUse (all, debug-mode) | Persist trajectory rows when TMB_DEBUG_TRAJECTORY=1 |
+| `cleanup-worktree-on-task-close.sh` | PostToolUse task_update_status | Remove worktree on close |
+| `roundtable-cleanup-postcheck.sh` | PostToolUse roundtable_close | Verify capture surface on close |
+| `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background scan to refresh file_registry after close |
+| `post-read-summary-hint.sh` | PostToolUse Read | Hint to update file summary when null |
+| `post-task-create-spawn-hint.sh` | PostToolUse task_create_batch | Remind bro to spawn SWE after task batch |
+| `skill-invocation-record.sh` | PostToolUse Skill | Record skill invocation in trajectory DB |
+| `swe-atomic-close.sh` | SubagentStop | Auto-close pending SWE task; capture agent_runs metrics |
+| `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |
 
 ## Schema state — see ERD.md for full table list (19 tables)

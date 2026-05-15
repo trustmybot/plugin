@@ -53,15 +53,6 @@ We considered aligning to GH PR review states (`approved`/`changes_requested`/`c
 
 Server enforces valid transitions: `collecting → awaiting_human → closed | skipped`. Other transitions return `is_error: true`.
 
-### `roundtables.status` — legacy open/close state (pre-#141)
-
-| Value | Source | Meaning |
-|---|---|---|
-| `open` | TMB | Roundtable active (not yet closed) |
-| `closed` | TMB | Roundtable archived |
-
-`status` predates the `state` field. `state` is the authoritative state-machine column; `status` is retained for backward compat. **TMB-specific**.
-
 ### `issues.remote_kind` — git remote host for issue sync
 
 | Value | Source | Meaning |
@@ -69,7 +60,7 @@ Server enforces valid transitions: `collecting → awaiting_human → closed | s
 | `github` | TMB | GitHub (github.com or GHE) |
 | `gitlab` | TMB | GitLab (gitlab.com or self-hosted) |
 
-Mirrors `plugin_config.remotes[].provider` (see `ENUMS.md#pluginconfigremotesprovider`). Only these two values supported for issue sync (#132). Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
+Mirrors `plugin_config.remotes[].provider` (see [`plugin_config.remotes[].provider`](#plugin_configremotesprovider---git-host-provider-per-remote)). Only these two values supported for issue sync (#132). Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
 
 ### `discussions.kind` — narrative kind in issue discussions
 
@@ -109,7 +100,7 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | `bro_verification_pass` | Bro task-gate V1/V2/V3 all passed |
 | `bro_verification_fail` | Bro task-gate found a check that failed |
 | `deep_scan_completed` | `scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs` |
-| `swe_attempt_n_failed` | SWE returned with status=failed; counts toward retry cap |
+| `swe_retry_spawned` | Bro spawned a SWE retry after failure; captures retry rationale in `content_json` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
 
@@ -135,7 +126,7 @@ Inspired by typical lifecycle states; not from a single named convention.
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `1`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration script.
+Currently `2`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration script in `db.ts:runMigrations`.
 
 ### `agent_runs.agent_type` (open enum)
 
