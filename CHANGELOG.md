@@ -4,6 +4,13 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0-rc.6 — 2026-05-15
+
+### Fixed
+
+- 🐛 **Root cause of "Hook JSON output validation failed — (root): Invalid input".** Found via direct inspection of CC's debug log. The hook was emitting `hookSpecificOutput.hookEventName: "unknown"` because the input parser used `.hookEventName` (camelCase) while CC actually sends `.hook_event_name` (snake_case). The jq fallback `// "unknown"` always fired, and CC's output schema rejects "unknown" as an invalid event name. This bug existed since the hook was first written but was masked by the pre-rc.4 output hardcoding `hookEventName: "UserPromptSubmit"`. My rc.4 change to mirror the parsed event surfaced it. **In practice, the loud Mode A warning never reached users in rc.4 or rc.5** — CC always rejected the output. Fixed by parsing `.hook_event_name // .hookEventName // .event // "unknown"` so CC's real input shape resolves first.
+- 🐛 **Reverted the rc.5 SessionStart-silent block.** Based on a wrong reading of the docs (re-read `code.claude.com/docs/en/hooks` directly: SessionStart hooks DO accept `additionalContext` in `hookSpecificOutput`). The hook now emits the warning on both event types, mirroring the actual `hook_event_name` so CC's schema validates it. A guard skips emission when the event is unrecognized (avoids re-introducing the `"unknown"` rejection).
+
 ## v0.6.0-rc.5 — 2026-05-15
 
 ### Fixed

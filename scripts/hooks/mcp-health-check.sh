@@ -37,7 +37,12 @@ mkdir -p "$LOG_DIR" 2>/dev/null || true
 db_path="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/tmb/trajectory.db"
 
 INPUT=$(cat)
-event=$(echo "$INPUT" | jq -r '.hookEventName // .event // "unknown"' 2>/dev/null || true)
+# CC sends snake_case `hook_event_name` on stdin (per
+# https://code.claude.com/docs/en/hooks). Pre-rc.6 this parser used
+# `.hookEventName` (camelCase) and silently fell through to "unknown",
+# which CC's output schema then rejected — see #2889. Keep camelCase +
+# `.event` as fallbacks for our own test harness shapes.
+event=$(echo "$INPUT" | jq -r '.hook_event_name // .hookEventName // .event // "unknown"' 2>/dev/null || true)
 [ -n "$event" ] || event="unknown"
 
 session_id=$(echo "$INPUT" | jq -r '.session_id // .sessionId // empty' 2>/dev/null || true)
@@ -166,9 +171,16 @@ Recovery:
 ⚠️ Bro: pause any task that requires durable state-writing tools until MCP returns."
 fi
 
-jq -nc --arg ctx "$CONTEXT" --arg ev "$event" '{
-  hookSpecificOutput: {
-    hookEventName: $ev,
-    additionalContext: $ctx
-  }
-}'
+# Per CC docs, both SessionStart and UserPromptSubmit accept additionalContext
+# in hookSpecificOutput. Mirror the actual event so CC's output schema
+# (which validates hookEventName against the known set) accepts it. Guard
+# against emitting when the event couldn't be parsed — CC rejects "unknown"
+# as Invalid input.
+if [ "$event" = "SessionStart" ] || [ "$event" = "UserPromptSubmit" ]; then
+  jq -nc --arg ctx "$CONTEXT" --arg ev "$event" '{
+    hookSpecificOutput: {
+      hookEventName: $ev,
+      additionalContext: $ctx
+    }
+  }'
+fi
