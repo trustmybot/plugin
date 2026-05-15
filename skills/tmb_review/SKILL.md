@@ -14,6 +14,23 @@ gate's signed-off check) run by hooks + CI before this skill loads.
 
 Spec lives in `tasks.spec_body`; fetch via `task_get(task_id)`. Apply phases in order; cite line numbers for every finding.
 
+### Worktree discipline
+
+The parent CC session's main checkout may be on ANY branch (typically `dev` after bro's atomic-close). Working-tree-dependent verification (linters, builds, test runners, path-existence checks) reads parent's current state, NOT the commit being reviewed.
+
+Before running ANY working-tree-dependent verification, create a per-SHA worktree:
+
+```bash
+WT="/tmp/pr-review-${COMMIT_SHA}"
+git -C /Users/Zax/Git/GitHub/TMB/plugin worktree add "$WT" "$COMMIT_SHA"
+cd "$WT"
+# ... run verification ...
+cd -
+git -C /Users/Zax/Git/GitHub/TMB/plugin worktree remove --force "$WT"
+```
+
+Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`, `git grep <pat> <sha>`) work from any branch and don't need a worktree — use those for diff inspection.
+
 ### Phase 1 — Correctness reasoning
 
 Trace concrete values through the new code:
@@ -46,17 +63,53 @@ If `## Success Criteria` lists no performance bullet, skip.
 
 Public-API change reflected in user docs / type defs? Breaking change flagged in `CHANGELOG.md` if one exists? Examples still compile/run?
 
-### Sign-off
+### Writing the validation_attempts row — YOU write it, never delegate
 
+After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly. Two paths depending on your tool list:
+
+**Path 1 — MCP available** (your tool list includes `mcp__plugin_tmb_trajectory-server__validation_record`):
 ```
-validation_record(agent='pr-reviewer', task_id=N, attempt_n=<N>,
-                  verdict='pass'|'fail', subagent_session_id=<your-id>,
-                  feedback=<rationale>)
+validation_record(agent='pr-reviewer', task_id=N, attempt_n=1, verdict='pass'|'fail', feedback='MCP available: yes\n<your verdict text>', subagent_session_id='<your-session-id>')
 ```
+
+**Path 2 — MCP unavailable** (only Read + Bash in your tool list, due to plugin-subagent CC restriction):
+```bash
+sqlite3 /Users/Zax/Git/GitHub/TMB/.claude/tmb/trajectory.db <<SQL
+INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
+VALUES (<N>, 1, 'pr-reviewer', '<pass|fail>',
+'MCP available: no — honor-system fallback
+<your verdict text — phase findings, line refs, etc>',
+'<your-session-id-or-deterministic-anchor>',
+'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)');
+SQL
+```
+
+The `feedback` column has a CHECK constraint: must start with `'MCP available: yes'` OR `'MCP available: no — honor-system fallback'`. Match that prefix exactly or the INSERT fails.
+
+<!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating pr-reviewer is a content-integrity violation — server's validation_record MCP tool returns forbidden for bro identity, AND the auto-mode classifier blocks raw sqlite3 INSERT from bro as impersonation. The honor-system fallback is for YOU to write directly via Bash sqlite3. -->
 
 `scripts/hooks/git-push-guard.sh` only lets pushes through when this row exists. The MCP server enforces `agent='pr-reviewer'` via `requireRoles`. Output format lives in `agents/pr-reviewer.md`.
 
 If you spot a recurring pattern at the push gate, append a bullet to **Living patterns** below using the format documented there.
+
+## §C — Spawning pr-reviewer (bro-side discipline)
+
+When bro spawns pr-reviewer, the prompt MUST contain:
+- task_id, commit_sha, branch_id, repo (the bare anchors needed to load context)
+- One-line context summary (e.g., "Push-gate review for task close")
+- Reference to §A worktree discipline if working-tree verification will run
+
+The prompt MUST NOT contain:
+- The prior verdict text (leads to rubber-stamping)
+- Shortcuts like "trust the prior verdict" or "fast-track if X" (gives the reviewer an out)
+- Pre-summarized findings (the reviewer must derive these from the spec + diff itself)
+
+**Clean spawn prompt example:**
+```
+task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin
+
+Push-gate review. Per §A worktree discipline if running linters/build/tests against the working tree. Load spec via sqlite3 from tasks.spec_body; load diff via sha-based git ops. Verify each Success Criterion. Write validation_attempts row per §B (path 1 if you have MCP, path 2 if you have only Bash). Verdict='fail' if any check fails — do not fabricate.
+```
 
 ## B. Push-gate orchestration (bro, loaded reactively)
 

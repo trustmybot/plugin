@@ -224,6 +224,24 @@ bro_atomic_close(
 <!-- LOAD-BEARING-SAFETY: bro is forbidden from calling validation_record — server enforces via requireRoles -->
 Then tell the Human "Trust me bro, it works." `validation_record` is pr-reviewer-only; the server returns `forbidden` if bro attempts it.
 
+## Step 5.5 — pr-reviewer push gate
+
+After `bro_atomic_close` succeeds, BEFORE pushing the branch, spawn pr-reviewer to score the commit:
+
+```
+Agent(
+  subagent_type='pr-reviewer',   # no-namespace form resolves project-local override
+  prompt='task_id=<N> commit_sha=<sha> branch_id=<branch> repo=<repo>\n\nPush-gate review. Per §A worktree discipline if running linters/build/tests against the working tree. Load spec via sqlite3 from tasks.spec_body; load diff via sha-based git ops. Verify each Success Criterion. Write validation_attempts row per §B (path 1 if you have MCP, path 2 if you have only Bash). Verdict=\'fail\' if any check fails — do not fabricate.'
+)
+```
+
+Bro spawn prompt MUST follow the discipline in `tmb_review §C` — pass only the bare anchors (task_id, commit_sha, branch_id, repo) plus a one-line context summary; never include the prior verdict text or shortcuts that allow rubber-stamping.
+
+On PASS verdict (validation_attempts row written): proceed with `git push -u origin <branch>`.
+On FAIL verdict: surface the failure, file the fix as a follow-up issue, do NOT push the failing commit.
+
+Bro can NEVER write `validation_attempts` rows directly — server returns `forbidden` AND the auto-mode classifier blocks raw sqlite3 INSERT as impersonation. Only pr-reviewer writes verdicts.
+
 **V3 — Any check fails**
 
 ```
