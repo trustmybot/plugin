@@ -4,6 +4,15 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0-rc.5 — 2026-05-15
+
+### Fixed
+
+- 🐛 **rc.4 hot-fix: Mode A misclassification + hardcoded hookEventName.** Two bugs caught during post-rc.4 manual verification of the MCP-absent detection hook:
+  - `mcp-health-check.sh` read `last_alive_at_session_start` via `jq -r '.last_alive_at_session_start // empty'`. jq's `//` operator treats `false` as falsy, so the literal boolean `false` (the state set when SessionStart sees MCP absent) returned an empty string and the string comparison fell through. The **load-bearing UserPromptSubmit-re-fire-in-same-session case** was misclassified as Mode B instead of Mode A — meaning the loud HALT message rc.4 was built to ship would never fire for the actual CC cache-bug scenario. Fixed by replacing `// empty` with `if has(...) then ... else "missing" end` so `false` reads as the literal string `"false"`.
+  - `hookSpecificOutput.hookEventName` was hardcoded to `"UserPromptSubmit"` even on SessionStart fires. CC's hook contract expects this field to mirror the actual event; a mismatch could cause CC to silently drop the `additionalContext`. Fixed by passing the actual event via `--arg ev "$event"`.
+- 📝 **Follow-up debt:** L1-L4 don't currently exercise `mcp-health-check.sh` end-to-end (no L3 hook test exists for it). Both bugs survived the green suite. Adding an L3 mode-classification test is deferred follow-up.
+
 ## v0.6.0-rc.4 — 2026-05-15
 
 ### Fixed (#2888 — CC plugin MCP-config cache bug, defense-in-depth)
