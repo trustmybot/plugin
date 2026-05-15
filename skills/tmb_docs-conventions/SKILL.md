@@ -18,11 +18,10 @@ This is a judgment call (what counts as user-visible?) — not a regex check.
 ## Architecture docs are the source of truth
 
 Read architecture docs before exploring source. If the answer is in
-`docs/architecture/`, do not re-derive it from the codebase.
+`docs/architecture/`, use that answer directly — it is already derived.
 
 If you discover a discrepancy between docs and code, halt and surface it.
-Do not silently follow either side — pick the side that matches the
-intended behaviour and update the other.
+Pick the side that matches the intended behaviour and update the other — surfacing the discrepancy first.
 
 ## Editing prompt files (agents, skills, CLAUDE.md, workflow markdown)
 

@@ -77,7 +77,8 @@ Use `subagent_type='pr-reviewer'` (no `tmb:` prefix — the no-namespace form re
 
 Read pr-reviewer's first response line:
 - `MCP available: yes` → reviewer wrote `validation_record` itself.
-- `MCP available: no — honor-system fallback` → record on its behalf via sqlite3 (insert into `validation_attempts` with `agent='pr-reviewer'`, `subagent_session_id` from its response, and `feedback` starting with the LITERAL string `MCP available: no — honor-system fallback\n` — do NOT paraphrase ("MCP unavailable", "[honor-system fallback]" etc. all violate the schema CHECK and the row will be rejected). After the prefix line, paste the reviewer's verdict text verbatim.
+<!-- LOAD-BEARING-SAFETY: feedback must start with the exact literal string — schema CHECK rejects paraphrases like "MCP unavailable" or "[honor-system fallback]" -->
+- `MCP available: no — honor-system fallback` → record on its behalf via sqlite3 (insert into `validation_attempts` with `agent='pr-reviewer'`, `subagent_session_id` from its response, and `feedback` starting with the LITERAL string `MCP available: no — honor-system fallback\n` — paste verbatim ("MCP unavailable", "[honor-system fallback]" etc. all violate the schema CHECK and the row will be rejected). After the prefix line, paste the reviewer's verdict text verbatim.
 
 ### Outcomes
 
@@ -186,7 +187,8 @@ Mechanical patterns (bare except, f-string SQL, mutable default args, missing su
 ### Security
 
 - Where does user input enter the system, where is it validated?
-- Are secrets retrievable only through the configured backend (env var, secrets manager) — never literal in code, logs, or error responses?
+<!-- LOAD-BEARING-SAFETY: secrets must stay out of code/logs/errors — literal secrets in source are a hard security violation -->
+- Are secrets retrievable only through the configured backend (env var, secrets manager) — kept out of code, logs, and error responses?
 - Subprocess calls structured to avoid shell injection (no `shell=True` with untrusted input)?
 - Bulk operations bounded against denial-of-service?
 
@@ -213,7 +215,7 @@ Format for each finding:
 ### Prompt authoring
 
 - **Negative directive in prompt**
-  Trigger: PR introduces a `Don't` / `Never` / `Do not` clause to a prompt or skill body.
+  Trigger: PR introduces a negation clause (start-of-line `Don't` / `Never` / `Do not`, or mid-sentence `MUST NOT` / `do not`) to a prompt or skill body. <!-- LOAD-BEARING-SAFETY: pattern description must name the negation forms for the lint check to be enforceable -->
   Action: Propose the positive alternative inline ("Use X" instead of "Don't use Y"). Or recommend promotion to a deterministic layer (hook / `requireRoles`) for structural enforcement. If load-bearing safety: require `<!-- LOAD-BEARING-SAFETY: <reason> -->` justification.
 
 (Add new findings here as they're caught.)

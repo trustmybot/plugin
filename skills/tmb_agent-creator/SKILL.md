@@ -18,13 +18,13 @@ The bundled `scripts/prompt-author-lint.sh` (regex scan for negations + noise ci
 4. **Branch B — Template in registry:** else if the registry shows `scope='template'` for the resolved name → copy `plugin/templates/agents/<name>.md` to `<project>/.claude/agents/<name>.md`; call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`; spawn via `Agent`. DONE.
 5. **Branch C — From-scratch:** else → run the from-scratch ceremony below; call `agent_register(...)` after writing; spawn via `Agent`. DONE.
 
-`tmb_owner` lives only in the `.md` frontmatter going forward; it's no longer persisted in the agents table.
+`tmb_owner` lives only in the `.md` frontmatter; the agents table carries no copy.
 
 ### Branch B — Template-copy detail
 
 In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly**. Template content is deterministic — reviewed at plugin release — so the auto-approve is safe. Render the AUQ only when a Human is in the loop.
 
-1. **Show + ask** (interactive only). Read the template via `Read` (do not transform). Present in a fenced code block, ask:
+1. **Show + ask** (interactive only). Read the template via `Read` (present it verbatim). Present in a fenced code block, ask:
    > Copy `templates/agents/<name>.md` to `.claude/agents/<name>.md` verbatim? Project-specific behavior gets attached later via `tmb_skill-creator`. (yes/no)
 2. **Copy on approval** (or unconditionally in headless). Write the template content unmodified. If the destination exists, switch to the collision flow (§"Collision dialog" below).
 3. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. If there's no open issue, first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(agent='bro', from_node='bro', issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>`.
@@ -62,7 +62,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
 
    Server-rejected for you: `task_create_batch`, `task_update_status`, `validation_record`, `issue_create`, `issue_close`.
 
-   Project-specific context comes from skills the project attaches to this agent's `skills:` list. Never edit this file.
+   Project-specific context comes from skills the project attaches to this agent's `skills:` list. This file is identity — leave it unchanged; extend via skills only.
    ```
 
    Field guidance:
@@ -75,7 +75,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
 
    **Pink-elephant negations**: start-of-line `Don't`, `Never`, `Do not`; mid-sentence `MUST NOT`, `do not`, `don't`, `never`. Rewrite each as positive (`Don't include emojis` → `Use plain text only`). For load-bearing safety, add `<!-- LOAD-BEARING-SAFETY: <reason> -->` inline.
 
-   **Noise citations**: issue numbers (`#\d+`), memory file paths (`feedback_*.md`, `~/.claude/projects/...`), origin attributions (`caught in`, `prior incident`), decaying dates, PR/MR URLs, tombstones (`previously`, `no longer`, `deprecated` as migration commentary). Strip or rewrite each. Allowed: rule stated inline, cross-refs to other prompt surfaces (`see CLAUDE.md ## <Section>`), MCP-DB references via tool name.
+   **Noise citations**: issue numbers (`#\d+`), memory file paths (`feedback_*.md`, `~/.claude/projects/...`), origin attributions (`caught in`, `prior incident`), decaying dates, PR/MR URLs, migration tombstones (phrases that frame a past state rather than the current one). Strip or rewrite each. Allowed: rule stated inline, cross-refs to other prompt surfaces (`see CLAUDE.md ## <Section>`), MCP-DB references via tool name.
 
    Surface findings via the approval AUQ; the user picks accept/decline per finding.
 
@@ -93,7 +93,8 @@ Other names — `architect`, `cto`, `ceo`, `pm`, `swe`, `pr-reviewer`, `legal-re
 
 ## Collision dialog (existing target file)
 
-When `.claude/agents/<name>.md` already exists, never silently overwrite. Read the existing file and check the `tmb_owner` field:
+<!-- LOAD-BEARING-SAFETY: collision dialog is mandatory — silently overwriting user agent files is a hard doctrine violation -->
+When `.claude/agents/<name>.md` already exists, show the collision dialog below. Read the existing file and check the `tmb_owner` field:
 
 - `tmb_owner: bro` (plugin-managed) → refuse overwrite by default; show unified diff, ask yes/no.
 - `tmb_owner: user-adopted` → same as `bro`; show diff, ask.
@@ -102,7 +103,7 @@ When `.claude/agents/<name>.md` already exists, never silently overwrite. Read t
   - **Adopt + manage** — preserve user's content; insert `tmb_owner: user-adopted` into the frontmatter. Audit `tmb_agent_adopted`.
   - **Overwrite** — replace with the proposed content; `tmb_owner: bro`. Audit `tmb_agent_overwritten`.
 
-In headless mode (AskUserQuestion errors / `TMB_HEADLESS=1`): HALT per the headless-mode section below. Never silently choose any of the three.
+In headless mode (AskUserQuestion errors / `TMB_HEADLESS=1`): HALT per the headless-mode section below. All three collision options require explicit Human choice.
 
 ## Edge case — code-writing consultant
 
@@ -114,10 +115,11 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 ## Hard rules
 
 - **Verbatim copy in template-copy mode.** Customization happens via skills, not by editing the agent body.
-- **Plugin install is read-only.** Never write to `plugin/agents/`.
+<!-- LOAD-BEARING-SAFETY: plugin/agents/ is a read-only install path — writes there corrupt the plugin package -->
+- **Plugin install is read-only.** Writes go to `<project>/.claude/agents/` only; `plugin/agents/` is off-limits.
 - **Approval is non-negotiable** in both modes.
 - **Reserved names refused** — `bro` is reserved.
-- **Existing files never overwritten silently** — see Collision dialog above.
+- **Existing files require collision dialog** — see Collision dialog above.
 
 ## Headless mode
 

@@ -1,12 +1,12 @@
 ---
 name: tmb_skill-creator
-description: Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents. Loads when the user asks to capture a repeatable behavior — e.g. "create a skill that codifies <our convention>", "teach swe to also <run mypy / use black / etc.>", "make a skill for <reviewing PRs / writing changelogs / etc.>", "we need a checklist when <X happens>". Extends the consuming agent's `skills:` frontmatter array; never touches the body. Always Human-approved.
+description: Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents. Loads when the user asks to capture a repeatable behavior — e.g. "create a skill that codifies <our convention>", "teach swe to also <run mypy / use black / etc.>", "make a skill for <reviewing PRs / writing changelogs / etc.>", "we need a checklist when <X happens>". Extends the consuming agent's `skills:` frontmatter array only; agent body stays intact. Always Human-approved.
 allowed-tools: Read, Write, Edit, Glob, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 
 # Skill Creator
 
-Add a new capability to a project's agents without editing their body. **Lego rule**: agent files are immutable identity; skills are additive capabilities. This skill is the only mechanism that extends a project agent — it appends to the agent's `skills:` array, never touches the body.
+Add a new capability to a project's agents without editing their body. **Lego rule**: agent files are immutable identity; skills are additive capabilities. This skill is the only mechanism that extends a project agent — it appends to the agent's `skills:` array and leaves the body intact.
 
 The bundled `scripts/prompt-author-lint.sh` (regex scan for negations + noise citations) runs as a Bash step in Step 3 — bro doesn't read it directly.
 
@@ -56,7 +56,7 @@ Run `${CLAUDE_PLUGIN_ROOT}/skills/tmb_skill-creator/scripts/prompt-author-lint.s
 
 **Pink-elephant negations**: start-of-line `Don't`, `Never`, `Do not`; mid-sentence `MUST NOT`, `do not`, `don't`, `never`. Rewrite each as positive (`Don't include emojis` → `Use plain text only`). For load-bearing safety, add `<!-- LOAD-BEARING-SAFETY: <reason> -->` inline.
 
-**Noise citations**: issue numbers (`#\d+`), memory file paths (`feedback_*.md`, `~/.claude/projects/...`), origin attributions (`caught in`, `prior incident`), decaying dates, PR/MR URLs, tombstones (`previously`, `no longer`, `deprecated` as migration commentary). Strip or rewrite each. Allowed: rule stated inline, cross-refs to other prompt surfaces (`see CLAUDE.md ## <Section>`), MCP-DB references via tool name.
+**Noise citations**: issue numbers (`#\d+`), memory file paths (`feedback_*.md`, `~/.claude/projects/...`), origin attributions (`caught in`, `prior incident`), decaying dates, PR/MR URLs, migration tombstones (phrases that frame a past state rather than the current one). Strip or rewrite each. Allowed: rule stated inline, cross-refs to other prompt surfaces (`see CLAUDE.md ## <Section>`), MCP-DB references via tool name.
 
 Surface findings via the approval AUQ; the user picks accept/decline per finding.
 
@@ -68,7 +68,7 @@ Present the full drafted file in a fenced code block. Ask:
 ## Step 5 — Write on approval
 
 1. Write the skill file. If `<project>/.claude/skills/<name>/` exists, refuse — name collision means the Human resolves (pick a different name or manually delete the existing one).
-2. For each agent in the attach list, **edit only the `skills:` array** to append the new name. Use `Edit` with a precise `old_string` that includes the existing `skills:` block + the closing `---` so the diff is unambiguous. **Don't touch any other line of the agent file.**
+2. For each agent in the attach list, **edit only the `skills:` array** to append the new name. Use `Edit` with a precise `old_string` that includes the existing `skills:` block + the closing `---` so the diff is unambiguous. **Scope the edit to the `skills:` line only — leave every other agent file line unchanged.**
 3. Verify by re-reading both the skill file and each agent's frontmatter.
 
 ## Step 6 — Log + report
@@ -85,9 +85,11 @@ Tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
 
 ## Hard rules
 
-- **Never edit the body of a project agent file.** The only allowed edit is appending to its `skills:` array.
+<!-- LOAD-BEARING-SAFETY: agent body is identity — only skills: array edits are allowed; body edits are a hard violation -->
+- **Agent body is off-limits.** The only allowed edit is appending to its `skills:` array.
 - **`tmb_` prefix is reserved** for plugin-shipped protocol skills.
-- **Never overwrite an existing project skill.** Name collision = Human resolves.
+<!-- LOAD-BEARING-SAFETY: existing project skills must not be silently overwritten — Human resolves name collisions -->
+- **Existing project skills require name collision resolution.** Name collision = Human resolves.
 - **Approval is non-negotiable.** Write nothing without an explicit Yes.
 - **Stay focused.** A skill should encode one cohesive concern. If the body grows past ~80 lines, propose trimming or splitting.
 
@@ -95,8 +97,8 @@ Tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
 
 Skill creation is interactive by definition. On `AskUserQuestion` error or `TMB_HEADLESS=1`:
 
-1. Halt immediately. Don't write any files.
+1. Halt immediately. Leave all files unwritten.
 2. `issue_create(agent='bro', objective='Skill creation blocked (headless)', description='Free-floating skill <proposed_name> creation attempted in headless mode; HALTed per doctrine.')` to scope, then `audit_log(agent='bro', from_node='bro', issue_id=<that_id>, event_type='headless_creator_blocked', summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval.')`
 3. Surface: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively."
 
-A skill is a behavior change to the agent ecosystem. Silent CI-time generation could ship behavior the Human never reviewed.
+A skill is a behavior change to the agent ecosystem. CI-time generation requires Human review before any file is written.
