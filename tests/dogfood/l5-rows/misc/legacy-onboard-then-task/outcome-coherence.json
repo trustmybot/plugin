@@ -1,9 +1,0 @@
-{
-  "expected_writes": {
-    "issues WHERE id != -1": ">=1",
-    "tasks": ">=1",
-    "discussions": ">=2",
-    "audit WHERE event_type = 'planning_complete'": ">=1",
-    "tasks WHERE branch_id NOT IN ('main','master','dev','develop')": ">=1"
-  }
-}

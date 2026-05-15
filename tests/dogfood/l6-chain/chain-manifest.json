@@ -1,6 +1,6 @@
 {
   "$schema": "./schema.json",
-  "description": "Single chained L6 integration test. 12 sequential rows fired via fresh `claude -p` each, against a cumulative trajectory DB. Step 5 (05-swe-atomic-close) is intentionally absent from the chain — under DB-driven semantics row 4 already runs the full SWE atomic-close (V1/V2/V3 + bro_atomic_close), making a separate row 5 step redundant and prone to bro re-building the CLI a second time on the duplicate prompt. The L5 outcome bundle at l5-rows/05-swe-atomic-close/ remains for standalone unit testing. See tests/EVALUATION.md for the journey spec.",
+  "description": "Single chained L6 integration test. 13 sequential rows fired via fresh `claude -p` each, against a cumulative trajectory DB. Step 5 (05-swe-atomic-close) is intentionally absent from the chain — under DB-driven semantics row 4 already runs the full SWE atomic-close (V1/V2/V3 + bro_atomic_close), making a separate row 5 step redundant and prone to bro re-building the CLI a second time on the duplicate prompt. The L5 outcome bundle at l5-rows/05-swe-atomic-close/ remains for standalone unit testing. See tests/EVALUATION.md for the journey spec.",
   "initial_fixture": "empty",
   "initial_setup": null,
   "steps": [

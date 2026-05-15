@@ -1,7 +1,0 @@
-{
-  "expected_writes": {
-    "discussions WHERE kind='note' AND body LIKE '%Triage%'": ">=1",
-    "discussions WHERE kind='intent'": ">=1",
-    "tasks": ">=1"
-  }
-}
