@@ -78,6 +78,38 @@ Both columns should match the version you just installed.
 
 ## Failure modes
 
+### MCP server never registers after upgrade (CC plugin cache bug, issue #2888)
+
+After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a new tmb version, the trajectory MCP server can fail to register entirely. CC loads tmb's hooks / skills / agents / commands from the new cache dir, but the MCP server is absent from CC's resolved plugin list — and **`/reload-plugins` does not fix it. A full CC quit + relaunch does not fix it either.** CC persists the broken resolved-plugin list to disk somewhere that survives process restart.
+
+**Symptoms:**
+
+- `mcp__plugin_tmb_*` tools all fail with "no matching deferred tools".
+- `~/.claude/tmb/logs/mcp-health.log` tail shows `"event":"SessionStart","mcp_alive":false,"mode":"A"`.
+- The CC log shows hooks/skills/agents/commands loading from `~/.claude/plugins/cache/trustmybot-rc/tmb/<version>/` but no `plugin:tmb:trajectory-server` registration line.
+
+**Recovery escalation — try IN ORDER, stop at the first that brings MCP back:**
+
+1. **Inline source via `--plugin-dir`** — forces CC to invalidate its plugin cache:
+   ```bash
+   claude --plugin-dir /path/to/plugin/source
+   ```
+   The CC log will show `clearPluginCache: invalidating loadAllPlugins cache (preAction: --plugin-dir inline plugins)` followed by the MCP server registration.
+
+2. **Uninstall + reinstall through `/plugin`:**
+   ```
+   /plugin uninstall tmb@trustmybot-rc
+   ```
+   Quit CC fully (⌘Q), relaunch, then `/plugin install tmb@trustmybot-rc`.
+
+3. **Manual cache nuke + reinstall.** Use the bundled helper, which previews what it will remove, prompts for confirmation, and preserves every other plugin's entry in `installed_plugins.json`:
+   ```bash
+   bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh
+   ```
+   Then relaunch CC and `/plugin install tmb@trustmybot-rc`.
+
+This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: loud Mode A detection in `mcp-health-check.sh` (the `additionalContext` warning tells bro to halt rather than silently degrade) and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
+
 ### "stored schema_version N is newer than code's max M"
 
 You're running a plugin that's older than the DB. Two ways out:
