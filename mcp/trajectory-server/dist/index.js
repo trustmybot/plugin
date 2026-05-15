@@ -17,9 +17,12 @@ registerTools(server, db, dbPath);
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolDefinitions,
 }));
-// L5 trajectory capture (issue #108). Active only when TMB_DEBUG_TRAJECTORY=1.
+// L5 trajectory capture. Requires both TMB_DEBUG_TRAJECTORY=1 (opt-in switch)
+// AND TMB_EVAL_MODE=1 — the latter is what loads schema-eval.sql, which is
+// where the `debug_trajectory` table is defined. Without eval mode the
+// INSERT would target a missing table and silently no-op.
 // Session ID is per-server-spawn — covers a single `claude -p` invocation.
-const debugTrajectoryEnabled = process.env['TMB_DEBUG_TRAJECTORY'] === '1';
+const debugTrajectoryEnabled = process.env['TMB_DEBUG_TRAJECTORY'] === '1' && process.env['TMB_EVAL_MODE'] === '1';
 const debugSessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 let debugStepCounter = 0;
 function maybeRecordTrajectory(toolName, args, result) {

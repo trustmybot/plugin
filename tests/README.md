@@ -102,7 +102,7 @@ bash tests/mcp-integration/run.sh
 bash tests/hooks/run.sh
 
 # L4 — Workflow simulation
-node --test tests/workflow-sim/*.test.mjs
+bun test tests/workflow-sim/*.test.mjs
 ```
 
 ## Run L5 dogfood (per-flow)
@@ -286,4 +286,3 @@ Assertion helpers (`tests/lib/assert.sh`):
 ## Related
 
 - [`EVALUATION.md`](./EVALUATION.md) — L5 + L6 evaluation system reference: scorers, flow / scenario layout, the TODO-CLI end-to-end journey table.
-- [`scripts/hooks/diagnostic/README.md`](../scripts/hooks/diagnostic/README.md) — opt-in probe-bash harness for issue #14.

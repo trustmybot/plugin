@@ -110,7 +110,6 @@ export function compositeTools(db, dbPath) {
                     },
                     title: { type: 'string' },
                     description: { type: 'string' },
-                    success_criteria: { type: 'string' },
                 },
                 required: [
                     'agent',
@@ -119,7 +118,6 @@ export function compositeTools(db, dbPath) {
                     'corrected_spec_body',
                     'retry_rationale',
                     'description',
-                    'success_criteria',
                 ],
             },
         },
@@ -188,7 +186,6 @@ export function compositeTools(db, dbPath) {
             const spec = args['corrected_spec_body'];
             const rationale = args['retry_rationale'];
             const description = args['description'];
-            const successCriteria = args['success_criteria'];
             const title = args['title'] ?? '';
             if (!BRANCH_ID_RE.test(newBranchId)) {
                 return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);

@@ -124,7 +124,6 @@ export function compositeTools(
           },
           title: { type: 'string' },
           description: { type: 'string' },
-          success_criteria: { type: 'string' },
         },
         required: [
           'agent',
@@ -133,7 +132,6 @@ export function compositeTools(
           'corrected_spec_body',
           'retry_rationale',
           'description',
-          'success_criteria',
         ],
       },
     },
@@ -220,7 +218,6 @@ export function compositeTools(
         const spec = args['corrected_spec_body'] as string;
         const rationale = args['retry_rationale'] as string;
         const description = args['description'] as string;
-        const successCriteria = args['success_criteria'] as string;
         const title = (args['title'] as string | undefined) ?? '';
 
         if (!BRANCH_ID_RE.test(newBranchId)) {

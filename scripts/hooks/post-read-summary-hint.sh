@@ -31,8 +31,14 @@ if [ -z "$DB_PATH" ]; then
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
     PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
   fi
+  # P0 guard: never traverse INTO the user's HOME from a descendant cwd.
+  # Mirror of the walk-up in activation-routine.sh — keeps a stale
+  # ~/.claude/<plugin>/trajectory.db from being silently adopted.
   dir="$PWD"
   for _ in 1 2 3 4 5 6 7 8; do
+    if [ "$dir" = "$HOME" ] && [ "$PWD" != "$HOME" ]; then
+      break
+    fi
     candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
     if [ -f "$candidate" ]; then DB_PATH="$candidate"; break; fi
     parent=$(dirname "$dir")

@@ -1,6 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import { genId, nowISO } from '../db.js';
+import { nowISO } from '../db.js';
 import type { Task, TaskInput } from '../types.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { spawnSync } from 'node:child_process';
@@ -557,8 +557,6 @@ export function taskTools(db: TrajectoryDB): {
             }
             if (parentBranchId == null) parentBranchId = 'main';
           }
-
-          void genId('task');
 
           db.run(
             `INSERT INTO tasks
