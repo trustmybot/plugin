@@ -5,6 +5,7 @@ import { requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend } from '../sync/backend.js';
 import { buildBotPatterns, isBot } from '../sync/bot_patterns.js';
 import { spawnSync, SpawnSyncOptions } from 'node:child_process';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -305,11 +306,11 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
 
       let backend: 'gh' | 'glab' | 'both' | 'off' | null;
       if (configValue === 'off') {
-        const ghAvail = spawn('gh', ['auth', 'status'], { timeout: 5000, encoding: 'utf8' }).status === 0;
+        const ghAvail = spawn('gh', ['auth', 'status'], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' }).status === 0;
         if (ghAvail) {
           backend = 'gh';
         } else {
-          const glabAvail = spawn('glab', ['auth', 'status'], { timeout: 5000, encoding: 'utf8' }).status === 0;
+          const glabAvail = spawn('glab', ['auth', 'status'], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' }).status === 0;
           if (!glabAvail) {
             return err('Neither gh nor glab is installed/available; cannot fetch PR comments');
           }

@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 export function detectAvailable() {
     const check = (cmd, args) => {
         try {
-            const result = spawnSync(cmd, args, { timeout: 5000, encoding: 'utf8' });
+            const result = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
             return result.status === 0;
         }
         catch {
@@ -17,7 +18,7 @@ export function detectAvailable() {
 export function detectPreferred() {
     try {
         const result = spawnSync('git', ['remote', 'get-url', 'origin'], {
-            timeout: 5000,
+            timeout: SUBPROCESS_TIMEOUT_MS,
             encoding: 'utf8',
         });
         if (result.status !== 0)

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 
 export interface BackendAvailability {
   gh: boolean;
@@ -8,7 +9,7 @@ export interface BackendAvailability {
 export function detectAvailable(): BackendAvailability {
   const check = (cmd: string, args: string[]): boolean => {
     try {
-      const result = spawnSync(cmd, args, { timeout: 5000, encoding: 'utf8' });
+      const result = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
       return result.status === 0;
     } catch {
       return false;
@@ -24,7 +25,7 @@ export function detectAvailable(): BackendAvailability {
 export function detectPreferred(): 'gh' | 'glab' | null {
   try {
     const result = spawnSync('git', ['remote', 'get-url', 'origin'], {
-      timeout: 5000,
+      timeout: SUBPROCESS_TIMEOUT_MS,
       encoding: 'utf8',
     });
     if (result.status !== 0) return null;

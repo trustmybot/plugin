@@ -23,7 +23,7 @@ tail -1 ~/.claude/tmb/logs/mcp-health.log
 
 Sample:
 ```
-{"ts":"2026-05-15T05:10:00Z","event":"unknown","mcp_alive":true,"pgrep_count":2,"mode":null,"session_id":"unknown","db_path":"/Users/Zax/Git/GitHub/TMB/.claude/tmb/trajectory.db"}
+{"ts":"2026-05-15T05:10:00Z","event":"unknown","mcp_alive":true,"pgrep_count":2,"mode":null,"session_id":"unknown","db_path":"<workspace>/.claude/tmb/trajectory.db"}
 ```
 
 ---
