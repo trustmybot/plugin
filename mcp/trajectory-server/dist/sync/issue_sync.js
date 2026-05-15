@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -47,7 +48,7 @@ function isFailure(r) {
 async function createOnBackend(backend, opts, spawnFn) {
     const { title, body, labels = [] } = opts;
     const kind = backend === 'gh' ? 'github' : 'gitlab';
-    const spawnOpts = { timeout: 5000, encoding: 'utf8' };
+    const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
     if (opts._cwd) {
         spawnOpts.cwd = opts._cwd;
     }
@@ -160,7 +161,7 @@ export { isFailure as isSyncFailure };
 export async function syncIssueClose(opts) {
     const spawnFn = opts._spawnFn ?? defaultSpawnFn;
     const { remote_iid, remote_kind } = opts;
-    const spawnOpts = { timeout: 5000, encoding: 'utf8' };
+    const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
     if (opts._cwd) {
         spawnOpts.cwd = opts._cwd;
     }

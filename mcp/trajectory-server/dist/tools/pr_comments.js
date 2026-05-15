@@ -3,6 +3,7 @@ import { requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend } from '../sync/backend.js';
 import { buildBotPatterns, isBot } from '../sync/bot_patterns.js';
 import { spawnSync } from 'node:child_process';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -193,12 +194,12 @@ export function prCommentsTools(db, _spawnFn) {
             const configValue = configRow ? JSON.parse(configRow.value_json) : 'auto';
             let backend;
             if (configValue === 'off') {
-                const ghAvail = spawn('gh', ['auth', 'status'], { timeout: 5000, encoding: 'utf8' }).status === 0;
+                const ghAvail = spawn('gh', ['auth', 'status'], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' }).status === 0;
                 if (ghAvail) {
                     backend = 'gh';
                 }
                 else {
-                    const glabAvail = spawn('glab', ['auth', 'status'], { timeout: 5000, encoding: 'utf8' }).status === 0;
+                    const glabAvail = spawn('glab', ['auth', 'status'], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' }).status === 0;
                     if (!glabAvail) {
                         return err('Neither gh nor glab is installed/available; cannot fetch PR comments');
                     }

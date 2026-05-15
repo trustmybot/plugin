@@ -231,7 +231,7 @@ echo '@bro hi' | claude --plugin-dir /tmp/tmb-v0.5 -p --dangerously-skip-permiss
 sqlite3 .claude/tmb/trajectory.db 'SELECT schema_version, plugin_version FROM plugin_meta;'
 
 # 4. Run CC again with the NEW plugin — migration fires on MCP server boot
-echo '@bro check status' | claude --plugin-dir /Users/Zax/Git/GitHub/TMB/plugin -p --dangerously-skip-permissions
+echo '@bro check status' | claude --plugin-dir <your-plugin-checkout> -p --dangerously-skip-permissions
 
 # 5. Verify the migration applied
 sqlite3 .claude/tmb/trajectory.db 'SELECT schema_version, plugin_version FROM plugin_meta;'
@@ -279,7 +279,7 @@ sqlite3 "$DB" "
 # Trigger the migration by booting the MCP server against this DB
 cd "$TEST_PROJ" && git init -q && git config user.email t@t.t && git config user.name t \
   && echo init > README.md && git add . && git commit -qm init
-echo '@bro hi' | claude --plugin-dir /Users/Zax/Git/GitHub/TMB/plugin -p --dangerously-skip-permissions
+echo '@bro hi' | claude --plugin-dir <your-plugin-checkout> -p --dangerously-skip-permissions
 
 # Verify
 sqlite3 "$DB" 'SELECT schema_version FROM plugin_meta;'        # expect 2

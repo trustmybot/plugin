@@ -13,6 +13,7 @@
 // "github-flow → pr_target=main", "gitflow → protected_branches=[main, develop]"
 // rules live here, not in the skill.
 import { spawnSync } from 'node:child_process';
+import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 function ok(data) {
@@ -75,11 +76,11 @@ function probeGit(cwd) {
     };
 }
 function probeCli(cmd) {
-    const which = spawnSync('command', ['-v', cmd], { encoding: 'utf8', timeout: 1000, shell: true });
+    const which = spawnSync('command', ['-v', cmd], { encoding: 'utf8', timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
     const installed = which.status === 0 && (which.stdout ?? '').trim().length > 0;
     if (!installed)
         return { installed: false, authed: false };
-    const authR = spawnSync(cmd, ['auth', 'status'], { encoding: 'utf8', timeout: 5000 });
+    const authR = spawnSync(cmd, ['auth', 'status'], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
     return { installed: true, authed: authR.status === 0 };
 }
 // ---- DB helpers ----------------------------------------------------------
