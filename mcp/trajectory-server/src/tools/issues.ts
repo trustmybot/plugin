@@ -224,8 +224,8 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           });
           if (!isSyncFailure(syncResult)) {
             db.run(
-              `UPDATE issues SET remote_iid = ?, remote_kind = ? WHERE id = ?`,
-              [syncResult.remote_iid, syncResult.remote_kind, issueId],
+              `UPDATE issues SET remote_iid = ?, remote_kind = ?, updated_at = ? WHERE id = ?`,
+              [syncResult.remote_iid, syncResult.remote_kind, now, issueId],
             );
           } else {
             serverLog({
@@ -508,8 +508,8 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
 
       if (!isSyncFailure(syncResult)) {
         db.run(
-          `UPDATE issues SET remote_iid = ?, remote_kind = ? WHERE id = ?`,
-          [syncResult.remote_iid, syncResult.remote_kind, issueId],
+          `UPDATE issues SET remote_iid = ?, remote_kind = ?, updated_at = ? WHERE id = ?`,
+          [syncResult.remote_iid, syncResult.remote_kind, nowISO(), issueId],
         );
         return ok({ action: 'create', success: true, remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind });
       }

@@ -235,6 +235,9 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
 
+CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
+
 -- Incremental polling state for the /monitor flow (#2886 follow-up). One row
 -- per (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the
 -- next `since` query; `last_comment_id` is the comment-id cursor when the

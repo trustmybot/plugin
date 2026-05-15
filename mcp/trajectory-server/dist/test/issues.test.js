@@ -276,6 +276,34 @@ describe('issueTools — remote sync', () => {
         assert.equal(data.error, 'forbidden');
         db.close();
     });
+    it('issue_create with successful sync bumps updated_at (regression: Bug 2)', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'gh',
+        });
+        const tools = issueTools(db);
+        const before = new Date().toISOString();
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'updated_at regression',
+            _spawnFn: makeSpawnFn([{
+                    status: 0,
+                    stdout: 'https://github.com/owner/repo/issues/42\n',
+                    stderr: '',
+                }]),
+        });
+        const issue = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+        assert.equal(issue.remote_iid, 42, 'remote_iid should be set after successful sync');
+        const row = db.get(`SELECT updated_at, remote_iid FROM issues WHERE id = ?`, [issue.id]);
+        assert.ok(row, 'issue row must exist');
+        assert.equal(row.remote_iid, 42, 'remote_iid must be persisted');
+        assert.ok(row.updated_at >= before, `updated_at must be set on successful remote_iid UPDATE, got: ${row.updated_at}`);
+        db.close();
+    });
     it('issue_sync_retry returns skipped when issue_sync=off', async () => {
         const db = tempDB();
         const cfgTools = configTools(db);

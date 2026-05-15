@@ -502,8 +502,8 @@ export function compositeTools(
             );
             if ((remaining?.c ?? 0) === 0) {
               db.run(
-                `UPDATE issues SET status='closed', updated_at=? WHERE id=? AND status != 'closed'`,
-                [now, task.issue_id],
+                `UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`,
+                [now, now, task.issue_id],
               );
               issueClosed = true;
             }

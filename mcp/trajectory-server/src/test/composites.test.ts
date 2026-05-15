@@ -277,6 +277,74 @@ describe('bro_atomic_close', () => {
     assert.equal(r.isError, true);
     assert.equal(parse(r)['error'], 'forbidden');
   });
+
+  it('sets closed_at on parent issue when close_issue_if_last_task=true (regression: Bug 1)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'bac-closed-at-'));
+    const repoRoot = join(ws, 'app');
+    mkdirSync(repoRoot, { recursive: true });
+    writeFileSync(join(repoRoot, 'a.ts'), 'export const x = 1;\n');
+    mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+    const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+
+    const issues = issueTools(db, dbPath);
+    const tasks = taskTools(db);
+    const composites = compositeTools(db, dbPath);
+    const discussions = discussionTools(db);
+    const audit = auditTools(db);
+
+    try {
+      const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+        agent: 'bro', objective: 'closed_at regression', description: 'x',
+      }))['id']));
+
+      await call(discussions.handlers, 'discussion_append', {
+        agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+      });
+      await call(audit.handlers, 'audit_log', {
+        agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+        from_node: 'bro', branch_id: 'fix/closed-at', summary: 's',
+      });
+      const created = parse(await call(tasks.handlers, 'task_create_batch', {
+        agent: 'bro', issue_id: issueId,
+        waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+        waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+        tasks: [{ branch_id: 'fix/closed-at', description: 'd', spec_body: 's', repo: 'app' }],
+      })) as unknown as Array<{ id: number }>;
+      const taskId = String(created[0]!.id);
+
+      await call(tasks.handlers, 'task_update_status', {
+        agent: 'swe', task_id: taskId, status: 'running',
+      });
+      await call(tasks.handlers, 'task_update_status', {
+        agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
+      });
+
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro',
+        task_id: taskId,
+        commit_sha: 'abc1234',
+        file_summaries: [{ path: 'a.ts', summary: 'fixed', repo: 'app' }],
+        verification_summary: 'ok',
+        close_issue_if_last_task: true,
+      });
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      assert.equal(parse(r)['issue_closed'], true);
+
+      const row = db.get<{ status: string; closed_at: string | null }>(
+        `SELECT status, closed_at FROM issues WHERE id = ?`,
+        [issueId],
+      );
+      assert.ok(row, 'issue row must exist');
+      assert.equal(row!.status, 'closed');
+      assert.ok(row!.closed_at !== null, 'closed_at must be set by bro_atomic_close auto-close');
+    } finally {
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 // #2873-sibling: workspace-pattern multi-repo path resolution on
