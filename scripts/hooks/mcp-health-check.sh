@@ -37,8 +37,11 @@ mkdir -p "$LOG_DIR" 2>/dev/null || true
 db_path="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/tmb/trajectory.db"
 
 INPUT=$(cat)
-# CC sends snake_case `hook_event_name` on stdin (per code.claude.com/docs/en/hooks).
-# Keep camelCase as a fallback for our own test harness that uses that shape.
+# CC sends snake_case `hook_event_name` on stdin (per
+# https://code.claude.com/docs/en/hooks). Pre-rc.6 this parser used
+# `.hookEventName` (camelCase) and silently fell through to "unknown",
+# which CC's output schema then rejected — see #2889. Keep camelCase +
+# `.event` as fallbacks for our own test harness shapes.
 event=$(echo "$INPUT" | jq -r '.hook_event_name // .hookEventName // .event // "unknown"' 2>/dev/null || true)
 [ -n "$event" ] || event="unknown"
 
