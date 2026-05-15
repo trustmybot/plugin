@@ -321,7 +321,7 @@ export function compositeTools(
       ['bro'],
       wrap(async (args) => {
         const taskId = args['task_id'] as string;
-        const commitSha = args['commit_sha'] as string;
+        const commitSha = ((args['commit_sha'] as string) ?? '').toLowerCase();
         const summaries = args['file_summaries'] as Array<{
           path: string;
           summary: string;
@@ -330,7 +330,7 @@ export function compositeTools(
         const verificationSummary = args['verification_summary'] as string;
         const closeIssueIfLast = args['close_issue_if_last_task'] === true;
 
-        if (!commitSha || !/^[0-9a-f]{7,40}$/i.test(commitSha)) {
+        if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
           return err('commit_sha must be a 7..40-char hex SHA.');
         }
         if (!Array.isArray(summaries) || summaries.length === 0) {

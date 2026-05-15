@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -78,7 +79,7 @@ export function auditTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    audit_log: wrapHandler(async (args) => {
+    audit_log: requireRoles('audit_log', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
       requireArg(args, 'from_node');
@@ -111,7 +112,7 @@ export function auditTools(db: TrajectoryDB): {
         'SELECT * FROM audit WHERE rowid = last_insert_rowid()',
       );
       return ok(row);
-    }),
+    })),
 
     audit_log_list: wrapHandler(async (args) => {
       requireArg(args, 'agent');

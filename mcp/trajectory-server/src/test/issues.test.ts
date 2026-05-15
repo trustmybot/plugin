@@ -402,4 +402,67 @@ describe('issueTools — remote sync', () => {
 
     db.close();
   });
+
+  it('issue_get_phase returns ready_to_close when all tasks completed and issue open', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Phase regression test issue',
+    });
+    const issue = parseResult(createResult);
+    assert.ok(!createResult.isError);
+
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', 0, '', '', datetime('now'), datetime('now'))`,
+      [issue.id],
+    );
+
+    const phaseResult = await call(tools.handlers, 'issue_get_phase', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+    });
+    const phaseData = parseResult(phaseResult);
+    assert.ok(!phaseResult.isError, `Expected no error: ${JSON.stringify(phaseData)}`);
+    assert.equal(phaseData.phase, 'ready_to_close', `Expected ready_to_close, got ${phaseData.phase}`);
+    assert.equal(phaseData.counts.tasks_total, 1);
+    assert.equal(phaseData.counts.tasks_completed, 1);
+
+    db.close();
+  });
+
+  it('issue_get_phase returns tasks when some tasks still pending', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Phase tasks regression test',
+    });
+    const issue = parseResult(createResult);
+    assert.ok(!createResult.isError);
+
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', 0, '', '', datetime('now'), datetime('now'))`,
+      [issue.id],
+    );
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', 0, '', '', datetime('now'), datetime('now'))`,
+      [issue.id],
+    );
+
+    const phaseResult = await call(tools.handlers, 'issue_get_phase', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+    });
+    const phaseData = parseResult(phaseResult);
+    assert.ok(!phaseResult.isError);
+    assert.equal(phaseData.phase, 'tasks', `Expected tasks, got ${phaseData.phase}`);
+
+    db.close();
+  });
 });

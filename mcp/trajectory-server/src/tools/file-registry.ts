@@ -141,22 +141,27 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'file_registry_delete',
       description:
-        'DELETE a file record by path. Returns { deleted: 0 } if not found, { deleted: 1 } on success.',
+        'DELETE a file record by (repo, path). Returns { deleted: 0 } if not found, { deleted: 1 } on success.',
       inputSchema: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'File path to delete' },
+          repo: { type: 'string', description: 'Repo name (primary key with path). Defaults to empty string.' },
         },
-        required: ['path'],
+        required: ['path', 'repo'],
       },
     },
     {
       name: 'file_registry_verify',
       description:
-        'Per-path drift check (#45): re-md5 each file from disk, compare against stored content_md5. Returns { verdicts: [{ path, verdict, current_md5? }] } where verdict is "match" | "mismatch" | "missing" | "new". If `paths` is provided, also flags any registry rows whose path is NOT in the list as "missing" and any input path not in the registry as "new". If `paths` is absent, verifies every registry row (no "new" detection). Read-only; safe for any caller.',
+        'Per-path drift check (#45): re-md5 each file from disk, compare against stored content_md5. Returns { verdicts: [{ repo, path, verdict, current_md5? }] } where verdict is "match" | "mismatch" | "missing" | "new". If `repo` is provided, only verifies rows for that repo. If `paths` is provided, also flags any registry rows whose path is NOT in the list as "missing" and any input path not in the registry as "new". If `paths` is absent, verifies every registry row (no "new" detection). Read-only; safe for any caller.',
       inputSchema: {
         type: 'object',
         properties: {
+          repo: {
+            type: 'string',
+            description: 'Optional: filter to a specific repo. When omitted, verifies all repos.',
+          },
           paths: {
             type: 'array',
             items: { type: 'string' },
@@ -288,12 +293,14 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
       const pathErr = validatePath(args['path']);
       if (pathErr) return err(pathErr);
       const path = args['path'] as string;
+      const repo = typeof args['repo'] === 'string' ? (args['repo'] as string) : '';
 
-      const result = db.run(`DELETE FROM file_registry WHERE path = ?`, [path]);
+      const result = db.run(`DELETE FROM file_registry WHERE repo = ? AND path = ?`, [repo, path]);
       return ok({ deleted: result.changes > 0 ? 1 : 0 });
     })),
 
     file_registry_verify: wrapHandler(async (args) => {
+      const repoFilter = typeof args['repo'] === 'string' ? (args['repo'] as string) : null;
       const inputPaths = args['paths'];
       let pathFilter: Set<string> | null = null;
       if (inputPaths !== undefined && inputPaths !== null) {
@@ -307,42 +314,48 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
         pathFilter = new Set(inputPaths as string[]);
       }
 
-      const rows = db.all<{ path: string; content_md5: string | null }>(
-        `SELECT path, content_md5 FROM file_registry`,
-      );
+      const rows = repoFilter !== null
+        ? db.all<{ repo: string; path: string; content_md5: string | null }>(
+            `SELECT repo, path, content_md5 FROM file_registry WHERE repo = ?`,
+            [repoFilter],
+          )
+        : db.all<{ repo: string; path: string; content_md5: string | null }>(
+            `SELECT repo, path, content_md5 FROM file_registry`,
+          );
       const registryPaths = new Set(rows.map((r) => r.path));
 
-      const verdicts: Array<{ path: string; verdict: string; current_md5?: string }> = [];
+      const verdicts: Array<{ repo: string; path: string; verdict: string; current_md5?: string }> = [];
 
       for (const row of rows) {
         const abs = resolveProjectPath(row.path);
         if (!existsSync(abs)) {
-          verdicts.push({ path: row.path, verdict: 'missing' });
+          verdicts.push({ repo: row.repo, path: row.path, verdict: 'missing' });
           continue;
         }
         try {
           const stat = statSync(abs);
           if (!stat.isFile()) {
-            verdicts.push({ path: row.path, verdict: 'missing' });
+            verdicts.push({ repo: row.repo, path: row.path, verdict: 'missing' });
             continue;
           }
           const currentMd5 = md5OfPath(abs);
           if (row.content_md5 === null) {
-            verdicts.push({ path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
+            verdicts.push({ repo: row.repo, path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
           } else if (currentMd5 === row.content_md5) {
-            verdicts.push({ path: row.path, verdict: 'match' });
+            verdicts.push({ repo: row.repo, path: row.path, verdict: 'match' });
           } else {
-            verdicts.push({ path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
+            verdicts.push({ repo: row.repo, path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
           }
         } catch (e) {
-          verdicts.push({ path: row.path, verdict: 'missing' });
+          verdicts.push({ repo: row.repo, path: row.path, verdict: 'missing' });
         }
       }
 
       if (pathFilter !== null) {
         for (const p of pathFilter) {
           if (!registryPaths.has(p)) {
-            verdicts.push({ path: p, verdict: 'new' });
+            const repo = repoFilter ?? '';
+            verdicts.push({ repo, path: p, verdict: 'new' });
           }
         }
       }

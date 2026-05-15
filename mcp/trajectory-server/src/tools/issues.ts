@@ -375,15 +375,15 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         [issueId],
       ) ?? { tasks_total: 0, tasks_completed: 0, tasks_failed: 0 };
 
-      let phase: 'discussion' | 'blueprint' | 'tasks' | 'done';
+      let phase: 'discussion' | 'blueprint' | 'tasks' | 'done' | 'ready_to_close';
       if (issue.status === 'closed') {
         phase = 'done';
       } else if (counts.tasks_total === 0) {
         phase = 'discussion';
-      } else if (counts.tasks_completed < counts.tasks_total) {
-        phase = 'tasks';
+      } else if (counts.tasks_completed >= counts.tasks_total) {
+        phase = 'ready_to_close';
       } else {
-        phase = 'blueprint';
+        phase = 'tasks';
       }
 
       return ok({ phase, counts });

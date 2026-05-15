@@ -55,15 +55,4 @@ export function redactValidationRow(row, agent, scope) {
     }
     return row;
 }
-/**
- * Pass-through wrapper around a handler. Kept as a seam for future
- * cross-cutting concerns (tracing, metrics, etc.) that need to see every
- * MCP tool call. Redaction is done INSIDE individual handlers against
- * `redactIssue` / `redactValidationRow`; role enforcement is done via
- * `requireRoles`. This function deliberately does not carry a redactor
- * argument — callers that need redaction should apply it in-handler.
- */
-export function withAgentScope(_toolName, handler) {
-    return handler;
-}
 //# sourceMappingURL=agent-scope.js.map

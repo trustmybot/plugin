@@ -17,12 +17,8 @@ import { prCommentsTools } from './pr_comments.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
-import { withAgentScope } from '../middleware/agent-scope.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
-function wrapAll(handlers) {
-    return Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, withAgentScope(name, handler)]));
-}
 function decorateWithAgent(tools) {
     return tools.map((t) => ({
         ...t,
@@ -81,25 +77,25 @@ export function registerTools(server, db, dbPath = '') {
         ...scan.definitions,
     ]);
     toolHandlers = {
-        ...wrapAll(discussions.handlers),
-        ...wrapAll(issues.handlers),
-        ...wrapAll(tasks.handlers),
-        ...wrapAll(audit.handlers),
-        ...wrapAll(validation.handlers),
-        ...wrapAll(skills.handlers),
-        ...wrapAll(rules.handlers),
-        ...wrapAll(commands.handlers),
-        ...wrapAll(agents.handlers),
-        ...wrapAll(reports.handlers),
-        ...wrapAll(config.handlers),
-        ...wrapAll(fileRegistry.handlers),
-        ...wrapAll(branchReport.handlers),
-        ...wrapAll(stats.handlers),
-        ...wrapAll(roundtable.handlers),
-        ...wrapAll(prComments.handlers),
-        ...wrapAll(composites.handlers),
-        ...wrapAll(onboard.handlers),
-        ...wrapAll(scan.handlers),
+        ...discussions.handlers,
+        ...issues.handlers,
+        ...tasks.handlers,
+        ...audit.handlers,
+        ...validation.handlers,
+        ...skills.handlers,
+        ...rules.handlers,
+        ...commands.handlers,
+        ...agents.handlers,
+        ...reports.handlers,
+        ...config.handlers,
+        ...fileRegistry.handlers,
+        ...branchReport.handlers,
+        ...stats.handlers,
+        ...roundtable.handlers,
+        ...prComments.handlers,
+        ...composites.handlers,
+        ...onboard.handlers,
+        ...scan.handlers,
     };
 }
 //# sourceMappingURL=index.js.map

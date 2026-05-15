@@ -1,5 +1,4 @@
 import { copyFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -284,9 +283,6 @@ export class TrajectoryDB {
 }
 export function nowISO() {
     return new Date().toISOString();
-}
-export function genId(prefix) {
-    return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString('hex')}`;
 }
 function backupDbBeforeMigration(db, dbPath, targetVersion) {
     if (!dbPath || dbPath === ':memory:')

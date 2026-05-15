@@ -1,5 +1,4 @@
 import { copyFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -314,9 +313,6 @@ export function nowISO(): string {
   return new Date().toISOString();
 }
 
-export function genId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString('hex')}`;
-}
 
 function backupDbBeforeMigration(
   db: DatabaseSync,
