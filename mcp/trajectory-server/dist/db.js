@@ -142,7 +142,7 @@ export class TrajectoryDB {
             throw new Error(`TrajectoryDB: stored schema_version ${storedVersion} is newer than code's max ${TARGET_SCHEMA_VERSION}; downgrade not supported. Use a newer plugin version, or restore the .bak file from before the upgrade.`);
         }
         if (storedVersion < TARGET_SCHEMA_VERSION) {
-            backupDbBeforeMigration(this.dbPath, TARGET_SCHEMA_VERSION);
+            backupDbBeforeMigration(this.db, this.dbPath, TARGET_SCHEMA_VERSION);
             runMigrations(this.db, storedVersion, TARGET_SCHEMA_VERSION);
             this.db.exec(sql);
             this.db
@@ -288,7 +288,7 @@ export function nowISO() {
 export function genId(prefix) {
     return `${prefix}_${Date.now().toString(36)}_${randomBytes(4).toString('hex')}`;
 }
-function backupDbBeforeMigration(dbPath, targetVersion) {
+function backupDbBeforeMigration(db, dbPath, targetVersion) {
     if (!dbPath || dbPath === ':memory:')
         return;
     const dir = dirname(dbPath);
@@ -301,6 +301,17 @@ function backupDbBeforeMigration(dbPath, targetVersion) {
     }
     catch {
         // Directory not readable — fall through; copy will surface the real error.
+    }
+    // Flush WAL into the main DB file before copyFileSync. Without this the
+    // backup captures only the main .db (pending WAL writes are excluded), so
+    // a user restoring from .bak after a crashed migration would silently
+    // lose any pre-migration writes that hadn't checkpointed yet.
+    try {
+        db.prepare('PRAGMA wal_checkpoint(FULL)').get();
+    }
+    catch {
+        // Checkpoint can fail if another connection holds the lock. Proceed
+        // with a best-effort backup rather than fail the boot.
     }
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = `${dbPath}.pre-v${targetVersion}.${timestamp}.bak`;
