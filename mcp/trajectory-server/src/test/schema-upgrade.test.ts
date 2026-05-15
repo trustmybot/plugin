@@ -480,6 +480,49 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     assert.equal(secondCount, 1, 'reopening at v2 must not create another backup');
   });
 
+  it('backup captures uncheckpointed WAL state (pending writes survive migration)', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedLegacyV1Db(dbPath, 'pre-2886');
+
+    // Open the legacy DB in WAL mode and write a row, leaving an
+    // uncheckpointed WAL. We DO NOT close — that would auto-checkpoint
+    // and defeat the test. The TrajectoryDB constructor below opens its
+    // own connection; its `backupDbBeforeMigration` must call
+    // `PRAGMA wal_checkpoint(FULL)` so the .bak captures this write.
+    const seedDb = new DatabaseSync(dbPath);
+    seedDb.exec('PRAGMA journal_mode = WAL');
+    seedDb.exec(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (42, 'wal-pending', '', 'open', '2026-01-01', '2026-01-01')`,
+    );
+    // Hold the connection open so the WAL doesn't drain on close.
+    // The TrajectoryDB opens a separate connection — SQLite's WAL
+    // arbitration plus busy_timeout handle the overlap.
+
+    const db = new TrajectoryDB(dbPath);
+
+    const backupFile = readdirSync(dirname(dbPath)).find(
+      (f) => f.startsWith(basename(dbPath) + '.pre-v2.') && f.endsWith('.bak'),
+    );
+    assert.ok(backupFile, 'backup file must exist');
+
+    // Open the .bak as a standalone DB (no WAL companion) and verify the
+    // pending-WAL row was captured by the checkpoint+copy sequence.
+    const bak = new DatabaseSync(join(dirname(dbPath), backupFile));
+    const row = bak
+      .prepare("SELECT objective FROM issues WHERE id = 42")
+      .get() as { objective: string } | undefined;
+    bak.close();
+
+    assert.ok(
+      row && row.objective === 'wal-pending',
+      'pending WAL write must be visible in .bak — wal_checkpoint(FULL) failed to flush before copyFile',
+    );
+
+    seedDb.close();
+    db.close();
+  });
+
   it('rejects DB with schema_version > TARGET (downgrade protection)', () => {
     const tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, 'trajectory.db');
