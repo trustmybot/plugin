@@ -222,6 +222,14 @@ describe('schema — current table set, default values, constraints', () => {
             delete process.env['TMB_EVAL_MODE'];
         }
     });
+    it('audit table has idx_audit_event_type and idx_audit_issue_branch indexes', () => {
+        const db = tempDB();
+        const indexes = db.all("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='audit'");
+        const names = indexes.map((i) => i.name);
+        assert.ok(names.includes('idx_audit_event_type'), `idx_audit_event_type must exist, found: ${names.join(', ')}`);
+        assert.ok(names.includes('idx_audit_issue_branch'), `idx_audit_issue_branch must exist, found: ${names.join(', ')}`);
+        db.close();
+    });
     it('plugin_meta has exactly 1 row after 10 sequential opens of the same file-backed DB (GL #23)', () => {
         const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-schema-test-'));
         try {

@@ -384,7 +384,7 @@ export function compositeTools(db, dbPath) {
                 WHERE issue_id = ?
                   AND status NOT IN ('closed', 'failed', 'escalated')`, [task.issue_id]);
                     if ((remaining?.c ?? 0) === 0) {
-                        db.run(`UPDATE issues SET status='closed', updated_at=? WHERE id=? AND status != 'closed'`, [now, task.issue_id]);
+                        db.run(`UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`, [now, now, task.issue_id]);
                         issueClosed = true;
                     }
                 }
