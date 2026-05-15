@@ -51,6 +51,13 @@ run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/lint/labels-st
 run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/lint/enums-stable.sh"
 run_step "L1 lint: no negative directives in prompts" bash "$HERE/lint/no-negative-directives.sh"
 run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/lint/issue-sync-test-isolation.sh"
+run_step "L1 lint: no audit_log without from_node"    bash "$HERE/lint/no-audit-log-without-from-node.sh"
+run_step "L1 lint: no citations in prompts"           bash "$HERE/lint/no-citations-in-prompts.sh"
+run_step "L1 lint: no audit_log kind= arg"            bash "$HERE/lint/no-audit-log-kind.sh"
+run_step "L1 lint: no developer paths in artifacts"   bash "$HERE/lint/no-developer-paths.sh"
+run_step "L1 lint: no stale framing prose"            bash "$HERE/lint/stale-framing-prose.sh"
+run_step "L1 lint: no hardcoded plugin name"          bash "$HERE/lint/no-hardcoded-plugin-name.sh"
+run_step "L1 lint: CI workflow file refs exist"       bash "$HERE/lint/ci-workflow-refs-exist.sh"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 

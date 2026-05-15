@@ -22,11 +22,11 @@ Before running ANY working-tree-dependent verification, create a per-SHA worktre
 
 ```bash
 WT="/tmp/pr-review-${COMMIT_SHA}"
-git -C /Users/Zax/Git/GitHub/TMB/plugin worktree add "$WT" "$COMMIT_SHA"
+git -C "${CLAUDE_PLUGIN_ROOT}" worktree add "$WT" "$COMMIT_SHA"
 cd "$WT"
 # ... run verification ...
 cd -
-git -C /Users/Zax/Git/GitHub/TMB/plugin worktree remove --force "$WT"
+git -C "${CLAUDE_PLUGIN_ROOT}" worktree remove --force "$WT"
 ```
 
 Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`, `git grep <pat> <sha>`) work from any branch and don't need a worktree — use those for diff inspection.
@@ -74,7 +74,7 @@ validation_record(agent='pr-reviewer', task_id=N, attempt_n=1, verdict='pass'|'f
 
 **Path 2 — MCP unavailable** (only Read + Bash in your tool list, due to plugin-subagent CC restriction):
 ```bash
-sqlite3 /Users/Zax/Git/GitHub/TMB/.claude/tmb/trajectory.db <<SQL
+sqlite3 "${TRAJECTORY_DB_PATH}" <<SQL
 INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
 VALUES (<N>, 1, 'pr-reviewer', '<pass|fail>',
 'MCP available: no — honor-system fallback
