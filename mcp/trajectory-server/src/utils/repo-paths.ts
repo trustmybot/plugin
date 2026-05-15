@@ -36,7 +36,7 @@ export function resolveDefaultRepo(
 
   // Legacy fallback: synthesize the path from the workspace root + repo
   // name. Works for workspace-pattern projects
-  // (`<workspace>/<repo>/.claude/tmb/trajectory.db`) but mis-resolves
+  // (`<workspace>/<repo>/.claude/<plugin-name>/trajectory.db`) but mis-resolves
   // single-repo projects where trajectory.db lives at the project root
   // (synthesized path becomes `<root>/<basename(root)>` which doesn't
   // exist on disk — that mis-resolution is what motivated reading

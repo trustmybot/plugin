@@ -3,8 +3,9 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { resolvePluginName } from '../db.js';
 
-const logDir = join(homedir(), '.claude', 'tmb', 'logs');
+const logDir = join(homedir(), '.claude', resolvePluginName(process.env), 'logs');
 const syncLogPath = join(logDir, 'issue-sync.log');
 
 try {

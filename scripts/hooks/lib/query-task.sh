@@ -6,7 +6,7 @@ set -euo pipefail
 # tmb_db_path
 # Resolve the trajectory DB path:
 #   1. TRAJECTORY_DB_PATH env override wins (tests + advanced setups).
-#   2. Sentinel file ($HOME/.claude/tmb-active-workspace) wins over walk-up
+#   2. Sentinel file ($HOME/.claude/<plugin-name>-active-workspace) wins over walk-up
 #      when the sentinel DB exists on disk.
 #   3. Otherwise: walk up from cwd to filesystem root, collecting all ancestor
 #      levels that contain <dir>/.claude/<plugin-name>/trajectory.db.
@@ -34,7 +34,7 @@ tmb_db_path() {
     return 0
   fi
   # NEW: check sentinel from #113 — subagents inherit cwd=~ and lack env vars
-  local sentinel="$HOME/.claude/tmb-active-workspace"
+  local sentinel="$HOME/.claude/${plugin_name}-active-workspace"
   if [ -f "$sentinel" ]; then
     local ws
     ws=$(head -1 "$sentinel" 2>/dev/null)

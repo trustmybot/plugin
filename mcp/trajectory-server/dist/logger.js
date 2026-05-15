@@ -1,7 +1,8 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-const logDir = join(homedir(), '.claude', 'tmb', 'logs');
+import { resolvePluginName } from './db.js';
+const logDir = join(homedir(), '.claude', resolvePluginName(process.env), 'logs');
 let logDirReady = false;
 try {
     mkdirSync(logDir, { recursive: true });

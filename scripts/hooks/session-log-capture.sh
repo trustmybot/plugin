@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # UserPromptSubmit hook: auto-saves per-session user prompts to
-# <workspace>/.claude/tmb/logs/<YYYY-MM-DD>-<session-id>.jsonl.
+# <workspace>/.claude/<plugin-name>/logs/<YYYY-MM-DD>-<session-id>.jsonl.
 # Silent no-op when workspace not detected. Never blocks the session.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/resolve-plugin-name.sh
+. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+PLUGIN_NAME=$(tmb_resolve_plugin_name)
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
 
@@ -13,10 +16,10 @@ DB_PATH=$(tmb_db_path 2>/dev/null) || true
 [ -z "$DB_PATH" ] && exit 0
 
 WORKSPACE=$(dirname "$(dirname "$(dirname "$DB_PATH")")")
-LOG_DIR="$WORKSPACE/.claude/tmb/logs"
+LOG_DIR="$WORKSPACE/.claude/${PLUGIN_NAME}/logs"
 mkdir -p "$LOG_DIR" 2>/dev/null || exit 0
 
-SENTINEL="$WORKSPACE/.claude/tmb/.current-session-id"
+SENTINEL="$WORKSPACE/.claude/${PLUGIN_NAME}/.current-session-id"
 if [ ! -f "$SENTINEL" ]; then
   printf '%s' "$(date -u +%Y%m%d-%H%M%S)-$$" > "$SENTINEL" 2>/dev/null || true
 fi
