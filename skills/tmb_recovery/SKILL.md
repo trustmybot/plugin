@@ -6,9 +6,9 @@ allowed-tools: Bash(skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*), mcp__
 
 # Recovery — three failure modes, three responses
 
-Bro never halts the user-visible flow on a recoverable error. Each failure class has a deterministic fallback path; the judgment is *which class applies* and *what default to pick* per skill.
+Bro keeps the user-visible flow moving on recoverable errors. Each failure class has a deterministic fallback path; the judgment is *which class applies* and *what default to pick* per skill.
 
-The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-server unreachable). The LLM never reads it directly; it's invoked via Bash.
+The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-server unreachable). Invoke it via Bash — the LLM uses it as a black box, not by reading it directly.
 
 ## A. AskUserQuestion error / TMB_HEADLESS=1
 
@@ -22,7 +22,7 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
    audit_log(agent='bro', from_node='bro', event_type='headless_fallback', summary='<skill_name>: <question_short> → <chosen_default>')
    discussion_append(agent='bro', kind='note', body='Headless fallback: <skill> asked "<question>", no Human in loop, defaulted to <default>. Reason: <one-line>.')
    ```
-   For `issue_id`: use the parent issue of the calling skill when one exists; otherwise use the system issue (`issue_id='-1'`, seeded for system-level events that have no parent issue). Never invent a placeholder string — `audit` and `discussions` enforce a FK to `issues`.
+   For `issue_id`: use the parent issue of the calling skill when one exists; otherwise use the system issue (`issue_id='-1'`, seeded for system-level events that have no parent issue). Use a real issue ID or `'-1'` — `audit` and `discussions` enforce a FK to `issues` and will reject invented placeholder strings.
 3. **Continue the skill's flow** with the default as if the Human typed it.
 
 ### Per-skill defaults
@@ -71,7 +71,7 @@ When any MCP call result has `is_error: true` or content includes `{"error": ...
 
 Two distinct failure modes — `mcp-health-check.sh` writes `"mode":"A"` or `"mode":"B"` into `~/.claude/tmb/logs/mcp-health.log` and emits a mode-specific `additionalContext` warning so the surface message tells you which one you have.
 
-### C.1 — MCP never spawned this session (Mode A, issue #2888)
+### C.1 — MCP absent this session (Mode A)
 
 CC's plugin MCP-config cache wasn't invalidated after `/plugin disable` → re-enable or auto-update. The plugin's hooks/skills/agents load fine, but the MCP server is missing from CC's resolved-plugin list entirely — `/reload-plugins` does not fix it, and full quit + relaunch does not fix it either. CC persists the cached config to disk somewhere that survives process restart.
 
@@ -83,9 +83,10 @@ CC's plugin MCP-config cache wasn't invalidated after `/plugin disable` → re-e
 2. `/plugin uninstall tmb@trustmybot-rc`, quit CC fully, reinstall via `/plugin install tmb@trustmybot-rc`.
 3. Manual cache nuke: `rm -rf ~/.claude/plugins/cache/trustmybot-rc/` + remove the `tmb@trustmybot-rc` entry from `~/.claude/plugins/installed_plugins.json`, relaunch, reinstall. The `scripts/maintenance/heal-mcp-cache.sh` helper does this interactively with a dry-run preview.
 
-**During the failure, bro MUST halt.** State-writing tools are unreachable; silent degradation would corrupt the audit trail. Read-only sqlite3 fallback (`bro-sqlite-readonly.sh`) is still available for emergency reads but write attempts will silently fail.
+<!-- LOAD-BEARING-SAFETY: halt-on-Mode-A is mandatory — state-writing tools are unreachable and silent degradation corrupts the audit trail -->
+**During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`bro-sqlite-readonly.sh`) is still available for emergency reads; write attempts will silently fail in this mode.
 
-### C.2 — MCP died mid-session (Mode B, GL #22)
+### C.2 — MCP died mid-session (Mode B)
 
 The MCP child process was alive at SessionStart but is now gone — crashed, OOM-killed, or `pkill`ed. Distinct from Mode A in that CC's resolved-plugin list is correct; the process just needs to be re-spawned.
 

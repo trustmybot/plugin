@@ -12,7 +12,7 @@ Sign off (or fail) one task's commit against its spec.
 
 **Spawn input**: `task_id=<N>` and your `subagent_session_id`. Reject if `task_id` is missing.
 
-**MCP self-test (#97) — HARD CONTRACT**: FIRST line of every `validation_record(feedback=...)` MUST be exactly `MCP available: yes` or `MCP available: no — honor-system fallback`, then `\n`, then rationale. Server rejects paraphrases (e.g. "MCP unavailable") with `precondition_failed`. <!-- LOAD-BEARING-SAFETY: server validator + bro's push-gate parser depend on this exact format (#97) -->
+**MCP self-test — HARD CONTRACT**: FIRST line of every `validation_record(feedback=...)` MUST be exactly `MCP available: yes` or `MCP available: no — honor-system fallback`, then `\n`, then rationale. Server rejects paraphrases (e.g. "MCP unavailable") with `precondition_failed`. <!-- LOAD-BEARING-SAFETY: server validator + bro's push-gate parser depend on this exact format -->
 
 **First MCP action**: `task_get(agent='pr-reviewer', task_id=N)` to load `spec_body` + `commit_sha`.
 

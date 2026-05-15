@@ -24,7 +24,7 @@ The server forks `scripts/scan.sh`, which:
 2. For each repo: `git ls-files` (.gitignore-aware), then md5 + size + last_commit_sha per file.
 3. Persists into `repos` + `file_registry` (transactional). Drift detection is **md5-only** — rows where md5 matches keep their summary; rows where md5 differs get the summary cleared.
 4. Emits `audit_log(from_node='bro', event_type='deep_scan_completed')` so the registry-cold gate clears.
-5. Sets `tmb_default_repo` to the first discovered repo if not already set (helps issue_sync resolve `_cwd` correctly per #2877).
+5. Sets `tmb_default_repo` to the first discovered repo if not already set (helps issue_sync resolve `_cwd` correctly).
 
 Returns: `{session_dir, scanned_at, repos[], repos_upserted, files_upserted, files_md5_changed}`.
 

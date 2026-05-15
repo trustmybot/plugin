@@ -60,7 +60,7 @@ options: [pr_target (pull origin/<pr_target> first) | <current_branch> | 1-3 pro
 ```
 
 On `pr_target`: `git fetch origin ${pr_target} && git checkout ${pr_target} && git pull --ff-only`.
-On non-pr_target: switch, do not auto-pull.
+On non-pr_target: switch; leave the branch as-is (no auto-pull).
 Any git error: halt and surface.
 
 Then derive + propose:
@@ -126,13 +126,14 @@ When the change does any of the following, also co-author an ADR + apply the bla
 
 ADR location: `docs/trustmybot/architecture/manual/decisions/N-*.md` (see `templates/docs-trustmybot/architecture/manual/decisions/0001-example.md`).
 
-Blast-radius checklist (external side effects only): default config MUST be the safe state (opt-in); tests MUST NOT hit live services on the default `:memory:` DB; spec MUST require a pre-merge `bash tests/run-all.sh` yielding zero external mutations. Any miss → spec back for revision.
+<!-- LOAD-BEARING-SAFETY: blast-radius checklist is required for all external-side-effect changes; any miss blocks GA -->
+Blast-radius checklist (external side effects only): default config MUST be the safe state (opt-in); tests run only against the `:memory:` DB on default; spec MUST require a pre-merge `bash tests/run-all.sh` yielding zero external mutations. Any miss → spec back for revision.
 
 If the human wants to deliberate on the architectural direction before bro commits, they enter **Claude Code's native plan mode** (Shift+Tab); bro doesn't run a bespoke Q+A loop. The decision-audit row captures the outcome of that deliberation either way.
 
 ## Spec body template (max 8000 chars)
 
-Self-contained — never reference another spec for content. Split into multiple tasks linked by `parent_branch_id` if it exceeds 200 lines.
+Self-contained — inline all referenced content. Split into multiple tasks linked by `parent_branch_id` if it exceeds 200 lines.
 
 ```markdown
 ## Description
@@ -178,7 +179,7 @@ task_create_batch(
 1. **Truly trivial work** (typo fix, one-line doc, mechanical rename per the user's exact request). Reason: `'trivial: <what>'`.
 2. **Headless mode (TMB_HEADLESS=1).** No Human in the loop means no chance to ask a clarifying question; the gate would block forever. Reason: `'headless mode, defaults applied; <one-line scope summary>'`.
 
-For interactive runs (Human present) on substantive changes, **do not** waive — let the scope-ambiguity gate enforce at least one clarifying question.
+For interactive runs (Human present) on substantive changes, leave the gate active — let the scope-ambiguity gate enforce at least one clarifying question.
 
 Spawn commands:
 
@@ -220,7 +221,8 @@ bro_atomic_close(
 )
 ```
 
-Then tell the Human "Trust me bro, it works." Bro never calls `validation_record` — server returns `forbidden`.
+<!-- LOAD-BEARING-SAFETY: bro is forbidden from calling validation_record — server enforces via requireRoles -->
+Then tell the Human "Trust me bro, it works." `validation_record` is pr-reviewer-only; the server returns `forbidden` if bro attempts it.
 
 **V3 — Any check fails**
 
@@ -229,7 +231,7 @@ audit_log(agent='bro', from_node='bro', event_type='bro_verification_fail', summ
 discussion_append(kind='note', body='Verification fail: <which check> — <details>')
 ```
 
-Don't close. Either retry SWE via `task_retry_batch` (max 3 retries per task) or escalate.
+Leave the task open. Either retry SWE via `task_retry_batch` (max 3 retries per task) or escalate.
 
 ```
 task_retry_batch(
@@ -245,7 +247,7 @@ If `bro_atomic_close` returns `is_error: true`, halt and surface — see `tmb_re
 
 ## Step 6 — Architecture refresh (post-close)
 
-The `post-task-close-rescan.sh` hook fires automatically after `bro_atomic_close` and runs `scan_run(source='bro_auto_post_close')`. The scan's audit row carries `structural_change: true|false` so downstream tooling can decide whether the project shape changed. There is no separate arch-refresh step bro fires — `scan_run` is the single scan-side surface (#2881).
+The `post-task-close-rescan.sh` hook fires automatically after `bro_atomic_close` and runs `scan_run(source='bro_auto_post_close')`. The scan's audit row carries `structural_change: true|false` so downstream tooling can decide whether the project shape changed. There is no separate arch-refresh step bro fires — `scan_run` is the single scan-side surface.
 
 ## Headless fallback (interactive flow falls back here on AUQ error)
 
@@ -257,7 +259,7 @@ If an AUQ in Steps 0/2 errors mid-interactive-run OR `TMB_HEADLESS=1` flips on:
 | Base-branch (Step 2) | `${pr_target}` |
 | Branch-id confirm (Step 2) | "Yes, proceed" |
 
-Record both audit + discussion writes for each fallback (`event_type='headless_fallback'`). Do not auto-pick "Suggest different branch_id" or any "halt + ask" choice headlessly — those need explicit Human intent.
+Record both audit + discussion writes for each fallback (`event_type='headless_fallback'`). Auto-picking "Suggest different branch_id" or any "halt + ask" choice headlessly is blocked — those require explicit Human intent.
 
 For architectural changes in headless mode, still author the ADR with conservative assumptions. Waive the scope gate (Step 4 case 2).
 
