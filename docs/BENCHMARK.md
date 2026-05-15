@@ -14,7 +14,7 @@
 > **Total spend: $17.33** across both runs.
 
 Raw per-task data, environment metadata, run dates, and reproduction
-commands live in **[`tests/dogfood/bench/RESULTS.md`](../tests/dogfood/bench/RESULTS.md)**.
+commands live in **[`tests/manual/bench/RESULTS.md`](../tests/manual/bench/RESULTS.md)**.
 
 ---
 
@@ -118,7 +118,7 @@ the resolution comparison see the tables above.
   a stronger harness than Anthropic's published 2-tool scaffold).
   We don't use that number as a comparator — the comparator claim
   is anchored to public submissions only. See
-  [`tests/dogfood/bench/RESULTS.md`](../tests/dogfood/bench/RESULTS.md)
+  [`tests/manual/bench/RESULTS.md`](../tests/manual/bench/RESULTS.md)
   for full local-measurement transparency.
 
 ---
@@ -185,7 +185,7 @@ state accumulates across tasks. The next bench iteration:
   hallucination rate (should stay 0), and per-task duration. Compare
   against TMB-cold (fresh state per task) and raw Opus 4 cold-starting
   each task. Design captured in
-  [`tests/dogfood/bench/run-chained-bench.sh`](../tests/dogfood/bench/run-chained-bench.sh).
+  [`tests/manual/bench/run-chained-bench.sh`](../tests/manual/bench/run-chained-bench.sh).
 - Bump N to 3 per task for variance bars (~$25 per full pass).
 - Expand corpus from 4 to 10-15 tasks per corpus.
 - Tighten the hallucination scorer (LLM-as-judge on the final message).
@@ -194,7 +194,7 @@ state accumulates across tasks. The next bench iteration:
 
 ## Source
 
-- Bench harness: [`tests/dogfood/bench/`](../tests/dogfood/bench/)
-- Technical per-task data, run metadata, reproduction commands: [`tests/dogfood/bench/RESULTS.md`](../tests/dogfood/bench/RESULTS.md)
+- Bench harness: [`tests/manual/bench/`](../tests/manual/bench/)
+- Technical per-task data, run metadata, reproduction commands: [`tests/manual/bench/RESULTS.md`](../tests/manual/bench/RESULTS.md)
 - Published Opus 4 / Sonnet 4 comparators: [`SWE-bench/experiments`](https://github.com/SWE-bench/experiments)
 - SWE-bench leaderboards: [swebench.com](https://www.swebench.com/)

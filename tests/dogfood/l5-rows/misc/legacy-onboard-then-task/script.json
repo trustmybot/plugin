@@ -1,8 +1,0 @@
-{
-  "max_turns": 4,
-  "user_after_bro": [
-    "Yes, simplest possible — a function that prints \"hello world\". Use the project defaults for everything.",
-    "Looks good. Proceed."
-  ],
-  "terminal_pattern": "task closed|push when ready|completed the task"
-}
