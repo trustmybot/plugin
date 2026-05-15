@@ -129,7 +129,7 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | `draft` | TMB | Created but not yet validated |
 | `pending_review` | TMB | Awaiting human review before activation |
 | `active` | TMB | Discoverable + invocable |
-| `deprecated` | TMB | Kept for back-compat; new code should not invoke |
+| `deprecated` | TMB | Skill exists but must not be used in new code; prefer `active` |
 
 Inspired by typical lifecycle states; not from a single named convention.
 
