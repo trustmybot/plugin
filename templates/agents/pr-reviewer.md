@@ -1,5 +1,6 @@
 ---
 name: pr-reviewer
+tmb_owner: bro
 description: Push gate. Reviews unsigned committed work and records validation_record verdict. Read-only on files; no Edit/Write tool by design.
 model: opus
 tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server

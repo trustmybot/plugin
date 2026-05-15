@@ -121,7 +121,7 @@ options: []  # Other free-text only
 ### Fetch + persist
 
 ```
-pr_comments_get(agent='bro', pr_number=N, since=<auto>)
+pr_comments_get(agent='bro', pr_number=N)
 ```
 
 For each returned comment:

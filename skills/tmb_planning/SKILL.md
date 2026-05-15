@@ -20,14 +20,14 @@ fully self-contained.
 1. `branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)` → take returned `branch_id`.
 2. `issue_create(agent='bro', objective=<short>, description=<2-sentence summary>)`.
 3. **One** combined headless-fallback record — both writes required:
-   - `audit_log(agent='bro', issue_id=<I>, kind='event', event_type='headless_fallback', summary='tmb_planning headless: branch_id confirm → Yes, proceed; cold-start → lazy fill; defaults applied')`
+   - `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='headless_fallback', summary='tmb_planning headless: branch_id confirm → Yes, proceed; cold-start → lazy fill; defaults applied')`
    - `discussion_append(agent='bro', issue_id=<I>, author='bro', kind='note', body='Headless fallback: no Human in loop; defaults applied.')`
 4. `discussion_append(issue_id=<I>, author='bro', kind='intent', body='Human intent verbatim: "<the request>"')`.
    Use `author='bro'`; `author='human'` is server-gated by the `verified_human=true` flag from the UserPromptSubmit hook.
 5. `discussion_append(issue_id=<I>, author='bro', kind='decision', body='<chosen approach: what, why, trade-offs>')`. One short paragraph — the audit trail for "what did bro decide here." Required by the server-side decision gate on `task_create_batch`.
 6. `git switch -c <branch_id>` (the WorktreeCreate hook routes to the right inner repo when in a workspace).
 7. Author the spec body inline using the template in §"Spec body template". For architectural changes (touches `docs/trustmybot/architecture/`, schema, public API, or external side effects) also co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` and apply the blast-radius checklist (see §"Architectural changes" below).
-8. `task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, description, success_criteria, spec_body}], emit_planning_complete=true, waive_scope_gate=true, waive_scope_gate_reason='headless mode: defaults applied; <one-line scope summary>')`.
+8. `task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, description, spec_body}], emit_planning_complete=true, waive_scope_gate=true, waive_scope_gate_reason='headless mode: defaults applied; <one-line scope summary>')`.
 9. Spawn SWE: `git worktree add .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`.
 
 Interactive (Human-present) flow continues at Step 0.
@@ -80,10 +80,10 @@ On Yes:
 
 ```
 issue_create(agent='bro', objective=<short>)             # if no open issue
-discussion_append(issue_id, author='human', kind='intent', body=<verbatim>)
+discussion_append(issue_id, author='bro', kind='intent', body=<verbatim>)
 discussion_append(issue_id, author='bro',   kind='note',   body='Beginning planning on ${branch_id}.')
 git switch -c "${branch_id}"
-audit_log(agent='bro', issue_id=<I>, branch_id=<branch_id>, kind='event', event_type='branch_id_proposed', summary='Branch <branch_id> created from origin/<base>.')
+audit_log(agent='bro', from_node='bro', issue_id=<I>, branch_id=<branch_id>, event_type='branch_id_proposed', summary='Branch <branch_id> created from origin/<base>.')
 ```
 
 Conventional-format regex + the `branch_id_proposed` audit gate are both server-enforced.
@@ -225,7 +225,7 @@ Then tell the Human "Trust me bro, it works." Bro never calls `validation_record
 **V3 — Any check fails**
 
 ```
-audit_log(agent='bro', from_node='bro', kind='event', event_type='bro_verification_fail', summary='<which check> — <details>')
+audit_log(agent='bro', from_node='bro', event_type='bro_verification_fail', summary='<which check> — <details>')
 discussion_append(kind='note', body='Verification fail: <which check> — <details>')
 ```
 
@@ -237,7 +237,7 @@ task_retry_batch(
   new_branch_id='<type>/<slug>-v2',
   corrected_spec_body=<≤8000 chars>,
   retry_rationale='<≤200 chars: root cause → corrected approach>',
-  description=<...>, success_criteria=<...>,
+  description=<...>,
 )
 ```
 

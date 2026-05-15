@@ -76,7 +76,7 @@ Present the full drafted file in a fenced code block. Ask:
 If there's no open issue (free-floating skill creation — common), first run `issue_create(agent='bro', objective='Skill <name> created', description='Free-floating creation of skill <name> attached to <agents>.')` to scope the audit. Then:
 
 ```
-audit_log(agent='bro', issue_id=<I>, kind='event', event_type='tmb_skill_created',
+audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='tmb_skill_created',
           summary='Authored skill <name>; attached to <agents>.',
           content_json='{"name":"<name>","agents":[...],"paths":[...] | null}')
 ```
@@ -96,7 +96,7 @@ Tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
 Skill creation is interactive by definition. On `AskUserQuestion` error or `TMB_HEADLESS=1`:
 
 1. Halt immediately. Don't write any files.
-2. `issue_create(agent='bro', objective='Skill creation blocked (headless)', description='Free-floating skill <proposed_name> creation attempted in headless mode; HALTed per doctrine.')` to scope, then `audit_log(issue_id=<that_id>, event_type='headless_creator_blocked', summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval.')`
+2. `issue_create(agent='bro', objective='Skill creation blocked (headless)', description='Free-floating skill <proposed_name> creation attempted in headless mode; HALTed per doctrine.')` to scope, then `audit_log(agent='bro', from_node='bro', issue_id=<that_id>, event_type='headless_creator_blocked', summary='tmb_skill-creator blocked: cannot create skill <proposed_name> without Human approval.')`
 3. Surface: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively."
 
 A skill is a behavior change to the agent ecosystem. Silent CI-time generation could ship behavior the Human never reviewed.
