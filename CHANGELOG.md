@@ -4,6 +4,28 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0-rc.7 — 2026-05-15
+
+### Added
+
+- 🩺 **`heal-mcp-cache.sh` Step A — clear per-project `disabledMcpServers` flags.** CC stores a per-project `disabledMcpServers` array under `.projects."<path>"` in `~/.claude.json`; when it contains `"plugin:tmb:trajectory-server"` the MCP server silently refuses to start in that one project even though it works fine elsewhere. The flag survives plugin re-enable, plugin updates, full CC restarts, and `rm -rf .claude/` — it's CC-owned state the plugin cannot reach from inside a session. Step A diagnoses every affected project, lists them in the dry-run preview, backs `~/.claude.json` up once, then removes only `"plugin:tmb:trajectory-server"` from each project's array (preserving every other disabled server and every other key in the project entry). This was the actual recovery path that resolved a real TMB-specific failure earlier today; the existing Step B (cache nuke + `installed_plugins.json` cleanup) wouldn't have touched it. Each step now has its own y/N prompt so users can take the lighter recovery (A only) and skip the more aggressive B.
+- 🧪 **`tests/hooks/mcp-health-check.test.sh` — L3 hook test.** Covers the full Mode A / Mode B / healthy / unknown-event matrix that the rc.4 and rc.5 bugs slipped past:
+  - healthy + SessionStart and healthy + UserPromptSubmit → silent stdout, JSONL `mcp_alive=true mode=null`
+  - absent + SessionStart → stdout contains "NEVER STARTED", JSONL `mode="A"`
+  - absent + UPS in the same session as an absent SessionStart → Mode A cross-fire, "NEVER STARTED" warning preserved
+  - absent + UPS in a different session from a healthy SessionStart → Mode B "no longer reachable" warning
+  - emitted JSON parses cleanly via `jq` and validates against CC's documented schema (`hookSpecificOutput.hookEventName` ∈ {`SessionStart`, `UserPromptSubmit`}, `additionalContext` is a string) — the assertion that would have caught the rc.4/rc.5 `"hookEventName": "unknown"` bug
+  - unknown event name → guard fires, no JSON emitted, JSONL still records the event name verbatim
+  - Uses a PATH-shadowed `pgrep` stub so test runs are isolated from any real trajectory-server processes on the developer's machine.
+
+### Docs
+
+- 📄 **`docs/UPGRADE.md` "Failure modes"** opens with a new section on the per-project `disabledMcpServers` flag — symptoms (one project broken, others healthy), the `jq` diagnose command, both recovery paths (heal script Step A or the manual one-liner), and a note that this is CC-owned state outside the plugin's reach. Tracks at #2888.
+
+### Tightened
+
+- ⚠️ **`heal-mcp-cache.sh` "running inside CC" guard** now names `~/.claude.json` explicitly in the warning, because Step A mutates a file CC reads on every prompt — mid-session edits can race with CC's writes.
+
 ## v0.6.0-rc.6 — 2026-05-15
 
 ### Fixed

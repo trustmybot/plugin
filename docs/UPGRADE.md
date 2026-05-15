@@ -78,6 +78,29 @@ Both columns should match the version you just installed.
 
 ## Failure modes
 
+### MCP server disabled via CC's per-project state (rare, hard to detect)
+
+If your trajectory-server stopped working in ONE project but works fine in others, CC may have stored a per-project `disabledMcpServers` flag in `~/.claude.json`. This survives plugin re-enables, full CC restarts, and even `rm -rf .claude/`.
+
+Diagnose:
+
+```bash
+jq '.projects."<absolute-project-path>".disabledMcpServers' ~/.claude.json
+```
+
+If this returns a JSON array containing `"plugin:tmb:trajectory-server"`, that's the issue.
+
+Recovery (one of):
+
+- **`heal-mcp-cache.sh`** clears this automatically — Step A diagnoses + offers to remove the flag. No reinstall needed.
+- **Manual**:
+  ```bash
+  jq '.projects."<project-path>".disabledMcpServers = []' ~/.claude.json > ~/.claude.json.tmp && mv ~/.claude.json.tmp ~/.claude.json
+  ```
+  Then relaunch CC (or `/reload-plugins`).
+
+The flag is written by CC when a user disables an MCP server through the CC UI, OR potentially when CC auto-disables a misbehaving server. The plugin cannot read or write it — it's CC-owned state. Track at #2888 for context on how this was discovered.
+
 ### MCP server never registers after upgrade (CC plugin cache bug, issue #2888)
 
 After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a new tmb version, the trajectory MCP server can fail to register entirely. CC loads tmb's hooks / skills / agents / commands from the new cache dir, but the MCP server is absent from CC's resolved plugin list — and **`/reload-plugins` does not fix it. A full CC quit + relaunch does not fix it either.** CC persists the broken resolved-plugin list to disk somewhere that survives process restart.
