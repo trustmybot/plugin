@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
-import { nowISO, genId, TrajectoryDB } from '../db.js';
+import { nowISO, TrajectoryDB } from '../db.js';
 describe('TrajectoryDB', () => {
     it('opens an in-memory DB and verifies all 19 prod tables exist with schema_version=2', () => {
         const db = tempDB();
@@ -76,14 +76,6 @@ describe('TrajectoryDB', () => {
     it('nowISO returns an ISO 8601 string ending with Z', () => {
         const iso = nowISO();
         assert.match(iso, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z$/);
-    });
-    it('genId returns a string starting with the prefix and is unique across 100 calls', () => {
-        const ids = Array.from({ length: 100 }, () => genId('iss'));
-        for (const id of ids) {
-            assert.ok(id.startsWith('iss_'), `Expected id to start with "iss_": ${id}`);
-        }
-        const unique = new Set(ids);
-        assert.equal(unique.size, 100, 'All 100 IDs must be unique');
     });
     it('syncs plugin_version from CLAUDE_PLUGIN_ROOT manifest on init', () => {
         const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-test-'));

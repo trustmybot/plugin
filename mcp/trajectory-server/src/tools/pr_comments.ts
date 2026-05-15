@@ -323,7 +323,15 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
       const configBots = db.get<{ value_json: string }>(
         `SELECT value_json FROM plugin_config WHERE key = 'pr_review_bots'`,
       );
-      const botsOverride = configBots ? (JSON.parse(configBots.value_json) as string) : '';
+      let botsOverride = '';
+      if (configBots) {
+        try {
+          const parsed = JSON.parse(configBots.value_json) as unknown;
+          if (typeof parsed === 'string') botsOverride = parsed;
+        } catch {
+          // malformed config row — fall through to defaults
+        }
+      }
       const botPatterns = buildBotPatterns(botsOverride);
 
       const fetchResult = resolveComments(backend, prNumber, since, botPatterns, spawn);

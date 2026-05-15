@@ -210,7 +210,17 @@ export function prCommentsTools(db, _spawnFn) {
                 backend = resolveBackend(configValue);
             }
             const configBots = db.get(`SELECT value_json FROM plugin_config WHERE key = 'pr_review_bots'`);
-            const botsOverride = configBots ? JSON.parse(configBots.value_json) : '';
+            let botsOverride = '';
+            if (configBots) {
+                try {
+                    const parsed = JSON.parse(configBots.value_json);
+                    if (typeof parsed === 'string')
+                        botsOverride = parsed;
+                }
+                catch {
+                    // malformed config row — fall through to defaults
+                }
+            }
             const botPatterns = buildBotPatterns(botsOverride);
             const fetchResult = resolveComments(backend, prNumber, since, botPatterns, spawn);
             if (fetchResult === 'off') {

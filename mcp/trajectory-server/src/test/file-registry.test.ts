@@ -766,4 +766,74 @@ describe('fileRegistryTools', () => {
       }
     });
   });
+
+  describe('multi-repo isolation (repo filter on delete + verify)', () => {
+    it('file_registry_delete with repo=repoA does not affect row with repo=repoB and same path', async () => {
+      const db = tempDB();
+      const tools = fileRegistryTools(db);
+
+      await call(tools.handlers, 'file_registry_upsert', { path: 'shared.ts', type: 'source', repo: 'repoA' });
+      await call(tools.handlers, 'file_registry_upsert', { path: 'shared.ts', type: 'source', repo: 'repoB' });
+
+      const deleteResult = await call(tools.handlers, 'file_registry_delete', { path: 'shared.ts', repo: 'repoA' });
+      assert.ok(!deleteResult.isError);
+      assert.deepEqual(parseResult(deleteResult), { deleted: 1 });
+
+      const rowA = db.get<{ repo: string; path: string }>(`SELECT repo, path FROM file_registry WHERE repo = 'repoA' AND path = 'shared.ts'`);
+      assert.equal(rowA, undefined, 'repoA row must be deleted');
+
+      const rowB = db.get<{ repo: string; path: string }>(`SELECT repo, path FROM file_registry WHERE repo = 'repoB' AND path = 'shared.ts'`);
+      assert.ok(rowB !== undefined, 'repoB row must survive');
+      assert.equal(rowB?.path, 'shared.ts');
+
+      db.close();
+    });
+
+    it('file_registry_verify with repo filter returns only results for that repo', async () => {
+      const db = tempDB();
+      const tools = fileRegistryTools(db);
+
+      db.run(
+        `INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES ('repoA', 'src/a.ts', 'source', NULL, NULL, NULL)`,
+      );
+      db.run(
+        `INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES ('repoB', 'src/b.ts', 'source', NULL, NULL, NULL)`,
+      );
+
+      const verifyResult = await call(tools.handlers, 'file_registry_verify', { repo: 'repoA' });
+      assert.ok(!verifyResult.isError, `Expected no error: ${JSON.stringify(parseResult(verifyResult))}`);
+      const data = parseResult(verifyResult);
+      assert.equal(data.count, 1, 'verify with repo=repoA must return 1 verdict');
+      assert.equal(data.verdicts[0].repo, 'repoA');
+      assert.equal(data.verdicts[0].path, 'src/a.ts');
+
+      db.close();
+    });
+
+    it('file_registry_verify without repo filter returns results keyed by repo', async () => {
+      const db = tempDB();
+      const tools = fileRegistryTools(db);
+
+      db.run(
+        `INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES ('repoA', 'src/a.ts', 'source', NULL, NULL, NULL)`,
+      );
+      db.run(
+        `INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES ('repoB', 'src/b.ts', 'source', NULL, NULL, NULL)`,
+      );
+
+      const verifyResult = await call(tools.handlers, 'file_registry_verify', {});
+      assert.ok(!verifyResult.isError);
+      const data = parseResult(verifyResult);
+      assert.equal(data.count, 2, 'verify without repo filter must return verdicts for all repos');
+      const repos = data.verdicts.map((v: { repo: string }) => v.repo);
+      assert.ok(repos.includes('repoA'), 'must include repoA');
+      assert.ok(repos.includes('repoB'), 'must include repoB');
+
+      db.close();
+    });
+  });
 });

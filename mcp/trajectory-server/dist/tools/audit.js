@@ -1,4 +1,5 @@
 import { nowISO } from '../db.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 const MAX_CONTENT_BYTES = 1_000_000;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -64,7 +65,7 @@ export function auditTools(db) {
         },
     ];
     const handlers = {
-        audit_log: wrapHandler(async (args) => {
+        audit_log: requireRoles('audit_log', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             requireArg(args, 'from_node');
@@ -85,7 +86,7 @@ export function auditTools(db) {
          VALUES (?, ?, ?, ?, ?, ?, ?)`, [issueId, branchId, fromNode, eventType, summary, contentJson, now]);
             const row = db.get('SELECT * FROM audit WHERE rowid = last_insert_rowid()');
             return ok(row);
-        }),
+        })),
         audit_log_list: wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');

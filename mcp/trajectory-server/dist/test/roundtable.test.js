@@ -649,5 +649,59 @@ describe('roundtable tools', () => {
             assert.equal(data.author, 'ceo');
         });
     });
+    describe('roundtable_summarize cross-roundtable fence', () => {
+        it('returns only items from the target roundtable when multiple roundtables exist on same issue', async () => {
+            const localDb = tempDB();
+            localDb.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'fence test fixture', '{}', datetime('now'))`);
+            const issues = issueTools(localDb);
+            const issueResult = await call(issues.handlers, 'issue_create', {
+                agent: 'bro',
+                objective: 'multi-roundtable fence test',
+            });
+            const localIssueId = parseResult(issueResult).id;
+            const rt = roundtableTools(localDb);
+            const rt1Result = await call(rt.handlers, 'roundtable_create', {
+                agent: 'bro',
+                issue_id: localIssueId,
+                topic: 'first roundtable',
+                expected_participants: 2,
+            });
+            assert.ok(!rt1Result.isError, `rt1 create failed: ${JSON.stringify(parseResult(rt1Result))}`);
+            const rt1Id = parseResult(rt1Result).roundtable_id;
+            const t1 = '2025-01-01T10:00:00.000Z';
+            const t2 = '2025-06-01T10:00:00.000Z';
+            localDb.run(`UPDATE roundtables SET created_at = ?, closed_at = ?, state = 'closed' WHERE id = ?`, [t1, '2025-01-02T10:00:00.000Z', rt1Id]);
+            localDb.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'answer', 'answer from rt1', ?)`, [localIssueId, '2025-01-01T11:00:00.000Z']);
+            const rt2Result = await call(rt.handlers, 'roundtable_create', {
+                agent: 'bro',
+                issue_id: localIssueId,
+                topic: 'second roundtable',
+                expected_participants: 2,
+            });
+            assert.ok(!rt2Result.isError, `rt2 create failed: ${JSON.stringify(parseResult(rt2Result))}`);
+            const rt2Id = parseResult(rt2Result).roundtable_id;
+            localDb.run(`UPDATE roundtables SET created_at = ? WHERE id = ?`, [t2, rt2Id]);
+            localDb.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'answer', 'answer from rt2', ?)`, [localIssueId, '2025-06-01T11:00:00.000Z']);
+            const summaryResult = await call(rt.handlers, 'roundtable_summarize', {
+                agent: 'bro',
+                roundtable_id: rt1Id,
+            });
+            assert.ok(!summaryResult.isError, `summarize failed: ${JSON.stringify(parseResult(summaryResult))}`);
+            const summary = parseResult(summaryResult);
+            assert.equal(summary.agreements_ratified.length, 1, 'rt1 summary must include only rt1 answers');
+            assert.equal(summary.agreements_ratified[0], 'answer from rt1');
+            assert.ok(!summary.agreements_ratified.includes('answer from rt2'), 'rt1 summary must NOT include rt2 answers');
+            const summary2Result = await call(rt.handlers, 'roundtable_summarize', {
+                agent: 'bro',
+                roundtable_id: rt2Id,
+            });
+            assert.ok(!summary2Result.isError);
+            const summary2 = parseResult(summary2Result);
+            assert.equal(summary2.agreements_ratified.length, 1, 'rt2 summary must include only rt2 answers');
+            assert.equal(summary2.agreements_ratified[0], 'answer from rt2');
+            localDb.close();
+        });
+    });
 });
 //# sourceMappingURL=roundtable.test.js.map

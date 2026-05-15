@@ -312,11 +312,11 @@ export function issueTools(db, dbPath = '') {
             else if (counts.tasks_total === 0) {
                 phase = 'discussion';
             }
-            else if (counts.tasks_completed < counts.tasks_total) {
-                phase = 'tasks';
+            else if (counts.tasks_completed >= counts.tasks_total) {
+                phase = 'ready_to_close';
             }
             else {
-                phase = 'blueprint';
+                phase = 'tasks';
             }
             return ok({ phase, counts });
         }),

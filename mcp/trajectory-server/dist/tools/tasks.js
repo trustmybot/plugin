@@ -1,5 +1,6 @@
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { serverLog } from '../logger.js';
 import { spawnSync } from 'node:child_process';
 export const BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
 const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
@@ -36,7 +37,10 @@ function validateBranchExistsInRepo(branchId, repo) {
         return;
     const stderr = (result.stderr ?? '');
     if (stderr.includes('not a git repository') || stderr.includes('cannot change to')) {
-        console.warn(`[task_create_batch] repo '${repo}' is not a resolvable git repository; skipping branch-existence check for '${branchId}'.`);
+        serverLog({
+            level: 'warn',
+            msg: `[task_create_batch] repo '${repo}' is not a resolvable git repository; skipping branch-existence check for '${branchId}'.`,
+        });
         return;
     }
     throw new Error(`task_create_batch rejected: branch '${branchId}' does not exist in repo '${repo}'. ` +
@@ -522,25 +526,26 @@ export function taskTools(db) {
                (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
              VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`, [issueId, branchForAudit, fromNode, summary, contentJson, now]);
                 }
+                // Audit log for gate waivers so pr-reviewer / human-review can flag
+                // tasks that skipped the alignment loop. Runs inside the same txn as
+                // task INSERTs so a crash between commit and audit cannot lose the record.
+                if (waived) {
+                    const firstBranch = results[0]?.branch_id ?? '';
+                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`, [
+                        issueId,
+                        firstBranch,
+                        args['agent'],
+                        waiverReason.slice(0, 200),
+                        JSON.stringify({
+                            waive_scope_gate_reason: waiverReason,
+                            tasks_created: results.length,
+                        }),
+                        now,
+                    ]);
+                }
                 return results;
             });
-            // Audit log for gate waivers so pr-reviewer / human-review can flag
-            // tasks that skipped the alignment loop.
-            if (waived) {
-                const now = nowISO();
-                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`, [
-                    issueId,
-                    inserted[0]?.branch_id ?? '',
-                    args['agent'],
-                    waiverReason.slice(0, 200),
-                    JSON.stringify({
-                        waive_scope_gate_reason: waiverReason,
-                        tasks_created: inserted.length,
-                    }),
-                    now,
-                ]);
-            }
             return ok(inserted);
         })),
         task_get: wrapHandler(async (args) => {
@@ -556,7 +561,9 @@ export function taskTools(db) {
             requireArg(args, 'agent');
             const taskId = requireArg(args, 'task_id');
             const status = requireArg(args, 'status');
-            const rawCommitSha = args['commit_sha'];
+            const rawCommitSha = args['commit_sha'] !== undefined
+                ? args['commit_sha'].toLowerCase()
+                : undefined;
             if (!VALID_STATUSES.has(status)) {
                 throw new Error(`Invalid status: ${status}. Valid values: ${[...VALID_STATUSES].join(', ')}`);
             }
@@ -567,7 +574,7 @@ export function taskTools(db) {
                     `'needs_validation' is not a valid SWE terminal state — use 'failed' instead if the work blocked. See #114.`);
             }
             if (rawCommitSha !== undefined) {
-                if (rawCommitSha.length < 7 || !/^[0-9a-fA-F]+$/.test(rawCommitSha)) {
+                if (rawCommitSha.length < 7 || !/^[0-9a-f]+$/.test(rawCommitSha)) {
                     throw new Error(`Invalid commit_sha: "${rawCommitSha}". Must be a hex string of at least 7 characters (short SHA) or 40 characters (full SHA).`);
                 }
             }

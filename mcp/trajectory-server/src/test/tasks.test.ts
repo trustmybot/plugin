@@ -1100,4 +1100,69 @@ describe('taskTools', () => {
 
     db.close();
   });
+
+  it('scope_gate_waived audit row is inserted in the same transaction as task INSERTs', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+    const aTools = auditTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true,
+      waive_scope_gate_reason: 'txn regression test: verifying waiver audit is in same txn',
+      waive_branch_gate: true,
+      waive_branch_gate_reason: 'not under test',
+      waive_intent_gate: true,
+      waive_intent_gate_reason: 'not under test',
+      waive_decision_gate: true,
+      waive_decision_gate_reason: 'not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/txn-test', description: 'txn test task' }],
+    });
+    const inserted = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+
+    const auditResult = await call(aTools.handlers, 'audit_log_list', {
+      agent: 'bro',
+      issue_id: String(issueId),
+    });
+    const auditData = parseResult(auditResult);
+    assert.ok(!auditResult.isError);
+    const waiverRow = auditData.find((r: { event_type: string }) => r.event_type === 'scope_gate_waived');
+    assert.ok(waiverRow, 'scope_gate_waived audit row must exist after task_create_batch with waiver');
+    assert.equal(waiverRow.issue_id, issueId);
+
+    db.close();
+  });
+
+  it('task_update_status stores commit_sha lowercase', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+      waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'fix/sha-case', description: 'sha case test' }],
+    });
+    const tasks = parseResult(batchResult);
+    const taskId = tasks[0].id as number;
+
+    await call(tools.handlers, 'task_update_status', {
+      agent: 'swe',
+      task_id: String(taskId),
+      status: 'completed',
+      commit_sha: 'ABCDEF1234567',
+    });
+
+    const updated = db.get<{ commit_sha: string }>(`SELECT commit_sha FROM tasks WHERE id = ?`, [taskId]);
+    assert.equal(updated?.commit_sha, 'abcdef1234567', 'commit_sha must be stored lowercase');
+
+    db.close();
+  });
 });

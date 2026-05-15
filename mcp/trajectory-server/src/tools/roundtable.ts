@@ -512,18 +512,21 @@ export function roundtableTools(db: TrajectoryDB): {
         ).map((r) => r.participant);
 
         const answerRows = db.all<{ body: string }>(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'`,
-          [roundtable.issue_id],
+          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
+           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at],
         ).map((r) => r.body);
 
         const noteRows = db.all<{ body: string }>(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'`,
-          [roundtable.issue_id],
+          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
+           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at],
         ).map((r) => r.body.replace(/^not ratified: /, ''));
 
         const decisionRows = db.all<{ body: string }>(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'`,
-          [roundtable.issue_id],
+          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
+           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at],
         );
 
         const disagreementsResolved = decisionRows.map((r) => ({
