@@ -4,7 +4,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 ## Where state lives
 
-- **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. The `<plugin-name>` segment matches `plugin.json.name`, so the stable channel writes to `.claude/tmb/` and the RC channel writes to `.claude/tmb-rc/` — full filesystem isolation when both are installed (#87). Project-local, gitignored, per-developer.
+- **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Project-local, gitignored, per-developer.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **ADRs** — `docs/trustmybot/architecture/manual/decisions/N-*.md`, hand-curated.
 - **Auto-rendered architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed by the scan-side renderer pass.
@@ -62,7 +62,7 @@ Catalog: `docs/commands/README.md`.
 
 ## Hooks (PreToolUse / PostToolUse / SessionStart / Stop / SubagentStop / UserPromptSubmit / WorktreeCreate)
 
-22 hooks under `scripts/hooks/`:
+Hooks under `scripts/hooks/`:
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -85,6 +85,5 @@ Catalog: `docs/commands/README.md`.
 | `worktree-create.sh` | WorktreeCreate | Worktree-creation rules |
 | `deferred-tools-drift-warn.sh` | SessionStart | Warn when MCP tools on disk newer than running server |
 | `debug-trajectory.sh` | PreToolUse (debug-mode hook) | Persist trajectory rows when debug enabled |
-| `diagnostic` | (diagnostic dir) | Misc diagnostic helpers |
 
-## Schema state — see ERD.md for full table list (18 tables, post-#142)
+## Schema state — see ERD.md for full table list (19 tables)

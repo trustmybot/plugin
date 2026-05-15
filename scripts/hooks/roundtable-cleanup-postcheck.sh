@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
-# PostToolUse hook on roundtable_close. Verifies the five capture
-# surfaces the prior tmb_roundtable-cleanup skill enumerated are
-# populated for the closed roundtable. Emits soft `additionalContext`
-# when something is missing — never blocks; cleanup is advisory.
-#
-# Capture surfaces (per roundtable_id):
-#   1. discussions(kind='analysis')               — at least one
-#   2. discussions(kind='decision')               — at least one
-#   3. roundtables.status='closed' AND outcome   — non-empty
-#   4. roundtable_votes                          — at least one
-#   5. audit(event_type='roundtable_summary')    — at least one
-#
-# Always silent on failure.
+# PostToolUse on roundtable_close. Advisory: emits additionalContext when
+# the closed roundtable is missing any of its expected capture surfaces
+# (analysis/decision discussions, votes, outcome, roundtable_summary audit).
+# Never blocks; silent on any local failure.
 
 set -uo pipefail
 

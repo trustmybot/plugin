@@ -5,7 +5,7 @@ Two automated dogfood layers drive **real Claude Code through pre-seeded TMB wor
 | Layer | Purpose | Scope per run | When to run |
 |---|---|---|---|
 | **L5** | Per-row independent unit tests. Each test starts from a fixture that pre-seeds the **cumulative state up to this row** (codebase, MCP DB, discussions, issues, tasks, audit, etc.). One row = one test. | Single bro turn (or short multi-turn) against pre-seeded state. Fast, isolated, ~$0.20/test. | Debug or regression-test a single row's contract. **First-line check after a fix** — if the L5 for that row doesn't pass, don't run L6. |
-| **L6** | Single **chained integration test** that walks ALL 13 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_state_get` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 13-row chain. Slow, ~$0.30–1/scenario × 13 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
+| **L6** | Single **chained integration test** that walks ALL 14 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_state_get` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 14-row chain. Slow, ~$0.30–1/scenario × 14 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
 
 The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration → L4 workflow-sim → L5 → L6) lives in [`README.md`](./README.md). This doc is the reference for how L5 + L6 work and what each catches.
 
@@ -17,7 +17,7 @@ Layers below L5 are MCP-only — they validate handlers, protocol, and workflow 
 
 **L5 catches per-row contract drift.** Each row is tested in isolation against a pre-seeded fixture, so a regression in (say) the registry-cold gate fails the L5 for row 4 cleanly without touching rows 5+. Fast iteration. The fixture pre-seeds the cumulative DB state — codebase + MCP DB rows for issues / tasks / discussions / audit / file_registry — that prior rows would have produced.
 
-**L6 catches cross-row continuity drift.** Rows 1–13 chain in one CC session. Row 5 (SWE close) needs the task that row 4 (gate + recovery) produced; row 7 (push gate) needs the closed task + commit_sha from row 5; row 11 (roundtable) deliberates on the actual TODO CLI work from rows 4–10. L6 verifies the workflow doesn't break across the seam between rows.
+**L6 catches cross-row continuity drift.** Rows 1–14 chain in one CC session. Row 5 (SWE close) needs the task that row 4 (gate + recovery) produced; row 7 (push gate) needs the closed task + commit_sha from row 5; row 11 (roundtable) deliberates on the actual TODO CLI work from rows 4–10. L6 verifies the workflow doesn't break across the seam between rows.
 
 **1:1 mapping** — every L5 row has a corresponding L6 chain step and vice versa. If you add a row to the journey table, you add an L5 fixture + scorer for it, and the L6 chain manifest gains an entry. They're sibling artifacts.
 
@@ -153,10 +153,10 @@ Scorer runs `SELECT COUNT(*) FROM <table> [WHERE <suffix>]` per key and checks a
 
 ## L6 — chained integration runner
 
-L6 walks all 13 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation — **continuity is DB-driven**, not LLM-session-driven. Bro's `tmb_recovery` skill + state-aware MCPs (`issue_state_get`, `task_first_actionable`, `issue_resume`, etc.) pick up real cross-session state from the DB. Row N's bro turn writes to the DB; row N+1's fresh bro reads those writes on startup. This mirrors how cross-session resume actually works in production. The TODO CLI codebase grows row by row.
+L6 walks all 14 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation — **continuity is DB-driven**, not LLM-session-driven. Bro's `tmb_recovery` skill + state-aware MCPs (`issue_state_get`, `task_first_actionable`, `issue_resume`, etc.) pick up real cross-session state from the DB. Row N's bro turn writes to the DB; row N+1's fresh bro reads those writes on startup. This mirrors how cross-session resume actually works in production. The TODO CLI codebase grows row by row.
 
 ```bash
-bash tests/dogfood/run-l6-chain.sh                  # full chain, all 13 rows
+bash tests/dogfood/run-l6-chain.sh                  # full chain, all 14 rows
 bash tests/dogfood/run-l6-chain.sh --from 7         # resume from a specific row
 bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
 ```
@@ -223,7 +223,9 @@ Every L6 run produces a per-step log so failures are debuggable without replayin
 ├── step-02-onboard-local/
 │   └── …
 …
-└── step-13-pr-comment-review/
+├── step-13-pr-comment-review/
+│   └── …
+└── step-14-skill-invocation-recorded/
     └── …
 ```
 
@@ -291,14 +293,15 @@ Rules:
 | 11 🟡 | **Roundtable — concurrency model for the TODO CLI watcher (partial-test)** | `/roundtable should the TODO CLI's file watcher be async-first or thread-pooled?\n\nDon't ask questions.` (Human-typed only) | bro orchestrates `roundtable_create(participants=[architect,cto,pm])`; spawns each via `Agent`; each writes `discussion_append(kind='analysis')` and `roundtable_vote`. Note: `roundtable-slash-detect.sh` doesn't fire from the expanded slash in this code path — `claude` rewrites `/roundtable` before UserPromptSubmit hooks see it. The substantive checks live in outcome.sql/coherence, not the audit row. | `roundtable-cleanup-postcheck.sh` PostToolUse on `roundtable_close` checks captured surfaces | — | — | architect/cto/pm each spawn; each reads codebase before writing `discussion_append(kind='analysis')` and `roundtable_vote` | `roundtables` row ≥1; ≥1 `discussions(kind='analysis')` row |
 | 12 | **Issue resume across sessions** | `@bro let's keep going on the CLI entry-point work.\n\nDon't ask questions.` | `resume-intent-hint.sh` hook detects "keep going" + finds the pending task with `planning_complete` audit + injects context with the specific `task_id` and `branch_id`. Bro calls `task_get` + spawns SWE; does NOT call `issue_create` or `task_create_batch`. | `resume-intent-hint.sh` UserPromptSubmit injection | Picks up + finishes | — | — | resume issue exists exactly once (by `objective`); resume task on `feat/seed-cli` exists exactly once (no replan) |
 | 13 | **PR comment review (`/monitor`)** | `/monitor 123\n\nDon't ask questions.` (after MR opens upstream) | Routes to `tmb_pr-review-handler` skill; attempts `pr_comments_get(pr_number=123)`. In the L5/L6 sandbox there's no real upstream PR, so the call fails gracefully — substantive checks degrade to "skill router worked + pre-seeded closed task preserved." | `pr_comments_get` would update `pr_review_runs` in a real environment | — | Would read comments and classify ack / actionable / noise; out of scope for the sandbox | — | pre-seeded closed task on `feat/todo-add` intact; row passes trivially in the L6 chain (acts as a soft terminator) |
+| 14 | **Skill invocation recorded** | `@bro think about how the codebase is organized. Use the tmb_planning skill if appropriate.\n\nDon't ask questions.` | bro invokes the `Skill` tool to load `tmb_planning`. The `skill-invocation-record.sh` PostToolUse hook fires and writes a `skill_invocations` junction row attributing the invocation to bro's open `agent_runs` row (pre-seeded). Closes the "did the agent use the skill it should have" detection loop end-to-end. | `skill-invocation-record.sh` PostToolUse on `Skill` writes `skill_invocations` (#2886 catalog) | — | — | — | ≥1 `skill_invocations` row referencing a `tmb_*` skill; the pre-seeded bro `agent_runs.id` appears as the row's `agent_run_id` FK |
 
 ### Journey shape
 
-Rows 1–3 are bootstrap (cold → onboarded → remote-onboarded). Rows 4–7 are the happy-path code-touching loop (first task hits the gate + recovery → SWE close → post-close cleanup → push). Rows 8–11 are the four advanced patterns bro must support without bypassing doctrine (architectural change, concerns-protocol, consultant invocation, roundtable). Rows 12–13 cover the post-merge / cross-session edges (resume, PR comments).
+Rows 1–3 are bootstrap (cold → onboarded → remote-onboarded). Rows 4–7 are the happy-path code-touching loop (first task hits the gate + recovery → SWE close → post-close cleanup → push). Rows 8–11 are the four advanced patterns bro must support without bypassing doctrine (architectural change, concerns-protocol, consultant invocation, roundtable). Rows 12–13 cover the post-merge / cross-session edges (resume, PR comments). Row 14 verifies the skill-invocation junction (#2886): bro firing the `Skill` tool produces a `skill_invocations` row attributed to bro's `agent_runs`.
 
-**Row 5 is L5-only.** Under DB-driven chain semantics (fresh `claude -p` per step, cumulative DB), row 4 already runs the full SWE atomic-close — bro's row-4 turn covers V1/V2/V3 + `bro_atomic_close` + `agent_runs` write. A separate row-5 step against the same prompt made bro re-build the CLI a second time (new `task_create_batch`, never closed in the single turn), failing `tasks WHERE status='pending' = 0`. The L5 outcome bundle at `tests/dogfood/l5-rows/05-swe-atomic-close/` stays for standalone fresh-DB unit-testing of the atomic-close path; the L6 chain skips it. The chain runs 12 steps: 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13.
+**Row 5 is L5-only.** Under DB-driven chain semantics (fresh `claude -p` per step, cumulative DB), row 4 already runs the full SWE atomic-close — bro's row-4 turn covers V1/V2/V3 + `bro_atomic_close` + `agent_runs` write. A separate row-5 step against the same prompt made bro re-build the CLI a second time (new `task_create_batch`, never closed in the single turn), failing `tasks WHERE status='pending' = 0`. The L5 outcome bundle at `tests/dogfood/l5-rows/05-swe-atomic-close/` stays for standalone fresh-DB unit-testing of the atomic-close path; the L6 chain skips it. The chain runs 13 steps: 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14.
 
-L5 runs each row alone against its fixture. L6 walks all 13 against a single cumulative trajectory DB — each row fires a fresh `claude -p` invocation, and bro's `tmb_recovery` + state-aware MCPs pick up real cross-session state from the DB. Per-step logs written under `~/.claude/tmb/l6-chain-runs/<run-id>/` (format spec is in the L6 section above).
+L5 runs each row alone against its fixture. L6 walks all 14 against a single cumulative trajectory DB — each row fires a fresh `claude -p` invocation, and bro's `tmb_recovery` + state-aware MCPs pick up real cross-session state from the DB. Per-step logs written under `~/.claude/tmb/l6-chain-runs/<run-id>/` (format spec is in the L6 section above).
 
 For the 🟡 partial-test rows, between-row seeds bridge the AUQ gap:
 

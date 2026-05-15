@@ -1,4 +1,4 @@
-import { genId, nowISO } from '../db.js';
+import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { spawnSync } from 'node:child_process';
 export const BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
@@ -475,7 +475,6 @@ export function taskTools(db) {
                         if (parentBranchId == null)
                             parentBranchId = 'main';
                     }
-                    void genId('task');
                     db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
                 status, attempts, spec_body, repo, created_at, updated_at)

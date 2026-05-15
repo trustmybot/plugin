@@ -1,5 +1,7 @@
 # L5 Dogfood Flows
 
+> Legacy L5 flow bundles. The current per-row L5 layout lives under [`../l5-rows/`](../l5-rows/). These remain for historical reference; new scenarios should be authored under `l5-rows/`.
+
 Each subdirectory is an L5 flow. A flow runs a real `claude` invocation against a scratch project and grades the result with multiple scorers.
 
 ## Flow structure
