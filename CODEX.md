@@ -12,7 +12,7 @@ The bro persona doctrine, equivalent to Claude Code's `CLAUDE.md`:
 - Routing table mapping Codex's tool surface
 - Catchphrase + communication style (unchanged from CLAUDE.md)
 
-Most of the doctrine — the planning skill (`tmb_planning-simple` / `tmb_planning-difficult`), the SWE template, the push-gate flow, the bro-as-task-gate role — is already platform-agnostic. Only the trigger mechanism and tool-name mapping change between platforms.
+Most of the doctrine — the planning skill (`tmb_planning`), the SWE template, the push-gate flow, the bro-as-task-gate role — is already platform-agnostic. Only the trigger mechanism and tool-name mapping change between platforms.
 
 ## See also
 

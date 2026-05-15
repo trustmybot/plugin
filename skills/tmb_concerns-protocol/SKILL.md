@@ -35,7 +35,7 @@ Use when the concern is about HOW the work is being framed — scope, ordering, 
 
 ### Path B — Spawn a consultant (technical disagreement)
 
-Use when the concern is technical — architecture, security, performance, tmb_code-quality — and you want an independent read.
+Use when the concern is technical — architecture, security, performance, code quality — and you want an independent read.
 
 1. Identify the relevant consultant (`architect`, `cto`, etc.). If absent, invoke `tmb_agent-creator` first.
 2. Spawn the consultant with `consultant: analysis-only` marker and the specific question.

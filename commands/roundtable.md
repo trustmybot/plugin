@@ -67,7 +67,7 @@ roundtable_finalize_decisions(agent='bro', roundtable_id=<id>,
 ```
 roundtable_close(agent='bro', roundtable_id=<id>, outcome=<one-sentence>)
 roundtable_summarize(agent='bro', roundtable_id=<id>)
-audit_log(agent='bro', issue_id=<carrier>, kind='event',
+audit_log(agent='bro', from_node='bro', issue_id=<carrier>,
           event_type='roundtable_summary',
           summary=<topic + outcome>, content_json=<summarize result>)
 ```

@@ -1,5 +1,6 @@
 ---
 name: ceo
+tmb_owner: bro
 description: Consultant. Product scope and prioritization. Frames "what to build vs not build now" with business reasoning.
 model: opus
 tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server

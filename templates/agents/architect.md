@@ -1,5 +1,6 @@
 ---
 name: architect
+tmb_owner: bro
 description: Consultant. Analysis-only system-design read. Surfaces load-bearing assumptions, simpler alternatives, trade-offs, risks.
 model: opus
 tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server

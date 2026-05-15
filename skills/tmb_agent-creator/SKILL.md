@@ -27,7 +27,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
 1. **Show + ask** (interactive only). Read the template via `Read` (do not transform). Present in a fenced code block, ask:
    > Copy `templates/agents/<name>.md` to `.claude/agents/<name>.md` verbatim? Project-specific behavior gets attached later via `tmb_skill-creator`. (yes/no)
 2. **Copy on approval** (or unconditionally in headless). Write the template content unmodified. If the destination exists, switch to the collision flow (§"Collision dialog" below).
-3. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. If there's no open issue, first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>`.
+3. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. If there's no open issue, first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(agent='bro', from_node='bro', issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>`.
 
 ### Branch C — From-scratch detail
 
@@ -83,7 +83,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
    > Do you want me to create this agent? It will be written to `.claude/agents/<name>.md` and available in future sessions. (yes/no)
 
 6. **Write on approval** with `tmb_owner: bro` in frontmatter.
-7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`.
+7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`.
 
 ## Reserved names (refuse)
 
@@ -123,4 +123,4 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 
 - **Branch A (local file exists)** → spawn directly, no approval needed.
 - **Branch B (template-copy)** → auto-approve. Content is deterministic and reviewed at plugin release. Write the template, register, log `tmb_agent_created` (note `headless_auto_approved` in summary).
-- **Branch C (from-scratch)** → HALT. Novel content needs Human review. Scope the audit first via `issue_create` (per the §"Register + log" pattern in Branch C step 7), then `audit_log(event_type='headless_creator_blocked', ...)`. Surface: "Cannot create agent from scratch in headless mode — novel content requires Human review."
+- **Branch C (from-scratch)** → HALT. Novel content needs Human review. Scope the audit first via `issue_create` (per the §"Register + log" pattern in Branch C step 7), then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='headless_creator_blocked', ...)`. Surface: "Cannot create agent from scratch in headless mode — novel content requires Human review."

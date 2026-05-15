@@ -132,7 +132,7 @@ Re-render Round 1 once. Trust the user's second answer.
 `/onboard` is interactive by definition. If `TMB_HEADLESS=1` or AskUserQuestion errors:
 
 ```
-audit_log(agent='bro', issue_id='-1', kind='event',
+audit_log(agent='bro', from_node='bro', issue_id='-1',
           event_type='headless_reonboard_blocked',
           summary='Cannot run /onboard headless: policy keys require explicit Human re-confirmation. Tell the Human to run /onboard interactively.')
 ```

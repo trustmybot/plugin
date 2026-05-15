@@ -19,7 +19,7 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
 1. **Look up the documented default** for that question (table below). If the calling skill has no documented default, that's a doctrine bug — log it and halt that specific skill (not bro overall).
 2. **Record both writes** — required, not optional:
    ```
-   audit_log(agent='bro', kind='event', event_type='headless_fallback', summary='<skill_name>: <question_short> → <chosen_default>')
+   audit_log(agent='bro', from_node='bro', event_type='headless_fallback', summary='<skill_name>: <question_short> → <chosen_default>')
    discussion_append(agent='bro', kind='note', body='Headless fallback: <skill> asked "<question>", no Human in loop, defaulted to <default>. Reason: <one-line>.')
    ```
    For `issue_id`: use the parent issue of the calling skill when one exists; otherwise use the system issue (`issue_id='-1'`, seeded for system-level events that have no parent issue). Never invent a placeholder string — `audit` and `discussions` enforce a FK to `issues`.
@@ -41,7 +41,7 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
 `tmb_skill-creator` and `tmb_agent-creator` (from-scratch mode) HALT in headless mode rather than apply a default. Silent skill/agent generation in CI is the foot-gun this rule guards against:
 
 ```
-audit_log(agent='bro', kind='event', event_type='headless_creator_blocked',
+audit_log(agent='bro', from_node='bro', event_type='headless_creator_blocked',
           summary='<creator>: cannot create <name> without Human approval in headless mode.')
 ```
 

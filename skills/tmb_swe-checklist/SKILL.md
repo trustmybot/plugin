@@ -7,8 +7,7 @@ description: SWE's self-review heuristics — load only when about to atomic-clo
 
 Before `task_update_status(completed)`, confirm these by reading the diff.
 Mechanical patterns (bare except, mutable defaults, etc.) are caught by
-`scripts/hooks/code-quality-lint.sh` on every Edit/Write. Qualitative
-criteria live at `docs/contributing/CODE_QUALITY.md`. You check the
+`scripts/hooks/code-quality-lint.sh` on every Edit/Write. You check the
 things only a human reader would see.
 
 - **Spec fidelity.** Every bullet under `## Files`, `## Success Criteria`, and
