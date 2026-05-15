@@ -84,7 +84,7 @@ Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architec
 
 Verdicts persist in the DB next to the code they judged — six months later "why did we ship this commit?" is still queryable.
 
-Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
+Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate-pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
 
 ### 4. Agentic Workflow — composable, not monolithic
 
@@ -96,15 +96,15 @@ Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
 ## Roster on disk
 
-The plugin ships **zero subagents**. Bro is a CLAUDE.md persona; every other agent is a **template** copied into `<project>/.claude/agents/` on demand:
+The plugin ships a **layered agent model**. Bro is a CLAUDE.md persona. Two backbone subagents (`swe`, `pr-reviewer`) ship globally in `agents/` and are available in every project the moment the plugin is installed — no copy step required. Consultant agents are templates that get copied into `<project>/.claude/agents/` on demand:
 
-| Template | When bro copies it |
-|---|---|
-| `swe.md` | First-run onboarding |
-| `pr-reviewer.md` | First time the push gate fires |
-| `architect.md`, `cto.md`, `ceo.md`, `pm.md` | First time you ask for that consultant |
+| Agent | Where | When available |
+|---|---|---|
+| `swe.md` | `agents/swe.md` (global) | Always — backbone executor |
+| `pr-reviewer.md` | `agents/pr-reviewer.md` (global) | Always — push gate |
+| `architect.md`, `cto.md`, `ceo.md`, `pm.md` | `templates/agents/` (copied on demand) | First time you ask for that consultant |
 
-Domain consultants outside this set are drafted on demand via `tmb_agent-creator`. Override any agent by editing the project-local file — local wins.
+Domain consultants outside this set are drafted on demand via `tmb_agent-creator`. Override any agent by dropping a project-local file — local wins over the global.
 
 ---
 

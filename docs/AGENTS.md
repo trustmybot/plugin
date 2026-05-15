@@ -40,7 +40,7 @@ User-created project consultants (via `tmb_agent-creator` from-scratch flow) fol
 
 ## Agent ownership states
 
-Every agent file in `<project>/.claude/agents/` is in one of three ownership states, declared via the `tmb_owner` field in YAML frontmatter. `tmb_owner` is a frontmatter-only convention (read by `tmb_agent-creator` from the file at decision time); it is no longer persisted to the agents DB table.
+Every agent file in `<project>/.claude/agents/` is in one of three ownership states, declared via the `tmb_owner` field in YAML frontmatter. `tmb_owner` is a frontmatter-only convention (read by `tmb_agent-creator` from the file at decision time); it is not persisted to the agents DB table.
 
 | Marker | Meaning | Plugin behavior |
 |---|---|---|
@@ -82,17 +82,15 @@ All shipped skills are globally discoverable. Project-local
 does not copy skills into projects — the global ones serve every project
 until a customization is needed.
 
-The retired `tmb_naming-conventions` / `tmb_git-conventions` /
-`tmb_create-hook` skills are now enforced by hooks
+Naming, git, and code-quality conventions are enforced deterministically by hooks
 (`scripts/hooks/naming-lint.sh`, `scripts/hooks/commit-msg-lint.sh`,
-`scripts/hooks/code-quality-lint.sh`); the conventions are deterministic
-so prose is no longer the safety net.
+`scripts/hooks/code-quality-lint.sh`) — the authoritative enforcement layer.
 
 ## Slash commands
 
 The plugin ships explicit-trigger slash commands that wrap skills:
 
-- `/roundtable <topic>` → invokes `tmb_roundtable` skill
+- `/roundtable <topic>` → runs the roundtable ceremony defined in `commands/roundtable.md`
 - `/monitor <PR_number>` → invokes `tmb_review` skill (PR comment triage section)
 
 Runtime location: `plugin/commands/<name>.md`. Public design docs: `plugin/docs/commands/<name>.md`. Catalog index: `plugin/docs/commands/README.md`. L1 lint: `tests/lint/command-frontmatter.sh`.

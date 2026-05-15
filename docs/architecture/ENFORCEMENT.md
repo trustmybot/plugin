@@ -53,11 +53,11 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Interaction | Layer | Where |
 |---|---|---|
 | Spawned only with valid `task_id` referencing pending/open task with non-empty `spec_body` | 2 | `scripts/hooks/require-task-spec.sh` |
-| Runs in isolated worktree | 3 + 2 | `agents/swe.md` `isolation: worktree` + worktree Bash hooks |
+| Runs in isolated worktree | 2 | worktree Bash hooks |
 | Cannot create branches (must attach to bro-pre-created branch; no `--detach`) | 2 | `scripts/hooks/no-worktree-branch-create.sh` |
 | Cannot write `file_registry` summaries | 1 | `requireRoles('file_registry_update_summaries', ['bro'])` |
 | Worktree branch must descend from `origin/<pr_target>` | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
-| `disallowedTools` keeps SWE off bro-only MCP writes | 3 | `agents/swe.md` |
+| Scope-limited `tools:` keeps SWE off bro-only MCP writes | 1 + 3 | server `requireRoles` + `agents/swe.md` `tools:` list |
 | MCP calls include `agent: 'swe'`, scope-restricted | 1 | server middleware |
 | Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing pr-reviewer-only tools |
 | Task spec compliance (only edits `## Files`) | 6 only | `agents/swe.md` |

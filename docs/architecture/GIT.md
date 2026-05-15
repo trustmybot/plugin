@@ -75,7 +75,7 @@ plugin/
     ├── discussions.ts                                # discussion_append (intent + decision audit)
     ├── composites.ts                                 # branch_id_propose
     ├── scan.ts                                       # scan_run (Phase 1 of /scan)
-    └── audit.ts                                      # audit_log(kind='event', planning_complete)
+    └── audit.ts                                      # audit_log(planning_complete)
 ```
 
 **SWE working**
@@ -116,7 +116,7 @@ plugin/
 │   └── post-task-close-rescan.sh                     # PostToolUse: backgrounds /scan to refresh file_registry
 └── mcp/trajectory-server/src/tools/
     ├── composites.ts                                 # bro_atomic_close (audit + summaries + status + close)
-    ├── audit.ts                                      # audit_log(kind='event', bro_verification_pass)
+    ├── audit.ts                                      # audit_log(bro_verification_pass)
     ├── file-registry.ts                              # file_registry_update_summaries (md5-driven drift)
     └── issues.ts                                     # issue_close
 ```
@@ -141,6 +141,6 @@ plugin/
 ├── scripts/hooks/cleanup-worktree-on-task-close.sh   # removes SWE worktree (already done at close)
 ├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
-    ├── audit.ts                                      # audit_log(kind='event', post-merge state)
+    ├── audit.ts                                      # audit_log(post-merge state)
     └── scan.ts                                       # scan_run rerun via post-task-close-rescan hook updates file_registry + emits deep_scan_completed audit
 ```
