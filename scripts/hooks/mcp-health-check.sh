@@ -72,8 +72,10 @@ if [ "$mcp_alive_json" = "false" ]; then
     mode_json='"A"'
   else
     if [ -f "$STATE_FILE" ]; then
-      last_sid=$(jq -r '.last_session_id // empty' "$STATE_FILE" 2>/dev/null || true)
-      last_alive_ss=$(jq -r '.last_alive_at_session_start // empty' "$STATE_FILE" 2>/dev/null || true)
+      # `// empty` would treat false as falsy and fall through — read raw and
+      # default to a sentinel string only when the field is null or missing.
+      last_sid=$(jq -r 'if has("last_session_id") then .last_session_id else "" end' "$STATE_FILE" 2>/dev/null || true)
+      last_alive_ss=$(jq -r 'if has("last_alive_at_session_start") then .last_alive_at_session_start else "missing" end' "$STATE_FILE" 2>/dev/null || true)
       if [ "$last_sid" = "$session_id" ] && [ "$last_alive_ss" = "false" ]; then
         mode_json='"A"'
       else
@@ -164,9 +166,9 @@ Recovery:
 ⚠️ Bro: pause any task that requires durable state-writing tools until MCP returns."
 fi
 
-jq -nc --arg ctx "$CONTEXT" '{
+jq -nc --arg ctx "$CONTEXT" --arg ev "$event" '{
   hookSpecificOutput: {
-    hookEventName: "UserPromptSubmit",
+    hookEventName: $ev,
     additionalContext: $ctx
   }
 }'
