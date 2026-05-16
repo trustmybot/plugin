@@ -99,7 +99,7 @@ case "$TARGET" in
   *.github/*) exit 0 ;;
 esac
 
-REASON="BLOCKED: bro is a pure planner — every code change goes through SWE. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning-simple or tmb_planning-difficult → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
+REASON="BLOCKED: bro is a pure planner — every code change goes through SWE. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning skill → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
 
 jq -nc --arg reason "$REASON" '{
   hookSpecificOutput: {

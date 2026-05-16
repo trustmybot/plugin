@@ -1,0 +1,19 @@
+{
+  "source": "swe-bench-verified",
+  "id": "sympy__sympy-20916",
+  "repo": "sympy/sympy",
+  "base_commit": "82298df6a51491bfaad0c6d1980e7e3ca808ae93",
+  "language": "python",
+  "version": "1.8",
+  "python_version": "3.9",
+  "both_failed_opus4_sonnet4": true,
+  "fail_to_pass": [
+    "sympy/printing/tests/test_conventions.py::test_super_sub"
+  ],
+  "pass_to_pass_sample": [
+    "sympy/printing/tests/test_conventions.py::test_super"
+  ],
+  "env_install_cmd": "pip install --quiet -e . 'mpmath<1.4'",
+  "test_patch_file": "test_patch.diff",
+  "note": "sympy's FAIL_TO_PASS in the dataset is just 'test_super_sub' (bare name); we resolve it to its file path under sympy/printing/pretty/tests/test_pretty.py based on the test_patch diff."
+}

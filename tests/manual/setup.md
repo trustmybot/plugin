@@ -4,7 +4,7 @@ How to stand up a TMB scratch project and verify it works end-to-end. Two distin
 
 > **TL;DR:**
 > - **Local dev** (Path A): `claude --plugin-dir <plugin>` — fast iteration, hot-reload, DOES NOT exercise the marketplace install lifecycle.
-> - **Marketplace RC** (Path B): `/plugin install tmb-rc@trustmybot` — slow but tests the actual install path that broke v0.2.0 + v0.3.0. **Required before promoting an RC to stable.**
+> - **Marketplace RC** (Path B): `/plugin install tmb@trustmybot-rc` — slow but tests the actual install path that broke v0.2.0 + v0.3.0. **Required before promoting an RC to stable.**
 
 ---
 
@@ -30,7 +30,7 @@ How to stand up a TMB scratch project and verify it works end-to-end. Two distin
 > CC has no `--local` flag for marketplace add; both forms get silently mangled into a stale marketplace named something like `"--local -Users"` that pollutes `~/.claude/plugins/marketplaces/` and confuses CC's UI for future installs.
 > The ONLY two correct local-dev paths are:
 > - **Path A (this section):** `claude --plugin-dir <path>` — direct local-tree load, no marketplace involved.
-> - **Path B (next section):** the GitHub-source marketplace, `/plugin marketplace add trustmybot/plugin`. For testing your own fork, push to a GitHub branch and add `your-org/your-fork`.
+> - **Path B (next section):** the canonical marketplaces — `/plugin marketplace add trustmybot/marketplace` (stable) or `/plugin marketplace add trustmybot/marketplace-rc` (RC). For testing your own fork, push to a GitLab branch and add `your-org/your-fork`.
 
 ### Setup (one-time per checkout)
 
@@ -66,15 +66,15 @@ Inside CC, type `@bro hello` (or anything addressing bro). Onboarding should fir
 
 ```bash
 # In another terminal, from the scratch dir:
-sqlite3 .claude/tmb/trajectory.db <<'SQL'   # for tmb-rc installs use .claude/tmb-rc/trajectory.db
+sqlite3 .claude/tmb/trajectory.db <<'SQL'   # plugin name is tmb in both stable and RC channels
 .headers on
-SELECT human_name, created_at FROM identity;
+SELECT key, value_json FROM plugin_config WHERE key='onboarded';
 SELECT key, value_json FROM plugin_config ORDER BY key;
-SELECT id, event_type, summary FROM ledger ORDER BY id DESC LIMIT 3;
+SELECT id, event_type, summary FROM audit WHERE kind='event' ORDER BY id DESC LIMIT 3;
 SQL
 ```
 
-Expected: 1 identity row (set via `tmb_reonboard`), 3 config rows from the schema seed (`branching_model`, `pr_target`, `protected_branches`), and an empty ledger if no decisions have fired yet.
+Expected: 1 plugin_config row with `onboarded=true` (set via `/onboard`), 3 config rows from the schema seed (`branching_model`, `pr_target`, `protected_branches`), and an empty audit if no decisions have fired yet.
 
 ### Hot reload (apply edits without restart)
 
@@ -102,7 +102,7 @@ Then `/reload-plugins`. The `dist-fresh` lint will fail if you commit a src/ cha
 **DB-only (keeps scratch project, fastest):**
 ```bash
 cd /tmp/tmb-dev-test
-rm -rf .claude/tmb .claude/tmb-rc   # cover both channels; next @bro will re-trigger onboarding
+rm -rf .claude/tmb   # plugin name is tmb in both channels; next @bro will re-trigger onboarding
 ```
 
 **Full wipe (true cold-start, includes scratch git history):**
@@ -126,19 +126,19 @@ If you don't already have the marketplace registered:
 
 In CC:
 ```
-/plugin marketplace add trustmybot/plugin
+/plugin marketplace add trustmybot/marketplace-rc
 ```
 
-CC clones the marketplace from GitHub and reads `.claude-plugin/marketplace.json` from the default branch (main).
+CC clones the marketplace from GitLab and reads `marketplace.json` from the default branch (main).
 
 ### Install the RC channel
 
 In CC:
 ```
-/plugin install tmb-rc@trustmybot
+/plugin install tmb@trustmybot-rc
 ```
 
-CC fetches whatever commit the `rc` branch points at (per `marketplace.json`'s `tmb-rc` entry), installs into `~/.claude/plugins/cache/trustmybot/tmb/<version>/`. **CC does NOT run postinstall** — this is precisely why we ship `dist/` committed to the repo.
+CC fetches whatever commit the `rc` branch points at (per the RC marketplace's `tmb` entry), installs into `~/.claude/plugins/cache/trustmybot-rc/tmb/<version>/`. **CC does NOT run postinstall** — this is precisely why we ship `dist/` committed to the repo.
 
 ### Verify the install actually delivered working code
 
@@ -153,11 +153,11 @@ ls "$INSTALLED/mcp/trajectory-server/dist/schema.sql" # must exist
 # 2. Server actually spawns + handles a real DB call
 ( echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
   echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity_get","arguments":{"agent":"bro"}}}'
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"onboard_state_get","arguments":{"agent":"bro"}}}'
   sleep 1
 ) | TRAJECTORY_DB_PATH=/tmp/rc-smoke.db \
   node --experimental-sqlite "$INSTALLED/mcp/trajectory-server/dist/index.js" 2>&1 \
-  | grep -q human_name && echo "✓ MCP responds" || echo "✗ MCP broken — abort RC validation, file v<X.Y.Z>-rc.N+1"
+  | grep -q first_run && echo "✓ MCP responds" || echo "✗ MCP broken — abort RC validation, file v<X.Y.Z>-rc.N+1"
 rm -f /tmp/rc-smoke.db
 ```
 
@@ -187,7 +187,7 @@ This sets the gate that `scripts/release.sh` checks before tagging the stable re
 
 **Re-pull the latest RC (CC may cache the install):**
 ```
-/plugin update tmb-rc@trustmybot
+/plugin update tmb@trustmybot-rc
 ```
 
 **Fresh scratch + restart CC** between RCs:
@@ -198,8 +198,8 @@ rm -rf /tmp/tmb-rc-test
 
 **Force re-install (rare — only if cache feels corrupted):**
 ```bash
-rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<broken-version>
-# then in CC: /plugin install tmb-rc@trustmybot
+rm -rf ~/.claude/plugins/cache/trustmybot-rc/tmb/<broken-version>
+# then in CC: /plugin install tmb@trustmybot-rc
 ```
 
 **Full cache nuke (when `/plugin uninstall` left orphans):**
@@ -207,11 +207,11 @@ rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<broken-version>
 CC's `/plugin uninstall` and `/plugin marketplace remove` only update `installed_plugins.json`; the cached payloads at `~/.claude/plugins/cache/<vendor>/<plugin>/<version>/` stay on disk and may be picked up by old sessions or shadow newer installs. Cache *should* auto-clean after 7 days but [often doesn't](https://github.com/anthropics/claude-code/issues/29074) — see also [#15369](https://github.com/anthropics/claude-code/issues/15369), [#35691](https://github.com/anthropics/claude-code/issues/35691), [#37865](https://github.com/anthropics/claude-code/issues/37865). Manual nuke:
 
 ```bash
-rm -rf ~/.claude/plugins/cache/trustmybot/
-# then in CC: /plugin install tmb@trustmybot   (or tmb-rc@trustmybot)
+rm -rf ~/.claude/plugins/cache/trustmybot/ ~/.claude/plugins/cache/trustmybot-rc/
+# then in CC: /plugin install tmb@trustmybot   (or tmb@trustmybot-rc for RC)
 ```
 
-**⚠️ Channel isolation caveat (upstream CC limitation):** `tmb` (stable) and `tmb-rc` are distinct marketplace entries but the activated plugin name in both cases is `tmb` (per `plugin.json`'s `name` field) — so installing both simultaneously means **both write to `.claude/tmb/trajectory.db` in your project**, sharing state. CC matches install on plugin name, ignoring the marketplace qualifier ([#20593](https://github.com/anthropics/claude-code/issues/20593)). Until proper isolation lands (TMB-side: would need separate marketplaces or templated plugin name), pick one channel and stick with it.
+**⚠️ Channel isolation caveat (upstream CC limitation):** Both channels use the same plugin name `tmb` (per `plugin.json`'s `name` field) — so installing both simultaneously means **both write to `.claude/tmb/trajectory.db` in your project**, sharing state. CC matches install on plugin name, ignoring the marketplace qualifier ([#20593](https://github.com/anthropics/claude-code/issues/20593)). Pick **one channel per CC installation** — `/plugin uninstall tmb` first before switching.
 
 ---
 
@@ -228,8 +228,8 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 
 - `dist/index.js` + `dist/schema.sql` present
 - MCP server spawns
-- `tools/list` returns `identity_get`
-- A real `tools/call identity_get` round-trips with a `human_name` field
+- `tools/list` returns `onboard_state_get`
+- A real `tools/call onboard_state_get` round-trips with a `first_run` field
 - All hooks executable + syntactically valid
 - `.mcp.json`'s referenced paths exist
 
@@ -243,16 +243,32 @@ Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a 
 |---|---|---|
 | Bro responds but says "MCP tools not available" | dist/ missing in install | Path A: `bun run build`. Path B: file `vX.Y.Z-rc.N+1` to fix the artifact. |
 | Bro doesn't trigger on `@bro hello` | Plugin not loaded | Check `claude --plugin-dir <path>` resolved correctly OR `/plugin install tmb@trustmybot` succeeded |
-| Onboarding asks but doesn't persist | MCP server can't open DB | Check `TRAJECTORY_DB_PATH` env, write permissions on `<scratch>/.claude/<plugin-name>/` (`tmb` for stable, `tmb-rc` for the RC channel) |
+| Onboarding asks but doesn't persist | MCP server can't open DB | Check `TRAJECTORY_DB_PATH` env, write permissions on `<scratch>/.claude/tmb/` (plugin name is `tmb` in both stable and RC channels) |
 | `/reload-plugins` doesn't pick up TS edit | TS source needs build | `bun run build` from plugin repo root, then `/reload-plugins` |
 | `git-guards.sh` blocks legitimate commit | On a configured protected branch | Switch to feature branch OR `config_set` `protected_branches` |
-| Multiple installed versions in cache | CC keeps old caches per version | Safe to leave OR `rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<old-version>` |
+| Multiple installed versions in cache | CC keeps old caches per version | Safe to leave OR `rm -rf ~/.claude/plugins/cache/trustmybot/tmb/<old-version>` (or `trustmybot-rc/tmb/<old-version>` for RC) |
+
+---
+
+## MCP recovery smoke recipe
+
+> Full 3-tier recovery doctrine documented in workspace SELF_DEV.md (TMB-internal, not in plugin repo).
+
+Run this after any suspected MCP disconnect during a test session:
+
+1. `pkill -f 'trajectory-server/dist/index.js'`
+2. In CC: type `/reload-plugins`
+3. Verify with `/mcp` that trajectory-server shows green
+4. Run any `mcp__plugin_tmb_*` tool, observe success
+
+If step 3 still shows red, escalate to Tier 2: exit CC fully and relaunch.
 
 ---
 
 ## Related
 
 - [`scenarios.md`](./scenarios.md) — the 10-item L5 checklist (what to test during Path B RC validation)
+- [`debug-mode-expand.md`](./debug-mode-expand.md) — reproducing and verifying file-based MCP logs, SQL debug log, CC debug output, and crash survival
 - [`../README.md`](../README.md) — automated test suites (L0–L4 + L5) and `bash tests/run-all.sh`
 - [`../../CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) — Path 1 hotfix vs Path 2 RC, with explicit promotion sequence
 - [`../../docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md) — workflow flowcharts the scenarios exercise

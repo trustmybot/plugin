@@ -18,8 +18,6 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
-
   // 1. Issue
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
@@ -32,7 +30,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   // 2. Intent + triage note
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'human', kind: 'intent',
-    body: '@bro switch us to JWT auth',
+    body: '@bro switch us to JWT auth', verified_human: true,
   });
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'bro', kind: 'note',
@@ -48,7 +46,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
 
   const a1 = await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'human', kind: 'answer',
-    body: 'RS256 with rotation; we need this for compliance.',
+    body: 'RS256 with rotation; we need this for compliance.', verified_human: true,
   });
   assert.equal(a1.ok, true);
 
@@ -60,7 +58,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
 
   const a2 = await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'human', kind: 'answer',
-    body: 'Force re-login; cleaner cutover, acceptable UX cost.',
+    body: 'Force re-login; cleaner cutover, acceptable UX cost.', verified_human: true,
   });
   assert.equal(a2.ok, true);
 
@@ -77,11 +75,16 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro',
     issue_id: issueId,
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{
       branch_id: 'refactor/jwt-auth',
       title: 'Replace session middleware with JWT (RS256)',
       description: 'Per ADR-0042: implement RS256, force re-login on cutover.',
-      success_criteria: 'All routes accept JWT; old session middleware removed; integration tests green.',
       spec_body: '## Files\n- middleware/auth.py\n## Verification\n```\npytest tests/auth\n```\n## Success Criteria\n- JWT validates RS256\n- old session code removed',
     }],
   });
@@ -111,8 +114,6 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
-
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'Difficult thing', description: 'd',
   });
@@ -124,7 +125,7 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
     issue_id: issueId,
     tasks: [{
       branch_id: 'refactor/x',
-      title: 't', description: 'd', success_criteria: 's',
+      title: 't', description: 'd',
       spec_body: '## body',
     }],
   });

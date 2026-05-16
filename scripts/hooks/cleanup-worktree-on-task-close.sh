@@ -21,6 +21,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 
@@ -41,16 +45,8 @@ TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // ""' 2>/dev/null)
 [ "$STATUS" = "closed" ] || exit 0
 [ -n "$TASK_ID" ] || exit 0
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  REPO_ROOT_FOR_DB=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT_FOR_DB="$PWD"
-  DB_PATH="$REPO_ROOT_FOR_DB/.claude/$PLUGIN_NAME/trajectory.db"
-fi
-
+DB_PATH=$(tmb_db_path 2>/dev/null || true)
+[ -n "$DB_PATH" ] || exit 0
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
@@ -58,11 +54,30 @@ command -v git >/dev/null 2>&1 || exit 0
 BRANCH_ID=$(sqlite3 "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=$TASK_ID LIMIT 1;" 2>/dev/null)
 [ -n "$BRANCH_ID" ] || exit 0
 
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+TASK_REPO=$(sqlite3 "$DB_PATH" "SELECT repo FROM tasks WHERE id=$TASK_ID LIMIT 1;" 2>/dev/null || true)
+if [ -z "$TASK_REPO" ]; then
+  TASK_REPO=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='tmb_default_repo';" 2>/dev/null || true)
+fi
 
-WORKTREE_PATH=$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | awk -v b="refs/heads/$BRANCH_ID" '
-  /^worktree / { wt=substr($0, 10) }
-  /^branch / && $2 == b { print wt; exit }
+WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
+if [ -n "$TASK_REPO" ]; then
+  REPO_ROOT="$WORKSPACE_ROOT/$TASK_REPO"
+else
+  REPO_ROOT="$WORKSPACE_ROOT"
+fi
+[ -d "$REPO_ROOT/.git" ] || exit 0
+
+SLUG="${BRANCH_ID#*/}"
+# The regex tolerates both repo-rooted (legacy: <repo>/.claude/worktrees/<slug>)
+# and workspace-rooted (current: <workspace>/.claude/worktrees/<slug>) paths
+# because both end in `/.claude/worktrees/<slug>`. After all stale repo-rooted
+# worktrees are pruned (see scripts/maintenance/cleanup-stale-worktrees.sh),
+# only workspace-rooted ones remain.
+WORKTREE_PATH=$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | awk -v slug="$SLUG" '
+  /^worktree / {
+    wt = substr($0, 10);
+    if (wt ~ ("/\\.claude/worktrees/" slug "$")) { print wt; exit }
+  }
 ')
 
 [ -n "$WORKTREE_PATH" ] || exit 0

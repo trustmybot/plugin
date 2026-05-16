@@ -1,0 +1,5 @@
+{
+  "max_tokens_total": 60000,
+  "max_duration_ms": 120000,
+  "fail_above_max": false
+}

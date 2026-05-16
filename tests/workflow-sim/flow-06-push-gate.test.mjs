@@ -21,8 +21,6 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
-
   // Setup: 2 closed tasks ready to push (simulating Flow 2 already ran twice)
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'Two things', description: 'd',
@@ -33,9 +31,15 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
     agent: 'bro', issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'simple-triage batch of two trivial tasks; no architecture impact',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [
-      { branch_id: 'feat/a', title: 'A', description: 'd', success_criteria: 's', spec_body: '## A' },
-      { branch_id: 'feat/b', title: 'B', description: 'd', success_criteria: 's', spec_body: '## B' },
+      { branch_id: 'feat/a', title: 'A', description: 'd', spec_body: '## A' },
+      { branch_id: 'feat/b', title: 'B', description: 'd', spec_body: '## B' },
     ],
   });
   assert.equal(batch.ok, true, JSON.stringify(batch));
@@ -72,14 +76,16 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   // 3. pr-reviewer signs off task A
   const recordA = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskA, attempt_n: 1, verdict: 'pass',
-    feedback: 'Gate 2 review: tests pass; diff matches spec; LGTM.',
+    feedback: 'MCP available: yes\nGate 2 review: tests pass; diff matches spec; LGTM.',
+    subagent_session_id: 'flow06-session-A',
   });
   assert.equal(recordA.ok, true, `pr-reviewer→A: ${JSON.stringify(recordA)}`);
 
   // 4. pr-reviewer signs off task B
   const recordB = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskB, attempt_n: 1, verdict: 'pass',
-    feedback: 'Gate 2 review: clean.',
+    feedback: 'MCP available: yes\nGate 2 review: clean.',
+    subagent_session_id: 'flow06-session-B',
   });
   assert.equal(recordB.ok, true);
 
@@ -99,14 +105,19 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
   const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd' });
   const issueId = issue.data.id;
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro', issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'simple-triage one trivial fix-task; defaults applied',
-    tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', success_criteria: 's', spec_body: '## body' }],
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
+    tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', spec_body: '## body' }],
   });
   const taskId = batch.data[0].id;
 
@@ -119,14 +130,16 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   // attempt 1: FAIL
   const fail1 = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail',
-    feedback: 'Tests reference removed module; please fix.',
+    feedback: 'MCP available: yes\nTests reference removed module; please fix.',
+    subagent_session_id: 'flow06-fail-session-1',
   });
   assert.equal(fail1.ok, true);
 
   // attempt 2: pass after fix
   const pass2 = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass',
-    feedback: 'Fixed; LGTM.',
+    feedback: 'MCP available: yes\nFixed; LGTM.',
+    subagent_session_id: 'flow06-pass-session-2',
   });
   assert.equal(pass2.ok, true);
 

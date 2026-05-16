@@ -4,7 +4,7 @@
 
 ## Arms
 
-- **A-hook-on** — empty overrides; uses live `$PLUGIN_ROOT` which includes the new `no-source-edit-from-main.sh` PreToolUse hook + the SessionStart `session-start-regen-check.sh`. Bro tries to Edit `src/foo.ts` → hook blocks → bro must route through SWE.
+- **A-hook-on** — empty overrides; uses live `$PLUGIN_ROOT` which includes the new `no-source-edit-from-main.sh` PreToolUse hook. Bro tries to Edit `src/foo.ts` → hook blocks → bro must route through SWE.
 - **B-hook-off** — overrides `hooks/hooks.json` to the **pre-#169 state** (no new hooks). Bro can Edit source directly OR route through SWE — choice reveals doctrine compliance.
 
 ## Prompt

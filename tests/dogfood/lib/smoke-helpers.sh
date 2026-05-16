@@ -11,6 +11,9 @@
 
 set -uo pipefail
 
+# shellcheck source=tests/dogfood/lib/timeout-shim.sh
+source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
+
 # l5_smoke_mcp <plugin_dir> — verifies the plugin tree at <plugin_dir> can
 # spawn the MCP trajectory server and respond to tools/list. Returns 0 if
 # response contains a tools list within 10s, 1 otherwise.
@@ -30,7 +33,7 @@ l5_smoke_mcp() {
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 
   local resp
-  resp=$(printf '%s\n' "$req" | timeout 10 node --experimental-sqlite "$mcp_entry" 2>&1 || true)
+  resp=$(printf '%s\n' "$req" | _l5_timeout 10 node --experimental-sqlite "$mcp_entry" 2>&1 || true)
 
   if echo "$resp" | grep -q '"tools"'; then
     return 0
@@ -49,7 +52,7 @@ l5_smoke_claude_auth() {
     return 1
   fi
   local out
-  out=$(timeout 30 claude -p "say hi in one word" 2>&1 || true)
+  out=$(_l5_timeout 30 claude -p "say hi in one word" 2>&1 || true)
   if [ -z "$out" ]; then
     printf "  ✗ Auth smoke: claude -p returned empty output (token may be revoked)\n" >&2
     return 1
@@ -62,7 +65,7 @@ l5_smoke_claude_auth() {
 l5_smoke_claude_plugin_load() {
   local plugin_dir="$1"
   local out
-  out=$(timeout 60 claude --plugin-dir "$plugin_dir" --dangerously-skip-permissions -p "say hi in one word" 2>&1 || true)
+  out=$(_l5_timeout 60 claude --plugin-dir "$plugin_dir" --dangerously-skip-permissions -p "say hi in one word" 2>&1 || true)
   if [ -z "$out" ]; then
     printf "  ✗ Plugin-load smoke: claude --plugin-dir returned empty output\n" >&2
     printf "    plugin_dir=%s\n" "$plugin_dir" >&2

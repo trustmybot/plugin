@@ -7,7 +7,6 @@ import { skillTools } from '../tools/skills.js';
 import { reportTools } from '../tools/reports.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
-import { ledgerTools } from '../tools/ledger.js';
 async function call(handlers, name, args) {
     return (await handlers[name](args));
 }
@@ -26,13 +25,13 @@ async function createTask(db, issueId, branchId = 'feat/test-task') {
     const tools = taskTools(db);
     const result = await call(tools.handlers, 'task_create_batch', {
         waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+        waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
         agent: 'bro',
         issue_id: String(issueId),
         tasks: [
             {
                 branch_id: branchId,
                 description: 'Test task',
-                success_criteria: 'Done',
             },
         ],
     });
@@ -40,68 +39,65 @@ async function createTask(db, issueId, branchId = 'feat/test-task') {
     return rows[0].id;
 }
 describe('auditTools', () => {
-    it('audit_log stores small payload intact', async () => {
+    it('audit_log stores small content_json intact', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
         const result = await call(tools.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
-            from_node: 'executor',
-            tool_name: 'bash',
-            tool_args: { cmd: 'echo hi' },
-            output: 'hi',
+            from_node: 'bro',
+            event_type: 'planning_complete',
+            summary: 'Plan done',
+            content_json: JSON.stringify({ cmd: 'echo hi' }),
         });
         const row = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
         assert.equal(row.issue_id, issueId);
-        assert.equal(row.tool_name, 'bash');
-        assert.equal(row.output, 'hi');
-        assert.equal(row.is_truncated, 0);
-        assert.equal(row.tool_args, JSON.stringify({ cmd: 'echo hi' }));
+        assert.equal(row.event_type, 'planning_complete');
+        assert.equal(row.content_json, JSON.stringify({ cmd: 'echo hi' }));
         db.close();
     });
-    it('audit_log truncates output > 1 MB and sets is_truncated = 1', async () => {
+    it('audit_log truncates content_json > 1 MB', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const bigOutput = 'x'.repeat(2_000_000);
+        const bigContent = JSON.stringify({ blob: 'x'.repeat(2_000_000) });
         const result = await call(tools.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
-            from_node: 'executor',
-            tool_name: 'bash',
-            tool_args: {},
-            output: bigOutput,
+            from_node: 'bro',
+            event_type: 'planning_complete',
+            summary: 'Plan done',
+            content_json: bigContent,
         });
         const row = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-        assert.equal(row.is_truncated, 1);
-        assert.ok(row.output.includes('[truncated'), `Expected truncation marker in output`);
-        assert.ok(row.output.length < bigOutput.length);
+        assert.ok(row.content_json.length < bigContent.length, 'content_json should be truncated');
         db.close();
     });
-    it('audit_log round is scoped per (issue_id, branch_id) not per issue_id', async () => {
+    // Slim contract — audit is event-only. `kind` and `is_truncated` are gone
+    // from the schema; the audit_log handler must not surface them on output
+    // rows. Verify both via PRAGMA + the returned row shape.
+    it('audit table has no kind or is_truncated columns after the slim cleanup', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const logEntry = (branchId) => call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
-            branch_id: branchId,
-            from_node: 'executor',
-            tool_name: 'bash',
-            tool_args: {},
-            output: 'ok',
+            from_node: 'bro',
+            event_type: 'planning_complete',
+            summary: 'slim event',
         });
-        const r1a = parseResult(await logEntry('task-1'));
-        const r1b = parseResult(await logEntry('task-1'));
-        const r2a = parseResult(await logEntry('task-2'));
-        const r2b = parseResult(await logEntry('task-2'));
-        assert.equal(r1a.round, 0, 'task-1 first entry should be round 0');
-        assert.equal(r1b.round, 1, 'task-1 second entry should be round 1');
-        assert.equal(r2a.round, 0, 'task-2 first entry should be round 0 (independent)');
-        assert.equal(r2b.round, 1, 'task-2 second entry should be round 1 (independent)');
+        const row = parseResult(result);
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
+        assert.equal(row.kind, undefined, 'returned audit row must not expose a `kind` field');
+        assert.equal(row.is_truncated, undefined, 'returned audit row must not expose `is_truncated`');
+        const colInfo = db.all(`PRAGMA table_info(audit)`);
+        const present = new Set(colInfo.map((c) => c.name));
+        assert.ok(!present.has('kind'), 'audit.kind must be dropped from the schema');
+        assert.ok(!present.has('is_truncated'), 'audit.is_truncated must be dropped from the schema');
         db.close();
     });
 });
@@ -115,6 +111,7 @@ describe('validationTools', () => {
             attempt_n: 1,
             verdict: 'maybe',
             feedback: '# Notes',
+            subagent_session_id: 'test-session-abc',
         });
         assert.ok(result.isError, 'Expected error result');
         const data = parseResult(result);
@@ -130,6 +127,7 @@ describe('validationTools', () => {
             attempt_n: 1,
             verdict: 'fail',
             feedback: '# Notes',
+            subagent_session_id: 'test-session-abc',
         });
         assert.ok(result.isError, 'Expected error result');
         const data = parseResult(result);
@@ -144,7 +142,8 @@ describe('validationTools', () => {
             task_id: 9999,
             attempt_n: 1,
             verdict: 'pass',
-            feedback: '# Notes',
+            feedback: 'MCP available: yes\n# Notes',
+            subagent_session_id: 'test-session-abc',
         });
         assert.ok(result.isError);
         const data = parseResult(result);
@@ -161,21 +160,24 @@ describe('validationTools', () => {
             task_id: taskId,
             attempt_n: 3,
             verdict: 'fail',
-            feedback: '# Third attempt',
+            feedback: 'MCP available: yes\n# Third attempt',
+            subagent_session_id: 'session-3',
         });
         await call(tools.handlers, 'validation_record', {
             agent: 'pr-reviewer',
             task_id: taskId,
             attempt_n: 1,
             verdict: 'fail',
-            feedback: '# First attempt',
+            feedback: 'MCP available: yes\n# First attempt',
+            subagent_session_id: 'session-1',
         });
         await call(tools.handlers, 'validation_record', {
             agent: 'pr-reviewer',
             task_id: taskId,
             attempt_n: 2,
             verdict: 'pass',
-            feedback: '# Second attempt',
+            feedback: 'MCP available: yes\n# Second attempt',
+            subagent_session_id: 'session-2',
         });
         const result = await call(tools.handlers, 'validation_history', {
             agent: 'bro',
@@ -200,7 +202,6 @@ describe('skillTools', () => {
             description: 'A test skill',
             file_path: 'skills/my-skill.md',
             trust_tier: 'agent',
-            created_by: 'swe',
         });
         const result = await call(tools.handlers, 'skill_record_outcome', {
             agent: 'bro',
@@ -223,7 +224,6 @@ describe('skillTools', () => {
             description: 'A test skill',
             file_path: 'skills/my-skill.md',
             trust_tier: 'agent',
-            created_by: 'swe',
         });
         const result = await call(tools.handlers, 'skill_promote', {
             agent: 'bro',
@@ -245,7 +245,6 @@ describe('skillTools', () => {
             description: 'A test skill',
             file_path: 'skills/my-skill.md',
             trust_tier: 'agent',
-            created_by: 'swe',
         });
         const result = await call(tools.handlers, 'skill_promote', {
             agent: 'bro',
@@ -260,12 +259,12 @@ describe('skillTools', () => {
     });
 });
 describe('reportTools', () => {
-    it('issue_report_md renders sections when an issue has tasks and ledger entries', async () => {
+    it('issue_report_md renders sections when an issue has tasks and audit events', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         await createTask(db, issueId);
-        const ledger = ledgerTools(db);
-        await call(ledger.handlers, 'ledger_log', {
+        const audit = auditTools(db);
+        await call(audit.handlers, 'audit_log', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'swe',
@@ -283,9 +282,9 @@ describe('reportTools', () => {
         assert.ok(data.markdown.includes('## Objective + Status'), 'Missing Objective section');
         assert.ok(data.markdown.includes('## Tasks'), 'Missing Tasks section');
         assert.ok(data.markdown.includes('## Validation History'), 'Missing Validation History section');
-        assert.ok(data.markdown.includes('## Ledger Timeline'), 'Missing Ledger Timeline section');
+        assert.ok(data.markdown.includes('## Audit Event Timeline'), 'Missing Audit Event Timeline section');
         assert.ok(data.markdown.includes('## Skill Usage Summary'), 'Missing Skill Usage section');
-        assert.ok(data.markdown.includes('SWE began work'), 'Ledger entry missing from report');
+        assert.ok(data.markdown.includes('SWE began work'), 'Audit event missing from report');
         db.close();
     });
 });

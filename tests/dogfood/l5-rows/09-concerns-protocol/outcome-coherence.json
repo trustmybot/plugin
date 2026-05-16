@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "discussions WHERE LOWER(body) LIKE '%concern%'": ">=1"
+  }
+}

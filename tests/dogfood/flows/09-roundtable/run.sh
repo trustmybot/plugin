@@ -1,28 +1,23 @@
 #!/usr/bin/env bash
-# L5 v2 scaffold — see README.md (or fill in scorers/ and remove this notice).
+# L5 v2 — 09-roundtable (FLOWS.md §9)
+# Pre-seeds architect.md + pm.md so roundtable has ≥2 valid participants.
+
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/flow-helpers.sh"
 
-if [ ! -f "$HERE/outcome.sql" ]; then
-  echo "  ⊘ skip: outcome.sql not yet authored for $(basename "$HERE")"
-  exit 0
-fi
-
-PROMPT=$(cat "$HERE/prompt.txt" 2>/dev/null || echo "")
-FIXTURE=$(cat "$HERE/fixture.txt" 2>/dev/null || echo "onboarding-named")
-
-if [ -z "$PROMPT" ]; then
-  echo "  ⊘ skip: prompt.txt missing for $(basename "$HERE")"
-  exit 0
-fi
-
-FLOW_NAME=$(basename "$HERE")
+FLOW_NAME="09-roundtable"
 RUN_ID="${RUN_ID:-$(date +%s)-$RANDOM}"
+PROMPT="@bro convene a roundtable with architect and pm on whether to migrate to event-sourced storage"
 
 PROJECT=$(l5_setup_scratch_project)
 trap 'l5_cleanup_project "$PROJECT"' EXIT
 
-l5_seed_db "$PROJECT" "$FIXTURE"
+l5_seed_db "$PROJECT" "onboarding-named"
+
+mkdir -p "$PROJECT/.claude/agents"
+cp "$PLUGIN_ROOT/templates/agents/architect.md" "$PROJECT/.claude/agents/architect.md"
+cp "$PLUGIN_ROOT/templates/agents/pm.md"        "$PROJECT/.claude/agents/pm.md"
+
 l5_run_claude "$PROJECT" "$PROMPT"
 l5_score_flow "$PROJECT" "$FLOW_NAME" "$HERE" "$RUN_ID"

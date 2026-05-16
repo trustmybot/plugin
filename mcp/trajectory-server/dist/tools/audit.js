@@ -1,6 +1,6 @@
 import { nowISO } from '../db.js';
-const MAX_OUTPUT_BYTES = 1_048_576; // 1 MB
-const HALF_BYTES = 524_288; // 512 KB
+import { requireRoles } from '../middleware/agent-scope.js';
+const MAX_CONTENT_BYTES = 1_000_000;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -26,11 +26,14 @@ function wrapHandler(fn) {
         }
     };
 }
+// Audit table is event-only — every row is a lifecycle event with
+// (event_type, summary, content_json). Tool-call records live in
+// debug_trajectory (eval mode), not here.
 export function auditTools(db) {
     const definitions = [
         {
             name: 'audit_log',
-            description: 'Store a full tool invocation record for post-hoc debugging.',
+            description: 'Insert an audit lifecycle event (planning_complete, bro_verification_pass, headless_fallback, etc.). Both event_type and summary are required.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -38,58 +41,68 @@ export function auditTools(db) {
                     issue_id: { type: 'string' },
                     branch_id: { type: 'string' },
                     from_node: { type: 'string' },
-                    tool_name: { type: 'string' },
-                    tool_args: {},
-                    output: { type: 'string' },
-                    round: { type: 'number' },
+                    event_type: { type: 'string', description: 'Required. Lifecycle event identifier (e.g. planning_complete).' },
+                    summary: { type: 'string', description: 'Required. One-line human-readable summary.' },
+                    content_json: { type: 'string', description: 'Optional. JSON string with structured event payload, max 1 MB.' },
                 },
-                required: ['agent', 'issue_id', 'from_node', 'tool_name', 'tool_args', 'output'],
+                required: ['agent', 'issue_id', 'from_node', 'event_type', 'summary'],
+            },
+        },
+        {
+            name: 'audit_log_list',
+            description: 'Paginated fetch of audit records for an issue.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    issue_id: { type: 'string' },
+                    branch_id: { type: 'string' },
+                    limit: { type: 'number', description: 'Max rows to return (default 50, max 500)' },
+                    offset: { type: 'number', description: 'Row offset for pagination (default 0)' },
+                },
+                required: ['agent', 'issue_id'],
             },
         },
     ];
     const handlers = {
-        audit_log: wrapHandler(async (args) => {
+        audit_log: requireRoles('audit_log', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             requireArg(args, 'from_node');
-            requireArg(args, 'tool_name');
-            requireArg(args, 'tool_args');
-            requireArg(args, 'output');
             const fromNode = args['from_node'];
-            const toolName = args['tool_name'];
             const branchId = args['branch_id'] ?? null;
             const now = nowISO();
-            const rawToolArgs = args['tool_args'];
-            const toolArgs = typeof rawToolArgs === 'string' ? rawToolArgs : JSON.stringify(rawToolArgs);
-            let output = args['output'];
-            let isTruncated = 0;
-            const outputBytes = Buffer.byteLength(output, 'utf8');
-            if (outputBytes > MAX_OUTPUT_BYTES) {
-                const buf = Buffer.from(output, 'utf8');
-                const head = buf.slice(0, HALF_BYTES).toString('utf8');
-                const tail = buf.slice(buf.length - HALF_BYTES).toString('utf8');
-                const droppedBytes = outputBytes - HALF_BYTES * 2;
-                output = `${head}...[truncated ${droppedBytes} bytes]...${tail}`;
-                isTruncated = 1;
-            }
-            let round;
-            if (args['round'] !== undefined && args['round'] !== null) {
-                round = args['round'];
-            }
-            else if (branchId !== null) {
-                const maxRow = db.get(`SELECT MAX(round) as max_round FROM audit WHERE issue_id = ? AND branch_id = ?`, [issueId, branchId]);
-                round = (maxRow?.max_round ?? -1) + 1;
-            }
-            else {
-                // branch_id not provided: fall back to issue-only scope (ambiguous across tasks)
-                const maxRow = db.get(`SELECT MAX(round) as max_round FROM audit WHERE issue_id = ?`, [issueId]);
-                round = (maxRow?.max_round ?? -1) + 1;
+            requireArg(args, 'event_type');
+            requireArg(args, 'summary');
+            const eventType = args['event_type'];
+            const summary = args['summary'];
+            let contentJson = args['content_json'] ?? '{}';
+            const byteLength = Buffer.byteLength(contentJson, 'utf8');
+            if (byteLength > MAX_CONTENT_BYTES) {
+                contentJson = Buffer.from(contentJson, 'utf8').slice(0, MAX_CONTENT_BYTES).toString('utf8');
             }
             db.run(`INSERT INTO audit
-           (issue_id, branch_id, from_node, round, tool_name, tool_args, output, output_chars, is_truncated, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [issueId, branchId, fromNode, round, toolName, toolArgs, output, output.length, isTruncated, now]);
+           (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`, [issueId, branchId, fromNode, eventType, summary, contentJson, now]);
             const row = db.get('SELECT * FROM audit WHERE rowid = last_insert_rowid()');
             return ok(row);
+        })),
+        audit_log_list: wrapHandler(async (args) => {
+            requireArg(args, 'agent');
+            const issueId = requireArg(args, 'issue_id');
+            const branchId = args['branch_id'] ?? null;
+            const rawLimit = args['limit'] ?? 50;
+            const limit = Math.min(Math.max(1, rawLimit), 500);
+            const offset = Math.max(0, args['offset'] ?? 0);
+            const params = [issueId];
+            let whereClause = 'WHERE issue_id = ?';
+            if (branchId !== null) {
+                whereClause += ' AND branch_id = ?';
+                params.push(branchId);
+            }
+            params.push(limit, offset);
+            const rows = db.all(`SELECT * FROM audit ${whereClause} ORDER BY id ASC LIMIT ? OFFSET ?`, params);
+            return ok(rows);
         }),
     };
     return { definitions, handlers };

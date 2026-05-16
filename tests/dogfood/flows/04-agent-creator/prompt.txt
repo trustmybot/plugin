@@ -1,0 +1,1 @@
+@bro get the architect's read on whether SQLite WAL mode is sufficient for our concurrency model in app.py. We have multiple threads writing tasks concurrently and need to know if WAL is enough or if we need a different strategy.

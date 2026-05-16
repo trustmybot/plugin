@@ -13,13 +13,9 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 function makeIssue(overrides: Partial<Issue> = {}): Issue {
   return {
     id: 1,
-    parent_issue_id: null,
     objective: 'A'.repeat(200),
     description: 'SECRET DESCRIPTION',
-    pre_commit_hash: 'sha123',
-    post_commit_hash: null,
     status: 'open',
-    current_task_id: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     closed_at: null,
@@ -41,15 +37,21 @@ function makeValidationRow(overrides: Partial<ValidationAttempt> = {}): Validati
 }
 
 describe('agent-scope middleware', () => {
-  it('normalizeAgent maps known names correctly', () => {
+  it('normalizeAgent maps first-class names correctly', () => {
     assert.equal(normalizeAgent('bro'), 'bro');
-    assert.equal(normalizeAgent('architect'), 'architect');
     assert.equal(normalizeAgent('swe'), 'swe');
     assert.equal(normalizeAgent('pr-reviewer'), 'pr-reviewer');
   });
 
-  it('normalizeAgent falls back to unknown for unknown input', () => {
-    assert.equal(normalizeAgent('hacker'), 'unknown');
+  it('normalizeAgent maps architect and other well-formed names to consultant', () => {
+    assert.equal(normalizeAgent('architect'), 'consultant');
+    assert.equal(normalizeAgent('cto'), 'consultant');
+    assert.equal(normalizeAgent('legal-reviewer'), 'consultant');
+    assert.equal(normalizeAgent('security-reviewer'), 'consultant');
+  });
+
+  it('normalizeAgent falls back to unknown for malformed input', () => {
+    assert.equal(normalizeAgent('!!!'), 'unknown');
     assert.equal(normalizeAgent(''), 'unknown');
     assert.equal(normalizeAgent(undefined), 'unknown');
     assert.equal(normalizeAgent('SWE'), 'swe');
@@ -68,9 +70,9 @@ describe('agent-scope middleware', () => {
     assert.ok(result.objective?.endsWith('...'));
   });
 
-  it('redactIssue returns full record for architect', () => {
+  it('redactIssue returns full record for consultant (formerly architect)', () => {
     const issue = makeIssue();
-    const result = redactIssue(issue, 'architect', { include_description: true });
+    const result = redactIssue(issue, 'consultant', { include_description: true });
     assert.equal(result.description, 'SECRET DESCRIPTION');
     assert.equal(result.objective, issue.objective);
   });
@@ -104,7 +106,7 @@ describe('agent-scope middleware', () => {
       content: [{ type: 'text', text: JSON.stringify({ ok: true }) }],
     });
 
-    const wrapped = requireRoles('identity_set', ['bro'], passthrough);
+    const wrapped = requireRoles('task_create_batch', ['bro'], passthrough);
     const result = await wrapped({ agent: 'swe' });
 
     assert.ok(result.isError, 'Expected isError=true');
@@ -121,7 +123,7 @@ describe('agent-scope middleware', () => {
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
     };
 
-    const wrapped = requireRoles('identity_set', ['bro'], passthrough);
+    const wrapped = requireRoles('task_create_batch', ['bro'], passthrough);
     const result = await wrapped({ agent: 'bro' });
 
     assert.ok(!result.isError, 'Expected no error');

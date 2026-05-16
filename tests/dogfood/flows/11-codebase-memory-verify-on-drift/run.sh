@@ -29,8 +29,8 @@ SEED_HEAD=$(cat /tmp/seed_head.$$)
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" "
 INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
 VALUES ('src/foo.py', 'source', '00000000000000000000000000000000', 'returns v1', datetime('now'));
-INSERT INTO plugin_config (key, value_json, updated_at)
-VALUES ('last_verified_sha', '\"$SEED_HEAD\"', datetime('now'));
+INSERT INTO plugin_config (key, value_json)
+VALUES ('last_verified_sha', '\"$SEED_HEAD\"');
 "
 
 # Simulate drift: edit the file on disk, don't commit

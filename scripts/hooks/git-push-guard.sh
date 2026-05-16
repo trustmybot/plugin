@@ -8,7 +8,6 @@
 #
 # Skips:
 #   - `git push --force` / `-f` (handled by git-guards.sh — destructive ops)
-#   - branches with no upstream (first push) — bro should review at issue close
 #   - commits with no matching tasks row (pre-TMB or non-tracked work)
 set -euo pipefail
 
@@ -18,13 +17,84 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
 
 # Only fire for git push (not push --force; that's git-guards's job).
+# Matches both `git push ...` and `git -C <path> push ...` forms.
+IS_PUSH=""
+IS_FORCE=""
 case "$CMD" in
-  *"git push"*"--force"*|*"git push"*"-f "*) exit 0 ;;
-  *"git push"*) ;;
-  *) exit 0 ;;
+  "git push"*|"git -C "*" push"*) IS_PUSH="yes" ;;
+  *"; git push"*|*"&& git push"*|*"|| git push"*|*"| git push"*) IS_PUSH="yes" ;;
+  *"; git -C "*" push"*|*"&& git -C "*" push"*|*"|| git -C "*" push"*) IS_PUSH="yes" ;;
 esac
+case "$CMD" in
+  "git push"*"--force"*|"git push"*"-f "*) IS_FORCE="yes" ;;
+  "git -C "*" push"*"--force"*|"git -C "*" push"*"-f "*) IS_FORCE="yes" ;;
+  *"; git push"*"--force"*|*"&& git push"*"--force"*|*"|| git push"*"--force"*) IS_FORCE="yes" ;;
+  *"; git push"*"-f "*|*"&& git push"*"-f "*|*"|| git push"*"-f "*) IS_FORCE="yes" ;;
+  *"; git -C "*" push"*"--force"*|*"&& git -C "*" push"*"--force"*|*"|| git -C "*" push"*"--force"*) IS_FORCE="yes" ;;
+  *"; git -C "*" push"*"-f "*|*"&& git -C "*" push"*"-f "*|*"|| git -C "*" push"*"-f "*) IS_FORCE="yes" ;;
+esac
+[ "$IS_PUSH" = "yes" ] || exit 0
+[ "$IS_FORCE" = "yes" ] && exit 0
+
+# Detect "push from worktree". Pushes only happen from the main checkout
+# (where bro reaped the detached commits). Any push originating from
+# .claude/worktrees/ is by definition SWE attempting to push directly.
+#
+# Three signals, in priority order:
+#   1. The command itself does `git -C <worktree-path> push` — explicit.
+#   2. The command starts with `cd <path> && ...` — trust the cd target;
+#      $PWD is stale (PreToolUse hooks fire BEFORE the embedded cd runs).
+#   3. Fall back to $PWD when neither (1) nor (2) match.
+WT_CWD=""
+CD_OVERRIDE=""
+
+# Signal 1: explicit `git -C <worktree-path>`
+case "$CMD" in
+  *"git -C "*"/.claude/worktrees/"*" push"*) WT_CWD="yes" ;;
+esac
+
+# Signal 2: leading `cd <path> && ...` overrides $PWD.
+#   Match shapes: `cd /abs/path && git push`, `cd ./rel && git push`,
+#                 `cd /p ; git push`, etc.
+#   Don't match: `git push && cd /elsewhere` (post-push cd is not relevant).
+if [ -z "$WT_CWD" ]; then
+  case "$CMD" in
+    "cd "*"&&"*"git push"*|"cd "*";"*"git push"*)
+      CD_TARGET=$(printf '%s' "$CMD" | sed -nE 's/^cd[[:space:]]+([^[:space:]&;]+).*/\1/p')
+      if [ -n "$CD_TARGET" ]; then
+        CD_OVERRIDE="yes"
+        case "$CD_TARGET" in
+          *"/.claude/worktrees/"*) WT_CWD="yes" ;;
+        esac
+      fi
+      ;;
+  esac
+fi
+
+# Signal 3: $PWD fallback (only when neither cd nor git -C in command).
+if [ -z "$WT_CWD" ] && [ -z "$CD_OVERRIDE" ] && \
+   ! echo "$CMD" | grep -q 'git -C ' && \
+   echo "$PWD" | grep -q "/.claude/worktrees/"; then
+  WT_CWD="yes"
+fi
+
+if [ "$WT_CWD" = "yes" ]; then
+  REASON=$(jq -Rn '"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`."')
+  printf '{"decision":"block","reason":%s}\n' "$REASON"
+  exit 0
+fi
+
+# Block any git push from SWE context (swe.md "Never push" rule enforced structurally).
+# Defense-in-depth fallback: catches non-worktree SWE pushes and cases where
+# CC #97 might strip the agent_type field from the payload.
+if [ "$AGENT_TYPE" = "tmb:swe" ] || [ "$AGENT_TYPE" = "swe" ]; then
+  REASON=$(jq -Rn '"BLOCKED: SWE must never push (swe.md). Bro handles the push gate at MR-open time. If this push was intended, the calling agent identity (.agent_type) is misconfigured."')
+  printf '{"decision":"block","reason":%s}\n' "$REASON"
+  exit 0
+fi
 
 DB=$(tmb_db_path || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then
@@ -35,9 +105,13 @@ fi
 # Determine commits about to be pushed. Use upstream tracking if available.
 PUSH_SHAS=$(git log '@{u}..HEAD' --pretty=%H 2>/dev/null || true)
 if [ -z "$PUSH_SHAS" ]; then
-  # No upstream OR no new commits — nothing to gate.
-  exit 0
+  # No upstream — first push of new branch. Compute commits unique to this
+  # branch vs the configured pr_target base.
+  PR_TARGET=$(sqlite3 "$DB" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target'" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')
+  PR_TARGET="${PR_TARGET:-dev}"
+  PUSH_SHAS=$(git log "origin/${PR_TARGET}..HEAD" --pretty=%H 2>/dev/null || true)
 fi
+[ -z "$PUSH_SHAS" ] && exit 0
 
 # Build a SQL IN clause from the SHA list.
 SHA_LIST=""

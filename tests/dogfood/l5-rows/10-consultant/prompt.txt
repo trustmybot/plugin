@@ -1,0 +1,3 @@
+@bro let cto weigh in on monolith vs microservices for auth.
+
+Don't ask questions.

@@ -10,7 +10,7 @@ Once implemented, this directory would hold the Cursor adapter:
 - Cursor-specific hook config (Cursor's hook event names + JSON-decision protocol differ from Claude Code's; expect a separate `../hooks/cursor/hooks.json`)
 - Persona loading via `../CURSOR.md` at the repo root
 
-The shared content (skills, agent templates, MCP server, planning protocol) is already platform-agnostic. See [`../docs/multi-platform.md`](../docs/multi-platform.md).
+The shared content (skills, agent templates, MCP server, planning protocol) is already platform-agnostic. See [`../docs/MULTI_PLATFORM.md`](../docs/MULTI_PLATFORM.md).
 
 ## When this gets built
 

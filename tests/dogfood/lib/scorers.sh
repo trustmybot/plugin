@@ -25,7 +25,7 @@ VALUES (
   '$scorer',
   $pass,
   $(if [ -z "$value" ]; then echo "NULL"; else echo "'$value'"; fi),
-  $(if [ -z "$explanation" ]; then echo "NULL"; else echo "'$(echo "$explanation" | sed "s/'/''/g")'"; fi),
+  $(if [ -z "$explanation" ]; then echo "NULL"; else echo "'${explanation//\'/\'\'}'"; fi),
   datetime('now')
 );
 SQL
@@ -79,24 +79,31 @@ l5_score_outcome() {
 # l5_score_trajectory_required <project_dir> <flow> <scorer_dir> <run_id>
 # Reads scorer_dir/tools-required.json (a JSON array of tool/MCP names).
 # Asserts every listed tool was called at least once (superset semantics
-# per LangSmith docs). Order-agnostic.
+# per LangSmith docs). Order-agnostic. Reads tool_use names from trajectory.jsonl.
 l5_score_trajectory_required() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local db="$project/.claude/tmb/trajectory.db"
+  local jsonl="$project/trajectory.jsonl"
   local req_path="$scorer_dir/tools-required.json"
 
   if [ ! -f "$req_path" ]; then
-    return 0  # no config = no scorer; not a failure
+    return 0
   fi
+  if [ ! -f "$jsonl" ]; then
+    echo "  ✗ trajectory_required: $jsonl not found (run_arm must produce stream-json)" >&2
+    l5_record_score "$db" "$run_id" "$flow" "trajectory_required" 0 "no-jsonl" "trajectory.jsonl missing"
+    return 1
+  fi
+
+  local tools_called
+  tools_called=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
 
   local required missing=""
   required=$(jq -r '.[]' "$req_path")
 
   while IFS= read -r tool; do
     [ -z "$tool" ] && continue
-    local count
-    count=$(sqlite3 "$db" "SELECT COUNT(*) FROM debug_trajectory WHERE tool_or_mcp_name = '$tool'" 2>/dev/null || echo 0)
-    if [ "$count" = "0" ]; then
+    if ! echo "$tools_called" | grep -qFx "$tool"; then
       missing="${missing}; $tool"
     fi
   done <<< "$required"
@@ -114,59 +121,69 @@ l5_score_trajectory_required() {
 
 # l5_score_trajectory_forbidden <project_dir> <flow> <scorer_dir> <run_id>
 # Reads scorer_dir/tools-forbidden.json. Asserts none of the listed tools
-# were called (subset/safety check).
+# were called (subset/safety check). Reads tool_use names from trajectory.jsonl.
 l5_score_trajectory_forbidden() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local db="$project/.claude/tmb/trajectory.db"
+  local jsonl="$project/trajectory.jsonl"
   local forb_path="$scorer_dir/tools-forbidden.json"
 
   if [ ! -f "$forb_path" ]; then
     return 0
   fi
+  if [ ! -f "$jsonl" ]; then
+    echo "  ✗ trajectory_forbidden: $jsonl not found" >&2
+    l5_record_score "$db" "$run_id" "$flow" "trajectory_forbidden" 0 "no-jsonl" "trajectory.jsonl missing"
+    return 1
+  fi
 
-  local forbidden present=""
+  local tools_called
+  tools_called=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
+
+  local forbidden violation=""
   forbidden=$(jq -r '.[]' "$forb_path")
 
   while IFS= read -r tool; do
     [ -z "$tool" ] && continue
-    local count
-    count=$(sqlite3 "$db" "SELECT COUNT(*) FROM debug_trajectory WHERE tool_or_mcp_name = '$tool'" 2>/dev/null || echo 0)
-    if [ "$count" != "0" ]; then
-      present="${present}; ${tool}(${count}x)"
+    if echo "$tools_called" | grep -qFx "$tool"; then
+      violation="${violation}; $tool"
     fi
   done <<< "$forbidden"
 
-  if [ -z "$present" ]; then
+  if [ -z "$violation" ]; then
     echo "  ✓ trajectory_forbidden: no forbidden tools called"
     l5_record_score "$db" "$run_id" "$flow" "trajectory_forbidden" 1 "" "no forbidden tools present"
     return 0
   else
-    echo "  ✗ trajectory_forbidden: forbidden tools called: $present" >&2
-    l5_record_score "$db" "$run_id" "$flow" "trajectory_forbidden" 0 "violations" "$present"
+    echo "  ✗ trajectory_forbidden: forbidden tools called: $violation" >&2
+    l5_record_score "$db" "$run_id" "$flow" "trajectory_forbidden" 0 "violation" "$violation"
     return 1
   fi
 }
 
 # l5_score_cost <project_dir> <flow> <scorer_dir> <run_id>
-# Reads scorer_dir/cost-budget.json with {max_tokens_total, max_latency_ms_p99,
-# fail_above_max}. Reports tokens + latency from debug_trajectory; fails only
-# if hard cap exceeded AND fail_above_max=true.
+# Reads scorer_dir/cost-budget.json with {max_tokens_total, max_duration_ms,
+# fail_above_max}. Reports tokens + duration from trajectory.jsonl (stream-json);
+# fails only if hard cap exceeded AND fail_above_max=true.
 l5_score_cost() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local db="$project/.claude/tmb/trajectory.db"
+  local jsonl="$project/trajectory.jsonl"
   local budget_path="$scorer_dir/cost-budget.json"
 
-  local total_in total_out total_tokens p99_latency
-  total_in=$(sqlite3 "$db" "SELECT COALESCE(SUM(tokens_in), 0) FROM debug_trajectory" 2>/dev/null || echo 0)
-  total_out=$(sqlite3 "$db" "SELECT COALESCE(SUM(tokens_out), 0) FROM debug_trajectory" 2>/dev/null || echo 0)
+  local total_in total_out total_tokens duration_ms
+  if [ -f "$jsonl" ]; then
+    total_in=$(jq -s 'map(select(.type=="assistant") | .message.usage.input_tokens // 0) | add // 0' "$jsonl" 2>/dev/null || echo 0)
+    total_out=$(jq -s 'map(select(.type=="assistant") | .message.usage.output_tokens // 0) | add // 0' "$jsonl" 2>/dev/null || echo 0)
+    duration_ms=$(jq -s 'map(select(.type=="result") | .duration_ms // 0) | max // 0' "$jsonl" 2>/dev/null || echo 0)
+  else
+    total_in=0; total_out=0; duration_ms=0
+  fi
   total_tokens=$((total_in + total_out))
-  # Approximate p99 as max for small N; the trajectory rarely has >100 rows.
-  p99_latency=$(sqlite3 "$db" "SELECT COALESCE(MAX(latency_ms), 0) FROM debug_trajectory" 2>/dev/null || echo 0)
 
-  local explanation="tokens_total=$total_tokens (in=$total_in out=$total_out) p99_latency_ms=$p99_latency"
+  local explanation="tokens_total=$total_tokens (in=$total_in out=$total_out) duration_ms=$duration_ms"
 
   if [ ! -f "$budget_path" ]; then
-    # No budget config — purely observational.
     echo "  ⊘ cost (observational): $explanation"
     l5_record_score "$db" "$run_id" "$flow" "cost" 1 "$total_tokens" "$explanation"
     return 0
@@ -174,15 +191,15 @@ l5_score_cost() {
 
   local max_tokens max_latency fail_above
   max_tokens=$(jq -r '.max_tokens_total // 0' "$budget_path")
-  max_latency=$(jq -r '.max_latency_ms_p99 // 0' "$budget_path")
+  max_latency=$(jq -r '.max_duration_ms // 0' "$budget_path")
   fail_above=$(jq -r '.fail_above_max // false' "$budget_path")
 
   local violation=""
   if [ "$max_tokens" != "0" ] && [ "$total_tokens" -gt "$max_tokens" ]; then
     violation="${violation}; tokens($total_tokens > $max_tokens)"
   fi
-  if [ "$max_latency" != "0" ] && [ "$p99_latency" -gt "$max_latency" ]; then
-    violation="${violation}; p99_latency_ms($p99_latency > $max_latency)"
+  if [ "$max_latency" != "0" ] && [ "$duration_ms" -gt "$max_latency" ]; then
+    violation="${violation}; duration_ms($duration_ms > $max_latency)"
   fi
 
   if [ -z "$violation" ]; then
@@ -200,4 +217,321 @@ l5_score_cost() {
     l5_record_score "$db" "$run_id" "$flow" "cost" 1 "$total_tokens" "$explanation $violation (soft)"
     return 0
   fi
+}
+
+# l5_score_files <flow_dir> <workspace_dir>
+# Reads flow_dir/outcome-files.json. Asserts file existence, absence, and
+# minimum byte size for each entry. Opt-in: silently returns 0 when no
+# outcome-files.json is present. Returns 0 if all assertions pass, 1 if any fail.
+l5_score_files() {
+  local flow_dir="$1"
+  local workspace_dir="$2"
+  local budget_file="$flow_dir/outcome-files.json"
+
+  [ -f "$budget_file" ] || return 0
+
+  local fail=0
+
+  local entries
+  entries=$(jq -c '.files[]' "$budget_file" 2>/dev/null) || {
+    echo "  ✗ files: invalid JSON in $budget_file" >&2
+    return 1
+  }
+
+  while IFS= read -r entry; do
+    local path must_exist must_not_exist min_bytes
+    path=$(echo "$entry" | jq -r '.path')
+    must_exist=$(echo "$entry" | jq -r '.must_exist // false')
+    must_not_exist=$(echo "$entry" | jq -r '.must_not_exist // false')
+    min_bytes=$(echo "$entry" | jq -r '.min_bytes // 0')
+
+    local full_path="$workspace_dir/$path"
+
+    if [ "$must_exist" = "true" ]; then
+      if [ ! -f "$full_path" ]; then
+        echo "  ✗ files: $path does not exist" >&2
+        fail=1
+        continue
+      fi
+      if [ "$min_bytes" -gt 0 ]; then
+        local actual_bytes
+        actual_bytes=$(wc -c < "$full_path" | tr -d ' ')
+        if [ "$actual_bytes" -lt "$min_bytes" ]; then
+          echo "  ✗ files: $path is $actual_bytes bytes, expected >=$min_bytes" >&2
+          fail=1
+          continue
+        fi
+        echo "  ✓ files: $path exists (>=$min_bytes bytes)"
+      else
+        echo "  ✓ files: $path exists"
+      fi
+    fi
+
+    if [ "$must_not_exist" = "true" ]; then
+      if [ -f "$full_path" ]; then
+        echo "  ✗ files: $path exists but should not" >&2
+        fail=1
+      else
+        echo "  ✓ files: $path does not exist"
+      fi
+    fi
+  done <<< "$entries"
+
+  return $fail
+}
+
+# l5_score_coherence <project_dir> <flow> <scorer_dir> <run_id>
+# Reads scorer_dir/outcome-coherence.json. Asserts row counts per table
+# satisfy the comparison operator. Catches "empty-table" doctrine violations
+# (e.g. a planning flow that didn't write any discussions row) without each
+# flow author having to spell out the SQL in outcome.sql.
+#
+# Schema:
+#   {
+#     "expected_writes": {
+#       "<table>": "<op><N>",
+#       "<table> WHERE <where-clause>": "<op><N>"
+#     }
+#   }
+#
+# Operators: ">=N", "<=N", "=N", "!=N", or bare "N" (interpreted as "=N").
+# Opt-in: silently returns 0 when no outcome-coherence.json is present.
+l5_score_coherence() {
+  local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
+  local cfg="$scorer_dir/outcome-coherence.json"
+  local db="$project/.claude/tmb/trajectory.db"
+
+  [ -f "$cfg" ] || return 0
+
+  local fail=0
+  local checked=0
+
+  # Iterate keys of expected_writes (table specs, possibly with WHERE suffix).
+  local keys
+  keys=$(jq -r '(.expected_writes // {}) | to_entries[] | .key' "$cfg" 2>/dev/null)
+
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    checked=$((checked + 1))
+
+    local op_value
+    op_value=$(jq -r --arg k "$key" '.expected_writes[$k]' "$cfg")
+
+    # Split "<table>[ WHERE <clause>]"
+    local table where_clause=""
+    if [[ "$key" == *" WHERE "* ]]; then
+      table="${key%% WHERE *}"
+      where_clause=" WHERE ${key#* WHERE }"
+    else
+      table="$key"
+    fi
+
+    # Parse op + number
+    local op num
+    case "$op_value" in
+      ">="*) op=">="; num="${op_value#>=}" ;;
+      "<="*) op="<="; num="${op_value#<=}" ;;
+      "!="*) op="!="; num="${op_value#!=}" ;;
+      "="*)  op="=";  num="${op_value#=}"  ;;
+      *)
+        # Bare number = exact match.
+        if [[ "$op_value" =~ ^[0-9]+$ ]]; then
+          op="="; num="$op_value"
+        else
+          echo "  ✗ coherence: invalid operator in '$op_value' for $key" >&2
+          fail=1
+          continue
+        fi
+        ;;
+    esac
+
+    local count
+    count=$(sqlite3 "$db" "SELECT COUNT(*) FROM ${table}${where_clause};" 2>/dev/null)
+    if [ -z "$count" ]; then
+      echo "  ✗ coherence: query failed for ${table}${where_clause}" >&2
+      fail=1
+      continue
+    fi
+
+    local pass=0
+    case "$op" in
+      ">=") [ "$count" -ge "$num" ] && pass=1 ;;
+      "<=") [ "$count" -le "$num" ] && pass=1 ;;
+      "=")  [ "$count" -eq "$num" ] && pass=1 ;;
+      "!=") [ "$count" -ne "$num" ] && pass=1 ;;
+    esac
+
+    if [ "$pass" = "1" ]; then
+      echo "  ✓ coherence: ${table}${where_clause} = $count (expected $op_value)"
+    else
+      echo "  ✗ coherence: ${table}${where_clause} = $count (expected $op_value)" >&2
+      fail=1
+    fi
+  done <<< "$keys"
+
+  if [ "$checked" = "0" ]; then
+    # Empty config — treat as no-op rather than fail.
+    return 0
+  fi
+
+  l5_record_score "$db" "$run_id" "$flow" "coherence" \
+    "$([ "$fail" = "0" ] && echo 1 || echo 0)" \
+    "" \
+    "$([ "$fail" = "0" ] && echo "$checked check(s) passed" || echo "$fail of $checked check(s) failed")"
+  return "$fail"
+}
+
+# l5_score_git <project_dir> <flow> <scorer_dir> <run_id>
+# Reads scorer_dir/outcome-git.json. Asserts git-state invariants the flow
+# must hold post-run. Catches "bro committed to dev directly" / "worktree
+# on detached HEAD" / "uncommitted slop in worktree" — failures that look
+# like a passing flow on the trajectory + DB scorers.
+#
+# Schema:
+#   {
+#     "base_branch_unchanged":   true,                 // base = pr_target config; only init commit
+#     "uncommitted_in_worktree": false,                // applies to the most-recent task's worktree
+#     "worktrees": [
+#       {
+#         "path":            ".claude/worktrees/<slug>",  // <slug> = most-recent tasks.branch_id slug
+#         "head_branch":     "<task.branch_id>",          // literal branch name or placeholder
+#         "head_not_branch": ["dev", "main"]              // assert HEAD is not on any of these
+#       }
+#     ]
+#   }
+#
+# Opt-in: silently returns 0 when no outcome-git.json is present.
+l5_score_git() {
+  local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
+  local cfg="$scorer_dir/outcome-git.json"
+  local db="$project/.claude/tmb/trajectory.db"
+
+  [ -f "$cfg" ] || return 0
+
+  local fail=0 checked=0
+
+  # Resolve the most-recent task's branch_id (used for placeholder
+  # substitution and worktree slug derivation).
+  local task_branch=""
+  local task_slug=""
+  task_branch=$(sqlite3 "$db" "SELECT branch_id FROM tasks ORDER BY id DESC LIMIT 1;" 2>/dev/null)
+  task_slug="${task_branch##*/}"
+
+  # Resolve pr_target for base-branch checks.
+  local pr_target
+  pr_target=$(sqlite3 "$db" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null)
+  pr_target="${pr_target:-main}"
+
+  # 1) base_branch_unchanged — base branch tip should match the snapshot
+  # captured by l5_run_claude immediately before bro fired. This isolates
+  # "bro committed to base during the run" from setup commits the flow's
+  # run.sh made beforehand (e.g., flow 13 seeds .DS_Store files via a
+  # commit on main before bro is even spawned).
+  if [ "$(jq -r '.base_branch_unchanged // false' "$cfg")" = "true" ]; then
+    checked=$((checked + 1))
+    local pre_run="$project/.claude/tmb/_l5_pre_run_git.json"
+    if [ ! -f "$pre_run" ]; then
+      echo "  ✗ git: pre-run snapshot missing at $pre_run (did l5_run_claude run?)" >&2
+      fail=1
+    else
+      local pre_head post_head
+      pre_head=$(jq -r '.head // ""' "$pre_run")
+      post_head=$(git -C "$project" rev-parse "$pr_target" 2>/dev/null || echo "")
+      if [ -z "$pre_head" ] || [ -z "$post_head" ]; then
+        echo "  ✗ git: base branch '$pr_target' SHA not resolvable (pre=$pre_head post=$post_head)" >&2
+        fail=1
+      elif [ "$pre_head" = "$post_head" ]; then
+        echo "  ✓ git: base branch '$pr_target' unchanged since pre-run snapshot"
+      else
+        local delta
+        delta=$(git -C "$project" rev-list --count "$pre_head..$post_head" 2>/dev/null || echo "?")
+        echo "  ✗ git: base branch '$pr_target' advanced $delta commit(s) during the run. Did bro commit to base?" >&2
+        fail=1
+      fi
+    fi
+  fi
+
+  # 2) uncommitted_in_worktree — most-recent task's worktree should be clean.
+  local uncommitted_setting
+  uncommitted_setting=$(jq -r '.uncommitted_in_worktree // null' "$cfg")
+  if [ "$uncommitted_setting" = "false" ] && [ -n "$task_slug" ] && [ -d "$project/.claude/worktrees/$task_slug" ]; then
+    checked=$((checked + 1))
+    local dirty
+    dirty=$(git -C "$project/.claude/worktrees/$task_slug" status --porcelain 2>/dev/null || true)
+    if [ -z "$dirty" ]; then
+      echo "  ✓ git: worktree '$task_slug' is clean (no uncommitted changes)"
+    else
+      echo "  ✗ git: worktree '$task_slug' has uncommitted changes:" >&2
+      echo "$dirty" | head -5 >&2
+      fail=1
+    fi
+  fi
+
+  # 3) worktrees[] — per-worktree HEAD assertions.
+  local wt_count
+  wt_count=$(jq -r '(.worktrees // []) | length' "$cfg" 2>/dev/null)
+  wt_count="${wt_count:-0}"
+  if [ "$wt_count" -gt 0 ]; then
+    local i
+    for ((i=0; i < wt_count; i++)); do
+      checked=$((checked + 1))
+      local wt_path wt_head_should
+      wt_path=$(jq -r ".worktrees[$i].path // \"\"" "$cfg")
+      wt_head_should=$(jq -r ".worktrees[$i].head_branch // \"\"" "$cfg")
+
+      # Placeholder substitution.
+      wt_path="${wt_path//<slug>/$task_slug}"
+      wt_head_should="${wt_head_should//<task.branch_id>/$task_branch}"
+
+      local full_path="$project/$wt_path"
+      if [ ! -d "$full_path" ]; then
+        echo "  ✗ git: worktree path missing: $wt_path" >&2
+        fail=1
+        continue
+      fi
+
+      local actual
+      actual=$(git -C "$full_path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+      if [ -z "$actual" ]; then
+        echo "  ✗ git: could not resolve HEAD branch in $wt_path" >&2
+        fail=1
+        continue
+      fi
+
+      # Required branch (positive)
+      if [ -n "$wt_head_should" ]; then
+        if [ "$actual" = "$wt_head_should" ]; then
+          echo "  ✓ git: $wt_path HEAD on '$actual'"
+        else
+          echo "  ✗ git: $wt_path HEAD on '$actual' (expected '$wt_head_should')" >&2
+          fail=1
+        fi
+      fi
+
+      # head_not_branch list
+      local not_count
+      not_count=$(jq -r ".worktrees[$i].head_not_branch // [] | length" "$cfg")
+      if [ "$not_count" -gt 0 ]; then
+        local j
+        for ((j=0; j < not_count; j++)); do
+          local forbidden
+          forbidden=$(jq -r ".worktrees[$i].head_not_branch[$j]" "$cfg")
+          if [ "$actual" = "$forbidden" ]; then
+            echo "  ✗ git: $wt_path HEAD on forbidden branch '$forbidden'" >&2
+            fail=1
+          fi
+        done
+      fi
+    done
+  fi
+
+  if [ "$checked" = "0" ]; then
+    return 0
+  fi
+
+  l5_record_score "$db" "$run_id" "$flow" "git" \
+    "$([ "$fail" = "0" ] && echo 1 || echo 0)" \
+    "" \
+    "$([ "$fail" = "0" ] && echo "$checked check(s) passed" || echo "$fail of $checked check(s) failed")"
+  return "$fail"
 }

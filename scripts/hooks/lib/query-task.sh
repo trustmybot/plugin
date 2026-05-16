@@ -5,27 +5,69 @@ set -euo pipefail
 
 # tmb_db_path
 # Resolve the trajectory DB path:
-#   1. TRAJECTORY_DB_PATH env override wins
-#   2. Otherwise walk up from cwd to the git repo root and use
-#      <repo-root>/.claude/<plugin-name>/trajectory.db. Walking up matters
-#      because hooks fire from inside SWE worktrees too — without the walk,
-#      $(pwd)/.claude/tmb/trajectory.db points at a stale per-worktree DB
-#      copy that lacks the project's policy keys (#171).
-#   3. Fall back to <cwd>/.claude/tmb/trajectory.db when not in a repo.
-# Prints the path only if the file exists.
+#   1. TRAJECTORY_DB_PATH env override wins (tests + advanced setups).
+#   2. Sentinel file ($HOME/.claude/<plugin-name>-active-workspace) wins over walk-up
+#      when the sentinel DB exists on disk.
+#   3. Otherwise: walk up from cwd to filesystem root, collecting all ancestor
+#      levels that contain <dir>/.claude/<plugin-name>/trajectory.db.
+#      Outermost match wins. Walking up from cwd, we collect all ancestor
+#      matches and return the topmost. Inner sibling DBs (e.g. stale leftovers
+#      from a previous workspace layout) won't shadow the active launch-dir DB.
+#      This handles uniformly:
+#        - single-repo CC (CC inside a git repo): DB at git-root.
+#        - workspace pattern (CC outside a git repo, with one or more product
+#          repos as siblings): DB at workspace launch dir, above git-root.
+#        - submodule monorepo (root + nested submodule repos): DB at parent
+#          repo, found via walk-up from inside any submodule.
+#        - SWE worktrees (.claude/worktrees/<slug>/): walks past the worktree
+#          to find the DB at the repo or workspace level.
+#   4. Tests with per-worktree DB fixtures should set TRAJECTORY_DB_PATH
+#      explicitly to pin the resolution.
+# Prints the path only if the file exists; non-zero exit if no DB found.
 tmb_db_path() {
-  local p plugin_name="tmb"
+  local plugin_name="tmb"
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
     plugin_name=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
   fi
   if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
-    p="$TRAJECTORY_DB_PATH"
-  else
-    local repo_root
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="$(pwd)"
-    p="$repo_root/.claude/$plugin_name/trajectory.db"
+    [ -f "$TRAJECTORY_DB_PATH" ] && echo "$TRAJECTORY_DB_PATH"
+    return 0
   fi
-  [ -f "$p" ] && echo "$p"
+  # NEW: check sentinel from #113 — subagents inherit cwd=~ and lack env vars
+  local sentinel="$HOME/.claude/${plugin_name}-active-workspace"
+  if [ -f "$sentinel" ]; then
+    local ws
+    ws=$(head -1 "$sentinel" 2>/dev/null)
+    if [ -n "$ws" ]; then
+      local sentinel_db="$ws/.claude/$plugin_name/trajectory.db"
+      if [ -f "$sentinel_db" ]; then
+        echo "$sentinel_db"
+        return 0
+      fi
+    fi
+  fi
+  # P0 guard: do NOT walk into the user's HOME from a descendant cwd.
+  # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or a
+  # test artifact) used to be silently adopted as the live DB on every launch.
+  # Project state belongs to a project. Mirrors db.ts findExistingDbUp.
+  local start
+  start="$(pwd)"
+  local candidates=()
+  local dir
+  dir="$start"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if [ "$dir" = "$HOME" ] && [ "$start" != "$HOME" ]; then
+      break
+    fi
+    local candidate="$dir/.claude/$plugin_name/trajectory.db"
+    [ -f "$candidate" ] && candidates+=("$candidate")
+    dir="$(dirname "$dir")"
+  done
+  if [ ${#candidates[@]} -gt 0 ]; then
+    echo "${candidates[${#candidates[@]}-1]}"
+    return 0
+  fi
+  return 1
 }
 
 tmb_have_sqlite() {

@@ -4,37 +4,13 @@ import { resolve, isAbsolute } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { resolveDefaultRepoPath, resolveDefaultRepo } from '../utils/repo-paths.js';
 function md5OfPath(absPath) {
     const buf = readFileSync(absPath);
     return createHash('md5').update(buf).digest('hex');
 }
 function md5OfBuffer(buf) {
     return createHash('md5').update(buf).digest('hex');
-}
-function resolveProjectPath(path) {
-    // Paths are stored in file_registry as project-relative. Resolve against
-    // the MCP server's cwd, which is the project root (claude spawns subprocesses
-    // in its own working dir = the project).
-    return isAbsolute(path) ? path : resolve(process.cwd(), path);
-}
-// Read file content from a specific git commit. Used when bro updates
-// file_registry from a SWE commit whose files live in a worktree (not at
-// the project root). The MCP server runs at the project root and can't see
-// worktree files via relative path; `git show <sha>:<path>` reads the
-// committed content directly from .git, regardless of working tree layout.
-// Returns null on any failure (path missing in commit, sha invalid, git
-// missing, etc.) — callers fall back to disk read.
-function readFromCommit(commitSha, path) {
-    try {
-        return execFileSync('git', ['show', `${commitSha}:${path}`], {
-            cwd: process.cwd(),
-            stdio: ['ignore', 'pipe', 'ignore'],
-            maxBuffer: 64 * 1024 * 1024,
-        });
-    }
-    catch {
-        return null;
-    }
 }
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -61,7 +37,6 @@ function wrapHandler(fn) {
     };
 }
 const VALID_TYPES = new Set(['source', 'test', 'config', 'doc', 'unknown']);
-const VALID_CHANGE_TYPES = new Set(['added', 'modified', 'deleted', 'renamed']);
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 5000;
 function validatePath(path) {
@@ -79,55 +54,41 @@ function validatePath(path) {
 }
 function decodeRow(row) {
     return {
+        repo: row.repo,
         path: row.path,
         type: row.type,
-        language: row.language,
-        size_bytes: row.size_bytes,
-        last_commit_sha: row.last_commit_sha,
-        last_change_type: row.last_change_type,
-        last_change_at: row.last_change_at,
-        imports: JSON.parse(row.imports_json),
-        exports: JSON.parse(row.exports_json),
-        metadata: JSON.parse(row.metadata_json),
+        content_md5: row.content_md5,
+        summary: row.summary,
+        summary_updated_at: row.summary_updated_at,
     };
 }
-export function fileRegistryTools(db) {
+export function fileRegistryTools(db, dbPath = '') {
+    function resolveProjectPath(path) {
+        if (isAbsolute(path))
+            return path;
+        const projectRoot = resolveDefaultRepoPath(db, dbPath);
+        if (projectRoot)
+            return resolve(projectRoot, path);
+        return resolve(process.cwd(), path);
+    }
     const definitions = [
         {
             name: 'file_registry_upsert',
-            description: 'INSERT OR REPLACE a file record in file_registry. Idempotent — calling twice with the same path replaces the row.',
+            description: 'INSERT OR REPLACE a file record in file_registry. Idempotent — calling twice with the same (repo, path) replaces the row.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     path: {
                         type: 'string',
-                        description: 'File path (primary key). Max 1024 chars. No ".." segments.',
+                        description: 'File path (primary key with repo). Max 1024 chars. No ".." segments.',
                     },
                     type: {
                         type: 'string',
                         description: 'One of: source | test | config | doc | unknown',
                     },
-                    language: { type: 'string', description: 'Programming language, e.g. "typescript"' },
-                    size_bytes: { type: 'number', description: 'File size in bytes' },
-                    last_commit_sha: { type: 'string', description: 'SHA of the last commit touching this file' },
-                    last_change_type: {
+                    repo: {
                         type: 'string',
-                        description: 'One of: added | modified | deleted | renamed (or omit for null)',
-                    },
-                    last_change_at: { type: 'string', description: 'ISO timestamp of last change' },
-                    imports: {
-                        type: 'array',
-                        items: { type: 'string' },
-                        description: 'Array of imported module paths (stored as JSON)',
-                    },
-                    exports: {
-                        type: 'array',
-                        items: { type: 'string' },
-                        description: 'Array of exported symbol names (stored as JSON)',
-                    },
-                    metadata: {
-                        type: 'object',
-                        description: 'Arbitrary key-value metadata (stored as JSON)',
+                        description: 'Repo name from repos table. Defaults to empty string (single-repo project).',
                     },
                 },
                 required: ['path', 'type'],
@@ -135,7 +96,7 @@ export function fileRegistryTools(db) {
         },
         {
             name: 'file_registry_list',
-            description: 'SELECT from file_registry with optional filters. Returns { rows, count, total }. imports/exports/metadata are decoded back to arrays/objects.',
+            description: 'SELECT from file_registry with optional filters. Returns { rows, count, total }.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -143,7 +104,6 @@ export function fileRegistryTools(db) {
                         type: 'string',
                         description: 'Filter by file type (source | test | config | doc | unknown)',
                     },
-                    language: { type: 'string', description: 'Filter by language' },
                     limit: {
                         type: 'number',
                         description: `Max rows to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT})`,
@@ -154,21 +114,26 @@ export function fileRegistryTools(db) {
         },
         {
             name: 'file_registry_delete',
-            description: 'DELETE a file record by path. Returns { deleted: 0 } if not found, { deleted: 1 } on success.',
+            description: 'DELETE a file record by (repo, path). Returns { deleted: 0 } if not found, { deleted: 1 } on success.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     path: { type: 'string', description: 'File path to delete' },
+                    repo: { type: 'string', description: 'Repo name (primary key with path). Defaults to empty string.' },
                 },
-                required: ['path'],
+                required: ['path', 'repo'],
             },
         },
         {
             name: 'file_registry_verify',
-            description: 'Per-path drift check (#45): re-md5 each file from disk, compare against stored content_md5. Returns { verdicts: [{ path, verdict, current_md5? }] } where verdict is "match" | "mismatch" | "missing" | "new". If `paths` is provided, also flags any registry rows whose path is NOT in the list as "missing" and any input path not in the registry as "new". If `paths` is absent, verifies every registry row (no "new" detection). Read-only; safe for any caller.',
+            description: 'Per-path drift check (#45): re-md5 each file from disk, compare against stored content_md5. Returns { verdicts: [{ repo, path, verdict, current_md5? }] } where verdict is "match" | "mismatch" | "missing" | "new". If `repo` is provided, only verifies rows for that repo. If `paths` is provided, also flags any registry rows whose path is NOT in the list as "missing" and any input path not in the registry as "new". If `paths` is absent, verifies every registry row (no "new" detection). Read-only; safe for any caller.',
             inputSchema: {
                 type: 'object',
                 properties: {
+                    repo: {
+                        type: 'string',
+                        description: 'Optional: filter to a specific repo. When omitted, verifies all repos.',
+                    },
                     paths: {
                         type: 'array',
                         items: { type: 'string' },
@@ -179,7 +144,7 @@ export function fileRegistryTools(db) {
         },
         {
             name: 'file_registry_update_summaries',
-            description: 'Atomic-close write path (#45): for each {path, summary}, read the file from disk, md5 it, INSERT OR REPLACE the row with content_md5 + summary + summary_updated_at = now. Optionally advance plugin_config.last_verified_sha so the next session can trust the index. Bro + SWE only.',
+            description: 'Atomic-close write path (#45): for each {path, summary, repo?}, read the file from disk, md5 it, INSERT OR REPLACE the row with content_md5 + summary + summary_updated_at = now. Optionally advance plugin_config.last_verified_sha so the next session can trust the index. Bro + SWE only.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -190,10 +155,14 @@ export function fileRegistryTools(db) {
                             properties: {
                                 path: { type: 'string' },
                                 summary: { type: 'string' },
+                                repo: {
+                                    type: 'string',
+                                    description: 'Optional repo name from repos table. When omitted, server uses tmb_default_repo.',
+                                },
                             },
                             required: ['path', 'summary'],
                         },
-                        description: 'List of path + summary pairs. Server reads each path from disk to compute md5.',
+                        description: 'List of path + summary pairs (with optional per-update repo). Server reads each path from disk to compute md5.',
                     },
                     advance_verified_sha: {
                         type: 'string',
@@ -205,7 +174,7 @@ export function fileRegistryTools(db) {
         },
     ];
     const handlers = {
-        file_registry_upsert: requireRoles('file_registry_upsert', ['architect', 'bro'], wrapHandler(async (args) => {
+        file_registry_upsert: requireRoles('file_registry_upsert', ['bro'], wrapHandler(async (args) => {
             const pathErr = validatePath(args['path']);
             if (pathErr)
                 return err(pathErr);
@@ -214,49 +183,11 @@ export function fileRegistryTools(db) {
             if (typeof type !== 'string' || !VALID_TYPES.has(type)) {
                 return err(`Invalid type ${JSON.stringify(type)}: must be one of source | test | config | doc | unknown`);
             }
-            const rawChangeType = args['last_change_type'];
-            if (rawChangeType !== undefined && rawChangeType !== null) {
-                if (typeof rawChangeType !== 'string' || !VALID_CHANGE_TYPES.has(rawChangeType)) {
-                    return err(`Invalid last_change_type ${JSON.stringify(rawChangeType)}: must be one of added | modified | deleted | renamed`);
-                }
-            }
-            const rawImports = args['imports'] ?? [];
-            if (!Array.isArray(rawImports) || rawImports.some((v) => typeof v !== 'string')) {
-                return err('imports must be an array of strings');
-            }
-            const rawExports = args['exports'] ?? [];
-            if (!Array.isArray(rawExports) || rawExports.some((v) => typeof v !== 'string')) {
-                return err('exports must be an array of strings');
-            }
-            const rawMetadata = args['metadata'] ?? {};
-            if (typeof rawMetadata !== 'object' ||
-                rawMetadata === null ||
-                Array.isArray(rawMetadata)) {
-                return err('metadata must be a plain object');
-            }
-            const language = args['language'] !== undefined ? args['language'] : null;
-            const sizeBytes = args['size_bytes'] !== undefined ? args['size_bytes'] : null;
-            const lastCommitSha = args['last_commit_sha'] !== undefined ? args['last_commit_sha'] : null;
-            const lastChangeType = rawChangeType !== undefined && rawChangeType !== null ? rawChangeType : null;
-            const lastChangeAt = args['last_change_at'] !== undefined ? args['last_change_at'] : null;
-            const importsJson = JSON.stringify(rawImports);
-            const exportsJson = JSON.stringify(rawExports);
-            const metadataJson = JSON.stringify(rawMetadata);
-            db.run(`INSERT OR REPLACE INTO file_registry
-           (path, type, language, size_bytes, last_commit_sha, last_change_type, last_change_at, imports_json, exports_json, metadata_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-                path,
-                type,
-                language,
-                sizeBytes,
-                lastCommitSha,
-                lastChangeType,
-                lastChangeAt,
-                importsJson,
-                exportsJson,
-                metadataJson,
-            ]);
-            const row = db.get(`SELECT * FROM file_registry WHERE path = ?`, [path]);
+            const repo = typeof args['repo'] === 'string' ? args['repo'] : '';
+            db.run(`INSERT INTO file_registry (repo, path, type)
+         VALUES (?, ?, ?)
+         ON CONFLICT(repo, path) DO UPDATE SET type = excluded.type`, [repo, path, type]);
+            const row = db.get(`SELECT * FROM file_registry WHERE repo = ? AND path = ?`, [repo, path]);
             return ok(decodeRow(row));
         })),
         file_registry_list: wrapHandler(async (args) => {
@@ -264,12 +195,6 @@ export function fileRegistryTools(db) {
             if (filterType !== undefined && filterType !== null) {
                 if (typeof filterType !== 'string' || !VALID_TYPES.has(filterType)) {
                     return err(`Invalid type filter ${JSON.stringify(filterType)}: must be one of source | test | config | doc | unknown`);
-                }
-            }
-            const filterLanguage = args['language'];
-            if (filterLanguage !== undefined && filterLanguage !== null) {
-                if (typeof filterLanguage !== 'string') {
-                    return err('language filter must be a string');
                 }
             }
             let limit = DEFAULT_LIMIT;
@@ -294,10 +219,6 @@ export function fileRegistryTools(db) {
                 conditions.push('type = ?');
                 params.push(filterType);
             }
-            if (filterLanguage) {
-                conditions.push('language = ?');
-                params.push(filterLanguage);
-            }
             const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
             const totalRow = db.get(`SELECT COUNT(*) AS n FROM file_registry ${where}`, params);
             const total = totalRow?.n ?? 0;
@@ -308,15 +229,17 @@ export function fileRegistryTools(db) {
                 total,
             });
         }),
-        file_registry_delete: requireRoles('file_registry_delete', ['architect', 'bro'], wrapHandler(async (args) => {
+        file_registry_delete: requireRoles('file_registry_delete', ['bro'], wrapHandler(async (args) => {
             const pathErr = validatePath(args['path']);
             if (pathErr)
                 return err(pathErr);
             const path = args['path'];
-            const result = db.run(`DELETE FROM file_registry WHERE path = ?`, [path]);
+            const repo = typeof args['repo'] === 'string' ? args['repo'] : '';
+            const result = db.run(`DELETE FROM file_registry WHERE repo = ? AND path = ?`, [repo, path]);
             return ok({ deleted: result.changes > 0 ? 1 : 0 });
         })),
         file_registry_verify: wrapHandler(async (args) => {
+            const repoFilter = typeof args['repo'] === 'string' ? args['repo'] : null;
             const inputPaths = args['paths'];
             let pathFilter = null;
             if (inputPaths !== undefined && inputPaths !== null) {
@@ -330,40 +253,43 @@ export function fileRegistryTools(db) {
                 }
                 pathFilter = new Set(inputPaths);
             }
-            const rows = db.all(`SELECT path, content_md5 FROM file_registry`);
+            const rows = repoFilter !== null
+                ? db.all(`SELECT repo, path, content_md5 FROM file_registry WHERE repo = ?`, [repoFilter])
+                : db.all(`SELECT repo, path, content_md5 FROM file_registry`);
             const registryPaths = new Set(rows.map((r) => r.path));
             const verdicts = [];
             for (const row of rows) {
                 const abs = resolveProjectPath(row.path);
                 if (!existsSync(abs)) {
-                    verdicts.push({ path: row.path, verdict: 'missing' });
+                    verdicts.push({ repo: row.repo, path: row.path, verdict: 'missing' });
                     continue;
                 }
                 try {
                     const stat = statSync(abs);
                     if (!stat.isFile()) {
-                        verdicts.push({ path: row.path, verdict: 'missing' });
+                        verdicts.push({ repo: row.repo, path: row.path, verdict: 'missing' });
                         continue;
                     }
                     const currentMd5 = md5OfPath(abs);
                     if (row.content_md5 === null) {
-                        verdicts.push({ path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
+                        verdicts.push({ repo: row.repo, path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
                     }
                     else if (currentMd5 === row.content_md5) {
-                        verdicts.push({ path: row.path, verdict: 'match' });
+                        verdicts.push({ repo: row.repo, path: row.path, verdict: 'match' });
                     }
                     else {
-                        verdicts.push({ path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
+                        verdicts.push({ repo: row.repo, path: row.path, verdict: 'mismatch', current_md5: currentMd5 });
                     }
                 }
                 catch (e) {
-                    verdicts.push({ path: row.path, verdict: 'missing' });
+                    verdicts.push({ repo: row.repo, path: row.path, verdict: 'missing' });
                 }
             }
             if (pathFilter !== null) {
                 for (const p of pathFilter) {
                     if (!registryPaths.has(p)) {
-                        verdicts.push({ path: p, verdict: 'new' });
+                        const repo = repoFilter ?? '';
+                        verdicts.push({ repo, path: p, verdict: 'new' });
                     }
                 }
             }
@@ -385,6 +311,20 @@ export function fileRegistryTools(db) {
                 if (typeof update.summary !== 'string') {
                     return err('each update.summary must be a string');
                 }
+                if (update.summary.trim().length === 0) {
+                    return err('each update.summary must be a non-empty 1–2 line description (got empty / whitespace-only)');
+                }
+                if (update.repo !== undefined && update.repo !== null) {
+                    if (typeof update.repo !== 'string' || update.repo.length === 0) {
+                        return err('each update.repo must be a non-empty string when provided');
+                    }
+                    if (update.repo.length > 128) {
+                        return err('each update.repo must be 128 characters or fewer');
+                    }
+                    if (update.repo.includes('..') || update.repo.includes('/')) {
+                        return err('each update.repo must not contain ".." or "/" characters');
+                    }
+                }
             }
             const advance = args['advance_verified_sha'];
             if (advance !== undefined && advance !== null && typeof advance !== 'string') {
@@ -395,9 +335,42 @@ export function fileRegistryTools(db) {
             const errors = [];
             const commitSha = typeof advance === 'string' && advance.length > 0 ? advance : null;
             for (const u of updates) {
-                const abs = resolveProjectPath(u.path);
+                const explicitRepo = typeof u.repo === 'string' && u.repo.length > 0 ? u.repo : null;
+                let resolvedRepoName = null;
+                let repoRoot = null;
+                if (explicitRepo !== null) {
+                    const repoRow = db.get(`SELECT path FROM repos WHERE name = ?`, [explicitRepo]);
+                    if (!repoRow?.path) {
+                        errors.push({
+                            path: u.path,
+                            error: `repo '${explicitRepo}' not found in repos table — run /scan to populate`,
+                        });
+                        continue;
+                    }
+                    resolvedRepoName = explicitRepo;
+                    repoRoot = repoRow.path;
+                }
+                else {
+                    const defaultRepo = resolveDefaultRepo(db, dbPath);
+                    if (defaultRepo) {
+                        resolvedRepoName = defaultRepo.name;
+                        repoRoot = defaultRepo.path;
+                    }
+                    else if (!dbPath) {
+                        resolvedRepoName = '';
+                        repoRoot = process.cwd();
+                    }
+                    else {
+                        errors.push({
+                            path: u.path,
+                            error: 'no repo specified and tmb_default_repo not set — pass repo or run /scan first',
+                        });
+                        continue;
+                    }
+                }
+                const abs = isAbsolute(u.path) ? u.path : resolve(repoRoot, u.path);
                 let md5 = null;
-                // Try the project-root disk path first (cheap; covers the steady
+                // Try the resolved repo disk path first (cheap; covers the steady
                 // state where the file has merged back to main).
                 if (existsSync(abs)) {
                     try {
@@ -411,7 +384,18 @@ export function fileRegistryTools(db) {
                 // commit whose changes live in .claude/worktrees/<slug>/, not at
                 // the project root). Read the committed content via `git show`.
                 if (md5 === null && commitSha !== null) {
-                    const buf = readFromCommit(commitSha, u.path);
+                    const buf = (() => {
+                        try {
+                            return execFileSync('git', ['show', `${commitSha}:${u.path}`], {
+                                cwd: repoRoot,
+                                stdio: ['ignore', 'pipe', 'ignore'],
+                                maxBuffer: 64 * 1024 * 1024,
+                            });
+                        }
+                        catch {
+                            return null;
+                        }
+                    })();
                     if (buf !== null)
                         md5 = md5OfBuffer(buf);
                 }
@@ -424,20 +408,18 @@ export function fileRegistryTools(db) {
                     });
                     continue;
                 }
-                db.run(`INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
-             VALUES (?, 'unknown', ?, ?, ?)
-             ON CONFLICT(path) DO UPDATE SET
+                db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+             VALUES (?, ?, 'unknown', ?, ?, ?)
+             ON CONFLICT(repo, path) DO UPDATE SET
                content_md5        = excluded.content_md5,
                summary            = excluded.summary,
-               summary_updated_at = excluded.summary_updated_at`, [u.path, md5, u.summary, now]);
+               summary_updated_at = excluded.summary_updated_at`, [resolvedRepoName, u.path, md5, u.summary, now]);
                 updated += 1;
             }
             if (typeof advance === 'string' && advance.length > 0) {
-                db.run(`INSERT INTO plugin_config (key, value_json, updated_at)
-             VALUES ('last_verified_sha', ?, ?)
-             ON CONFLICT(key) DO UPDATE SET
-               value_json = excluded.value_json,
-               updated_at = excluded.updated_at`, [JSON.stringify(advance), now]);
+                db.run(`INSERT INTO plugin_config (key, value_json)
+             VALUES ('last_verified_sha', ?)
+             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [JSON.stringify(advance)]);
             }
             return ok({ updated, errors, advance_verified_sha: typeof advance === 'string' ? advance : null });
         })),

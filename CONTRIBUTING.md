@@ -10,6 +10,23 @@ Thanks for the interest. Public MIT-licensed plugin for Claude Code. Contributio
 4. `bash tests/run-all.sh` — full suite must be green.
 5. Open a PR targeting `dev`. Reference the issue with `Closes #N`.
 
+### Submitting via GitLab (primary host since 2026-04-28)
+
+The primary repo is now `gitlab.com/trustmybot/plugin`. To submit changes:
+
+1. Fork or clone the GitLab repo:
+   ```bash
+   git clone git@gitlab.com:trustmybot/plugin.git
+   ```
+2. Branch off `dev`, make your change, run `bash tests/run-all.sh` (L1–L4 must pass)
+3. Push and open a merge request:
+   ```bash
+   glab mr create --target-branch dev --title "<emoji> <type>(<scope>): <summary>"
+   ```
+4. Address review feedback; merge happens via GitLab UI or `glab mr merge`.
+
+The GitHub mirror (`github.com/trustmybot/plugin`, account currently suspended) remains as a backup. Once restored we may switch primary host back — the contribution flow stays the same shape.
+
 ## Label vocabulary
 
 This project uses Linear-native flat labels (`Bug`, `Feature`, `Install`, `Workflow`, `Priority: High`, etc.) — see [`docs/contributing/LABELS.md`](docs/contributing/LABELS.md) for the canonical list and [`docs/contributing/ENUMS.md`](docs/contributing/ENUMS.md) for the matching DB ENUM vocabulary. The label set is enforced by `tests/lint/labels-stable.sh`. When filing an issue, pick from the existing labels — adding a new label is a doctrine change.
@@ -107,7 +124,7 @@ No required-approvals (solo dev). Once a second maintainer joins, flip `required
 |---|---|---|---|
 | `test.yml` (L0–L4) | `push` to `dev`/`main`, `pull_request` to `dev`/`main` | dev, main, PRs | free |
 | `l5-dogfood.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*`, `pull_request` labeled `L5` | RC tags + dev/rc dispatch | ~$1–3/run |
-| `release-canary.yml` (was `l5-l6-combined.yml`) | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*` | RC tags + dev/rc dispatch | ~$1–3/run |
+| `release-canary.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*` | RC tags + dev/rc dispatch | ~$1–3/run |
 
 Stable `v*` tags from main do **not** fire token-heavy tests — that validation already happened on the matching `v*-rc.*` cut. Spending tokens on a known-good cut is waste.
 
@@ -145,7 +162,7 @@ Every code change should add or update tests.
 - [ ] `CHANGELOG.md` updated for user-visible changes.
 - [ ] If the edit affects a workflow contract, update every agent template body AND every consuming skill that cites it — not just one. Remember: agent templates are the immutable Lego stud, skills are the bricks. Behavior changes go in skills; identity changes go in templates.
 - [ ] If the edit changes a `tmb_*` skill's contract, also update the lint assertions in `tests/lint/` if a contract is involved.
-- [ ] If the edit touches the SQLite schema, regenerate the ER diagram in `docs/architecture/ERD.md` and update the `requireRoles` matrix in `mcp/trajectory-server/src/middleware/agent-scope.ts`.
+- [ ] If the edit touches the SQLite schema, rebuild the ER diagram in `docs/architecture/ERD.md` and update the `requireRoles` matrix in `mcp/trajectory-server/src/middleware/agent-scope.ts`.
 - [ ] PR description names the issue (`Closes #N`).
 
 ## Filing an issue
@@ -164,6 +181,10 @@ If you're proposing a big change, check these first.
 4. **Lego layering.** Three layers, never confused: agent file = identity (immutable), `skills:` array on the project copy = capabilities (additive via `tmb_skill-creator`), spawn prompt = task context (per-call). Don't edit the template body to add behavior — extend `skills:`.
 5. **Override per project.** Any agent template can be overridden by editing the same-named file in the project's `.claude/agents/`. Local wins. Plugin-shipped protocol skills (`tmb_*` in `plugin/skills/`) are reserved and cannot be name-overridden.
 6. **Server-enforced decision chain.** `requireRoles` middleware in `mcp/trajectory-server/src/middleware/agent-scope.ts` rejects calls that violate the chain (e.g. consultants trying to write `task_create_batch`). Doctrine isn't just prompt discipline — it's wire-enforced.
+
+## Out of scope
+
+**Enterprise features** (SSO, RBAC, SOC2, audit export, multi-tenant role boundaries) are intentionally deferred until at least 3 unsolicited paying-customer inquiries land in the inbox. Until then, optimization stays focused on the solo/small-team workflow.
 
 ## Performance
 
@@ -187,7 +208,7 @@ Historical perf-cycle records live in git history (PR #63 baseline, PR #64 optim
 
 ## Multi-platform structure
 
-The repo follows the [`obra/superpowers`](https://github.com/obra/superpowers) pattern: shared `skills/`, `templates/`, and `mcp/` at the root, with thin per-platform manifests in `.<platform>-plugin/` directories. Today only `.claude-plugin/` is implemented; `.codex-plugin/`, `.cursor-plugin/`, `.opencode/`, and `gemini-extension.json` are placeholders. See [`docs/multi-platform.md`](docs/multi-platform.md) for the strategy and what an adapter would do. Adapters get built when there's user demand; until then, contributions should target Claude Code only.
+The repo follows the [`obra/superpowers`](https://github.com/obra/superpowers) pattern: shared `skills/`, `templates/`, and `mcp/` at the root, with thin per-platform manifests in `.<platform>-plugin/` directories. Today only `.claude-plugin/` is implemented; `.codex-plugin/`, `.cursor-plugin/`, `.opencode/`, and `gemini-extension.json` are placeholders. See [`docs/MULTI_PLATFORM.md`](docs/MULTI_PLATFORM.md) for the strategy and what an adapter would do. Adapters get built when there's user demand; until then, contributions should target Claude Code only.
 
 ## Code of conduct
 

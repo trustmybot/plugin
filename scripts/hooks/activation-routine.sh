@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Activation-routine hook (#108).
 #
-# Pre-fetches identity + pending issue from the trajectory DB on every
+# Pre-fetches onboarded marker + pending issue from the trajectory DB on every
 # bro-triggered UserPromptSubmit, and injects them as additionalContext.
 # Bro composes the welcome banner from the injected data instead of relying
-# on prompt-only doctrine to call identity_get + issue_resume — h4 A/B
+# on prompt-only doctrine to call onboard_state_get + issue_resume — h4 A/B
 # proved that ceiling is 0/10 in both wording arms.
 #
 # Bro mode active when:
@@ -53,20 +53,52 @@ if [ -z "$DB_PATH" ]; then
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
     PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
   fi
-  DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
+  # #2872: walk up from PWD to find the live DB. Workspace-pattern projects
+  # keep .claude/<plugin>/trajectory.db at the workspace root above the
+  # inner repos; without walk-up the hook (PWD = inner repo) reads a stale
+  # empty seed and the MCP server reads the workspace one — false 'first
+  # contact' on every turn.
+  #
+  # P0 guard: never traverse INTO the user's HOME from a descendant cwd.
+  # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or
+  # a test artifact) used to be silently adopted as the live DB on every
+  # launch from any project below HOME — project state escaped into the
+  # profile. Mirrors the corresponding fix in db.ts's findExistingDbUp.
+  dir="$PWD"
+  for _ in 1 2 3 4 5 6 7 8; do
+    if [ "$dir" = "$HOME" ] && [ "$PWD" != "$HOME" ]; then
+      break
+    fi
+    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
+    if [ -f "$candidate" ]; then
+      DB_PATH="$candidate"
+      break
+    fi
+    parent=$(dirname "$dir")
+    [ "$parent" = "$dir" ] && break
+    dir="$parent"
+  done
+  [ -z "$DB_PATH" ] && DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
 fi
 
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-IDENTITY=$(sqlite3 "$DB_PATH" "SELECT human_name FROM identity LIMIT 1;" 2>/dev/null)
-PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" "SELECT id, objective FROM issues WHERE status='open' ORDER BY id DESC LIMIT 1;" 2>/dev/null)
+ONBOARDED_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';" 2>/dev/null)
+PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" \
+  "SELECT id, objective FROM issues WHERE status='open' AND id > 0 ORDER BY id DESC LIMIT 1;" \
+  2>/dev/null)
 
-if [ -n "$IDENTITY" ]; then
-  IDENTITY_LINE="identity=${IDENTITY}"
+# Two states the hook must distinguish:
+#   - row absent  → first contact; bro must auto-fire /onboard
+#   - row present → onboarded (pure marker — no name or other fields are stored)
+FIRST_RUN=0
+if [ "$ONBOARDED_ROW_COUNT" = "0" ]; then
+  FIRST_RUN=1
+  ONBOARDED_LINE="onboarded=<no — FIRST CONTACT, auto-fire /onboard before any reply>"
 else
-  IDENTITY_LINE="identity=<unset> (use anonymous greeting)"
+  ONBOARDED_LINE="onboarded=yes"
 fi
 
 if [ -n "$PENDING" ]; then
@@ -77,7 +109,11 @@ else
   PENDING_LINE="pending=<none>"
 fi
 
-CONTEXT="[tmb activation routine — pre-fetched by hook] ${IDENTITY_LINE}; ${PENDING_LINE}. Use this to compose the welcome banner; do NOT also call identity_get / issue_resume — they would be redundant duplicate reads."
+if [ "$FIRST_RUN" = "1" ]; then
+  CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}; ${PENDING_LINE}. ACTION: this is the user's first contact in this project — call \`onboard_state_get(agent='bro')\` and run the \`/onboard\` slash command flow IMMEDIATELY before any reply (auto-fire doctrine, no permission gate). Do not greet, do not answer the user's prompt, do not call issue_resume separately — onboard_state_get returns everything you need."
+else
+  CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}; ${PENDING_LINE}. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads."
+fi
 
 jq -nc --arg ctx "$CONTEXT" '{
   hookSpecificOutput: {

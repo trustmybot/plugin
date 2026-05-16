@@ -6,7 +6,7 @@ import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note']);
+const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -53,10 +53,15 @@ export function discussionTools(db: TrajectoryDB): {
           author: { type: 'string', description: 'Author of this entry (agent name or human)' },
           kind: {
             type: 'string',
-            enum: ['intent', 'question', 'answer', 'decision', 'note'],
+            enum: ['intent', 'question', 'answer', 'decision', 'note', 'analysis'],
             description: 'Entry kind. Default: note',
           },
           body: { type: 'string', description: 'Markdown body of the discussion entry' },
+          verified_human: {
+            type: 'boolean',
+            description:
+              'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only — not persisted.',
+          },
         },
         required: ['agent', 'issue_id', 'author', 'body'],
       },
@@ -94,7 +99,7 @@ export function discussionTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     discussion_append: requireRoles(
       'discussion_append',
-      ['bro', 'architect', 'swe', 'pr-reviewer'],
+      ['bro', 'swe', 'pr-reviewer', 'consultant'],
       wrapHandler(async (args) => {
         normalizeAgent(args['agent'] as string | undefined);
         const issueId = requireArg(args, 'issue_id') as string;
@@ -110,6 +115,14 @@ export function discussionTools(db: TrajectoryDB): {
 
         if (!author.trim()) {
           throw new Error('author must be a non-empty string');
+        }
+
+        const verifiedHuman = Boolean(args['verified_human']);
+
+        if (author === 'human' && !verifiedHuman) {
+          throw new Error(
+            'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.',
+          );
         }
 
         const issue = db.get<Issue>('SELECT id FROM issues WHERE id = ?', [issueId]);

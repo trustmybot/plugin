@@ -1,0 +1,6 @@
+{
+  "expected_writes": {
+    "issues WHERE objective = 'Add a CLI entry point (resume)'": "=1",
+    "tasks WHERE branch_id = 'feat/seed-cli'": "=1"
+  }
+}

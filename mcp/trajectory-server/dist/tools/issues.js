@@ -1,5 +1,14 @@
+import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
+import { resolveBackend, detectPreferred } from '../sync/backend.js';
+import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
+import { serverLog } from '../logger.js';
+// Sync paths pass labels through to the remote (GitLab / GitHub) via
+// syncIssueCreate, but they aren't persisted in the local issues table.
+function decodeIssue(row) {
+    return { ...row };
+}
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -25,7 +34,10 @@ function wrapHandler(fn) {
         }
     };
 }
-export function issueTools(db) {
+function resolveSpawnCwd(db, dbPath) {
+    return resolveDefaultRepoPath(db, dbPath);
+}
+export function issueTools(db, dbPath = '') {
     const definitions = [
         {
             name: 'issue_create',
@@ -36,6 +48,7 @@ export function issueTools(db) {
                     agent: { type: 'string', description: 'Caller agent name' },
                     objective: { type: 'string', description: 'Short one-liner summary' },
                     description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
+                    labels: { type: 'array', items: { type: 'string' }, description: 'Optional labels to apply to the remote issue.' },
                 },
                 required: ['agent', 'objective'],
             },
@@ -73,7 +86,6 @@ export function issueTools(db) {
                 properties: {
                     agent: { type: 'string' },
                     issue_id: { type: 'string' },
-                    post_git_sha: { type: 'string', description: 'Git SHA after issue work is done' },
                 },
                 required: ['agent', 'issue_id'],
             },
@@ -108,6 +120,31 @@ export function issueTools(db) {
                 required: ['agent'],
             },
         },
+        {
+            name: 'issue_update_description',
+            description: "Update an issue's description. Used by bro to backfill issues whose descriptions were truncated on import (e.g., from Linear).",
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
+                    issue_id: { type: 'string', description: 'Issue ID as string' },
+                    description: { type: 'string', description: 'Full markdown description (no length cap)' },
+                },
+                required: ['agent', 'issue_id', 'description'],
+            },
+        },
+        {
+            name: 'issue_sync_retry',
+            description: 'Manually retry remote sync for an issue where auto-sync failed. Bro only.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
+                    issue_id: { type: 'string', description: 'Issue ID as string' },
+                },
+                required: ['agent', 'issue_id'],
+            },
+        },
     ];
     const handlers = {
         issue_create: requireRoles('issue_create', ['bro'], wrapHandler(async (args) => {
@@ -115,35 +152,107 @@ export function issueTools(db) {
             requireArg(args, 'objective');
             const objective = args['objective'];
             const description = args['description'] ?? '';
+            // labels: pass-through to remote sync; not persisted locally after #179.
+            const labels = args['labels'] ?? [];
+            // _spawnFn: test-only injection point; not in inputSchema
+            const spawnFn = args['_spawnFn'] ?? undefined;
             const now = nowISO();
-            const preGitSha = process.env['PRE_GIT_SHA'] ?? '';
-            db.run(`INSERT INTO issues (objective, description, pre_commit_hash, status, created_at, updated_at)
-         VALUES (?, ?, ?, 'open', ?, ?)`, [objective, description, preGitSha, now, now]);
+            db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at)
+         VALUES (?, ?, 'open', ?, ?)`, [objective, description, now, now]);
             const rowId = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
             if (!rowId) {
                 throw new Error('issue_create: failed to retrieve inserted row');
             }
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [rowId.id]);
+            const issueId = rowId.id;
+            const syncConfigRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+            const syncConfig = syncConfigRow
+                ? JSON.parse(syncConfigRow.value_json)
+                : 'off';
+            // #2871 — collect any sync diagnostic that the caller (bro) should
+            // see inline. The trajectory log alone is invisible to the agent.
+            let syncDiagnostic;
+            if (syncConfig !== 'off') {
+                const backend = resolveBackend(syncConfig);
+                if (backend === null) {
+                    serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
+                }
+                else if (backend !== 'off') {
+                    const syncResult = await syncIssueCreate({
+                        issueId,
+                        title: objective,
+                        body: description,
+                        labels,
+                        _backend: backend,
+                        _spawnFn: spawnFn,
+                        _cwd: resolveSpawnCwd(db, dbPath),
+                    });
+                    if (!isSyncFailure(syncResult)) {
+                        db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, updated_at = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, now, issueId]);
+                    }
+                    else {
+                        serverLog({
+                            event: 'issue_sync_failed',
+                            issueId,
+                            backend,
+                            reason: syncResult.reason,
+                            exit_code: syncResult.exit_code,
+                            stderr: syncResult.stderr?.slice(0, 1024),
+                            message: syncResult.message,
+                        });
+                        syncDiagnostic = {
+                            sync_failed: true,
+                            reason: syncResult.reason,
+                            backend: syncResult.backend,
+                            exit_code: syncResult.exit_code,
+                            stderr: syncResult.stderr?.slice(0, 4096),
+                            stdout: syncResult.stdout?.slice(0, 4096),
+                            message: syncResult.message,
+                            hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+                        };
+                    }
+                }
+            }
+            else {
+                // #2871 Bug 1 — work env had `issue_sync='off'` while origin pointed at
+                // GitLab; issues silently never reached the remote. Surface a warning
+                // when the project clearly looks remote-tracked (git origin is gh/glab)
+                // but sync is disabled, so bro can mention it instead of hiding the drift.
+                const preferred = detectPreferred();
+                if (preferred !== null) {
+                    syncDiagnostic = {
+                        sync_skipped: true,
+                        reason: 'issue_sync is "off" but origin points at ' + preferred,
+                        hint: 'If this project should mirror issues to the remote, run `config_set(key="issue_sync", value="auto")`.',
+                    };
+                }
+            }
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            const issue = decodeIssue(row);
             const redacted = redactIssue(issue, agent, { include_description: true });
-            return ok(redacted);
+            const payload = { ...redacted };
+            if (syncDiagnostic)
+                payload._sync = syncDiagnostic;
+            return ok(payload);
         })),
         issue_get: wrapHandler(async (args) => {
             const agent = normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
             const includeDescription = args['include_description'] ?? false;
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            if (!issue) {
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!row) {
                 throw new Error(`Not found: ${issueId}`);
             }
+            const issue = decodeIssue(row);
             return ok(redactIssue(issue, agent, { include_description: includeDescription }));
         }),
         issue_resume: wrapHandler(async (args) => {
             const agent = normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            if (!issue) {
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!row) {
                 throw new Error(`Not found: ${issueId}`);
             }
+            const issue = decodeIssue(row);
             const task = db.get(`SELECT * FROM tasks
          WHERE issue_id = ? AND status IN ('pending', 'failed')
          ORDER BY branch_id ASC
@@ -153,32 +262,44 @@ export function issueTools(db) {
         issue_close: requireRoles('issue_close', ['bro'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
-            const postGitSha = args['post_git_sha'] ?? null;
             const now = nowISO();
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            if (!issue) {
+            const existing = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!existing) {
                 throw new Error(`Not found: ${issueId}`);
             }
-            if (postGitSha !== null) {
-                db.run(`UPDATE issues
-           SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?), post_commit_hash = ?
-           WHERE id = ?`, [now, now, postGitSha, issueId]);
-            }
-            else {
-                db.run(`UPDATE issues
-           SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-           WHERE id = ?`, [now, now, issueId]);
+            db.run(`UPDATE issues
+         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
+         WHERE id = ?`, [now, now, issueId]);
+            const remoteRow = db.get(`SELECT remote_iid, remote_kind FROM issues WHERE id = ?`, [issueId]);
+            if (remoteRow?.remote_iid != null && remoteRow.remote_kind != null) {
+                const closeResult = await syncIssueClose({
+                    remote_iid: remoteRow.remote_iid,
+                    remote_kind: remoteRow.remote_kind,
+                    _cwd: resolveSpawnCwd(db, dbPath),
+                });
+                if (!closeResult.ok) {
+                    serverLog({
+                        event: 'issue_close_sync_failed',
+                        issueId,
+                        remote_iid: remoteRow.remote_iid,
+                        reason: closeResult.reason,
+                        exit_code: closeResult.exit_code,
+                        stderr: closeResult.stderr?.slice(0, 1024),
+                        message: closeResult.message,
+                    });
+                }
             }
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            return ok(updated);
+            return ok(decodeIssue(updated));
         })),
         issue_get_phase: wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
-            const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
-            if (!issue) {
+            const issueRow = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!issueRow) {
                 throw new Error(`Not found: ${issueId}`);
             }
+            const issue = decodeIssue(issueRow);
             const counts = db.get(`SELECT
            COUNT(*) as tasks_total,
            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_completed,
@@ -191,11 +312,11 @@ export function issueTools(db) {
             else if (counts.tasks_total === 0) {
                 phase = 'discussion';
             }
-            else if (counts.tasks_completed < counts.tasks_total) {
-                phase = 'tasks';
+            else if (counts.tasks_completed >= counts.tasks_total) {
+                phase = 'ready_to_close';
             }
             else {
-                phase = 'blueprint';
+                phase = 'tasks';
             }
             return ok({ phase, counts });
         }),
@@ -219,6 +340,94 @@ export function issueTools(db) {
             }
             return ok(rows);
         }),
+        issue_update_description: requireRoles('issue_update_description', ['bro'], wrapHandler(async (args) => {
+            const issueId = requireArg(args, 'issue_id');
+            const description = requireArg(args, 'description');
+            const MAX_DESCRIPTION_BYTES = 1024 * 1024; // 1MB
+            if (Buffer.byteLength(description, 'utf8') > MAX_DESCRIPTION_BYTES) {
+                return err('description exceeds 1MB limit');
+            }
+            const existing = db.get('SELECT id FROM issues WHERE id = ?', [issueId]);
+            if (!existing) {
+                return err(`not_found: issue ${issueId}`);
+            }
+            const now = nowISO();
+            db.run('UPDATE issues SET description = ?, updated_at = ? WHERE id = ?', [description, now, issueId]);
+            const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            return ok(decodeIssue(updated));
+        })),
+        issue_sync_retry: requireRoles('issue_sync_retry', ['bro'], wrapHandler(async (args) => {
+            const issueId = requireArg(args, 'issue_id');
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!row) {
+                return err(`not_found: issue ${issueId}`);
+            }
+            const syncConfigRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+            const syncConfig = syncConfigRow
+                ? JSON.parse(syncConfigRow.value_json)
+                : 'off';
+            if (syncConfig === 'off') {
+                return ok({ skipped: true, reason: 'issue_sync is off' });
+            }
+            const backend = resolveBackend(syncConfig);
+            if (backend === null || backend === 'off') {
+                return ok({ skipped: true, reason: 'no remote backend configured' });
+            }
+            const issue = decodeIssue(row);
+            if (row.status === 'closed' && row.remote_iid != null && row.remote_kind != null) {
+                const closeResult = await syncIssueClose({
+                    remote_iid: row.remote_iid,
+                    remote_kind: row.remote_kind,
+                });
+                if (closeResult.ok) {
+                    return ok({ action: 'close', success: true });
+                }
+                // #2871: surface the diagnostic so bro can see why the close failed
+                // instead of just `{success:false}`.
+                return ok({
+                    action: 'close',
+                    success: false,
+                    error: {
+                        reason: closeResult.reason,
+                        exit_code: closeResult.exit_code,
+                        stderr: closeResult.stderr?.slice(0, 4096),
+                        stdout: closeResult.stdout?.slice(0, 4096),
+                        message: closeResult.message,
+                    },
+                });
+            }
+            const syncResult = await syncIssueCreate({
+                issueId: row.id,
+                title: issue.objective,
+                body: row.description,
+                // Labels are not persisted locally after #179 (always-empty in
+                // production). Remote retry can't restore lost labels; pass empty.
+                labels: [],
+                _backend: backend,
+                // #2877: workspace-pattern projects need glab/gh shellouts to run
+                // inside one of the discovered repos, not the workspace root which
+                // isn't a git repo. resolveSpawnCwd reads tmb_default_repo.
+                _cwd: resolveSpawnCwd(db, dbPath),
+            });
+            if (!isSyncFailure(syncResult)) {
+                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, updated_at = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, nowISO(), issueId]);
+                return ok({ action: 'create', success: true, remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind });
+            }
+            // #2871: surface the diagnostic so bro can see why the create failed
+            // instead of just `{success:false}` with no clue.
+            return ok({
+                action: 'create',
+                success: false,
+                error: {
+                    reason: syncResult.reason,
+                    backend: syncResult.backend,
+                    exit_code: syncResult.exit_code,
+                    stderr: syncResult.stderr?.slice(0, 4096),
+                    stdout: syncResult.stdout?.slice(0, 4096),
+                    message: syncResult.message,
+                },
+            });
+        })),
     };
     return { definitions, handlers };
 }

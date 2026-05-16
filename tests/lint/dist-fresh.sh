@@ -27,7 +27,7 @@ if [ ! -x ./node_modules/.bin/tsc ]; then
 fi
 
 ./node_modules/.bin/tsc --outDir "$TMPDIR" >/dev/null
-cp src/schema.sql "$TMPDIR/schema.sql"
+cp src/schema*.sql "$TMPDIR/"
 
 # Diff (ignore .map files since their sourceRoot is path-dependent)
 DIFF_OUT=$(diff -ru \

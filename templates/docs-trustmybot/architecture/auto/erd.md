@@ -1,3 +1,3 @@
-<!-- Generated YYYY-MM-DD via /tmb refresh-architecture. Do not edit; regenerate. -->
+<!-- Auto-rendered placeholder. Do not edit. -->
 
-Run `/tmb refresh-architecture` to populate.
+Auto-rendered ER diagram lives here. Placeholder — not yet integrated.

@@ -46,6 +46,7 @@ export function validationTools(db) {
                     attempt_n: { type: 'number' },
                     verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
                     feedback: { type: 'string' },
+                    subagent_session_id: { type: 'string', description: 'Required when agent="pr-reviewer": the spawned pr-reviewer subagent\'s session ID.' },
                 },
                 required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
             },
@@ -71,8 +72,16 @@ export function validationTools(db) {
             requireArg(args, 'attempt_n');
             const verdict = requireArg(args, 'verdict');
             requireArg(args, 'feedback');
+            const subagentSessionId = (args['subagent_session_id'] ?? null);
+            if (agent === 'pr-reviewer' && !subagentSessionId) {
+                throw new Error('precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent\'s session ID). This prevents bro from self-authoring pr-reviewer verdicts.');
+            }
             if (!VALID_VERDICTS.has(verdict)) {
                 throw new Error(`Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`);
+            }
+            const feedbackArg = args['feedback'];
+            if (!/^MCP available: (yes|no)\b/.test(feedbackArg)) {
+                throw new Error('precondition_failed: validation_record.feedback must start with "MCP available: yes" or "MCP available: no — honor-system fallback" (LOAD-BEARING-SAFETY #97 — bro\'s push-gate parses this prefix to detect dead MCP). Prepend the line, then put your rationale on subsequent lines.');
             }
             const taskExists = db.get(`SELECT id FROM tasks WHERE id = ?`, [taskId]);
             if (!taskExists) {
@@ -82,13 +91,14 @@ export function validationTools(db) {
             const feedback = args['feedback'];
             const now = nowISO();
             db.run(`INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+           (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_id, attempt_n) DO UPDATE SET
            agent = excluded.agent,
            verdict = excluded.verdict,
            feedback = excluded.feedback,
-           created_at = excluded.created_at`, [taskId, attemptN, agent, verdict, feedback, now]);
+           subagent_session_id = excluded.subagent_session_id,
+           created_at = excluded.created_at`, [taskId, attemptN, agent, verdict, feedback, subagentSessionId, now]);
             const row = db.get(`SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`, [taskId, attemptN]);
             return ok(row);
         })),

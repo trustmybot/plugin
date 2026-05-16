@@ -129,8 +129,10 @@ describe('configTools', () => {
     assert.ok(!result.isError);
     assert.deepEqual(parseResult(result), {
       branching_model: 'github-flow',
+      issue_sync: 'off',
       pr_target: 'main',
       protected_branches: ['main'],
+      remotes: [],
     });
 
     db.close();
@@ -144,10 +146,12 @@ describe('configTools', () => {
     const result = await call(tools.handlers, 'config_list', {});
     assert.ok(!result.isError);
     assert.deepEqual(parseResult(result), {
+      alpha: 'one',
       branching_model: 'github-flow',
+      issue_sync: 'off',
       pr_target: 'main',
       protected_branches: ['main'],
-      alpha: 'one',
+      remotes: [],
     });
 
     db.close();
@@ -163,30 +167,28 @@ describe('configTools', () => {
     const result = await call(tools.handlers, 'config_list', {});
     assert.ok(!result.isError);
     assert.deepEqual(parseResult(result), {
-      branching_model: 'github-flow',
-      pr_target: 'main',
-      protected_branches: ['main'],
       alpha: 1,
       beta: 2,
+      branching_model: 'github-flow',
       gamma: 3,
+      issue_sync: 'off',
+      pr_target: 'main',
+      protected_branches: ['main'],
+      remotes: [],
     });
 
     db.close();
   });
 
-  it('config_set called twice on same key updates value and bumps updated_at', async () => {
+  it('config_set called twice on same key updates value', async () => {
     const db = tempDB();
     const tools = configTools(db);
 
     const first = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'evolving', value: 'v1' });
-    const firstTs = parseResult(first).updated_at as string;
-
-    await new Promise((res) => setTimeout(res, 5));
+    assert.ok(!first.isError);
 
     const second = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'evolving', value: 'v2' });
-    const secondTs = parseResult(second).updated_at as string;
-
-    assert.ok(secondTs >= firstTs, 'second updated_at must be >= first');
+    assert.ok(!second.isError);
 
     const getResult = await call(tools.handlers, 'config_get', { key: 'evolving' });
     assert.equal(parseResult(getResult), 'v2');
@@ -219,15 +221,15 @@ describe('configTools', () => {
     db.close();
   });
 
-  it('config_set called with agent=architect is forbidden (post bro-as-planner)', async () => {
+  it('config_set called with agent=architect is forbidden (consultant role, not bro)', async () => {
     const db = tempDB();
     const tools = configTools(db);
 
     const result = await call(tools.handlers, 'config_set', { agent: 'architect', key: 'arch.key', value: 42 });
-    assert.ok(result.isError, 'Expected architect to be forbidden');
+    assert.ok(result.isError, 'Expected architect (consultant) to be forbidden');
     const payload = parseResult(result);
     assert.equal(payload.error, 'forbidden');
-    assert.equal(payload.caller_role, 'architect');
+    assert.equal(payload.caller_role, 'consultant');
 
     db.close();
   });

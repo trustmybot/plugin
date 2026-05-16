@@ -53,8 +53,26 @@ if [ -z "$DB_PATH" ]; then
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
     PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
   fi
-  REPO_ROOT_FOR_DB=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT_FOR_DB="$PWD"
-  DB_PATH="$REPO_ROOT_FOR_DB/.claude/$PLUGIN_NAME/trajectory.db"
+  # Walk up from PWD to find the live DB. Workspace-pattern projects keep
+  # .claude/<plugin>/trajectory.db at the workspace root above the inner
+  # git repos — git rev-parse --show-toplevel would resolve to the inner
+  # repo and miss the workspace-level DB. P0 guard: never traverse INTO
+  # $HOME from a descendant cwd. Mirrors activation-routine.sh.
+  dir="$PWD"
+  for _ in 1 2 3 4 5 6 7 8; do
+    if [ "$dir" = "$HOME" ] && [ "$PWD" != "$HOME" ]; then
+      break
+    fi
+    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
+    if [ -f "$candidate" ]; then
+      DB_PATH="$candidate"
+      break
+    fi
+    parent=$(dirname "$dir")
+    [ "$parent" = "$dir" ] && break
+    dir="$parent"
+  done
+  [ -z "$DB_PATH" ] && DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
 fi
 
 [ -f "$DB_PATH" ] || exit 0

@@ -1,0 +1,7 @@
+{
+  "expected_writes": {
+    "roundtables": ">=1",
+    "discussions WHERE kind='analysis'": ">=1",
+    "roundtable_votes": ">=1"
+  }
+}

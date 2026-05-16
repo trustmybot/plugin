@@ -53,8 +53,8 @@ RUN test -f mcp/trajectory-server/dist/schema.sql \
 # A3: MCP server spawns and responds to tools/list
 RUN echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
   | timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js 2>/dev/null \
-  | grep -q '"name":"identity_get"' \
- || (echo "❌ FAIL: MCP server did not respond with tools/list containing identity_get" && exit 1)
+  | grep -q '"name":"onboard_state_get"' \
+ || (echo "❌ FAIL: MCP server did not respond with tools/list containing onboard_state_get" && exit 1)
 
 # A3b: SQLite actually opens + a real tool call round-trips.
 # tools/list does NOT exercise the DB. v0.2.0 shipped broken because the
@@ -65,26 +65,28 @@ RUN echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
 RUN ( \
     echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'; \
     echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'; \
-    echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"identity_get","arguments":{"agent":"bro"}}}'; \
+    echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"onboard_state_get","arguments":{"agent":"bro"}}}'; \
     sleep 1; \
   ) \
   | TRAJECTORY_DB_PATH=/tmp/smoke-test.db timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js > /tmp/smoke-out.log 2>&1; \
-  # Two distinct asserts: identity_get-shaped result present AND no error frame for id=2.
-  # identity_get's success payload carries the literal "human_name" field; absence means it crashed.
-  grep -q 'human_name' /tmp/smoke-out.log \
+  # onboard_state_get's success payload carries first_run. MCP wraps the
+  # tool result in content[].text so the inner JSON is escaped — match
+  # `first_run` plus any non-alphabetic separator(s) before the value.
+  grep -qE 'first_run[^a-zA-Z]' /tmp/smoke-out.log \
    && ! grep '"id":2' /tmp/smoke-out.log | grep -q '"error"' \
-  || (echo "❌ FAIL: identity_get call failed — DB open or first-write broken"; \
+  || (echo "❌ FAIL: onboard_state_get call failed — DB open or first-write broken"; \
       cat /tmp/smoke-out.log; exit 1)
-RUN echo "✓ A3b: SQLite open + identity_get round-tripped"
+RUN echo "✓ A3b: SQLite open + onboard_state_get round-tripped"
 
 # A4: every shipped agent template parses (frontmatter + body, ≤30 lines)
 RUN bash tests/lint/agent-line-budget.sh \
  || (echo "❌ FAIL: agent-line-budget lint failed in clean install" && exit 1)
 
 # A5: hook scripts are executable + syntactically valid
-RUN for h in scripts/hooks/*.sh; do \
-      test -x "$h" || (echo "❌ FAIL: $h not executable" && exit 1); \
-      bash -n "$h" || (echo "❌ FAIL: $h has syntax error" && exit 1); \
+RUN set -e && \
+    for h in scripts/hooks/*.sh; do \
+      test -x "$h" || { echo "❌ FAIL: $h not executable" >&2; exit 1; }; \
+      bash -n "$h" || { echo "❌ FAIL: $h has syntax error" >&2; exit 1; }; \
     done
 
 # A6: every path-shaped arg in .mcp.json resolves in the installed tree.
@@ -103,6 +105,41 @@ RUN node -e ' \
     } \
   } \
 '
+
+# A7: schema migration — a legacy v1-shaped DB upgrades cleanly on first boot
+# under the published artifact. Catches the regression class where a user with
+# an existing trajectory.db installs a new plugin version and the MCP server
+# either crashes during applySchema (missing migration logic, NOT NULL on a
+# dropped column, etc.) or silently loses state (e.g. the onboarded marker).
+#
+# Seed minimum tables for a v1-shape DB: plugin_meta at schema_version=1,
+# plugin_config (translation target), identity table populated (legacy
+# onboarded marker, must be translated forward to plugin_config).
+RUN sqlite3 /tmp/legacy-v1.db "\
+  CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY, schema_version INTEGER NOT NULL, plugin_version TEXT NOT NULL); \
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL); \
+  CREATE TABLE identity (id INTEGER PRIMARY KEY); \
+  INSERT INTO plugin_meta VALUES (1, 1, '0.5.0'); \
+  INSERT INTO identity VALUES (1);"
+
+RUN ( \
+    echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'; \
+    echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'; \
+    echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"onboard_state_get","arguments":{"agent":"bro"}}}'; \
+    sleep 1; \
+  ) \
+  | TRAJECTORY_DB_PATH=/tmp/legacy-v1.db timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js > /tmp/upgrade-out.log 2>&1; \
+  test "$(sqlite3 /tmp/legacy-v1.db 'SELECT schema_version FROM plugin_meta')" = "2" \
+    || (echo "❌ FAIL: schema_version not bumped to 2 after upgrade"; cat /tmp/upgrade-out.log; exit 1); \
+  test "$(sqlite3 /tmp/legacy-v1.db "SELECT value_json FROM plugin_config WHERE key='onboarded'")" = "true" \
+    || (echo "❌ FAIL: onboarded marker not translated from legacy identity table"; cat /tmp/upgrade-out.log; exit 1); \
+  ls /tmp/legacy-v1.db.pre-v2.*.bak >/dev/null 2>&1 \
+    || (echo "❌ FAIL: no pre-migration .bak file written"; ls /tmp/legacy-v1.db.* 2>&1; exit 1); \
+  # MCP wraps the tool result in content[].text so the inner JSON is escaped
+  # (e.g. \"first_run\":false). Pattern tolerates either escaped or raw form.
+  grep -qE 'first_run[^a-zA-Z]+false' /tmp/upgrade-out.log \
+    || (echo "❌ FAIL: post-upgrade onboard_state_get did not return first_run=false"; cat /tmp/upgrade-out.log; exit 1)
+RUN echo "✓ A7: legacy v1 DB upgraded to v2; onboarded marker preserved; backup written"
 
 # Final marker so the build log shows we made it all the way
 RUN echo "✓ Layer 0 install-smoke: all assertions passed"

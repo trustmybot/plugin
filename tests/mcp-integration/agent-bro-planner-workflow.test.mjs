@@ -33,13 +33,13 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
   // 3. Create a task
   const batch = await call(client, 'task_create_batch', {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+    waive_branch_gate: true, waive_branch_gate_reason: 'integration-test fixture; branch gate not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic triage; not under test',
     agent: 'bro',
     issue_id: issueId,
     tasks: [{
       branch_id: 'feat/hello-endpoint',
       title: 'Add /hello endpoint',
       description: 'Wire up a 200 OK handler returning {msg:"hello"}.',
-      success_criteria: '200 OK body matches',
       spec_body: '# Task: /hello endpoint\n\nAdd handler, test, commit.',
     }],
   });
@@ -68,7 +68,6 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
   const closed = await call(client, 'issue_close', {
     agent: 'bro',
     issue_id: issueId,
-    post_git_sha: 'abc1234',
   });
   assert.equal(closed.ok, true, `issue_close: ${JSON.stringify(closed)}`);
 });
@@ -123,7 +122,6 @@ test('bro (planner) — skill_register + skill_promote lifecycle', async (t) => 
     description: 'smoke',
     file_path: 'skills/test-skill/SKILL.md',
     trust_tier: 'curated',
-    created_by: 'bro',
   });
   assert.equal(reg.ok, true, `skill_register: ${JSON.stringify(reg)}`);
 

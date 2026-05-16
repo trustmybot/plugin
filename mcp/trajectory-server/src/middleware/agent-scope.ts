@@ -3,22 +3,19 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export type AgentRole =
   | 'bro'
-  | 'architect'
   | 'swe'
   | 'pr-reviewer'
+  | 'consultant'
   | 'unknown';
 
-const KNOWN_ROLES = new Set<AgentRole>([
-  'bro',
-  'architect',
-  'swe',
-  'pr-reviewer',
-]);
+const FIRST_CLASS_ROLES = new Set<AgentRole>(['bro', 'swe', 'pr-reviewer']);
 
 export function normalizeAgent(name?: string): AgentRole {
   if (!name) return 'unknown';
-  const lower = name.toLowerCase() as AgentRole;
-  return KNOWN_ROLES.has(lower) ? lower : 'unknown';
+  const lower = name.toLowerCase();
+  if (FIRST_CLASS_ROLES.has(lower as AgentRole)) return lower as AgentRole;
+  if (/^[a-z][a-z0-9_-]*$/.test(lower)) return 'consultant';
+  return 'unknown';
 }
 
 export interface ValidationAttempt {
@@ -63,15 +60,14 @@ export function redactIssue(
   opts?: { include_description?: boolean },
 ): Partial<Issue> {
   if (agent === 'swe' || agent === 'unknown') {
-    const { description: _, pre_commit_hash: __, ...rest } = issue;
+    const { description: _, ...rest } = issue;
     void _;
-    void __;
     const truncated =
       rest.objective.length > 120 ? rest.objective.slice(0, 120) + '...' : rest.objective;
     return { ...rest, objective: truncated };
   }
 
-  // Architect and bro are full-trust; description gated only on opts.include_description.
+  // Bro, consultants, and pr-reviewer are full-trust; description gated only on opts.include_description.
   if (!opts?.include_description) {
     const { description: _, ...rest } = issue;
     void _;
@@ -94,14 +90,3 @@ export function redactValidationRow(
   return row;
 }
 
-/**
- * Pass-through wrapper around a handler. Kept as a seam for future
- * cross-cutting concerns (tracing, metrics, etc.) that need to see every
- * MCP tool call. Redaction is done INSIDE individual handlers against
- * `redactIssue` / `redactValidationRow`; role enforcement is done via
- * `requireRoles`. This function deliberately does not carry a redactor
- * argument — callers that need redaction should apply it in-handler.
- */
-export function withAgentScope(_toolName: string, handler: Fn): Fn {
-  return handler;
-}

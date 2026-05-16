@@ -11,7 +11,22 @@
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-regen-check.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/mcp-health-check.sh",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/deferred-tools-drift-warn.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/write-active-workspace-sentinel.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-prescan.sh",
             "timeout": 5
           }
         ]
@@ -25,18 +40,51 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/activation-routine.sh",
             "timeout": 5
-          }
-        ]
-      }
-    ],
-    "WorktreeCreate": [
-      {
-        "matcher": "",
-        "hooks": [
+          },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/create-worktree.sh",
-            "timeout": 10
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/mcp-health-check.sh",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-log-capture.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/consultant-spawn-required.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-slash-detect.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/concerns-protocol-hint.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/push-intent-hint.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/reonboard-intent-hint.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/resume-intent-hint.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/adr-required-hint.sh",
+            "timeout": 3
           }
         ]
       }
@@ -64,6 +112,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/branch-up-to-date-with-remote.sh",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/commit-msg-lint.sh",
+            "timeout": 3
           }
         ]
       },
@@ -74,6 +127,16 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-task-spec.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-feature-branch-active.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-reviewer-no-worktree.sh",
+            "timeout": 3
           }
         ]
       },
@@ -88,12 +151,42 @@
         ]
       },
       {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/askuserquestion-length-lint.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-auq-shape.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/auq-headless-deny.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-source-edit-from-main.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/naming-lint.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/code-quality-lint.sh",
+            "timeout": 3
           }
         ]
       },
@@ -116,6 +209,80 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cleanup-worktree-on-task-close.sh",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__roundtable_close",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-cleanup-postcheck.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__bro_atomic_close",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-task-close-rescan.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-read-summary-hint.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__task_create_batch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-task-create-spawn-hint.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/skill-invocation-record.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-atomic-close.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh",
+            "timeout": 15
           }
         ]
       }

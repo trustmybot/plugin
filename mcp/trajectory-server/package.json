@@ -1,11 +1,12 @@
 {
   "name": "@trustmybot/trajectory-server",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && cp src/schema.sql dist/schema.sql",
+    "prebuild": "rm -rf dist/test",
+    "build": "tsc && cp src/schema*.sql dist/",
     "start": "node --experimental-sqlite dist/index.js",
     "test": "node --experimental-sqlite --test dist/test/*.test.js",
     "pretest": "bun run build"

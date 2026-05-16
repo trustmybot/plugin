@@ -1,0 +1,3 @@
+@bro think about how the codebase is organized. Use the tmb_planning skill if appropriate.
+
+Don't ask questions.

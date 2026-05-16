@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # Enforce Lego cap on every agent that ships with the plugin.
 #
-# As of v0.3.0:
-#   - agents/        → workflow backbone (swe + pr-reviewer), GLOBAL.
-#                      Same Lego cap as templates: identity + role + boundary,
-#                      "rest comes from skills."
-#   - templates/agents/ → opt-in consultant templates (architect, cto, ceo, pm),
-#                      copied into projects on demand.
+# Both directories house the full set of 6 agent files (swe, pr-reviewer,
+# architect, cto, ceo, pm) and enforce the same ≤30-line cap:
+#   - agents/           → workflow backbone (swe + pr-reviewer) + consultant
+#                         templates, all available globally.
+#   - templates/agents/ → same 6 files, copied into projects on demand.
 #
 # Both directories enforce the same ≤30-line cap.
 set -uo pipefail

@@ -1,6 +1,6 @@
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
-const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note']);
+const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -39,10 +39,14 @@ export function discussionTools(db) {
                     author: { type: 'string', description: 'Author of this entry (agent name or human)' },
                     kind: {
                         type: 'string',
-                        enum: ['intent', 'question', 'answer', 'decision', 'note'],
+                        enum: ['intent', 'question', 'answer', 'decision', 'note', 'analysis'],
                         description: 'Entry kind. Default: note',
                     },
                     body: { type: 'string', description: 'Markdown body of the discussion entry' },
+                    verified_human: {
+                        type: 'boolean',
+                        description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only — not persisted.',
+                    },
                 },
                 required: ['agent', 'issue_id', 'author', 'body'],
             },
@@ -75,7 +79,7 @@ export function discussionTools(db) {
         },
     ];
     const handlers = {
-        discussion_append: requireRoles('discussion_append', ['bro', 'architect', 'swe', 'pr-reviewer'], wrapHandler(async (args) => {
+        discussion_append: requireRoles('discussion_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
             const author = requireArg(args, 'author');
@@ -86,6 +90,10 @@ export function discussionTools(db) {
             }
             if (!author.trim()) {
                 throw new Error('author must be a non-empty string');
+            }
+            const verifiedHuman = Boolean(args['verified_human']);
+            if (author === 'human' && !verifiedHuman) {
+                throw new Error('precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.');
             }
             const issue = db.get('SELECT id FROM issues WHERE id = ?', [issueId]);
             if (!issue) {

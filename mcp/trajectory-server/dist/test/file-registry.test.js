@@ -29,9 +29,6 @@ describe('fileRegistryTools', () => {
             const row = parseResult(result);
             assert.equal(row.path, 'src/index.ts');
             assert.equal(row.type, 'source');
-            assert.deepEqual(row.imports, []);
-            assert.deepEqual(row.exports, []);
-            assert.deepEqual(row.metadata, {});
             db.close();
         });
         it('upsert is idempotent: calling twice with same path replaces without error', async () => {
@@ -40,12 +37,10 @@ describe('fileRegistryTools', () => {
             await call(tools.handlers, 'file_registry_upsert', {
                 path: 'src/index.ts',
                 type: 'source',
-                language: 'typescript',
             });
             const result = await call(tools.handlers, 'file_registry_upsert', {
                 path: 'src/index.ts',
                 type: 'test',
-                language: 'typescript',
             });
             assert.ok(!result.isError);
             const row = parseResult(result);
@@ -54,45 +49,40 @@ describe('fileRegistryTools', () => {
             assert.equal(count?.n, 1, 'must remain 1 row after two upserts of same path');
             db.close();
         });
-        it('stores and returns imports/exports/metadata correctly (JSON round-trip)', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            const result = await call(tools.handlers, 'file_registry_upsert', {
-                path: 'lib/utils.ts',
-                type: 'source',
-                imports: ['node:fs', 'lodash'],
-                exports: ['readFile', 'writeFile'],
-                metadata: { owner: 'team-a', deprecated: false },
-            });
-            assert.ok(!result.isError);
-            const row = parseResult(result);
-            assert.deepEqual(row.imports, ['node:fs', 'lodash']);
-            assert.deepEqual(row.exports, ['readFile', 'writeFile']);
-            assert.deepEqual(row.metadata, { owner: 'team-a', deprecated: false });
-            db.close();
-        });
-        it('upsert with all optional fields', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            const result = await call(tools.handlers, 'file_registry_upsert', {
-                path: 'src/server.ts',
-                type: 'source',
-                language: 'typescript',
-                size_bytes: 1024,
-                last_commit_sha: 'abc123',
-                last_change_type: 'modified',
-                last_change_at: '2026-04-21T00:00:00.000Z',
-                imports: ['express'],
-                exports: ['app'],
-                metadata: { version: 2 },
-            });
-            assert.ok(!result.isError);
-            const row = parseResult(result);
-            assert.equal(row.language, 'typescript');
-            assert.equal(row.size_bytes, 1024);
-            assert.equal(row.last_commit_sha, 'abc123');
-            assert.equal(row.last_change_type, 'modified');
-            db.close();
+        it('upsert does not clobber content_md5 or summary written by file_registry_update_summaries', async () => {
+            const dir = mkdtempSync(join(tmpdir(), 'fru-'));
+            const cwdPrev = process.cwd();
+            process.chdir(dir);
+            try {
+                writeFileSync(join(dir, 'preserve.ts'), 'export const x = 1;\n');
+                const db = tempDB();
+                const tools = fileRegistryTools(db);
+                const summaryResult = await call(tools.handlers, 'file_registry_update_summaries', {
+                    updates: [{ path: 'preserve.ts', summary: 'seed-summary' }],
+                });
+                assert.ok(!summaryResult.isError);
+                const summaryData = parseResult(summaryResult);
+                assert.equal(summaryData.updated, 1);
+                const seededRow = db.get(`SELECT content_md5, summary, summary_updated_at FROM file_registry WHERE path = ?`, ['preserve.ts']);
+                assert.ok(seededRow, 'row should exist after update_summaries');
+                const seededMd5 = seededRow.content_md5;
+                assert.ok(typeof seededMd5 === 'string' && seededMd5.length > 0, 'content_md5 should be set');
+                await call(tools.handlers, 'file_registry_upsert', {
+                    path: 'preserve.ts',
+                    type: 'source',
+                    language: 'typescript',
+                    metadata: { touched: true },
+                });
+                const afterRow = db.get(`SELECT content_md5, summary, summary_updated_at FROM file_registry WHERE path = ?`, ['preserve.ts']);
+                assert.ok(afterRow, 'row should still exist after upsert');
+                assert.equal(afterRow.content_md5, seededMd5, 'content_md5 must not be clobbered by upsert');
+                assert.equal(afterRow.summary, 'seed-summary', 'summary must not be clobbered by upsert');
+                assert.ok(afterRow.summary_updated_at !== null, 'summary_updated_at must remain non-null');
+                db.close();
+            }
+            finally {
+                process.chdir(cwdPrev);
+            }
         });
     });
     describe('file_registry_upsert validation', () => {
@@ -155,54 +145,6 @@ describe('fileRegistryTools', () => {
             assert.match(parseResult(result).error, /Invalid type/);
             db.close();
         });
-        it('rejects invalid last_change_type', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            const result = await call(tools.handlers, 'file_registry_upsert', {
-                path: 'src/x.ts',
-                type: 'source',
-                last_change_type: 'moved',
-            });
-            assert.ok(result.isError);
-            assert.match(parseResult(result).error, /Invalid last_change_type/);
-            db.close();
-        });
-        it('accepts null last_change_type', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            const result = await call(tools.handlers, 'file_registry_upsert', {
-                path: 'src/x.ts',
-                type: 'source',
-                last_change_type: null,
-            });
-            assert.ok(!result.isError);
-            assert.equal(parseResult(result).last_change_type, null);
-            db.close();
-        });
-        it('rejects imports that is not an array of strings', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            const result = await call(tools.handlers, 'file_registry_upsert', {
-                path: 'src/x.ts',
-                type: 'source',
-                imports: ['ok', 42],
-            });
-            assert.ok(result.isError);
-            assert.match(parseResult(result).error, /imports/);
-            db.close();
-        });
-        it('rejects metadata that is an array (not a plain object)', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            const result = await call(tools.handlers, 'file_registry_upsert', {
-                path: 'src/x.ts',
-                type: 'source',
-                metadata: ['not', 'an', 'object'],
-            });
-            assert.ok(result.isError);
-            assert.match(parseResult(result).error, /metadata/);
-            db.close();
-        });
         it('accepts all valid types', async () => {
             const db = tempDB();
             const tools = fileRegistryTools(db);
@@ -212,19 +154,6 @@ describe('fileRegistryTools', () => {
                     type,
                 });
                 assert.ok(!result.isError, `type ${type} should be valid`);
-            }
-            db.close();
-        });
-        it('accepts all valid last_change_type values', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            for (const changeType of ['added', 'modified', 'deleted', 'renamed']) {
-                const result = await call(tools.handlers, 'file_registry_upsert', {
-                    path: `change-${changeType}.ts`,
-                    type: 'source',
-                    last_change_type: changeType,
-                });
-                assert.ok(!result.isError, `last_change_type ${changeType} should be valid`);
             }
             db.close();
         });
@@ -258,18 +187,6 @@ describe('fileRegistryTools', () => {
             assert.ok(data.rows.every((r) => r.type === 'source'));
             db.close();
         });
-        it('list with language filter returns only matching rows', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            await call(tools.handlers, 'file_registry_upsert', { path: 'a.ts', type: 'source', language: 'typescript' });
-            await call(tools.handlers, 'file_registry_upsert', { path: 'b.py', type: 'source', language: 'python' });
-            const result = await call(tools.handlers, 'file_registry_list', { language: 'typescript' });
-            assert.ok(!result.isError);
-            const data = parseResult(result);
-            assert.equal(data.count, 1);
-            assert.equal(data.rows[0].path, 'a.ts');
-            db.close();
-        });
         it('list with limit paginates correctly', async () => {
             const db = tempDB();
             const tools = fileRegistryTools(db);
@@ -294,28 +211,6 @@ describe('fileRegistryTools', () => {
             const data = parseResult(result);
             assert.equal(data.count, 1);
             assert.equal(data.total, 3);
-            db.close();
-        });
-        it('list decodes imports/exports/metadata as arrays/objects (not strings)', async () => {
-            const db = tempDB();
-            const tools = fileRegistryTools(db);
-            await call(tools.handlers, 'file_registry_upsert', {
-                path: 'src/lib.ts',
-                type: 'source',
-                imports: ['react', 'lodash'],
-                exports: ['Component'],
-                metadata: { lines: 42 },
-            });
-            const result = await call(tools.handlers, 'file_registry_list', {});
-            assert.ok(!result.isError);
-            const row = parseResult(result).rows[0];
-            assert.ok(Array.isArray(row.imports), 'imports must be an array');
-            assert.ok(Array.isArray(row.exports), 'exports must be an array');
-            assert.equal(typeof row.metadata, 'object', 'metadata must be an object');
-            assert.ok(!Array.isArray(row.metadata), 'metadata must not be an array');
-            assert.deepEqual(row.imports, ['react', 'lodash']);
-            assert.deepEqual(row.exports, ['Component']);
-            assert.deepEqual(row.metadata, { lines: 42 });
             db.close();
         });
         it('list on empty table returns empty rows with count=0', async () => {
@@ -399,20 +294,16 @@ describe('fileRegistryTools', () => {
             await call(tools.handlers, 'file_registry_upsert', {
                 path: 'old-name.ts',
                 type: 'source',
-                exports: ['foo'],
             });
             await call(tools.handlers, 'file_registry_delete', { path: 'old-name.ts' });
             await call(tools.handlers, 'file_registry_upsert', {
                 path: 'new-name.ts',
                 type: 'source',
-                exports: ['foo'],
-                last_change_type: 'renamed',
             });
             const result = await call(tools.handlers, 'file_registry_list', {});
             const data = parseResult(result);
             assert.equal(data.count, 1);
             assert.equal(data.rows[0].path, 'new-name.ts');
-            assert.equal(data.rows[0].last_change_type, 'renamed');
             db.close();
         });
     });
@@ -519,6 +410,103 @@ describe('fileRegistryTools', () => {
             finally {
                 process.chdir(cwdPrev);
             }
+        });
+    });
+    describe('file_registry_update_summaries multi-repo path resolution', () => {
+        it('update_summaries with repo resolves path under named repo root and writes non-empty repo to DB', async () => {
+            const tmpDir = mkdtempSync(join(tmpdir(), 'frmr-'));
+            const appDir = join(tmpDir, 'app');
+            const serviceDir = join(tmpDir, 'service');
+            execFileSync('mkdir', ['-p', join(appDir, 'src')]);
+            execFileSync('mkdir', ['-p', serviceDir]);
+            writeFileSync(join(appDir, 'src', 'index.ts'), 'export const x = 1;\n');
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [appDir]);
+            db.run(`INSERT INTO repos (name, path) VALUES ('service', ?)`, [serviceDir]);
+            const tools = fileRegistryTools(db);
+            const result = await call(tools.handlers, 'file_registry_update_summaries', {
+                updates: [{ path: 'src/index.ts', summary: 'app index', repo: 'app' }],
+            });
+            assert.ok(!result.isError);
+            const data = parseResult(result);
+            assert.equal(data.updated, 1);
+            assert.deepEqual(data.errors, []);
+            const row = db.get(`SELECT repo, path, summary FROM file_registry WHERE summary = 'app index'`);
+            assert.ok(row, 'row must exist in file_registry');
+            assert.equal(row.repo, 'app', 'repo column must be non-empty and match the named repo');
+            assert.equal(row.path, 'src/index.ts');
+            db.close();
+        });
+        it('update_summaries with omitted repo and tmb_default_repo set resolves via default repo', async () => {
+            const tmpDir = mkdtempSync(join(tmpdir(), 'frmr-'));
+            const appDir = join(tmpDir, 'app');
+            const serviceDir = join(tmpDir, 'service');
+            execFileSync('mkdir', ['-p', appDir]);
+            execFileSync('mkdir', ['-p', join(serviceDir, 'lib')]);
+            writeFileSync(join(serviceDir, 'lib', 'core.ts'), 'export const core = true;\n');
+            const dbPath = join(tmpDir, '.claude', 'tmb', 'trajectory.db');
+            execFileSync('mkdir', ['-p', join(tmpDir, '.claude', 'tmb')]);
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [appDir]);
+            db.run(`INSERT INTO repos (name, path) VALUES ('service', ?)`, [serviceDir]);
+            db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"service"')`);
+            const tools = fileRegistryTools(db, dbPath);
+            const result = await call(tools.handlers, 'file_registry_update_summaries', {
+                updates: [{ path: 'lib/core.ts', summary: 'core service module' }],
+            });
+            assert.ok(!result.isError);
+            const data = parseResult(result);
+            assert.equal(data.updated, 1);
+            assert.deepEqual(data.errors, []);
+            const row = db.get(`SELECT repo, path, summary FROM file_registry WHERE summary = 'core service module'`);
+            assert.ok(row, 'row must exist in file_registry');
+            assert.equal(row.repo, 'service', 'repo must match tmb_default_repo');
+            db.close();
+        });
+        it('update_summaries with omitted repo and unset tmb_default_repo returns clear error naming both options', async () => {
+            const tmpDir = mkdtempSync(join(tmpdir(), 'frmr-'));
+            const appDir = join(tmpDir, 'app');
+            const serviceDir = join(tmpDir, 'service');
+            execFileSync('mkdir', ['-p', appDir]);
+            execFileSync('mkdir', ['-p', serviceDir]);
+            const dbPath = join(tmpDir, '.claude', 'tmb', 'trajectory.db');
+            execFileSync('mkdir', ['-p', join(tmpDir, '.claude', 'tmb')]);
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [appDir]);
+            db.run(`INSERT INTO repos (name, path) VALUES ('service', ?)`, [serviceDir]);
+            const tools = fileRegistryTools(db, dbPath);
+            const result = await call(tools.handlers, 'file_registry_update_summaries', {
+                updates: [{ path: 'src/missing.ts', summary: 'something' }],
+            });
+            assert.ok(!result.isError, 'tool itself should not error — errors surface in the errors array');
+            const data = parseResult(result);
+            assert.equal(data.updated, 0);
+            assert.equal(data.errors.length, 1);
+            assert.match(data.errors[0].error, /tmb_default_repo/i, 'error must mention tmb_default_repo');
+            assert.match(data.errors[0].error, /repo/i, 'error must mention the repo param option');
+            db.close();
+        });
+    });
+    describe('file_registry_update_summaries workspace-pattern regression (#177)', () => {
+        it('resolves relative paths via tmb_default_repo when dbPath is provided (workspace pattern)', async () => {
+            const tmpDir = mkdtempSync(join(tmpdir(), 'frws-'));
+            const appDir = join(tmpDir, 'app');
+            const fooDir = join(appDir, 'foo');
+            execFileSync('mkdir', ['-p', fooDir]);
+            writeFileSync(join(fooDir, 'bar.txt'), 'workspace-content\n');
+            const dbPath = join(tmpDir, '.claude', 'tmb', 'trajectory.db');
+            execFileSync('mkdir', ['-p', join(tmpDir, '.claude', 'tmb')]);
+            const db = tempDB();
+            db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"app"')`);
+            const tools = fileRegistryTools(db, dbPath);
+            const result = await call(tools.handlers, 'file_registry_update_summaries', {
+                updates: [{ path: 'foo/bar.txt', summary: 'test' }],
+            });
+            assert.ok(!result.isError);
+            const data = parseResult(result);
+            assert.equal(data.updated, 1);
+            assert.deepEqual(data.errors, []);
+            db.close();
         });
     });
     describe('file_registry_update_summaries (#45)', () => {
@@ -636,6 +624,54 @@ describe('fileRegistryTools', () => {
             finally {
                 process.chdir(cwdPrev);
             }
+        });
+    });
+    describe('multi-repo isolation (repo filter on delete + verify)', () => {
+        it('file_registry_delete with repo=repoA does not affect row with repo=repoB and same path', async () => {
+            const db = tempDB();
+            const tools = fileRegistryTools(db);
+            await call(tools.handlers, 'file_registry_upsert', { path: 'shared.ts', type: 'source', repo: 'repoA' });
+            await call(tools.handlers, 'file_registry_upsert', { path: 'shared.ts', type: 'source', repo: 'repoB' });
+            const deleteResult = await call(tools.handlers, 'file_registry_delete', { path: 'shared.ts', repo: 'repoA' });
+            assert.ok(!deleteResult.isError);
+            assert.deepEqual(parseResult(deleteResult), { deleted: 1 });
+            const rowA = db.get(`SELECT repo, path FROM file_registry WHERE repo = 'repoA' AND path = 'shared.ts'`);
+            assert.equal(rowA, undefined, 'repoA row must be deleted');
+            const rowB = db.get(`SELECT repo, path FROM file_registry WHERE repo = 'repoB' AND path = 'shared.ts'`);
+            assert.ok(rowB !== undefined, 'repoB row must survive');
+            assert.equal(rowB?.path, 'shared.ts');
+            db.close();
+        });
+        it('file_registry_verify with repo filter returns only results for that repo', async () => {
+            const db = tempDB();
+            const tools = fileRegistryTools(db);
+            db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES ('repoA', 'src/a.ts', 'source', NULL, NULL, NULL)`);
+            db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES ('repoB', 'src/b.ts', 'source', NULL, NULL, NULL)`);
+            const verifyResult = await call(tools.handlers, 'file_registry_verify', { repo: 'repoA' });
+            assert.ok(!verifyResult.isError, `Expected no error: ${JSON.stringify(parseResult(verifyResult))}`);
+            const data = parseResult(verifyResult);
+            assert.equal(data.count, 1, 'verify with repo=repoA must return 1 verdict');
+            assert.equal(data.verdicts[0].repo, 'repoA');
+            assert.equal(data.verdicts[0].path, 'src/a.ts');
+            db.close();
+        });
+        it('file_registry_verify without repo filter returns results keyed by repo', async () => {
+            const db = tempDB();
+            const tools = fileRegistryTools(db);
+            db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES ('repoA', 'src/a.ts', 'source', NULL, NULL, NULL)`);
+            db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES ('repoB', 'src/b.ts', 'source', NULL, NULL, NULL)`);
+            const verifyResult = await call(tools.handlers, 'file_registry_verify', {});
+            assert.ok(!verifyResult.isError);
+            const data = parseResult(verifyResult);
+            assert.equal(data.count, 2, 'verify without repo filter must return verdicts for all repos');
+            const repos = data.verdicts.map((v) => v.repo);
+            assert.ok(repos.includes('repoA'), 'must include repoA');
+            assert.ok(repos.includes('repoB'), 'must include repoB');
+            db.close();
         });
     });
 });

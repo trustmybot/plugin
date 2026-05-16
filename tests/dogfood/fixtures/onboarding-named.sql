@@ -1,16 +1,21 @@
--- Reonboard completed: identity set to "Test User" + defaults persisted.
--- Use this fixture for any flow that needs a clean post-configuration state
--- where bro knows the user's name and policy keys are set.
--- Filename retained for backward compat; no first-run-onboarding ceremony exists
--- in the post-no-onboarding doctrine.
+-- Onboarded state. Identity row is a pure marker (no name stored — bro
+-- doesn't ask for or persist user names). Use this fixture for any flow
+-- that needs a clean post-onboard project state.
+--
+-- Schema-seeded automatically (no fixture work needed):
+--   - plugin_config defaults (branching_model='github-flow', pr_target='main',
+--     protected_branches=["main"], remotes=[], issue_sync='off')
+--   - agents registry (swe, pr-reviewer, architect, cto, ceo, pm)
+--   - system issue (id=-1) — parent FK for headless-recovery audit writes
+--
+-- Filename retained for backward compat; the legacy "named vs anonymous"
+-- distinction no longer applies — the marker is plugin_config('onboarded': true).
 
--- plugin_config is schema-seeded — fixture only adds the identity row + ledger marker.
-INSERT INTO identity (id, human_name, created_at, updated_at)
-VALUES (1, 'Test User', datetime('now'), datetime('now'));
+INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');
 
-INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, created_at)
-VALUES (
-  0, NULL, 'bro', 'tmb_user_named',
-  'Test fixture — identity Test User set via tmb_reonboard.',
-  datetime('now')
-);
+-- Pre-clear the registry-cold gate. /scan would normally run before any
+-- task_create_batch; for flows that don't exercise scan itself, the seed
+-- audit row stands in. Flows targeting the gate (or scan_run) start from
+-- the empty fixture instead.
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'L5/L6 fixture: gate cleared', '{}', datetime('now'));

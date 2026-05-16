@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "skill_invocations WHERE skill_name LIKE 'tmb_%'": ">=1"
+  }
+}

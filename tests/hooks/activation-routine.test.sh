@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/activation-routine.sh.
 # Hook contract: on UserPromptSubmit, when bro mode is active, read
-# identity + pending issue from trajectory.db and emit additionalContext
+# onboarded marker + pending issue from trajectory.db and emit additionalContext
 # JSON. Silent no-op otherwise.
 set -euo pipefail
 
@@ -20,11 +20,9 @@ TRANSCRIPT_PLAIN="$TMPDIR/transcript-plain.jsonl"
 export TRAJECTORY_DB_PATH="$DB"
 
 sqlite3 "$DB" "
-  CREATE TABLE identity (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    human_name TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+  CREATE TABLE plugin_config (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL
   );
   CREATE TABLE issues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,16 +65,29 @@ assert_eq "" "$out" "no output once bro mode exited"
 
 # ---- bro trigger paths: emit additionalContext ----
 
-test_case "@bro greeting + empty DB state (no identity, no pending): emit unset/none"
+test_case "@bro greeting + empty DB state (no identity, no pending): emit FIRST CONTACT auto-fire signal"
 out=$(run_hook "$(input '@bro hi')")
 assert_contains "$out" '"hookEventName":"UserPromptSubmit"' "JSON has correct event name"
-assert_contains "$out" 'identity=<unset>' "identity reported as unset"
+assert_contains "$out" 'FIRST CONTACT' "first-contact marker present in injected context"
+assert_contains "$out" 'auto-fire /onboard' "auto-fire instruction injected"
 assert_contains "$out" 'pending=<none>' "pending reported as none"
 
-test_case "@bro greeting + identity row present: emit human name"
-sqlite3 "$DB" "INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (1, 'Zax', datetime('now'), datetime('now'));"
+test_case "onboarded marker present (post-onboard, #95): emits onboarded=yes, NOT first-contact"
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='onboarded';"
+sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');"
 out=$(run_hook "$(input '@bro hi')")
-assert_contains "$out" 'identity=Zax' "identity reported with name"
+assert_contains "$out" 'onboarded=yes' "onboarded marker present"
+# Critical: the first-contact auto-fire must NOT fire for an existing row
+if echo "$out" | grep -q 'FIRST CONTACT'; then
+  echo "  FAIL onboarded row should NOT trigger FIRST CONTACT auto-fire (#95 regression)"
+  exit 1
+fi
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='onboarded';"
+
+test_case "@bro greeting + onboarded marker present: onboarded=yes (no name stored)"
+sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');"
+out=$(run_hook "$(input '@bro hi')")
+assert_contains "$out" 'onboarded=yes' "onboarded reported"
 
 test_case "@bro greeting + pending issue: emit issue id + objective"
 sqlite3 "$DB" "INSERT INTO issues (objective, status) VALUES ('Wire activation routine hook', 'open');"
@@ -86,7 +97,7 @@ assert_contains "$out" 'pending=#1: Wire activation routine hook' "pending issue
 test_case "sticky bro mode (transcript has Entering bro mode., no exit): non-bro prompt still triggers"
 out=$(run_hook "$(input 'what about pyproject.toml' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"hookEventName":"UserPromptSubmit"' "sticky bro fires hook"
-assert_contains "$out" 'identity=Zax' "still pre-fetches identity"
+assert_contains "$out" 'onboarded=yes' "still pre-fetches onboarded marker"
 
 test_case "REGRESSION: user said @bro in prior turn but assistant skipped announce → sticky still fires"
 TRANSCRIPT_NO_ANNOUNCE="$TMPDIR/transcript-no-announce.jsonl"
