@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Full TMB plugin test suite. Exit 0 only if every layer passes.
+# This script runs L1–L4 only. See tests/README.md for the full pyramid.
 #
-# Layered model (see docs/architecture/FLOWS.md + CONTRIBUTING.md):
-#   L0 — Distribution / install-smoke   → tests/docker/install-smoke.Dockerfile (CI-only)
-#   L1 — Static / lint                  → tests/lint/*.sh (this file runs them)
-#   L2 — Unit (per-component)           → mcp/trajectory-server/src/test/*.ts
-#   L3 — Integration (cross-component)  → tests/mcp-integration/*.mjs + tests/hooks/*.sh
-#   L4 — Workflow simulation            → tests/workflow-sim/*.mjs
-#   L5 — Workflow-doctrine dogfood      → tests/dogfood/ (CI-only, .github/workflows/l5-dogfood.yml)
-#   Release canary — final automated gate → tests/docker/release-canary.Dockerfile (RC-only)
-#   Manual smoke (fallback)             → tests/manual/scenarios.md (human-walked, only when automated layers can't model the scenario)
+# Layered model (authoritative reference: tests/README.md):
+#   L0 — Install-smoke (Docker)          → tests/docker/install-smoke.Dockerfile (CI-only)
+#   L1 — Static / lint                   → tests/lint/*.sh              ← this file
+#   L2 — Unit (MCP handlers)             → mcp/trajectory-server/src/test/*.ts ← this file
+#   L3 — Integration (server + hooks)    → tests/mcp-integration/*.mjs + tests/hooks/*.sh ← this file
+#   L4 — Workflow simulation             → tests/workflow-sim/*.mjs     ← this file
+#   L5 — Per-row dogfood (real CC)       → bash tests/dogfood/run-l5.sh (token required)
+#   L6 — Multi-turn integration (real CC) → bash tests/dogfood/run-l6.sh (token required)
+#   Release canary                       → tests/docker/release-canary.Dockerfile (CI-only, RC tags)
+#   Manual smoke (fallback)              → tests/manual/scenarios.md (human-walked)
 
 set -uo pipefail
 

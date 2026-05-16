@@ -4,6 +4,65 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0-rc.8 — 2026-05-15
+
+Pre-release audit pass — 9 audit-fix MRs (!178-!187) plus 1 ENUMS framing follow-up (!187), 1 pr-reviewer stack fix (!188 — closes a workflow violation where bro skipped the push gate), and 1 bug-capture lint sweep (!189) so each fixed pattern is now caught at L1 lint-time. Side-by-side `tmb` + `tmb-rc` installs no longer collide on logs/sentinels.
+
+### Fixed
+
+- 🐛 **TS MCP correctness (!181 / !2890).** 3 BLOCKERs + 5 MAJORs:
+  - `issue_get_phase` returns new 5th phase `'ready_to_close'` when all tasks completed but issue is open (was misreporting `'blueprint'`).
+  - `scope_gate_waived` audit INSERT now atomic with task INSERTs in the same `db.transaction()`.
+  - `roundtable_summarize` 3 discussions queries fenced to current roundtable (`created_at` window).
+  - `audit_log` `requireRoles(['bro','swe','pr-reviewer','consultant'])` guard.
+  - `file_registry_delete` requires `repo`; `file_registry_verify` repo-filtered + per-repo verdicts.
+  - `pr_comments` `JSON.parse` type-guarded; `commit_sha` lowercase-normalized; `console.warn` → `serverLog`.
+  - Drops dead `genId()` export and the no-op `withAgentScope` middleware.
+
+- 🐛 **Schema invariants (!180 / !2891).** `bro_atomic_close` now sets `closed_at` on auto-close; `remote_iid` UPDATEs bump `updated_at`. Adds `idx_audit_event_type` + `idx_audit_issue_branch` for the roundtable/scan/branch_report hot paths. Regression tests added.
+
+- 🐛 **Channel isolation full sweep (!183 / !2896).** 8 hardcoded `'tmb'` plugin-name sites now use `resolvePluginName` (TS) and a new `scripts/lib/resolve-plugin-name.sh` helper sourced by 5 hooks. Sentinel filename incorporates `${PLUGIN_NAME}`; `heal-mcp-cache.sh` detects channels via `installed_plugins.json` scan + `--channel` flag. Side-by-side `tmb` + `tmb-rc` installs no longer collide.
+
+- 🐛 **pr-reviewer stack — push gate + skill rewrites (!188 / !2899 + most of !2900).** Closes a workflow violation where bro could skip the pr-reviewer push gate:
+  - `git-push-guard.sh` first-push fallback (universal `git push -u origin <new-branch>` case used to bypass the gate because no `@{u}` existed yet).
+  - `tmb_planning` Step 5.5: mandates pr-reviewer spawn between `bro_atomic_close` and `git push`.
+  - `tmb_review` §A per-SHA worktree mandate (reviewers were reading the parent's wrong-branch working tree); §B self-write mandate (reviewer writes `validation_attempts` directly via MCP or sqlite3 — never delegates to bro); §C bro spawn-prompt discipline (no prior verdict, no rubber-stamp shortcuts).
+  - New `templates/project-seed/.claude/agents/pr-reviewer.md` with `mcpServers` frontmatter (project-local subagents support MCP; plugin subagents do not, per CC docs).
+  - 13 new push-gate regression tests.
+
+- 🐛 **Prompts broken refs (!185 / !2892).** `audit_log(...)` examples across 7 prompt files now pass required `from_node='bro'` arg (was crashing on first invocation). `tmb_planning` Step 2 example uses `author='bro'` (was `'human'`, failed `verified_human` gate). 6 MAJOR fixes: `tmb_owner: bro` added to 6 template agents; nonexistent `success_criteria` field removed from examples; invalid `since=<auto>` literal dropped; 3 broken doc/skill refs cleaned (`CODE_QUALITY.md`, `tmb_planning-simple/-difficult`, `tmb_code-quality`).
+
+- 📝 **Docs drift (!184 / !2893).** 3 BLOCKERs on README + MCP server README first-impression surfaces. 14 MAJORs:
+  - `REFERENCE.md` MCP tool list refreshed to 60 tools + hooks table to 39 entries (was "50+" / 19).
+  - `ENUMS.md` schema_version corrected 1→2; nonexistent event_type renamed; broken anchor fixed; legacy `roundtables.status` block deleted.
+  - `RESPONSIBILITIES.md` + `ENFORCEMENT.md` SWE frontmatter corrected (`maxTurns: 150`, no `isolation` field).
+  - `audit_log(kind='event')` sweep across docs (the `kind` arg was dropped from the schema in rc.2).
+  - `AGENTS.md` retired-skill ref + doctrine-banned commentary swept; `MULTI_PLATFORM.md` version refresh; `ERD.md` `plugin_version` mechanism documented.
+
+- 📝 **ENUMS.md `deprecated` description (!187 / !2901).** Reworded the `skills.status` `deprecated` enum-value description to drop "back-compat" framing while preserving the value documentation (caught by the !184 strict pr-reviewer).
+
+### Cleanup
+
+- 🧹 **CI fossils + orphan helpers (!178 / !2894).** Deleted superseded `l5-l6-combined.yml` (referenced removed Dockerfile, would have red-flagged every release tag), the `l6-dogfood.yml` fossil after L6→L5 rename, and the unused `glab-retry-merge.sh` orphan helper + paired test.
+
+- 🧹 **Test orphans + dist hygiene (!179 / !2895).** Deleted orphan `dist/test/audit-merge.test.js.map` and added a `prebuild` script (`rm -rf dist/test`) so it can't recur. Deleted 2 legacy l5-row fixtures with explicit retired/superseded READMEs. Moved `tests/dogfood/bench/` → `tests/manual/bench/` for a clean L0–L5-vs-manual tier model. Fixed `chain-manifest.json` count typo (12→13).
+
+- 🧹 **Developer paths + timeout consts (!182 / !2897).** Replaced personal `/Users/Zax/...` paths in `docs/UPGRADE.md` and `tests/manual/mcp-health-hook.md` with `<placeholder>` forms. Extracted `SUBPROCESS_TIMEOUT_MS` (5000) and `AUTH_PROBE_TIMEOUT_MS` (1000) constants; adopted across 8 sites in `sync/backend.ts`, `sync/issue_sync.ts`, `tools/pr_comments.ts`, `tools/onboard.ts`.
+
+- 🧹 **Doctrine cleanup in prompts (!186 / !2898).** Linter-driven: 35 negative-directive WARNs resolved (positive rewrites or `<!-- LOAD-BEARING-SAFETY: ... -->` annotations); 5 `(#NNNN)` citation sites swept; stale `no longer persisted` commentary rewritten to current-state framing.
+
+### Tests
+
+- 🧪 **Bug-capture lints for the 9 audit-fix MRs (!189 / !2902).** 7 new L1 lints, each capturing a specific bug pattern so future regressions are caught at lint-time rather than escaping to the next audit:
+  - `no-audit-log-without-from-node.sh` — !2892 BLOCKER 1
+  - `no-citations-in-prompts.sh` — !2898
+  - `no-audit-log-kind.sh` — !2892 MINOR + !2893 cross-cut
+  - `no-developer-paths.sh` — !2897
+  - `stale-framing-prose.sh` — !2898 + !2901 (with backtick carve-out for enum value literals)
+  - `no-hardcoded-plugin-name.sh` — !2896 channel-iso
+  - `ci-workflow-refs-exist.sh` — !2894
+  - Each ships with a violation fixture proving it catches the pattern; all wired into `tests/run-all.sh` L1 tier. The `no-developer-paths` lint immediately caught 2 paths the !188 design doc had inadvertently introduced into `tmb_review` — meta-validation that the lint works.
+
 ## v0.6.0-rc.7 — 2026-05-15
 
 ### Added
