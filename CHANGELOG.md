@@ -4,6 +4,12 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.6.0 — 2026-05-15
+
+Promotes `v0.6.0-rc.8` to stable. See `v0.6.0-rc.1` through `v0.6.0-rc.8` for the cumulative changes from v0.5.x — including the audit pass (12 MRs from !178 to !189), the pr-reviewer stack fix that closed a real push-gate bypass, channel-isolation sweep, and the bug-capture lint tier that catches each fixed pattern at lint-time.
+
+L6 multi-turn integration: 12/13 passed (1 known-tracked test prompt brittleness on a single row, not a regression).
+
 ## v0.6.0-rc.8 — 2026-05-15
 
 Pre-release audit pass — 9 audit-fix MRs (!178-!187) plus 1 ENUMS framing follow-up (!187), 1 pr-reviewer stack fix (!188 — closes a workflow violation where bro skipped the push gate), and 1 bug-capture lint sweep (!189) so each fixed pattern is now caught at L1 lint-time. Side-by-side `tmb` + `tmb-rc` installs no longer collide on logs/sentinels.
