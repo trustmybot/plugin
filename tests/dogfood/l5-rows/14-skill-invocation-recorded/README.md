@@ -10,8 +10,8 @@
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro think about how the codebase is organized. Use the tmb_planning skill if appropriate.\n\nDon't ask questions.` |
-| → | bro | reads the prompt; the planning context suggests invoking `tmb_planning` (a curated, schema-seeded skill). Bro fires the Skill tool, the PostToolUse hook fires and writes the junction row. |
+| 1 | user | `@bro add a hello-world function to src/main.py that prints "hello, world".` |
+| → | bro | reads the prompt as a real code-touching ask; `tmb_planning` auto-loads via description match ("Bro's full code-touching flow"); bro invokes the Skill tool, the PostToolUse hook fires and writes the junction row. |
 
 ## Pass criteria
 

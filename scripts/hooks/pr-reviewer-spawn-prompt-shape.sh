@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# PreToolUse hook on Agent. Validates that pr-reviewer spawns include the
-# required prompt fields: task_id=<N> and subagent_session_id.
+# PreToolUse hook on Agent. Blocks pr-reviewer spawns whose prompt violates
+# the §C discipline from tmb_review: MUST contain the four bare anchors
+# (task_id, commit_sha, branch_id, repo) and MUST NOT contain prior-verdict
+# shortcuts that allow rubber-stamping.
 #
-# pr-reviewer.md contract: "Spawn input: task_id=<N> and your
-# subagent_session_id. Reject if task_id is missing." This hook enforces
-# the bro-side of that contract — bro must include both fields when spawning
-# pr-reviewer. A spawn without task_id or subagent_session_id leaves pr-reviewer
-# unable to load the spec or record a valid validation_record verdict.
+# Doctrine: the spawn prompt shape is a deterministic constraint — either the
+# four anchors are present or they aren't. "Don't rubber-stamp" is equally
+# binary. Both are better enforced here than repeated in skill prose.
 #
-# Bypass: TMB_ALLOW_PR_REVIEWER_SHAPE_SKIP=1 (emergency / test use only).
-
+# Bypass: TMB_SKIP_PR_REVIEWER_PROMPT_SHAPE=1 (for tests that construct
+# minimal prompts intentionally).
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-if [ "${TMB_ALLOW_PR_REVIEWER_SHAPE_SKIP:-0}" = "1" ]; then
+if [ "${TMB_SKIP_PR_REVIEWER_PROMPT_SHAPE:-0}" = "1" ]; then
   exit 0
 fi
 
@@ -31,37 +31,42 @@ SUBAGENT=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.tool_input.subagent_typ
 
 PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // ""' 2>/dev/null)
 
-HAS_TASK_ID=""
-HAS_SESSION_ID=""
-
-case "$PROMPT" in
-  *"task_id="*) HAS_TASK_ID="yes" ;;
-esac
-
-case "$PROMPT" in
-  *"subagent_session_id"*) HAS_SESSION_ID="yes" ;;
-esac
-
-if [ -z "$HAS_TASK_ID" ] || [ -z "$HAS_SESSION_ID" ]; then
-  MISSING=""
-  [ -z "$HAS_TASK_ID" ] && MISSING="task_id=<N>"
-  if [ -z "$HAS_SESSION_ID" ]; then
-    [ -n "$MISSING" ] && MISSING="$MISSING and subagent_session_id" || MISSING="subagent_session_id"
+# Check required anchors
+MISSING=""
+for anchor in task_id commit_sha branch_id repo; do
+  if ! echo "$PROMPT" | grep -q "${anchor}"; then
+    MISSING="${MISSING} ${anchor}"
   fi
+done
 
-  REASON="pr-reviewer spawn is missing required prompt field(s): ${MISSING}.
+if [ -n "$MISSING" ]; then
+  REASON=$(jq -Rn --arg missing "$MISSING" '
+    "BLOCKED: pr-reviewer spawn prompt missing required anchors:" + $missing + ".\n\nPer tmb_review §C, the prompt MUST contain task_id, commit_sha, branch_id, and repo so pr-reviewer can load context independently. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary."
+  ')
+  printf '{"decision":"block","reason":%s}\n' "$REASON"
+  exit 0
+fi
 
-pr-reviewer.md contract: spawn must include task_id=<N> and subagent_session_id. Without task_id, pr-reviewer cannot load the spec. Without subagent_session_id, validation_record will be rejected by the server (precondition_failed).
+# Check forbidden rubber-stamp phrases
+RUBBER_STAMP_FOUND=""
+while IFS= read -r phrase; do
+  if echo "$PROMPT" | grep -qi "$phrase"; then
+    RUBBER_STAMP_FOUND="$phrase"
+    break
+  fi
+done <<'PHRASES'
+trust the prior verdict
+fast-track if
+rubber.stamp
+prior verdict
+PHRASES
 
-Add both fields to the prompt and retry. For exceptional override, set TMB_ALLOW_PR_REVIEWER_SHAPE_SKIP=1."
-
-  jq -nc --arg reason "$REASON" '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: $reason
-    }
-  }'
+if [ -n "$RUBBER_STAMP_FOUND" ]; then
+  REASON=$(jq -Rn --arg phrase "$RUBBER_STAMP_FOUND" '
+    "BLOCKED: pr-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \"" + $phrase + "\").\n\nPer tmb_review §C, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself."
+  ')
+  printf '{"decision":"block","reason":%s}\n' "$REASON"
+  exit 0
 fi
 
 exit 0

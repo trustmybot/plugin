@@ -98,6 +98,30 @@ If any procedural sentence answers **no** to all three, file a follow-up issue t
 
 ---
 
+## Size discipline
+
+A single skill SKILL.md should stay under **200 LOC**. The number is a soft ceiling on cognitive load, not a hard limit — but breaching it is a signal that the skill is doing too much. The doctrine's math (5-step procedural prose ≈ 77% adherence at p=0.95) compounds with size: longer skills carry more procedural sentences and more compound-failure surface.
+
+When a skill exceeds 200 LOC, the standard moves are, in order:
+
+1. **Apply the boundary test** to every procedural sentence. DETERMINISM-classified sentences migrate to mechanisms 1–6 (usually a composite or a hook). The body shrinks naturally.
+2. **Split by Efficiency-of-JUDGMENT tier** if migration alone doesn't get under 200:
+   - ~100% per-run usage → bake into the agent prompt body (CLAUDE.md or per-agent file)
+   - <100% per-run usage → keep in a skill (loaded on description-match)
+3. **Only split into multiple SKILL.md files when neither (1) nor (2) suffices.** Skill files are loaded as units; splitting fragments JUDGMENT context and increases the description-matching surface that bro has to navigate.
+
+When in doubt, refactor toward fewer, smaller skills with sharper descriptions rather than more skills with overlapping triggers. Description-match drift is itself a token-burn vector.
+
+---
+
+## Role identifiers — strip the plugin prefix before comparing
+
+CC passes role names with or without a `<plugin>:` prefix depending on context (project-local override vs global plugin agent vs slash-command vs direct invocation). Hooks that compare raw `subagent_type` / `tool_input.skill` / similar against bare role names ("swe", "pr-reviewer", "tmb_planning") silently skip on prefixed input. **Hooks that silently skip are safety gates being silently disabled.**
+
+The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it and call `tmb_normalize_role` on any role-bearing string before comparison. The `tests/lint/no-bare-role-compare.sh` lint catches the bare-compare regression at L1.
+
+---
+
 ## See also
 
 - `plugin/docs/architecture/RESPONSIBILITIES.md` — agent layer model + role boundaries
