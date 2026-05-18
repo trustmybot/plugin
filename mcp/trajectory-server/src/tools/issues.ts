@@ -209,7 +209,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       let syncDiagnostic: Record<string, unknown> | undefined;
 
       if (syncConfig !== 'off') {
-        const backend = resolveBackend(syncConfig);
+        const backend = resolveBackend(syncConfig, !!spawnFn);
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {
