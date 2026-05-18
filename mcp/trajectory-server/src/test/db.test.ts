@@ -7,7 +7,7 @@ import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all 19 prod tables exist with schema_version=2', () => {
+  it('opens an in-memory DB and verifies all 22 prod tables exist with schema_version=3', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -31,10 +31,14 @@ describe('TrajectoryDB', () => {
       'commands',
       'skill_invocations',
       'rule_invocations',
+      // #2905 FTS5 virtual tables
+      'discussions_fts',
+      'audit_fts',
+      'file_registry_fts',
     ];
 
     const rows = db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%\\_fts\\_%' ESCAPE '\\' ORDER BY name",
     );
     const actualNames = rows.map((r) => r.name).sort();
     const expectedSorted = [...expectedTables].sort();
@@ -45,7 +49,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 2);
+    assert.equal(meta.schema_version, 3);
 
     db.close();
   });

@@ -62,6 +62,17 @@ function decodeRow(row) {
         summary_updated_at: row.summary_updated_at,
     };
 }
+function decodeCursor(cursor) {
+    try {
+        return JSON.parse(Buffer.from(cursor, 'base64').toString('utf8'));
+    }
+    catch {
+        return null;
+    }
+}
+function encodeCursorFromRow(row) {
+    return Buffer.from(JSON.stringify({ path: row.path, repo: row.repo })).toString('base64');
+}
 export function fileRegistryTools(db, dbPath = '') {
     function resolveProjectPath(path) {
         if (isAbsolute(path))
@@ -72,6 +83,30 @@ export function fileRegistryTools(db, dbPath = '') {
         return resolve(process.cwd(), path);
     }
     const definitions = [
+        {
+            name: 'file_registry_search',
+            description: 'Search file_registry via FTS5 on summary + path. Returns top-K snippets ranked by BM25 + recency-decay.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    query: {
+                        type: 'string',
+                        description: 'FTS5 MATCH query. Searches across summary and path columns.',
+                    },
+                    path_prefix: {
+                        type: 'string',
+                        description: 'Optional — restrict to files whose path starts with this prefix (bypasses FTS5).',
+                    },
+                    k: { type: 'number', description: 'Top-K rows to return. Default 5. Max 20.' },
+                    recency_alpha: {
+                        type: 'number',
+                        description: 'Recency weight 0–1. 0 = pure BM25. 1 = pure recency. Default 0.3.',
+                    },
+                },
+                required: ['agent', 'query'],
+            },
+        },
         {
             name: 'file_registry_upsert',
             description: 'INSERT OR REPLACE a file record in file_registry. Idempotent — calling twice with the same (repo, path) replaces the row.',
@@ -106,9 +141,10 @@ export function fileRegistryTools(db, dbPath = '') {
                     },
                     limit: {
                         type: 'number',
-                        description: `Max rows to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT})`,
+                        description: `Max rows to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}). When provided, response includes next_cursor.`,
                     },
                     offset: { type: 'number', description: 'Row offset for pagination (default 0)' },
+                    cursor: { type: 'string', description: 'Opaque cursor from a previous response. When provided, overrides offset.' },
                 },
             },
         },
@@ -174,6 +210,43 @@ export function fileRegistryTools(db, dbPath = '') {
         },
     ];
     const handlers = {
+        file_registry_search: wrapHandler(async (args) => {
+            const query = args['query'];
+            if (typeof query !== 'string' || query.trim().length === 0) {
+                return err('query is required and must be a non-empty string');
+            }
+            const pathPrefix = args['path_prefix'] ?? null;
+            const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
+            const alpha = Math.min(1, Math.max(0, args['recency_alpha'] ?? 0.3));
+            if (pathPrefix !== null) {
+                const rows = db.all('SELECT * FROM file_registry WHERE path LIKE ? LIMIT ?', [pathPrefix + '%', k]);
+                return ok({ results: rows.map(decodeRow), total_matched: rows.length });
+            }
+            const countRow = db.get('SELECT COUNT(*) AS n FROM file_registry_fts WHERE file_registry_fts MATCH ?', [query]);
+            const total_matched = countRow?.n ?? 0;
+            // Hybrid BM25 + recency-decay ranking, mirrors the discussion_search /
+            // audit_search pattern. `summary_updated_at` is the canonical recency
+            // signal for a registry row; rows that have never been summarized
+            // (summary_updated_at IS NULL) fall back to "now" so they neither
+            // boost nor penalize on recency.
+            const rows = db.all('SELECT fr.repo, fr.path, fr.type, fr.content_md5, fr.summary, fr.summary_updated_at, ' +
+                "snippet(file_registry_fts, 0, '[', ']', '...', 16) AS snippet, " +
+                'bm25(file_registry_fts) AS bm25_score, ' +
+                "(julianday('now') - julianday(COALESCE(fr.summary_updated_at, 'now'))) AS age_days " +
+                'FROM file_registry_fts ' +
+                'JOIN file_registry fr ON fr.rowid = file_registry_fts.rowid ' +
+                'WHERE file_registry_fts MATCH ? ' +
+                'ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC ' +
+                'LIMIT ?', [query, alpha, alpha, k]);
+            return ok({
+                results: rows.map((r) => ({
+                    ...decodeRow(r),
+                    snippet: r.snippet,
+                    score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
+                })),
+                total_matched,
+            });
+        }),
         file_registry_upsert: requireRoles('file_registry_upsert', ['bro'], wrapHandler(async (args) => {
             const pathErr = validatePath(args['path']);
             if (pathErr)
@@ -197,16 +270,18 @@ export function fileRegistryTools(db, dbPath = '') {
                     return err(`Invalid type filter ${JSON.stringify(filterType)}: must be one of source | test | config | doc | unknown`);
                 }
             }
+            const limitProvided = args['limit'] !== undefined && args['limit'] !== null;
             let limit = DEFAULT_LIMIT;
-            if (args['limit'] !== undefined && args['limit'] !== null) {
+            if (limitProvided) {
                 const rawLimit = args['limit'];
                 if (typeof rawLimit !== 'number' || !Number.isInteger(rawLimit) || rawLimit < 0) {
                     return err('limit must be a non-negative integer');
                 }
                 limit = Math.min(rawLimit, MAX_LIMIT);
             }
+            const cursorArg = args['cursor'];
             let offset = 0;
-            if (args['offset'] !== undefined && args['offset'] !== null) {
+            if (!cursorArg && args['offset'] !== undefined && args['offset'] !== null) {
                 const rawOffset = args['offset'];
                 if (typeof rawOffset !== 'number' || !Number.isInteger(rawOffset) || rawOffset < 0) {
                     return err('offset must be a non-negative integer');
@@ -214,20 +289,40 @@ export function fileRegistryTools(db, dbPath = '') {
                 offset = rawOffset;
             }
             const conditions = [];
-            const params = [];
+            const baseParams = [];
             if (filterType) {
                 conditions.push('type = ?');
-                params.push(filterType);
+                baseParams.push(filterType);
             }
-            const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-            const totalRow = db.get(`SELECT COUNT(*) AS n FROM file_registry ${where}`, params);
+            const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+            const totalRow = db.get('SELECT COUNT(*) AS n FROM file_registry ' + where, baseParams);
             const total = totalRow?.n ?? 0;
-            const rows = db.all(`SELECT * FROM file_registry ${where} ORDER BY path LIMIT ? OFFSET ?`, [...params, limit, offset]);
-            return ok({
-                rows: rows.map(decodeRow),
-                count: rows.length,
-                total,
-            });
+            if (!limitProvided) {
+                const rows = db.all('SELECT * FROM file_registry ' + where + ' ORDER BY path LIMIT ? OFFSET ?', [...baseParams, limit, offset]);
+                return ok({ rows: rows.map(decodeRow), count: rows.length, total });
+            }
+            if (!cursorArg) {
+                const fetchedRows = db.all('SELECT * FROM file_registry ' + where + ' ORDER BY path, repo LIMIT ? OFFSET ?', [...baseParams, limit + 1, offset]);
+                const hasMore = fetchedRows.length > limit;
+                const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+                const last = rows[rows.length - 1];
+                const next_cursor = hasMore && last ? encodeCursorFromRow(last) : undefined;
+                return ok({ rows: rows.map(decodeRow), count: rows.length, total, next_cursor });
+            }
+            const decoded = decodeCursor(cursorArg);
+            let cursorFilter = '';
+            let cursorParams = [];
+            if (decoded) {
+                const extraCond = conditions.length > 0 ? ' AND ' : ' WHERE ';
+                cursorFilter = extraCond + '(path > ? OR (path = ? AND repo > ?))';
+                cursorParams = [decoded.path, decoded.path, decoded.repo];
+            }
+            const fetchedRows = db.all('SELECT * FROM file_registry ' + where + cursorFilter + ' ORDER BY path, repo LIMIT ?', [...baseParams, ...cursorParams, limit + 1]);
+            const hasMore = fetchedRows.length > limit;
+            const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+            const last = rows[rows.length - 1];
+            const next_cursor = hasMore && last ? encodeCursorFromRow(last) : undefined;
+            return ok({ rows: rows.map(decodeRow), count: rows.length, total, next_cursor });
         }),
         file_registry_delete: requireRoles('file_registry_delete', ['bro'], wrapHandler(async (args) => {
             const pathErr = validatePath(args['path']);

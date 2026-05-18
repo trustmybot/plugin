@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 2;
+const TARGET_SCHEMA_VERSION = 3;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -317,6 +317,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 2 && toVersion >= 2) {
         migrateV1toV2(db);
     }
+    if (fromVersion < 3 && toVersion >= 3) {
+        migrateV2toV3(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -327,6 +330,106 @@ function tableExists(db, table) {
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
         .get(table);
     return row !== undefined;
+}
+function migrateV2toV3(db) {
+    db.exec('BEGIN');
+    try {
+        db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS discussions_fts USING fts5(
+        body,
+        content='discussions',
+        content_rowid='id',
+        tokenize='porter unicode61'
+      )
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS discussions_ai AFTER INSERT ON discussions BEGIN
+        INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+      END
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS discussions_ad AFTER DELETE ON discussions BEGIN
+        INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+      END
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS discussions_au AFTER UPDATE ON discussions BEGIN
+        INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+        INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+      END
+    `);
+        db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS audit_fts USING fts5(
+        summary,
+        content_json,
+        content='audit',
+        content_rowid='id',
+        tokenize='porter unicode61'
+      )
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS audit_ai AFTER INSERT ON audit BEGIN
+        INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
+      END
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS audit_ad AFTER DELETE ON audit BEGIN
+        INSERT INTO audit_fts(audit_fts, rowid, summary, content_json) VALUES ('delete', old.id, old.summary, old.content_json);
+      END
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS audit_au AFTER UPDATE ON audit BEGIN
+        INSERT INTO audit_fts(audit_fts, rowid, summary, content_json) VALUES ('delete', old.id, old.summary, old.content_json);
+        INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
+      END
+    `);
+        db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS file_registry_fts USING fts5(
+        summary,
+        path,
+        content='file_registry',
+        tokenize='porter unicode61'
+      )
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS file_registry_ai AFTER INSERT ON file_registry
+      WHEN new.summary IS NOT NULL BEGIN
+        INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
+      END
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS file_registry_ad AFTER DELETE ON file_registry
+      WHEN old.summary IS NOT NULL BEGIN
+        INSERT INTO file_registry_fts(file_registry_fts, rowid, summary, path) VALUES ('delete', old.rowid, old.summary, old.path);
+      END
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS file_registry_au AFTER UPDATE ON file_registry
+      WHEN old.summary IS NOT NULL BEGIN
+        INSERT INTO file_registry_fts(file_registry_fts, rowid, summary, path) VALUES ('delete', old.rowid, old.summary, old.path);
+      END
+    `);
+        db.exec(`
+      CREATE TRIGGER IF NOT EXISTS file_registry_au_new AFTER UPDATE ON file_registry
+      WHEN new.summary IS NOT NULL BEGIN
+        INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
+      END
+    `);
+        // Backfill existing rows into FTS tables
+        db.exec(`INSERT INTO discussions_fts(rowid, body) SELECT id, body FROM discussions`);
+        db.exec(`INSERT INTO audit_fts(rowid, summary, content_json) SELECT id, summary, content_json FROM audit`);
+        db.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
 }
 function migrateV1toV2(db) {
     db.exec('BEGIN');

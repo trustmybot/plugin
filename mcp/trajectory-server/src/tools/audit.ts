@@ -35,6 +35,21 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
+function decodeCursor(cursor: string): { created_at: string; id: number } | null {
+  try {
+    return JSON.parse(Buffer.from(cursor, 'base64').toString('utf8')) as {
+      created_at: string;
+      id: number;
+    };
+  } catch {
+    return null;
+  }
+}
+
+function encodeCursor(row: { created_at: string; id: number }): string {
+  return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString('base64');
+}
+
 // Audit table is event-only — every row is a lifecycle event with
 // (event_type, summary, content_json). Tool-call records live in
 // debug_trajectory (eval mode), not here.
@@ -43,6 +58,34 @@ export function auditTools(db: TrajectoryDB): {
   handlers: Record<string, Fn>;
 } {
   const definitions: Tool[] = [
+    {
+      name: 'audit_search',
+      description:
+        'Search audit records via FTS5 on summary + content_json. Returns top-K snippets ranked by BM25 + recency-decay.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          query: {
+            type: 'string',
+            description:
+              'FTS5 MATCH query. Searches across summary and content_json columns.',
+          },
+          issue_id: { type: 'string', description: 'Optional — restrict to one issue.' },
+          event_types: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional — restrict to specific event types.',
+          },
+          k: { type: 'number', description: 'Top-K rows to return. Default 5. Max 20.' },
+          recency_alpha: {
+            type: 'number',
+            description: 'Recency weight 0–1. 0 = pure BM25. 1 = pure recency. Default 0.3.',
+          },
+        },
+        required: ['agent', 'query'],
+      },
+    },
     {
       name: 'audit_log',
       description:
@@ -70,8 +113,9 @@ export function auditTools(db: TrajectoryDB): {
           agent: { type: 'string' },
           issue_id: { type: 'string' },
           branch_id: { type: 'string' },
-          limit: { type: 'number', description: 'Max rows to return (default 50, max 500)' },
+          limit: { type: 'number', description: 'Max rows to return. Capped at 500. When omitted, returns up to 500 rows (legacy bare-array shape); when provided, response includes next_cursor.' },
           offset: { type: 'number', description: 'Row offset for pagination (default 0)' },
+          cursor: { type: 'string', description: 'Opaque cursor from a previous response. When provided, overrides offset.' },
         },
         required: ['agent', 'issue_id'],
       },
@@ -79,6 +123,87 @@ export function auditTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
+    audit_search: wrapHandler(async (args) => {
+      requireArg(args, 'agent');
+      const query = requireArg(args, 'query') as string;
+      const issueId = (args['issue_id'] as string | undefined) ?? null;
+      const eventTypes = (args['event_types'] as string[] | undefined) ?? null;
+      const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
+      const alpha = Math.min(1, Math.max(0, (args['recency_alpha'] as number | undefined) ?? 0.3));
+
+      let eventTypeFilter = '';
+      let eventTypeParams: unknown[] = [];
+      if (eventTypes && eventTypes.length > 0) {
+        const placeholders = eventTypes.map(() => '?').join(', ');
+        eventTypeFilter = 'AND a.event_type IN (' + placeholders + ')';
+        eventTypeParams = eventTypes;
+      }
+
+      type MatchRow = {
+        id: number;
+        issue_id: number;
+        branch_id: string | null;
+        from_node: string;
+        event_type: string;
+        summary: string;
+        created_at: string;
+        snippet: string;
+        bm25_score: number;
+        age_days: number;
+      };
+
+      const countSql =
+        'SELECT COUNT(*) AS n FROM audit_fts ' +
+        'JOIN audit a ON a.id = audit_fts.rowid ' +
+        'WHERE audit_fts MATCH ? ' +
+        'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER)) ' +
+        eventTypeFilter;
+      const countRow = db.get<{ n: number }>(countSql, [
+        query,
+        issueId,
+        issueId,
+        ...eventTypeParams,
+      ]);
+      const total_matched = countRow?.n ?? 0;
+
+      const searchSql =
+        'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
+        "snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, " +
+        'bm25(audit_fts) AS bm25_score, ' +
+        "(julianday('now') - julianday(a.created_at)) AS age_days " +
+        'FROM audit_fts ' +
+        'JOIN audit a ON a.id = audit_fts.rowid ' +
+        'WHERE audit_fts MATCH ? ' +
+        'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER)) ' +
+        eventTypeFilter +
+        ' ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?';
+
+      const rows = db.all<MatchRow>(searchSql, [
+        query,
+        issueId,
+        issueId,
+        ...eventTypeParams,
+        alpha,
+        alpha,
+        k,
+      ]);
+
+      return ok({
+        results: rows.map((r) => ({
+          id: r.id,
+          issue_id: r.issue_id,
+          branch_id: r.branch_id,
+          from_node: r.from_node,
+          event_type: r.event_type,
+          summary: r.summary,
+          created_at: r.created_at,
+          snippet: r.snippet,
+          score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
+        })),
+        total_matched,
+      });
+    }),
+
     audit_log: requireRoles('audit_log', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
@@ -119,26 +244,58 @@ export function auditTools(db: TrajectoryDB): {
       const issueId = requireArg(args, 'issue_id') as string;
 
       const branchId = (args['branch_id'] as string | undefined) ?? null;
-      const rawLimit = (args['limit'] as number | undefined) ?? 50;
-      const limit = Math.min(Math.max(1, rawLimit), 500);
+      const limitArg = args['limit'] as number | undefined;
+      const cursorArg = args['cursor'] as string | undefined;
       const offset = Math.max(0, (args['offset'] as number | undefined) ?? 0);
 
-      const params: unknown[] = [issueId];
-      let whereClause = 'WHERE issue_id = ?';
+      const conditions: string[] = ['issue_id = ?'];
+      const baseParams: unknown[] = [issueId];
 
       if (branchId !== null) {
-        whereClause += ' AND branch_id = ?';
-        params.push(branchId);
+        conditions.push('branch_id = ?');
+        baseParams.push(branchId);
       }
 
-      params.push(limit, offset);
+      const whereClause = 'WHERE ' + conditions.join(' AND ');
 
-      const rows = db.all<Record<string, unknown>>(
-        `SELECT * FROM audit ${whereClause} ORDER BY id ASC LIMIT ? OFFSET ?`,
-        params,
-      );
+      if (limitArg === undefined || limitArg === null) {
+        const rows = db.all<Record<string, unknown>>(
+          'SELECT * FROM audit ' + whereClause + ' ORDER BY id ASC LIMIT 500 OFFSET ?',
+          [...baseParams, offset],
+        );
+        return ok(rows);
+      }
 
-      return ok(rows);
+      const limit = Math.min(Math.max(1, limitArg), 500);
+
+      let cursorFilter = '';
+      let cursorParams: unknown[] = [];
+      if (cursorArg) {
+        const decoded = decodeCursor(cursorArg);
+        if (decoded) {
+          cursorFilter = 'AND (created_at > ? OR (created_at = ? AND id > ?))';
+          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+        }
+      }
+
+      const sql =
+        'SELECT * FROM audit ' +
+        whereClause +
+        ' ' +
+        cursorFilter +
+        ' ORDER BY created_at ASC, id ASC LIMIT ?';
+      const fetchedRows = db.all<Record<string, unknown>>(sql, [
+        ...baseParams,
+        ...cursorParams,
+        limit + 1,
+      ]);
+
+      const hasMore = fetchedRows.length > limit;
+      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+      const last = rows[rows.length - 1] as { created_at: string; id: number } | undefined;
+      const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
+
+      return ok({ rows, next_cursor });
     }),
   };
 

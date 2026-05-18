@@ -60,6 +60,8 @@ export function validationTools(db) {
                     agent: { type: 'string' },
                     task_id: { type: 'string' },
                     own_task_id: { type: 'string', description: 'The calling agent\'s own task ID (used to gate feedback access for swe)' },
+                    limit: { type: 'number', description: 'Optional — max rows to return. When provided, response includes next_cursor.' },
+                    cursor: { type: 'string', description: 'Opaque cursor from a previous response.' },
                 },
                 required: ['agent', 'task_id'],
             },
@@ -109,8 +111,41 @@ export function validationTools(db) {
             const ownTaskId = ownTaskIdRaw !== undefined && ownTaskIdRaw !== null
                 ? coerceTaskId(ownTaskIdRaw)
                 : undefined;
-            const rows = db.all(`SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`, [taskId]);
-            return ok(rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })));
+            const limitArg = args['limit'];
+            const cursorArg = args['cursor'];
+            if (limitArg === undefined || limitArg === null) {
+                const rows = db.all(`SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`, [taskId]);
+                return ok(rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })));
+            }
+            const limit = Math.min(Math.max(1, limitArg), 500);
+            let cursorFilter = '';
+            let cursorParams = [];
+            if (cursorArg) {
+                try {
+                    const decoded = JSON.parse(Buffer.from(cursorArg, 'base64').toString('utf8'));
+                    if (typeof decoded.attempt_n === 'number') {
+                        cursorFilter = 'AND attempt_n > ?';
+                        cursorParams = [decoded.attempt_n];
+                    }
+                }
+                catch {
+                    // ignore invalid cursor
+                }
+            }
+            const sql = 'SELECT * FROM validation_attempts WHERE task_id = ? ' +
+                cursorFilter +
+                ' ORDER BY attempt_n ASC LIMIT ?';
+            const fetchedRows = db.all(sql, [taskId, ...cursorParams, limit + 1]);
+            const hasMore = fetchedRows.length > limit;
+            const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+            const last = rows[rows.length - 1];
+            const next_cursor = hasMore && last
+                ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString('base64')
+                : undefined;
+            return ok({
+                rows: rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })),
+                next_cursor,
+            });
         }),
     };
     return { definitions, handlers };
