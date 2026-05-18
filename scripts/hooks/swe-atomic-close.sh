@@ -26,6 +26,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_NAME=$(tmb_resolve_plugin_name)
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || true
+# shellcheck source=scripts/hooks/lib/normalize-role.sh
+. "$SCRIPT_DIR/lib/normalize-role.sh" 2>/dev/null || true
 
 mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
@@ -71,8 +73,8 @@ printf '{"ts":"%s","kind":"swe-atomic-close-entry","keys":%s,"agent_type_resolve
   >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
 
 # Only act on SWE subagent stops.
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
-if [ "$AGENT_TYPE" != "swe" ] && [ "$AGENT_TYPE" != "tmb:swe" ]; then
+AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
+if [ "$AGENT_TYPE" != "swe" ]; then
   exit 0
 fi
 
