@@ -137,6 +137,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-reviewer-no-worktree.sh",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-reviewer-spawn-prompt-shape.sh",
+            "timeout": 3
           }
         ]
       },
@@ -259,6 +264,16 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/skill-invocation-record.sh",
             "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__pr_comments_get",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-pr-comments-persist.sh",
+            "timeout": 5
           }
         ]
       }

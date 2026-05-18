@@ -297,6 +297,193 @@ describe('bro_atomic_close', () => {
         }
     });
 });
+describe('headless_intent_start', () => {
+    it('writes audit + note + intent in one transaction', async () => {
+        const db = tempDB();
+        const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            agent: 'bro', objective: 'headless test', description: 'x',
+        }))['id']));
+        const r = await call(composites.handlers, 'headless_intent_start', {
+            agent: 'bro',
+            issue_id: Number(issueId),
+            branch_id: 'feat/headless-test',
+            intent_verbatim: 'add export feature',
+            fallback_summary: 'defaults applied: base_branch=dev',
+        });
+        assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+        const out = parse(r);
+        assert.deepEqual(out['written'], ['audit', 'note', 'intent']);
+        const auditRows = db.all(`SELECT event_type FROM audit WHERE issue_id = ?`, [issueId]);
+        assert.ok(auditRows.some((a) => a.event_type === 'headless_fallback'));
+        const discussions = db.all(`SELECT kind, body FROM discussions WHERE issue_id = ?`, [issueId]);
+        assert.ok(discussions.some((d) => d.kind === 'note' && d.body.includes('Headless fallback')));
+        assert.ok(discussions.some((d) => d.kind === 'intent' && d.body.includes('add export feature')));
+    });
+    it('rejects non-bro caller', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'headless_intent_start', {
+            agent: 'swe', issue_id: 1, branch_id: 'feat/x', intent_verbatim: 'do thing',
+        });
+        assert.equal(r.isError, true);
+        assert.equal(parse(r)['error'], 'forbidden');
+    });
+    it('rejects empty intent_verbatim', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'headless_intent_start', {
+            agent: 'bro', issue_id: 1, branch_id: 'feat/x', intent_verbatim: '   ',
+        });
+        assert.equal(r.isError, true);
+    });
+});
+describe('bro_verification_fail_record', () => {
+    it('writes audit + note in one transaction', async () => {
+        const db = tempDB();
+        const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const tasks = taskTools(db);
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            agent: 'bro', objective: 'fail record test', description: 'x',
+        }))['id']));
+        await call(discussions.handlers, 'discussion_append', {
+            agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+        });
+        await call(audit.handlers, 'audit_log', {
+            agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+            from_node: 'bro', branch_id: 'fix/fail-rec', summary: 's',
+        });
+        const created = parse(await call(tasks.handlers, 'task_create_batch', {
+            agent: 'bro', issue_id: issueId,
+            waive_intent_gate: true, waive_intent_gate_reason: 'unit-test; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test; not under test',
+            tasks: [{ branch_id: 'fix/fail-rec', description: 'd', spec_body: 's' }],
+        }));
+        const taskId = String(created[0].id);
+        const r = await call(composites.handlers, 'bro_verification_fail_record', {
+            agent: 'bro',
+            task_id: taskId,
+            which_check: 'V2 — tests',
+            details: 'test_auth failed with exit code 1',
+        });
+        assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+        const out = parse(r);
+        assert.deepEqual(out['written'], ['audit', 'note']);
+        const auditRows = db.all(`SELECT event_type FROM audit WHERE issue_id = ?`, [issueId]);
+        assert.ok(auditRows.some((a) => a.event_type === 'bro_verification_fail'));
+        const notes = db.all(`SELECT kind, body FROM discussions WHERE issue_id = ? AND kind='note'`, [issueId]);
+        assert.ok(notes.some((n) => n.body.includes('V2 — tests')));
+    });
+    it('rejects non-bro caller', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'bro_verification_fail_record', {
+            agent: 'pr-reviewer', task_id: '1', which_check: 'V2', details: 'failed',
+        });
+        assert.equal(r.isError, true);
+        assert.equal(parse(r)['error'], 'forbidden');
+    });
+    it('rejects details exceeding 500 chars', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'bro_verification_fail_record', {
+            agent: 'bro', task_id: '1', which_check: 'V2', details: 'x'.repeat(501),
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /≤500/);
+    });
+    it('rejects missing task', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claire/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'bro_verification_fail_record', {
+            agent: 'bro', task_id: '99999', which_check: 'V3', details: 'not found',
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /No task/);
+    });
+});
+describe('pr_review_worktree', () => {
+    it('rejects non-pr-reviewer caller', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'pr_review_worktree', {
+            agent: 'bro', commit_sha: 'abc1234', repo_path: '/tmp', command: 'echo ok',
+        });
+        assert.equal(r.isError, true);
+        assert.equal(parse(r)['error'], 'forbidden');
+    });
+    it('rejects malformed commit_sha', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'pr_review_worktree', {
+            agent: 'pr-reviewer', commit_sha: 'not-a-sha', repo_path: '/tmp', command: 'echo ok',
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /hex SHA/);
+    });
+    it('rejects relative repo_path', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'pr_review_worktree', {
+            agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: 'relative/path', command: 'echo ok',
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /absolute path/);
+    });
+    it('rejects empty command', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'pr_review_worktree', {
+            agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: '/tmp', command: '   ',
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /non-empty/);
+    });
+});
+describe('reap_and_review_prep', () => {
+    it('rejects non-bro caller', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'reap_and_review_prep', {
+            agent: 'swe', task_ids: ['1'], repo_path: '/tmp',
+        });
+        assert.equal(r.isError, true);
+        assert.equal(parse(r)['error'], 'forbidden');
+    });
+    it('rejects empty task_ids', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'reap_and_review_prep', {
+            agent: 'bro', task_ids: [], repo_path: '/tmp',
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /non-empty/);
+    });
+    it('rejects relative repo_path', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'reap_and_review_prep', {
+            agent: 'bro', task_ids: ['1'], repo_path: 'relative',
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /absolute/);
+    });
+    it('reports missing task in per-task result without throwing', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'reap_and_review_prep', {
+            agent: 'bro', task_ids: ['99999'], repo_path: '/tmp',
+        });
+        assert.ok(!r.isError, `expected outer ok; got: ${JSON.stringify(parse(r))}`);
+        const out = parse(r);
+        assert.equal(out.reaped[0].reaped, false);
+        assert.match(out.reaped[0].error, /No task/);
+    });
+});
 // #2873-sibling: workspace-pattern multi-repo path resolution on
 // bro_atomic_close.file_summaries. Per-update repo: explicit `repo` →
 // task.repo → tmb_default_repo → error. Each test uses a tmp workspace

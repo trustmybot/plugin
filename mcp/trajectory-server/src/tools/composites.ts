@@ -136,6 +136,101 @@ export function compositeTools(
       },
     },
     {
+      name: 'headless_intent_start',
+      description:
+        'Headless fast-path composite — collapses the 3-call sequence that always follows ' +
+        'issue_create in headless mode (headless_fallback audit_log + fallback note + intent ' +
+        'discussion_append) into one atomic DB write. Eliminates compound-failure risk on the ' +
+        'headless path where AUQ errors are impossible to recover from interactively.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          issue_id: { type: 'number', description: 'Issue ID returned by issue_create.' },
+          branch_id: { type: 'string', description: 'Proposed branch_id (from branch_id_propose).' },
+          intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
+          fallback_summary: {
+            type: 'string',
+            description: 'One-line summary of what defaults were applied. Stored in audit row.',
+          },
+        },
+        required: ['agent', 'issue_id', 'branch_id', 'intent_verbatim'],
+      },
+    },
+    {
+      name: 'bro_verification_fail_record',
+      description:
+        'V3-fail composite — collapses the 2-call sequence (audit_log + discussion_append) ' +
+        'that bro must emit when a verification check fails into one atomic DB write. ' +
+        'Prevents the common drop-last-call failure mode where the note lands but the audit ' +
+        'row is skipped (or vice versa), leaving the trajectory in a partial state.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task_id: { type: 'string', description: 'Task ID under verification.' },
+          which_check: {
+            type: 'string',
+            description: 'Which V1/V2/V3 check failed (e.g. "V2 — tests", "V3 — success criteria").',
+          },
+          details: {
+            type: 'string',
+            description: '≤500 chars — root cause and specifics of the failure.',
+          },
+        },
+        required: ['agent', 'task_id', 'which_check', 'details'],
+      },
+    },
+    {
+      name: 'pr_review_worktree',
+      description:
+        'PR-review worktree composite — creates a per-SHA worktree at /tmp/pr-review-<sha>, ' +
+        'runs a caller-supplied verification command inside it, then removes the worktree ' +
+        'atomically. Collapses the 4-step setup/verify/teardown sequence from §A of tmb_review ' +
+        'into one call, eliminating the compound-failure risk of stranded worktrees.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          commit_sha: { type: 'string', description: '7–40 hex SHA to check out.' },
+          repo_path: {
+            type: 'string',
+            description: 'Absolute path to the git repo (CLAUDE_PLUGIN_ROOT or inner-repo root).',
+          },
+          command: {
+            type: 'string',
+            description: 'Shell command to run inside the worktree. Must be non-empty.',
+          },
+        },
+        required: ['agent', 'commit_sha', 'repo_path', 'command'],
+      },
+    },
+    {
+      name: 'reap_and_review_prep',
+      description:
+        'Commit-reap composite — for each unsigned task, fetches the detached HEAD from ' +
+        'the per-task worktree into the main checkout under the task\'s branch_id. ' +
+        'Returns a list of { task_id, branch_id, commit_sha } ready for pr-reviewer spawn. ' +
+        'Collapses the per-task `git fetch ./.claude/worktrees/<slug> HEAD:<branch_id>` loop ' +
+        'from §B of tmb_review into one call.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Task IDs whose commits need to be reaped from worktrees.',
+          },
+          repo_path: {
+            type: 'string',
+            description: 'Absolute path to the main git checkout (where worktrees/ lives).',
+          },
+        },
+        required: ['agent', 'task_ids', 'repo_path'],
+      },
+    },
+    {
       name: 'bro_atomic_close',
       description:
         'Bro task-close composite — collapses the V3 four-call batch (audit, summaries, ' +
@@ -313,6 +408,207 @@ export function compositeTools(
         });
 
         return ok({ task_id: result.id, branch_id: result.branch_id });
+      }),
+    ),
+
+    headless_intent_start: requireRoles(
+      'headless_intent_start',
+      ['bro'],
+      wrap(async (args) => {
+        const issueId = args['issue_id'] as number;
+        const branchId = args['branch_id'] as string;
+        const intentVerbatim = args['intent_verbatim'] as string;
+        const fallbackSummary =
+          (args['fallback_summary'] as string | undefined) ??
+          'headless mode: defaults applied';
+
+        if (!issueId || typeof issueId !== 'number') {
+          return err('issue_id must be a number');
+        }
+        if (!intentVerbatim || intentVerbatim.trim().length === 0) {
+          return err('intent_verbatim must be a non-empty string');
+        }
+
+        const now = nowISO();
+        db.transaction(() => {
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'headless_fallback', ?, ?, ?)`,
+            [
+              issueId,
+              branchId,
+              `tmb_planning headless: branch_id confirm → Yes, proceed; cold-start → lazy fill; defaults applied`,
+              JSON.stringify({ fallback_summary: fallbackSummary }),
+              now,
+            ],
+          );
+          db.run(
+            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+             VALUES (?, 'bro', 'note', ?, ?)`,
+            [issueId, 'Headless fallback: no Human in loop; defaults applied.', now],
+          );
+          db.run(
+            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+             VALUES (?, 'bro', 'intent', ?, ?)`,
+            [issueId, `Human intent verbatim: "${intentVerbatim}"`, now],
+          );
+        });
+
+        return ok({ issue_id: issueId, branch_id: branchId, written: ['audit', 'note', 'intent'] });
+      }),
+    ),
+
+    bro_verification_fail_record: requireRoles(
+      'bro_verification_fail_record',
+      ['bro'],
+      wrap(async (args) => {
+        const taskId = args['task_id'] as string;
+        const whichCheck = args['which_check'] as string;
+        const details = args['details'] as string;
+
+        if (!taskId) return err('task_id is required');
+        if (!whichCheck || whichCheck.trim().length === 0) {
+          return err('which_check must be a non-empty string');
+        }
+        if (!details || details.trim().length === 0) {
+          return err('details must be a non-empty string');
+        }
+        if (details.length > 500) {
+          return err('details must be ≤500 chars');
+        }
+
+        const task = db.get<{ id: number; issue_id: number; branch_id: string }>(
+          'SELECT id, issue_id, branch_id FROM tasks WHERE id = ? LIMIT 1',
+          [taskId],
+        );
+        if (!task) return err(`No task with id=${taskId}`);
+
+        const summary = `${whichCheck} — ${details.slice(0, 160)}`;
+        const now = nowISO();
+
+        db.transaction(() => {
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'bro_verification_fail', ?, ?, ?)`,
+            [
+              task.issue_id,
+              task.branch_id,
+              summary,
+              JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
+              now,
+            ],
+          );
+          db.run(
+            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+             VALUES (?, 'bro', 'note', ?, ?)`,
+            [task.issue_id, `Verification fail: ${summary}`, now],
+          );
+        });
+
+        return ok({ task_id: task.id, which_check: whichCheck, written: ['audit', 'note'] });
+      }),
+    ),
+
+    pr_review_worktree: requireRoles(
+      'pr_review_worktree',
+      ['pr-reviewer'],
+      wrap(async (args) => {
+        const commitSha = ((args['commit_sha'] as string) ?? '').toLowerCase();
+        const repoPath = args['repo_path'] as string;
+        const command = args['command'] as string;
+
+        if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
+          return err('commit_sha must be a 7..40-char hex SHA');
+        }
+        if (!repoPath || !repoPath.startsWith('/')) {
+          return err('repo_path must be an absolute path');
+        }
+        if (!command || command.trim().length === 0) {
+          return err('command must be a non-empty string');
+        }
+
+        const wtPath = `/tmp/pr-review-${commitSha}`;
+        let stdout = '';
+        let stderr = '';
+        let exitCode = 0;
+
+        try {
+          execFileSync('git', ['-C', repoPath, 'worktree', 'add', wtPath, commitSha], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+        } catch (e) {
+          return err(`worktree add failed: ${(e as Error).message}`);
+        }
+
+        try {
+          const result = execFileSync('bash', ['-c', command], {
+            cwd: wtPath,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: 60_000,
+          });
+          stdout = result.toString('utf8');
+        } catch (e: unknown) {
+          const spawnErr = e as { stdout?: Buffer; stderr?: Buffer; status?: number; message?: string };
+          stdout = spawnErr.stdout?.toString('utf8') ?? '';
+          stderr = spawnErr.stderr?.toString('utf8') ?? spawnErr.message ?? '';
+          exitCode = spawnErr.status ?? 1;
+        } finally {
+          try {
+            execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wtPath], {
+              stdio: 'ignore',
+            });
+          } catch {
+            // best-effort cleanup; don't override the command result
+          }
+        }
+
+        return ok({ worktree: wtPath, exit_code: exitCode, stdout: stdout.slice(0, 4096), stderr: stderr.slice(0, 2048) });
+      }),
+    ),
+
+    reap_and_review_prep: requireRoles(
+      'reap_and_review_prep',
+      ['bro'],
+      wrap(async (args) => {
+        const taskIds = args['task_ids'] as string[];
+        const repoPath = args['repo_path'] as string;
+
+        if (!Array.isArray(taskIds) || taskIds.length === 0) {
+          return err('task_ids must be a non-empty array');
+        }
+        if (!repoPath || !repoPath.startsWith('/')) {
+          return err('repo_path must be an absolute path');
+        }
+
+        const results: Array<{ task_id: number; branch_id: string; slug: string; commit_sha: string | null; reaped: boolean; error?: string }> = [];
+
+        for (const tid of taskIds) {
+          const task = db.get<{ id: number; branch_id: string; commit_sha: string | null }>(
+            'SELECT id, branch_id, commit_sha FROM tasks WHERE id = ? LIMIT 1',
+            [tid],
+          );
+          if (!task) {
+            results.push({ task_id: Number(tid), branch_id: '', slug: '', commit_sha: null, reaped: false, error: `No task with id=${tid}` });
+            continue;
+          }
+          const slug = task.branch_id.replace(/^[^/]+\//, '');
+          const wtPath = `${repoPath}/.claude/worktrees/${slug}`;
+
+          try {
+            execFileSync(
+              'git',
+              ['-C', repoPath, 'fetch', wtPath, `HEAD:${task.branch_id}`],
+              { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 },
+            );
+            results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: true });
+          } catch (e) {
+            results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: false, error: (e as Error).message });
+          }
+        }
+
+        return ok({ reaped: results });
       }),
     ),
 

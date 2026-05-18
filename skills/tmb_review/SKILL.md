@@ -16,20 +16,11 @@ Spec lives in `tasks.spec_body`; fetch via `task_get(task_id)`. Apply phases in 
 
 ### Worktree discipline
 
-The parent CC session's main checkout may be on ANY branch (typically `dev` after bro's atomic-close). Working-tree-dependent verification (linters, builds, test runners, path-existence checks) reads parent's current state, NOT the commit being reviewed.
+The parent CC session's main checkout may be on ANY branch. Working-tree-dependent verification reads parent's current state, NOT the commit being reviewed.
 
-Before running ANY working-tree-dependent verification, create a per-SHA worktree:
+For working-tree-dependent verification use `pr_review_worktree(agent='pr-reviewer', commit_sha=<sha>, repo_path=<CLAUDE_PLUGIN_ROOT>, command='<verification command>')` — creates the worktree, runs the command, removes it atomically. <!-- enforced by: pr_review_worktree composite (mech 2) -->
 
-```bash
-WT="/tmp/pr-review-${COMMIT_SHA}"
-git -C "${CLAUDE_PLUGIN_ROOT}" worktree add "$WT" "$COMMIT_SHA"
-cd "$WT"
-# ... run verification ...
-cd -
-git -C "${CLAUDE_PLUGIN_ROOT}" worktree remove --force "$WT"
-```
-
-Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`, `git grep <pat> <sha>`) work from any branch and don't need a worktree — use those for diff inspection.
+Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch and don't need a worktree — use those for diff inspection.
 
 ### Phase 1 — Correctness reasoning
 
@@ -72,37 +63,19 @@ After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_
 validation_record(agent='pr-reviewer', task_id=N, attempt_n=1, verdict='pass'|'fail', feedback='MCP available: yes\n<your verdict text>', subagent_session_id='<your-session-id>')
 ```
 
-**Path 2 — MCP unavailable** (only Read + Bash in your tool list, due to plugin-subagent CC restriction):
-```bash
-sqlite3 "${TRAJECTORY_DB_PATH}" <<SQL
-INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
-VALUES (<N>, 1, 'pr-reviewer', '<pass|fail>',
-'MCP available: no — honor-system fallback
-<your verdict text — phase findings, line refs, etc>',
-'<your-session-id-or-deterministic-anchor>',
-'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)');
-SQL
-```
+**Path 2 — MCP unavailable** (only Read + Bash in your tool list): `sqlite3 "${TRAJECTORY_DB_PATH}" "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at) VALUES (<N>, 1, 'pr-reviewer', '<pass|fail>', 'MCP available: no — honor-system fallback\n<verdict text>', '<session-id>', '$(date -u +%Y-%m-%dT%H:%M:%SZ)')"`
 
-The `feedback` column has a CHECK constraint: must start with `'MCP available: yes'` OR `'MCP available: no — honor-system fallback'`. Match that prefix exactly or the INSERT fails.
+The `feedback` column CHECK constraint: must start with `'MCP available: yes'` OR `'MCP available: no — honor-system fallback'`. <!-- enforced by: requireRoles (mech 6) — server rejects bro identity; schema CHECK rejects wrong prefix -->
 
 <!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating pr-reviewer is a content-integrity violation — server's validation_record MCP tool returns forbidden for bro identity, AND the auto-mode classifier blocks raw sqlite3 INSERT from bro as impersonation. The honor-system fallback is for YOU to write directly via Bash sqlite3. -->
 
-`scripts/hooks/git-push-guard.sh` only lets pushes through when this row exists. The MCP server enforces `agent='pr-reviewer'` via `requireRoles`. Output format lives in `agents/pr-reviewer.md`.
+`scripts/hooks/git-push-guard.sh` only lets pushes through when this row exists. <!-- enforced by: git-push-guard.sh PreToolUse hook (mech 3) -->
 
 If you spot a recurring pattern at the push gate, append a bullet to **Living patterns** below using the format documented there.
 
 ## §C — Spawning pr-reviewer (bro-side discipline)
 
-When bro spawns pr-reviewer, the prompt MUST contain:
-- task_id, commit_sha, branch_id, repo (the bare anchors needed to load context)
-- One-line context summary (e.g., "Push-gate review for task close")
-- Reference to §A worktree discipline if working-tree verification will run
-
-The prompt MUST NOT contain:
-- The prior verdict text (leads to rubber-stamping)
-- Shortcuts like "trust the prior verdict" or "fast-track if X" (gives the reviewer an out)
-- Pre-summarized findings (the reviewer must derive these from the spec + diff itself)
+When bro spawns pr-reviewer, the prompt MUST contain task_id, commit_sha, branch_id, repo, and a one-line context summary. The prompt MUST NOT contain prior verdict text or rubber-stamp shortcuts. <!-- enforced by: pr-reviewer-spawn-prompt-shape.sh PreToolUse hook (mech 3) -->
 
 **Clean spawn prompt example:**
 ```
@@ -119,46 +92,29 @@ Triggers:
 
 ### Reap commits → local feature branch
 
-For each unsigned task, look up `tasks.branch_id` and slug. From the main checkout:
-```bash
-git fetch ./.claude/worktrees/<slug> HEAD:<branch_id>
-```
+`reap_and_review_prep(agent='bro', task_ids=[<N>, ...], repo_path=<CLAUDE_PLUGIN_ROOT>)` — fetches each unsigned task's detached HEAD from its worktree into the main checkout, returns `{ reaped: [{task_id, branch_id, commit_sha, reaped, error?}] }`. <!-- enforced by: reap_and_review_prep composite (mech 2) -->
 
 ### Spawn pr-reviewer per unsigned task (parallel)
 
-Use `subagent_type='pr-reviewer'` (no `tmb:` prefix — the no-namespace form resolves the project-local override at `.claude/agents/pr-reviewer.md`). Pass `task_id=N`. Tasks are independent; spawn in parallel where possible.
+Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local override). Tasks are independent; spawn in parallel where possible.
 
 Read pr-reviewer's first response line:
 - `MCP available: yes` → reviewer wrote `validation_record` itself.
 <!-- LOAD-BEARING-SAFETY: feedback must start with the exact literal string — schema CHECK rejects paraphrases like "MCP unavailable" or "[honor-system fallback]" -->
-- `MCP available: no — honor-system fallback` → record on its behalf via sqlite3 (insert into `validation_attempts` with `agent='pr-reviewer'`, `subagent_session_id` from its response, and `feedback` starting with the LITERAL string `MCP available: no — honor-system fallback\n` — paste verbatim ("MCP unavailable", "[honor-system fallback]" etc. all violate the schema CHECK and the row will be rejected). After the prefix line, paste the reviewer's verdict text verbatim.
+- `MCP available: no — honor-system fallback` → record on its behalf via sqlite3 (insert into `validation_attempts` with `agent='pr-reviewer'`, `subagent_session_id` from its response, and `feedback` starting with the LITERAL string `MCP available: no — honor-system fallback\n` — paste verbatim).
 
 ### Outcomes
 
 - All-pass → `git push origin <feature>`, then `gh pr create` / `glab mr create`, surface URL. After merge, run post-merge cleanup below.
-- Any fail → surface the failure verbatim. Render AUQ:
-  ```
-  AskUserQuestion: "PR-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"
-  options: [Spawn SWE to fix | Abort push]
-  ```
-  Headless default: **Abort push** (half-fixed work shouldn't ship without Human review).
+- Any fail → surface verbatim. AUQ: `"PR-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"` options: `[Spawn SWE to fix | Abort push]`. Headless default: **Abort push**.
 
 ### Post-merge cleanup
 
-```bash
-git switch <pr_target>
-git pull --ff-only
-git branch -d <feature>
-```
-The cleanup-on-task-close hook removes the SWE worktree automatically when bro flips the task to `closed`.
-
-### Why pr-reviewer is the push gate (not per-task)
-
-Per-task review multiplies the heavy review cost by task count. The push moment is the natural batch boundary — the Human is already pausing to ship. Bro's `bro_verification_pass` (per-task gate, written by `bro_atomic_close`) is the lighter always-on check; pr-reviewer's `validation_record` is the deeper occasional check.
+`git switch <pr_target> && git pull --ff-only && git branch -d <feature>`. The cleanup-on-task-close hook removes the SWE worktree automatically on task close.
 
 ## C. PR/MR comment triage (bro, loaded by /monitor)
 
-`pr_comments_get` does the deterministic fetch + since-marker bookkeeping; this section is the judgment around what's task-worthy and which to dispatch.
+`pr_comments_get` does the deterministic fetch + since-marker bookkeeping; comment rows are auto-persisted as discussion notes by `post-pr-comments-persist.sh` PostToolUse hook. This section is the judgment around what's task-worthy. <!-- enforced by: post-pr-comments-persist.sh PostToolUse hook (mech 4) -->
 
 ### Resolve the PR
 
@@ -172,16 +128,10 @@ AskUserQuestion: "Which PR/MR number to monitor?"
 options: []  # Other free-text only
 ```
 
-### Fetch + persist
+### Fetch
 
 ```
 pr_comments_get(agent='bro', pr_number=N)
-```
-
-For each returned comment:
-```
-discussion_append(agent='bro', issue_id=<carrier>, author=<commenter>,
-  kind='note', body='[PR #N comment by <author>] <body>')
 ```
 
 Carrier: look up the issue via `tasks.branch_id` for the current branch. If unresolved, render AUQ:
@@ -216,46 +166,17 @@ For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact
 
 Mechanical patterns (bare except, f-string SQL, mutable default args, missing subprocess timeout, etc.) are flagged automatically by `scripts/hooks/code-quality-lint.sh`. This section is the qualitative pass.
 
-### Error handling — design questions
+**Error handling**: each external dependency failure mode named in the spec? Partial failures recoverable or full rollback? Errors diagnosable from logs alone?
 
-- What happens when each external dependency fails (DB, HTTP, subprocess, file IO)? Each failure mode named in the spec with expected behaviour?
-- Are partial failures recoverable, or does the whole operation roll back?
-- Is the caller expected to handle the error, or does the function eat it and return a sentinel?
-- Will errors be diagnosable from the logs alone?
+**Edge cases**: empty/null/boundary inputs handled? State-transition preconditions enforced? Bounded loops for user-controlled or network-derived collections? Concurrent-call safety?
 
-### Edge cases
+**Database safety**: queries parameterized? Connections managed by `with` blocks? Upserts use `ON CONFLICT … DO UPDATE`? Test environment isolated from production?
 
-- Empty / null / single-element / boundary inputs: which are valid and which are errors?
-- State-transition preconditions: which state must hold before this function runs?
-- Bounded vs. unbounded loops: any iteration over a user-controlled or network-derived collection needs an explicit cap.
-- Concurrent calls: safe under concurrent invocation, or requires external serialization?
-
-### Database safety
-
-- All queries parameterized?
-- Connection / cursor lifecycles managed by `with` blocks?
-- Upserts use `ON CONFLICT … DO UPDATE` rather than check-then-insert?
-- Test environment isolated from production data?
-
-### Security
-
-- Where does user input enter the system, where is it validated?
-<!-- LOAD-BEARING-SAFETY: secrets must stay out of code/logs/errors — literal secrets in source are a hard security violation -->
-- Are secrets retrievable only through the configured backend (env var, secrets manager) — kept out of code, logs, and error responses?
-- Subprocess calls structured to avoid shell injection (no `shell=True` with untrusted input)?
-- Bulk operations bounded against denial-of-service?
+**Security**: user input validated at entry point? <!-- LOAD-BEARING-SAFETY: secrets must stay out of code/logs/errors — literal secrets in source are a hard security violation --> Secrets from env var / secrets manager only? No `shell=True` with untrusted input? Bulk operations bounded?
 
 ## Living patterns (caught at the push gate)
 
-Format for each finding:
-
-```
-- <Pattern name>
-  Symptom: <what went wrong>
-  Root cause: <why>
-  Rule: <generalized guidance>
-  Check: <how to detect in future reviews>
-```
+Format: `- <Pattern name> / Symptom: ... / Root cause: ... / Rule: ... / Check: ...`
 
 ### Bro persona patterns
 
