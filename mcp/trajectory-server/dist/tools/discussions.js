@@ -29,6 +29,32 @@ function wrapHandler(fn) {
 export function discussionTools(db) {
     const definitions = [
         {
+            name: 'discussion_search',
+            description: 'Search discussion bodies via FTS5. Returns top-K snippets ranked by BM25 + recency-decay. Default response ≤1 KB. Use this instead of issue_get_with_discussions when you want relevant entries, not the full join.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    query: {
+                        type: 'string',
+                        description: 'FTS5 MATCH query. Examples: "pr-reviewer", "authentication OR auth", "\"exact phrase\"". Supports prefix (foo*), AND/OR/NOT.',
+                    },
+                    issue_id: { type: 'string', description: 'Optional — restrict to one issue.' },
+                    kind: {
+                        type: 'string',
+                        enum: ['intent', 'note', 'question', 'answer', 'decision', 'analysis'],
+                        description: 'Optional — restrict to one discussion kind.',
+                    },
+                    k: { type: 'number', description: 'Top-K rows to return. Default 5. Max 20.' },
+                    recency_alpha: {
+                        type: 'number',
+                        description: 'Recency weight 0–1. 0 = pure BM25. 1 = pure recency. Default 0.3.',
+                    },
+                },
+                required: ['agent', 'query'],
+            },
+        },
+        {
             name: 'discussion_append',
             description: 'Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log.',
             inputSchema: {
@@ -59,8 +85,9 @@ export function discussionTools(db) {
                 properties: {
                     agent: { type: 'string' },
                     issue_id: { type: 'string' },
-                    limit: { type: 'number', description: 'Max rows to return. Default 50, max 200.' },
+                    limit: { type: 'number', description: 'Max rows to return. Capped at 200. When omitted, returns up to 200 rows (legacy bare-array shape); when provided, response includes next_cursor.' },
                     offset: { type: 'number', description: 'Row offset for pagination. Default 0.' },
+                    cursor: { type: 'string', description: 'Opaque cursor from a previous response. When provided, overrides offset.' },
                 },
                 required: ['agent', 'issue_id'],
             },
@@ -73,12 +100,64 @@ export function discussionTools(db) {
                 properties: {
                     agent: { type: 'string' },
                     issue_id: { type: 'string' },
+                    limit: { type: 'number', description: 'Optional — max discussion rows to return. When omitted, returns all. When provided, response includes next_cursor.' },
+                    cursor: { type: 'string', description: 'Opaque cursor from a previous response.' },
                 },
                 required: ['agent', 'issue_id'],
             },
         },
     ];
+    function decodeCursor(cursor) {
+        try {
+            return JSON.parse(Buffer.from(cursor, 'base64').toString('utf8'));
+        }
+        catch {
+            return null;
+        }
+    }
+    function encodeCursor(row) {
+        return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString('base64');
+    }
     const handlers = {
+        discussion_search: wrapHandler(async (args) => {
+            normalizeAgent(args['agent']);
+            const query = requireArg(args, 'query');
+            const issueId = args['issue_id'] ?? null;
+            const kind = args['kind'] ?? null;
+            const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
+            const alpha = Math.min(1, Math.max(0, args['recency_alpha'] ?? 0.3));
+            const countRow = db.get(`SELECT COUNT(*) AS n
+         FROM discussions_fts
+         JOIN discussions d ON d.id = discussions_fts.rowid
+         WHERE discussions_fts MATCH ?
+           AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+           AND (? IS NULL OR d.kind = ?)`, [query, issueId, issueId, kind, kind]);
+            const total_matched = countRow?.n ?? 0;
+            const rows = db.all(`SELECT
+           d.id, d.issue_id, d.kind, d.author, d.created_at,
+           snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
+           bm25(discussions_fts) AS bm25_score,
+           (julianday('now') - julianday(d.created_at)) AS age_days
+         FROM discussions_fts
+         JOIN discussions d ON d.id = discussions_fts.rowid
+         WHERE discussions_fts MATCH ?
+           AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+           AND (? IS NULL OR d.kind = ?)
+         ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
+         LIMIT ?`, [query, issueId, issueId, kind, kind, alpha, alpha, k]);
+            return ok({
+                results: rows.map((r) => ({
+                    id: r.id,
+                    issue_id: r.issue_id,
+                    kind: r.kind,
+                    author: r.author,
+                    created_at: r.created_at,
+                    snippet: r.snippet,
+                    score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
+                })),
+                total_matched,
+            });
+        }),
         discussion_append: requireRoles('discussion_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
@@ -108,27 +187,72 @@ export function discussionTools(db) {
         discussion_list: wrapHandler(async (args) => {
             normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
-            const rawLimit = args['limit'] ?? 50;
+            const limitArg = args['limit'];
+            const cursorArg = args['cursor'];
             const rawOffset = args['offset'] ?? 0;
-            const limit = Math.min(Math.max(1, rawLimit), 200);
-            const offset = Math.max(0, rawOffset);
             const issue = db.get('SELECT id FROM issues WHERE id = ?', [issueId]);
             if (!issue) {
                 return ok({ discussions: [], warning: 'issue not found' });
             }
-            const rows = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?`, [issueId, limit, offset]);
-            return ok(rows);
+            if (limitArg === undefined || limitArg === null) {
+                const offset = Math.max(0, rawOffset);
+                const rows = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200 OFFSET ?`, [issueId, offset]);
+                return ok(rows);
+            }
+            const limit = Math.min(Math.max(1, limitArg), 200);
+            let cursorFilter = '';
+            let cursorParams = [];
+            if (cursorArg) {
+                const decoded = decodeCursor(cursorArg);
+                if (decoded) {
+                    cursorFilter =
+                        'AND (created_at > ? OR (created_at = ? AND id > ?))';
+                    cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+                }
+            }
+            const sql = 'SELECT * FROM discussions WHERE issue_id = ? ' +
+                cursorFilter +
+                ' ORDER BY created_at ASC, id ASC LIMIT ?';
+            const fetchedRows = db.all(sql, [issueId, ...cursorParams, limit + 1]);
+            const hasMore = fetchedRows.length > limit;
+            const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+            const last = rows[rows.length - 1];
+            const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
+            return ok({ rows, next_cursor });
         }),
         issue_get_with_discussions: wrapHandler(async (args) => {
             normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
+            const limitArg = args['limit'];
+            const cursorArg = args['cursor'];
             const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             if (!issue) {
                 throw new Error(`Not found: issue ${issueId}`);
             }
-            const discussions = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`, [issueId]);
             const tasks = db.all(`SELECT id, branch_id, status, title FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`, [issueId]);
-            return ok({ issue, discussions, tasks });
+            if (limitArg === undefined || limitArg === null) {
+                const discussions = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`, [issueId]);
+                return ok({ issue, discussions, tasks });
+            }
+            const limit = Math.min(Math.max(1, limitArg), 200);
+            let cursorFilter = '';
+            let cursorParams = [];
+            if (cursorArg) {
+                const decoded = decodeCursor(cursorArg);
+                if (decoded) {
+                    cursorFilter = 'AND (created_at > ? OR (created_at = ? AND id > ?))';
+                    cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+                }
+            }
+            const sql = 'SELECT * FROM discussions WHERE issue_id = ? ' +
+                cursorFilter +
+                ' ORDER BY created_at ASC, id ASC LIMIT ?';
+            const fetchedDisc = db.all(sql, [issueId, ...cursorParams, limit + 1]);
+            const hasMore = fetchedDisc.length > limit;
+            const discussions = hasMore ? fetchedDisc.slice(0, limit) : fetchedDisc;
+            const last = discussions[discussions.length - 1];
+            const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
+            return ok({ issue, discussions, tasks, next_cursor });
         }),
     };
     return { definitions, handlers };

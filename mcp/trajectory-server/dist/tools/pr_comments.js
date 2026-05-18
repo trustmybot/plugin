@@ -170,6 +170,8 @@ export function prCommentsTools(db, _spawnFn) {
                         type: 'number',
                         description: 'Optional filter — only return rows for this PR number.',
                     },
+                    limit: { type: 'number', description: 'Optional — max rows to return. When provided, response includes next_cursor.' },
+                    cursor: { type: 'string', description: 'Opaque cursor from a previous response.' },
                 },
             },
         },
@@ -250,15 +252,43 @@ export function prCommentsTools(db, _spawnFn) {
             if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
                 return err('pr_number must be a positive integer when provided');
             }
-            const rows = filterPrNumber === null
-                ? db.all(`SELECT id, pr_number, repo, last_fetched_at, last_comment_id
-                 FROM pr_review_runs
-                 ORDER BY pr_number, repo`)
-                : db.all(`SELECT id, pr_number, repo, last_fetched_at, last_comment_id
-                 FROM pr_review_runs
-                 WHERE pr_number = ?
-                 ORDER BY repo`, [filterPrNumber]);
-            return ok({ rows, count: rows.length });
+            const limitArg = args['limit'];
+            const cursorArg = args['cursor'];
+            if (limitArg === undefined || limitArg === null) {
+                const rows = filterPrNumber === null
+                    ? db.all('SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs ORDER BY pr_number, repo')
+                    : db.all('SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs WHERE pr_number = ? ORDER BY repo', [filterPrNumber]);
+                return ok({ rows, count: rows.length });
+            }
+            const limit = Math.min(Math.max(1, limitArg), 500);
+            let cursorFilter = '';
+            let cursorParams = [];
+            if (cursorArg) {
+                try {
+                    const decoded = JSON.parse(Buffer.from(cursorArg, 'base64').toString('utf8'));
+                    if (typeof decoded.id === 'number') {
+                        cursorFilter = 'AND id > ?';
+                        cursorParams = [decoded.id];
+                    }
+                }
+                catch {
+                    // ignore invalid cursor
+                }
+            }
+            const whereBase = filterPrNumber !== null ? 'WHERE pr_number = ? ' : 'WHERE 1=1 ';
+            const baseParams = filterPrNumber !== null ? [filterPrNumber] : [];
+            const sql = 'SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs ' +
+                whereBase +
+                cursorFilter +
+                ' ORDER BY id ASC LIMIT ?';
+            const fetchedRows = db.all(sql, [...baseParams, ...cursorParams, limit + 1]);
+            const hasMore = fetchedRows.length > limit;
+            const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+            const last = rows[rows.length - 1];
+            const next_cursor = hasMore && last
+                ? Buffer.from(JSON.stringify({ id: last.id })).toString('base64')
+                : undefined;
+            return ok({ rows, count: rows.length, next_cursor });
         }),
     };
     return { definitions, handlers };

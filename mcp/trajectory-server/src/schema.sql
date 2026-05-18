@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 2, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 3, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. file_registry rows reference repos.name via the repo column.
@@ -335,3 +335,68 @@ CREATE TABLE IF NOT EXISTS rule_invocations (
 CREATE INDEX IF NOT EXISTS idx_rule_invocations_rule ON rule_invocations(rule_name);
 CREATE INDEX IF NOT EXISTS idx_rule_invocations_task ON rule_invocations(task_id);
 CREATE INDEX IF NOT EXISTS idx_rule_invocations_agent_run ON rule_invocations(agent_run_id);
+
+-- FTS5 virtual tables for keyword search (Phase 1 of #2905).
+-- content= tables shadow the source table so SQLite keeps them in sync
+-- via the triggers below; we also backfill on fresh DBs here.
+
+CREATE VIRTUAL TABLE IF NOT EXISTS discussions_fts USING fts5(
+  body,
+  content='discussions',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS discussions_ai AFTER INSERT ON discussions BEGIN
+  INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS discussions_ad AFTER DELETE ON discussions BEGIN
+  INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+END;
+CREATE TRIGGER IF NOT EXISTS discussions_au AFTER UPDATE ON discussions BEGIN
+  INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+  INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS audit_fts USING fts5(
+  summary,
+  content_json,
+  content='audit',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS audit_ai AFTER INSERT ON audit BEGIN
+  INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
+END;
+CREATE TRIGGER IF NOT EXISTS audit_ad AFTER DELETE ON audit BEGIN
+  INSERT INTO audit_fts(audit_fts, rowid, summary, content_json) VALUES ('delete', old.id, old.summary, old.content_json);
+END;
+CREATE TRIGGER IF NOT EXISTS audit_au AFTER UPDATE ON audit BEGIN
+  INSERT INTO audit_fts(audit_fts, rowid, summary, content_json) VALUES ('delete', old.id, old.summary, old.content_json);
+  INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
+END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS file_registry_fts USING fts5(
+  summary,
+  path,
+  content='file_registry',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS file_registry_ai AFTER INSERT ON file_registry
+WHEN new.summary IS NOT NULL BEGIN
+  INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
+END;
+CREATE TRIGGER IF NOT EXISTS file_registry_ad AFTER DELETE ON file_registry
+WHEN old.summary IS NOT NULL BEGIN
+  INSERT INTO file_registry_fts(file_registry_fts, rowid, summary, path) VALUES ('delete', old.rowid, old.summary, old.path);
+END;
+CREATE TRIGGER IF NOT EXISTS file_registry_au AFTER UPDATE ON file_registry
+WHEN old.summary IS NOT NULL BEGIN
+  INSERT INTO file_registry_fts(file_registry_fts, rowid, summary, path) VALUES ('delete', old.rowid, old.summary, old.path);
+END;
+CREATE TRIGGER IF NOT EXISTS file_registry_au_new AFTER UPDATE ON file_registry
+WHEN new.summary IS NOT NULL BEGIN
+  INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
+END;
