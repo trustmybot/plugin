@@ -1,8 +1,8 @@
--- 02-onboard-local → reonboard intent recognized. Either of two paths is
--- acceptable per Daisy's design:
+-- 02-reonboard-implicit-from-local → reonboard intent recognized. Either of two
+-- paths is acceptable:
 --   (a) bro auto-applies via onboard_apply (config now reflects remote)
 --   (b) bro recommends `/onboard` in text and stops (config preserved)
--- The contract just checks that bro engaged with the reonboard signal
+-- The contract checks that bro engaged with the reonboard signal
 -- (called onboard_state_get) and didn't start code work.
 
 SELECT

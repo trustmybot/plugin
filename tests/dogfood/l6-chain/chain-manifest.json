@@ -15,8 +15,8 @@
     },
     {
       "id": 2,
-      "name": "02-onboard-local",
-      "row_dir": "l5-rows/02-onboard-local",
+      "name": "02-reonboard-implicit-from-local",
+      "row_dir": "l5-rows/02-reonboard-implicit-from-local",
       "partial_test": true,
       "seed_before": null,
       "seed_after": null,

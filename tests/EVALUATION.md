@@ -220,7 +220,7 @@ Every L6 run produces a per-step log so failures are debuggable without replayin
 │   ├── post-state.diff          # delta vs pre-state (rows added/changed)
 │   ├── scorers.json             # per-scorer pass/fail
 │   └── seed-applied.sql         # if 🟡 partial-test, the post-AUQ pseudo-data injected before row N+1
-├── step-02-onboard-local/
+├── step-02-reonboard-implicit-from-local/
 │   └── …
 …
 ├── step-13-pr-comment-review/
@@ -235,7 +235,7 @@ Every L6 run produces a per-step log so failures are debuggable without replayin
 | #  | Row                              | Status | Tokens  | Duration | Notes                                  |
 |----|----------------------------------|--------|---------|----------|----------------------------------------|
 | 1  | Cold start                       | ✅ pass | 320     | 4.2s     | onboard intent: state_get + questions  |
-| 2  | Onboard local (partial-test)     | ✅ pass | (seed)  | 0.0s     | identity + plugin_config seeded        |
+| 2  | Reonboard implicit (partial-test) | ✅ pass | (seed)  | 0.0s     | identity + plugin_config seeded        |
 | 3  | Reonboard remote (partial-test)  | ✅ pass | 290     | 3.8s     | state_get + questions(shape='remote')  |
 | 4  | First task hits gate             | ❌ FAIL | 4,210   | 89s      | scorer 'tasks ≥1' got 0 — gate didn't  |
                                                                           clear after scan_run                   │
@@ -281,7 +281,7 @@ Rules:
 | # | Step / sub-flow | User input | Bro reaction | MCP / Hook | SWE | pr-reviewer | Consultant | Asserted outcome |
 |---|---|---|---|---|---|---|---|---|
 | 1 🟡 | **Cold start (partial-test)** | `@bro hi\n\nDon't ask questions.` | Auto-routes to onboard via `activation-routine.sh` (`onboarded=no` context). Calls `onboard_state_get` to confirm first-run; in headless mode applies documented defaults. | `activation-routine.sh` injects `onboarded=no` | — | — | — | `tools-required` includes `onboard_state_get`. Identity may or may not land in the same turn (bro varies); row 2's seed locks in cumulative state for downstream. |
-| 2 🟡 | **Onboard — local shape (partial-test)** | `@bro I want to make this project available on GitLab.\n\nDon't ask questions.` | bro calls `onboard_state_get`. Either path is acceptable: (a) auto-apply via `onboard_apply(shape='remote', remote=['gitlab'], …)` or (b) recommend `/onboard` in text and stop. The `reonboard-intent-hint.sh` hook nudges either way. | hint fires on "available on gitlab" pattern | — | — | — | `tools-required` includes `onboard_state_get`; `tools-forbidden` blocks task/issue/Agent only (no code work); outcome.sql verifies identity intact + scan audit intact. |
+| 2 🟡 | **Reonboard — implicit from local (partial-test)** | `@bro I want to push this project to a remote.\n\nDon't ask questions.` | bro calls `onboard_state_get`. Either path is acceptable: (a) auto-apply via `onboard_apply(shape='remote', …)` or (b) recommend `/onboard` in text and stop. The `reonboard-intent-hint.sh` hook nudges either way. No provider named — contrast step 03 (explicit `/onboard` ceremony). | hint fires on "push to a remote" pattern | — | — | — | `tools-required` includes `onboard_state_get`; `tools-forbidden` blocks task/issue/Agent only (no code work); outcome.sql verifies identity intact + scan audit intact. |
 | 3 🟡 | **Reonboard — change to remote (gitflow + GitLab) (partial-test)** | `/onboard\n\nDon't ask questions.` | Bro calls `onboard_state_get` (sees `first_run=false`), then applies documented remote-shape defaults in headless mode. | The onboard slash handler routes to bro | — | — | — | `tools-required` includes `onboard_state_get`. After this row a chain seed flips `branching_model='"gitflow"'`, `pr_target='"dev"'`, `remotes` length=1 for downstream. |
 | 4 | **First task hits registry-cold gate; bro recovers via `scan_run`** | `@bro make a todo CLI in Python.\n\nDon't ask questions.` | Calls `task_create_batch` → server returns `registry_cold_violation` → bro reads error, calls `scan_run` (auto-fire path per `commands/scan.md`) → writes `kind='decision'` (universal decision gate) → re-tries `task_create_batch` (now passes) → spawns SWE. Filenames are bro's choice. | `tasks.ts` registry-cold + decision gates both clear on retry; `scan_run` forks `scripts/scan.sh`, bulk-upserts `repos` + `file_registry`, emits `audit(event_type='deep_scan_completed')`, sets `tmb_default_repo` | Picks up via `task_get`, scaffolds the CLI, commits, calls `task_update_status(completed, commit_sha)` | — | — | ≥1 `deep_scan_completed` audit; `repos` row count > 0; `file_registry` populated; ≥1 `kind='decision'` discussion; `tasks` row created; SWE commit lands |
 | 5 | **SWE atomic-close + bro V1/V2/V3** *(L5-only — not in L6 chain; see Journey-shape note)* | (n/a in chain — row 4 covers it under DB-driven semantics) | Verifies V1 (files match spec), V2 (verification commands pass), V3 (success criteria visibly met); writes `file_registry_update_summaries` for touched paths; calls `bro_atomic_close` | `bro_atomic_close` writes audit + summaries + flips task to `closed` + closes issue if last task — one transaction; `swe-atomic-close.sh` SubagentStop hook writes `agent_runs` row | Was running in row 4; SubagentStop fires here | — | — | `agent_runs` row count ≥1 with `task_id` set; task `status='closed'`; `file_registry` row at `cli.py` has non-null summary |
@@ -308,7 +308,7 @@ For the 🟡 partial-test rows, between-row seeds bridge the AUQ gap:
 | Row | Post-AUQ seed |
 |---|---|
 | 1 Cold start | `after-01-cold-start.sql` → seeds `identity` + `plugin_config` defaults + `deep_scan_completed` audit, in case bro didn't fully complete onboard in his one turn |
-| 2 Onboard local | `onboarding-named.sql` → `identity` + `plugin_config` (branching_model='github-flow', pr_target='main', protected_branches=["main"], remotes=[], issue_sync='off') + `deep_scan_completed` audit |
+| 2 Reonboard implicit | `onboarding-named.sql` → `identity` + `plugin_config` (branching_model='github-flow', pr_target='main', protected_branches=["main"], remotes=[], issue_sync='off') + `deep_scan_completed` audit |
 | 3 Reonboard remote | extension flipping `branching_model='gitflow'`, `pr_target='dev'`, `remotes=[{name:'origin',provider:'gitlab'}]` |
 | 8 Architectural-change Q+A | `after-08-architectural-change.sql` injects `kind='question'` + `kind='answer'` rows on the architectural issue for narrative continuity |
 | 11 Roundtable ratification | `after-11-roundtable.sql` injects ratify=true + human's `roundtable_vote` row |
