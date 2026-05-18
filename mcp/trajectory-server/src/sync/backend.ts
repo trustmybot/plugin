@@ -40,10 +40,12 @@ export function detectPreferred(): 'gh' | 'glab' | null {
 
 export function resolveBackend(
   configValue: string,
+  hasSpawnFn = false,
 ): 'gh' | 'glab' | 'both' | 'off' | null {
   if (
-    process.env.TMB_DISABLE_REMOTE_SYNC === '1' ||
-    process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === 'true'
+    !hasSpawnFn &&
+    (process.env.TMB_DISABLE_REMOTE_SYNC === '1' ||
+      process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === 'true')
   ) {
     return null;
   }

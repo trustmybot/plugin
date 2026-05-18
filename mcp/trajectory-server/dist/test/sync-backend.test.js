@@ -36,4 +36,27 @@ describe('resolveBackend', () => {
         assert.ok(result === null || result === 'gh' || result === 'glab' || result === 'both', `Expected null|gh|glab|both, got ${result}`);
     });
 });
+describe('resolveBackend — hasSpawnFn bypasses TMB_DISABLE_REMOTE_SYNC', () => {
+    let savedEnv;
+    before(() => {
+        savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
+        process.env.TMB_DISABLE_REMOTE_SYNC = '1';
+    });
+    after(() => {
+        if (savedEnv !== undefined) {
+            process.env.TMB_DISABLE_REMOTE_SYNC = savedEnv;
+        }
+        else {
+            delete process.env.TMB_DISABLE_REMOTE_SYNC;
+        }
+    });
+    it('returns gh (not null) when hasSpawnFn=true even with TMB_DISABLE_REMOTE_SYNC=1', () => {
+        const result = resolveBackend('gh', true);
+        assert.equal(result, 'gh');
+    });
+    it('still returns null when hasSpawnFn=false and TMB_DISABLE_REMOTE_SYNC=1', () => {
+        const result = resolveBackend('gh', false);
+        assert.equal(result, null);
+    });
+});
 //# sourceMappingURL=sync-backend.test.js.map

@@ -34,9 +34,10 @@ export function detectPreferred() {
         return null;
     }
 }
-export function resolveBackend(configValue) {
-    if (process.env.TMB_DISABLE_REMOTE_SYNC === '1' ||
-        process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === 'true') {
+export function resolveBackend(configValue, hasSpawnFn = false) {
+    if (!hasSpawnFn &&
+        (process.env.TMB_DISABLE_REMOTE_SYNC === '1' ||
+            process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === 'true')) {
         return null;
     }
     if (configValue === 'off')

@@ -172,7 +172,7 @@ export function issueTools(db, dbPath = '') {
             // see inline. The trajectory log alone is invisible to the agent.
             let syncDiagnostic;
             if (syncConfig !== 'off') {
-                const backend = resolveBackend(syncConfig);
+                const backend = resolveBackend(syncConfig, !!spawnFn);
                 if (backend === null) {
                     serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
                 }
