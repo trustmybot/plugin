@@ -21,6 +21,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/normalize-role.sh
+. "$SCRIPT_DIR/lib/normalize-role.sh"
+
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
@@ -31,7 +35,7 @@ fi
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 [ "$TOOL_NAME" = "Agent" ] || exit 0
 
-SUBAGENT=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // ""' 2>/dev/null)
+SUBAGENT=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.tool_input.subagent_type // ""' 2>/dev/null)")
 [ "$SUBAGENT" = "pr-reviewer" ] || exit 0
 
 ISOLATION=$(echo "$INPUT" | jq -r '.tool_input.isolation // ""' 2>/dev/null)

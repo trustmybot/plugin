@@ -9,13 +9,15 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=lib/normalize-role.sh
+. "$SCRIPT_DIR/lib/normalize-role.sh"
 
 if [ "${TMB_ALLOW_BRANCH_MISMATCH:-0}" = "1" ]; then
   exit 0
 fi
 
 INPUT=$(cat)
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty')
+AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty')")
 PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty')
 
 [ "$AGENT_TYPE" = "swe" ] || exit 0

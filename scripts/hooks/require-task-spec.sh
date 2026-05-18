@@ -6,10 +6,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/query-task.sh
 source "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=lib/normalize-role.sh
+source "$SCRIPT_DIR/lib/normalize-role.sh"
 
 INPUT=$(cat)
 
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty')
+AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty')")
 PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty')
 
 [ "$AGENT_TYPE" != "swe" ] && exit 0

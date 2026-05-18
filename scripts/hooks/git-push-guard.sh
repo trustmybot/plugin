@@ -14,10 +14,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/normalize-role.sh
+. "$SCRIPT_DIR/lib/normalize-role.sh"
 
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-AGENT_TYPE=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
+AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
 
 # Only fire for git push (not push --force; that's git-guards's job).
 # Matches both `git push ...` and `git -C <path> push ...` forms.
@@ -90,7 +92,7 @@ fi
 # Block any git push from SWE context (swe.md "Never push" rule enforced structurally).
 # Defense-in-depth fallback: catches non-worktree SWE pushes and cases where
 # CC #97 might strip the agent_type field from the payload.
-if [ "$AGENT_TYPE" = "tmb:swe" ] || [ "$AGENT_TYPE" = "swe" ]; then
+if [ "$AGENT_TYPE" = "swe" ]; then
   REASON=$(jq -Rn '"BLOCKED: SWE must never push (swe.md). Bro handles the push gate at MR-open time. If this push was intended, the calling agent identity (.agent_type) is misconfigured."')
   printf '{"decision":"block","reason":%s}\n' "$REASON"
   exit 0

@@ -60,6 +60,7 @@ run_step "L1 lint: no developer paths in artifacts"   bash "$HERE/lint/no-develo
 run_step "L1 lint: no stale framing prose"            bash "$HERE/lint/stale-framing-prose.sh"
 run_step "L1 lint: no hardcoded plugin name"          bash "$HERE/lint/no-hardcoded-plugin-name.sh"
 run_step "L1 lint: CI workflow file refs exist"       bash "$HERE/lint/ci-workflow-refs-exist.sh"
+run_step "L1 lint: no bare role compare in hooks"     bash "$HERE/lint/no-bare-role-compare.sh"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 

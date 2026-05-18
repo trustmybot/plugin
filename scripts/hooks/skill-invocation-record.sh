@@ -19,6 +19,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/normalize-role.sh
+. "$SCRIPT_DIR/lib/normalize-role.sh"
+
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
@@ -29,6 +33,11 @@ fi
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 [ "$TOOL_NAME" = "Skill" ] || exit 0
+
+# Only record skill invocations from the bro session. Subagents (swe,
+# pr-reviewer) have their own sessions and are excluded by design.
+HOOK_AGENT=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // ""' 2>/dev/null)")
+[ -z "$HOOK_AGENT" ] || [ "$HOOK_AGENT" = "bro" ] || exit 0
 
 SKILL_NAME=$(echo "$INPUT" | jq -r '.tool_input.skill // ""' 2>/dev/null)
 [ -n "$SKILL_NAME" ] || exit 0
