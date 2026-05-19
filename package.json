@@ -1,6 +1,6 @@
 {
   "name": "tmb-plugin",
-  "version": "0.8.0-rc.2",
+  "version": "0.8.0-rc.3",
   "description": "TMB multi-agent Claude Code plugin — workspace root. Shipped content is declared in .claude-plugin/plugin.json; this file exists only to wire the two Node subpackages together.",
   "private": true,
   "workspaces": [
