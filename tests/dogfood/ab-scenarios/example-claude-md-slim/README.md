@@ -19,7 +19,7 @@ example-claude-md-slim/
 1. `bash tests/dogfood/run-ab.sh example-claude-md-slim` reads `scenario.json`
 2. For each pair (default 5):
    - Sets up a scratch project (per `l5_setup_scratch_project`)
-   - For arm `A-slim`: copies `$PLUGIN_ROOT` to a temp dir, overlays `arms/A-slim/` (empty → no override), runs `claude --plugin-dir <temp> -p "<prompt>"`, scores per `tests/dogfood/flows/95-anonymous-cold-restart/` configs, tags eval_results rows with `arm='A-slim', scenario='example-claude-md-slim'`
+   - For arm `A-slim`: copies `$PLUGIN_ROOT` to a temp dir, overlays `arms/A-slim/` (empty → no override), runs `claude --plugin-dir <temp> -p "<prompt>"`, scores per `tests/dogfood/rows/95-anonymous-cold-restart/` configs, tags eval_results rows with `arm='A-slim', scenario='example-claude-md-slim'`
    - For arm `B-padded`: same but `arms/B-padded/CLAUDE.md` overrides the plugin's CLAUDE.md
 3. After all pairs: `bash tests/dogfood/scripts/ab-report.sh example-claude-md-slim` aggregates pass-rates per arm + chi-squared p-value per scorer
 

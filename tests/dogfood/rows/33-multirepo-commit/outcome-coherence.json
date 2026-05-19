@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "file_registry": ">=2"
+  }
+}

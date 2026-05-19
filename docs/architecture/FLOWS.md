@@ -237,7 +237,7 @@ When the Human's prompt names what to delete (branches, temp files, etc.), bro e
 
 When a workspace has multiple inner git repos (siblings or submodules), `tmb_default_repo` config or per-task `tasks.repo` names the active inner repo. `file_registry` paths are stored repo-relative — bro does NOT prepend the inner repo directory when writing rows.
 
-The L5 fixture `tests/dogfood/flows/33-multirepo-commit/` catches regressions at the storage layer: `file_registry.path LIKE 'api/%' OR LIKE 'app/%'` returns ≥1 row only on a workspace-rooted path leak.
+The L5 row `tests/dogfood/rows/33-multirepo-commit/` catches regressions at the storage layer: `file_registry.path LIKE 'api/%' OR LIKE 'app/%'` returns ≥1 row only on a workspace-rooted path leak.
 
 ---
 

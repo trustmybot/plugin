@@ -1,0 +1,3 @@
+@bro add a sync API to that python todo CLI — design the storage architecture first since it touches multiple modules and changes the public surface
+
+Don't ask questions.

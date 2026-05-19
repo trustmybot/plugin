@@ -1,1 +1,0 @@
-@bro this is a multi-repo workspace. Index the default code repo's source files into file_registry. Use repo-relative paths since file_registry is scoped per repo via tasks.repo / tmb_default_repo.

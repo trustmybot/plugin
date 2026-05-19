@@ -1,0 +1,6 @@
+{
+  "expected_writes": {
+    "tasks":  ">=1",
+    "issues": ">=1"
+  }
+}

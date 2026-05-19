@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for L5 flow scripts. Source this from tests/dogfood/flows/*.test.sh.
+# Shared helpers for L5 row scripts. Source this from tests/dogfood/run-l5.sh + helpers under tests/dogfood/lib/.
 
 set -uo pipefail
 

@@ -1,0 +1,6 @@
+{
+  "max_tokens_total": 30000,
+  "max_duration_ms": 60000,
+  "fail_above_max": false,
+  "_comment": "Cleanup is lightweight — one Bash call. Soft budget; overage signals bro over-thought the task."
+}
