@@ -71,15 +71,11 @@ _l5_test_prompt_prefix() {
 EOF
 }
 
-l5_run_claude() {
-  local dir="$1" prompt="$2"
-  local jsonl="$dir/trajectory.jsonl"
-  local full_prompt
-  full_prompt="$(_l5_test_prompt_prefix)$prompt"
-
-  # Snapshot pre-run git state so the git scorer can detect "bro committed
-  # to base" without conflating it with setup-time commits the flow's
-  # run.sh made before this point. Stored as JSON for forward-compat.
+# _l5_write_pre_run_git_snapshot <project_dir>: snapshot pre-run git state so
+# the git scorer can detect "bro committed to base" without conflating it with
+# setup-time commits the flow's run.sh made before this point.
+_l5_write_pre_run_git_snapshot() {
+  local dir="$1"
   if git -C "$dir" rev-parse HEAD >/dev/null 2>&1; then
     local pre_head pre_branch
     pre_head=$(git -C "$dir" rev-parse HEAD 2>/dev/null || echo "")
@@ -88,6 +84,15 @@ l5_run_claude() {
     printf '{"head":"%s","branch":"%s"}\n' "$pre_head" "$pre_branch" \
       > "$dir/.claude/tmb/_l5_pre_run_git.json"
   fi
+}
+
+l5_run_claude() {
+  local dir="$1" prompt="$2"
+  local jsonl="$dir/trajectory.jsonl"
+  local full_prompt
+  full_prompt="$(_l5_test_prompt_prefix)$prompt"
+
+  _l5_write_pre_run_git_snapshot "$dir"
 
   (
     cd "$dir" || exit 1

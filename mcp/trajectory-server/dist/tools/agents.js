@@ -82,6 +82,19 @@ export function agentTools(db) {
             db.run(`INSERT OR IGNORE INTO agents (name, kind, scope, file_path)
          VALUES (?, ?, ?, ?)`, [name, kind, scope, filePath]);
             const row = db.get('SELECT * FROM agents WHERE name = ?', [name]);
+            // When a project-local consultant is registered, emit a tmb_agent_created
+            // audit row automatically. This closes the detection loop even when bro
+            // calls agent_register without a subsequent explicit audit_log call.
+            // Only fires when a NEW row was inserted (changes() > 0) to avoid
+            // duplicate audit rows on idempotent re-registrations.
+            if (scope === 'project-local' && kind === 'consultant') {
+                const changed = db.get('SELECT changes() AS n', []);
+                if (changed && changed.n > 0 && row) {
+                    const contentJson = JSON.stringify({ name, mode: 'agent_register', agent_id: row.id });
+                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, datetime('now'))`, [String(args['agent']), `Agent registered: ${name}`, contentJson]);
+                }
+            }
             return ok(row);
         }),
     };
