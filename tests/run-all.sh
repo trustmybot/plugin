@@ -9,7 +9,7 @@
 #   L3 — Integration (server + hooks)    → tests/mcp-integration/*.mjs + tests/hooks/*.sh ← this file
 #   L4 — Workflow simulation             → tests/workflow-sim/*.mjs     ← this file
 #   L5 — Per-row dogfood (real CC)       → bash tests/dogfood/run-l5.sh (token required)
-#   L6 — Multi-turn integration (real CC) → bash tests/dogfood/run-l6.sh (token required)
+#   L6 — Multi-turn chain (real CC)      → bash tests/dogfood/run-l6-chain.sh (token required)
 #   Release canary                       → tests/docker/release-canary.Dockerfile (CI-only, RC tags)
 #   Manual smoke (fallback)              → tests/manual/scenarios.md (human-walked)
 

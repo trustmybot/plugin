@@ -36,4 +36,4 @@
 
 ## Verification status
 
-**Authored but not yet run end-to-end against `claude -p`.** Reasoning: the assertions are correctness-by-construction (any successful `skill_register` call produces the `created_by != 'system'` row; the schema seed is fixed). Run via `bash tests/dogfood/run-l6.sh misc/skill-register-on-creation` when you want a live signal.
+**Authored but not yet run end-to-end against `claude -p`.** Reasoning: the assertions are correctness-by-construction (any successful `skill_register` call produces the `created_by != 'system'` row; the schema seed is fixed). Run via `bash tests/dogfood/run-l5.sh misc-skill-register-on-creation` when you want a live signal.

@@ -13,8 +13,8 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
-| **L5** | Per-row independent units. Each test starts from a fixture pre-seeding the cumulative state up to that row (codebase + MCP DB rows + audit history). One row = one test. ~$0.20/test. | [`dogfood/run-l5.sh`](./dogfood/run-l5.sh), [`dogfood/l5-rows/`](./dogfood/l5-rows/) | Per-row contract drift. **First-line check after a fix.** If the L5 for a row fails, don't run L6 yet. |
-| **L6** | Multi-turn integration. Drives scenarios spanning multiple flows and continuous bro sessions. Cross-session state verified via DB continuity. | [`dogfood/run-l6.sh`](./dogfood/run-l6.sh), [`dogfood/l6-chain/`](./dogfood/l6-chain/) | Cross-flow continuity, multi-session state carry. Run after relevant L5s pass. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
+| **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`dogfood/run-l5.sh`](./dogfood/run-l5.sh), [`dogfood/rows/`](./dogfood/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
+| **L6** | Multi-turn chain. Walks the 14 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`dogfood/run-l6-chain.sh`](./dogfood/run-l6-chain.sh), [`dogfood/l6-chain/`](./dogfood/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
 | **A/B prompt eval** | Head-to-head comparison of doctrine variants (e.g. CLAUDE.md slim vs padded). N pairs per arm against an L5 flow → per-arm pass-rate + chi-squared p-value | [`dogfood/run-ab.sh`](./dogfood/run-ab.sh) + [`dogfood/ab-scenarios/`](./dogfood/ab-scenarios/) | Whether a doctrine change moves the needle vs is just rearrangement |
 | **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
@@ -66,12 +66,11 @@ tests/
 │   ├── setup.md
 │   └── scenarios.md
 └── dogfood/                    ← L5 + L6 dogfood + A/B framework
-    ├── run-l5.sh, run-l6.sh, run-l6-chain.sh, run-ab.sh
-    ├── lib/                    ← flow-helpers, l6-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
-    ├── flows/<name>/           ← legacy per-flow L5 scenarios; being migrated row-by-row to l5-rows/
-    ├── l5-rows/<NN>-<name>/    ← per-row L5 unit (also drives the L6 chain step) — script.json + prompt.txt + outcome bundle
+    ├── run-l5.sh, run-l6-chain.sh, run-ab.sh
+    ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
+    ├── rows/<NN>-<name>/       ← canonical row tree (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
     ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
-    ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the registry-cold gate so flows that exercise task_create_batch don't trip it
+    ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the registry-cold gate so rows that exercise task_create_batch don't trip it
     └── ab-scenarios/           ← per-A/B-test layout
 ```
 
@@ -122,28 +121,38 @@ bash tests/dogfood/run-l5.sh onboarding
 
 CI runs L5 on tag pushes and on PRs labeled `L5`. The workflow at `.github/workflows/l5-dogfood.yml` skips silently if the secret is unset.
 
-## Run L6 dogfood (multi-turn integration)
+## Run L6 dogfood (multi-turn chain)
 
-L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-row DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, `file_registry` on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
+L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, `file_registry` on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
-Two runners share the per-row outcome bundles under `tests/dogfood/l5-rows/`:
+The 14 chain steps live in `tests/dogfood/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
 
 ```bash
-# Per-row independent run (each row from a clean fixture; this is the L5
-# unit layer despite the historical `run-l6.sh` filename).
-bash tests/dogfood/run-l6.sh                  # all rows
-bash tests/dogfood/run-l6.sh 07-push-gate     # one row by name substring
-
-# Chained run — walks all 13 rows against a cumulative trajectory DB.
-# Each row fires a fresh `claude -p`; DB continuity (not LLM-session
-# continuity) drives the chain. Per-step logs land at
-# ~/.claude/tmb/l6-chain-runs/<run-id>/. See tests/dogfood/l6-chain/README.md.
+# Chained run — walks all 14 chain rows against a cumulative trajectory DB.
+# Each row fires a fresh `claude -p`; DB continuity drives the chain.
+# Per-step logs land at ~/.claude/tmb/l6-chain-runs/<run-id>/.
+# See tests/dogfood/l6-chain/README.md.
 bash tests/dogfood/run-l6-chain.sh                  # full chain
 bash tests/dogfood/run-l6-chain.sh --from 7         # resume from row 7
 bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
 ```
 
 CI gates L6 the same way as L5 — on tag pushes and PRs labeled `L6`.
+
+### Debugging an L6 chain failure
+
+When an L6 step fails, the failure can come from either the step itself or from prior chain steps that left bad state behind. To isolate, run the same row in L5 mode:
+
+```bash
+bash tests/dogfood/run-l5.sh <NN>-<step-name>     # e.g. 10-consultant
+```
+
+L5 applies the step's `setup-l5.sh` to simulate ONLY the prior-state surface (a clean approximation of what the prior chain step should have left), then drives the same prompt + scorers as L6. Two outcomes:
+
+- **L5 passes** — the L6 failure is upstream contamination. Bisect by running the chain `--from` earlier steps; the step whose post-state breaks the next step's L5 pre-conditions is the real culprit.
+- **L5 fails** — the step itself is broken (prompt drift, stale scorer, bad `setup-l5.sh`). Fix in isolation, re-run L5 until green, then re-run the chain.
+
+Faster iteration: ~$0.20 per L5 row vs ~$5–10 for a full L6 chain run.
 
 ### Writing prompts for L5/L6 rows
 
@@ -216,13 +225,13 @@ Does the change affect:
   - a skill's behavior?
   - a routing rule in bro/architect?
   - the UX of any single user-facing interaction?
-  → L2 + L3 + L5 (add a flow under tests/dogfood/flows/).
+  → L2 + L3 + L5 (add a row under tests/dogfood/rows/).
 
-Does the change affect cross-flow / multi-turn dynamics?
+Does the change affect cross-step / multi-turn dynamics?
   - cumulative state across multiple bro turns
   - state continuity across `--resume` sessions
   - empty-table regression patterns (registry, discussions, agent_runs, etc.)
-  → L2 + L3 + L6 (add a scenario under tests/dogfood/l5-rows/).
+  → L2 + L3 + L6 (add a row under tests/dogfood/rows/ AND an entry to tests/dogfood/l6-chain/chain-manifest.json).
 
 Does the change introduce a hook or modify hook behavior?
   → L3 (tests/hooks/<name>.test.sh).
@@ -247,8 +256,7 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
 | Protocol / role / workflow | `tests/mcp-integration/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
 | Hook script | `tests/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
-| L5 per-flow scenario | `tests/dogfood/flows/<NN>-<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `run.sh` + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` + `outcome-git.json` |
-| L6 multi-turn scenario | `tests/dogfood/l5-rows/<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — same outcome bundle as L5 plus `script.json` (turns) + `prompt.txt` (turn-1 user input) + `fixture.txt` |
+| L5 / L6 row | `tests/dogfood/rows/<NN>-<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/dogfood/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
 | Manual scenario | `tests/manual/scenarios.md` | follow the 8-section template at the top of that file |
 
 ### Hook test skeleton

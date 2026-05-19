@@ -1,6 +1,6 @@
 # L6 chain — single chained integration
 
-This directory holds the **L6 chain manifest** + **between-row seeds**. Each L5 row in `tests/dogfood/l5-rows/` doubles as a chain step here — same outcome bundle, same fixtures, no duplication of scorer config.
+This directory holds the **L6 chain manifest** + **between-row seeds**. Each L5 row in `tests/dogfood/rows/` doubles as a chain step here — same outcome bundle, same fixtures, no duplication of scorer config.
 
 ## Layout
 
@@ -61,13 +61,13 @@ Rows 4, 5, 6, 7, 9, 10, 12 are not partial-test — they progress purely on the 
 
 ## Adding a new row to the chain
 
-1. Add the L5 row directory under `tests/dogfood/l5-rows/`.
+1. Add the L5 row directory under `tests/dogfood/rows/`.
 2. Append an entry to `chain-manifest.json`:
    ```json
    {
      "id": 14,
      "name": "14-new-step",
-     "row_dir": "l5-rows/14-new-step",
+     "row_dir": "rows/14-new-step",
      "partial_test": false,
      "seed_before": null,
      "seed_after": null,
