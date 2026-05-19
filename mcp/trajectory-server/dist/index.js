@@ -7,6 +7,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema, } from '@modelcontextpro
 import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
 import { TrajectoryDB, resolveDbPath } from './db.js';
 import { serverLog, serverLogSync } from './logger.js';
+import { startBackfill } from './embeddings/backfill.js';
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
     mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -135,4 +136,5 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 serverLog({ kind: 'startup', pid: process.pid, version: '0.6.0', db_path: dbPath });
 process.stderr.write(`server started (db: ${dbPath})\n`);
+startBackfill(db).catch((e) => console.error('[embeddings] startBackfill error:', e));
 //# sourceMappingURL=index.js.map

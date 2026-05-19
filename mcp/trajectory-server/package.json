@@ -12,6 +12,7 @@
     "pretest": "bun run build"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.0"
   },
   "devDependencies": {

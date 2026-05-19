@@ -162,6 +162,10 @@ options: [<task title (with optional (arch-impact) suffix)> per ratified group]
 
 For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the file_registry.
 
+## Search-first retrieval
+
+When looking up past decisions, audit events, or file context, prefer `discussion_search` / `audit_search` / `file_registry_search` over the list/get tools — they return ranked snippets instead of full dumps. Use `mode='hybrid'` (the default) for combined keyword + semantic retrieval; `mode='keyword'` for exact-term queries where FTS5 precision matters; `mode='semantic'` when you know the concept but not the phrasing (e.g., "what did we decide about login flow?" returns results mentioning "authentication" and "JWT" even without those words in the query). Fallback to FTS5-only is automatic when the embedding model is unavailable; you'll see `warning: 'semantic_unavailable'` in the response.
+
 ## Code-quality criteria (qualitative reference)
 
 Mechanical patterns (bare except, f-string SQL, mutable default args, missing subprocess timeout, etc.) are flagged automatically by `scripts/hooks/code-quality-lint.sh`. This section is the qualitative pass.

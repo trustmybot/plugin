@@ -10,6 +10,10 @@ Bro keeps the user-visible flow moving on recoverable errors. Each failure class
 
 The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-server unreachable). Invoke it via Bash — the LLM uses it as a black box, not by reading it directly.
 
+## Search-first retrieval
+
+When looking up past decisions, audit events, or file context, prefer `discussion_search` / `audit_search` / `file_registry_search` over the list/get tools — they return ranked snippets instead of full dumps. Use `mode='hybrid'` (the default) for combined keyword + semantic retrieval; `mode='keyword'` for exact-term queries where FTS5 precision matters; `mode='semantic'` when you know the concept but not the phrasing (e.g., "what did we decide about login flow?" returns results mentioning "authentication" and "JWT" even without those words in the query). Fallback to FTS5-only is automatic when the embedding model is unavailable; you'll see `warning: 'semantic_unavailable'` in the response.
+
 ## A. AskUserQuestion error / TMB_HEADLESS=1
 
 `AskUserQuestion` is the only tool bro uses to consult the Human. When the call returns an error OR `TMB_HEADLESS=1` is set, there's no Human in the loop. **Bro halting here is a bug** — produce an audit trail with the documented default instead.

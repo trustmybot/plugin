@@ -7,6 +7,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { resolveDefaultRepoPath, resolveDefaultRepo } from '../utils/repo-paths.js';
+import { embedAndStore, topKByCosine } from '../embeddings/store.js';
 
 function md5OfPath(absPath: string): string {
   const buf = readFileSync(absPath);
@@ -114,14 +115,19 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'file_registry_search',
       description:
-        'Search file_registry via FTS5 on summary + path. Returns top-K snippets ranked by BM25 + recency-decay.',
+        'Search file_registry via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           query: {
             type: 'string',
-            description: 'FTS5 MATCH query. Searches across summary and path columns.',
+            description: 'Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language.',
+          },
+          mode: {
+            type: 'string',
+            enum: ['keyword', 'semantic', 'hybrid'],
+            description: 'Search mode. Default: hybrid.',
           },
           path_prefix: {
             type: 'string',
@@ -130,7 +136,7 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
           k: { type: 'number', description: 'Top-K rows to return. Default 5. Max 20.' },
           recency_alpha: {
             type: 'number',
-            description: 'Recency weight 0–1. 0 = pure BM25. 1 = pure recency. Default 0.3.',
+            description: 'Recency weight 0–1 (hybrid/keyword only). Default 0.3.',
           },
         },
         required: ['agent', 'query'],
@@ -251,6 +257,7 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
         return err('query is required and must be a non-empty string');
       }
 
+      const mode = (args['mode'] as string | undefined) ?? 'hybrid';
       const pathPrefix = (args['path_prefix'] as string | undefined) ?? null;
       const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, (args['recency_alpha'] as number | undefined) ?? 0.3));
@@ -264,6 +271,7 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
       }
 
       type MatchRow = {
+        rowid: number;
         repo: string;
         path: string;
         type: string;
@@ -275,38 +283,108 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
         age_days: number;
       };
 
-      const countRow = db.get<{ n: number }>(
-        'SELECT COUNT(*) AS n FROM file_registry_fts WHERE file_registry_fts MATCH ?',
-        [query],
-      );
-      const total_matched = countRow?.n ?? 0;
+      const fetchFtsRows = (limitK: number): MatchRow[] =>
+        db.all<MatchRow>(
+          'SELECT fr.rowid, fr.repo, fr.path, fr.type, fr.content_md5, fr.summary, fr.summary_updated_at, ' +
+            "snippet(file_registry_fts, 0, '[', ']', '...', 16) AS snippet, " +
+            'bm25(file_registry_fts) AS bm25_score, ' +
+            "(julianday('now') - julianday(COALESCE(fr.summary_updated_at, 'now'))) AS age_days " +
+            'FROM file_registry_fts ' +
+            'JOIN file_registry fr ON fr.rowid = file_registry_fts.rowid ' +
+            'WHERE file_registry_fts MATCH ? ' +
+            'ORDER BY bm25(file_registry_fts) ASC LIMIT ?',
+          [query, limitK],
+        );
 
-      // Hybrid BM25 + recency-decay ranking, mirrors the discussion_search /
-      // audit_search pattern. `summary_updated_at` is the canonical recency
-      // signal for a registry row; rows that have never been summarized
-      // (summary_updated_at IS NULL) fall back to "now" so they neither
-      // boost nor penalize on recency.
-      const rows = db.all<MatchRow>(
-        'SELECT fr.repo, fr.path, fr.type, fr.content_md5, fr.summary, fr.summary_updated_at, ' +
-          "snippet(file_registry_fts, 0, '[', ']', '...', 16) AS snippet, " +
-          'bm25(file_registry_fts) AS bm25_score, ' +
-          "(julianday('now') - julianday(COALESCE(fr.summary_updated_at, 'now'))) AS age_days " +
-          'FROM file_registry_fts ' +
-          'JOIN file_registry fr ON fr.rowid = file_registry_fts.rowid ' +
-          'WHERE file_registry_fts MATCH ? ' +
-          'ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC ' +
-          'LIMIT ?',
-        [query, alpha, alpha, k],
-      );
+      const fetchRowByRowid = (rowid: number): MatchRow | undefined =>
+        db.get<MatchRow>(
+          'SELECT fr.rowid, fr.repo, fr.path, fr.type, fr.content_md5, fr.summary, fr.summary_updated_at, ' +
+            "'' AS snippet, 0.0 AS bm25_score, " +
+            "(julianday('now') - julianday(COALESCE(fr.summary_updated_at, 'now'))) AS age_days " +
+            'FROM file_registry fr WHERE fr.rowid = ?',
+          [rowid],
+        );
 
-      return ok({
-        results: rows.map((r) => ({
-          ...decodeRow(r),
-          snippet: r.snippet,
-          score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
-        })),
-        total_matched,
+      if (mode === 'keyword') {
+        const countRow = db.get<{ n: number }>(
+          'SELECT COUNT(*) AS n FROM file_registry_fts WHERE file_registry_fts MATCH ?',
+          [query],
+        );
+        const total_matched = countRow?.n ?? 0;
+        const rows = db.all<MatchRow>(
+          'SELECT fr.rowid, fr.repo, fr.path, fr.type, fr.content_md5, fr.summary, fr.summary_updated_at, ' +
+            "snippet(file_registry_fts, 0, '[', ']', '...', 16) AS snippet, " +
+            'bm25(file_registry_fts) AS bm25_score, ' +
+            "(julianday('now') - julianday(COALESCE(fr.summary_updated_at, 'now'))) AS age_days " +
+            'FROM file_registry_fts ' +
+            'JOIN file_registry fr ON fr.rowid = file_registry_fts.rowid ' +
+            'WHERE file_registry_fts MATCH ? ' +
+            'ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?',
+          [query, alpha, alpha, k],
+        );
+        return ok({
+          results: rows.map((r) => ({
+            ...decodeRow(r),
+            snippet: r.snippet,
+            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
+          })),
+          total_matched,
+        });
+      }
+
+      if (mode === 'semantic') {
+        const cosineResults = await topKByCosine(db, 'file_registry', query, k);
+        if (cosineResults.length === 0) {
+          return ok({ results: [], total_matched: 0, warning: 'semantic_unavailable' });
+        }
+        const results = [];
+        for (const cr of cosineResults) {
+          const row = fetchRowByRowid(cr.rowid);
+          if (row) results.push({ ...decodeRow(row), snippet: '', score: cr.score });
+        }
+        return ok({ results, total_matched: results.length });
+      }
+
+      // hybrid: RRF over FTS5 + cosine + recency-decay
+      const RRF_K = 60;
+      const ftsRows = fetchFtsRows(k * 4);
+      const cosineResults = await topKByCosine(db, 'file_registry', query, k * 4);
+      const semanticAvailable = cosineResults.length > 0;
+
+      const scoreMap = new Map<number, { rrf: number; row: MatchRow }>();
+
+      ftsRows.forEach((r, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(r.rowid);
+        if (existing) { existing.rrf += rrf; } else { scoreMap.set(r.rowid, { rrf, row: r }); }
       });
+
+      cosineResults.forEach((cr, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(cr.rowid);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          const row = fetchRowByRowid(cr.rowid);
+          if (row) scoreMap.set(cr.rowid, { rrf, row });
+        }
+      });
+
+      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => ({
+        row, score: rrf * (Math.exp(-row.age_days / 30) * alpha + (1 - alpha)),
+      }));
+      combined.sort((a, b) => b.score - a.score);
+      const topRows = combined.slice(0, k);
+
+      const results = topRows.map(({ row, score }) => ({
+        ...decodeRow(row),
+        snippet: row.snippet,
+        score,
+      }));
+
+      const response: Record<string, unknown> = { results, total_matched: results.length };
+      if (!semanticAvailable) response['warning'] = 'semantic_unavailable';
+      return ok(response);
     }),
 
     file_registry_upsert: requireRoles('file_registry_upsert', ['bro'], wrapHandler(async (args) => {
@@ -632,6 +710,17 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
                summary_updated_at = excluded.summary_updated_at`,
             [resolvedRepoName, u.path, md5, u.summary, now],
           );
+
+          const embRow = db.get<{ rowid: number }>(
+            'SELECT rowid FROM file_registry WHERE repo = ? AND path = ?',
+            [resolvedRepoName, u.path],
+          );
+          if (embRow) {
+            embedAndStore(db, 'file_registry', embRow.rowid, u.summary).catch((e) =>
+              console.error('[embeddings] file_registry_update_summaries embed failed:', e),
+            );
+          }
+
           updated += 1;
         }
 

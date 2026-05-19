@@ -7,7 +7,7 @@ import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all 22 prod tables exist with schema_version=3', () => {
+  it('opens an in-memory DB and verifies all 25 prod tables exist with schema_version=4', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -35,6 +35,10 @@ describe('TrajectoryDB', () => {
       'discussions_fts',
       'audit_fts',
       'file_registry_fts',
+      // #2905 embedding tables
+      'discussions_embeddings',
+      'audit_embeddings',
+      'file_registry_embeddings',
     ];
 
     const rows = db.all<{ name: string }>(
@@ -49,7 +53,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 3);
+    assert.equal(meta.schema_version, 4);
 
     db.close();
   });

@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 3, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 4, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. file_registry rows reference repos.name via the repo column.
@@ -400,3 +400,31 @@ CREATE TRIGGER IF NOT EXISTS file_registry_au_new AFTER UPDATE ON file_registry
 WHEN new.summary IS NOT NULL BEGIN
   INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
 END;
+
+-- Embedding tables for semantic search (Phase 2 of #2905).
+-- One table per source. Empty on migration; populated by background backfill
+-- on server startup and inline on new writes.
+
+CREATE TABLE IF NOT EXISTS discussions_embeddings (
+  discussion_id INTEGER PRIMARY KEY REFERENCES discussions(id) ON DELETE CASCADE,
+  embedding BLOB NOT NULL,
+  model_id TEXT NOT NULL,
+  embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_discussions_embeddings_model ON discussions_embeddings(model_id);
+
+CREATE TABLE IF NOT EXISTS audit_embeddings (
+  audit_id INTEGER PRIMARY KEY REFERENCES audit(id) ON DELETE CASCADE,
+  embedding BLOB NOT NULL,
+  model_id TEXT NOT NULL,
+  embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_id);
+
+CREATE TABLE IF NOT EXISTS file_registry_embeddings (
+  file_registry_id INTEGER PRIMARY KEY,
+  embedding BLOB NOT NULL,
+  model_id TEXT NOT NULL,
+  embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_registry_embeddings_model ON file_registry_embeddings(model_id);
