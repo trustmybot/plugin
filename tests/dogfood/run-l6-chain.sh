@@ -79,6 +79,14 @@ printf '=== L6 chain run %s ===\n' "$RUN_ID"
 printf '  manifest: %s\n' "$MANIFEST"
 printf '  logs:     %s\n' "$RUN_DIR"
 
+# Avoid sentinel pollution from prior CC sessions — per-step DBs use walk-up.
+if [ -f "$HOME/.claude/tmb-active-workspace" ]; then
+  cp "$HOME/.claude/tmb-active-workspace" "$HOME/.claude/tmb-active-workspace.l6-bak-$$" 2>/dev/null
+  rm -f "$HOME/.claude/tmb-active-workspace"
+fi
+
+trap 'if [ -f "$HOME/.claude/tmb-active-workspace.l6-bak-$$" ]; then mv "$HOME/.claude/tmb-active-workspace.l6-bak-$$" "$HOME/.claude/tmb-active-workspace"; fi' EXIT
+
 # Scratch project lives INSIDE the run dir so subsequent invocations can
 # reuse the prior run's cumulative trajectory DB natively (the trajectory
 # DB IS the resume mechanism — no special flag).
