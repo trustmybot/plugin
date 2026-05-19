@@ -96,6 +96,7 @@ for row_dir in "$HERE/rows"/*/; do
   fi
 
   TURN_JSONL="$PROJECT/trajectory.jsonl"
+  _l5_write_pre_run_git_snapshot "$PROJECT"
   l6c_run_step "$PROJECT" "$row_dir" "$TURN_JSONL"
 
   if l5_score_flow "$PROJECT" "$row_name" "$row_dir" "$RUN_ID"; then
