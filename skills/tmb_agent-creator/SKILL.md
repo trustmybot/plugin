@@ -1,6 +1,6 @@
 ---
 name: tmb_agent-creator
-description: Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn. Loads on any named-role consult — e.g. "get the architect's read on X", "what does the cto think", "have the legal-reviewer check Y".
+description: Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn. Loads on any named-role consult — e.g. "get the architect's read on X", "what does the cto think", "have the legal-reviewer check Y". Also fires on un-named expertise asks — "I need a tech-strategy review on X", "what's the right architecture trade-off here", "who should weigh in on this decision", "we're hitting [problem] — should we [option-A] or [option-B]".
 allowed-tools: Read, Write, Glob, Grep, AskUserQuestion, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__agent_list, mcp__plugin_tmb_trajectory-server__agent_register
 ---
 

@@ -1,6 +1,6 @@
 # 02-reonboard-implicit-from-local
 
-**Scenario under test:** the project is onboarded with local-shape defaults (no remote). The user signals reonboard intent implicitly — "I want to push this project to a remote" — without naming a provider or running `/onboard`. Bro must recognize the reonboard signal, call `onboard_state_get` (check current state), and either auto-apply via `onboard_apply` or recommend `/onboard`. No code work may begin.
+**Scenario under test:** the project is onboarded with local-shape defaults (no remote). The user signals reonboard intent implicitly — "this project needs to live on a remote — set it up" — without naming a provider or running `/onboard`. Bro must recognize the reonboard signal, call `onboard_state_get` (check current state), and either auto-apply via `onboard_apply` or recommend `/onboard`. No code work may begin.
 
 This is the **implicit** reonboard path. Compare step 03 (`03-reonboard-remote`) for the **explicit** `/onboard` ceremony path.
 
@@ -19,7 +19,7 @@ This is the **implicit** reonboard path. Compare step 03 (`03-reonboard-remote`)
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro I want to push this project to a remote.\n\nDon't ask questions.` |
+| 1 | user | `@bro this project needs to live on a remote — set it up.\n\nDon't ask questions.` |
 | → | bro | calls `onboard_state_get`. Either path is acceptable: (a) auto-apply via `onboard_apply(shape='remote', …)` or (b) recommend `/onboard` in text and stop. No code work — no tasks, no issues, no SWE spawn. |
 
 ## Pass criteria

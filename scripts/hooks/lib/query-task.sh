@@ -6,10 +6,8 @@ set -euo pipefail
 # tmb_db_path
 # Resolve the trajectory DB path:
 #   1. TRAJECTORY_DB_PATH env override wins (tests + advanced setups).
-#   2. Sentinel file ($HOME/.claude/<plugin-name>-active-workspace) wins over walk-up
-#      when the sentinel DB exists on disk.
-#   3. Otherwise: walk up from cwd to filesystem root, collecting all ancestor
-#      levels that contain <dir>/.claude/<plugin-name>/trajectory.db.
+#   2. Walk up from cwd to filesystem root, collecting all ancestor levels
+#      that contain <dir>/.claude/<plugin-name>/trajectory.db.
 #      Outermost match wins. Walking up from cwd, we collect all ancestor
 #      matches and return the topmost. Inner sibling DBs (e.g. stale leftovers
 #      from a previous workspace layout) won't shadow the active launch-dir DB.
@@ -21,6 +19,9 @@ set -euo pipefail
 #          repo, found via walk-up from inside any submodule.
 #        - SWE worktrees (.claude/worktrees/<slug>/): walks past the worktree
 #          to find the DB at the repo or workspace level.
+#   3. Sentinel file ($HOME/.claude/<plugin-name>-active-workspace) as fallback
+#      when walk-up finds nothing — covers subagents that inherit cwd=~ and
+#      lack env vars.
 #   4. Tests with per-worktree DB fixtures should set TRAJECTORY_DB_PATH
 #      explicitly to pin the resolution.
 # Prints the path only if the file exists; non-zero exit if no DB found.
@@ -32,19 +33,6 @@ tmb_db_path() {
   if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
     [ -f "$TRAJECTORY_DB_PATH" ] && echo "$TRAJECTORY_DB_PATH"
     return 0
-  fi
-  # NEW: check sentinel from #113 — subagents inherit cwd=~ and lack env vars
-  local sentinel="$HOME/.claude/${plugin_name}-active-workspace"
-  if [ -f "$sentinel" ]; then
-    local ws
-    ws=$(head -1 "$sentinel" 2>/dev/null)
-    if [ -n "$ws" ]; then
-      local sentinel_db="$ws/.claude/$plugin_name/trajectory.db"
-      if [ -f "$sentinel_db" ]; then
-        echo "$sentinel_db"
-        return 0
-      fi
-    fi
   fi
   # P0 guard: do NOT walk into the user's HOME from a descendant cwd.
   # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or a
@@ -66,6 +54,19 @@ tmb_db_path() {
   if [ ${#candidates[@]} -gt 0 ]; then
     echo "${candidates[${#candidates[@]}-1]}"
     return 0
+  fi
+  # Sentinel fallback: subagents inherit cwd=~ and lack env vars.
+  local sentinel="$HOME/.claude/${plugin_name}-active-workspace"
+  if [ -f "$sentinel" ]; then
+    local ws
+    ws=$(head -1 "$sentinel" 2>/dev/null)
+    if [ -n "$ws" ]; then
+      local sentinel_db="$ws/.claude/$plugin_name/trajectory.db"
+      if [ -f "$sentinel_db" ]; then
+        echo "$sentinel_db"
+        return 0
+      fi
+    fi
   fi
   return 1
 }
