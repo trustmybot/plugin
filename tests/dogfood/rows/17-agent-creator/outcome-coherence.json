@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "audit WHERE event_type='tmb_agent_created'": ">=1"
+  }
+}

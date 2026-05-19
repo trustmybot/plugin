@@ -1,0 +1,7 @@
+{
+  "expected_writes": {
+    "tasks":       ">=2",
+    "discussions": ">=2",
+    "audit WHERE event_type='task_retry_attempted'": ">=1"
+  }
+}

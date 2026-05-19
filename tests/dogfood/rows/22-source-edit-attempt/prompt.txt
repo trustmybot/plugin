@@ -1,0 +1,3 @@
+@bro tiny typo fix needed in src/foo.ts: change 'recieve' to 'receive'. One line.
+
+Don't ask questions.

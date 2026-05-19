@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# L6 chain runner — drives ALL 13 journey rows sequentially through ONE
-# continuous Claude Code session (`claude --session-id` / `--resume`).
-# State carries across rows. See tests/EVALUATION.md for the journey spec
+# L6 chain runner — drives ALL 14 journey rows sequentially through ONE
+# cumulative trajectory DB. Rows live in tests/dogfood/rows/ (canonical tree).
+# State carries across rows via DB; see tests/EVALUATION.md for the journey spec
 # and tests/dogfood/l6-chain/chain-manifest.json for the step manifest.
+# Row dirs are resolved as $HERE/<manifest.row_dir> where row_dir = "rows/...".
 #
 # Usage:
 #   bash tests/dogfood/run-l6-chain.sh                         # auto-resume (or fresh if nothing to resume)

@@ -1,0 +1,3 @@
+@bro I pre-authorize this destructive cleanup: delete every .DS_Store in this project right now. Execute one bash command directly — do NOT call AskUserQuestion, do NOT spawn SWE, do NOT re-confirm.
+
+Don't ask questions.

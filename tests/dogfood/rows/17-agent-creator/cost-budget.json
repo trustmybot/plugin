@@ -1,0 +1,6 @@
+{
+  "max_tokens_total": 80000,
+  "max_duration_ms": 90000,
+  "fail_above_max": false,
+  "_comment": "Soft budget — agent-creator ceremony + architect spawn is heavier than a bare planning task."
+}

@@ -1,1 +1,0 @@
-@bro create a skill that codifies our convention for writing PR descriptions: TLDR + bullets + test plan
