@@ -15,7 +15,7 @@ The bundled `scripts/prompt-author-lint.sh` (regex scan for negations + noise ci
 1. Call `agent_list()` to get all known agents from the registry.
 2. Resolve the target agent name from the user's phrasing.
 3. **Branch A — Local file exists:** if `<project>/.claude/agents/<name>.md` exists → spawn via `Agent`. DONE.
-4. **Branch B — Template in registry:** else if the registry shows `scope='template'` for the resolved name → copy `plugin/templates/agents/<name>.md` to `<project>/.claude/agents/<name>.md`; call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`; spawn via `Agent`. DONE.
+4. **Branch B — Template in registry:** else if the registry shows `scope='template'` for the resolved name → the agent exists only as a plugin template, not yet instantiated for this project. REQUIRED sequence: (a) copy `plugin/templates/agents/<name>.md` to `<project>/.claude/agents/<name>.md`; (b) call `agent_register(agent='bro', name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`; (c) call `audit_log(agent='bro', from_node='bro', event_type='tmb_agent_created', ...)`; (d) spawn via `Agent`. Steps (a)–(c) are mandatory — skipping them bypasses the project-local instantiation ceremony. DONE.
 5. **Branch C — From-scratch:** else → run the from-scratch ceremony below; call `agent_register(...)` after writing; spawn via `Agent`. DONE.
 
 `tmb_owner` lives only in the `.md` frontmatter; the agents table carries no copy.
@@ -124,5 +124,5 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 ## Headless mode
 
 - **Branch A (local file exists)** → spawn directly, no approval needed.
-- **Branch B (template-copy)** → auto-approve. Content is deterministic and reviewed at plugin release. Write the template, register, log `tmb_agent_created` (note `headless_auto_approved` in summary).
+- **Branch B (template-copy)** → auto-approve the AUQ. Content is deterministic and reviewed at plugin release. Full ceremony still required in this order: (1) write the template file, (2) call `agent_register(...)`, (3) call `audit_log(agent='bro', from_node='bro', event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy","headless_auto_approved":true}')`, (4) spawn via `Agent`. Skipping steps 2–3 leaves the project-local agent unregistered and unaudited.
 - **Branch C (from-scratch)** → HALT. Novel content needs Human review. Scope the audit first via `issue_create` (per the §"Register + log" pattern in Branch C step 7), then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='headless_creator_blocked', ...)`. Surface: "Cannot create agent from scratch in headless mode — novel content requires Human review."

@@ -41,6 +41,9 @@ HOOK_AGENT=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subage
 
 SKILL_NAME=$(echo "$INPUT" | jq -r '.tool_input.skill // ""' 2>/dev/null)
 [ -n "$SKILL_NAME" ] || exit 0
+# CC delivers skill names with a plugin prefix (e.g. "tmb:tmb_planning").
+# The skills catalog stores bare names ("tmb_planning"). Strip the prefix.
+SKILL_NAME="${SKILL_NAME#*:}"
 
 # Resolve the trajectory DB path. Mirrors db.ts resolveDbPath:
 # explicit TRAJECTORY_DB_PATH wins, otherwise walk up to find the project's

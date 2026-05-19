@@ -97,6 +97,53 @@ describe('agentTools', () => {
     assert.equal(count.cnt, 6, 'Row count must not grow when INSERT OR IGNORE hits existing name');
     db.close();
   });
+
+  it('agent_register emits tmb_agent_created audit row for new project-local consultant', async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+
+    await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'legal-reviewer',
+      kind: 'consultant',
+      scope: 'project-local',
+      file_path: '.claude/agents/legal-reviewer.md',
+    });
+
+    const auditRow = db.get<{ event_type: string; summary: string }>(
+      "SELECT event_type, summary FROM audit WHERE event_type = 'tmb_agent_created' LIMIT 1",
+    );
+    assert.ok(auditRow !== undefined, 'tmb_agent_created audit row must be written by agent_register');
+    assert.equal(auditRow.event_type, 'tmb_agent_created');
+    db.close();
+  });
+
+  it('agent_register does NOT emit audit row for idempotent re-registration', async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+
+    await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'legal-reviewer',
+      kind: 'consultant',
+      scope: 'project-local',
+      file_path: '.claude/agents/legal-reviewer.md',
+    });
+    await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'legal-reviewer',
+      kind: 'consultant',
+      scope: 'project-local',
+      file_path: '.claude/agents/legal-reviewer.md',
+    });
+
+    const auditCount = db.get<{ cnt: number }>(
+      "SELECT COUNT(*) AS cnt FROM audit WHERE event_type = 'tmb_agent_created'",
+    );
+    assert.ok(auditCount !== undefined);
+    assert.equal(auditCount.cnt, 1, 'Only one tmb_agent_created row on idempotent re-register');
+    db.close();
+  });
 });
 
 describe('audit_log requireRoles guard', () => {
