@@ -4,6 +4,44 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.0-rc.1 — 2026-05-19
+
+First release candidate of the v0.8.0 train. Skips v0.7.x — the merged changeset crosses two schema migrations (v2→v3→v4) and introduces a new dependency class (native ONNX runtime + an embedding model), large enough to warrant the minor-version jump.
+
+### What's new
+
+- ✨ **Hybrid keyword + semantic search** (#2905 / !199 + !200). Three new MCP tools — `discussion_search`, `audit_search`, `file_registry_search` — return ranked top-K snippets instead of dumping all rows. Default `mode='hybrid'` blends FTS5 (BM25) + cosine similarity (bge-small-en-v1.5 embeddings) + recency-decay via Reciprocal-Rank-Fusion. Replaces the "ask the DB, get the whole join" anti-pattern that was burning ~36 KB of context per `file_registry_list` call.
+- ✨ **Schema v4 with auto-backfill on first server boot post-upgrade**: 3 FTS5 virtual tables + 3 embedding tables. Embedding generation is lazy (model loads on first embed call), fire-and-forget on every source write, and runs in a background backfill task on startup for any rows that lack an embedding. Migration itself does not block.
+- ✨ **Cursor pagination** on 6 existing list tools (`issue_get_with_discussions`, `discussion_list`, `audit_log_list`, `file_registry_list`, `validation_history`, `pr_review_runs_list`). Optional `limit` + `cursor`; default behavior unchanged when `limit` is omitted.
+
+### Improved
+
+- ♻️ **`tmb_planning` slimmed 292 → 189 LOC**, **`tmb_review` slimmed 274 → 195 LOC** (#2904 / !198). 6 new deterministic mechanisms (4 composites + 2 hooks) absorb procedural sequences that were previously inline prose — bro's context budget per planning/review turn drops accordingly. Boundary-audit + research docs lifted into `docs/architecture/DETERMINISM.md`.
+- 🐛 **4 silently-disabled safety-gate hooks** (`pr-reviewer-no-worktree`, `require-task-spec`, `require-feature-branch-active`, `pr-reviewer-spawn-prompt-shape`) now fire correctly under all CC role-naming contexts (#2925 / !197). Before this fix, CC's `tmb:swe` / `tmb:pr-reviewer` prefixed role names failed the bare-name comparisons in these hooks, silently bypassing the gates. New `scripts/hooks/lib/normalize-role.sh` helper + `tests/lint/no-bare-role-compare.sh` lint prevents regression.
+- 🐛 **`_spawnFn` test mock overrides `TMB_DISABLE_REMOTE_SYNC` env** in the sync backend (#2922 / !194). Tests of the sync feature itself can now mock spawn without the env-disable shortcut silently winning.
+- 🧪 **L6 test fixtures cleaned up** (#2923 / !196, #2924 / !195). Step 10 (consultant) and step 02 (reonboard-implicit) prompts rewritten to be naturalistic instead of explicitly naming the agent/provider bro should use.
+
+### Schema migrations
+
+Users upgrading from v0.6.x will see TWO migrations on first MCP server boot:
+
+- **v2 → v3** creates 3 FTS5 virtual tables (`discussions_fts`, `audit_fts`, `file_registry_fts`) + per-table INSERT/UPDATE/DELETE sync triggers, then backfills existing rows. Runs in-transaction. NULL-summary guards on the `file_registry` triggers prevent FTS corruption.
+- **v3 → v4** creates 3 embedding tables (`discussions_embeddings`, `audit_embeddings`, `file_registry_embeddings`) — embeddings populated by a background task on server startup (does not block the migration itself; can take 30s–2.5min on a populated DB).
+
+Both migrations are defensive (`tableExists()` guards on each per-source block) — partial-DB upgrade paths verified by the L0 install-smoke test. Pre-migration `.bak` files written per leg (`<db>.pre-v3.*.bak`, `<db>.pre-v4.*.bak`) so rollback is possible if something unexpected happens.
+
+### Install footprint
+
+- **+50 MB** native binary (`onnxruntime-node`, prebuilt for darwin x64/arm64, linux x64/arm64, win x64) — installed via `bun install` / `npm install` like any other native dep.
+- **+33 MB** lazy-downloaded model (`bge-small-en-v1.5`) — fetched to `~/.cache/huggingface/hub/` on first embedding call; subsequent runs use the cache.
+- Users on **unsupported platforms** (linux-armv7, FreeBSD, etc.) gracefully degrade to FTS5-only search with `warning: 'semantic_unavailable'` in responses — no hard failure, no install crash.
+
+### Known issues (filed for follow-up)
+
+- L6 step 10 (consultant spawn) — `tmb_agent-creator` description-match heuristic now under-triggers on the naturalistic prompt; filed as !2927.
+- L6 step 14 (skill-invocation-recorded) — `~/.claude/tmb-active-workspace` sentinel pollution can route the analytics hook to the wrong DB; filed as !2928.
+- L5 fixtures contain stale `WHERE kind='event'` scorer SQL referencing the `audit.kind` column dropped in v0.6.0-rc.2; pre-existing fixture drift.
+
 ## v0.6.0 — 2026-05-15
 
 Promotes `v0.6.0-rc.8` to stable. See `v0.6.0-rc.1` through `v0.6.0-rc.8` for the cumulative changes from v0.5.x — including the audit pass (12 MRs from !178 to !189), the pr-reviewer stack fix that closed a real push-gate bypass, channel-isolation sweep, and the bug-capture lint tier that catches each fixed pattern at lint-time.
