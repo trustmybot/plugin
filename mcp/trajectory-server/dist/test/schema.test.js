@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 describe('schema — current table set, default values, constraints', () => {
-    it('fresh prod-mode DB contains 22 tables (no ledger, no eval/debug tables)', () => {
+    it('fresh prod-mode DB contains 25 tables (no ledger, no eval/debug tables)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -33,17 +33,21 @@ describe('schema — current table set, default values, constraints', () => {
             'discussions_fts',
             'audit_fts',
             'file_registry_fts',
+            // #2905 embedding tables
+            'discussions_embeddings',
+            'audit_embeddings',
+            'file_registry_embeddings',
         ];
         const rows = db.all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%\_fts\_%' ESCAPE '\\' ORDER BY name");
         const actualNames = rows.map((r) => r.name).sort();
         assert.deepEqual(actualNames, [...expectedTables].sort());
         db.close();
     });
-    it('fresh DB has schema_version = 3 in plugin_meta', () => {
+    it('fresh DB has schema_version = 4 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 3);
+        assert.equal(meta.schema_version, 4);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });

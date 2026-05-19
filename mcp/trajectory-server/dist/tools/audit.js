@@ -1,5 +1,6 @@
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { embedAndStore, topKByCosine } from '../embeddings/store.js';
 const MAX_CONTENT_BYTES = 1_000_000;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -44,14 +45,19 @@ export function auditTools(db) {
     const definitions = [
         {
             name: 'audit_search',
-            description: 'Search audit records via FTS5 on summary + content_json. Returns top-K snippets ranked by BM25 + recency-decay.',
+            description: 'Search audit records via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
                     query: {
                         type: 'string',
-                        description: 'FTS5 MATCH query. Searches across summary and content_json columns.',
+                        description: 'Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language.',
+                    },
+                    mode: {
+                        type: 'string',
+                        enum: ['keyword', 'semantic', 'hybrid'],
+                        description: 'Search mode. Default: hybrid.',
                     },
                     issue_id: { type: 'string', description: 'Optional — restrict to one issue.' },
                     event_types: {
@@ -62,7 +68,7 @@ export function auditTools(db) {
                     k: { type: 'number', description: 'Top-K rows to return. Default 5. Max 20.' },
                     recency_alpha: {
                         type: 'number',
-                        description: 'Recency weight 0–1. 0 = pure BM25. 1 = pure recency. Default 0.3.',
+                        description: 'Recency weight 0–1 (hybrid/keyword only). Default 0.3.',
                     },
                 },
                 required: ['agent', 'query'],
@@ -106,6 +112,7 @@ export function auditTools(db) {
         audit_search: wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const query = requireArg(args, 'query');
+            const mode = args['mode'] ?? 'hybrid';
             const issueId = args['issue_id'] ?? null;
             const eventTypes = args['event_types'] ?? null;
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
@@ -114,54 +121,120 @@ export function auditTools(db) {
             let eventTypeParams = [];
             if (eventTypes && eventTypes.length > 0) {
                 const placeholders = eventTypes.map(() => '?').join(', ');
-                eventTypeFilter = 'AND a.event_type IN (' + placeholders + ')';
+                eventTypeFilter = ' AND a.event_type IN (' + placeholders + ')';
                 eventTypeParams = eventTypes;
             }
-            const countSql = 'SELECT COUNT(*) AS n FROM audit_fts ' +
-                'JOIN audit a ON a.id = audit_fts.rowid ' +
-                'WHERE audit_fts MATCH ? ' +
-                'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER)) ' +
-                eventTypeFilter;
-            const countRow = db.get(countSql, [
-                query,
-                issueId,
-                issueId,
-                ...eventTypeParams,
-            ]);
-            const total_matched = countRow?.n ?? 0;
-            const searchSql = 'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
-                "snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, " +
-                'bm25(audit_fts) AS bm25_score, ' +
-                "(julianday('now') - julianday(a.created_at)) AS age_days " +
-                'FROM audit_fts ' +
-                'JOIN audit a ON a.id = audit_fts.rowid ' +
-                'WHERE audit_fts MATCH ? ' +
-                'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER)) ' +
-                eventTypeFilter +
-                ' ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?';
-            const rows = db.all(searchSql, [
-                query,
-                issueId,
-                issueId,
-                ...eventTypeParams,
-                alpha,
-                alpha,
-                k,
-            ]);
-            return ok({
-                results: rows.map((r) => ({
-                    id: r.id,
-                    issue_id: r.issue_id,
-                    branch_id: r.branch_id,
-                    from_node: r.from_node,
-                    event_type: r.event_type,
-                    summary: r.summary,
-                    created_at: r.created_at,
-                    snippet: r.snippet,
-                    score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
-                })),
-                total_matched,
+            const fetchFtsRows = (limitK) => {
+                const sql = 'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
+                    "snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, " +
+                    'bm25(audit_fts) AS bm25_score, ' +
+                    "(julianday('now') - julianday(a.created_at)) AS age_days " +
+                    'FROM audit_fts ' +
+                    'JOIN audit a ON a.id = audit_fts.rowid ' +
+                    'WHERE audit_fts MATCH ? ' +
+                    'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
+                    eventTypeFilter +
+                    ' ORDER BY bm25(audit_fts) ASC LIMIT ?';
+                return db.all(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
+            };
+            const fetchRowById = (id) => {
+                const sql = 'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
+                    "'' AS snippet, 0.0 AS bm25_score, " +
+                    "(julianday('now') - julianday(a.created_at)) AS age_days " +
+                    'FROM audit a WHERE a.id = ? ' +
+                    'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
+                    eventTypeFilter;
+                return db.get(sql, [id, issueId, issueId, ...eventTypeParams]);
+            };
+            if (mode === 'keyword') {
+                const countSql = 'SELECT COUNT(*) AS n FROM audit_fts ' +
+                    'JOIN audit a ON a.id = audit_fts.rowid ' +
+                    'WHERE audit_fts MATCH ? ' +
+                    'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
+                    eventTypeFilter;
+                const countRow = db.get(countSql, [query, issueId, issueId, ...eventTypeParams]);
+                const total_matched = countRow?.n ?? 0;
+                const searchSql = 'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
+                    "snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, " +
+                    'bm25(audit_fts) AS bm25_score, ' +
+                    "(julianday('now') - julianday(a.created_at)) AS age_days " +
+                    'FROM audit_fts ' +
+                    'JOIN audit a ON a.id = audit_fts.rowid ' +
+                    'WHERE audit_fts MATCH ? ' +
+                    'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
+                    eventTypeFilter +
+                    ' ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?';
+                const rows = db.all(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
+                return ok({
+                    results: rows.map((r) => ({
+                        id: r.id, issue_id: r.issue_id, branch_id: r.branch_id,
+                        from_node: r.from_node, event_type: r.event_type, summary: r.summary,
+                        created_at: r.created_at, snippet: r.snippet,
+                        score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
+                    })),
+                    total_matched,
+                });
+            }
+            if (mode === 'semantic') {
+                const cosineResults = await topKByCosine(db, 'audit', query, k);
+                if (cosineResults.length === 0) {
+                    return ok({ results: [], total_matched: 0, warning: 'semantic_unavailable' });
+                }
+                const results = [];
+                for (const cr of cosineResults) {
+                    const row = fetchRowById(cr.rowid);
+                    if (row) {
+                        results.push({
+                            id: row.id, issue_id: row.issue_id, branch_id: row.branch_id,
+                            from_node: row.from_node, event_type: row.event_type, summary: row.summary,
+                            created_at: row.created_at, snippet: row.snippet, score: cr.score,
+                        });
+                    }
+                }
+                return ok({ results, total_matched: results.length });
+            }
+            // hybrid: RRF over FTS5 + cosine + recency-decay
+            const RRF_K = 60;
+            const ftsRows = fetchFtsRows(k * 4);
+            const cosineResults = await topKByCosine(db, 'audit', query, k * 4);
+            const semanticAvailable = cosineResults.length > 0;
+            const scoreMap = new Map();
+            ftsRows.forEach((r, rank) => {
+                const rrf = 1 / (RRF_K + rank + 1);
+                const existing = scoreMap.get(r.id);
+                if (existing) {
+                    existing.rrf += rrf;
+                }
+                else {
+                    scoreMap.set(r.id, { rrf, row: r });
+                }
             });
+            cosineResults.forEach((cr, rank) => {
+                const rrf = 1 / (RRF_K + rank + 1);
+                const existing = scoreMap.get(cr.rowid);
+                if (existing) {
+                    existing.rrf += rrf;
+                }
+                else {
+                    const row = fetchRowById(cr.rowid);
+                    if (row)
+                        scoreMap.set(cr.rowid, { rrf, row });
+                }
+            });
+            const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => ({
+                row, score: rrf * (Math.exp(-row.age_days / 30) * alpha + (1 - alpha)),
+            }));
+            combined.sort((a, b) => b.score - a.score);
+            const topRows = combined.slice(0, k);
+            const results = topRows.map(({ row, score }) => ({
+                id: row.id, issue_id: row.issue_id, branch_id: row.branch_id,
+                from_node: row.from_node, event_type: row.event_type, summary: row.summary,
+                created_at: row.created_at, snippet: row.snippet, score,
+            }));
+            const response = { results, total_matched: results.length };
+            if (!semanticAvailable)
+                response['warning'] = 'semantic_unavailable';
+            return ok(response);
         }),
         audit_log: requireRoles('audit_log', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
@@ -183,6 +256,10 @@ export function auditTools(db) {
            (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`, [issueId, branchId, fromNode, eventType, summary, contentJson, now]);
             const row = db.get('SELECT * FROM audit WHERE rowid = last_insert_rowid()');
+            if (row) {
+                const embedText = contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
+                embedAndStore(db, 'audit', row.id, embedText).catch((e) => console.error('[embeddings] audit_log embed failed:', e));
+            }
             return ok(row);
         })),
         audit_log_list: wrapHandler(async (args) => {

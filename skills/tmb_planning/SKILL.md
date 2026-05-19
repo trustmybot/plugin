@@ -178,6 +178,10 @@ Use `headless_intent_start` to record the fallback. Auto-picking "Suggest differ
 
 For architectural changes in headless mode, still author the ADR with conservative assumptions. Waive the scope gate (Step 4 case 2).
 
+## Search-first retrieval
+
+When looking up past decisions, audit events, or file context, prefer `discussion_search` / `audit_search` / `file_registry_search` over the list/get tools — they return ranked snippets instead of full dumps. Use `mode='hybrid'` (the default) for combined keyword + semantic retrieval; `mode='keyword'` for exact-term queries where FTS5 precision matters; `mode='semantic'` when you know the concept but not the phrasing (e.g., "what did we decide about login flow?" returns results mentioning "authentication" and "JWT" even without those words in the query). Fallback to FTS5-only is automatic when the embedding model is unavailable; you'll see `warning: 'semantic_unavailable'` in the response.
+
 ## Learning (post-retry or escalation)
 
 Capture the lesson once the retry is in flight:

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 describe('TrajectoryDB', () => {
-    it('opens an in-memory DB and verifies all 22 prod tables exist with schema_version=3', () => {
+    it('opens an in-memory DB and verifies all 25 prod tables exist with schema_version=4', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -33,6 +33,10 @@ describe('TrajectoryDB', () => {
             'discussions_fts',
             'audit_fts',
             'file_registry_fts',
+            // #2905 embedding tables
+            'discussions_embeddings',
+            'audit_embeddings',
+            'file_registry_embeddings',
         ];
         const rows = db.all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%\\_fts\\_%' ESCAPE '\\' ORDER BY name");
         const actualNames = rows.map((r) => r.name).sort();
@@ -40,7 +44,7 @@ describe('TrajectoryDB', () => {
         assert.deepEqual(actualNames, expectedSorted);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta should have a row');
-        assert.equal(meta.schema_version, 3);
+        assert.equal(meta.schema_version, 4);
         db.close();
     });
     it('run inserts a row into skills, get retrieves it, all lists multiple rows', () => {

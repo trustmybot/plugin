@@ -3,6 +3,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import type { Discussion, Issue, Task } from '../types.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { embedAndStore, topKByCosine } from '../embeddings/store.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -44,7 +45,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_search',
       description:
-        'Search discussion bodies via FTS5. Returns top-K snippets ranked by BM25 + recency-decay. Default response ≤1 KB. Use this instead of issue_get_with_discussions when you want relevant entries, not the full join.',
+        'Search discussions via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets. Use instead of issue_get_with_discussions when you want ranked snippets, not a full dump.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -52,7 +53,12 @@ export function discussionTools(db: TrajectoryDB): {
           query: {
             type: 'string',
             description:
-              'FTS5 MATCH query. Examples: "pr-reviewer", "authentication OR auth", "\"exact phrase\"". Supports prefix (foo*), AND/OR/NOT.',
+              'Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language.',
+          },
+          mode: {
+            type: 'string',
+            enum: ['keyword', 'semantic', 'hybrid'],
+            description: 'Search mode. Default: hybrid (RRF combines FTS5 + cosine + recency-decay).',
           },
           issue_id: { type: 'string', description: 'Optional — restrict to one issue.' },
           kind: {
@@ -63,7 +69,7 @@ export function discussionTools(db: TrajectoryDB): {
           k: { type: 'number', description: 'Top-K rows to return. Default 5. Max 20.' },
           recency_alpha: {
             type: 'number',
-            description: 'Recency weight 0–1. 0 = pure BM25. 1 = pure recency. Default 0.3.',
+            description: 'Recency weight 0–1 (hybrid/keyword only). Default 0.3.',
           },
         },
         required: ['agent', 'query'],
@@ -148,13 +154,11 @@ export function discussionTools(db: TrajectoryDB): {
     discussion_search: wrapHandler(async (args) => {
       normalizeAgent(args['agent'] as string | undefined);
       const query = requireArg(args, 'query') as string;
+      const mode = (args['mode'] as string | undefined) ?? 'hybrid';
       const issueId = (args['issue_id'] as string | undefined) ?? null;
       const kind = (args['kind'] as string | undefined) ?? null;
       const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
-      const alpha = Math.min(
-        1,
-        Math.max(0, (args['recency_alpha'] as number | undefined) ?? 0.3),
-      );
+      const alpha = Math.min(1, Math.max(0, (args['recency_alpha'] as number | undefined) ?? 0.3));
 
       type MatchRow = {
         id: number;
@@ -167,45 +171,159 @@ export function discussionTools(db: TrajectoryDB): {
         age_days: number;
       };
 
-      const countRow = db.get<{ n: number }>(
-        `SELECT COUNT(*) AS n
-         FROM discussions_fts
-         JOIN discussions d ON d.id = discussions_fts.rowid
-         WHERE discussions_fts MATCH ?
-           AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
-           AND (? IS NULL OR d.kind = ?)`,
-        [query, issueId, issueId, kind, kind],
-      );
-      const total_matched = countRow?.n ?? 0;
+      type ResultRow = {
+        id: number;
+        issue_id: number;
+        kind: string;
+        author: string;
+        created_at: string;
+        snippet: string;
+        score: number;
+      };
 
-      const rows = db.all<MatchRow>(
-        `SELECT
-           d.id, d.issue_id, d.kind, d.author, d.created_at,
-           snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
-           bm25(discussions_fts) AS bm25_score,
-           (julianday('now') - julianday(d.created_at)) AS age_days
-         FROM discussions_fts
-         JOIN discussions d ON d.id = discussions_fts.rowid
-         WHERE discussions_fts MATCH ?
-           AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
-           AND (? IS NULL OR d.kind = ?)
-         ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
-         LIMIT ?`,
-        [query, issueId, issueId, kind, kind, alpha, alpha, k],
-      );
+      const fetchFtsRows = (limitK: number): MatchRow[] =>
+        db.all<MatchRow>(
+          `SELECT
+             d.id, d.issue_id, d.kind, d.author, d.created_at,
+             snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
+             bm25(discussions_fts) AS bm25_score,
+             (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)
+           ORDER BY bm25(discussions_fts) ASC
+           LIMIT ?`,
+          [query, issueId, issueId, kind, kind, limitK],
+        );
 
-      return ok({
-        results: rows.map((r) => ({
-          id: r.id,
-          issue_id: r.issue_id,
-          kind: r.kind,
-          author: r.author,
-          created_at: r.created_at,
-          snippet: r.snippet,
-          score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
-        })),
-        total_matched,
+      const fetchRowById = (id: number): MatchRow | undefined =>
+        db.get<MatchRow>(
+          `SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
+                  '' AS snippet,
+                  0.0 AS bm25_score,
+                  (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions d
+           WHERE d.id = ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)`,
+          [id, issueId, issueId, kind, kind],
+        );
+
+      if (mode === 'keyword') {
+        const countRow = db.get<{ n: number }>(
+          `SELECT COUNT(*) AS n
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)`,
+          [query, issueId, issueId, kind, kind],
+        );
+        const total_matched = countRow?.n ?? 0;
+        const rows = db.all<MatchRow>(
+          `SELECT
+             d.id, d.issue_id, d.kind, d.author, d.created_at,
+             snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
+             bm25(discussions_fts) AS bm25_score,
+             (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)
+           ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
+           LIMIT ?`,
+          [query, issueId, issueId, kind, kind, alpha, alpha, k],
+        );
+        return ok({
+          results: rows.map((r) => ({
+            id: r.id,
+            issue_id: r.issue_id,
+            kind: r.kind,
+            author: r.author,
+            created_at: r.created_at,
+            snippet: r.snippet,
+            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha,
+          })),
+          total_matched,
+        });
+      }
+
+      if (mode === 'semantic') {
+        const cosineResults = await topKByCosine(db, 'discussions', query, k);
+        if (cosineResults.length === 0) {
+          return ok({ results: [], total_matched: 0, warning: 'semantic_unavailable' });
+        }
+        const results: ResultRow[] = [];
+        for (const cr of cosineResults) {
+          const row = fetchRowById(cr.rowid);
+          if (row) {
+            results.push({
+              id: row.id,
+              issue_id: row.issue_id,
+              kind: row.kind,
+              author: row.author,
+              created_at: row.created_at,
+              snippet: row.snippet,
+              score: cr.score,
+            });
+          }
+        }
+        return ok({ results, total_matched: results.length });
+      }
+
+      // hybrid: RRF over FTS5 + cosine + recency-decay
+      const RRF_K = 60;
+      const ftsRows = fetchFtsRows(k * 4);
+      const cosineResults = await topKByCosine(db, 'discussions', query, k * 4);
+      const semanticAvailable = cosineResults.length > 0;
+
+      const scoreMap = new Map<number, { rrf: number; row: MatchRow }>();
+
+      ftsRows.forEach((r, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(r.id);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          scoreMap.set(r.id, { rrf, row: r });
+        }
       });
+
+      cosineResults.forEach((cr, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(cr.rowid);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          const row = fetchRowById(cr.rowid);
+          if (row) scoreMap.set(cr.rowid, { rrf, row });
+        }
+      });
+
+      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => {
+        const ageDays = row.age_days;
+        const decayed = rrf * (Math.exp(-ageDays / 30) * alpha + (1 - alpha));
+        return { row, score: decayed };
+      });
+      combined.sort((a, b) => b.score - a.score);
+      const topRows = combined.slice(0, k);
+
+      const results: ResultRow[] = topRows.map(({ row, score }) => ({
+        id: row.id,
+        issue_id: row.issue_id,
+        kind: row.kind,
+        author: row.author,
+        created_at: row.created_at,
+        snippet: row.snippet,
+        score,
+      }));
+
+      const response: Record<string, unknown> = { results, total_matched: results.length };
+      if (!semanticAvailable) response['warning'] = 'semantic_unavailable';
+      return ok(response);
     }),
 
     discussion_append: requireRoles(
@@ -251,6 +369,13 @@ export function discussionTools(db: TrajectoryDB): {
         const row = db.get<Discussion>(
           'SELECT * FROM discussions WHERE rowid = last_insert_rowid()',
         );
+
+        if (row) {
+          embedAndStore(db, 'discussions', row.id, body).catch((e) =>
+            console.error('[embeddings] discussion_append embed failed:', e),
+          );
+        }
+
         return ok(row);
       }),
     ),

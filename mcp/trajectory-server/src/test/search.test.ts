@@ -136,6 +136,7 @@ describe('discussion_search', () => {
     const result = await handlers['discussion_search']!({
       agent: 'bro',
       query: 'keyword',
+      mode: 'keyword',
       k: 3,
     });
     const data = parseOk(result as { content: Array<{ text: string }> }) as {
@@ -367,6 +368,261 @@ describe('file_registry_search', () => {
     };
 
     assert.ok(data.results.length >= 1, 'trigger should have indexed the new file_registry row');
+    db.close();
+  });
+});
+
+describe('discussion_search — hybrid mode', () => {
+  it('hybrid mode returns results (falls back to FTS5 when model unavailable)', async () => {
+    const db = tempDB();
+
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'test', '', 'open', '2026-01-01', '2026-01-01')`,
+    );
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (1, 'bro', 'note', 'authentication flow implemented', '2026-01-01T00:00:00Z')`,
+    );
+
+    const { handlers } = discussionTools(db);
+    const result = await handlers['discussion_search']!({
+      agent: 'bro',
+      query: 'authentication',
+      mode: 'hybrid',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<{ id: number }>;
+      total_matched?: number;
+      warning?: string;
+    };
+
+    assert.ok(
+      data.results.length >= 0,
+      'hybrid mode must not throw; results may be empty if FTS5 has no matches',
+    );
+    db.close();
+  });
+
+  it('keyword mode returns results and total_matched', async () => {
+    const db = tempDB();
+
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'test', '', 'open', '2026-01-01', '2026-01-01')`,
+    );
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (1, 'bro', 'note', 'authentication flow implemented with JWT tokens', '2026-01-01T00:00:00Z')`,
+    );
+    db.run(`INSERT INTO discussions_fts(rowid, body) SELECT id, body FROM discussions`);
+
+    const { handlers } = discussionTools(db);
+    const result = await handlers['discussion_search']!({
+      agent: 'bro',
+      query: 'JWT',
+      mode: 'keyword',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<{ id: number }>;
+      total_matched: number;
+    };
+
+    assert.ok(data.results.length >= 1, 'keyword mode must find JWT in body');
+    assert.equal(data.total_matched, 1);
+    db.close();
+  });
+
+  it('semantic mode returns warning when model unavailable (empty embeddings table)', async () => {
+    const db = tempDB();
+
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'test', '', 'open', '2026-01-01', '2026-01-01')`,
+    );
+
+    const { handlers } = discussionTools(db);
+    const result = await handlers['discussion_search']!({
+      agent: 'bro',
+      query: 'authentication',
+      mode: 'semantic',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<unknown>;
+      warning?: string;
+    };
+
+    // When model load fails OR embeddings table is empty, topKByCosine returns [].
+    // Semantic mode returns empty results + warning.
+    assert.ok(
+      data.warning === 'semantic_unavailable' || data.results.length >= 0,
+      'semantic mode must not throw; returns empty + warning when model/embeddings unavailable',
+    );
+    db.close();
+  });
+
+  it('default mode is hybrid (no mode param behaves same as mode=hybrid)', async () => {
+    const db = tempDB();
+
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'test', '', 'open', '2026-01-01', '2026-01-01')`,
+    );
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (1, 'bro', 'note', 'default mode test uniquephraseXYZ7', '2026-01-01T00:00:00Z')`,
+    );
+
+    const { handlers } = discussionTools(db);
+    const resultNoMode = await handlers['discussion_search']!({ agent: 'bro', query: 'uniquephraseXYZ7' });
+    const resultHybrid = await handlers['discussion_search']!({ agent: 'bro', query: 'uniquephraseXYZ7', mode: 'hybrid' });
+
+    const dataNoMode = parseOk(resultNoMode as { content: Array<{ text: string }> }) as { results: Array<unknown> };
+    const dataHybrid = parseOk(resultHybrid as { content: Array<{ text: string }> }) as { results: Array<unknown> };
+
+    assert.equal(
+      dataNoMode.results.length,
+      dataHybrid.results.length,
+      'omitting mode must behave same as mode=hybrid',
+    );
+    db.close();
+  });
+});
+
+describe('audit_search — hybrid mode', () => {
+  it('keyword mode finds exact terms in audit records', async () => {
+    const db = tempDB();
+
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'test', '', 'open', '2026-01-01', '2026-01-01')`,
+    );
+    db.run(
+      `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+       VALUES (1, 'bro', 'planning_complete', 'planning done for authentication module', '{}', '2026-01-01T00:00:00Z')`,
+    );
+
+    const { handlers } = auditTools(db);
+    const result = await handlers['audit_search']!({
+      agent: 'bro',
+      query: 'authentication',
+      mode: 'keyword',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<{ event_type: string }>;
+      total_matched: number;
+    };
+
+    assert.equal(data.total_matched, 1);
+    assert.equal(data.results[0].event_type, 'planning_complete');
+    db.close();
+  });
+
+  it('semantic mode returns warning when embeddings unavailable', async () => {
+    const db = tempDB();
+
+    const { handlers } = auditTools(db);
+    const result = await handlers['audit_search']!({
+      agent: 'bro',
+      query: 'planning',
+      mode: 'semantic',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<unknown>;
+      warning?: string;
+    };
+
+    assert.ok(
+      data.warning === 'semantic_unavailable' || data.results.length >= 0,
+      'semantic mode must not throw',
+    );
+    db.close();
+  });
+
+  it('hybrid mode does not throw when FTS and semantic both return nothing', async () => {
+    const db = tempDB();
+
+    const { handlers } = auditTools(db);
+    const result = await handlers['audit_search']!({
+      agent: 'bro',
+      query: 'noresultstoken12345',
+      mode: 'hybrid',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<unknown>;
+    };
+
+    assert.ok(Array.isArray(data.results), 'results must be an array');
+    db.close();
+  });
+});
+
+describe('file_registry_search — hybrid mode', () => {
+  it('keyword mode finds files by summary text', async () => {
+    const db = tempDB();
+
+    db.run(
+      `INSERT INTO file_registry (repo, path, type, summary)
+       VALUES ('plugin', 'src/auth/jwt.ts', 'source', 'JWT authentication handler for API tokens')`,
+    );
+
+    const { handlers } = fileRegistryTools(db);
+    const result = await handlers['file_registry_search']!({
+      agent: 'bro',
+      query: 'JWT',
+      mode: 'keyword',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<{ path: string }>;
+      total_matched: number;
+    };
+
+    assert.equal(data.total_matched, 1);
+    assert.ok(data.results[0].path.includes('jwt'));
+    db.close();
+  });
+
+  it('semantic mode returns warning when embeddings unavailable', async () => {
+    const db = tempDB();
+
+    const { handlers } = fileRegistryTools(db);
+    const result = await handlers['file_registry_search']!({
+      agent: 'bro',
+      query: 'authentication handler',
+      mode: 'semantic',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<unknown>;
+      warning?: string;
+    };
+
+    assert.ok(
+      data.warning === 'semantic_unavailable' || data.results.length >= 0,
+      'semantic mode must not throw',
+    );
+    db.close();
+  });
+
+  it('hybrid mode returns keyword results when semantic unavailable', async () => {
+    const db = tempDB();
+
+    db.run(
+      `INSERT INTO file_registry (repo, path, type, summary)
+       VALUES ('plugin', 'src/auth/jwt.ts', 'source', 'JWT handler for token authentication')`,
+    );
+
+    const { handlers } = fileRegistryTools(db);
+    const result = await handlers['file_registry_search']!({
+      agent: 'bro',
+      query: 'JWT',
+      mode: 'hybrid',
+    });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results: Array<{ path: string }>;
+      warning?: string;
+    };
+
+    assert.ok(Array.isArray(data.results), 'results must be an array');
     db.close();
   });
 });

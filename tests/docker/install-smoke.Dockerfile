@@ -129,17 +129,25 @@ RUN ( \
     sleep 1; \
   ) \
   | TRAJECTORY_DB_PATH=/tmp/legacy-v1.db timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js > /tmp/upgrade-out.log 2>&1; \
-  test "$(sqlite3 /tmp/legacy-v1.db 'SELECT schema_version FROM plugin_meta')" = "2" \
-    || (echo "❌ FAIL: schema_version not bumped to 2 after upgrade"; cat /tmp/upgrade-out.log; exit 1); \
+  # Schema target tracks TARGET_SCHEMA_VERSION at build time (v2 in 0.5.x, \
+  # v3 in 0.7.0-rc Phase 1 FTS5, v4 in 0.7.0-rc Phase 2 embedding tables). \
+  # Read the constant rather than hardcoding so the assertion auto-tracks \
+  # future migrations. \
+  EXPECTED_V=$(grep -oE 'TARGET_SCHEMA_VERSION = [0-9]+' mcp/trajectory-server/src/db.ts | grep -oE '[0-9]+$'); \
+  ACTUAL_V=$(sqlite3 /tmp/legacy-v1.db 'SELECT schema_version FROM plugin_meta'); \
+  test "$ACTUAL_V" = "$EXPECTED_V" \
+    || (echo "❌ FAIL: schema_version=$ACTUAL_V after upgrade, expected $EXPECTED_V"; cat /tmp/upgrade-out.log; exit 1); \
   test "$(sqlite3 /tmp/legacy-v1.db "SELECT value_json FROM plugin_config WHERE key='onboarded'")" = "true" \
     || (echo "❌ FAIL: onboarded marker not translated from legacy identity table"; cat /tmp/upgrade-out.log; exit 1); \
-  ls /tmp/legacy-v1.db.pre-v2.*.bak >/dev/null 2>&1 \
+  # Backup files: v1→v2 writes pre-v2.*.bak; v2→v3 writes pre-v3.*.bak; etc. \
+  # Accept any pre-vN as evidence the migration backup hook ran on the path. \
+  ls /tmp/legacy-v1.db.pre-v*.bak >/dev/null 2>&1 \
     || (echo "❌ FAIL: no pre-migration .bak file written"; ls /tmp/legacy-v1.db.* 2>&1; exit 1); \
-  # MCP wraps the tool result in content[].text so the inner JSON is escaped
-  # (e.g. \"first_run\":false). Pattern tolerates either escaped or raw form.
+  # MCP wraps the tool result in content[].text so the inner JSON is escaped \
+  # (e.g. \"first_run\":false). Pattern tolerates either escaped or raw form. \
   grep -qE 'first_run[^a-zA-Z]+false' /tmp/upgrade-out.log \
     || (echo "❌ FAIL: post-upgrade onboard_state_get did not return first_run=false"; cat /tmp/upgrade-out.log; exit 1)
-RUN echo "✓ A7: legacy v1 DB upgraded to v2; onboarded marker preserved; backup written"
+RUN echo "✓ A7: legacy v1 DB upgraded to current TARGET_SCHEMA_VERSION; onboarded marker preserved; backup written"
 
 # Final marker so the build log shows we made it all the way
 RUN echo "✓ Layer 0 install-smoke: all assertions passed"
