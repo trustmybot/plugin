@@ -4,6 +4,16 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.0-rc.2 — 2026-05-19
+
+Second release candidate. Bundles 3 L6 fixture-calibration fixes that surfaced in the rc.1 chain run (#2929 release ceremony). No code surface changes vs rc.1 — pure fixture + skill description + hook helper.
+
+### Fixed
+
+- 🧪 **L6 step-10 (consultant) under-trigger** (#2927 / merged in `7ad11a9`). `tmb_agent-creator` description-match extended with un-named expertise-ask examples so prompts like "we're hitting X — should we A or B" route to the consultant-spawn path. The post-v0.7.0 prompt rewrite (#2923) had over-stripped the naming cue.
+- 🧪 **L6 step-2 (reonboard-implicit) literal-push misread** (#2931 / merged in `7ad11a9`). The post-v0.7.0 prompt rewrite (!2924) made the prompt provider-agnostic but too action-flavored — bro read "I want to push this project to a remote" as a literal `git push`. Verb cue rewritten to "set it up" so bro recognizes implicit reonboard intent.
+- 🐛 **L6 step-14 (skill-invocation-recorded) sentinel pollution** (#2928 / merged in `7ad11a9`). `scripts/hooks/lib/query-task.sh` DB-path resolution order changed: per-CWD walk-up now beats `~/.claude/tmb-active-workspace` sentinel (sentinel is fallback only). L6 chain runner pre-clears + restores the sentinel via EXIT trap so cross-CC-session pollution can't route hook writes to the wrong DB.
+
 ## v0.8.0-rc.1 — 2026-05-19
 
 First release candidate of the v0.8.0 train. Skips v0.7.x — the merged changeset crosses two schema migrations (v2→v3→v4) and introduces a new dependency class (native ONNX runtime + an embedding model), large enough to warrant the minor-version jump.
