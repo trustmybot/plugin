@@ -118,17 +118,9 @@ GitHub-side guardrails that match the doctrine above. The intent is "validation 
 
 No required-approvals (solo dev). Once a second maintainer joins, flip `required_approving_review_count: 1` on `main` + `rc`.
 
-### Workflow scope by trigger
+### CI
 
-| Workflow | Triggers | Branches/refs | Cost |
-|---|---|---|---|
-| `test.yml` (L0–L4) | `push` to `dev`/`main`, `pull_request` to `dev`/`main` | dev, main, PRs | free |
-| `l5-dogfood.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*`, `pull_request` labeled `L5` | RC tags + dev/rc dispatch | ~$1–3/run |
-| `release-canary.yml` | `workflow_dispatch` (dev/rc only), `push` tags `v*-rc.*` | RC tags + dev/rc dispatch | ~$1–3/run |
-
-Stable `v*` tags from main do **not** fire token-heavy tests — that validation already happened on the matching `v*-rc.*` cut. Spending tokens on a known-good cut is waste.
-
-`verify-cc-auth` composite action runs as the first step of any CC-using workflow — fail-fast on broken token before Docker builds or multi-flow runs.
+Tests run locally: `bash tests/run-all.sh` for L0–L4; `bash tests/dogfood/run-l5.sh` and `bash tests/dogfood/run-l6-chain.sh --fresh` for L5/L6. GitLab origin is canonical; release-gating is on-demand from a maintainer's workstation.
 
 ## When to write an A/B prompt-eval scenario (#131)
 

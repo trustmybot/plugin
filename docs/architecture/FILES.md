@@ -12,8 +12,7 @@ plugin/
 ├── .codex-plugin/, .cursor-plugin/, .opencode/, gemini-extension.json
 │                              # PLACEHOLDERS — see docs/MULTI_PLATFORM.md
 ├── CODEX.md, CURSOR.md, GEMINI.md  # PLACEHOLDER personas
-├── .gitignore, .mcp.json
-└── .github/workflows/test.yml      # GH dormant; GitLab CI is canonical
+└── .gitignore, .mcp.json
 ```
 
 ## Workflow backbone agents
