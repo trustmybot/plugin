@@ -1,36 +1,56 @@
--- 11-roundtable — substantive checks: a roundtable was created, consultants
--- wrote analyses + votes.
+-- 11-roundtable — substantive checks across the two phases.
 --
--- NOTE on the `roundtable_slash_invoked` audit row: the slash-detect hook
--- (scripts/hooks/roundtable-slash-detect.sh) fires correctly in
--- standalone testing but does NOT land its audit row in the real L5
--- environment — claude's slash-command expansion likely replaces the
--- raw `/roundtable …` text with the expanded skill-invocation before
--- the UserPromptSubmit hook sees it. The audit-row assertion is omitted
--- here; the hook's behaviour is exercised separately (L3, future).
+-- Phase 1: bro ran Branch C from-scratch for data-engineer.
+--   (1) audit row tmb_agent_created with mode=from-scratch for data-engineer
+--   (2) data-engineer registered in agents at scope=project-local
 --
--- Scope of L5 coverage (#2854): items 1-4 of the issue's checklist —
--- roundtable_create, consultant analyses, AND roundtable_votes. The
--- finalize/close path (items 5-8) requires a Human ratification AUQ which
--- L5's single-turn harness can't drive; that part is partial-test
--- territory (see misc/roundtable-finalize-partial for the bridge fixture).
+-- Phase 2: roundtable with the templated (cto, pre-seeded) and from-scratch
+-- (data-engineer, just created) consultants both participating.
+--   (3) roundtables row count >=1
+--   (4) discussions kind=analysis >=2 (one from cto, one from data-engineer)
+--   (5) roundtable_votes from cto AND data-engineer (>=2 rows, both voters
+--       present) — confirms the mixed-template-vs-scratch spawn path.
+--
+-- Caveats inherited from prior version of this row:
+--   - The `roundtable_slash_invoked` audit is NOT asserted here: claude's
+--     slash-command expansion replaces the raw text before UserPromptSubmit
+--     hooks see it. Hook's behavior is exercised separately (L3, future).
+--   - The finalize/close path (ratification AUQ) is partial-test territory.
 
+-- Phase 1 assertion 1: from-scratch audit row for data-engineer
+SELECT
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'tmb_agent_created audit row for data-engineer with mode=from-scratch (got ' || COUNT(*) || ', expected >=1)' AS description
+FROM audit
+WHERE event_type = 'tmb_agent_created'
+  AND content_json LIKE '%data-engineer%'
+  AND content_json LIKE '%from-scratch%';
+
+-- Phase 1 assertion 2: data-engineer registered as project-local
+SELECT
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'data-engineer registered as project-local consultant (got ' || COUNT(*) || ', expected >=1)' AS description
+FROM agents
+WHERE name = 'data-engineer' AND scope = 'project-local';
+
+-- Phase 2 assertion 3: roundtable created
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
   'roundtables row count (got ' || COUNT(*) || ', expected >=1)' AS description
 FROM roundtables;
 
+-- Phase 2 assertion 4: at least 2 analysis discussions (one per participant)
 SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'discussions kind=analysis row count (got ' || COUNT(*) || ', expected >=1)' AS description
+  CASE WHEN COUNT(*) >= 2 THEN 1 ELSE 0 END AS pass,
+  'discussions kind=analysis row count (got ' || COUNT(*) || ', expected >=2 — one per participant)' AS description
 FROM discussions
 WHERE kind = 'analysis';
 
--- #2854: assert consultants left vote rows. The roundtable state machine
--- auto-flips from collecting → awaiting_human once expected_participants
--- vote rows land, so a non-empty roundtable_votes count is the single
--- best signal that the consultant spawn → vote write path is healthy.
+-- Phase 2 assertion 5: both participants present in roundtable_votes
 SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'roundtable_votes row count (got ' || COUNT(*) || ', expected >=1) — #2854' AS description
+  CASE WHEN COUNT(DISTINCT participant) >= 2
+       AND SUM(CASE WHEN participant = 'cto' THEN 1 ELSE 0 END) >= 1
+       AND SUM(CASE WHEN participant = 'data-engineer' THEN 1 ELSE 0 END) >= 1
+       THEN 1 ELSE 0 END AS pass,
+  'roundtable_votes from cto AND data-engineer (got distinct participants ' || COUNT(DISTINCT participant) || ', need both)' AS description
 FROM roundtable_votes;

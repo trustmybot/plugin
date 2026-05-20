@@ -1,5 +1,5 @@
 {
-  "max_turns": 1,
-  "user_after_bro": [],
-  "terminal_pattern": "roundtable closed|decision recorded|finalize|ratified|deliberation complete"
+  "max_turns": 2,
+  "user_after_bro": ["Run a roundtable with cto and data-engineer on this: should we use ClickHouse or PostgreSQL for our analytics warehouse? Both participants must write analyses + votes.\n\nDon't ask questions."],
+  "terminal_pattern": "roundtable closed|decision recorded|finalize|ratified|deliberation complete|roundtable_vote"
 }

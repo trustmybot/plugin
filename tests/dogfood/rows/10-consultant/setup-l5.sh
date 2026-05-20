@@ -66,3 +66,13 @@ PY
   git add src/app.py
   git commit -qm "feat: add SQLite auth service substrate"
 ) >/dev/null
+
+# Pre-seed an open issue so Phase 2 (cto evaluating src/app.py) has an issue
+# to scope its discussion_append against. Consultants are server-rejected from
+# issue_create, so bro must either find an open issue OR create one before
+# spawning. Pre-seeding skips the create-step and keeps Phase 2 focused on
+# the consultant analysis path itself.
+sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
+INSERT INTO issues (objective, description, status, created_at, updated_at)
+VALUES ('Auth service storage choice', 'SQLite vs Postgres for the embedded auth service', 'open', datetime('now'), datetime('now'));
+SQL

@@ -4,7 +4,7 @@
 
 ## Phase 1 — agent creation
 
-Turn 1 prompt is `/tmb:agent-create cto`. Bro must invoke `tmb_agent-creator` (Branch B): copy `templates/agents/cto.md` to `.claude/agents/cto.md` → call `agent_register(scope='project-local')` → write a `tmb_agent_created` audit row → tell the Human the file landed.
+Turn 1 prompt is `/tmb:agent-create cto`. Bro must invoke `tmb_agent-creator` (Branch B): copy `templates/agents/cto.md` to `.claude/agents/cto.md` → call `agent_register(scope='project-local')` → write a `tmb_agent_created` audit row → tell the Human the file landed. The `/plugin-reload` reminder is a contingency-only tail note (see SKILL.md §"Post-create reminder") and is NOT asserted by this row — `claude -p` test sessions have no second turn to act on it.
 
 ## Phase 2 — consultant evaluation
 
