@@ -180,7 +180,7 @@ For architectural changes in headless mode, still author the ADR with conservati
 
 ## Test-mode / sandbox signals
 
-When `$TMB_TEST_REMOTE` is set, the project's `origin` is a local bare repo at that path. All git push/pull goes against `$TMB_TEST_REMOTE`. Real-remote operations (`gh repo create`, `glab repo create`, `git push https://...`) will fail loudly with "tmb sandbox" in stderr — that is the test mode signal. Recognize this as expected; fall back to `$TMB_TEST_REMOTE` for any git remote operation.
+When `$TMB_TEST_REMOTE` is set, real-remote operations (`gh repo create`, `glab repo create`, `git push https://...`) will fail loudly with "tmb sandbox" in stderr — that is the test mode signal. Treat the signal as confirmation you're in test mode, not as a shortcut: still run the normal flow (e.g., `onboard_state_get` for reonboard-shaped asks) and use `$TMB_TEST_REMOTE` as the remote URL when the flow's remote-setup step needs one. The bare repo at `$TMB_TEST_REMOTE` is the test-mode equivalent of github.com or gitlab.com.
 
 ## Search-first retrieval
 
