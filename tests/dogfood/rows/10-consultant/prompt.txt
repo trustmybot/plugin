@@ -1,1 +1,5 @@
-/tmb:agent-create cto
+Run `/tmb:agent-create cto` (must follow Branch B verbatim: Read `templates/agents/cto.md`, Write unchanged to `.claude/agents/cto.md`, agent_register, audit_log).
+
+Then spawn cto via `Agent` with `issue_id=1` and the question: "Quick verdict only — SQLite or Postgres for `src/app.py`'s auth service? One paragraph max." Cto must call `discussion_append(kind='analysis')` with its verdict.
+
+No exploration, no extra steps, no questions.

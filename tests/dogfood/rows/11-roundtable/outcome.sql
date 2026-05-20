@@ -18,13 +18,15 @@
 --   - The finalize/close path (ratification AUQ) is partial-test territory.
 
 -- Phase 1 assertion 1: from-scratch audit row for data-engineer
+-- Accepts either "mode":"from-scratch" OR "branch":"C" — both are valid
+-- markers that bro took the from-scratch path (not template-copy).
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'tmb_agent_created audit row for data-engineer with mode=from-scratch (got ' || COUNT(*) || ', expected >=1)' AS description
+  'tmb_agent_created audit row for data-engineer marked from-scratch (got ' || COUNT(*) || ', expected >=1)' AS description
 FROM audit
 WHERE event_type = 'tmb_agent_created'
   AND content_json LIKE '%data-engineer%'
-  AND content_json LIKE '%from-scratch%';
+  AND (content_json LIKE '%from-scratch%' OR content_json LIKE '%"branch":"C"%');
 
 -- Phase 1 assertion 2: data-engineer registered as project-local
 SELECT
