@@ -43,6 +43,9 @@ l5_pre_flight_or_abort "$PLUGIN_ROOT"
 # shellcheck source=tests/dogfood/lib/l6-chain-helpers.sh
 . "$HERE/lib/l6-chain-helpers.sh"
 
+# shellcheck source=tests/dogfood/lib/sandbox.sh
+. "$HERE/lib/sandbox.sh"
+
 printf "=== claude --version (informational) ===\n"
 claude --version 2>&1 | sed 's/^/  /' || echo "  ✗ claude --version failed"
 printf "\n"
@@ -97,7 +100,9 @@ for row_dir in "$HERE/rows"/*/; do
 
   TURN_JSONL="$PROJECT/trajectory.jsonl"
   _l5_write_pre_run_git_snapshot "$PROJECT"
+  tmb_test_sandbox_init "$PROJECT"
   l6c_run_step "$PROJECT" "$row_dir" "$TURN_JSONL"
+  tmb_test_sandbox_teardown
 
   if l5_score_flow "$PROJECT" "$row_name" "$row_dir" "$RUN_ID"; then
     printf "  ✓ %s passed\n" "$row_name"

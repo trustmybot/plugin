@@ -69,6 +69,9 @@ l5_pre_flight_or_abort "$PLUGIN_ROOT"
 # shellcheck source=tests/dogfood/lib/l6-chain-helpers.sh
 . "$HERE/lib/l6-chain-helpers.sh"
 
+# shellcheck source=tests/dogfood/lib/sandbox.sh
+. "$HERE/lib/sandbox.sh"
+
 RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
 RUNS_ROOT="${L6C_RUNS_DIR:-$HOME/.claude/tmb/l6-chain-runs}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
@@ -322,7 +325,9 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   # otherwise move on before the answer arrives.
   TURN_JSONL="$STEP_DIR/turn.jsonl"
   printf "  step: fresh session, multi-turn within step (DB-driven across steps)\n"
+  tmb_test_sandbox_init "$PROJECT"
   l6c_run_step "$PROJECT" "$ROW_DIR" "$TURN_JSONL"
+  tmb_test_sandbox_teardown
 
   cat "$TURN_JSONL" >> "$CHAIN_TRAJECTORY"
   # Per-step scoring reads $PROJECT/trajectory.jsonl. Required/forbidden
