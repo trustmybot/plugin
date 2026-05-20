@@ -46,10 +46,15 @@ GITCFG
   # blocks the transport; this prevents the credential-prompt fallback noise
   # when stubs don't fire (e.g., older git binaries that resolve helpers earlier).
   export GIT_TERMINAL_PROMPT=0
+
+  # Pin the trajectory DB path so hooks don't walk up and land on a different
+  # DB when HOME is remapped. Every TMB hook honors TRAJECTORY_DB_PATH first
+  # before falling back to walk-up; setting it here removes the ambiguity.
+  export TRAJECTORY_DB_PATH="$scratch/.claude/tmb/trajectory.db"
 }
 
 tmb_test_sandbox_teardown() {
   export PATH="${TMB_SANDBOX_ORIG_PATH:-$PATH}"
   export HOME="${TMB_SANDBOX_ORIG_HOME:-$HOME}"
-  unset TMB_SANDBOX_ORIG_PATH TMB_SANDBOX_ORIG_HOME TMB_TEST_REMOTE GIT_TERMINAL_PROMPT 2>/dev/null || true
+  unset TMB_SANDBOX_ORIG_PATH TMB_SANDBOX_ORIG_HOME TMB_TEST_REMOTE GIT_TERMINAL_PROMPT TRAJECTORY_DB_PATH 2>/dev/null || true
 }
