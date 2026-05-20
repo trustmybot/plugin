@@ -96,12 +96,12 @@ describe('#2886 rules catalog', () => {
     });
 });
 describe('#2886 commands catalog', () => {
-    it('schema-seeds the 4 plugin-shipped slash commands', async () => {
+    it('schema-seeds the 5 plugin-shipped slash commands', async () => {
         const db = tempDB();
         const tools = commandTools(db);
         const res = await call(tools.handlers, 'command_list', { agent: 'bro' });
         const names = parse(res).commands.map((c) => c.name).sort();
-        assert.deepEqual(names, ['monitor', 'onboard', 'roundtable', 'scan']);
+        assert.deepEqual(names, ['agent-create', 'monitor', 'onboard', 'roundtable', 'scan']);
         db.close();
     });
     it('command_register accepts project-local commands with valid args_schema JSON', async () => {

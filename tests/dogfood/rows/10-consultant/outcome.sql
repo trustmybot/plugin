@@ -1,12 +1,21 @@
--- 10-agent-creator-on-missing-consultant — a tmb_agent_created audit row
--- should exist (the load-bearing signal that the agent-creator ceremony ran).
+-- Phase 1: tmb_agent-creator template-copy ceremony completed for cto
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'tmb_agent_created audit row (got ' || COUNT(*) || ', expected >=1)' AS description
+  'tmb_agent_created audit row for cto (got ' || COUNT(*) || ', expected >=1)' AS description
 FROM audit
-WHERE event_type = 'tmb_agent_created';
+WHERE event_type = 'tmb_agent_created'
+  AND content_json LIKE '%cto%';
 
--- Note: agent_register is INSERT OR IGNORE in the server impl, so the
--- cto registry row's scope stays 'template' — the scope-update is a known
--- server-side gap, not a bro-behaviour gap. The audit row above is what
--- this scenario actually asserts.
+-- Phase 1: cto registered in agents table
+SELECT
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'cto registered as project-local consultant (got ' || COUNT(*) || ', expected >=1)' AS description
+FROM agents
+WHERE name = 'cto' AND scope = 'project-local';
+
+-- Phase 2: cto produced analysis via discussion_append
+SELECT
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'cto analysis discussion (got ' || COUNT(*) || ', expected >=1)' AS description
+FROM discussions
+WHERE author = 'cto' AND kind = 'analysis';
