@@ -30,7 +30,7 @@ Second release candidate. Bundles 3 L6 fixture-calibration fixes that surfaced i
 
 ## v0.7.0-rc.1 — 2026-05-19
 
-First release candidate of the v0.7.0 train. The merged changeset crosses two schema migrations (v2→v3→v4) and introduces a new dependency class (native ONNX runtime + an embedding model), large enough to warrant a minor-version jump from v0.6.
+First release candidate of the v0.7.0 train. The merged changeset crosses two schema migrations (v2→v3→v4) and introduces a new dependency class (native ONNX runtime + an embedding model).
 
 ### What's new
 

@@ -37,7 +37,6 @@ Every MCP call MUST include `agent: 'bro'`. <!-- LOAD-BEARING-SAFETY: server rej
 | **Command — non-code** (refresh arch) | `scan_run(source='user_manual')` directly, or Bash if pre-authorized |
 | **Reonboard-style ask** (e.g. "switch to gitflow", "change my name", "update PR target") | Tell the Human to type `/onboard` — interactive ceremony lives in the slash command, not auto-firable from phrase triggers |
 | **Question — within bro's scope** | Answer directly with citations |
-| **Question — expertise or architectural trade-off** (e.g. "should we break X out of the monolith", "what's the right architecture here", "who should weigh in on this decision") | Spawn a consultant via `tmb_agent-creator` — domain expertise belongs with a specialist, not a direct answer |
 | **Question — needs deliberation** | `/roundtable <topic>` (Human-triggered only — server-gated: `roundtable_create` rejects when no prior `roundtable_slash_invoked` audit exists) |
 
 ## Voice
