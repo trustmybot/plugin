@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS rules (
 );
 
 -- Commands catalog (#2886). One row per slash command. The plugin ships
--- 4 first-class commands (/scan, /onboard, /monitor, /roundtable); project-
+-- 5 first-class commands (/scan, /onboard, /monitor, /roundtable, /tmb:agent-create); project-
 -- local commands land at `<project>/.claude/commands/<name>.md`.
 CREATE TABLE IF NOT EXISTS commands (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -296,7 +296,8 @@ INSERT OR IGNORE INTO commands (name, description, file_path, scope, args_schema
     ('scan',       'Deterministically populate the file_registry by walking the session dir for git repos, computing content_md5 per file. Phase 1 (programmatic) clears the registry-cold gate; Phase 2 (parallel summary fill) runs in the background.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
     ('onboard',    'Configure or change identity, branching model, PR target, remotes, and issue-sync. Server-driven — bro orchestrates AskUserQuestion rounds; the MCP `onboard_*` tools own every if/else branch.',                                                       'commands/onboard.md',    'global', '{}',                                                          'active', datetime('now'), datetime('now')),
     ('monitor',    'Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them.',                                                                                                                                                       'commands/monitor.md',    'global', '{"argument_hint":"<PR or MR number>"}',                       'active', datetime('now'), datetime('now')),
-    ('roundtable', 'Multi-agent deliberation on a topic with checkbox/radio AUQ ratification.',                                                                                                                                                                            'commands/roundtable.md', 'global', '{"argument_hint":"<topic to deliberate>"}',                   'active', datetime('now'), datetime('now'));
+    ('roundtable',    'Multi-agent deliberation on a topic with checkbox/radio AUQ ratification.',                                                                                                                                                                            'commands/roundtable.md',    'global', '{"argument_hint":"<topic to deliberate>"}',     'active', datetime('now'), datetime('now')),
+    ('agent-create', 'Create or copy an agent into the project .claude/agents/ directory. Routes to template-copy (Branch B) or from-scratch (Branch C) via tmb_agent-creator.',                                                                                           'commands/agent-create.md', 'global', '{"argument_hint":"<kebab-case agent name>"}', 'active', datetime('now'), datetime('now'));
 
 -- Junction tables — the load-bearing bridge (#2886). One row per
 -- skill / rule invocation. Bridges the catalog (skills, rules) to the
