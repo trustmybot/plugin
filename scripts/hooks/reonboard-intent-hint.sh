@@ -43,6 +43,9 @@ for pat in \
   'put it on github' 'put it on gitlab' 'publish to github' 'publish to gitlab' \
   'switch to remote' 'go remote' 'add a remote' 'set up a remote' \
   'set up the remote' 'add github remote' 'add gitlab remote' \
+  'live on a remote' 'live on github' 'live on gitlab' \
+  'lives on a remote' 'lives on github' 'lives on gitlab' \
+  'needs to live on' 'needs a remote' \
   'change my issue tracker' 'switch issue tracker' \
   'on github' 'on gitlab'; do
   case "$PROMPT" in
