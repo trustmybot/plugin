@@ -4,21 +4,21 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
-## v0.8.0-rc.3 — 2026-05-19
+## v0.7.0-rc.3 — 2026-05-19
 
-Third release candidate. Test-infrastructure refactor only — no shipped code changes, no schema migrations, no behavior shift visible to users. Released because v0.8.0 stable is gated on L6 chain green, and L6 was unbisectable until L5 and L6 shared one row tree.
+Third release candidate. Test-infrastructure refactor only — no shipped code changes, no schema migrations, no behavior shift visible to users. Released because v0.7.0 stable is gated on L6 chain green, and L6 was unbisectable until L5 and L6 shared one row tree.
 
 ### Changed
 
 - 🏗️ **L5 + L6 share one canonical row tree** (#45 / !2932 + !204). Merged `tests/dogfood/flows/` (L5, 18 rows) and `tests/dogfood/l5-rows/` (L6, 13 chain steps + misc) into single `tests/dogfood/rows/` with 32 rows (14 chain + 18 standalone). Same `prompt.txt` + scorers across both modes; L5 applies a per-row `setup-l5.sh` to simulate prior-state in isolation, L6 inherits state from the prior chain step. Chain manifest gains an explicit `step` int field per entry and re-adds step 5 (`05-swe-atomic-close`) which had been absent. Adopted L6's `script.json`-driven exec model as canonical; deleted per-row `run.sh` + `tests/dogfood/run-l6.sh` + `tests/dogfood/lib/l6-helpers.sh` (legacy, all pointed at the deleted L5-rows tree).
 - 📝 **`tests/README.md` documents L5-as-L6-debug**. New "Debugging an L6 chain failure" subsection per Human directive: when a chain step fails, `bash tests/dogfood/run-l5.sh <NN>-<step-name>` runs the same prompt + scorers against simulated prior-state in isolation. L5 pass → upstream contamination (bisect chain `--from` earlier steps); L5 fail → step itself broken. ~$0.20/iteration vs ~$5–10/chain.
 
-### Known follow-ups (filed for v0.8.1)
+### Known follow-ups (filed for v0.7.1)
 
 - !2933 — workflow-violation: SWE skipped `task_update_status` + `bro_atomic_close` after the consolidation commit; bro filled in. Needs a structural PostToolUse close-gate hook so SWE can't terminate a commit-bearing turn without closing.
 - Spec follow-ups (open in #45 design notes): `outcome-files.json` not yet ported to every row; per-row `outcome.sql` schema-v4 audit for stale column refs.
 
-## v0.8.0-rc.2 — 2026-05-19
+## v0.7.0-rc.2 — 2026-05-19
 
 Second release candidate. Bundles 3 L6 fixture-calibration fixes that surfaced in the rc.1 chain run (#2929 release ceremony). No code surface changes vs rc.1 — pure fixture + skill description + hook helper.
 
@@ -28,9 +28,9 @@ Second release candidate. Bundles 3 L6 fixture-calibration fixes that surfaced i
 - 🧪 **L6 step-2 (reonboard-implicit) literal-push misread** (#2931 / merged in `7ad11a9`). The post-v0.7.0 prompt rewrite (!2924) made the prompt provider-agnostic but too action-flavored — bro read "I want to push this project to a remote" as a literal `git push`. Verb cue rewritten to "set it up" so bro recognizes implicit reonboard intent.
 - 🐛 **L6 step-14 (skill-invocation-recorded) sentinel pollution** (#2928 / merged in `7ad11a9`). `scripts/hooks/lib/query-task.sh` DB-path resolution order changed: per-CWD walk-up now beats `~/.claude/tmb-active-workspace` sentinel (sentinel is fallback only). L6 chain runner pre-clears + restores the sentinel via EXIT trap so cross-CC-session pollution can't route hook writes to the wrong DB.
 
-## v0.8.0-rc.1 — 2026-05-19
+## v0.7.0-rc.1 — 2026-05-19
 
-First release candidate of the v0.8.0 train. Skips v0.7.x — the merged changeset crosses two schema migrations (v2→v3→v4) and introduces a new dependency class (native ONNX runtime + an embedding model), large enough to warrant the minor-version jump.
+First release candidate of the v0.7.0 train. The merged changeset crosses two schema migrations (v2→v3→v4) and introduces a new dependency class (native ONNX runtime + an embedding model), large enough to warrant a minor-version jump from v0.6.
 
 ### What's new
 
