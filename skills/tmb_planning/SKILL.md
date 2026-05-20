@@ -178,6 +178,10 @@ Use `headless_intent_start` to record the fallback. Auto-picking "Suggest differ
 
 For architectural changes in headless mode, still author the ADR with conservative assumptions. Waive the scope gate (Step 4 case 2).
 
+## Test-mode / sandbox signals
+
+When `$TMB_TEST_REMOTE` is set, the project's `origin` is a local bare repo at that path. All git push/pull goes against `$TMB_TEST_REMOTE`. Real-remote operations (`gh repo create`, `glab repo create`, `git push https://...`) will fail loudly with "tmb sandbox" in stderr — that is the test mode signal. Recognize this as expected; fall back to `$TMB_TEST_REMOTE` for any git remote operation.
+
 ## Search-first retrieval
 
 When looking up past decisions, audit events, or file context, prefer `discussion_search` / `audit_search` / `file_registry_search` over the list/get tools — they return ranked snippets instead of full dumps. Use `mode='hybrid'` (the default) for combined keyword + semantic retrieval; `mode='keyword'` for exact-term queries where FTS5 precision matters; `mode='semantic'` when you know the concept but not the phrasing (e.g., "what did we decide about login flow?" returns results mentioning "authentication" and "JWT" even without those words in the query). Fallback to FTS5-only is automatic when the embedding model is unavailable; you'll see `warning: 'semantic_unavailable'` in the response.

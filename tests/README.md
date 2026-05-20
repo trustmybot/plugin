@@ -284,6 +284,35 @@ Assertion helpers (`tests/lib/assert.sh`):
 - `assert_exit_code <expected> <actual> [label]`
 - `summarize` — prints pass/fail summary; returns non-zero if any assertion failed.
 
+## L5/L6 sandbox
+
+All L5 (`run-l5.sh`), L6 (`run-l6-chain.sh`), and A/B (`run-ab.sh`) runs execute inside a network-isolated sandbox. The sandbox is initialized by `tmb_test_sandbox_init` (from `tests/dogfood/lib/sandbox.sh`) before each `claude -p` invocation and torn down after.
+
+### What the sandbox does
+
+| Layer | Effect |
+|---|---|
+| PATH prepend | `tests/dogfood/lib/stubs/` wins over real binaries — `gh`, `glab`, `curl`, `wget`, `git-remote-https`, `git-remote-http` are all stub scripts that exit 1 with `tmb sandbox:` in stderr |
+| HOME override | `$HOME` is redirected to `$PROJECT/_home` with a minimal `.gitconfig` (test identity) and empty `.ssh/`. Real `~/.config/gh`, `~/.ssh`, `~/.gitconfig` are unreachable |
+| Credential purge | `GH_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN`, `GL_TOKEN`, `SSH_AUTH_SOCK`, `SSH_AGENT_PID`, `NPM_TOKEN`, `AWS_*` all unset |
+| Pseudo-remote | `$TMB_TEST_REMOTE` is a local bare git repo at `$PROJECT/_remote.git`. Bro can push/pull against this URL without hitting GitHub or GitLab |
+| HTTP proxy block | `HTTP_PROXY` + `HTTPS_PROXY` point at `http://127.0.0.1:1` (closed port). Stray direct HTTP connections fail instantly |
+
+### The test-mode signal
+
+When `$TMB_TEST_REMOTE` is set (test/sandbox mode), `origin` is a local bare repo at that path. All git push/pull operates against `$TMB_TEST_REMOTE` only. Real-remote operations (`gh repo create`, `glab repo create`, `git push https://...`) will fail loudly with "tmb sandbox" in stderr — that is the test mode signal.
+
+### L3 isolation test
+
+`tests/hooks/sandbox-isolation.test.sh` is the acceptance gate. It verifies:
+
+1. `gh repo create` → exit 1 + "tmb sandbox" in stderr
+2. `glab repo create` → exit 1 + "tmb sandbox" in stderr
+3. `git push https://github.com/...` → exit 1 + sandbox-blocked message
+4. After teardown: `PATH`, `HOME`, `TMB_TEST_REMOTE` all restored / unset
+
+Run it directly: `bash tests/hooks/sandbox-isolation.test.sh`. It runs automatically as part of `bash tests/hooks/run.sh` (L3).
+
 ## Anti-patterns
 
 - **"L2 is green, ship it."** L2 bypasses the MCP protocol layer. The 0-tool-uses bug in PR #41 had 235 L2 tests green while every bro-only MCP write call in production returned `forbidden` because the schema stripped the `agent` param before the handler saw it. Always validate at the wire level (L3).
