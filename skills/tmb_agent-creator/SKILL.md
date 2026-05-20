@@ -14,9 +14,17 @@ The bundled `scripts/prompt-author-lint.sh` (regex scan for negations + noise ci
 
 1. Call `agent_list()` to get all known agents from the registry.
 2. Resolve the target agent name from the user's phrasing.
-3. **Branch A — Local file exists:** if `<project>/.claude/agents/<name>.md` exists → spawn via `Agent`. DONE.
-4. **Branch B — Template in registry:** else if the registry shows `scope='template'` for the resolved name → the agent exists only as a plugin template, not yet instantiated for this project. REQUIRED sequence: (a) copy `plugin/templates/agents/<name>.md` to `<project>/.claude/agents/<name>.md`; (b) call `agent_register(agent='bro', name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`; (c) call `audit_log(agent='bro', from_node='bro', event_type='tmb_agent_created', ...)`; (d) spawn via `Agent`. Steps (a)–(c) are mandatory — skipping them bypasses the project-local instantiation ceremony. DONE.
-5. **Branch C — From-scratch:** else → run the from-scratch ceremony below; call `agent_register(...)` after writing; spawn via `Agent`. DONE.
+3. **Branch A — Local file exists:** if `<project>/.claude/agents/<name>.md` exists → ensure an open issue exists for the consult (if none, `issue_create(agent='bro', objective='<role> consult: <one-line context>', description='<the user question>')`); spawn via `Agent` with the spawn prompt INCLUDING `issue_id=<N>` and a specific question. DONE.
+4. **Branch B — Template in registry:** else if the registry shows `scope='template'` for the resolved name → the agent exists only as a plugin template, not yet instantiated for this project. REQUIRED sequence: (a) `Read` the template at `${CLAUDE_PLUGIN_ROOT}/templates/agents/<name>.md` and `Write` it to `<project>/.claude/agents/<name>.md` verbatim; (b) call `agent_register(agent='bro', name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`; (c) call `audit_log(agent='bro', from_node='bro', event_type='tmb_agent_created', ...)`; (d) if the user's prompt is a consultant *question* (not just `/tmb:agent-create`), scope an issue per Branch A then spawn via `Agent` with `issue_id=<N>` + the question. If the prompt was bare `/tmb:agent-create <name>` (no follow-on question), skip the spawn — agent is ready for next-turn use. Steps (a)–(c) are mandatory. DONE.
+5. **Branch C — From-scratch:** else → run the from-scratch ceremony below; call `agent_register(...)` after writing; same Branch A/B conditional spawn rule based on whether a question was provided. DONE.
+
+**Spawn-prompt template (Branches A/B/C when spawning):**
+```
+consultant: analysis-only
+issue_id: <N>
+question: <verbatim user question>
+```
+Consultants are server-rejected from `issue_create` so bro must always own issue scoping.
 
 `tmb_owner` lives only in the `.md` frontmatter; the agents table carries no copy.
 
@@ -24,10 +32,10 @@ The bundled `scripts/prompt-author-lint.sh` (regex scan for negations + noise ci
 
 In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly**. Template content is deterministic — reviewed at plugin release — so the auto-approve is safe. Render the AUQ only when a Human is in the loop.
 
-1. **Show + ask** (interactive only). Read the template via `Read` (present it verbatim). Present in a fenced code block, ask:
-   > Copy `templates/agents/<name>.md` to `.claude/agents/<name>.md` verbatim? Project-specific behavior gets attached later via `tmb_skill-creator`. (yes/no)
-2. **Copy on approval** (or unconditionally in headless). Write the template content unmodified. If the destination exists, switch to the collision flow (§"Collision dialog" below).
-3. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. If there's no open issue, first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(agent='bro', from_node='bro', issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>` and remind them: "Run `/plugin-reload` or restart CC so the new agent is discoverable in `agent_list`."
+1. **Show + ask** (interactive only). `Read` the template at `${CLAUDE_PLUGIN_ROOT}/templates/agents/<name>.md` (present it verbatim). Present in a fenced code block, ask:
+   > Copy `${CLAUDE_PLUGIN_ROOT}/templates/agents/<name>.md` to `<project>/.claude/agents/<name>.md` verbatim? Project-specific behavior gets attached later via `tmb_skill-creator`. (yes/no)
+2. **Copy on approval** (or unconditionally in headless). `Write` the template content unmodified to `<project>/.claude/agents/<name>.md`. If the destination exists, switch to the collision flow (§"Collision dialog" below).
+3. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. If there's no open issue, first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(agent='bro', from_node='bro', issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>`. See §"Post-create reminder" for the conditional reload hint.
 
 ### Branch C — From-scratch detail
 
@@ -60,7 +68,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
    > Do you want me to create this agent? It will be written to `.claude/agents/<name>.md` and available in future sessions. (yes/no)
 
 6. **Write on approval** with `tmb_owner: bro` in frontmatter.
-7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`. Remind the Human: "Run `/plugin-reload` or restart CC so the new agent is discoverable in `agent_list`."
+7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`. See §"Post-create reminder" for the conditional reload hint.
 
 ## Reserved names (refuse)
 
@@ -98,8 +106,16 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 - **Reserved names refused** — `bro` is reserved.
 - **Existing files require collision dialog** — see Collision dialog above.
 
+## Post-create reminder
+
+After Branch B or C completes successfully, emit the reload hint **only if** running interactively (REPL — i.e. not `claude -p`). MCP `agent_list` reads from the `agents` DB table (no reload needed) and the new file is on disk for `Agent` to read at spawn time, so the reminder is a contingency, not a required step:
+
+> *Agent landed at `.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, run `/plugin-reload`.*
+
+Skip the reminder entirely in headless / `claude -p` runs — there's no second turn to act on it.
+
 ## Headless mode
 
 - **Branch A (local file exists)** → spawn directly, no approval needed.
 - **Branch B (template-copy)** → auto-approve the AUQ. Content is deterministic and reviewed at plugin release. Full ceremony still required in this order: (1) write the template file, (2) call `agent_register(...)`, (3) call `audit_log(agent='bro', from_node='bro', event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy","headless_auto_approved":true}')`, (4) spawn via `Agent`. Skipping steps 2–3 leaves the project-local agent unregistered and unaudited.
-- **Branch C (from-scratch)** → HALT. Novel content needs Human review. Scope the audit first via `issue_create` (per the §"Register + log" pattern in Branch C step 7), then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='headless_creator_blocked', ...)`. Surface: "Cannot create agent from scratch in headless mode — novel content requires Human review."
+- **Branch C (from-scratch)** → auto-proceed when invoked via the slash command (`/tmb:agent-create <name>`) — the slash invocation is itself explicit Human authorization. Skip AUQs (steps 1 + 5), use the default body per Branch C step 3 ("Consultant. Analysis-only domain expert for `<name>`."), run pre-write lint, write, register, audit, spawn. HALT only when invoked via implicit autoload (NL prompt) without sufficient context — that path needs Human disambiguation. On halt: scope an issue via `issue_create`, then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='headless_creator_blocked', ...)`, surface "Cannot create agent from scratch in headless mode without slash command — novel content requires Human review."
