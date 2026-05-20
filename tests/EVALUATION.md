@@ -99,7 +99,7 @@ Rows that need no extra state (e.g., `01-cold-start`, trivial standalone rows) s
 | 7 | `07-push-gate` | Push gate with pseudo-remote |
 | 8 | `08-architectural-change` | Mid-flow architectural decision |
 | 9 | `09-concerns-protocol` | Concerns raised and resolved |
-| 10 | `10-consultant` | Consultant (architect) spawned |
+| 10 | `10-consultant` | Consultant (cto) spawned via tmb_agent-creator ceremony |
 | 11 | `11-roundtable` | Roundtable deliberation |
 | 12 | `12-issue-resume` | Paused issue resumed |
 | 13 | `13-pr-comment-review` | PR comments reviewed |
