@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 4;
+const TARGET_SCHEMA_VERSION = 5;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -362,6 +362,9 @@ function runMigrations(
   if (fromVersion < 4 && toVersion >= 4) {
     migrateV3toV4(db);
   }
+  if (fromVersion < 5 && toVersion >= 5) {
+    migrateV4toV5(db);
+  }
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -376,6 +379,34 @@ function tableExists(db: DatabaseSync, table: string): boolean {
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
     .get(table) as { name: string } | undefined;
   return row !== undefined;
+}
+
+function migrateV4toV5(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    if (tableExists(db, 'issues')) {
+      if (!hasColumn(db, 'issues', 'gh_iid')) {
+        db.exec('ALTER TABLE issues ADD COLUMN gh_iid INTEGER');
+      }
+      if (!hasColumn(db, 'issues', 'gl_iid')) {
+        db.exec('ALTER TABLE issues ADD COLUMN gl_iid INTEGER');
+      }
+      db.exec(
+        "UPDATE issues SET gh_iid = remote_iid WHERE remote_kind = 'github' AND remote_iid IS NOT NULL AND gh_iid IS NULL",
+      );
+      db.exec(
+        "UPDATE issues SET gl_iid = remote_iid WHERE remote_kind = 'gitlab' AND remote_iid IS NOT NULL AND gl_iid IS NULL",
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
 }
 
 function migrateV3toV4(db: DatabaseSync): void {

@@ -213,40 +213,108 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {
-          const syncResult = await syncIssueCreate({
-            issueId,
-            title: objective,
-            body: description,
-            labels,
-            _backend: backend,
-            _spawnFn: spawnFn,
-            _cwd: resolveSpawnCwd(db, dbPath),
-          });
-          if (!isSyncFailure(syncResult)) {
-            db.run(
-              `UPDATE issues SET remote_iid = ?, remote_kind = ?, updated_at = ? WHERE id = ?`,
-              [syncResult.remote_iid, syncResult.remote_kind, now, issueId],
-            );
+          const syncCwd = resolveSpawnCwd(db, dbPath);
+          if (backend === 'both') {
+            const [ghResult, glResult] = await Promise.all([
+              syncIssueCreate({
+                issueId,
+                title: objective,
+                body: description,
+                labels,
+                _backend: 'gh',
+                _spawnFn: spawnFn,
+                _cwd: syncCwd,
+              }),
+              syncIssueCreate({
+                issueId,
+                title: objective,
+                body: description,
+                labels,
+                _backend: 'glab',
+                _spawnFn: spawnFn,
+                _cwd: syncCwd,
+              }),
+            ]);
+            const ghIid = !isSyncFailure(ghResult) && ghResult.remote_kind === 'github'
+              ? ghResult.remote_iid : null;
+            const glIid = !isSyncFailure(glResult) && glResult.remote_kind === 'gitlab'
+              ? glResult.remote_iid : null;
+            const firstSuccess = !isSyncFailure(ghResult) ? ghResult
+              : !isSyncFailure(glResult) ? glResult : null;
+            if (firstSuccess !== null) {
+              db.run(
+                `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId],
+              );
+            } else {
+              const failures: string[] = [];
+              if (isSyncFailure(ghResult)) {
+                serverLog({ event: 'issue_sync_failed', issueId, backend: 'gh', reason: ghResult.reason, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
+                failures.push('gh');
+              }
+              if (isSyncFailure(glResult)) {
+                serverLog({ event: 'issue_sync_failed', issueId, backend: 'glab', reason: glResult.reason, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
+                failures.push('glab');
+              }
+              syncDiagnostic = {
+                sync_failed: true,
+                reason: 'both_remotes_failed',
+                backends: failures,
+                hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+              };
+            }
+            if (ghIid !== null || glIid !== null) {
+              const partial: string[] = [];
+              if (isSyncFailure(ghResult)) partial.push('gh');
+              if (isSyncFailure(glResult)) partial.push('glab');
+              if (partial.length > 0) {
+                syncDiagnostic = {
+                  sync_partial: true,
+                  failed_backends: partial,
+                  gh_iid: ghIid,
+                  gl_iid: glIid,
+                  hint: 'Try `issue_sync_retry` to retry the failed remote.',
+                };
+              }
+            }
           } else {
-            serverLog({
-              event: 'issue_sync_failed',
+            const syncResult = await syncIssueCreate({
               issueId,
-              backend,
-              reason: syncResult.reason,
-              exit_code: syncResult.exit_code,
-              stderr: syncResult.stderr?.slice(0, 1024),
-              message: syncResult.message,
+              title: objective,
+              body: description,
+              labels,
+              _backend: backend,
+              _spawnFn: spawnFn,
+              _cwd: syncCwd,
             });
-            syncDiagnostic = {
-              sync_failed: true,
-              reason: syncResult.reason,
-              backend: syncResult.backend,
-              exit_code: syncResult.exit_code,
-              stderr: syncResult.stderr?.slice(0, 4096),
-              stdout: syncResult.stdout?.slice(0, 4096),
-              message: syncResult.message,
-              hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
-            };
+            if (!isSyncFailure(syncResult)) {
+              const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
+              const glIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
+              db.run(
+                `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId],
+              );
+            } else {
+              serverLog({
+                event: 'issue_sync_failed',
+                issueId,
+                backend,
+                reason: syncResult.reason,
+                exit_code: syncResult.exit_code,
+                stderr: syncResult.stderr?.slice(0, 1024),
+                message: syncResult.message,
+              });
+              syncDiagnostic = {
+                sync_failed: true,
+                reason: syncResult.reason,
+                backend: syncResult.backend,
+                exit_code: syncResult.exit_code,
+                stderr: syncResult.stderr?.slice(0, 4096),
+                stdout: syncResult.stdout?.slice(0, 4096),
+                message: syncResult.message,
+                hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+              };
+            }
           }
         }
       } else {
@@ -325,21 +393,34 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         [now, now, issueId],
       );
 
-      const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null }>(
-        `SELECT remote_iid, remote_kind FROM issues WHERE id = ?`,
+      const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null; gh_iid: number | null; gl_iid: number | null }>(
+        `SELECT remote_iid, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?`,
         [issueId],
       );
-      if (remoteRow?.remote_iid != null && remoteRow.remote_kind != null) {
+      const closeCwd = resolveSpawnCwd(db, dbPath);
+      const closeTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
+      if (remoteRow?.gh_iid != null) {
+        closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
+      } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'github') {
+        closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'github' });
+      }
+      if (remoteRow?.gl_iid != null) {
+        closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: 'gitlab' });
+      } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'gitlab') {
+        closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
+      }
+      for (const target of closeTargets) {
         const closeResult = await syncIssueClose({
-          remote_iid: remoteRow.remote_iid,
-          remote_kind: remoteRow.remote_kind as 'github' | 'gitlab',
-          _cwd: resolveSpawnCwd(db, dbPath),
+          remote_iid: target.remote_iid,
+          remote_kind: target.remote_kind,
+          _cwd: closeCwd,
         });
         if (!closeResult.ok) {
           serverLog({
             event: 'issue_close_sync_failed',
             issueId,
-            remote_iid: remoteRow.remote_iid,
+            remote_iid: target.remote_iid,
+            remote_kind: target.remote_kind,
             reason: closeResult.reason,
             exit_code: closeResult.exit_code,
             stderr: closeResult.stderr?.slice(0, 1024),
@@ -469,53 +550,70 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
 
       const issue = decodeIssue(row);
 
-      if (row.status === 'closed' && row.remote_iid != null && row.remote_kind != null) {
-        const closeResult = await syncIssueClose({
-          remote_iid: row.remote_iid,
-          remote_kind: row.remote_kind,
-        });
-        if (closeResult.ok) {
+      if (row.status === 'closed') {
+        const retryCwd = resolveSpawnCwd(db, dbPath);
+        const retryTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
+        if (row.gh_iid != null) {
+          retryTargets.push({ remote_iid: row.gh_iid, remote_kind: 'github' });
+        } else if (row.remote_iid != null && row.remote_kind === 'github') {
+          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: 'github' });
+        }
+        if (row.gl_iid != null) {
+          retryTargets.push({ remote_iid: row.gl_iid, remote_kind: 'gitlab' });
+        } else if (row.remote_iid != null && row.remote_kind === 'gitlab') {
+          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: 'gitlab' });
+        }
+        if (retryTargets.length === 0) {
+          return ok({ action: 'close', success: false, error: { reason: 'no_remote_iid' } });
+        }
+        const closeErrors: unknown[] = [];
+        for (const target of retryTargets) {
+          const closeResult = await syncIssueClose({
+            remote_iid: target.remote_iid,
+            remote_kind: target.remote_kind,
+            _cwd: retryCwd,
+          });
+          if (!closeResult.ok) {
+            closeErrors.push({
+              remote_kind: target.remote_kind,
+              reason: closeResult.reason,
+              exit_code: closeResult.exit_code,
+              stderr: closeResult.stderr?.slice(0, 4096),
+              stdout: closeResult.stdout?.slice(0, 4096),
+              message: closeResult.message,
+            });
+          }
+        }
+        if (closeErrors.length === 0) {
           return ok({ action: 'close', success: true });
         }
-        // #2871: surface the diagnostic so bro can see why the close failed
-        // instead of just `{success:false}`.
-        return ok({
-          action: 'close',
-          success: false,
-          error: {
-            reason: closeResult.reason,
-            exit_code: closeResult.exit_code,
-            stderr: closeResult.stderr?.slice(0, 4096),
-            stdout: closeResult.stdout?.slice(0, 4096),
-            message: closeResult.message,
-          },
-        });
+        return ok({ action: 'close', success: false, errors: closeErrors });
       }
 
       const syncResult = await syncIssueCreate({
         issueId: row.id,
         title: issue.objective,
         body: row.description,
-        // Labels are not persisted locally after #179 (always-empty in
-        // production). Remote retry can't restore lost labels; pass empty.
+        // Labels are not persisted locally (always-empty in production).
+        // Remote retry can't restore lost labels; pass empty.
         labels: [],
         _backend: backend,
-        // #2877: workspace-pattern projects need glab/gh shellouts to run
-        // inside one of the discovered repos, not the workspace root which
-        // isn't a git repo. resolveSpawnCwd reads tmb_default_repo.
+        // Workspace-pattern projects need glab/gh shellouts to run inside
+        // one of the discovered repos, not the workspace root which isn't
+        // a git repo. resolveSpawnCwd reads tmb_default_repo.
         _cwd: resolveSpawnCwd(db, dbPath),
       });
 
       if (!isSyncFailure(syncResult)) {
+        const retryGhIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
+        const retryGlIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
         db.run(
-          `UPDATE issues SET remote_iid = ?, remote_kind = ?, updated_at = ? WHERE id = ?`,
-          [syncResult.remote_iid, syncResult.remote_kind, nowISO(), issueId],
+          `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
+          [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId],
         );
         return ok({ action: 'create', success: true, remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind });
       }
 
-      // #2871: surface the diagnostic so bro can see why the create failed
-      // instead of just `{success:false}` with no clue.
       return ok({
         action: 'create',
         success: false,

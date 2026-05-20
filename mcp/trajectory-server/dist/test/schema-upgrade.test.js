@@ -538,7 +538,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta, 'plugin_meta row required');
-        assert.equal(meta.schema_version, 4);
+        assert.equal(meta.schema_version, 5);
         const identity = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='identity'");
         assert.equal(identity, undefined, 'identity table must be dropped');
         const regen = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='regen_state'");
@@ -566,7 +566,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         const onboardedRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'onboarded'`);
         assert.ok(onboardedRow, 'onboarded marker must be translated from legacy identity row');
         assert.equal(onboardedRow.value_json, 'true');
-        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak'));
+        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak'));
         assert.equal(backups.length, 1, 'exactly one backup file must exist');
         db.run(`INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, [1, 'feat/test-round-trip', 'desc', 'pending', '2026-01-01', '2026-01-01']);
         db.close();
@@ -578,8 +578,8 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta);
-        assert.equal(meta.schema_version, 4);
-        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak'));
+        assert.equal(meta.schema_version, 5);
+        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak'));
         assert.equal(backups.length, 1, 'backup must exist for rc-current upgrade');
         db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, ['post-upgrade', '', 'open', '2026-01-01', '2026-01-01']);
         db.close();
@@ -590,11 +590,11 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         seedLegacyV1Db(dbPath, 'pre-2886');
         const db1 = new TrajectoryDB(dbPath);
         db1.close();
-        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak')).length;
+        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak')).length;
         assert.equal(firstCount, 1, 'first upgrade creates exactly one backup');
         const db2 = new TrajectoryDB(dbPath);
         db2.close();
-        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak')).length;
+        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak')).length;
         assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
     });
     it('backup captures uncheckpointed WAL state (pending writes survive migration)', () => {
@@ -613,7 +613,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         // The TrajectoryDB opens a separate connection — SQLite's WAL
         // arbitration plus busy_timeout handle the overlap.
         const db = new TrajectoryDB(dbPath);
-        const backupFile = readdirSync(dirname(dbPath)).find((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak'));
+        const backupFile = readdirSync(dirname(dbPath)).find((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak'));
         assert.ok(backupFile, 'backup file must exist');
         // Open the .bak as a standalone DB (no WAL companion) and verify the
         // pending-WAL row was captured by the checkpoint+copy sequence.
@@ -653,7 +653,7 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta, 'plugin_meta row required');
-        assert.equal(meta.schema_version, 4, 'schema_version must be 4 after migration');
+        assert.equal(meta.schema_version, 5, 'schema_version must be 5 after migration');
         for (const ftsTable of ['discussions_fts', 'audit_fts', 'file_registry_fts']) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [ftsTable]);
             assert.ok(row !== undefined, `${ftsTable} virtual table must exist after v3 migration`);
@@ -664,8 +664,8 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
         assert.ok((auditFtsCount?.n ?? 0) >= 1, 'audit_fts must be backfilled (excludes system seed rows not counted here)');
         const fileFtsCount = db.get('SELECT COUNT(*) AS n FROM file_registry_fts');
         assert.ok((fileFtsCount?.n ?? 0) >= 1, 'file_registry_fts must be backfilled with rows that have a summary');
-        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak'));
-        assert.equal(backups.length, 1, 'exactly one pre-v4 backup must exist');
+        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak'));
+        assert.equal(backups.length, 1, 'exactly one pre-v5 backup must exist');
         db.close();
     });
     it('INSERT trigger keeps discussions_fts in sync', () => {
@@ -721,11 +721,11 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
         seedV2Db(dbPath);
         const db1 = new TrajectoryDB(dbPath);
         db1.close();
-        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak')).length;
+        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak')).length;
         assert.equal(firstCount, 1, 'first v4 upgrade creates exactly one backup');
         const db2 = new TrajectoryDB(dbPath);
         db2.close();
-        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak')).length;
+        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak')).length;
         assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
     });
     it('FTS tables not populated for file_registry rows where summary IS NULL', () => {
@@ -960,6 +960,114 @@ function seedV3Db(dbPath) {
   `);
     db.close();
 }
+function seedV4Db(dbPath) {
+    const db = new DatabaseSync(dbPath);
+    db.exec('PRAGMA journal_mode = WAL');
+    db.exec('PRAGMA foreign_keys = ON');
+    db.exec(`
+    CREATE TABLE issues (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        objective   TEXT    NOT NULL,
+        description TEXT    NOT NULL DEFAULT '',
+        status      TEXT    NOT NULL DEFAULT 'open',
+        created_at  TEXT    NOT NULL,
+        updated_at  TEXT    NOT NULL,
+        closed_at   TEXT,
+        remote_iid  INTEGER,
+        remote_kind TEXT CHECK(remote_kind IN ('github','gitlab'))
+    );
+    CREATE TABLE plugin_meta (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        schema_version INTEGER NOT NULL,
+        plugin_version TEXT    NOT NULL
+    );
+    CREATE TABLE plugin_config (
+        key        TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL
+    );
+    INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+    VALUES (-1, 'system', '', 'open', datetime('now'), datetime('now'));
+    INSERT INTO issues (id, objective, description, status, created_at, updated_at, remote_iid, remote_kind)
+    VALUES (1, 'gh issue', '', 'open', datetime('now'), datetime('now'), 42, 'github');
+    INSERT INTO issues (id, objective, description, status, created_at, updated_at, remote_iid, remote_kind)
+    VALUES (2, 'gl issue', '', 'open', datetime('now'), datetime('now'), 99, 'gitlab');
+    INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+    VALUES (3, 'no remote issue', '', 'open', datetime('now'), datetime('now'));
+    INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 4, '0.8.0');
+  `);
+    db.close();
+}
+describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () => {
+    it('v4 DB upgrades to v5 with gh_iid + gl_iid columns added', () => {
+        const tmpDir = makeTmpDir();
+        const dbPath = join(tmpDir, 'trajectory.db');
+        seedV4Db(dbPath);
+        const db = new TrajectoryDB(dbPath);
+        const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
+        assert.ok(meta, 'plugin_meta row required');
+        assert.equal(meta.schema_version, 5, 'schema_version must be 5 after v4->v5 migration');
+        const cols = db.all('PRAGMA table_info(issues)').map((c) => c.name);
+        assert.ok(cols.includes('gh_iid'), 'gh_iid column must exist after migration');
+        assert.ok(cols.includes('gl_iid'), 'gl_iid column must exist after migration');
+        assert.ok(cols.includes('remote_iid'), 'remote_iid must still exist (back-compat)');
+        assert.ok(cols.includes('remote_kind'), 'remote_kind must still exist (back-compat)');
+        db.close();
+    });
+    it('v4->v5 backfill: github remote_iid → gh_iid', () => {
+        const tmpDir = makeTmpDir();
+        const dbPath = join(tmpDir, 'trajectory.db');
+        seedV4Db(dbPath);
+        const db = new TrajectoryDB(dbPath);
+        const ghRow = db.get('SELECT gh_iid, gl_iid FROM issues WHERE id = 1');
+        assert.equal(ghRow?.gh_iid, 42, 'github remote_iid must be backfilled into gh_iid');
+        assert.equal(ghRow?.gl_iid, null, 'gl_iid must be null for github-only row');
+        db.close();
+    });
+    it('v4->v5 backfill: gitlab remote_iid → gl_iid', () => {
+        const tmpDir = makeTmpDir();
+        const dbPath = join(tmpDir, 'trajectory.db');
+        seedV4Db(dbPath);
+        const db = new TrajectoryDB(dbPath);
+        const glRow = db.get('SELECT gh_iid, gl_iid FROM issues WHERE id = 2');
+        assert.equal(glRow?.gl_iid, 99, 'gitlab remote_iid must be backfilled into gl_iid');
+        assert.equal(glRow?.gh_iid, null, 'gh_iid must be null for gitlab-only row');
+        db.close();
+    });
+    it('v4->v5 backfill: row with no remote_iid stays null in both iid columns', () => {
+        const tmpDir = makeTmpDir();
+        const dbPath = join(tmpDir, 'trajectory.db');
+        seedV4Db(dbPath);
+        const db = new TrajectoryDB(dbPath);
+        const noRemoteRow = db.get('SELECT gh_iid, gl_iid FROM issues WHERE id = 3');
+        assert.equal(noRemoteRow?.gh_iid, null, 'gh_iid must be null for row with no remote');
+        assert.equal(noRemoteRow?.gl_iid, null, 'gl_iid must be null for row with no remote');
+        db.close();
+    });
+    it('v4->v5 migration is idempotent — re-opening at v5 does not create a second backup', () => {
+        const tmpDir = makeTmpDir();
+        const dbPath = join(tmpDir, 'trajectory.db');
+        seedV4Db(dbPath);
+        const db1 = new TrajectoryDB(dbPath);
+        db1.close();
+        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak')).length;
+        assert.equal(firstCount, 1, 'first v5 upgrade creates exactly one backup');
+        const db2 = new TrajectoryDB(dbPath);
+        db2.close();
+        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak')).length;
+        assert.equal(secondCount, 1, 'reopening at v5 must not create another backup');
+    });
+    it('fresh v5 DB has gh_iid + gl_iid columns in issues', () => {
+        const tmpDir = makeTmpDir();
+        const dbPath = join(tmpDir, 'trajectory.db');
+        const db = new TrajectoryDB(dbPath);
+        const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
+        assert.equal(meta?.schema_version, 5, 'fresh DB schema_version must be 5');
+        const cols = db.all('PRAGMA table_info(issues)').map((c) => c.name);
+        assert.ok(cols.includes('gh_iid'), 'gh_iid must exist in fresh DB');
+        assert.ok(cols.includes('gl_iid'), 'gl_iid must exist in fresh DB');
+        db.close();
+    });
+});
 describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     it('v3 DB upgrades to v4 with embedding tables created', () => {
         const tmpDir = makeTmpDir();
@@ -968,7 +1076,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta, 'plugin_meta row required');
-        assert.equal(meta.schema_version, 4, 'schema_version must be 4 after migration');
+        assert.equal(meta.schema_version, 5, 'schema_version must be 5 after migration');
         for (const t of ['discussions_embeddings', 'audit_embeddings', 'file_registry_embeddings']) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [t]);
             assert.ok(row !== undefined, `${t} table must exist after v4 migration`);
@@ -983,8 +1091,8 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
         }
         const embCount = db.get('SELECT COUNT(*) AS n FROM discussions_embeddings');
         assert.equal(embCount?.n, 0, 'embedding tables must be empty after migration (no backfill)');
-        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak'));
-        assert.equal(backups.length, 1, 'exactly one pre-v4 backup must exist');
+        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak'));
+        assert.equal(backups.length, 1, 'exactly one pre-v5 backup must exist');
         db.close();
     });
     it('v2 -> v3 -> v4 path works end-to-end', () => {
@@ -994,7 +1102,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta);
-        assert.equal(meta.schema_version, 4, 'v2 DB must reach v4 via chained migrations');
+        assert.equal(meta.schema_version, 5, 'v2 DB must reach v5 via chained migrations');
         for (const t of ['discussions_fts', 'audit_fts', 'file_registry_fts']) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [t]);
             assert.ok(row !== undefined, `${t} must exist (v3 step)`);
@@ -1011,11 +1119,11 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
         seedV3Db(dbPath);
         const db1 = new TrajectoryDB(dbPath);
         db1.close();
-        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak')).length;
+        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak')).length;
         assert.equal(firstCount, 1, 'first v4 upgrade creates exactly one backup');
         const db2 = new TrajectoryDB(dbPath);
         db2.close();
-        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v4.') && f.endsWith('.bak')).length;
+        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v5.') && f.endsWith('.bak')).length;
         assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
     });
     it('FK CASCADE — deleting a discussion removes its embedding', () => {

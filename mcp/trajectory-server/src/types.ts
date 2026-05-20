@@ -8,6 +8,8 @@ export interface Issue {
   closed_at: string | null;
   remote_iid?: number | null;
   remote_kind?: 'github' | 'gitlab' | null;
+  gh_iid?: number | null;
+  gl_iid?: number | null;
 }
 
 export interface IssueRow {
@@ -20,6 +22,8 @@ export interface IssueRow {
   closed_at: string | null;
   remote_iid: number | null;
   remote_kind: 'github' | 'gitlab' | null;
+  gh_iid: number | null;
+  gl_iid: number | null;
 }
 
 export interface Task {

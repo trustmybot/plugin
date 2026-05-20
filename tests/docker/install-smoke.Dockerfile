@@ -146,8 +146,13 @@ RUN ( \
   # MCP wraps the tool result in content[].text so the inner JSON is escaped \
   # (e.g. \"first_run\":false). Pattern tolerates either escaped or raw form. \
   grep -qE 'first_run[^a-zA-Z]+false' /tmp/upgrade-out.log \
-    || (echo "❌ FAIL: post-upgrade onboard_state_get did not return first_run=false"; cat /tmp/upgrade-out.log; exit 1)
-RUN echo "✓ A7: legacy v1 DB upgraded to current TARGET_SCHEMA_VERSION; onboarded marker preserved; backup written"
+    || (echo "❌ FAIL: post-upgrade onboard_state_get did not return first_run=false"; cat /tmp/upgrade-out.log; exit 1); \
+  # v5 migration must add gh_iid + gl_iid columns to issues. \
+  sqlite3 /tmp/legacy-v1.db "PRAGMA table_info(issues)" | grep -q 'gh_iid' \
+    || (echo "❌ FAIL: gh_iid column missing after v1→v5 upgrade"; exit 1); \
+  sqlite3 /tmp/legacy-v1.db "PRAGMA table_info(issues)" | grep -q 'gl_iid' \
+    || (echo "❌ FAIL: gl_iid column missing after v1→v5 upgrade"; exit 1)
+RUN echo "✓ A7: legacy v1 DB upgraded to current TARGET_SCHEMA_VERSION; onboarded marker preserved; backup written; gh_iid + gl_iid present"
 
 # Final marker so the build log shows we made it all the way
 RUN echo "✓ Layer 0 install-smoke: all assertions passed"
