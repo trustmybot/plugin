@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# tmb sandbox: curl stub. Blocks outbound HTTP requests.
+set -u
+[ -t 0 ] || cat >/dev/null 2>&1
+echo "tmb sandbox: curl disabled in test mode." >&2
+echo "Reason: prevents accidental outbound network requests." >&2
+echo "Attempted: curl $*" >&2
+exit 1

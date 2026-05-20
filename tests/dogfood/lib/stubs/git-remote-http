@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# tmb sandbox: git-remote-http stub. Blocks plain HTTP git transport.
+set -u
+[ -t 0 ] || cat >/dev/null 2>&1
+echo "tmb sandbox: HTTP git transport disabled in sandbox." >&2
+echo "Reason: prevents accidental real-remote git push/fetch." >&2
+echo "For git remote tests, use: \$TMB_TEST_REMOTE = ${TMB_TEST_REMOTE:-<not set>}" >&2
+echo "Attempted: git-remote-http $*" >&2
+exit 1
