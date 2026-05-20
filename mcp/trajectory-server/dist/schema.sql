@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS issues (
     updated_at        TEXT    NOT NULL,
     closed_at         TEXT,
     remote_iid        INTEGER,
-    remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab'))
+    remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+    gh_iid            INTEGER,
+    gl_iid            INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -167,7 +169,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 4, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 5, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. file_registry rows reference repos.name via the repo column.

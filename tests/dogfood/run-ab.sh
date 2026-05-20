@@ -59,6 +59,7 @@ done
 . "$HERE/lib/flow-helpers.sh"
 . "$HERE/lib/smoke-helpers.sh"
 . "$HERE/lib/ab-helpers.sh"
+. "$HERE/lib/sandbox.sh"
 
 # Parse scenario.json
 FLOW=$(jq -r '.flow' "$SCENARIO_DIR/scenario.json")
@@ -116,7 +117,9 @@ for pair in $(seq 1 "$N"); do
     # references — bro correctly responds 'nothing to do' and the test is moot.
     l5_setup_scenario_state "$PROJECT" "$SCENARIO_DIR"
 
+    tmb_test_sandbox_init "$PROJECT"
     l5_run_arm "$PROJECT" "$ARM_PLUGIN" "$PROMPT"
+    tmb_test_sandbox_teardown
     if PLUGIN_ROOT="$ARM_PLUGIN" l5_score_with_arm "$PROJECT" "$FLOW" "$SCORER_DIR" "$RUN_ID" "$arm" "$SCENARIO_NAME"; then
       printf "    ✓ all scorers passed\n"
     else

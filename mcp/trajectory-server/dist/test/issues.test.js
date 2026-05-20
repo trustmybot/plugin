@@ -147,6 +147,98 @@ describe('issueTools', () => {
         db.close();
     });
 });
+describe('issueTools — gh_iid + gl_iid tri-source', () => {
+    it('issue_create with issue_sync=gh populates gh_iid from remote', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'gh',
+        });
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'tri-source gh create',
+            _spawnFn: makeSpawnFn([{
+                    status: 0,
+                    stdout: 'https://github.com/owner/repo/issues/77\n',
+                    stderr: '',
+                }]),
+        });
+        const issue = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+        assert.equal(issue.remote_iid, 77);
+        assert.equal(issue.remote_kind, 'github');
+        const row = db.get('SELECT gh_iid, gl_iid FROM issues WHERE id = ?', [issue.id]);
+        assert.equal(row?.gh_iid, 77, 'gh_iid must be set after gh sync');
+        assert.equal(row?.gl_iid, null, 'gl_iid must remain null for gh-only sync');
+        db.close();
+    });
+    it('issue_create with issue_sync=glab populates gl_iid from remote', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'glab',
+        });
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'tri-source glab create',
+            _spawnFn: makeSpawnFn([{
+                    status: 0,
+                    stdout: 'https://gitlab.com/owner/repo/-/issues/55\n',
+                    stderr: '',
+                }]),
+        });
+        const issue = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+        assert.equal(issue.remote_iid, 55);
+        assert.equal(issue.remote_kind, 'gitlab');
+        const row = db.get('SELECT gh_iid, gl_iid FROM issues WHERE id = ?', [issue.id]);
+        assert.equal(row?.gh_iid, null, 'gh_iid must remain null for glab-only sync');
+        assert.equal(row?.gl_iid, 55, 'gl_iid must be set after glab sync');
+        db.close();
+    });
+    it('issue_close mirrors to gh when gh_iid is set', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const createResult = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'tri-source close gh',
+        });
+        const issue = parseResult(createResult);
+        db.run(`UPDATE issues SET gh_iid = 101, remote_iid = 101, remote_kind = 'github' WHERE id = ?`, [issue.id]);
+        const closeResult = await call(tools.handlers, 'issue_close', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const closed = parseResult(closeResult);
+        assert.ok(!closeResult.isError, 'issue_close should succeed with gh_iid set');
+        assert.equal(closed.status, 'closed');
+        db.close();
+    });
+    it('issue_close mirrors to gl when gl_iid is set', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const createResult = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'tri-source close gl',
+        });
+        const issue = parseResult(createResult);
+        db.run(`UPDATE issues SET gl_iid = 202, remote_iid = 202, remote_kind = 'gitlab' WHERE id = ?`, [issue.id]);
+        const closeResult = await call(tools.handlers, 'issue_close', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const closed = parseResult(closeResult);
+        assert.ok(!closeResult.isError, 'issue_close should succeed with gl_iid set');
+        assert.equal(closed.status, 'closed');
+        db.close();
+    });
+});
 describe('issueTools — remote sync', () => {
     it('issue_create with issue_sync=off skips sync, no remote fields set', async () => {
         const db = tempDB();
