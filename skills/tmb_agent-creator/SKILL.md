@@ -27,7 +27,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
 1. **Show + ask** (interactive only). Read the template via `Read` (present it verbatim). Present in a fenced code block, ask:
    > Copy `templates/agents/<name>.md` to `.claude/agents/<name>.md` verbatim? Project-specific behavior gets attached later via `tmb_skill-creator`. (yes/no)
 2. **Copy on approval** (or unconditionally in headless). Write the template content unmodified. If the destination exists, switch to the collision flow (§"Collision dialog" below).
-3. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. If there's no open issue, first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(agent='bro', from_node='bro', issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>`.
+3. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. If there's no open issue, first run `issue_create(agent='bro', objective='<role-name> agent created', description='Free-floating consult triggered creation of the <role> agent for <one-line context>.')` to scope the audit. Then `audit_log(agent='bro', from_node='bro', issue_id=<that_id>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"template-copy"}')`. Tell the Human the file landed at `<path>` and remind them: "Run `/plugin-reload` or restart CC so the new agent is discoverable in `agent_list`."
 
 ### Branch C — From-scratch detail
 
@@ -38,38 +38,15 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
 
 2. **Read context.** Glob `.claude/agents/` for existing project agents, check for name collision. Glob top-level files (`package.json`, `pyproject.toml`, etc.) for stack/domain.
 
-3. **Draft** using this frontmatter template (body ≤25 lines; stack-specific content comes from skills attached later via `tmb_skill-creator`):
-
-   ```yaml
-   ---
-   name: <kebab-case>
-   description: <one sentence: role and primary capability>
-   tmb_owner: bro
-   model: opus                   # default for consultants; sonnet only when role is mechanical / cost-sensitive
-   tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server
-   skills: []
-   ---
-
-   # <Title — Human-Readable Name>
-
-   Your spawn includes `consultant: analysis-only` and a specific question. Reject any spawn missing the marker.
-
-   [2-3 sentences: what this consultant focuses on, what kind of analysis it returns, how it differs from other consultants in the roster.]
-
-   Persist key points via `discussion_append(agent='<name>', kind='analysis')` or `kind='concern'`.
-
-   You decide nothing. Bro summarizes for the Human; the Human decides.
-
-   Server-rejected for you: `task_create_batch`, `task_update_status`, `validation_record`, `issue_create`, `issue_close`.
-
-   Project-specific context comes from skills the project attaches to this agent's `skills:` list. This file is identity — leave it unchanged; extend via skills only.
-   ```
+3. **Draft** by scaffolding from the base template. `Read` the file at `${CLAUDE_PLUGIN_ROOT}/templates/agents/template.md`. Substitute the three placeholders with role-specific values: `<kebab-case>` → the agent name, `<one sentence>` → a one-sentence description of the role and primary capability, `<Role Name>` → the human-readable title. Optionally extend the body with 1–3 role-specific lines after the first paragraph (body cap: 15 lines after frontmatter). Keep all TMB integration contract prose from the base template verbatim — it is not role flavor.
 
    Field guidance:
    - `name`: kebab-case (e.g. `legal-reviewer`).
    - `tools`: minimum viable. Default is read-only + MCP. Add `Bash` only if the consultant verifies by running commands. Add `Write`/`Edit` only if the consultant produces output files (rare).
    - `skills: []` — empty by default. Bro extends via `tmb_skill-creator` after creation.
-   - 30-line cap enforced by `tests/lint/agent-line-budget.sh`.
+   - Body cap enforced by `tests/lint/agent-line-budget.sh` (Lego model: 15 body lines for role templates).
+
+   In headless mode (`TMB_HEADLESS=1`): skip AUQ steps 1 and 5 when a role description is already known from the slash-command argument or prior context. Default to "Consultant. Analysis-only domain expert for `<name>`." with no role-specific body extension. Proceed directly to pre-write lint (step 4) and write.
 
 4. **Pre-write lint.** Run `${CLAUDE_PLUGIN_ROOT}/skills/tmb_agent-creator/scripts/prompt-author-lint.sh <draft-path>`. The script flags two pattern classes:
 
@@ -83,7 +60,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
    > Do you want me to create this agent? It will be written to `.claude/agents/<name>.md` and available in future sessions. (yes/no)
 
 6. **Write on approval** with `tmb_owner: bro` in frontmatter.
-7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`.
+7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`. Remind the Human: "Run `/plugin-reload` or restart CC so the new agent is discoverable in `agent_list`."
 
 ## Reserved names (refuse)
 
