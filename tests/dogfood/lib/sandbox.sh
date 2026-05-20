@@ -41,13 +41,15 @@ GITCFG
   export TMB_TEST_REMOTE="$scratch/_remote.git"
   git init --bare "$TMB_TEST_REMOTE" >/dev/null 2>&1
 
-  export HTTP_PROXY="http://127.0.0.1:1"
-  export HTTPS_PROXY="http://127.0.0.1:1"
-  export NO_PROXY=""
+  # Cleaner failure for any git HTTPS push attempt: don't hang asking for a
+  # credential prompt — exit immediately. The git-remote-https stub already
+  # blocks the transport; this prevents the credential-prompt fallback noise
+  # when stubs don't fire (e.g., older git binaries that resolve helpers earlier).
+  export GIT_TERMINAL_PROMPT=0
 }
 
 tmb_test_sandbox_teardown() {
   export PATH="${TMB_SANDBOX_ORIG_PATH:-$PATH}"
   export HOME="${TMB_SANDBOX_ORIG_HOME:-$HOME}"
-  unset TMB_SANDBOX_ORIG_PATH TMB_SANDBOX_ORIG_HOME TMB_TEST_REMOTE HTTP_PROXY HTTPS_PROXY NO_PROXY 2>/dev/null || true
+  unset TMB_SANDBOX_ORIG_PATH TMB_SANDBOX_ORIG_HOME TMB_TEST_REMOTE GIT_TERMINAL_PROMPT 2>/dev/null || true
 }
