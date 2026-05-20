@@ -82,7 +82,7 @@ L2 (MCP unit) lives at `mcp/trajectory-server/src/test/` — colocated with the 
 bash tests/run-all.sh
 ```
 
-Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. CI runs exactly this on every PR to `dev`.
+Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Run before every push to `dev`.
 
 ## Run an individual suite
 
@@ -119,7 +119,7 @@ bash tests/dogfood/run-l5.sh
 bash tests/dogfood/run-l5.sh onboarding
 ```
 
-CI runs L5 on tag pushes and on PRs labeled `L5`. The workflow at `.github/workflows/l5-dogfood.yml` skips silently if the secret is unset.
+Run L5 locally before tagging a release candidate. The token is the one-time `CLAUDE_CODE_OAUTH_TOKEN` from a `claude setup-token` flow.
 
 ## Run L6 dogfood (multi-turn chain)
 
@@ -137,7 +137,7 @@ bash tests/dogfood/run-l6-chain.sh --from 7         # resume from row 7
 bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
 ```
 
-CI gates L6 the same way as L5 — on tag pushes and PRs labeled `L6`.
+Run L6 locally before tagging a release candidate; rc tag policy gates on 14/14 chain pass.
 
 ### Debugging an L6 chain failure
 
