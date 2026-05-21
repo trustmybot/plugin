@@ -73,14 +73,16 @@ DOMAIN=""
 if [ -z "$NAMED_ROLE" ]; then
   case "$LOWER" in
     *"security"*|*"vulnerability"*|*"injection"*|*"xss"*|*"csrf"*|*"auth bypass"*) DOMAIN="security" ;;
-    *"perf"*|*"latency"*|*"throughput"*|*"bottleneck"*|*"scaling"*|*"benchmark"*) DOMAIN="perf" ;;
+    *"perf"*|*"latency"*|*"throughput"*|*"bottleneck"*|*"scaling"*|*"scales"*|*" scale"*|*"benchmark"*) DOMAIN="perf" ;;
     *"legal"*|*"licensing"*|*"compliance"*|*"gdpr"*|*"pii"*|*"copyright"*) DOMAIN="legal" ;;
-    *"architecture decision"*|*"trade-off"*|*"tradeoff"*|*"design choice"*|*"adr"*) DOMAIN="architect" ;;
+    *"architecture decision"*|*"trade-off"*|*"tradeoff"*|*"design choice"*|*"adr"*|*"architecture trade"*|*"architectural trade"*) DOMAIN="architect" ;;
+    *"json or sqlite"*|*"sqlite or postgres"*|*"postgres or sqlite"*|*"sqlite vs postgres"*|*"sql or nosql"*|*"storage"*"scale"*) DOMAIN="architect" ;;
     *)
       # Pattern fallback: "what's the X implication" / "is X safe under Y" /
-      # "should we use X over Y" — these cluster on advisory questions.
+      # "should we use X over Y" / "should we keep X or move to Y" —
+      # advisory-flavoured questions.
       case "$LOWER" in
-        *"implication"*|*"trade-off"*|*"should we use"*|*"better to use"*) DOMAIN="advisory" ;;
+        *"implication"*|*"trade-off"*|*"should we use"*|*"better to use"*|*"should we keep"*|*"should we move"*|*"should we commit to"*) DOMAIN="advisory" ;;
       esac
       ;;
   esac
