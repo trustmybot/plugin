@@ -5,7 +5,7 @@ Two automated dogfood layers drive **real Claude Code through pre-seeded TMB wor
 | Layer | Purpose | Scope per run | When to run |
 |---|---|---|---|
 | **L5** | Per-row independent unit tests. Each test starts from a fixture that pre-seeds the **cumulative state up to this row** (codebase, MCP DB, discussions, issues, tasks, audit, etc.). One row = one test. | Single bro turn (or short multi-turn) against pre-seeded state. Fast, isolated, ~$0.20/test. | Debug or regression-test a single row's contract. **First-line check after a fix** — if the L5 for that row doesn't pass, don't run L6. |
-| **L6** | Single **chained integration test** that walks ALL 14 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_state_get` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 14-row chain. Slow, ~$0.30–1/scenario × 14 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
+| **L6** | Single **chained integration test** that walks ALL 13 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_state_get` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 14-row chain. Slow, ~$0.30–1/scenario × 14 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
 
 The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration → L4 workflow-sim → L5 → L6) lives in [`README.md`](./README.md). This doc is the reference for how L5 + L6 work and what each catches.
 
@@ -46,7 +46,7 @@ L6 catches **cross-row continuity drift** (the seam between steps); L5 catches *
 
 ## L6 chain flowchart
 
-The 14 chain steps form a single workflow journey of a fictional TODO-CLI project. Each step is a fresh `claude -p` invocation; state passes via the cumulative trajectory DB, the project filesystem, and git.
+The 13 chain steps form a single workflow journey of a fictional TODO-CLI project. Each step is a fresh `claude -p` invocation; state passes via the cumulative trajectory DB, the project filesystem, and git.
 
 The diagram has two arrow types:
 - **Solid arrows** trace the linear chain progression (every step inherits SOMETHING from the prior step — even if just an unchanged DB).
@@ -59,60 +59,58 @@ flowchart TD
     S1[step 1: 01-cold-start<br/>@bro hi → auto-fires onboarding]
     S2[step 2: 02-reonboard-implicit-from-local<br/>'this project needs to live on a remote']
     S3[step 3: 03-reonboard-remote<br/>/onboard → flip to gitflow + GitHub remote]
-    S4[step 4: 04-first-task-hits-gate<br/>'@bro make a todo CLI' → /scan gate + SWE flow]
-    S5[step 5: 05-swe-atomic-close<br/>SWE writes src/cli.py TODO CLI + atomic-close]
+    S4[step 4: 04-first-task-hits-gate<br/>'@bro make a todo CLI by Python in src/cli.py with tests'<br/>→ /scan gate + plan + dispatch + close]
+    S5[step 5: 05-swe-atomic-close<br/>'@bro add a --priority flag to add' → new task,<br/>SWE edits cli.py, atomic-close]
     S6[step 6: 06-post-close-cleanup<br/>'what does src/cli.py do?' → bro Reads + summarizes]
     S7[step 7: 07-push-gate<br/>@bro git push → pr-reviewer signoff THEN push]
-    S8[step 8: 08-architectural-change<br/>refactor TODO CLI JSON storage → backend interface]
-    S9[step 9: 09-concerns-protocol<br/>questionable ask → bro raises concern + halts]
-    S10[step 10: 10-consultant<br/>TODO CLI storage scale-out Q → bro classifies as cto + spawns]
-    S11[step 11: 11-roundtable<br/>create data-engineer + roundtable: ClickHouse vs Postgres]
+    S8[step 8: 08-architectural-change<br/>refactor cli.py JSON storage → backend interface]
+    S9[step 9: 09-concerns-protocol<br/>'switch test_cli.py to approxEqual' → bro raises concern + halts]
+    S10[step 10: 10-consultant<br/>'JSON or SQLite for cli.py storage?'<br/>→ hook injects routing → /tmb:agent-create cto]
+    S11[step 11: 11-roundtable<br/>/roundtable storage choice → cto + data-engineer]
     S12[step 12: 12-issue-resume<br/>'keep going on the in-progress task']
     S13[step 13: 13-pr-comment-review<br/>/monitor → fetch + triage PR comments]
-    S14[step 14: 14-skill-invocation-recorded<br/>skill-invocation hook attribution]
 
-    Done([all 14 green = release-ready])
+    Done([all 13 green = release-ready])
 
     Start --> S1
     S1 -- "identity row<br/>plugin_config: local shape" --> S2
     S2 -- "onboard_state_get confirms<br/>first_run=false" --> S3
     S3 -- "plugin_config: gitflow + GitHub remote<br/>(via after-03 seed)" --> S4
-    S4 -- "issue + task created, scan fired,<br/>SWE dispatched, agent_runs row" --> S5
-    S5 -- "src/cli.py committed +<br/>file_registry row" --> S6
+    S4 -- "src/cli.py + tests/test_cli.py committed<br/>scan ran, task closed, agent_runs + skill_invocations" --> S5
+    S5 -- "--priority feature added,<br/>2nd task closed" --> S6
     S6 -- "file_registry summary populated" --> S7
     S7 -- "validation_attempts(pass) +<br/>branch pushed to origin" --> S8
     S8 -- "ADR + kind='decision' discussion" --> S9
-    S9 -- "kind='concern' discussion;<br/>no Agent spawn this turn" --> S10
+    S9 -- "kind='note' concern discussion;<br/>no Agent spawn this turn" --> S10
     S10 -- "cto registered project-local +<br/>kind='analysis' discussion" --> S11
-    S11 -- "data-engineer registered +<br/>roundtable_votes from both" --> S12
+    S11 -- "roundtable + analyses + votes<br/>from cto + data-engineer" --> S12
     S12 -- "existing task dispatched<br/>(no duplicate planning)" --> S13
-    S13 -- "pr_review_runs cursor advanced" --> S14
-    S14 -- "skill_invocations rows attributed" --> Done
+    S13 -- "pr_review_runs cursor advanced" --> Done
 
     %% Cross-step direct dependencies (dotted = specific artifact consumed)
     S3 -. "GitHub remote URL<br/>(push target)" .-> S7
+    S4 -. "src/cli.py + tests/test_cli.py on disk<br/>(substrate for steps 5-13)" .-> S5
+    S4 -. "src/cli.py<br/>(file to summarize)" .-> S6
+    S4 -. "tests/test_cli.py<br/>(test to weaken)" .-> S9
+    S4 -. "src/cli.py JSON storage<br/>(what cto + roundtable evaluate)" .-> S10
+    S4 -. "  " .-> S11
     S5 -. "closed task + commit_sha<br/>(thing to push)" .-> S7
-    S5 -. "src/cli.py on disk<br/>(file to summarize)" .-> S6
-    S5 -. "TODO CLI codebase<br/>(what cto evaluates for scale-out)" .-> S10
-    S4 -. "TODO CLI substrate from prior code work<br/>(what step 8 refactors)" .-> S8
+    S4 -. "CLI substrate<br/>(what step 8 refactors)" .-> S8
     S5 -. "  " .-> S8
-    S4 -. "in-progress issue + planning_complete<br/>(thing to resume)" .-> S12
+    S4 -. "in-progress issue + task<br/>(thing to resume)" .-> S12
     S10 -. "cto agent registered<br/>(roundtable participant)" .-> S11
     S7 -. "pushed branch<br/>(PR substrate)" .-> S13
-    S1 -. "skill_invocations<br/>(accumulate across all steps)" .-> S14
-    S4 -. "  " .-> S14
-    S10 -. "  " .-> S14
 ```
 
 Reading the dotted edges:
 - **S3 → S7**: the GitHub remote bro configured in step 3 is the URL step 7 pushes against. If step 3 forgot to write the remote (DB or git config), step 7 has nowhere to push.
-- **S5 → S6, S5 → S10**: `src/cli.py` (the TODO CLI step 5 SWE produces) is the shared substrate. Step 6 summarizes it; step 10 has cto evaluate its storage scale-out. Both rows' `setup-l5.sh` pre-seed the same file shape so L5 isolation matches L6 chain.
+- **S4 → S5/S6/S8/S9/S10/S11**: step 4 produces `src/cli.py` + `tests/test_cli.py` — the substrate every subsequent code-touching row consumes. Step 5 modifies the CLI; step 6 reads it; step 8 refactors its storage; step 9 modifies the test file; step 10/11 deliberate on the storage choice.
 - **S5 → S7**: the committed task from step 5 is what step 7 pushes. The push gate scores `validation_attempts` on that task's `commit_sha`.
-- **S4 + S5 → S8**: step 8 refactors the TODO CLI's storage layer. The CLI substrate accumulates across steps 4–7; step 8's L5 setup pre-seeds the matching shape for isolation.
 - **S4 → S12**: step 12 resumes the issue + task step 4 created. If step 4 didn't leave an in-progress task, step 12 has nothing to resume and would (incorrectly) re-plan from scratch.
-- **S10 → S11**: cto is one of the two roundtable participants in step 11. The roundtable assertion checks BOTH `cto` (templated) AND `data-engineer` (from-scratch) voted.
+- **S10 → S11**: cto is one of the two roundtable participants in step 11. The roundtable assertion checks BOTH `cto` (templated, from step 10 in chain or setup-l5 in isolation) AND `data-engineer` (from-scratch) voted.
 - **S7 → S13**: the pushed branch becomes the PR step 13 monitors comments on.
-- **S1/S4/S10/(any tmb skill invocation) → S14**: `skill_invocations` rows accumulate across the chain; step 14 just asserts they're attributed correctly.
+
+**Note on retired step 14:** the `skill_invocations` hook-attribution assertion that step 14 used to own is now folded into step 04's outcome.sql — `skill_invocations` rows accumulate naturally on any chain step that invokes tmb skills, and step 04 is the first such step. The standalone row was redundant.
 
 ---
 
@@ -127,17 +125,16 @@ The "Carried from" column is the chain provenance: which prior step's Output pro
 | **1** | `01-cold-start` | Empty DB. Fresh git repo. No identity, no plugin_config rows. | (chain start) | `@bro hi` → bro detects `first_run=true`, fires `onboard_get_questions`. **Partial-test:** AUQ suppressed; assertion is the re-initiation MCP call. | `identity` row created (post-AUQ seed `after-01-cold-start.sql`). `plugin_config` set to local shape. |
 | **2** | `02-reonboard-implicit-from-local` | Identity row exists. plugin_config: local shape. Local commits present, no remote. | step 1 | Implicit reonboard NL prompt → bro calls `onboard_state_get`, recognises reonboard intent, recommends `/onboard`. **No code work this turn.** | `onboard_state_get` was called. `identity` row unchanged. No new issues/tasks. |
 | **3** | `03-reonboard-remote` | Identity + local-shape config from step 2. | step 2 | `/onboard` → `onboard_state_get` (sees `first_run=false`) → `onboard_get_questions(shape='remote')`. **Partial-test:** AUQ suppressed; post-AUQ seed `after-03-reonboard-remote.sql` applies the GitHub-remote/gitflow flip. | `plugin_config` now: `branching_model='gitflow'`, `pr_target='dev'`, `remotes=[{provider:'github',...}]` (via `after-03` seed). Identity intact. |
-| **4** | `04-first-task-hits-gate` | gitflow + GitHub-remote config from step 3. No prior `deep_scan_completed` audit row. | step 3 | User asks for code change → bro hits registry-cold gate → runs `/scan` → then `task_create_batch` → spawns SWE → atomic-close (folded in after row 5 retirement). | `deep_scan_completed` audit row. `issues` ≥1, `tasks` ≥1 (none `pending`). `agent_runs` ≥1 with non-null `task_id`. `dev` branch present. |
-| **5** | `05-swe-atomic-close` | Task + issue from step 4. L5: `src/cli.py` scaffolded as a TODO CLI stub. | step 4 | `@bro make a todo CLI in Python` → `task_create_batch` → SWE Agent spawn → SWE expands the CLI into a working add/list/done/remove implementation → `task_update_status(completed)` → SubagentStop hook writes `agent_runs`. | TODO CLI code committed on a feature branch. `tasks` includes a new closed task with `commit_sha`. `agent_runs` ≥1 with non-null `task_id`. |
-| **6** | `06-post-close-cleanup` | `src/cli.py` on disk + a `file_registry` row with NULL summary. | step 5 (TODO CLI commit) | `@bro what does src/cli.py do?` → bro Reads the file → calls `file_registry_update_summaries` to populate the (stale or absent) summary. | `file_registry WHERE path='src/cli.py' AND summary IS NOT NULL` = 1. |
-| **7** | `07-push-gate` | Closed task with `commit_sha` from step 5. Local commits ahead of remote. Branch `feat/seed-todo` (L5 setup-l5 explicitly seeds this; in L6 chain bro pushes whatever step 5's task carries). | step 3 (remote) + step 5 (task to push) | `@bro git push` → bro spawns `pr-reviewer` to score the commit → on PASS, `git push origin <branch>`. | `validation_attempts` ≥1 with `verdict='pass'` and `agent='pr-reviewer'`, feedback prefixed `MCP available:`. Branch pushed to origin. |
-| **8** | `08-architectural-change` | TODO CLI from steps 4–7 with JSON-file storage. In L5 the full CLI substrate is pre-seeded by `setup-l5.sh` (commits `src/cli.py` with add/list/done/remove on `~/.todo-cli/todos.json`). | step 4 + 5 (TODO CLI work) | Refactor request: "introduce a backend interface for storage". Architectural decision triggers `tmb_planning` §Architectural-change path → bro writes `kind='decision'` discussion AND co-authors an ADR before dispatching SWE. Post-AUQ seed `after-08-architectural-change.sql` simulates the design conclusion. | `discussions WHERE kind='decision'` ≥1. ADR file under `docs/trustmybot/architecture/manual/decisions/` (in L5; in L6 the seed records the conclusion). |
-| **9** | `09-concerns-protocol` | Test code from prior steps. | step 5–8 (codebase) | Ask is "switch the exact-equal assertion to approxEqual". Bro recognises the visibility-loss concern via `tmb_concerns-protocol` Path A → `discussion_append(kind='note', body='Concern: ...')` and **halts**. No `Agent` spawn. | `discussions WHERE kind='concern' OR (kind='note' AND body LIKE 'Concern:%')` ≥1. No new task this turn. |
-| **10** | `10-consultant` | TODO CLI codebase (`src/cli.py`) from step 5 + an open "evaluate TODO CLI storage scale-out" issue (L5: `setup-l5.sh` pre-seeds; L6: step 5 commits cli.py + an issue from earlier work). `cto` is template-scope in the registry but NOT instantiated locally. | step 5 (TODO CLI) + step 4 (open issue) | Realistic prompt with no role name — bro must (1) call `agent_list`, (2) classify the ask as `cto` via description match, (3) invoke `/tmb:agent-create` Branch B (template-copy + register + audit), (4) spawn cto via `Agent`. Single turn. | `audit WHERE event_type='tmb_agent_created'` ≥1. `agents WHERE name='cto' AND scope='project-local'` ≥1 (after the `agent_register` upsert fix). `tools-required`: `agent_list`, `agent_register`, `Agent`. |
-| **11** | `11-roundtable` | `cto` exists project-local (from step 10 in L6; pre-seeded in L5). At least one open issue. | step 10 (cto) + step 4 (issue) | Two turns: (a) `/tmb:agent-create data-engineer` → Branch C from-scratch via `templates/agents/template.md` → registered. (b) NL roundtable: ClickHouse vs Postgres with cto + data-engineer participants. Both write `discussion_append(kind='analysis')` and `roundtable_vote`. | `tmb_agent_created` for `data-engineer`. `agents` has `data-engineer` project-local. `roundtables` ≥1. `discussions WHERE kind='analysis'` ≥2. `roundtable_votes` from both `cto` AND `data-engineer`. |
-| **12** | `12-issue-resume` | An in-progress issue with a `planning_complete` audit and a task in `pending` (organically present from prior chain work in L6; pre-seeded by `setup-l5.sh` in L5). | step 4 + step 5 (existing planned task) | "Keep going on the in-progress task" → bro picks up the existing task (no `issue_create`, no `task_create_batch`), dispatches SWE via `Agent`. | The pre-existing issue still exists exactly once (no duplicate). `Agent` was spawned. `issue_create` + `task_create_batch` were NOT called this turn. |
-| **13** | `13-pr-comment-review` | A pushed PR with comments (in L5 — pre-seeded `pr_review_runs` cursor; in L6 — the branch pushed in step 7 + a simulated comment stream). | step 7 | `/monitor <PR>` → bro fetches comments via `pr_comments_get` → triages actionables → files them as new issues/tasks. Cursor in `pr_review_runs` advances. | `pr_review_runs` row exists (cursor preserved). bro attempted `pr_comments_get` (asserted via `tools-required`). `halt_on_fail: false` — chain continues even on partial fail (real PR backend not available in sandbox). |
-| **14** | `14-skill-invocation-recorded` | Any prior step's skill invocations are already in `skill_invocations` (L6); in L5 the row stands alone. | (all prior steps) | Bro invokes a `tmb:` skill via the `Skill` tool → `skill-invocation-record.sh` PostToolUse hook writes a `skill_invocations` row attributed to bro's open `agent_run`. | `skill_invocations` rows exist where `skill_name LIKE 'tmb_%'` AND `agent_type='bro'`. `halt_on_fail: false`. |
+| **4** | `04-first-task-hits-gate` | gitflow + GitHub-remote config from step 3. No prior `deep_scan_completed` audit row. L5: scaffolds `src/__init__.py` + `tests/__init__.py` so `/scan` discovers structure. | step 3 | `@bro make a todo CLI by Python in src/cli.py with tests in tests/test_cli.py` → bro hits registry-cold gate → runs `/scan` → `task_create_batch` → SWE Agent spawn → SWE writes `src/cli.py` + `tests/test_cli.py` → `bro_atomic_close`. Also folds in the retired step-14 hook-attribution check. | `deep_scan_completed` audit; `tasks` ≥1; `repos` ≥1; `skill_invocations` (`tmb_*`) ≥1; `agent_runs` (`bro`) ≥1. |
+| **5** | `05-swe-atomic-close` | TODO CLI from step 4 (full `src/cli.py` + `tests/test_cli.py` committed). L5 setup-l5 seeds the same shape. | step 4 | `@bro add a --priority flag to the add command so I can mark items high/medium/low` → bro plans a new task for the feature → SWE Agent edits `src/cli.py` (+ tests) → atomic-close. | `tasks` ≥1; no tasks at `pending`; `agent_runs` ≥1 with non-null `task_id`. |
+| **6** | `06-post-close-cleanup` | `src/cli.py` on disk + `file_registry` row with NULL summary. L5: seeded by setup-l5. L6: `chain_setup_command` checks out the feature branch where step 04/05's SWE landed the file. | step 4 + 5 (TODO CLI commit) | `@bro what does src/cli.py do?` → bro Reads the file → calls `file_registry_update_summaries` to populate the summary. | `file_registry WHERE path='src/cli.py' AND summary IS NOT NULL` = 1. |
+| **7** | `07-push-gate` | Closed task with `commit_sha`. Local commits ahead of remote. | step 3 (remote) + step 5 (task to push) | `@bro git push` → `push-intent-hint.sh` hook detects pending signoff (status=closed + no validation_attempts pass) → injects routing hint → bro spawns `pr-reviewer` → on PASS, push. | `validation_attempts` ≥1 with `verdict='pass'` and `agent='pr-reviewer'`. Branch pushed to origin. |
+| **8** | `08-architectural-change` | TODO CLI with JSON-file storage. L5: setup-l5 commits full `src/cli.py`. | step 4 + 5 | `@bro extract the storage layer in src/cli.py into a backend interface so we can swap JSON for SQLite later.` → architectural decision triggers `tmb_planning` §Architectural-change path → bro writes `kind='decision'` discussion AND co-authors an ADR. Post-AUQ seed `after-08-architectural-change.sql` simulates the design conclusion. | `discussions WHERE kind='decision'` ≥1. ADR file under `docs/trustmybot/architecture/manual/decisions/`. |
+| **9** | `09-concerns-protocol` | `src/cli.py` (with integer arithmetic helper) + `tests/test_cli.py` (with exact-equality assertion) committed. | step 4 (cli + tests) | `@bro tests/test_cli.py is using exact equality, switch it to approxEqual with tolerance 0.001.` → bro recognises the visibility-loss concern via `tmb_concerns-protocol` Path A → `discussion_append(kind='note', body='Concern: ...')` and **halts**. No `Agent` spawn. | `discussions WHERE LOWER(body) LIKE '%concern%'` ≥1. |
+| **10** | `10-consultant` | `src/cli.py` from step 4/5 + an open "Evaluate TODO CLI storage scale-out" issue. `cto` is template-scope in the registry but NOT instantiated locally. | step 4 (cli) + earlier-step issue | `@bro should we keep src/cli.py's storage in JSON or move to SQLite as the CLI scales?` → `consultant-spawn-required.sh` hook injects "invoke /tmb:agent-create cto" routing → bro invokes the command → Branch B template-copy → `agent_register` + `audit_log(event_type='tmb_agent_created')` → spawn cto via `Agent`. | `audit WHERE event_type='tmb_agent_created'` ≥1. `agents WHERE name='cto' AND scope='project-local'` ≥1. |
+| **11** | `11-roundtable` | `src/cli.py` + `cto` + `data-engineer` both registered project-local. L5: setup-l5 seeds both consultants. L6: `cto` from step 10; `data-engineer` from a prior chain step's from-scratch creation. | step 10 (cto) + earlier from-scratch | `/roundtable should the todo CLI's storage be JSON, SQLite, or a small backend service?` → bro calls `roundtable_create(participants=['cto','data-engineer'])` → spawns each via `Agent` → each writes `discussion_append(kind='analysis')` + `roundtable_vote`. | `roundtables` ≥1. `discussions WHERE kind='analysis'` ≥2. `roundtable_votes` from BOTH `cto` AND `data-engineer`. |
+| **12** | `12-issue-resume` | An in-progress issue with a `planning_complete` audit and a task in `pending`. L5: pre-seeded by setup-l5. L6: organic from earlier in-progress work. | step 4 + step 5 (existing planned task) | `@bro let's keep going on the CLI entry-point work.` → bro picks up the existing task (no `issue_create`, no `task_create_batch`), dispatches SWE via `Agent`. | The pre-existing issue still exists exactly once (no duplicate). `Agent` was spawned. `issue_create` + `task_create_batch` were NOT called this turn. |
+| **13** | `13-pr-comment-review` | A pushed PR with comments. L5: pre-seeded `pr_review_runs` cursor + simulated comment stream. L6: branch pushed in step 7. | step 7 | `/monitor 123` → bro fetches comments via `pr_comments_get` → triages actionables → files them as new issues/tasks. Cursor in `pr_review_runs` advances. | `pr_review_runs` row exists (cursor preserved). bro attempted `pr_comments_get`. `halt_on_fail: false` — chain continues even on partial fail (real PR backend not available in sandbox). |
 
 ### Seed bridges (between-row `seed_after` SQL files)
 
@@ -267,6 +264,12 @@ bash tests/dogfood/run-l6-chain.sh --fresh          # force fresh from row 1
 ```
 
 When to use L6: integration smoke before any release; verifying cross-row continuity after fixes that span multiple rows.
+
+### chain_setup_command — per-step pre-bro shell hook
+
+Some chain steps need an L6-only state-shape adjustment that doesn't fit the L5 `setup-l5.sh` model (because it depends on chain progression, not initial state). The manifest supports a per-step `chain_setup_command` field — a shell command run in `$PROJECT` before bro's turn. L5 skips it (the row's `setup-l5.sh` constructs the same state shape from scratch).
+
+Example: step 06 reads `src/cli.py`, but the work step 04/05 produced lives on a feature branch. In L5, `setup-l5.sh` puts the file in the working tree on whatever branch is HEAD. In L6, the chain has the file on `feat/todo-cli` only — so step 06's manifest entry sets `chain_setup_command: "git checkout feat/todo-cli 2>/dev/null || git checkout main"` to switch the working tree before bro's `Read`.
 
 ### Driver semantics
 

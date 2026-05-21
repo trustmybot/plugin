@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Pre-seed prior chain context: by step 10 the TODO CLI exists (matches
-# what step 05 SWE would produce in L6 chain). Seed the CLI + an open
-# storage-scaling issue so the consultant has concrete code + a tracking
-# issue to reference.
+# Pre-seed prior chain context: by step 10 the TODO CLI exists with JSON
+# storage (matches what step 04/05 SWE would produce in L6 chain). Bro is
+# asked an architecture question about scaling the CLI's storage; bro must
+# classify as a tech-strategy ask, invoke /tmb:agent-create cto via the
+# consultant-spawn-required hook routing, and spawn cto for analysis.
 set -uo pipefail
 
 PROJECT="$1"
@@ -56,6 +57,6 @@ PY
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
 INSERT INTO issues (objective, description, status, created_at, updated_at)
 VALUES ('Evaluate TODO CLI storage scale-out',
-        'Team usage is rising; JSON-file storage is single-user. Open question on SQLite or small server.',
+        'Team usage is rising; JSON-file storage is single-user. Open question on SQLite vs small backend service.',
         'open', datetime('now'), datetime('now'));
 SQL

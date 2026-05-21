@@ -1,5 +1,8 @@
 # TMB Plugin
 
+> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.**
+> `tests/dogfood/rows/*/prompt.txt` are Human-authored — they simulate real user language. Agents editing prompts to chase chain-pass results have drifted the L5/L6 suite repeatedly. If a test fails, the right move is to fix the assertion, setup-l5, hook, or doctrine — never the prompt — unless the Human explicitly says so in chat.
+
 > **Trust me bro, it works.**
 
 **Multi-agent engineering workflow for Claude Code. MIT, free forever.**

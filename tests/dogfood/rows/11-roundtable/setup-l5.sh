@@ -1,43 +1,91 @@
 #!/usr/bin/env bash
-# L5 isolation setup for 11-roundtable (two-phase: from-scratch agent + mixed roundtable).
-# Phase 1: /tmb:agent-create data-engineer triggers Branch C from-scratch.
-# Phase 2: /roundtable with cto + data-engineer participants.
+# L5 seed for 11-roundtable: simulate the chain state by step 11 — TODO CLI
+# committed, consultants (cto + data-engineer) already registered as
+# project-local (cto from step 10's /tmb:agent-create flow; data-engineer
+# seeded here as a project-specific consultant).
 #
-# Pre-seeds cto (templated, project-local) so the roundtable's templated half is
-# already in place — we don't re-test Branch B here (row 10's job).
-# Leaves data-engineer absent so Phase 1's Branch C is the substantive check.
-# Pre-seeds an issue + decision the roundtable can cite for grounding.
+# Bro convenes a roundtable on storage choice (JSON vs SQLite vs backend
+# service). Both consultants write analyses + votes.
 set -uo pipefail
 
 PROJECT="$1"
 SCENARIO_DIR="$2"
-# shellcheck disable=SC2034  # SCENARIO_DIR referenced for symmetry
+# shellcheck disable=SC2034
 :
 
 PLUGIN_ROOT="${PLUGIN_ROOT:-$(cd "$SCENARIO_DIR/../../../.." && pwd)}"
 
-mkdir -p "$PROJECT/.claude/agents"
+mkdir -p "$PROJECT/.claude/agents" "$PROJECT/src"
 
-# Pre-seed cto only (templated half of the mixed roundtable).
+# Pre-seed the CLI substrate so consultants have real code to reference.
+cat > "$PROJECT/src/cli.py" <<'PY'
+"""TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
+import argparse, json, os
+from pathlib import Path
+
+STORE = Path(os.path.expanduser("~/.todo-cli/todos.json"))
+
+def _load():
+    return json.loads(STORE.read_text()) if STORE.exists() else []
+
+def _save(items):
+    STORE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STORE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, indent=2))
+    tmp.replace(STORE)
+
+def add(args):
+    items = _load()
+    items.append({"id": len(items)+1, "text": args.text, "done": False})
+    _save(items)
+PY
+(
+  cd "$PROJECT" || exit 1
+  git add src/cli.py
+  git commit -qm 'feat: todo CLI'
+) >/dev/null
+
+# Pre-seed cto (templated) so the roundtable's templated half is in place.
 src="$PLUGIN_ROOT/templates/agents/cto.md"
-if [ -f "$src" ]; then
-  cp "$src" "$PROJECT/.claude/agents/cto.md"
-fi
+[ -f "$src" ] && cp "$src" "$PROJECT/.claude/agents/cto.md"
 
-# Ensure data-engineer is absent so Phase 1 Branch C must create it from scratch.
-rm -f "$PROJECT/.claude/agents/data-engineer.md"
+# Pre-seed data-engineer (from-scratch; matches what an earlier chain step
+# would have created via Branch C of /tmb:agent-create).
+cat > "$PROJECT/.claude/agents/data-engineer.md" <<'MD'
+---
+name: data-engineer
+tmb_owner: bro
+description: Consultant. Storage architecture, query patterns, data-pipeline trade-offs.
+model: opus
+tools: Read, Glob, Grep, mcp__plugin_tmb_trajectory-server
+skills: []
+---
 
+# Data Engineer
+
+Storage architecture + query patterns + data-pipeline trade-offs. Read code + DB shape before recommending.
+
+## TMB contract (binding)
+
+You are spawned analysis-only. If `issue_id=<N>` was given, use it; else call `issue_list(agent='data-engineer', status='open')` and use the most recent open issue. NEVER call `issue_create` — server-rejected for consultants.
+
+**Persistence is mandatory.** Before returning any text to bro, call `discussion_append(agent='data-engineer', issue_id=<N>, kind='analysis', body='<full analysis>')`. The DB row is the deliverable; text to bro is a summary.
+
+Roundtable mode: also call `roundtable_vote(agent='data-engineer', vote='...', reasoning='...')` after persisting the analysis.
+
+You decide nothing. Bro summarizes for the Human; the Human decides.
+MD
+
+# Pre-seed agents table + an open storage-scaling issue for the roundtable
+# to cite.
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
--- Pre-seed an open issue + a SQLite-storage decision the roundtable cites.
--- AUTOINCREMENT works in both L5 (clean DB) and L6 (IDs already taken);
--- the discussion FK binds via last_insert_rowid().
-INSERT INTO issues (objective, description, status, created_at, updated_at)
-VALUES ('Analytics warehouse storage choice', 'Roundtable on ClickHouse vs PostgreSQL', 'open', datetime('now'), datetime('now'));
-
-INSERT INTO discussions (issue_id, author, kind, body, created_at)
-VALUES (last_insert_rowid(), 'bro', 'decision', 'Decision (row 8): switched TODO storage from JSON files to SQLite. Analytics warehouse is the next storage call.', datetime('now'));
-
--- Pre-register cto as project-local so Phase 2 doesn't need to re-run Branch B.
 INSERT OR REPLACE INTO agents (name, kind, scope, file_path, created_at)
-VALUES ('cto', 'consultant', 'project-local', '.claude/agents/cto.md', datetime('now'));
+VALUES
+  ('cto',           'consultant', 'project-local', '.claude/agents/cto.md',           datetime('now')),
+  ('data-engineer', 'consultant', 'project-local', '.claude/agents/data-engineer.md', datetime('now'));
+
+INSERT INTO issues (objective, description, status, created_at, updated_at)
+VALUES ('TODO CLI storage choice',
+        'Team usage rising. JSON-file works at single-user; question is whether to move to SQLite or a small backend service.',
+        'open', datetime('now'), datetime('now'));
 SQL

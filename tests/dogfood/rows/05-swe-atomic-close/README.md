@@ -1,8 +1,8 @@
 # 05-swe-atomic-close
 
-**Scenario under test:** the canonical "did the work actually flow through SWE" row. User asks bro to add a feature on top of the existing TODO CLI. Bro plans + dispatches SWE via `Agent`; SWE runs in a worktree and at `SubagentStop` the `swe-atomic-close.sh` hook writes an `agent_runs` row tied to the task. Bro calls `bro_atomic_close` so the task flips out of `pending`.
+**Scenario under test:** the canonical "did the work actually flow through SWE" row. User asks for a feature add (`--priority` flag) on top of the existing TODO CLI. Bro plans a new task, dispatches SWE via `Agent`; SWE runs in a worktree and at `SubagentStop` the `swe-atomic-close.sh` hook writes an `agent_runs` row tied to the task. Bro calls `bro_atomic_close` so the task flips out of `pending`.
 
-The row asserts only the dispatch + atomic-close path. Whether bro additionally re-plans or re-scans is incidental — step 04 owns the gate-and-plan assertion; this row's mutually-exclusive scope is the SWE round-trip.
+The row asserts only the dispatch + atomic-close path. The story sits naturally between step 04 (build the CLI) and step 06 (read the CLI for context) — the feature add gives step 05 a distinct, mutually-exclusive purpose without re-doing step 04's work.
 
 Two production bug classes captured:
 
@@ -11,14 +11,14 @@ Two production bug classes captured:
 
 ## Pre-state
 
-`onboarding-named` fixture, plus `setup-l5.sh` simulates step 04's output: full TODO CLI committed at `src/cli.py` (add/list/done/remove on JSON storage at `~/.todo-cli/todos.json`), `repos` row, `deep_scan_completed` audit row.
+`onboarding-named` fixture, plus `setup-l5.sh` simulates step 04's output: full TODO CLI committed at `src/cli.py` (add/list/done/remove on JSON storage at `~/.todo-cli/todos.json`) + `tests/test_cli.py`, `repos` row, `deep_scan_completed` audit row.
 
 ## Turns
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro add a --priority flag to the todo CLI's add command so users can mark items high/medium/low. Store it in the JSON and surface it in list output.\n\nDon't ask questions.` |
-| → | bro | scopes the feature → spawns SWE via `Agent` → SWE edits `src/cli.py`, commits → SubagentStop hook fires `swe-atomic-close.sh` → bro calls `bro_atomic_close`. Single turn — terminates when atomic-close lands. |
+| 1 | user | `@bro add a --priority flag to the add command so I can mark items high/medium/low.\n\nDon't ask questions.` |
+| → | bro | scopes the feature → `task_create_batch` → spawns SWE via `Agent` → SWE edits `src/cli.py` + `tests/test_cli.py`, commits → SubagentStop hook fires `swe-atomic-close.sh` → bro calls `bro_atomic_close`. Single turn — terminates when atomic-close lands. |
 
 ## Pass criteria
 
@@ -29,4 +29,4 @@ Two production bug classes captured:
 | `tools-required.json` | `Agent`, `bro_atomic_close` |
 | `cost-budget.json` | Soft 200K / 900s |
 
-**Failure modes captured:** (a) bro stops without spawning SWE — caught by tools-required (`Agent` missing) AND coherence (`pending != 0`); (b) bro skips `bro_atomic_close` after SWE returns — caught by tools-required (`bro_atomic_close` missing) AND coherence (`pending != 0`); (c) SWE ran but `agent_runs` stayed empty — caught by `agent_runs >= 1`.
+**Failure modes captured:** (a) bro stops without spawning SWE — caught by tools-required (`Agent` missing) + coherence (`pending != 0`); (b) bro skips `bro_atomic_close` after SWE returns — caught by tools-required (`bro_atomic_close` missing) + coherence (`pending != 0`); (c) SWE ran but `agent_runs` stayed empty — caught by `agent_runs >= 1`.

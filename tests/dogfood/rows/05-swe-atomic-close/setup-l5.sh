@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # L5 isolation setup for 05-swe-atomic-close: simulates the chain state
-# step 04 leaves behind — the todo CLI already exists on disk + commit.
-# Bro is asked to add a small feature (--priority flag); SWE dispatches +
-# atomic-closes for that feature work.
+# step 04 leaves behind — the todo CLI already exists on disk + commit,
+# plus tests/test_cli.py. Bro is asked to add a small feature
+# (--priority flag); SWE dispatches + atomic-closes for that feature.
 set -uo pipefail
 
 PROJECT="$1"
 # shellcheck disable=SC2034  # SCENARIO_DIR passed by runner; reserved for future use
 SCENARIO_DIR="$2"
 
-mkdir -p "$PROJECT/src"
+mkdir -p "$PROJECT/src" "$PROJECT/tests"
 cat > "$PROJECT/src/cli.py" <<'PY'
 """TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
 import argparse
@@ -73,10 +73,27 @@ if __name__ == "__main__":
     main()
 PY
 
+cat > "$PROJECT/tests/test_cli.py" <<'PY'
+"""Tests for the todo CLI core."""
+import os
+import tempfile
+from pathlib import Path
+from unittest import mock
+import src.cli as cli
+
+
+def test_add_and_list(tmp_path, capsys):
+    with mock.patch.object(cli, "STORE", tmp_path / "todos.json"):
+        cli.add(type("A", (), {"text": "buy milk"})())
+        cli.list_(None)
+    out = capsys.readouterr().out
+    assert "buy milk" in out
+PY
+
 (
   cd "$PROJECT" || exit 1
-  git add src/cli.py
-  git commit -qm 'feat: todo CLI with add/list/done/remove'
+  git add src/cli.py tests/test_cli.py
+  git commit -qm 'feat: todo CLI with add/list/done/remove + tests'
 ) >/dev/null
 
 # Simulate step 04's "scan ran + repo registered" state so the gate
