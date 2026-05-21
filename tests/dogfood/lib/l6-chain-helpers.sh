@@ -98,11 +98,15 @@ l6c_run_step() {
         -p "$current_msg"
       )
 
-      if [ "$turn" = "1" ]; then
-        cc_args=(--session-id "$session_id" "${cc_args[@]}")
-      else
-        cc_args=(--resume "$session_id" "${cc_args[@]}")
-      fi
+      # Fresh CC session per turn — continuity carries ONLY via the
+      # cumulative trajectory.db. No --resume: matches real cross-session
+      # behavior (a Human running multiple `claude` commands minutes apart
+      # gets a fresh session each time; only the DB persists). --session-id
+      # still pinned per turn so logs are addressable, but each turn ID is
+      # unique (no resume).
+      local per_turn_session_id
+      per_turn_session_id=$(l6c_uuid)
+      cc_args=(--session-id "$per_turn_session_id" "${cc_args[@]}")
 
       _l5_timeout "${TMB_CLAUDE_TIMEOUT:-600}" claude "${cc_args[@]}" \
         > "$turn_jsonl" 2>/tmp/tmb-l6c-stderr.$$ || true

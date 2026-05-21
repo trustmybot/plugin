@@ -1,5 +1,5 @@
 {
-  "max_turns": 1,
-  "user_after_bro": [],
+  "max_turns": 2,
+  "user_after_bro": ["Run a roundtable with cto and data-engineer on: should we use ClickHouse or PostgreSQL for our analytics warehouse? Use issue_id=1. Both participants must call discussion_append(kind='analysis') and roundtable_vote.\n\nDon't ask questions."],
   "terminal_pattern": ""
 }

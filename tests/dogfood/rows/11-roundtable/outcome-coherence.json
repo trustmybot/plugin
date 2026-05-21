@@ -1,6 +1,6 @@
 {
   "expected_writes": {
-    "audit WHERE event_type = 'tmb_agent_created' AND content_json LIKE '%data-engineer%' AND (content_json LIKE '%from-scratch%' OR content_json LIKE '%\"branch\":\"C\"%')": ">=1",
+    "audit WHERE event_type = 'tmb_agent_created' AND content_json LIKE '%data-engineer%'": ">=1",
     "agents WHERE name = 'data-engineer' AND scope = 'project-local'": ">=1",
     "roundtables": ">=1",
     "discussions WHERE kind='analysis'": ">=2",

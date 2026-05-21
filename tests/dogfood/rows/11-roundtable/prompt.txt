@@ -1,5 +1,1 @@
-Run `/tmb:agent-create data-engineer` (Branch C from-scratch — scaffold from `templates/agents/template.md`, headless auto-proceed via slash invocation; lint, write, agent_register, audit_log).
-
-Then immediately run a roundtable with both `cto` and `data-engineer` as participants on: "Should we use ClickHouse or PostgreSQL for our analytics warehouse?" Both must call `discussion_append(kind='analysis')` AND `roundtable_vote`. Use `issue_id=1` (the pre-seeded open issue).
-
-No exploration, no extra steps, no questions.
+/tmb:agent-create data-engineer

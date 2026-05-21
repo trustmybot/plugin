@@ -1,5 +1,5 @@
 {
-  "max_turns": 1,
-  "user_after_bro": [],
+  "max_turns": 2,
+  "user_after_bro": ["Have cto evaluate src/app.py — should we keep SQLite or move to Postgres for the auth service? Use issue_id=1. Cto must persist via discussion_append(kind='analysis').\n\nDon't ask questions."],
   "terminal_pattern": ""
 }
