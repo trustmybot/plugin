@@ -275,10 +275,20 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
     cp "$SEED_BEFORE_PATH" "$STEP_DIR/seed-before.sql" 2>/dev/null || true
   fi
 
-  # Per-row setup.sh (mirrors L5 — extra pre-state on top of seeds).
+  # Per-row setup. Prefer setup.sh (chain-aware); fall back to setup-l5.sh
+  # (the L5-isolation seed) so rows authored with only the L5 form still
+  # seed correctly in chain context. The two scripts have the same
+  # contract (PROJECT, SCENARIO_DIR args) so they're interchangeable for
+  # this purpose — most chain setups are also valid L5 pre-state.
+  SETUP_SCRIPT=""
   if [ -f "$ROW_DIR/setup.sh" ]; then
-    bash "$ROW_DIR/setup.sh" "$PROJECT" "$ROW_DIR" || {
-      printf "  ✗ step %d: setup.sh failed\n" "$step_id" >&2
+    SETUP_SCRIPT="$ROW_DIR/setup.sh"
+  elif [ -f "$ROW_DIR/setup-l5.sh" ]; then
+    SETUP_SCRIPT="$ROW_DIR/setup-l5.sh"
+  fi
+  if [ -n "$SETUP_SCRIPT" ]; then
+    bash "$SETUP_SCRIPT" "$PROJECT" "$ROW_DIR" || {
+      printf "  ✗ step %d: %s failed\n" "$step_id" "$(basename "$SETUP_SCRIPT")" >&2
       CHAIN_FAIL=$((CHAIN_FAIL + 1))
       [ "$HALT_ON_FAIL" = "1" ] && [ "$halt_step" = "true" ] && break
       continue
