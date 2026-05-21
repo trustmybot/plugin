@@ -26,7 +26,7 @@ The prompt is a genuine user ask — a scaling/architecture question that belong
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro we're hitting scaling bottlenecks as traffic grows — should we break the auth service out of the monolith or keep it co-located?\n\nDon't ask questions.` |
+| 1 | user | `@bro the todo CLI is starting to be used as a team-shared tool — should we move the JSON-file storage to SQLite (or even a small server) before the multi-user load gets uglier, or stick with the current shape?\n\nDon't ask questions.` |
 | → | bro | reads the prompt as a tech-strategy/architecture ask; classifies as `cto` via description match; calls `agent_list`, sees cto is template-scope, invokes `tmb_agent-creator` (template-copy → file landed at `.claude/agents/cto.md` + `agent_register` + `audit_log` with `event_type='tmb_agent_created'`), then spawns cto via `Agent`. Single turn. |
 
 ## Pass criteria

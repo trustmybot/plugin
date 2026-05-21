@@ -14,21 +14,21 @@ The bug class this catches: bro reading a file for context but skipping the regi
 
 ## Pre-state
 
-`onboarding-named` fixture + a small Python file at `src/auth.py` (committed) and a pre-seeded `file_registry` row with `path='src/auth.py'`, `summary=NULL`, and the file's actual `content_md5`.
+`onboarding-named` fixture + a small Python file at `src/cli.py` (committed) and a pre-seeded `file_registry` row with `path='src/cli.py'`, `summary=NULL`, and the file's actual `content_md5`.
 
 ## Turns
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro what does src/auth.py do? Just summarize it for me.\n\nDon't ask questions.` |
-| → | bro | calls `Read("src/auth.py")`, then `file_registry_update_summaries` to populate the summary; emits a concise summary in text |
+| 1 | user | `@bro what does src/cli.py do? Just summarize it for me.\n\nDon't ask questions.` |
+| → | bro | calls `Read("src/cli.py")`, then `file_registry_update_summaries` to populate the summary; emits a concise summary in text |
 
 ## Pass criteria
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `file_registry` row at `src/auth.py` has `summary IS NOT NULL` after the run |
-| `outcome-coherence.json` | `file_registry WHERE path = 'src/auth.py' AND summary IS NOT NULL`: `=1` |
+| `outcome.sql` | `file_registry` row at `src/cli.py` has `summary IS NOT NULL` after the run |
+| `outcome-coherence.json` | `file_registry WHERE path = 'src/cli.py' AND summary IS NOT NULL`: `=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `Read`; `file_registry_update_summaries` |
 | `tools-forbidden.json` | `task_create_batch`, `issue_create`, `Agent` (this is a context query, not a code change) |
