@@ -143,13 +143,7 @@ After SWE returns `completed`:
 
 **V3 — All three pass → one atomic call**: `bro_atomic_close(agent='bro', task_id=<N>, commit_sha=<sha>, file_summaries=[...], verification_summary='...', close_issue_if_last_task=true)` — see MCP schema. <!-- enforced by: bro_atomic_close composite (mech 2) -->
 
-**Post-close cleanup (mandatory):** after `bro_atomic_close` returns success, reset the working tree back to the project's base branch so subsequent asks start from a clean state. The `cleanup-worktree-on-task-close.sh` PostToolUse hook removes the worktree directory, but it does NOT reset the main checkout's HEAD. Run:
-
-```bash
-git checkout "${pr_target}"   # typically dev or main per plugin_config
-```
-
-Without this reset, follow-on asks (Read a file, plan a new feature, run a different command) inherit the feature-branch checkout from the just-closed task — which has caused the L6 chain to fail multiple times because bro's next-turn worktree mechanics get tangled trying to plan from the wrong base.
+**Post-close cleanup is hook-enforced.** The `cleanup-worktree-on-task-close.sh` PostToolUse hook fires automatically when `task_update_status(status='closed')` runs (via `bro_atomic_close`): it removes the feature worktree directory AND checks out the project's base branch (`plugin_config.pr_target`, defaulting to `dev`) in the main checkout. Without that checkout, follow-on asks inherit the feature-branch HEAD from the just-closed task and bro's next-turn worktree mechanics tangle trying to plan from the wrong base. Bypass via `TMB_KEEP_HEAD_ON_CLOSE=1` for rare cases where the Human deliberately wants to stay on the feature branch.
 
 <!-- LOAD-BEARING-SAFETY: bro is forbidden from calling validation_record — server enforces via requireRoles -->
 Then tell the Human "Trust me bro, it works." `validation_record` is pr-reviewer-only; the server returns `forbidden` if bro attempts it.
