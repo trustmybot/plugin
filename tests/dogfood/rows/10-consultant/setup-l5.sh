@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # L5 isolation setup for 10-consultant (two-phase scenario).
 # Phase 1: /tmb:agent-create cto triggers Branch B template-copy.
-# Phase 2: cto evaluates src/app.py — SQLite vs Postgres for the auth service.
+# Phase 2: cto evaluates src/auth.py — SQLite vs Postgres for the auth service.
 #
 # Ensures .claude/agents/cto.md is absent so Branch B runs.
-# Seeds src/app.py as the code substrate for cto's analysis.
+# Seeds src/auth.py (matches what step 05 SWE produces in L6 chain context;
+# in L5 isolation this is the substitute for chain progression).
 set -uo pipefail
 
 PROJECT="$1"
@@ -15,9 +16,9 @@ SCENARIO_DIR="$2"
 rm -f "$PROJECT/.claude/agents/cto.md"
 
 mkdir -p "$PROJECT/src"
-cat > "$PROJECT/src/app.py" <<'PY'
+cat > "$PROJECT/src/auth.py" <<'PY'
 #!/usr/bin/env python3
-"""SQLite-backed auth service co-located in the monolith."""
+"""SQLite-backed session store for an auth service."""
 import sqlite3
 import threading
 from pathlib import Path
@@ -63,15 +64,13 @@ PY
 
 (
   cd "$PROJECT" || exit 1
-  git add src/app.py
+  git add src/auth.py
   git commit -qm "feat: add SQLite auth service substrate"
 ) >/dev/null
 
-# Pre-seed an open issue so Phase 2 (cto evaluating src/app.py) has an issue
-# to scope its discussion_append against. Consultants are server-rejected from
-# issue_create, so bro must either find an open issue OR create one before
-# spawning. Pre-seeding skips the create-step and keeps Phase 2 focused on
-# the consultant analysis path itself.
+# Pre-seed an open issue (L5 isolation only; in L6 chain, plenty of open
+# issues exist by step 10 from earlier chain steps). The Phase 2 prompt
+# tells bro to use the most recent open issue's id.
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
 INSERT INTO issues (objective, description, status, created_at, updated_at)
 VALUES ('Auth service storage choice', 'SQLite vs Postgres for the embedded auth service', 'open', datetime('now'), datetime('now'));
