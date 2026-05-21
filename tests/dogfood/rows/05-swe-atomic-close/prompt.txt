@@ -1,3 +1,3 @@
-@bro write src/auth.py — a SQLite-backed session store for an auth service. Functions: init() creates a sessions table; create_session(user_id, token) inserts a row; verify_session(token) returns user_id or None; revoke_session(token) deletes. Use a module-level threading.Lock for write serialization.
+@bro make a todo CLI in Python.
 
 Don't ask questions.

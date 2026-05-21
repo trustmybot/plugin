@@ -1,1 +1,3 @@
-/tmb:agent-create cto
+@bro we're hitting scaling bottlenecks as traffic grows — should we break the auth service out of the monolith or keep it co-located?
+
+Don't ask questions.
