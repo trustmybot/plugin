@@ -1,5 +1,5 @@
 {
   "max_turns": 1,
   "user_after_bro": [],
-  "terminal_pattern": "remote|gitlab|gitflow|provider|protected|branch"
+  "terminal_pattern": "remote|github|gitflow|provider|protected|branch"
 }
