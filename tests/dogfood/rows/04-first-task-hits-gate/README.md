@@ -1,8 +1,8 @@
 # 04-first-task-hits-gate
 
-**Scenario under test:** the user onboarded but `/scan` never ran (no `deep_scan_completed` audit row). User asks to *scope* a TODO CLI project. Bro must run `/scan` (or `scan_run` directly) BEFORE `task_create_batch` — the registry-cold gate enforces this server-side, and the test verifies bro responds correctly instead of waiving silently.
+**Scenario under test:** the user onboarded but `/scan` never ran (no `deep_scan_completed` audit row). User asks for a code change. Bro must run `/scan` (or `scan_run` directly) BEFORE `task_create_batch` — the registry-cold gate enforces this server-side, and the test verifies bro responds correctly instead of waiving silently.
 
-**Scope of this row:** the gate response + planning only. SWE dispatch + atomic-close are step 05's job. The prompt explicitly tells bro to NOT dispatch this turn so steps 04 and 05 stay mutually exclusive in chain context.
+The row asserts only the gate response (scan ran + at least one task created + repo registered). Whether bro then continues to dispatch SWE and atomic-close in the same turn is incidental — those behaviors are step 05's purpose; this row's mutually-exclusive scope is the gate.
 
 **Bug class — Daisy's framing:** *"Assume bro will violate every step."* Bro skipping `/scan` is a P0 framework violation — the `file_registry` empty pattern from production traces directly to this.
 
@@ -14,8 +14,8 @@
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro start scoping the todo CLI project — create the issue + initial task spec so SWE can pick it up next turn. Don't dispatch SWE this turn.\n\nDon't ask questions.` |
-| → | bro | tries `task_create_batch` → server returns `registry_cold_violation` → bro reads error → calls `scan_run` → re-tries `task_create_batch` and STOPS (no `Agent` spawn this turn). |
+| 1 | user | `@bro make a todo CLI in Python.\n\nDon't ask questions.` |
+| → | bro | tries `task_create_batch` → server returns `registry_cold_violation` → bro reads error → calls `scan_run` → re-tries `task_create_batch`. May continue to dispatch SWE + atomic-close in the same turn (allowed; the row's assertions stop at the gate). |
 
 ## Pass criteria
 
@@ -25,7 +25,7 @@
 | `outcome-coherence.json` | `audit WHERE event_type='deep_scan_completed'`: `>=1`; `tasks`: `>=1`; `repos`: `>=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `scan_run`, `task_create_batch` |
-| `tools-forbidden.json` | `Agent` — dispatch is step 05's job |
+| `tools-forbidden.json` | (none — bro is free to dispatch in the same turn; step 05 owns the dispatch-and-close assertion) |
 | `cost-budget.json` | Soft 200K / 900s |
 
-**Failure modes captured:** (a) bro waives the gate via `waive_registry_gate=true` instead of running `scan_run` → the audit row check fails; (b) bro spawns SWE this turn → `Agent` in forbidden list catches it (this would also pull in step 05's purpose, breaking mutual exclusivity).
+**Failure modes captured:** bro waives the gate via `waive_registry_gate=true` instead of running `scan_run` → the `deep_scan_completed` audit row check fails.

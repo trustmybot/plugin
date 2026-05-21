@@ -1,3 +1,3 @@
-@bro the todo CLI task is already planned (issue + task_create_batch ran in the prior turn — task is in `pending`). Dispatch SWE via Agent to implement it. When SWE returns: run V1/V2/V3 verification, then EXPLICITLY call `bro_atomic_close(task_id=<N>)` to flip the task out of `pending`. The test fails if the task stays at `pending`.
+@bro add a --priority flag to the todo CLI's add command so users can mark items high/medium/low. Store it in the JSON and surface it in list output.
 
 Don't ask questions.
