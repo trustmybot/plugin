@@ -40,7 +40,7 @@
       "name": "04-first-task-hits-gate",
       "row_dir": "rows/04-first-task-hits-gate",
       "partial_test": false,
-      "seed_before": null,
+      "seed_before": "seeds/before-04-first-task-hits-gate.sql",
       "seed_after": null,
       "halt_on_fail": true
     },
