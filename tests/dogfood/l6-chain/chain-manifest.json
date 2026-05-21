@@ -52,7 +52,8 @@
       "partial_test": false,
       "seed_before": null,
       "seed_after": null,
-      "halt_on_fail": true
+      "halt_on_fail": true,
+      "chain_setup_command": "git checkout dev 2>/dev/null || git checkout main"
     },
     {
       "step": 6,
