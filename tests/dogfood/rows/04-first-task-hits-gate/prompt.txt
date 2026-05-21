@@ -1,3 +1,3 @@
-@bro plan a TODO CLI in Python: call `scan_run` to populate the registry, then call `task_create_batch` with the implementation spec_body. STOP after `task_create_batch` — DO NOT spawn SWE via Agent this turn. The dispatch is the next turn's job.
+@bro plan a TODO CLI in Python at `src/cli.py`: call `scan_run` to populate the registry, then call `task_create_batch` with the implementation spec_body (the `## Files` section MUST list `src/cli.py` — that's the canonical project layout). STOP after `task_create_batch` — DO NOT spawn SWE via Agent this turn. Dispatch is next turn's job.
 
 Don't ask questions.
