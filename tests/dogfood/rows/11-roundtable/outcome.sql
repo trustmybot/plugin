@@ -24,11 +24,13 @@ SELECT
 FROM discussions
 WHERE kind = 'analysis';
 
--- Both pre-seeded participants left a vote row
+-- At least 2 distinct participants left a vote row. Role-agnostic so the
+-- assertion holds in both modes: L5 setup-l5 pre-seeds cto + data-engineer;
+-- L6 chain has whatever consultants prior steps left (cto from step 10 +
+-- whoever bro picks as the second participant — typically architect or pm
+-- from the always-available templates). The test purpose is "roundtable
+-- collected votes from multiple consultants", not "specifically cto + DE".
 SELECT
-  CASE WHEN COUNT(DISTINCT participant) >= 2
-       AND SUM(CASE WHEN participant = 'cto' THEN 1 ELSE 0 END) >= 1
-       AND SUM(CASE WHEN participant = 'data-engineer' THEN 1 ELSE 0 END) >= 1
-       THEN 1 ELSE 0 END AS pass,
-  'roundtable_votes from cto AND data-engineer (got distinct participants ' || COUNT(DISTINCT participant) || ', need both)' AS description
+  CASE WHEN COUNT(DISTINCT participant) >= 2 THEN 1 ELSE 0 END AS pass,
+  'roundtable_votes from ≥2 distinct participants (got ' || COUNT(DISTINCT participant) || ', expected >=2)' AS description
 FROM roundtable_votes;

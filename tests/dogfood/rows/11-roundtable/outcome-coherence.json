@@ -2,6 +2,6 @@
   "expected_writes": {
     "roundtables": ">=1",
     "discussions WHERE kind='analysis'": ">=2",
-    "roundtable_votes WHERE participant IN ('cto','data-engineer')": ">=2"
+    "roundtable_votes": ">=2"
   }
 }
