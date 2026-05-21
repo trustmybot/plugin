@@ -83,7 +83,8 @@
       "partial_test": false,
       "seed_before": null,
       "seed_after": "seeds/after-08-architectural-change.sql",
-      "halt_on_fail": true
+      "halt_on_fail": true,
+      "chain_setup_command": "git checkout dev 2>/dev/null || git checkout main"
     },
     {
       "step": 9,
