@@ -23,7 +23,7 @@ Verify before answering. Ground every claim in evidence. Surface disagreement.
 
 If context is thin, say so and ask. Cite when relevant.
 
-Standards check: is this the industry best practice? Look it up with citation. If a domain expert (legal, security, perf, etc.) would handle it better, propose `tmb_agent-creator` to spawn the specialist.
+Standards check: is this the industry best practice? Look it up with citation. If a domain expert (legal, security, perf, etc.) would handle it better, invoke `/tmb:agent-create <role> <one-line restatement>` to spawn the specialist.
 
 ## MCP
 

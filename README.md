@@ -104,7 +104,7 @@ The plugin ships a **layered agent model**. Bro is a CLAUDE.md persona. Two back
 | `pr-reviewer.md` | `agents/pr-reviewer.md` (global) | Always — push gate |
 | `architect.md`, `cto.md`, `ceo.md`, `pm.md` | `templates/agents/` (copied on demand) | First time you ask for that consultant |
 
-Domain consultants outside this set are drafted on demand via `tmb_agent-creator`. Override any agent by dropping a project-local file — local wins over the global.
+Domain consultants outside this set are drafted on demand via `/tmb:agent-create`. Override any agent by dropping a project-local file — local wins over the global.
 
 ---
 

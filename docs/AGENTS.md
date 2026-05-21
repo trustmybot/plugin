@@ -17,15 +17,15 @@ The canonical registry for all known agents is the SQLite `agents` table in the 
 
 **Resolution rule:** when bro spawns `swe` or `pr-reviewer`, CC dispatches by name — local wins if present, global serves as fallback. The global prompts are deliberately the smallest sufficient prompt for general work; projects with specific demands (medical-device review checklists, finance-compliance gates, etc.) drop in a custom local file that overrides only what they need.
 
-**Canonical override creation path:** use `tmb_agent-creator` Template-copy mode — the user is asked to confirm, and the copy is verbatim from `plugin/templates/agents/<name>.md`. After copy, the user can extend by attaching skills (`tmb_skill-creator`) or hand-editing the local file.
+**Canonical override creation path:** use `/tmb:agent-create` Template-copy mode — the user is asked to confirm, and the copy is verbatim from `plugin/templates/agents/<name>.md`. After copy, the user can extend by attaching skills (`tmb_skill-creator`) or hand-editing the local file.
 
 **Defense-in-depth:** an optional L1 lint (`tests/lint/local-agent-primitives.sh`, #106) catches hand-edits that accidentally drop critical workflow primitives.
 
-**Local creation triggers:** bro creates a project-local agent only if (a) the Human explicitly asks for one, OR (b) bro determines the global default genuinely doesn't fit the project's tasks. Both cases route through `tmb_agent-creator` with explicit Human approval. The global file is **never edited** — overrides are additive at the project level.
+**Local creation triggers:** bro creates a project-local agent only if (a) the Human explicitly asks for one, OR (b) bro determines the global default genuinely doesn't fit the project's tasks. Both cases route through `/tmb:agent-create` with explicit Human approval. The global file is **never edited** — overrides are additive at the project level.
 
 ### Layer 2 — Consultants (templates, opt-in per project)
 
-`architect`, `cto`, `ceo`, `pm` ship in `templates/agents/` and are **only** instantiated when the Human asks for that consultant's read on something. First ask in a project triggers `tmb_agent-creator` template-copy mode → copies the template into `<project>/.claude/agents/<name>.md` → spawns it. From then on, the project-local copy serves the consultant.
+`architect`, `cto`, `ceo`, `pm` ship in `templates/agents/` and are **only** instantiated when the Human asks for that consultant's read on something. First ask in a project triggers `/tmb:agent-create` template-copy mode → copies the template into `<project>/.claude/agents/<name>.md` → spawns it. From then on, the project-local copy serves the consultant.
 
 | Template | Spawned when |
 |---|---|
@@ -36,21 +36,21 @@ The canonical registry for all known agents is the SQLite `agents` table in the 
 
 > **Note:** `swe` and `pr-reviewer` also ship as templates at `plugin/templates/agents/` in addition to their live globals at `plugin/agents/`. Byte-identity between the two is enforced by the `agent-template-byte-identity.sh` lint (#104). This means Template-copy mode for override creation always produces an exact-match starting point.
 
-User-created project consultants (via `tmb_agent-creator` from-scratch flow) follow the same pattern.
+User-created project consultants (via `/tmb:agent-create` from-scratch flow) follow the same pattern.
 
 ## Agent ownership states
 
-Every agent file in `<project>/.claude/agents/` is in one of three ownership states, declared via the `tmb_owner` field in YAML frontmatter. `tmb_owner` is a frontmatter-only convention (read by `tmb_agent-creator` from the file at decision time); it is not persisted to the agents DB table.
+Every agent file in `<project>/.claude/agents/` is in one of three ownership states, declared via the `tmb_owner` field in YAML frontmatter. `tmb_owner` is a frontmatter-only convention (read by `/tmb:agent-create` from the file at decision time); it is not persisted to the agents DB table.
 
 | Marker | Meaning | Plugin behavior |
 |---|---|---|
-| `tmb_owner: bro` | Plugin-managed | `tmb_agent-creator` may update freely. User hand-edits will be overwritten on next plugin update. |
-| `tmb_owner: user-adopted` | User-authored, opted in for plugin management | `tmb_agent-creator` may update. Initial content was preserved at adoption time. |
+| `tmb_owner: bro` | Plugin-managed | `/tmb:agent-create` may update freely. User hand-edits will be overwritten on next plugin update. |
+| `tmb_owner: user-adopted` | User-authored, opted in for plugin management | `/tmb:agent-create` may update. Initial content was preserved at adoption time. |
 | (no field) | User-owned | Plugin never touches. Resolution rule still applies (local file wins over shipped templates). |
 
 ### Adopting an existing agent
 
-If you've hand-rolled `.claude/agents/<name>.md` and want bro to manage it going forward, run `tmb_agent-creator` with the same name. The collision dialog offers an "Adopt + manage" option that preserves your content and adds `tmb_owner: user-adopted` to the frontmatter.
+If you've hand-rolled `.claude/agents/<name>.md` and want bro to manage it going forward, run `/tmb:agent-create` with the same name. The collision dialog offers an "Adopt + manage" option that preserves your content and adds `tmb_owner: user-adopted` to the frontmatter.
 
 ### Plugin-shipped agents
 

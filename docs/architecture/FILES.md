@@ -51,7 +51,7 @@ commands/
 
 ## Consultant templates
 
-Copied per-project on first request via `tmb_agent-creator`:
+Copied per-project on first request via `/tmb:agent-create`:
 
 ```
 templates/

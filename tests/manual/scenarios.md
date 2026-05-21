@@ -143,7 +143,7 @@ Across all scenarios:
 
 ### S-22: Agent collision dialog (TRU-72 / #22)
 
-Validates the `tmb_agent-creator` collision flow.
+Validates the `/tmb:agent-create` collision flow.
 
 **Setup:**
 1. Fresh scratch project (or any project without `.claude/agents/legal-reviewer.md`).
@@ -156,7 +156,7 @@ Validates the `tmb_agent-creator` collision flow.
    ```
 
 **Run:**
-- In CC, ask `@bro create a legal-reviewer agent` (or otherwise trigger `tmb_agent-creator` with the same name).
+- In CC, ask `@bro create a legal-reviewer agent` (or otherwise trigger `/tmb:agent-create` with the same name).
 
 **Expect:**
 - bro detects the collision, shows a unified diff, calls AskUserQuestion with 3 options (Skip / Adopt+manage / Overwrite).
@@ -178,7 +178,7 @@ surfaces, and follow-up issue creation.
 
 **Setup:**
 1. Fresh scratch project with at least 3 consultant agents under `.claude/agents/`
-   (ceo, cto, pm — or trigger `tmb_agent-creator` first).
+   (ceo, cto, pm — or trigger `/tmb:agent-create` first).
 2. Create a carrier issue via `@bro let's hold a roundtable on <topic>`.
 
 **Run:**

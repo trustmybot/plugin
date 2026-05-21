@@ -4,7 +4,7 @@
 
 1. Call `agent_list` first (registry is source of truth — not bro's mental model).
 2. Classify the ask as `cto` via description match (the prompt does not name a consultant role explicitly).
-3. If the consultant's file is missing under `.claude/agents/`, invoke `tmb_agent-creator` to copy the template + re-register at `scope='project-local'` + write a `tmb_agent_created` audit row.
+3. If the consultant's file is missing under `.claude/agents/`, invoke `/tmb:agent-create` to copy the template + re-register at `scope='project-local'` + write a `tmb_agent_created` audit row.
 4. Spawn the consultant via `Agent`.
 
 This row folds two production bug classes into one:
@@ -26,8 +26,8 @@ The prompt is a genuine user ask — a scaling/architecture question that belong
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro the todo CLI is starting to be used as a team-shared tool — should we move the JSON-file storage to SQLite (or even a small server) before the multi-user load gets uglier, or stick with the current shape?\n\nDon't ask questions.` |
-| → | bro | reads the prompt as a tech-strategy/architecture ask; classifies as `cto` via description match; calls `agent_list`, sees cto is template-scope, invokes `tmb_agent-creator` (template-copy → file landed at `.claude/agents/cto.md` + `agent_register` + `audit_log` with `event_type='tmb_agent_created'`), then spawns cto via `Agent`. Single turn. |
+| 1 | user | `@bro what's the right architecture trade-off for the todo CLI's storage as we scale to team-shared use — should we stay on JSON files, move to SQLite, or commit to a small backend service?\n\nDon't ask questions.` |
+| → | bro | reads the prompt as a tech-strategy/architecture ask; classifies as `cto` via description match; calls `agent_list`, sees cto is template-scope, invokes `/tmb:agent-create` (template-copy → file landed at `.claude/agents/cto.md` + `agent_register` + `audit_log` with `event_type='tmb_agent_created'`), then spawns cto via `Agent`. Single turn. |
 
 ## Pass criteria
 

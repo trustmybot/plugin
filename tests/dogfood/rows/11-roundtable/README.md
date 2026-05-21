@@ -24,7 +24,7 @@ Turn 2 prompt is `/roundtable Should we use ClickHouse or PostgreSQL for our ana
 | # | Speaker | Message |
 |---|---|---|
 | 1 | user | `/tmb:agent-create data-engineer` |
-| → | bro | invokes `tmb_agent-creator` Branch C (headless auto-proceed via slash); writes `.claude/agents/data-engineer.md` from base template; `agent_register` + `audit_log(event_type='tmb_agent_created', mode='from-scratch')` |
+| → | bro | invokes `/tmb:agent-create` Branch C (headless auto-proceed via slash); writes `.claude/agents/data-engineer.md` from base template; `agent_register` + `audit_log(event_type='tmb_agent_created', mode='from-scratch')` |
 | 2 | user | `/roundtable Should we use ClickHouse or PostgreSQL for our analytics warehouse? data-engineer + cto.\n\nDon't ask questions.` |
 | → | bro | `roundtable_create(participants=['cto','data-engineer'])`; spawns both; each writes `discussion_append(kind='analysis')` and `roundtable_vote` |
 

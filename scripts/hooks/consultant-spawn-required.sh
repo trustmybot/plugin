@@ -2,8 +2,16 @@
 # UserPromptSubmit hook — when the user's message looks like it's asking
 # bro to make a domain-expert call (security, performance, legal, scaling,
 # architecture trade-off), inject `additionalContext` reminding bro to
-# spawn a consultant via tmb_agent-creator rather than answering from
-# general knowledge.
+# invoke the `/tmb:agent-create <role>` slash command rather than answering
+# from general knowledge.
+#
+# This hook is the **deterministic enforcement surface** for consultant
+# spawning: the consultant routing row was removed from CLAUDE.md (#198
+# part 2) to keep the always-loaded persona slim, and the previous
+# `tmb_agent-creator` skill's description-match autoload turned out to be
+# unreliable. The slash command is the one path that combines reliably
+# with hooks — see EVALUATION.md §"L5/L6 contract" + the claude-code-guide
+# write-up on UserPromptExpansion vs Skill autoload.
 #
 # Consultant patterns are surfaced by keyword detection; the actual
 # decision (which consultant, when not to spawn one) stays in the bro
@@ -81,14 +89,14 @@ fi
 [ -z "$NAMED_ROLE" ] && [ -z "$DOMAIN" ] && exit 0
 
 if [ -n "$NAMED_ROLE" ]; then
-  # Post-#184 doctrine: the registry is the source of truth for agents.
-  # Even when the user names a specific role, bro must call agent_list to
-  # resolve scope (template vs project-local), then either copy + register
-  # + spawn, or spawn directly. Skipping agent_list lets bro silently use
-  # a stale .claude/agents/ file or miss a registered alternative.
-  CONTEXT="[tmb consultant-spawn hint] The user's prompt names the ${NAMED_ROLE} role. Load \`tmb_agent-creator\` to look up ${NAMED_ROLE} in the agent registry (\`agent_list\`), resolve its scope, then spawn via \`Agent\`. Direct \`Agent\` calls without a registry consult bypass the source of truth (#184)."
+  # Registry is the source of truth for agents. Even when the user names a
+  # specific role, bro must use the /tmb:agent-create command, which runs
+  # agent_list + scope resolution + Branch A/B/C routing. Direct Agent
+  # calls without that ceremony bypass the registry, leave the agents
+  # table unregistered, and risk using a stale .claude/agents/ file.
+  CONTEXT="[tmb consultant-spawn enforcement] The user's prompt names the \`${NAMED_ROLE}\` role. Invoke \`/tmb:agent-create ${NAMED_ROLE} <one-line restatement of the user question>\` — the command runs the full agent_list + Branch A/B/C ceremony AND spawns the consultant in the same call. Bare \`Agent(subagent_type='${NAMED_ROLE}')\` without the command bypasses the registry; do NOT take that shortcut."
 else
-  CONTEXT="[tmb consultant-spawn hint] The user's prompt looks like a ${DOMAIN} judgment call. If the existing roster (\`.claude/agents/\`) doesn't already include a fitting consultant, propose \`tmb_agent-creator\` to spawn one in analysis-only mode (per tmb_concerns-protocol Path B). Decide whether to spawn — this hint is advisory."
+  CONTEXT="[tmb consultant-spawn enforcement] The user's prompt looks like a \`${DOMAIN}\` judgment call. Invoke \`/tmb:agent-create <role> <one-line restatement>\` with the role that fits this domain (architect / cto / pm / legal-reviewer / a custom from-scratch role). The slash command handles the full ceremony — agent_list lookup, Branch A/B/C routing, audit, spawn — deterministically. Answering directly from general knowledge bypasses the consultant gate."
 fi
 
 jq -nc --arg ctx "$CONTEXT" '{

@@ -1,3 +1,3 @@
-@bro the todo CLI is starting to be used as a team-shared tool — should we move the JSON-file storage to SQLite (or even a small server) before the multi-user load gets uglier, or stick with the current shape?
+@bro what's the right architecture trade-off for the todo CLI's storage as we scale to team-shared use — should we stay on JSON files, move to SQLite, or commit to a small backend service?
 
 Don't ask questions.
