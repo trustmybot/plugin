@@ -251,6 +251,7 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   seed_after=$(jq -r  ".steps[$idx].seed_after  // empty" "$MANIFEST")
   halt_step=$(jq -r   ".steps[$idx].halt_on_fail" "$MANIFEST")
   chain_setup_cmd=$(jq -r ".steps[$idx].chain_setup_command // empty" "$MANIFEST")
+  chain_post_cmd=$(jq -r  ".steps[$idx].chain_post_command  // empty" "$MANIFEST")
 
   if [ "$step_id" -lt "$START_FROM" ]; then
     printf -- "── step %d (%s): SKIP (before --from)\n" "$step_id" "$step_name"
@@ -401,6 +402,20 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
     printf "  seed_after: %s\n" "$seed_after"
     l6c_apply_seed "$PROJECT" "$SEED_AFTER_PATH"
     cp "$SEED_AFTER_PATH" "$STEP_DIR/seed-applied.sql" 2>/dev/null || true
+  fi
+
+  # chain_post_command — shell command run in $PROJECT AFTER bro's turn (and
+  # after seed_after if present). Use for chain-only state transitions that
+  # simulate something that happens BETWEEN bro sessions in production but
+  # isn't bro's responsibility. Canonical example: after step 07 push, a
+  # human reviewer merges the PR — this advances `dev` to the feature branch
+  # in production via the remote merge. In the test sandbox there's no
+  # remote-side merge, so chain_post_command does the fast-forward locally.
+  # L5 isolation skips this (each row has its own setup-l5 substrate).
+  if [ -n "$chain_post_cmd" ] && [ "$chain_post_cmd" != "null" ]; then
+    printf "  chain_post_command: %s\n" "$chain_post_cmd"
+    ( cd "$PROJECT" && eval "$chain_post_cmd" ) >> "$STEP_DIR/chain-post.log" 2>&1 \
+      || printf "  ⚠ chain_post_command exited non-zero (continuing)\n" >&2
   fi
 
   # Per-row immutable checkpoint: snapshot the live trajectory DB AFTER

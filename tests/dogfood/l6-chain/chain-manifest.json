@@ -72,7 +72,8 @@
       "partial_test": false,
       "seed_before": null,
       "seed_after": null,
-      "halt_on_fail": true
+      "halt_on_fail": true,
+      "chain_post_command": "LATEST=$(git for-each-ref --sort=-committerdate --format=\"%(refname:short)\" refs/heads/ | grep -E \"^(feat|fix|chore|refactor)/\" | head -1); [ -n \"$LATEST\" ] && git checkout dev 2>/dev/null && git merge --ff-only \"$LATEST\" 2>/dev/null || true"
     },
     {
       "step": 8,
