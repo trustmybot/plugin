@@ -48,6 +48,10 @@ L6 catches **cross-row continuity drift** (the seam between steps); L5 catches *
 
 The 14 chain steps form a single workflow journey of a fictional TODO-CLI project. Each step is a fresh `claude -p` invocation; state passes via the cumulative trajectory DB, the project filesystem, and git.
 
+The diagram has two arrow types:
+- **Solid arrows** trace the linear chain progression (every step inherits SOMETHING from the prior step — even if just an unchanged DB).
+- **Dotted arrows** are direct cross-step dependencies — a specific artifact created by step N is consumed verbatim by step M where M is not adjacent. These are the load-bearing seams to watch when a step regresses.
+
 ```mermaid
 flowchart TD
     Start([fresh scratch project<br/>empty DB, git init, no remote])
@@ -84,7 +88,28 @@ flowchart TD
     S12 -- "existing task dispatched<br/>(no duplicate planning)" --> S13
     S13 -- "pr_review_runs cursor advanced" --> S14
     S14 -- "skill_invocations rows attributed" --> Done
+
+    %% Cross-step direct dependencies (dotted = specific artifact consumed)
+    S3 -. "GitHub remote URL<br/>(push target)" .-> S7
+    S5 -. "closed task + commit_sha<br/>(thing to push)" .-> S7
+    S5 -. "src/auth.py on disk<br/>(file to summarize)" .-> S6
+    S5 -. "src/auth.py on disk<br/>(file to evaluate)" .-> S10
+    S4 -. "in-progress issue + planning_complete<br/>(thing to resume)" .-> S12
+    S10 -. "cto agent registered<br/>(roundtable participant)" .-> S11
+    S7 -. "pushed branch<br/>(PR substrate)" .-> S13
+    S1 -. "skill_invocations<br/>(accumulate across all steps)" .-> S14
+    S4 -. "  " .-> S14
+    S10 -. "  " .-> S14
 ```
+
+Reading the dotted edges:
+- **S3 → S7**: the GitHub remote bro configured in step 3 is the URL step 7 pushes against. If step 3 forgot to write the remote (DB or git config), step 7 has nowhere to push.
+- **S5 → S6, S5 → S10**: `src/auth.py` is the shared substrate — step 6 summarizes it, step 10 has cto evaluate it. If step 5's task changes file path, both steps need to change with it (this is exactly why step 10's prompt used to say `src/app.py` and broke in chain — step 5 produced `src/auth.py`).
+- **S5 → S7**: the committed task from step 5 is what step 7 pushes. The push gate scores `validation_attempts` on that task's `commit_sha`.
+- **S4 → S12**: step 12 resumes the issue + task step 4 created. If step 4 didn't leave an in-progress task, step 12 has nothing to resume and would (incorrectly) re-plan from scratch.
+- **S10 → S11**: cto is one of the two roundtable participants in step 11. The roundtable assertion checks BOTH `cto` (templated) AND `data-engineer` (from-scratch) voted.
+- **S7 → S13**: the pushed branch becomes the PR step 13 monitors comments on.
+- **S1/S4/S10/(any tmb skill invocation) → S14**: `skill_invocations` rows accumulate across the chain; step 14 just asserts they're attributed correctly.
 
 ---
 
