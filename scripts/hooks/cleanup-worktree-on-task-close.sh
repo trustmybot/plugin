@@ -61,9 +61,20 @@ fi
 
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
 if [ -n "$TASK_REPO" ]; then
-  REPO_ROOT="$WORKSPACE_ROOT/$TASK_REPO"
+  # Prefer the absolute path recorded in the `repos` table (authoritative
+  # — set by /scan). Falls back to legacy workspace-join only when no
+  # matching repo row exists.
+  REPO_ROOT=$(sqlite3 "$DB_PATH" "SELECT path FROM repos WHERE name='$TASK_REPO' LIMIT 1;" 2>/dev/null || true)
+  [ -z "$REPO_ROOT" ] && REPO_ROOT="$WORKSPACE_ROOT/$TASK_REPO"
 else
-  REPO_ROOT="$WORKSPACE_ROOT"
+  # Single-repo fallback when no default config.
+  REPO_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+  if [ "$REPO_COUNT" = "1" ]; then
+    REPO_ROOT=$(sqlite3 "$DB_PATH" "SELECT path FROM repos LIMIT 1;" 2>/dev/null || true)
+    [ -z "$REPO_ROOT" ] && REPO_ROOT="$WORKSPACE_ROOT"
+  else
+    REPO_ROOT="$WORKSPACE_ROOT"
+  fi
 fi
 [ -d "$REPO_ROOT/.git" ] || exit 0
 
