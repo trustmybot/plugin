@@ -52,8 +52,7 @@
       "partial_test": false,
       "seed_before": null,
       "seed_after": null,
-      "halt_on_fail": true,
-      "chain_setup_command": "git checkout dev 2>/dev/null || git checkout main"
+      "halt_on_fail": true
     },
     {
       "step": 6,
@@ -63,8 +62,7 @@
       "partial_test": false,
       "seed_before": null,
       "seed_after": null,
-      "halt_on_fail": true,
-      "chain_setup_command": "git checkout feat/todo-cli 2>/dev/null || git checkout main"
+      "halt_on_fail": true
     },
     {
       "step": 7,
@@ -84,8 +82,7 @@
       "partial_test": false,
       "seed_before": null,
       "seed_after": "seeds/after-08-architectural-change.sql",
-      "halt_on_fail": true,
-      "chain_setup_command": "git checkout dev 2>/dev/null || git checkout main"
+      "halt_on_fail": true
     },
     {
       "step": 9,
