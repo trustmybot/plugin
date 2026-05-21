@@ -16,6 +16,17 @@ SELECT
   'tasks created post-scan (got ' || COUNT(*) || ', expected >=1)' AS description
 FROM tasks;
 
+-- The prompt asks bro to ALSO plan a follow-on count-subcommand task without
+-- dispatching it. That task lives on as the in-flight substrate step 12
+-- resumes. Branch-name agnostic — bro picks the slug; the assertion checks
+-- for any task in 'pending' status with 'count' in title or branch_id.
+SELECT
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'follow-on count task left in pending (got ' || COUNT(*) || ', expected >=1) — substrate for step 12' AS description
+FROM tasks
+WHERE status = 'pending'
+  AND (LOWER(title) LIKE '%count%' OR LOWER(branch_id) LIKE '%count%');
+
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
   'repos populated by scan (got ' || COUNT(*) || ', expected >=1)' AS description

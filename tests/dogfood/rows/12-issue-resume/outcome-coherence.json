@@ -1,6 +1,6 @@
 {
   "expected_writes": {
-    "issues WHERE objective = 'Add a CLI entry point (resume)'": "=1",
-    "tasks WHERE branch_id = 'feat/seed-cli'": "=1"
+    "tasks WHERE LOWER(title) LIKE '%count%' OR LOWER(branch_id) LIKE '%count%'": ">=1",
+    "tasks WHERE (LOWER(title) LIKE '%count%' OR LOWER(branch_id) LIKE '%count%') AND status='pending'": "=0"
   }
 }
