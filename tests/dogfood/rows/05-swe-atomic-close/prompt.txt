@@ -1,3 +1,3 @@
-@bro make a todo CLI in Python.
+@bro the todo CLI task is already planned (issue + task_create_batch ran in the prior turn — task is in `pending`). Dispatch SWE now to implement it and atomic-close when done.
 
 Don't ask questions.

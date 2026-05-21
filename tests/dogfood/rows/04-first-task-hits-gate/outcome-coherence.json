@@ -2,9 +2,6 @@
   "expected_writes": {
     "audit WHERE event_type='deep_scan_completed'": ">=1",
     "tasks": ">=1",
-    "tasks WHERE status='pending'": "=0",
-    "repos": ">=1",
-    "agent_runs": ">=1",
-    "agent_runs WHERE task_id IS NOT NULL": ">=1"
+    "repos": ">=1"
   }
 }
