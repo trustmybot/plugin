@@ -71,8 +71,6 @@ l6c_run_step() {
     terminal_pattern=""
   fi
 
-  local session_id
-  session_id=$(l6c_uuid)
   : > "$out_jsonl"
 
   local turn=1
