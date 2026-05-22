@@ -10,7 +10,7 @@ If you need a new label and it's not below, ask in the PR. Adding a label is a d
 
 ---
 
-## Canonical list — 18 labels on GH, 14 on Linear (Linear has native priority field)
+## Canonical list — 19 labels on GH, 14 on Linear (Linear has native priority field)
 
 ### Type / kind (4)
 
@@ -49,12 +49,13 @@ New area labels are added when a genuinely new surface emerges. Adding one is a 
 
 GH has no priority field, so we keep them as labels. Linear has a native priority field — no labels needed there.
 
-### TMB-specific (2)
+### TMB-specific (3)
 
 | Label | Means |
 |---|---|
 | **Doctrine** | Design rule / contract change (CLAUDE.md, planning skills, agent prompts) |
 | **Discussion** | Open design question, no decided action yet |
+| **token-burn** | Issue or PR that caused or risks abnormally high token spend |
 
 Adding any other TMB-specific label requires an entry in this table with a "why" justification.
 
