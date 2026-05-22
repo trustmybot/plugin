@@ -207,6 +207,87 @@ describe('discussion_search', () => {
   });
 });
 
+describe('discussion_search — malformed queries and recency extremes', () => {
+  it('unterminated quote returns empty results or caught error, not crash', async () => {
+    const db = tempDB();
+    const { handlers } = discussionTools(db);
+    const result = await handlers['discussion_search']!({ agent: 'bro', query: '"unterminated', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'malformed query must return results array or error string, not throw',
+    );
+    db.close();
+  });
+
+  it('unbalanced paren returns empty results or caught error, not crash', async () => {
+    const db = tempDB();
+    const { handlers } = discussionTools(db);
+    const result = await handlers['discussion_search']!({ agent: 'bro', query: '(unclosed', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'unbalanced paren must return results array or error string, not throw',
+    );
+    db.close();
+  });
+
+  it('empty query returns empty results gracefully', async () => {
+    const db = tempDB();
+    const { handlers } = discussionTools(db);
+    const result = await handlers['discussion_search']!({ agent: 'bro', query: '', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'empty query must not throw',
+    );
+    db.close();
+  });
+
+  it('recency_alpha=0 does not crash and returns array', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'test', '', 'open', '2026-01-01', '2026-01-01')`,
+    );
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (1, 'bro', 'note', 'alpha zero test entry', '2020-01-01T00:00:00Z')`,
+    );
+    const { handlers } = discussionTools(db);
+    const result = await handlers['discussion_search']!({ agent: 'bro', query: 'alpha', recency_alpha: 0 });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as { results: Array<unknown> };
+    assert.ok(Array.isArray(data.results), 'recency_alpha=0 must return array');
+    db.close();
+  });
+
+  it('recency_alpha=1 does not crash and returns array', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+       VALUES (1, 'test', '', 'open', '2026-01-01', '2026-01-01')`,
+    );
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (1, 'bro', 'note', 'alpha one test entry', '2026-05-01T00:00:00Z')`,
+    );
+    const { handlers } = discussionTools(db);
+    const result = await handlers['discussion_search']!({ agent: 'bro', query: 'alpha', recency_alpha: 1 });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as { results: Array<unknown> };
+    assert.ok(Array.isArray(data.results), 'recency_alpha=1 must return array');
+    db.close();
+  });
+});
+
 describe('audit_search', () => {
   it('returns matching snippets from summary and content_json', async () => {
     const db = tempDB();
@@ -297,6 +378,71 @@ describe('audit_search', () => {
   });
 });
 
+describe('audit_search — malformed queries and recency extremes', () => {
+  it('unterminated quote returns empty results or caught error, not crash', async () => {
+    const db = tempDB();
+    const { handlers } = auditTools(db);
+    const result = await handlers['audit_search']!({ agent: 'bro', query: '"unterminated', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'malformed audit query must return results array or error string, not throw',
+    );
+    db.close();
+  });
+
+  it('unbalanced paren returns empty results or caught error, not crash', async () => {
+    const db = tempDB();
+    const { handlers } = auditTools(db);
+    const result = await handlers['audit_search']!({ agent: 'bro', query: '(unclosed', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'unbalanced paren must return results array or error string, not throw',
+    );
+    db.close();
+  });
+
+  it('empty query returns empty results gracefully', async () => {
+    const db = tempDB();
+    const { handlers } = auditTools(db);
+    const result = await handlers['audit_search']!({ agent: 'bro', query: '', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'empty audit query must not throw',
+    );
+    db.close();
+  });
+
+  it('recency_alpha=0 does not crash and returns array', async () => {
+    const db = tempDB();
+    const { handlers } = auditTools(db);
+    const result = await handlers['audit_search']!({ agent: 'bro', query: 'test', recency_alpha: 0 });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as { results: Array<unknown> };
+    assert.ok(Array.isArray(data.results), 'recency_alpha=0 must return array for audit_search');
+    db.close();
+  });
+
+  it('recency_alpha=1 does not crash and returns array', async () => {
+    const db = tempDB();
+    const { handlers } = auditTools(db);
+    const result = await handlers['audit_search']!({ agent: 'bro', query: 'test', recency_alpha: 1 });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as { results: Array<unknown> };
+    assert.ok(Array.isArray(data.results), 'recency_alpha=1 must return array for audit_search');
+    db.close();
+  });
+});
+
 describe('file_registry_search', () => {
   it('returns matching files for a query', async () => {
     const db = tempDB();
@@ -368,6 +514,71 @@ describe('file_registry_search', () => {
     };
 
     assert.ok(data.results.length >= 1, 'trigger should have indexed the new file_registry row');
+    db.close();
+  });
+});
+
+describe('file_registry_search — malformed queries and recency extremes', () => {
+  it('unterminated quote returns empty results or caught error, not crash', async () => {
+    const db = tempDB();
+    const { handlers } = fileRegistryTools(db);
+    const result = await handlers['file_registry_search']!({ agent: 'bro', query: '"unterminated', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'malformed file_registry query must return results array or error string, not throw',
+    );
+    db.close();
+  });
+
+  it('unbalanced paren returns empty results or caught error, not crash', async () => {
+    const db = tempDB();
+    const { handlers } = fileRegistryTools(db);
+    const result = await handlers['file_registry_search']!({ agent: 'bro', query: '(unclosed', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'unbalanced paren must return results array or error string, not throw',
+    );
+    db.close();
+  });
+
+  it('empty query returns empty results gracefully', async () => {
+    const db = tempDB();
+    const { handlers } = fileRegistryTools(db);
+    const result = await handlers['file_registry_search']!({ agent: 'bro', query: '', mode: 'keyword' });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as {
+      results?: Array<unknown>;
+      error?: string;
+    };
+    assert.ok(
+      Array.isArray(data.results) || typeof data.error === 'string',
+      'empty file_registry query must not throw',
+    );
+    db.close();
+  });
+
+  it('recency_alpha=0 does not crash and returns array', async () => {
+    const db = tempDB();
+    const { handlers } = fileRegistryTools(db);
+    const result = await handlers['file_registry_search']!({ agent: 'bro', query: 'test', recency_alpha: 0 });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as { results: Array<unknown> };
+    assert.ok(Array.isArray(data.results), 'recency_alpha=0 must return array for file_registry_search');
+    db.close();
+  });
+
+  it('recency_alpha=1 does not crash and returns array', async () => {
+    const db = tempDB();
+    const { handlers } = fileRegistryTools(db);
+    const result = await handlers['file_registry_search']!({ agent: 'bro', query: 'test', recency_alpha: 1 });
+    const data = parseOk(result as { content: Array<{ text: string }> }) as { results: Array<unknown> };
+    assert.ok(Array.isArray(data.results), 'recency_alpha=1 must return array for file_registry_search');
     db.close();
   });
 });
