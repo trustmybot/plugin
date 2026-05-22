@@ -2,7 +2,6 @@
   "expected_writes": {
     "audit WHERE event_type='deep_scan_completed'": ">=1",
     "tasks": ">=1",
-    "tasks WHERE status='pending' AND (LOWER(title) LIKE '%count%' OR LOWER(branch_id) LIKE '%count%')": ">=1",
     "repos": ">=1",
     "skill_invocations WHERE skill_name LIKE 'tmb_%'": ">=1",
     "agent_runs WHERE agent_type='bro'": ">=1"

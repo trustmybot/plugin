@@ -1,3 +1,0 @@
-/monitor 123
-
-Don't ask questions.

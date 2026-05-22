@@ -5,7 +5,7 @@ Two automated dogfood layers drive **real Claude Code through pre-seeded TMB wor
 | Layer | Purpose | Scope per run | When to run |
 |---|---|---|---|
 | **L5** | Per-row independent unit tests. Each test starts from a fixture that pre-seeds the **cumulative state up to this row** (codebase, MCP DB, discussions, issues, tasks, audit, etc.). One row = one test. | Single bro turn (or short multi-turn) against pre-seeded state. Fast, isolated, ~$0.20/test. | Debug or regression-test a single row's contract. **First-line check after a fix** — if the L5 for that row doesn't pass, don't run L6. |
-| **L6** | Single **chained integration test** that walks ALL 13 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_state_get` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 14-row chain. Slow, ~$0.30–1/scenario × 14 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
+| **L6** | Single **chained integration test** that walks ALL 12 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_state_get` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 14-row chain. Slow, ~$0.30–1/scenario × 14 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
 
 The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration → L4 workflow-sim → L5 → L6) lives in [`README.md`](./README.md). This doc is the reference for how L5 + L6 work and what each catches.
 
@@ -46,7 +46,7 @@ L6 catches **cross-row continuity drift** (the seam between steps); L5 catches *
 
 ## L6 chain flowchart
 
-The 13 chain steps form a single workflow journey of a fictional TODO-CLI project. Each step is a fresh `claude -p` invocation; state passes via the cumulative trajectory DB, the project filesystem, and git.
+The 12 chain steps form a single workflow journey of a fictional TODO-CLI project. Each step is a fresh `claude -p` invocation; state passes via the cumulative trajectory DB, the project filesystem, and git.
 
 The diagram has two arrow types:
 - **Solid arrows** trace the linear chain progression (every step inherits SOMETHING from the prior step — even if just an unchanged DB).
@@ -68,9 +68,8 @@ flowchart TD
     S10[step 10: 10-consultant<br/>'JSON or SQLite for cli.py storage?'<br/>→ hook injects routing → /tmb:agent-create cto]
     S11[step 11: 11-roundtable<br/>/roundtable storage choice → cto + data-engineer]
     S12[step 12: 12-issue-resume<br/>'keep going on the in-progress task']
-    S13[step 13: 13-pr-comment-review<br/>/monitor → fetch + triage PR comments]
 
-    Done([all 13 green = release-ready])
+    Done([all 12 green = release-ready])
 
     Start --> S1
     S1 -- "identity row<br/>plugin_config: local shape" --> S2
@@ -84,12 +83,11 @@ flowchart TD
     S9 -- "kind='note' concern discussion;<br/>no Agent spawn this turn" --> S10
     S10 -- "cto registered project-local +<br/>kind='analysis' discussion" --> S11
     S11 -- "roundtable + analyses + votes<br/>from cto + data-engineer" --> S12
-    S12 -- "existing task dispatched<br/>(no duplicate planning)" --> S13
-    S13 -- "pr_review_runs cursor advanced" --> Done
+    S12 -- "existing pending task dispatched<br/>(no duplicate planning)" --> Done
 
     %% Cross-step direct dependencies (dotted = specific artifact consumed)
     S3 -. "GitHub remote URL<br/>(push target)" .-> S7
-    S4 -. "src/cli.py + tests/test_cli.py on disk<br/>(substrate for steps 5-13)" .-> S5
+    S4 -. "src/cli.py + tests/test_cli.py on disk<br/>(substrate for steps 5-12)" .-> S5
     S4 -. "src/cli.py<br/>(file to summarize)" .-> S6
     S4 -. "tests/test_cli.py<br/>(test to weaken)" .-> S9
     S4 -. "src/cli.py JSON storage<br/>(what cto + roundtable evaluate)" .-> S10
@@ -99,7 +97,6 @@ flowchart TD
     S5 -. "  " .-> S8
     S4 -. "in-progress issue + task<br/>(thing to resume)" .-> S12
     S10 -. "cto agent registered<br/>(roundtable participant)" .-> S11
-    S7 -. "pushed branch<br/>(PR substrate)" .-> S13
 ```
 
 Reading the dotted edges:
@@ -108,7 +105,6 @@ Reading the dotted edges:
 - **S5 → S7**: the committed task from step 5 is what step 7 pushes. The push gate scores `validation_attempts` on that task's `commit_sha`.
 - **S4 → S12**: step 12 resumes the issue + task step 4 created. If step 4 didn't leave an in-progress task, step 12 has nothing to resume and would (incorrectly) re-plan from scratch.
 - **S10 → S11**: cto is one of the two roundtable participants in step 11. The roundtable assertion checks BOTH `cto` (templated, from step 10 in chain or setup-l5 in isolation) AND `data-engineer` (from-scratch) voted.
-- **S7 → S13**: the pushed branch becomes the PR step 13 monitors comments on.
 
 **Note on retired step 14:** the `skill_invocations` hook-attribution assertion that step 14 used to own is now folded into step 04's outcome.sql — `skill_invocations` rows accumulate naturally on any chain step that invokes tmb skills, and step 04 is the first such step. The standalone row was redundant.
 
@@ -134,7 +130,6 @@ The "Carried from" column is the chain provenance: which prior step's Output pro
 | **10** | `10-consultant` | `src/cli.py` from step 4/5 + an open "Evaluate TODO CLI storage scale-out" issue. `cto` is template-scope in the registry but NOT instantiated locally. | step 4 (cli) + earlier-step issue | `@bro should we keep src/cli.py's storage in JSON or move to SQLite as the CLI scales?` → `consultant-spawn-required.sh` hook injects "invoke /tmb:agent-create cto" routing → bro invokes the command → Branch B template-copy → `agent_register` + `audit_log(event_type='tmb_agent_created')` → spawn cto via `Agent`. | `audit WHERE event_type='tmb_agent_created'` ≥1. `agents WHERE name='cto' AND scope='project-local'` ≥1. |
 | **11** | `11-roundtable` | `src/cli.py` + `cto` + `data-engineer` both registered project-local. L5: setup-l5 seeds both consultants. L6: `cto` from step 10; `data-engineer` from a prior chain step's from-scratch creation. | step 10 (cto) + earlier from-scratch | `/roundtable should the todo CLI's storage be JSON, SQLite, or a small backend service?` → bro calls `roundtable_create(participants=['cto','data-engineer'])` → spawns each via `Agent` → each writes `discussion_append(kind='analysis')` + `roundtable_vote`. | `roundtables` ≥1. `discussions WHERE kind='analysis'` ≥2. `roundtable_votes` from BOTH `cto` AND `data-engineer`. |
 | **12** | `12-issue-resume` | An in-progress issue with a `planning_complete` audit and a task in `pending`. L5: pre-seeded by setup-l5. L6: organic from earlier in-progress work. | step 4 + step 5 (existing planned task) | `@bro let's keep going on the CLI entry-point work.` → bro picks up the existing task (no `issue_create`, no `task_create_batch`), dispatches SWE via `Agent`. | The pre-existing issue still exists exactly once (no duplicate). `Agent` was spawned. `issue_create` + `task_create_batch` were NOT called this turn. |
-| **13** | `13-pr-comment-review` | A pushed PR with comments. L5: pre-seeded `pr_review_runs` cursor + simulated comment stream. L6: branch pushed in step 7. | step 7 | `/monitor 123` → bro fetches comments via `pr_comments_get` → triages actionables → files them as new issues/tasks. Cursor in `pr_review_runs` advances. | `pr_review_runs` row exists (cursor preserved). bro attempted `pr_comments_get`. `halt_on_fail: false` — chain continues even on partial fail (real PR backend not available in sandbox). |
 
 ### Seed bridges (between-row `seed_after` SQL files)
 

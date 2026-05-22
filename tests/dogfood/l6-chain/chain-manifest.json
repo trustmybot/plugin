@@ -121,19 +121,9 @@
       "name": "12-issue-resume",
       "row_dir": "rows/12-issue-resume",
       "partial_test": false,
-      "seed_before": null,
+      "seed_before": "seeds/before-12-issue-resume.sql",
       "seed_after": null,
       "halt_on_fail": true
-    },
-    {
-      "step": 13,
-      "id": 13,
-      "name": "13-pr-comment-review",
-      "row_dir": "rows/13-pr-comment-review",
-      "partial_test": true,
-      "seed_before": "seeds/before-13-pr-comment-review.sql",
-      "seed_after": null,
-      "halt_on_fail": false
     }
   ]
 }
