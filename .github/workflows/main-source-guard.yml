@@ -1,0 +1,25 @@
+# main-source-guard — only PRs from `dev` may target `main`.
+#
+# Enforces the gitflow doctrine: feature branches go through dev; only the
+# dev branch promotes to main. Any other source branch fails this check,
+# blocking the merge.
+name: main source guard
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify PR source is dev
+        run: |
+          if [ "${{ github.head_ref }}" != "dev" ]; then
+            echo "::error::PR to main must come from dev. This PR is from '${{ github.head_ref }}' — open it against dev first, then promote dev → main."
+            exit 1
+          fi
+          echo "✓ PR source is dev"
