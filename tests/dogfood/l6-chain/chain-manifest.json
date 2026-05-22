@@ -124,6 +124,16 @@
       "seed_before": "seeds/before-12-issue-resume.sql",
       "seed_after": null,
       "halt_on_fail": true
+    },
+    {
+      "step": 13,
+      "id": 13,
+      "name": "13-search-grounding",
+      "row_dir": "rows/13-search-grounding",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
     }
   ]
 }

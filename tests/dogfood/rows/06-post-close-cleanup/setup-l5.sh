@@ -109,3 +109,20 @@ VALUES ('$REPO_NAME', '$PROJECT_REAL');
 INSERT OR REPLACE INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
 VALUES ('$REPO_NAME', 'src/cli.py', 'source', '$content_md5', NULL, NULL);
 SQL
+
+# Pre-seed a stale file_registry_embeddings row for src/cli.py.
+# The outcome assertion verifies that after bro's file_registry_update_summaries
+# call the embedded_at timestamp is newer than this baseline.
+FR_ROWID=$(sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
+  "SELECT rowid FROM file_registry WHERE repo = '$REPO_NAME' AND path = 'src/cli.py' LIMIT 1;" 2>/dev/null)
+
+if [ -n "$FR_ROWID" ]; then
+  sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL2
+INSERT OR REPLACE INTO file_registry_embeddings (file_registry_id, embedding, model_id, embedded_at)
+VALUES ($FR_ROWID, zeroblob(1536), 'sentinel-stale-v0', datetime('now', '-1 hour'));
+
+-- Store the baseline timestamp so outcome.sql can compare without reading a file.
+INSERT OR REPLACE INTO plugin_config (key, value_json)
+VALUES ('l5_06_embedding_baseline', json_quote(datetime('now', '-30 minutes')));
+SQL2
+fi
