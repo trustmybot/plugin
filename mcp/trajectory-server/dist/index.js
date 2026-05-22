@@ -134,7 +134,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 const transport = new StdioServerTransport();
 await server.connect(transport);
-serverLog({ kind: 'startup', pid: process.pid, version: '0.8.0-rc.3', db_path: dbPath });
+serverLog({ kind: 'startup', pid: process.pid, version: '0.7.0-rc.1', db_path: dbPath });
 process.stderr.write(`server started (db: ${dbPath})\n`);
 startBackfill(db).catch((e) => console.error('[embeddings] startBackfill error:', e));
 //# sourceMappingURL=index.js.map
