@@ -1,0 +1,3 @@
+# CODEOWNERS — main branch protection routes review to the @trustmybot/admin team.
+# Any team member`s approval satisfies the "Require review from Code Owners" gate.
+* @trustmybot/admin
