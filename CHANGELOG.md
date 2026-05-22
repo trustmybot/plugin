@@ -4,6 +4,12 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-rc.3 — 2026-05-22
+
+### Added
+
+- ✨ **GH release-gate CI workflow restored** (#235). `release-gate.yml` fires on rc/stable version tags and `workflow_dispatch`. Runs L1–L4 (`run-all.sh`) + L6 13-step chain (skippable via `skip_l6` input) + L0 docker install-smoke as a parallel job. Includes HuggingFace ONNX model cache step to avoid re-downloading the bge-small model on every run.
+
 ## v0.7.0-rc.2 — 2026-05-22
 
 ### Added
