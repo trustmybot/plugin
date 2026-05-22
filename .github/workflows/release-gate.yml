@@ -49,45 +49,36 @@ jobs:
       - name: Build dist
         run: bun run build
 
-      - name: Diagnose embeddings model (HF cache state)
+      - name: Pre-download HF model via curl (bypass transformers.js downloader)
         run: |
-          set -x
-          echo "=== HF_HOME resolved ==="
-          eval echo "HF_HOME=$HF_HOME"
-          mkdir -p ~/.cache/huggingface
-          echo "=== Cache dir before download ==="
-          ls -la ~/.cache/huggingface 2>&1 || true
-          find ~/.cache/huggingface -type f -name 'model.onnx' -exec ls -la {} \; -exec file {} \; -exec sha256sum {} \; 2>&1 || true
-          echo "=== Direct curl of HF model ==="
-          mkdir -p /tmp/hf-direct
-          curl -sSL -o /tmp/hf-direct/model.onnx \
-            'https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model.onnx' \
-            -w 'http=%{http_code} size=%{size_download} time=%{time_total}\n' || echo 'curl FAILED'
-          ls -la /tmp/hf-direct/model.onnx 2>&1
-          file /tmp/hf-direct/model.onnx 2>&1
-          head -c 32 /tmp/hf-direct/model.onnx | xxd 2>&1 | head -3
-          echo "=== transformers.js version + cache layout ==="
-          ls node_modules/.bun/@huggingface*/node_modules/@huggingface/transformers/package.json 2>&1 | head -3
-          cat node_modules/.bun/@huggingface*/node_modules/@huggingface/transformers/package.json 2>&1 | grep -E '"version"|"name"' | head -5
-          echo "=== Try load via transformers.js ==="
-          node --experimental-sqlite -e "
-            (async () => {
-              try {
-                const { pipeline, env } = await import('@huggingface/transformers');
-                env.cacheDir = process.env.HF_HOME || (process.env.HOME + '/.cache/huggingface');
-                console.log('cacheDir:', env.cacheDir);
-                const p = await pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5');
-                console.log('PIPELINE OK');
-                const out = await p('hello');
-                console.log('EMBED OK shape:', out.data ? out.data.length : 'unknown');
-              } catch (e) {
-                console.error('LOAD FAILED:', e.message);
-                console.error(e.stack);
-              }
-            })();
-          " 2>&1 || echo 'node load attempt errored'
-          echo "=== Cache dir AFTER attempt ==="
-          find ~/.cache/huggingface -type f -name 'model.onnx' -exec ls -la {} \; -exec file {} \; -exec sha256sum {} \; 2>&1 || true
+          set -e
+          MODEL_DIR="$HOME/.cache/huggingface/Xenova/bge-small-en-v1.5"
+          MODEL_FILE="$MODEL_DIR/onnx/model.onnx"
+          EXPECTED_SIZE=133093490   # bytes, verified locally 2026-05-22
+          mkdir -p "$MODEL_DIR/onnx"
+          if [ -f "$MODEL_FILE" ] && [ "$(stat -c%s "$MODEL_FILE" 2>/dev/null || stat -f%z "$MODEL_FILE")" = "$EXPECTED_SIZE" ]; then
+            echo "Model already cached with correct size; skipping download."
+          else
+            echo "Downloading model.onnx from HuggingFace..."
+            curl --fail --location --retry 3 --retry-delay 5 \
+              -o "$MODEL_FILE" \
+              'https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model.onnx'
+            ACTUAL_SIZE=$(stat -c%s "$MODEL_FILE" 2>/dev/null || stat -f%z "$MODEL_FILE")
+            echo "Downloaded $ACTUAL_SIZE bytes (expected $EXPECTED_SIZE)"
+            if [ "$ACTUAL_SIZE" != "$EXPECTED_SIZE" ]; then
+              echo "FAIL: model.onnx size mismatch — download was truncated or HF served different content" >&2
+              exit 1
+            fi
+          fi
+          # Also fetch the supporting config files transformers.js needs.
+          for f in config.json tokenizer.json tokenizer_config.json special_tokens_map.json; do
+            if [ ! -f "$MODEL_DIR/$f" ]; then
+              curl --fail --location --retry 3 --retry-delay 5 \
+                -o "$MODEL_DIR/$f" \
+                "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/$f" || echo "warn: $f optional, skipping"
+            fi
+          done
+          ls -la "$MODEL_DIR" "$MODEL_DIR/onnx"
 
       - name: Run L1-L4 sweep (run-all.sh)
         run: bash tests/run-all.sh
