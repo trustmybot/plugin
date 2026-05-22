@@ -79,26 +79,12 @@ export function agentTools(db) {
             if (!VALID_SCOPES.has(scope)) {
                 throw new Error(`Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES].join(', ')}`);
             }
-            // UPSERT: insert new agent, OR update kind/scope/file_path on an existing
-            // row when any of them actually changed. This is the meaningful case
-            // when bro promotes a template-scope seed row to a project-local
-            // instance (Branch B in tmb_agent-creator): the existing 'template'
-            // row must be updated, not left alone.
-            db.run(`INSERT INTO agents (name, kind, scope, file_path)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(name) DO UPDATE SET
-           kind = excluded.kind,
-           scope = excluded.scope,
-           file_path = excluded.file_path
-         WHERE agents.kind != excluded.kind
-            OR agents.scope != excluded.scope
-            OR agents.file_path != excluded.file_path`, [name, kind, scope, filePath]);
+            db.run(`INSERT OR IGNORE INTO agents (name, kind, scope, file_path)
+         VALUES (?, ?, ?, ?)`, [name, kind, scope, filePath]);
             const row = db.get('SELECT * FROM agents WHERE name = ?', [name]);
-            // When a project-local consultant is registered (insert OR meaningful
-            // upsert), emit a tmb_agent_created audit row automatically. This closes
-            // the detection loop even when bro calls agent_register without a
-            // subsequent explicit audit_log call. changes() > 0 covers both cases —
-            // pure no-op re-registrations leave changes() == 0 and skip the audit.
+            // When a new project-local consultant is inserted, emit a tmb_agent_created
+            // audit row automatically. changes() > 0 distinguishes a real insert from
+            // an INSERT OR IGNORE no-op (idempotent re-registration).
             if (scope === 'project-local' && kind === 'consultant') {
                 const changed = db.get('SELECT changes() AS n', []);
                 if (changed && changed.n > 0 && row) {
