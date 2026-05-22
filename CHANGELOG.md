@@ -4,6 +4,22 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-rc.2 — 2026-05-22
+
+### Added
+
+- ✨ **RAG ecosystem — L1 lint + L2 unit edges** (#226). `rag-schema-invariants` lint covers recency_alpha extremes, RRF math, and malformed FTS5. L2 unit tests for these edge cases.
+- ✨ **RAG ecosystem — L3 MCP integration + L4 workflow sim** (#227). `tests/mcp-integration/search-tools.test.mjs` (32 tests: 3 tools × 3 modes + cold-fallback + role gate). `tests/workflow-sim/flow-10-rag-backfill.test.mjs` L4 workflow simulation.
+- ✨ **RAG ecosystem — L0 docker + L5/L6 chain steps** (#228). L0 docker semantic-call extension. New L5/L6 chain step 13 `13-search-grounding` + step 04/06 outcome embedding assertions.
+- ✨ **Agent templates** (#229). Architect/cto/pm/ceo/swe/pr-reviewer + base templates. CLAUDE.md reference for `discussion_search` / `audit_search` / `file_registry_search`.
+
+### Fixed
+
+- 🐛 **`bro_atomic_close` embedding on file summaries** (#232). Fires `embedAndStore` for `file_summaries[]`; `file_registry_update_summaries` normalizes absolute paths via `repos.path` prefix-strip.
+- 🐛 **`swe-atomic-close.sh` no-worktree SWE mode** (#233). Hook auto-completes when `REPO_ROOT` is on the task branch and ahead of `parent_branch`.
+- 🐛 **L1 lint — stale-framing + SC2034 + LABELS.md** (#230). Stale-framing in `commands/agent-create.md` description; SC2034 unused `session_id` in `tests/dogfood/lib/l6-chain-helpers.sh`; `token-burn` row added to `docs/contributing/LABELS.md`.
+- 🐛 **`agent_register` idempotency + hook pipefail guard** (#231). `agent_register` reverted to `INSERT OR IGNORE` idempotency; `cleanup-worktree-on-task-close.sh` hook pipefail guard.
+
 ## v0.7.0-rc.1 — 2026-05-21
 
 First release candidate of the v0.7.0 train. The merged changeset crosses two schema migrations (v2→v3→v4) and introduces a new dependency class (native ONNX runtime + an embedding model).
