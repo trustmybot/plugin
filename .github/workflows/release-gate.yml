@@ -24,9 +24,6 @@ jobs:
     name: L1+L2+L3+L4 (+ L6 chain)
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    defaults:
-      run:
-        working-directory: plugin
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
@@ -64,9 +61,6 @@ jobs:
     name: L0 docker install-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: plugin
     steps:
       - uses: actions/checkout@v4
       - name: Run install-smoke
