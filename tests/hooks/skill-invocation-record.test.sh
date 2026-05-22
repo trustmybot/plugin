@@ -10,6 +10,12 @@ PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
 HOOK="$PLUGIN_ROOT/scripts/hooks/skill-invocation-record.sh"
 
+_invoke() {
+  local skill_arg="$1"
+  echo "{\"tool_name\":\"Skill\",\"tool_input\":{\"skill\":\"${skill_arg}\"}}" \
+    | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1 || true
+}
+
 TMPDIR_SIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_SIR"' EXIT
 DB="$TMPDIR_SIR/trajectory.db"
@@ -20,12 +26,6 @@ sqlite3 "$DB" "
   INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
   VALUES (NULL, NULL, 'bro', datetime('now'));
 "
-
-_invoke() {
-  local skill_arg="$1"
-  echo "{\"tool_name\":\"Skill\",\"tool_input\":{\"skill\":\"${skill_arg}\"}}" \
-    | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1 || true
-}
 
 # ---- bare name (e.g. tmb_planning) ----
 test_case "bare skill name writes a skill_invocations row"
@@ -56,9 +56,8 @@ assert_eq "1" "$count" "Bash tool must not write a row"
 # ---- bypass env var ----
 test_case "TMB_DISABLE_SKILL_INVOCATION_HOOK=1 skips all processing"
 sqlite3 "$DB" "DELETE FROM skill_invocations;"
-_invoke() { echo "{\"tool_name\":\"Skill\",\"tool_input\":{\"skill\":\"tmb_planning\"}}" \
-  | TRAJECTORY_DB_PATH="$DB" TMB_DISABLE_SKILL_INVOCATION_HOOK=1 bash "$HOOK" 2>&1 || true; }
-_invoke
+echo '{"tool_name":"Skill","tool_input":{"skill":"tmb_planning"}}' \
+  | TRAJECTORY_DB_PATH="$DB" TMB_DISABLE_SKILL_INVOCATION_HOOK=1 bash "$HOOK" 2>&1 || true
 count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM skill_invocations;" 2>/dev/null)
 assert_eq "0" "$count" "bypass env must skip the write"
 

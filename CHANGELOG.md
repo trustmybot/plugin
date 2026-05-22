@@ -4,6 +4,13 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-rc.5 — 2026-05-22
+
+### Fixed
+
+- `tests/hooks/skill-invocation-record.test.sh`: moved `_invoke` definition above its first call and inlined the bypass-env test invocation to eliminate SC2218 in newer shellcheck.
+- `release-gate.yml`: set `HF_HOME` env var + cache `$HF_HOME`; `model.ts` now sets `env.cacheDir` from `HF_HOME` so the ONNX model lands in a predictable, cacheable path (the JS `@huggingface/transformers` v3 library does not read `TRANSFORMERS_CACHE` natively).
+
 ## v0.7.0-rc.4 — 2026-05-22
 
 ### Fixed

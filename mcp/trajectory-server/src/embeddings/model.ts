@@ -1,3 +1,6 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 let pipelinePromise: Promise<unknown> | null = null;
 let loadFailed = false;
 
@@ -5,7 +8,8 @@ export async function embed(text: string): Promise<Float32Array | null> {
   if (loadFailed) return null;
   if (!pipelinePromise) {
     try {
-      const { pipeline } = await import('@huggingface/transformers');
+      const { pipeline, env } = await import('@huggingface/transformers');
+      env.cacheDir = process.env.HF_HOME ?? join(homedir(), '.cache', 'huggingface');
       pipelinePromise = pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5');
     } catch (e) {
       console.error('[embeddings] model load failed:', e);
