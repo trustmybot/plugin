@@ -49,6 +49,46 @@ jobs:
       - name: Build dist
         run: bun run build
 
+      - name: Diagnose embeddings model (HF cache state)
+        run: |
+          set -x
+          echo "=== HF_HOME resolved ==="
+          eval echo "HF_HOME=$HF_HOME"
+          mkdir -p ~/.cache/huggingface
+          echo "=== Cache dir before download ==="
+          ls -la ~/.cache/huggingface 2>&1 || true
+          find ~/.cache/huggingface -type f -name 'model.onnx' -exec ls -la {} \; -exec file {} \; -exec sha256sum {} \; 2>&1 || true
+          echo "=== Direct curl of HF model ==="
+          mkdir -p /tmp/hf-direct
+          curl -sSL -o /tmp/hf-direct/model.onnx \
+            'https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model.onnx' \
+            -w 'http=%{http_code} size=%{size_download} time=%{time_total}\n' || echo 'curl FAILED'
+          ls -la /tmp/hf-direct/model.onnx 2>&1
+          file /tmp/hf-direct/model.onnx 2>&1
+          head -c 32 /tmp/hf-direct/model.onnx | xxd 2>&1 | head -3
+          echo "=== transformers.js version + cache layout ==="
+          ls node_modules/.bun/@huggingface*/node_modules/@huggingface/transformers/package.json 2>&1 | head -3
+          cat node_modules/.bun/@huggingface*/node_modules/@huggingface/transformers/package.json 2>&1 | grep -E '"version"|"name"' | head -5
+          echo "=== Try load via transformers.js ==="
+          node --experimental-sqlite -e "
+            (async () => {
+              try {
+                const { pipeline, env } = await import('@huggingface/transformers');
+                env.cacheDir = process.env.HF_HOME || (process.env.HOME + '/.cache/huggingface');
+                console.log('cacheDir:', env.cacheDir);
+                const p = await pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5');
+                console.log('PIPELINE OK');
+                const out = await p('hello');
+                console.log('EMBED OK shape:', out.data ? out.data.length : 'unknown');
+              } catch (e) {
+                console.error('LOAD FAILED:', e.message);
+                console.error(e.stack);
+              }
+            })();
+          " 2>&1 || echo 'node load attempt errored'
+          echo "=== Cache dir AFTER attempt ==="
+          find ~/.cache/huggingface -type f -name 'model.onnx' -exec ls -la {} \; -exec file {} \; -exec sha256sum {} \; 2>&1 || true
+
       - name: Run L1-L4 sweep (run-all.sh)
         run: bash tests/run-all.sh
 
