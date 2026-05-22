@@ -18,7 +18,7 @@ Sign off (or fail) one task's commit against its spec.
 
 **First MCP action**: `task_get(agent='pr-reviewer', task_id=N)` to load `spec_body` + `commit_sha`.
 
-**Review**: diff `<commit_sha>~1..<commit_sha>` against the spec. Apply:
+**Review**: diff `<commit_sha>~1..<commit_sha>` against the spec. For broader context on prior validation patterns, use `discussion_search(query, mode='hybrid')` or `audit_search` — they return ranked snippets, not full dumps; falls back to keyword if `semantic_unavailable`. Apply:
 
 - Scope: changed files match the spec's `## Files`
 - Success criteria met by the diff (not just claimed)

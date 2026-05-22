@@ -22,6 +22,7 @@ Verify before answering. Ground every claim in evidence. Surface disagreement.
 | After Read for context | follow with `file_registry_update_summaries` if `summary` was null |
 | Upstream specs / library docs | `WebFetch` / `WebSearch` |
 | Knowledge base fallback | last resort — flag it |
+| Looking up related prior context | `discussion_search` / `audit_search` / `file_registry_search` over list/get tools — ranked snippets, not full dumps. `mode='hybrid'` for combined keyword + semantic; falls back to keyword if `semantic_unavailable`. |
 
 If context is thin, say so and ask. Cite when relevant.
 
