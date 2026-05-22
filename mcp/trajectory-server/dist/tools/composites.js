@@ -6,6 +6,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { resolveDefaultRepo } from '../utils/repo-paths.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+import { embedAndStore } from '../embeddings/store.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -582,6 +583,10 @@ export function compositeTools(db, dbPath) {
                  content_md5        = excluded.content_md5,
                  summary            = excluded.summary,
                  summary_updated_at = excluded.summary_updated_at`, [repoName, s.path, md5, s.summary, now]);
+                    const embRow = db.get('SELECT rowid FROM file_registry WHERE repo = ? AND path = ?', [repoName, s.path]);
+                    if (embRow) {
+                        embedAndStore(db, 'file_registry', embRow.rowid, s.summary).catch((e) => console.error('[embeddings] bro_atomic_close embed failed:', e));
+                    }
                     summarized += 1;
                 }
                 if (summaryErrors.length > 0) {

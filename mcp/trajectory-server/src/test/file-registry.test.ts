@@ -767,6 +767,95 @@ describe('fileRegistryTools', () => {
     });
   });
 
+  describe('file_registry_update_summaries absolute path normalization', () => {
+    it('normalizes absolute path to relative when matching repo exists', async () => {
+      const tmpDir = mkdtempSync(join(tmpdir(), 'frab-'));
+      const repoRoot = join(tmpDir, 'myrepo');
+      execFileSync('mkdir', ['-p', join(repoRoot, 'src')]);
+      writeFileSync(join(repoRoot, 'src', 'index.ts'), 'export const x = 1;\n');
+
+      const db = tempDB();
+      db.run(`INSERT INTO repos (name, path) VALUES ('myrepo', ?)`, [repoRoot]);
+
+      const tools = fileRegistryTools(db);
+      const absPath = join(repoRoot, 'src', 'index.ts');
+      const result = await call(tools.handlers, 'file_registry_update_summaries', {
+        updates: [{ path: absPath, summary: 'absolute path test', repo: 'myrepo' }],
+      });
+      assert.ok(!result.isError, `expected ok, got: ${JSON.stringify(parseResult(result))}`);
+      const data = parseResult(result);
+      assert.equal(data.updated, 1);
+      assert.deepEqual(data.errors, []);
+
+      const row = db.get<{ path: string; summary: string }>(
+        `SELECT path, summary FROM file_registry WHERE summary = 'absolute path test'`,
+      );
+      assert.ok(row, 'row must exist');
+      assert.equal(row!.path, 'src/index.ts', 'absolute path must be normalized to relative');
+
+      db.close();
+    });
+
+    it('keeps absolute path as-is when no repo matches (logs warning)', async () => {
+      const tmpDir = mkdtempSync(join(tmpdir(), 'frab-nomatch-'));
+      const repoRoot = join(tmpDir, 'myrepo');
+      execFileSync('mkdir', ['-p', repoRoot]);
+      const unrelatedRoot = join(tmpDir, 'other');
+      execFileSync('mkdir', ['-p', join(unrelatedRoot, 'src')]);
+      writeFileSync(join(unrelatedRoot, 'src', 'file.ts'), 'content\n');
+
+      const db = tempDB();
+      db.run(`INSERT INTO repos (name, path) VALUES ('myrepo', ?)`, [repoRoot]);
+
+      const tools = fileRegistryTools(db, join(tmpDir, 'trajectory.db'));
+      db.run(
+        `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"myrepo"')`,
+      );
+
+      const absPath = join(unrelatedRoot, 'src', 'file.ts');
+      const result = await call(tools.handlers, 'file_registry_update_summaries', {
+        updates: [{ path: absPath, summary: 'unmatched abs path', repo: 'myrepo' }],
+      });
+      assert.ok(!result.isError, `expected ok, got: ${JSON.stringify(parseResult(result))}`);
+      const data = parseResult(result);
+      assert.equal(data.updated, 1);
+
+      const row = db.get<{ path: string; summary: string }>(
+        `SELECT path, summary FROM file_registry WHERE summary = 'unmatched abs path'`,
+      );
+      assert.ok(row, 'row must exist');
+      assert.equal(row!.path, absPath, 'unmatched absolute path kept as-is');
+
+      db.close();
+    });
+
+    it('relative path passes through unchanged', async () => {
+      const tmpDir = mkdtempSync(join(tmpdir(), 'frab-rel-'));
+      const repoRoot = join(tmpDir, 'myrepo');
+      execFileSync('mkdir', ['-p', join(repoRoot, 'src')]);
+      writeFileSync(join(repoRoot, 'src', 'index.ts'), 'export const x = 1;\n');
+
+      const db = tempDB();
+      db.run(`INSERT INTO repos (name, path) VALUES ('myrepo', ?)`, [repoRoot]);
+
+      const tools = fileRegistryTools(db);
+      const result = await call(tools.handlers, 'file_registry_update_summaries', {
+        updates: [{ path: 'src/index.ts', summary: 'relative path test', repo: 'myrepo' }],
+      });
+      assert.ok(!result.isError, `expected ok, got: ${JSON.stringify(parseResult(result))}`);
+      const data = parseResult(result);
+      assert.equal(data.updated, 1);
+
+      const row = db.get<{ path: string; summary: string }>(
+        `SELECT path, summary FROM file_registry WHERE summary = 'relative path test'`,
+      );
+      assert.ok(row, 'row must exist');
+      assert.equal(row!.path, 'src/index.ts', 'relative path must remain unchanged');
+
+      db.close();
+    });
+  });
+
   describe('multi-repo isolation (repo filter on delete + verify)', () => {
     it('file_registry_delete with repo=repoA does not affect row with repo=repoB and same path', async () => {
       const db = tempDB();
