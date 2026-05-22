@@ -1,0 +1,1 @@
+@bro why did we choose to extract storage into a backend interface in src/cli.py?

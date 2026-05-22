@@ -78,6 +78,23 @@ RUN ( \
       cat /tmp/smoke-out.log; exit 1)
 RUN echo "✓ A3b: SQLite open + onboard_state_get round-tripped"
 
+# A3c: semantic search round-trip — discussion_search with mode='semantic'.
+# Acceptable outcomes: real results array OR warning='semantic_unavailable'
+# (no ONNX model in the Docker layer). Either is a valid MCP 200 response;
+# what we reject is an MCP-level error (id:2 with "error" key).
+RUN ( \
+    echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'; \
+    echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'; \
+    echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"discussion_search","arguments":{"agent":"bro","query":"storage backend interface","mode":"semantic","k":3}}}'; \
+    sleep 1; \
+  ) \
+  | TRAJECTORY_DB_PATH=/tmp/smoke-semantic.db timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js > /tmp/smoke-semantic.log 2>&1; \
+  grep '"id":2' /tmp/smoke-semantic.log | grep -qvE '"error"' \
+   && (grep -qE '"results"' /tmp/smoke-semantic.log || grep -qE 'semantic_unavailable' /tmp/smoke-semantic.log) \
+  || (echo "❌ FAIL: discussion_search(mode=semantic) returned MCP error or unexpected payload"; \
+      cat /tmp/smoke-semantic.log; exit 1)
+RUN echo "✓ A3c: discussion_search(mode=semantic) returns results or semantic_unavailable (no MCP error)"
+
 # A4: every shipped agent template parses (frontmatter + body, ≤30 lines)
 RUN bash tests/lint/agent-line-budget.sh \
  || (echo "❌ FAIL: agent-line-budget lint failed in clean install" && exit 1)
