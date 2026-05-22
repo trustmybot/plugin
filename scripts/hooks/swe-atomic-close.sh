@@ -178,6 +178,22 @@ if [ -n "$WT_HEAD" ]; then
       HAS_COMMITS="true"
     fi
   fi
+else
+  # No-worktree fallback: SWE committed directly in REPO_ROOT on the feature
+  # branch (e.g. planning skill's project-root path with "do not use worktrees").
+  # Detect commits by comparing REPO_ROOT HEAD against parent_branch tip.
+  ROOT_CURRENT_BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  if [ "$ROOT_CURRENT_BRANCH" = "$BRANCH" ] && [ -n "$PARENT_BRANCH" ]; then
+    ROOT_HEAD=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)
+    PARENT_TIP=$(git -C "$REPO_ROOT" rev-parse "refs/heads/${PARENT_BRANCH}" 2>/dev/null || true)
+    if [ -z "$PARENT_TIP" ]; then
+      PARENT_TIP=$(git -C "$REPO_ROOT" rev-parse "refs/remotes/origin/${PARENT_BRANCH}" 2>/dev/null || true)
+    fi
+    if [ -n "$ROOT_HEAD" ] && [ -n "$PARENT_TIP" ] && [ "$ROOT_HEAD" != "$PARENT_TIP" ]; then
+      HAS_COMMITS="true"
+      WT_HEAD="$ROOT_HEAD"
+    fi
+  fi
 fi
 
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)

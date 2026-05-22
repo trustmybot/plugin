@@ -401,4 +401,162 @@ else
   _fail "expected at least 1 agent-runs-stats-parse-failed log line, got $PARSE_FAILED_LINES"
 fi
 
+# ========================================================
+# no-worktree fallback: SWE commits in REPO_ROOT on task branch
+# ========================================================
+
+echo '--- Test: no-worktree: REPO_ROOT on task branch + commits ahead → auto-completed ---'
+
+# Fixture: a separate repo where SWE checks out directly (no worktree).
+NW_REPO="$TMPDIR/nw-repo"
+git init -q -b dev "$NW_REPO"
+git -C "$NW_REPO" config user.email t@t.io
+git -C "$NW_REPO" config user.name t
+echo base > "$NW_REPO/base.txt"
+git -C "$NW_REPO" add .
+git -C "$NW_REPO" commit -qm "base"
+
+NW_DB="$NW_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$NW_DB")"
+sqlite3 "$NW_DB" "
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    issue_id INTEGER NOT NULL DEFAULT 1,
+    branch_id TEXT NOT NULL,
+    parent_branch_id TEXT,
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    spec_body TEXT NOT NULL DEFAULT '',
+    commit_sha TEXT,
+    repo TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+  );
+  CREATE TABLE repos (
+    name TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    file_count INTEGER NOT NULL DEFAULT 0,
+    last_scanned_at TEXT NOT NULL DEFAULT ''
+  );
+  CREATE TABLE agent_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    issue_id INTEGER,
+    agent_type TEXT NOT NULL DEFAULT 'swe',
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    tokens_total INTEGER NOT NULL DEFAULT 0,
+    tool_uses INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE plugin_config (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL DEFAULT '\"\"'
+  );
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
+    VALUES (100, 'feat/test-branch', 'dev', 'pending', datetime('now', '+1 second'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# SWE checks out the feature branch in REPO_ROOT (no worktree).
+git -C "$NW_REPO" checkout -q -b feat/test-branch
+echo "swe work" > "$NW_REPO/work.txt"
+git -C "$NW_REPO" add .
+git -C "$NW_REPO" commit -qm "feat: swe work"
+NW_HEAD=$(git -C "$NW_REPO" rev-parse HEAD)
+
+nw_swe_input() {
+  jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
+}
+
+run_hook_in_dir() {
+  local dir="$1"
+  local input="$2"
+  local db="$3"
+  (cd "$dir" && TRAJECTORY_DB_PATH="$db" bash "$HOOK" <<< "$input" 2>&1 || true)
+}
+
+test_case "no-worktree: REPO_ROOT on task branch + commits ahead → auto-completed"
+out=$(run_hook_in_dir "$NW_REPO" "$(nw_swe_input)" "$NW_DB")
+assert_eq "" "$out" "no additionalContext on auto-close"
+nw_status=$(sqlite3 "$NW_DB" "SELECT status FROM tasks WHERE id=100;")
+assert_eq "completed" "$nw_status" "task auto-closed"
+nw_sha=$(sqlite3 "$NW_DB" "SELECT commit_sha FROM tasks WHERE id=100;")
+assert_eq "$NW_HEAD" "$nw_sha" "commit_sha written from REPO_ROOT HEAD"
+
+# ========================================================
+# no-worktree fallback: REPO_ROOT on WRONG branch → warn-no-commits
+# ========================================================
+
+echo '--- Test: no-worktree: REPO_ROOT on wrong branch → warn-no-commits ---'
+
+NW2_REPO="$TMPDIR/nw2-repo"
+git init -q -b dev "$NW2_REPO"
+git -C "$NW2_REPO" config user.email t@t.io
+git -C "$NW2_REPO" config user.name t
+echo base > "$NW2_REPO/base.txt"
+git -C "$NW2_REPO" add .
+git -C "$NW2_REPO" commit -qm "base"
+
+NW2_DB="$NW2_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$NW2_DB")"
+sqlite3 "$NW2_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (101, 'feat/test-branch', 'dev', 'pending', datetime('now', '+1 second'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# REPO_ROOT stays on 'dev' (wrong branch — task is for feat/test-branch).
+# Add a commit on dev so there ARE commits but on the wrong branch.
+echo "dev work" > "$NW2_REPO/devwork.txt"
+git -C "$NW2_REPO" add .
+git -C "$NW2_REPO" commit -qm "chore: dev commit"
+
+test_case "no-worktree: REPO_ROOT on wrong branch → warn-no-commits, task stays pending"
+out=$(run_hook_in_dir "$NW2_REPO" "$(nw_swe_input)" "$NW2_DB")
+assert_contains "$out" "stopped without committing" "warn body present"
+nw2_status=$(sqlite3 "$NW2_DB" "SELECT status FROM tasks WHERE id=101;")
+assert_eq "pending" "$nw2_status" "task stays pending"
+
+# ========================================================
+# no-worktree fallback: REPO_ROOT on task branch but no commits ahead → warn
+# ========================================================
+
+echo '--- Test: no-worktree: REPO_ROOT on task branch but no commits ahead → warn-no-commits ---'
+
+NW3_REPO="$TMPDIR/nw3-repo"
+git init -q -b dev "$NW3_REPO"
+git -C "$NW3_REPO" config user.email t@t.io
+git -C "$NW3_REPO" config user.name t
+echo base > "$NW3_REPO/base.txt"
+git -C "$NW3_REPO" add .
+git -C "$NW3_REPO" commit -qm "base"
+
+NW3_DB="$NW3_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$NW3_DB")"
+sqlite3 "$NW3_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at) VALUES (102, 'feat/test-branch', 'dev', 'pending', datetime('now', '+1 second'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# REPO_ROOT on the task branch but HEAD == dev tip (no SWE commits yet).
+git -C "$NW3_REPO" checkout -q -b feat/test-branch
+
+test_case "no-worktree: REPO_ROOT on task branch but no commits ahead → warn-no-commits, task stays pending"
+out=$(run_hook_in_dir "$NW3_REPO" "$(nw_swe_input)" "$NW3_DB")
+assert_contains "$out" "stopped without committing" "warn body present"
+nw3_status=$(sqlite3 "$NW3_DB" "SELECT status FROM tasks WHERE id=102;")
+assert_eq "pending" "$nw3_status" "task stays pending"
+
 summarize
