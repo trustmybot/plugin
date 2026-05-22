@@ -11,7 +11,7 @@ skills: []
 
 Your spawn includes a specific question. If `issue_id=<N>` was provided, use that. Otherwise call `issue_list(agent='<name>', status='open')` and use the most recent open issue's id — DO NOT proceed without an `issue_id`, and never call `issue_create` (server-rejected for consultants).
 
-Read context first: `issue_get_with_discussions(agent='<name>', issue_id)`. Verify actual state, not imagined state.
+Read context first: `issue_get_with_discussions(agent='<name>', issue_id)`. Verify actual state, not imagined state. For broader context beyond the current issue, use `discussion_search(query, mode='hybrid')` or `audit_search` — they return ranked snippets, not full dumps; falls back to keyword if `semantic_unavailable`.
 
 **Persistence is mandatory.** Before returning any text to bro, you MUST call `discussion_append(agent='<name>', issue_id=<N>, kind='analysis', body='<your full analysis>')` (or `kind='concern'` if flagging risk). Text returned to bro is a summary of what you wrote — the database row is the actual deliverable. A consultant who returns without persisting has not done its job.
 
