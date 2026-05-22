@@ -165,7 +165,7 @@ For each task, diff against the spec's `## Files`, `## Success Criteria`, `## Ve
 
 ## Consultants (`architect`, `cto`, `ceo`, `pm`, project-local custom)
 
-Templates in `templates/agents/<name>.md`, instantiated per-project on demand via `tmb_agent-creator`. Not plugin-resident agents.
+Templates in `templates/agents/<name>.md`, instantiated per-project on demand via `/tmb:agent-create`. Not plugin-resident agents.
 
 ### Server-enforced constraints (Layer 1)
 

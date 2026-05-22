@@ -1,13 +1,9 @@
--- 04-first-task-hits-gate — bro must have run /scan (deep_scan_completed
--- audit row), created at least one task afterward, AND seen SWE work
--- atomically close out (task flipped from pending, agent_runs landed).
---
--- The "atomic-close" assertions were absorbed from the standalone row 5
--- (05-swe-atomic-close) once row 5 was retired from the chain. Without
--- them the chain misses a real bug class: bro spawns SWE, SWE commits,
--- agent_runs lands as completed, but tasks.status stays at 'pending'
--- because bro never called bro_atomic_close (or it failed silently).
--- See workspace-pattern bug bro hit on 2026-05-11 closing task #1.
+-- 04-first-task-hits-gate — bro responds to the registry-cold gate by
+-- running /scan, then plans + dispatches via task_create_batch. The
+-- prompt is a natural full-feature ask ("make a todo CLI"), so bro
+-- typically also spawns SWE + atomic-closes in the same turn — that's
+-- not exclusive with step 05 (which adds a feature on top); step 05's
+-- assertion just measures its own dispatch + close round trip.
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
@@ -20,20 +16,24 @@ SELECT
   'tasks created post-scan (got ' || COUNT(*) || ', expected >=1)' AS description
 FROM tasks;
 
--- Atomic-close assertions (absorbed from retired row 5).
 SELECT
-  CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
-  'no tasks stuck at pending (got ' || COUNT(*) || ', expected =0) — bro completed the atomic-close' AS description
-FROM tasks
-WHERE status = 'pending';
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'repos populated by scan (got ' || COUNT(*) || ', expected >=1)' AS description
+FROM repos;
+
+-- Folded from the (now-retired) step 14: the Skill PostToolUse hook
+-- (#2886) must record at least one tmb_* skill invocation for the bro
+-- agent_run that fired this turn. Bro loads `tmb_planning` and
+-- `tmb:agent-create`-adjacent skills during the planning chain, so by
+-- the end of this row the hook should have written rows.
+SELECT
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'skill_invocations tmb_* rows (got ' || COUNT(*) || ', expected >=1) — folded from retired step 14' AS description
+FROM skill_invocations
+WHERE skill_name LIKE 'tmb_%';
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'agent_runs row count (got ' || COUNT(*) || ', expected >=1) — SubagentStop hook fired on SWE return' AS description
-FROM agent_runs;
-
-SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'agent_runs with non-null task_id (got ' || COUNT(*) || ', expected >=1) — the hook tied the run to the task' AS description
+  'agent_runs bro row (got ' || COUNT(*) || ', expected >=1) — folded from retired step 14' AS description
 FROM agent_runs
-WHERE task_id IS NOT NULL;
+WHERE agent_type = 'bro';

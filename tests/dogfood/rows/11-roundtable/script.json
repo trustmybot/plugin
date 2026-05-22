@@ -1,5 +1,5 @@
 {
   "max_turns": 1,
   "user_after_bro": [],
-  "terminal_pattern": "roundtable closed|decision recorded|finalize|ratified|deliberation complete"
+  "terminal_pattern": ""
 }

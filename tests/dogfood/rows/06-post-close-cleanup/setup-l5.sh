@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Pre-seed src/auth.py and a file_registry row with a NULL summary so bro
+# Pre-seed src/cli.py and a file_registry row with a NULL summary so bro
 # has something to Read and a registry row to update.
+#
+# The file content matches what step 05 SWE would commit in L6 chain
+# (a working stdlib TODO CLI with add/list/done/remove subcommands on
+# JSON storage). L5 isolation seeds the same shape so the same bro
+# prompt works in both modes against the same substrate.
 set -uo pipefail
 
 PROJECT="$1"
@@ -8,43 +13,77 @@ PROJECT="$1"
 SCENARIO_DIR="$2"
 
 mkdir -p "$PROJECT/src"
-cat > "$PROJECT/src/auth.py" <<'PY'
-"""Tiny session-token utility used by the API layer.
+cat > "$PROJECT/src/cli.py" <<'PY'
+"""TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
 
-issue_token() returns a 32-byte URL-safe token bound to the user_id.
-verify_token() parses and validates the same token, raising on tamper.
-"""
-import secrets, hmac, hashlib, base64, os
+STORE = Path(os.path.expanduser("~/.todo-cli/todos.json"))
 
-_SECRET = os.environ.get("AUTH_SECRET", "dev-secret-change-me").encode()
 
-def issue_token(user_id: str) -> str:
-    nonce = secrets.token_bytes(16)
-    payload = f"{user_id}:".encode() + nonce
-    sig = hmac.new(_SECRET, payload, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(payload + sig).decode().rstrip("=")
+def _load():
+    if not STORE.exists():
+        return []
+    return json.loads(STORE.read_text())
 
-def verify_token(token: str) -> str:
-    raw = base64.urlsafe_b64decode(token + "==")
-    payload, sig = raw[:-32], raw[-32:]
-    expect = hmac.new(_SECRET, payload, hashlib.sha256).digest()
-    if not hmac.compare_digest(expect, sig):
-        raise ValueError("bad token signature")
-    return payload.split(b":", 1)[0].decode()
+
+def _save(items):
+    STORE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STORE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, indent=2))
+    tmp.replace(STORE)
+
+
+def add(args):
+    items = _load()
+    items.append({"id": len(items) + 1, "text": args.text, "done": False})
+    _save(items)
+
+
+def list_(_args):
+    for it in _load():
+        mark = "x" if it["done"] else " "
+        print(f"[{mark}] {it['id']}: {it['text']}")
+
+
+def done(args):
+    items = _load()
+    for it in items:
+        if it["id"] == args.id:
+            it["done"] = True
+    _save(items)
+
+
+def remove(args):
+    items = [it for it in _load() if it["id"] != args.id]
+    _save(items)
+
+
+def main():
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("add"); a.add_argument("text"); a.set_defaults(func=add)
+    sub.add_parser("list").set_defaults(func=list_)
+    d = sub.add_parser("done"); d.add_argument("id", type=int); d.set_defaults(func=done)
+    r = sub.add_parser("remove"); r.add_argument("id", type=int); r.set_defaults(func=remove)
+    args = p.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
 PY
 
-# #2855-followup: do NOT commit src/auth.py. The hooks this row tests
+# Do NOT commit src/cli.py here — the hooks this row tests
 # (post-task-close-rescan + post-read-summary-hint) only need the file
-# to EXIST on disk + have a file_registry row. Committing here used to
-# pollute `main` with an unrelated commit — which then leaked into
-# row 7's `feat/seed-todo` (branched off main), causing pr-reviewer at
-# the push gate to correctly flag scope-creep ('feat: add session-token
-# utility' was not in task #2's spec_body ## Files). The L6 chain was
-# blocking pr-reviewer doing its job rather than letting the push-gate
-# happy path land. Leave the file untracked here.
+# to EXIST on disk + have a file_registry row. Committing would pollute
+# `main` and could leak into row 7's branch via implicit base.
 
 # Compute md5 of the file content the same way file_registry_upsert would.
-content_md5=$(md5 -q "$PROJECT/src/auth.py" 2>/dev/null || md5sum "$PROJECT/src/auth.py" | cut -d' ' -f1)
+content_md5=$(md5 -q "$PROJECT/src/cli.py" 2>/dev/null || md5sum "$PROJECT/src/cli.py" | cut -d' ' -f1)
 
 # Seed `repos` AND `file_registry` consistently. The post-read-summary-hint
 # hook walks `repos` to convert the Read tool's absolute path back to a
@@ -68,5 +107,5 @@ INSERT OR REPLACE INTO repos (name, path)
 VALUES ('$REPO_NAME', '$PROJECT_REAL');
 
 INSERT OR REPLACE INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
-VALUES ('$REPO_NAME', 'src/auth.py', 'source', '$content_md5', NULL, NULL);
+VALUES ('$REPO_NAME', 'src/cli.py', 'source', '$content_md5', NULL, NULL);
 SQL

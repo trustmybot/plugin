@@ -243,7 +243,7 @@ The L5 row `tests/dogfood/rows/33-multirepo-commit/` catches regressions at the 
 
 ## C. Consultant invocation
 
-Human asks "get the architect's read on X" (or any named role). Bro loads `tmb_agent-creator` (which calls `agent_list` first to find the role in the registry), then spawns the consultant via `Agent`. Consultant writes its analysis as `discussion_append(kind='analysis')`. Bro reports to Human; **the Human decides** — never the consultant.
+Human types `/tmb:agent-create <ask>` OR a naturalistic question matching `/tmb:agent-create`'s description. Either path loads the skill, which calls `agent_list` to resolve the role in the registry, then spawns the consultant via `Agent`. Consultant writes its analysis as `discussion_append(kind='analysis')`. Bro reports to Human; **the Human decides** — never the consultant.
 
 `consultant-spawn-required.sh` UserPromptSubmit hook detects domain-keyword prompts and injects a routing hint (advisory; bro decides whether to spawn).
 

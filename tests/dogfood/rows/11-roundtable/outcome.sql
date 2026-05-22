@@ -1,36 +1,36 @@
--- 11-roundtable — substantive checks: a roundtable was created, consultants
--- wrote analyses + votes.
+-- 11-roundtable — bro convenes a roundtable on the todo CLI's storage
+-- choice. Participants (cto, data-engineer) are pre-seeded as
+-- project-local consultants (in chain: from prior steps; in L5: by
+-- setup-l5.sh). Bro spawns both, each writes a kind='analysis'
+-- discussion + a roundtable_vote.
 --
--- NOTE on the `roundtable_slash_invoked` audit row: the slash-detect hook
--- (scripts/hooks/roundtable-slash-detect.sh) fires correctly in
--- standalone testing but does NOT land its audit row in the real L5
--- environment — claude's slash-command expansion likely replaces the
--- raw `/roundtable …` text with the expanded skill-invocation before
--- the UserPromptSubmit hook sees it. The audit-row assertion is omitted
--- here; the hook's behaviour is exercised separately (L3, future).
---
--- Scope of L5 coverage (#2854): items 1-4 of the issue's checklist —
--- roundtable_create, consultant analyses, AND roundtable_votes. The
--- finalize/close path (items 5-8) requires a Human ratification AUQ which
--- L5's single-turn harness can't drive; that part is partial-test
--- territory (see misc/roundtable-finalize-partial for the bridge fixture).
+-- Caveats:
+--   - The `roundtable_slash_invoked` audit row from the slash-detect hook
+--     is NOT asserted: claude's slash-command expansion replaces the raw
+--     `/roundtable` text before UserPromptSubmit hooks see it. The hook
+--     is exercised separately (L3, future).
+--   - The finalize/close path (ratification AUQ) is partial-test territory.
 
+-- A roundtable was created
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
   'roundtables row count (got ' || COUNT(*) || ', expected >=1)' AS description
 FROM roundtables;
 
+-- At least 2 analysis discussions (one per participant)
 SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'discussions kind=analysis row count (got ' || COUNT(*) || ', expected >=1)' AS description
+  CASE WHEN COUNT(*) >= 2 THEN 1 ELSE 0 END AS pass,
+  'discussions kind=analysis row count (got ' || COUNT(*) || ', expected >=2 — one per participant)' AS description
 FROM discussions
 WHERE kind = 'analysis';
 
--- #2854: assert consultants left vote rows. The roundtable state machine
--- auto-flips from collecting → awaiting_human once expected_participants
--- vote rows land, so a non-empty roundtable_votes count is the single
--- best signal that the consultant spawn → vote write path is healthy.
+-- At least 2 distinct participants left a vote row. Role-agnostic so the
+-- assertion holds in both modes: L5 setup-l5 pre-seeds cto + data-engineer;
+-- L6 chain has whatever consultants prior steps left (cto from step 10 +
+-- whoever bro picks as the second participant — typically architect or pm
+-- from the always-available templates). The test purpose is "roundtable
+-- collected votes from multiple consultants", not "specifically cto + DE".
 SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'roundtable_votes row count (got ' || COUNT(*) || ', expected >=1) — #2854' AS description
+  CASE WHEN COUNT(DISTINCT participant) >= 2 THEN 1 ELSE 0 END AS pass,
+  'roundtable_votes from ≥2 distinct participants (got ' || COUNT(DISTINCT participant) || ', expected >=2)' AS description
 FROM roundtable_votes;

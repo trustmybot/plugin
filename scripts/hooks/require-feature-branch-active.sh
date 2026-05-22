@@ -41,7 +41,13 @@ if [ -z "$REPO" ]; then
 fi
 
 if [ -n "$REPO" ]; then
-  REPO_ABS="$WORKSPACE_ROOT/$REPO"
+  # Prefer the absolute path recorded in the `repos` table (authoritative
+  # — set by /scan). Falls back to the legacy workspace-join only when
+  # no matching repo row exists (e.g. pre-scan or non-workspace layout).
+  REPO_ABS=$(sqlite3 "$DB" "SELECT path FROM repos WHERE name='$REPO' LIMIT 1;" 2>/dev/null || true)
+  if [ -z "$REPO_ABS" ]; then
+    REPO_ABS="$WORKSPACE_ROOT/$REPO"
+  fi
   if [ ! -d "$REPO_ABS/.git" ]; then
     cat <<EOF
 {"decision":"block","reason":"BLOCKED: cannot resolve repo for task $TASK_ID. tasks.repo='$REPO' does not point to a git repo at '$REPO_ABS'. Verify the path is correct."}
@@ -49,7 +55,14 @@ EOF
     exit 0
   fi
 else
-  REPO_ABS="$WORKSPACE_ROOT"
+  # No explicit repo + no default config. Single-repo fallback: if the
+  # repos table has exactly one entry, use it (matches the
+  # resolveDefaultRepo MCP-side fallback for single-repo projects).
+  REPO_ABS=$(sqlite3 "$DB" "SELECT path FROM repos LIMIT 2;" 2>/dev/null | head -1 || true)
+  REPO_COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+  if [ "$REPO_COUNT" != "1" ] || [ -z "$REPO_ABS" ]; then
+    REPO_ABS="$WORKSPACE_ROOT"
+  fi
   if [ ! -d "$REPO_ABS/.git" ]; then
     cat <<EOF
 {"decision":"block","reason":"BLOCKED: cannot resolve repo for task $TASK_ID. tasks.repo IS NULL and tmb_default_repo config is unset. Set via \`config_set tmb_default_repo <inner>\` for multi-repo workspaces."}

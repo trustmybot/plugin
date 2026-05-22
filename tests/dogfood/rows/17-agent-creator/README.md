@@ -2,7 +2,7 @@
 
 **Source:** L5 `04-agent-creator` (renumbered per reconciliation table).
 
-**Scenario:** Bro is asked for the architect's opinion on SQLite WAL mode concurrency for `app.py`. Because `architect` isn't registered yet, bro must run the agent-creator ceremony: load `tmb_agent-creator`, copy the template, register the agent, then spawn it via Agent. The fixture `app.py` (SQLite + threading code) gives the architect real substance to evaluate.
+**Scenario:** Bro is asked for the architect's opinion on SQLite WAL mode concurrency for `app.py`. Because `architect` isn't registered yet, bro must run the agent-creator ceremony: load `/tmb:agent-create`, copy the template, register the agent, then spawn it via Agent. The fixture `app.py` (SQLite + threading code) gives the architect real substance to evaluate.
 
 **L5 mode:** `setup-l5.sh` seeds `onboarding-named` + commits `app.py`.
 **L6 mode:** Not in chain manifest (standalone row).

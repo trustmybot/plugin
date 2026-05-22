@@ -42,7 +42,7 @@ When looking up past decisions, audit events, or file context, prefer `discussio
 
 ### Exception — file-writing skills
 
-`tmb_skill-creator` and `tmb_agent-creator` (from-scratch mode) HALT in headless mode rather than apply a default. Silent skill/agent generation in CI is the foot-gun this rule guards against:
+`tmb_skill-creator` and `/tmb:agent-create` (from-scratch mode) HALT in headless mode rather than apply a default. Silent skill/agent generation in CI is the foot-gun this rule guards against:
 
 ```
 audit_log(agent='bro', from_node='bro', event_type='headless_creator_blocked',

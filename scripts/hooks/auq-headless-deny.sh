@@ -22,7 +22,7 @@ TMB_HEADLESS=1 is set — AskUserQuestion is unavailable in this run (CI / headl
 3. Emit BOTH writes — `audit_log(kind='"'"'event'"'"', event_type='"'"'headless_fallback'"'"', summary=...)` AND `discussion_append(kind='"'"'note'"'"', body=...)` — on bro'"'"'s behalf.
 4. Continue the parent flow with the documented default value as if the Human had typed it.
 5. Skip retrying the AskUserQuestion call with different phrasing — the deny is the signal to fall back, not to rephrase.
-For file-writing creator skills (`tmb_skill-creator`, `tmb_agent-creator`), the documented default is `headless_creator_blocked` HALT instead of an autopick — still emit the audit_log event before halting.
+For file-writing creator skills (`tmb_skill-creator`, `/tmb:agent-create`), the documented default is `headless_creator_blocked` HALT instead of an autopick — still emit the audit_log event before halting.
 <<<TMB-HEADLESS-AUQ-DENIED>>>'
 
 jq -nc --arg reason "$REASON" '{

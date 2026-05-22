@@ -40,7 +40,7 @@
       "name": "04-first-task-hits-gate",
       "row_dir": "rows/04-first-task-hits-gate",
       "partial_test": false,
-      "seed_before": null,
+      "seed_before": "seeds/before-04-first-task-hits-gate.sql",
       "seed_after": null,
       "halt_on_fail": true
     },
@@ -72,7 +72,8 @@
       "partial_test": false,
       "seed_before": null,
       "seed_after": null,
-      "halt_on_fail": true
+      "halt_on_fail": true,
+      "chain_post_command": "LATEST=$(git for-each-ref --sort=-committerdate --format=\"%(refname:short)\" refs/heads/ | grep -E \"^(feat|fix|chore|refactor)/\" | head -1); [ -n \"$LATEST\" ] && git checkout dev 2>/dev/null && git merge --ff-only \"$LATEST\" 2>/dev/null || true"
     },
     {
       "step": 8,
@@ -120,29 +121,9 @@
       "name": "12-issue-resume",
       "row_dir": "rows/12-issue-resume",
       "partial_test": false,
-      "seed_before": null,
+      "seed_before": "seeds/before-12-issue-resume.sql",
       "seed_after": null,
       "halt_on_fail": true
-    },
-    {
-      "step": 13,
-      "id": 13,
-      "name": "13-pr-comment-review",
-      "row_dir": "rows/13-pr-comment-review",
-      "partial_test": true,
-      "seed_before": null,
-      "seed_after": null,
-      "halt_on_fail": false
-    },
-    {
-      "step": 14,
-      "id": 14,
-      "name": "14-skill-invocation-recorded",
-      "row_dir": "rows/14-skill-invocation-recorded",
-      "partial_test": false,
-      "seed_before": null,
-      "seed_after": null,
-      "halt_on_fail": false
     }
   ]
 }

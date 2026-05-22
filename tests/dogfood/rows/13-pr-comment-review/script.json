@@ -1,5 +1,0 @@
-{
-  "max_turns": 1,
-  "user_after_bro": [],
-  "terminal_pattern": "comments|PR|MR|review|no comments|cannot reach|not found|pr_comments_get"
-}

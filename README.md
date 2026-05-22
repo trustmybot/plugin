@@ -1,5 +1,8 @@
 # TMB Plugin
 
+> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.**
+> `tests/dogfood/rows/*/prompt.txt` are Human-authored — they simulate real user language. Agents editing prompts to chase chain-pass results have drifted the L5/L6 suite repeatedly. If a test fails, the right move is to fix the assertion, setup-l5, hook, or doctrine — never the prompt — unless the Human explicitly says so in chat.
+
 > **Trust me bro, it works.**
 
 **Multi-agent engineering workflow for Claude Code. MIT, free forever.**
@@ -104,7 +107,7 @@ The plugin ships a **layered agent model**. Bro is a CLAUDE.md persona. Two back
 | `pr-reviewer.md` | `agents/pr-reviewer.md` (global) | Always — push gate |
 | `architect.md`, `cto.md`, `ceo.md`, `pm.md` | `templates/agents/` (copied on demand) | First time you ask for that consultant |
 
-Domain consultants outside this set are drafted on demand via `tmb_agent-creator`. Override any agent by dropping a project-local file — local wins over the global.
+Domain consultants outside this set are drafted on demand via `/tmb:agent-create`. Override any agent by dropping a project-local file — local wins over the global.
 
 ---
 

@@ -61,9 +61,20 @@ fi
 
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
 if [ -n "$TASK_REPO" ]; then
-  REPO_ROOT="$WORKSPACE_ROOT/$TASK_REPO"
+  # Prefer the absolute path recorded in the `repos` table (authoritative
+  # — set by /scan). Falls back to legacy workspace-join only when no
+  # matching repo row exists.
+  REPO_ROOT=$(sqlite3 "$DB_PATH" "SELECT path FROM repos WHERE name='$TASK_REPO' LIMIT 1;" 2>/dev/null || true)
+  [ -z "$REPO_ROOT" ] && REPO_ROOT="$WORKSPACE_ROOT/$TASK_REPO"
 else
-  REPO_ROOT="$WORKSPACE_ROOT"
+  # Single-repo fallback when no default config.
+  REPO_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+  if [ "$REPO_COUNT" = "1" ]; then
+    REPO_ROOT=$(sqlite3 "$DB_PATH" "SELECT path FROM repos LIMIT 1;" 2>/dev/null || true)
+    [ -z "$REPO_ROOT" ] && REPO_ROOT="$WORKSPACE_ROOT"
+  else
+    REPO_ROOT="$WORKSPACE_ROOT"
+  fi
 fi
 [ -d "$REPO_ROOT/.git" ] || exit 0
 
@@ -89,5 +100,27 @@ git -C "$REPO_ROOT" worktree remove "$WORKTREE_PATH" --force >/dev/null 2>&1 || 
 }
 
 git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
+
+# Post-close cleanup: reset the main checkout's HEAD back to the project's
+# base branch (pr_target). Without this, follow-on asks inherit the
+# feature-branch checkout from the just-closed task — which has caused
+# L6 chain regressions because bro's next-turn worktree mechanics get
+# tangled trying to plan from the wrong base.
+#
+# Bypass: TMB_KEEP_HEAD_ON_CLOSE=1 (rare — e.g. when the Human deliberately
+# wants to stay on the feature branch for follow-on inspection).
+if [ "${TMB_KEEP_HEAD_ON_CLOSE:-0}" != "1" ]; then
+  PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')
+  PR_TARGET="${PR_TARGET:-dev}"
+  # Only checkout if (a) the target branch exists and (b) we're not already on it.
+  CURRENT_HEAD=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  if git -C "$REPO_ROOT" rev-parse --verify "$PR_TARGET" >/dev/null 2>&1 && [ "$CURRENT_HEAD" != "$PR_TARGET" ]; then
+    if git -C "$REPO_ROOT" checkout "$PR_TARGET" >/dev/null 2>&1; then
+      printf 'tmb: checked out %s after task #%s closed (was on %s)\n' "$PR_TARGET" "$TASK_ID" "$CURRENT_HEAD" >&2
+    else
+      printf 'tmb: post-close checkout of %s failed — leaving on %s\n' "$PR_TARGET" "$CURRENT_HEAD" >&2
+    fi
+  fi
+fi
 
 printf 'tmb: cleaned up worktree %s after task #%s closed\n' "$WORKTREE_PATH" "$TASK_ID" >&2

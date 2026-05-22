@@ -1,5 +1,7 @@
 # tests
 
+> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.** `dogfood/rows/*/prompt.txt` are Human-authored to simulate real-user language. Agents that edit prompts to make a flaky chain pass have drifted the entire L5/L6 suite multiple times. On failure: fix the assertion, `setup-l5.sh`, hook, manifest, or doctrine — never the prompt — unless the Human explicitly says so in chat.
+
 How to run, what each layer covers, when to add a test where.
 
 ## Layered test pyramid

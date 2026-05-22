@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Pre-seed prior chain context: by step 10 the TODO CLI exists + the project
-# has been onboarded with an auth service discussion (from step 8). Bro is
-# asked whether to break the auth service out of the monolith — so we seed
-# a minimal auth module and a scaling-bottleneck discussion that gives the
-# consultant context.
+# Pre-seed prior chain context: by step 10 the TODO CLI exists with JSON
+# storage (matches what step 04/05 SWE would produce in L6 chain). Bro is
+# asked an architecture question about scaling the CLI's storage; bro must
+# classify as a tech-strategy ask, invoke /tmb:agent-create cto via the
+# consultant-spawn-required hook routing, and spawn cto for analysis.
 set -uo pipefail
 
 PROJECT="$1"
@@ -11,28 +11,52 @@ PROJECT="$1"
 SCENARIO_DIR="$2"
 
 mkdir -p "$PROJECT/src"
-cat > "$PROJECT/src/auth.py" <<'PY'
-"""Session-token authentication co-located in the monolith."""
-import secrets, os
+cat > "$PROJECT/src/cli.py" <<'PY'
+"""TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
+import argparse
+import json
+import os
+from pathlib import Path
 
-_SECRET = os.environ.get("AUTH_SECRET", "dev-secret").encode()
+STORE = Path(os.path.expanduser("~/.todo-cli/todos.json"))
 
-def issue_token(user_id: str) -> str:
-    return secrets.token_urlsafe(32)
 
-def verify_token(token: str) -> str:
-    return token  # stub
+def _load():
+    if not STORE.exists():
+        return []
+    return json.loads(STORE.read_text())
+
+
+def _save(items):
+    STORE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STORE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, indent=2))
+    tmp.replace(STORE)
+
+
+def add(args):
+    items = _load()
+    items.append({"id": len(items) + 1, "text": args.text, "done": False})
+    _save(items)
+
+
+def main():
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("add"); a.add_argument("text"); a.set_defaults(func=add)
+    args = p.parse_args()
+    args.func(args)
 PY
 
 (
   cd "$PROJECT" || exit 1
-  git add src/auth.py
-  git commit -qm 'feat: add auth module'
+  git add src/cli.py
+  git commit -qm 'feat: todo CLI with JSON storage'
 ) >/dev/null
 
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
 INSERT INTO issues (objective, description, status, created_at, updated_at)
-VALUES ('Evaluate auth microservice extraction',
-        'Traffic scaling is straining the monolith; auth is the hot path.',
+VALUES ('Evaluate TODO CLI storage scale-out',
+        'Team usage is rising; JSON-file storage is single-user. Open question on SQLite vs small backend service.',
         'open', datetime('now'), datetime('now'));
 SQL

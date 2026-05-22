@@ -59,12 +59,17 @@ if [ -z "$DB_PATH" ]; then
 fi
 [ -f "$DB_PATH" ] || exit 0
 
-# Find tasks awaiting validation (without a pr-reviewer pass) — the
-# substrate the push gate operates against.
+# Find tasks awaiting pr-reviewer signoff — the substrate the push gate
+# operates against. Includes `closed` (bro_atomic_close set it but
+# pr-reviewer hasn't scored yet — the canonical "ready for push, signoff
+# missing" state in the documented per-fix flow: SWE → V1/V2/V3 →
+# bro_atomic_close → pr-reviewer → push) in addition to the upstream
+# in-flight states.
 PENDING=$(sqlite3 "$DB_PATH" "
   SELECT t.id || '|' || t.branch_id || '|' || substr(COALESCE(t.title, ''), 1, 60)
     FROM tasks t
-   WHERE t.status IN ('needs_validation', 'completed')
+   WHERE t.status IN ('needs_validation', 'completed', 'closed')
+     AND t.commit_sha IS NOT NULL
      AND NOT EXISTS (
        SELECT 1 FROM validation_attempts v
         WHERE v.task_id = t.id
