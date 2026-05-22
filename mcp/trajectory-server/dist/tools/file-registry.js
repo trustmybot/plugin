@@ -499,15 +499,27 @@ export function fileRegistryTools(db, dbPath = '') {
             let updated = 0;
             const errors = [];
             const commitSha = typeof advance === 'string' && advance.length > 0 ? advance : null;
+            const allRepos = db.all(`SELECT name, path FROM repos ORDER BY length(path) DESC`);
             for (const u of updates) {
                 const explicitRepo = typeof u.repo === 'string' && u.repo.length > 0 ? u.repo : null;
+                let normalizedPath = u.path;
+                if (isAbsolute(u.path)) {
+                    const matchingRepo = allRepos.find((r) => u.path === r.path || u.path.startsWith(r.path + '/'));
+                    if (matchingRepo) {
+                        normalizedPath = u.path.slice(matchingRepo.path.length + 1);
+                    }
+                    else {
+                        console.warn(`[file_registry] absolute path "${u.path}" does not match any repo root — storing as-is`);
+                    }
+                }
+                const u2 = { ...u, path: normalizedPath };
                 let resolvedRepoName = null;
                 let repoRoot = null;
                 if (explicitRepo !== null) {
                     const repoRow = db.get(`SELECT path FROM repos WHERE name = ?`, [explicitRepo]);
                     if (!repoRow?.path) {
                         errors.push({
-                            path: u.path,
+                            path: u2.path,
                             error: `repo '${explicitRepo}' not found in repos table — run /scan to populate`,
                         });
                         continue;
@@ -527,13 +539,13 @@ export function fileRegistryTools(db, dbPath = '') {
                     }
                     else {
                         errors.push({
-                            path: u.path,
+                            path: u2.path,
                             error: 'no repo specified and tmb_default_repo not set — pass repo or run /scan first',
                         });
                         continue;
                     }
                 }
-                const abs = isAbsolute(u.path) ? u.path : resolve(repoRoot, u.path);
+                const abs = isAbsolute(u2.path) ? u2.path : resolve(repoRoot, u2.path);
                 let md5 = null;
                 // Try the resolved repo disk path first (cheap; covers the steady
                 // state where the file has merged back to main).
@@ -551,7 +563,7 @@ export function fileRegistryTools(db, dbPath = '') {
                 if (md5 === null && commitSha !== null) {
                     const buf = (() => {
                         try {
-                            return execFileSync('git', ['show', `${commitSha}:${u.path}`], {
+                            return execFileSync('git', ['show', `${commitSha}:${u2.path}`], {
                                 cwd: repoRoot,
                                 stdio: ['ignore', 'pipe', 'ignore'],
                                 maxBuffer: 64 * 1024 * 1024,
@@ -566,7 +578,7 @@ export function fileRegistryTools(db, dbPath = '') {
                 }
                 if (md5 === null) {
                     errors.push({
-                        path: u.path,
+                        path: u2.path,
                         error: commitSha
                             ? `file not found on disk and not in commit ${commitSha}`
                             : 'file not found on disk (pass advance_verified_sha to read from a git commit)',
@@ -578,10 +590,10 @@ export function fileRegistryTools(db, dbPath = '') {
              ON CONFLICT(repo, path) DO UPDATE SET
                content_md5        = excluded.content_md5,
                summary            = excluded.summary,
-               summary_updated_at = excluded.summary_updated_at`, [resolvedRepoName, u.path, md5, u.summary, now]);
-                const embRow = db.get('SELECT rowid FROM file_registry WHERE repo = ? AND path = ?', [resolvedRepoName, u.path]);
+               summary_updated_at = excluded.summary_updated_at`, [resolvedRepoName, u2.path, md5, u2.summary, now]);
+                const embRow = db.get('SELECT rowid FROM file_registry WHERE repo = ? AND path = ?', [resolvedRepoName, u2.path]);
                 if (embRow) {
-                    embedAndStore(db, 'file_registry', embRow.rowid, u.summary).catch((e) => console.error('[embeddings] file_registry_update_summaries embed failed:', e));
+                    embedAndStore(db, 'file_registry', embRow.rowid, u2.summary).catch((e) => console.error('[embeddings] file_registry_update_summaries embed failed:', e));
                 }
                 updated += 1;
             }

@@ -484,6 +484,105 @@ describe('reap_and_review_prep', () => {
         assert.match(out.reaped[0].error, /No task/);
     });
 });
+describe('bro_atomic_close embedAndStore integration', () => {
+    function makeEmbedFixture() {
+        const ws = mkdtempSync(join(tmpdir(), 'bac-embed-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        writeFileSync(join(repoRoot, 'a.ts'), 'export const x = 1;\n');
+        writeFileSync(join(repoRoot, 'b.ts'), 'export const y = 2;\n');
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+        const composites = compositeTools(db, dbPath);
+        const issues = issueTools(db, dbPath);
+        const tasks = taskTools(db);
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        const makeTask = async () => {
+            const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+                agent: 'bro', objective: 'embed test', description: 'x',
+            }))['id']));
+            await call(discussions.handlers, 'discussion_append', {
+                agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+            });
+            await call(audit.handlers, 'audit_log', {
+                agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+                from_node: 'bro', branch_id: 'fix/embed', summary: 's',
+            });
+            const created = parse(await call(tasks.handlers, 'task_create_batch', {
+                agent: 'bro', issue_id: issueId,
+                waive_intent_gate: true, waive_intent_gate_reason: 'unit-test; not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'unit-test; not under test',
+                tasks: [{ branch_id: 'fix/embed', description: 'd', spec_body: 's', repo: 'app' }],
+            }));
+            const taskId = String(created[0].id);
+            await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
+            await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234' });
+            return Number(taskId);
+        };
+        return {
+            ws, db, dbPath, repoRoot, composites, makeTask,
+            cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); },
+        };
+    }
+    it('bro_atomic_close succeeds and upserts file_registry rows for each file_summaries entry', async () => {
+        const fx = makeEmbedFixture();
+        try {
+            const taskId = await fx.makeTask();
+            const result = await call(fx.composites.handlers, 'bro_atomic_close', {
+                agent: 'bro',
+                task_id: String(taskId),
+                commit_sha: 'abc1234',
+                file_summaries: [
+                    { path: 'a.ts', summary: 'first file', repo: 'app' },
+                    { path: 'b.ts', summary: 'second file', repo: 'app' },
+                ],
+                verification_summary: 'ok',
+            });
+            assert.ok(!result.isError, `expected ok, got: ${JSON.stringify(parse(result))}`);
+            assert.equal(parse(result)['summarized'], 2);
+            const rows = fx.db.all(`SELECT path, summary FROM file_registry ORDER BY path`);
+            assert.equal(rows.length, 2, 'must have 2 file_registry rows');
+            assert.equal(rows[0].path, 'a.ts');
+            assert.equal(rows[1].path, 'b.ts');
+        }
+        finally {
+            fx.cleanup();
+        }
+    });
+    it('bro_atomic_close handles embed failure gracefully — composite succeeds even when embedAndStore rejects', async () => {
+        const fx = makeEmbedFixture();
+        try {
+            const taskId = await fx.makeTask();
+            // Pre-seed a file_registry_embeddings row to simulate a prior embed
+            // (testing the upsert path is exercised without a real model).
+            fx.db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+        VALUES ('app', 'a.ts', 'unknown', 'deadbeef00000000000000000000000a', 'prior', datetime('now'))`);
+            const rowid = fx.db.get(`SELECT rowid FROM file_registry WHERE path = 'a.ts'`).rowid;
+            const fakeVec = Buffer.alloc(384 * 4);
+            fx.db.run(`INSERT INTO file_registry_embeddings (file_registry_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)`, [rowid, fakeVec, 'test-model', new Date().toISOString()]);
+            // Now call bro_atomic_close — embed will attempt and fail (no model), but
+            // the .catch handler must prevent it from bubbling up.
+            const result = await call(fx.composites.handlers, 'bro_atomic_close', {
+                agent: 'bro',
+                task_id: String(taskId),
+                commit_sha: 'abc1234',
+                file_summaries: [{ path: 'a.ts', summary: 'updated summary', repo: 'app' }],
+                verification_summary: 'ok',
+            });
+            assert.ok(!result.isError, `composite must succeed even when embed fails, got: ${JSON.stringify(parse(result))}`);
+            assert.equal(parse(result)['summarized'], 1);
+            // The file_registry row must be updated (embed failure doesn't block upsert).
+            const reg = fx.db.get(`SELECT summary FROM file_registry WHERE path = 'a.ts'`);
+            assert.equal(reg?.summary, 'updated summary');
+        }
+        finally {
+            fx.cleanup();
+        }
+    });
+});
 // #2873-sibling: workspace-pattern multi-repo path resolution on
 // bro_atomic_close.file_summaries. Per-update repo: explicit `repo` →
 // task.repo → tmb_default_repo → error. Each test uses a tmp workspace

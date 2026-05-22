@@ -8,6 +8,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { resolveDefaultRepo } from '../utils/repo-paths.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+import { embedAndStore } from '../embeddings/store.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -741,6 +742,15 @@ export function compositeTools(
                  summary_updated_at = excluded.summary_updated_at`,
               [repoName, s.path, md5, s.summary, now],
             );
+            const embRow = db.get<{ rowid: number }>(
+              'SELECT rowid FROM file_registry WHERE repo = ? AND path = ?',
+              [repoName, s.path],
+            );
+            if (embRow) {
+              embedAndStore(db, 'file_registry', embRow.rowid, s.summary).catch((e) =>
+                console.error('[embeddings] bro_atomic_close embed failed:', e),
+              );
+            }
             summarized += 1;
           }
 
