@@ -4,31 +4,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
-## v0.7.0-rc.3 — 2026-05-19
-
-Third release candidate. Test-infrastructure refactor only — no shipped code changes, no schema migrations, no behavior shift visible to users. Released because v0.7.0 stable is gated on L6 chain green, and L6 was unbisectable until L5 and L6 shared one row tree.
-
-### Changed
-
-- 🏗️ **L5 + L6 share one canonical row tree** (#45 / !2932 + !204). Merged `tests/dogfood/flows/` (L5, 18 rows) and `tests/dogfood/l5-rows/` (L6, 13 chain steps + misc) into single `tests/dogfood/rows/` with 32 rows (14 chain + 18 standalone). Same `prompt.txt` + scorers across both modes; L5 applies a per-row `setup-l5.sh` to simulate prior-state in isolation, L6 inherits state from the prior chain step. Chain manifest gains an explicit `step` int field per entry and re-adds step 5 (`05-swe-atomic-close`) which had been absent. Adopted L6's `script.json`-driven exec model as canonical; deleted per-row `run.sh` + `tests/dogfood/run-l6.sh` + `tests/dogfood/lib/l6-helpers.sh` (legacy, all pointed at the deleted L5-rows tree).
-- 📝 **`tests/README.md` documents L5-as-L6-debug**. New "Debugging an L6 chain failure" subsection per Human directive: when a chain step fails, `bash tests/dogfood/run-l5.sh <NN>-<step-name>` runs the same prompt + scorers against simulated prior-state in isolation. L5 pass → upstream contamination (bisect chain `--from` earlier steps); L5 fail → step itself broken. ~$0.20/iteration vs ~$5–10/chain.
-
-### Known follow-ups (filed for v0.7.1)
-
-- !2933 — workflow-violation: SWE skipped `task_update_status` + `bro_atomic_close` after the consolidation commit; bro filled in. Needs a structural PostToolUse close-gate hook so SWE can't terminate a commit-bearing turn without closing.
-- Spec follow-ups (open in #45 design notes): `outcome-files.json` not yet ported to every row; per-row `outcome.sql` schema-v4 audit for stale column refs.
-
-## v0.7.0-rc.2 — 2026-05-19
-
-Second release candidate. Bundles 3 L6 fixture-calibration fixes that surfaced in the rc.1 chain run (#2929 release ceremony). No code surface changes vs rc.1 — pure fixture + skill description + hook helper.
-
-### Fixed
-
-- 🧪 **L6 step-10 (consultant) under-trigger** (#2927 / merged in `7ad11a9`). `tmb_agent-creator` description-match extended with un-named expertise-ask examples so prompts like "we're hitting X — should we A or B" route to the consultant-spawn path. The post-v0.7.0 prompt rewrite (#2923) had over-stripped the naming cue.
-- 🧪 **L6 step-2 (reonboard-implicit) literal-push misread** (#2931 / merged in `7ad11a9`). The post-v0.7.0 prompt rewrite (!2924) made the prompt provider-agnostic but too action-flavored — bro read "I want to push this project to a remote" as a literal `git push`. Verb cue rewritten to "set it up" so bro recognizes implicit reonboard intent.
-- 🐛 **L6 step-14 (skill-invocation-recorded) sentinel pollution** (#2928 / merged in `7ad11a9`). `scripts/hooks/lib/query-task.sh` DB-path resolution order changed: per-CWD walk-up now beats `~/.claude/tmb-active-workspace` sentinel (sentinel is fallback only). L6 chain runner pre-clears + restores the sentinel via EXIT trap so cross-CC-session pollution can't route hook writes to the wrong DB.
-
-## v0.7.0-rc.1 — 2026-05-19
+## v0.7.0-rc.1 — 2026-05-21
 
 First release candidate of the v0.7.0 train. The merged changeset crosses two schema migrations (v2→v3→v4) and introduces a new dependency class (native ONNX runtime + an embedding model).
 
@@ -62,9 +38,21 @@ Both migrations are defensive (`tableExists()` guards on each per-source block) 
 
 ### Known issues (filed for follow-up)
 
-- L6 step 10 (consultant spawn) — `tmb_agent-creator` description-match heuristic now under-triggers on the naturalistic prompt; filed as !2927.
-- L6 step 14 (skill-invocation-recorded) — `~/.claude/tmb-active-workspace` sentinel pollution can route the analytics hook to the wrong DB; filed as !2928.
-- L5 fixtures contain stale `WHERE kind='event'` scorer SQL referencing the `audit.kind` column dropped in v0.6.0-rc.2; pre-existing fixture drift.
+- Some pre-existing L5 fixture drift (`WHERE kind='event'` scorer SQL referencing the `audit.kind` column dropped in v0.6.0-rc.2). Tracked in v0.7.1.
+
+### Additional work bundled into this rc
+
+After the first rc.1 draft, the following landed via PR #222 (merged to dev 2026-05-21):
+
+- 🏗️ **`/tmb:agent-create` command** (#198). Retires the `tmb_agent-creator` skill — the slash command is now the self-contained ceremony (Branch A/B/C routing inlined). Commands fire deterministically via `UserPromptExpansion`; skill autoload does not. The `tmb_skill-creator` skill is kept (skill-creation is bro-judgment territory).
+- 🏗️ **Lego template model** (#198). `templates/agents/template.md` is the base; consultant role bodies inline only the critical TMB contract (because `${CLAUDE_PLUGIN_ROOT}` doesn't propagate into subagent contexts).
+- 🐛 **Hook hardening**: `consultant-spawn-required.sh` injects `/tmb:agent-create <role>` enforcement (was "load skill"); `push-intent-hint.sh` fires on `status='closed' + commit_sha + no validation pass` (was only `'needs_validation'`); `cleanup-worktree-on-task-close.sh` now also checks out `pr_target` after worktree removal (eliminates the post-close HEAD-on-feature-branch tangling that caused L6 step 08 regressions); worktree-hook path resolvers use `repos.path` first instead of synthesizing from workspace root.
+- 🐛 **MCP server**: `agent_register` upsert on conflict (was `INSERT OR IGNORE` which silently dropped template→project-local scope transitions); `resolveDefaultRepo` single-repo fallback when `tmb_default_repo` config is unset.
+- 🧪 **L5 + L6 chain architecture**: drop `--resume` (fresh `claude -p` per turn — DB-driven continuity matches real cross-session behaviour); new `chain_setup_command` / `chain_post_command` per-step manifest fields for L6-only state-shape adjustments; step 11 restructured for #221 (mixed templated + from-scratch consultants); step 14 retired (its `skill_invocations` hook attribution check folded into step 04); step 13 retired (PR-comment review can't simulate real PRs in sandbox; covered at L3); chain now 12 steps, all natural-language prompts, all hook-driven enforcement.
+- 📝 **DO NOT TOUCH PROMPTS** banner added to README.md / CLAUDE.md / tests/README.md — Human-authored prompts must not be edited by agents to chase chain-pass results.
+- 🗑️ **CLAUDE.md consultant routing row removed** (#198 part 2). The `consultant-spawn-required.sh` hook is now the deterministic routing surface.
+- 📝 **`EVALUATION.md` rewritten** — Mermaid flowchart of the 12-step chain (linear progression + dotted cross-step dependency arrows) + per-step I/O table + seed-bridge section.
+- 🗑️ **6 stale custom CI workflows queued for deletion** (PR #223) — `ab-scenario.yml`, `l5-dogfood.yml`, `l5-l6-combined.yml`, `l6-dogfood.yml`, `release-canary.yml`, `test.yml`. CodeQL stays as the only public CI (GitHub default scan).
 
 ## v0.6.0 — 2026-05-15
 
