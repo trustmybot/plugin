@@ -4,6 +4,12 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-rc.4 — 2026-05-22
+
+### Fixed
+
+- `release-gate.yml` workflow no longer assumes the local monorepo layout (`TMB/plugin/`); runs at GH repo root since `trustmybot/plugin` IS the plugin code.
+
 ## v0.7.0-rc.3 — 2026-05-22
 
 ### Added
