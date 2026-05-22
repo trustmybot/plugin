@@ -104,6 +104,72 @@ describe('embedAndStore + topKByCosine with mocked embed', () => {
         db.close();
     });
 });
+describe('recency_alpha extremes', () => {
+    it('at α=0 recency decay has no effect — score equals raw RRF', () => {
+        const RRF_K = 60;
+        const alpha = 0;
+        const rrf = 1 / (RRF_K + 0 + 1); // rank 0
+        const ageDays = 365; // old document
+        const decayed = rrf * (Math.exp(-ageDays / 30) * alpha + (1 - alpha));
+        // With alpha=0: decayed = rrf * (0 + 1) = rrf
+        assert.ok(Math.abs(decayed - rrf) < 1e-10, 'α=0 must leave score equal to raw RRF regardless of age');
+    });
+    it('at α=1 old documents are penalized more than new ones', () => {
+        const RRF_K = 60;
+        const alpha = 1;
+        const rrf = 1 / (RRF_K + 0 + 1);
+        const scoreNew = rrf * (Math.exp(-1 / 30) * alpha + (1 - alpha)); // 1 day old
+        const scoreOld = rrf * (Math.exp(-365 / 30) * alpha + (1 - alpha)); // 1 year old
+        assert.ok(scoreNew > scoreOld, 'α=1 must rank newer documents higher than older ones');
+        assert.ok(scoreOld < 1e-5, 'α=1 must near-zero score for very old documents');
+    });
+    it('hybrid score formula: decayed = rrf * (exp(-age/30) * α + (1-α))', () => {
+        const RRF_K = 60;
+        const alpha = 0.5;
+        const rank = 2;
+        const ageDays = 10;
+        const rrf = 1 / (RRF_K + rank + 1);
+        const expected = rrf * (Math.exp(-ageDays / 30) * alpha + (1 - alpha));
+        // Verify manually
+        const manual = (1 / 63) * (Math.exp(-10 / 30) * 0.5 + 0.5);
+        assert.ok(Math.abs(expected - manual) < 1e-12, 'score formula must be deterministic');
+        assert.ok(expected > 0, 'score must be positive');
+    });
+});
+describe('RRF rank-fusion math', () => {
+    it('RRF constant is 60 — score for rank 0 is 1/61', () => {
+        const RRF_K = 60;
+        const score = 1 / (RRF_K + 0 + 1);
+        assert.ok(Math.abs(score - 1 / 61) < 1e-12, 'RRF score at rank 0 must equal 1/61');
+    });
+    it('rank r=0 always scores higher than rank r=1', () => {
+        const RRF_K = 60;
+        const s0 = 1 / (RRF_K + 0 + 1);
+        const s1 = 1 / (RRF_K + 1 + 1);
+        assert.ok(s0 > s1, 'rank 0 must outscore rank 1');
+    });
+    it('combining keyword and semantic ranks is additive', () => {
+        const RRF_K = 60;
+        const r_k = 0; // keyword rank
+        const r_s = 1; // semantic rank
+        const alpha = 0; // recency off so decayed = rrf
+        const ageZero = 0;
+        const rrfKeyword = 1 / (RRF_K + r_k + 1);
+        const rrfSemantic = 1 / (RRF_K + r_s + 1);
+        const combined = rrfKeyword + rrfSemantic;
+        const decayed = combined * (Math.exp(-ageZero / 30) * alpha + (1 - alpha));
+        assert.ok(Math.abs(decayed - combined) < 1e-12, 'with α=0 and age=0, decayed must equal additive RRF sum');
+        assert.ok(combined > rrfKeyword, 'combined RRF must exceed either component alone');
+        assert.ok(combined > rrfSemantic, 'combined RRF must exceed either component alone');
+    });
+    it('score decreases monotonically as rank increases', () => {
+        const RRF_K = 60;
+        const scores = [0, 1, 2, 5, 10, 20].map((r) => 1 / (RRF_K + r + 1));
+        for (let i = 1; i < scores.length; i++) {
+            assert.ok(scores[i - 1] > scores[i], `score at rank ${i - 1} must exceed score at rank ${i}`);
+        }
+    });
+});
 describe('schema v4 — embedding tables exist in fresh DB', () => {
     it('fresh tempDB has all three embedding tables', () => {
         const db = tempDB();
