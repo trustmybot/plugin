@@ -110,7 +110,7 @@ git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
 # Bypass: TMB_KEEP_HEAD_ON_CLOSE=1 (rare — e.g. when the Human deliberately
 # wants to stay on the feature branch for follow-on inspection).
 if [ "${TMB_KEEP_HEAD_ON_CLOSE:-0}" != "1" ]; then
-  PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')
+  PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' || true)
   PR_TARGET="${PR_TARGET:-dev}"
   # Only checkout if (a) the target branch exists and (b) we're not already on it.
   CURRENT_HEAD=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
