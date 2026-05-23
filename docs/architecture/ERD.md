@@ -9,7 +9,7 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 2` base
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `skills`, `rules`, `commands`, `agents`, `repos`, `file_registry`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `skills`, `rules`, `commands`, `agents`, `repos`, `directories` (world model — ADR 0001), `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 | **Junctions** (catalog ↔ run) | `skill_invocations`, `rule_invocations` | FK to both `skills`/`rules` and `agent_runs` — bridges the catalog to per-run analytics |
 
 The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json`; `scan_run` is the single scan-side surface.
@@ -36,13 +36,15 @@ erDiagram
         TEXT  last_scanned_at
     }
 
-    file_registry {
-        TEXT  repo PK
-        TEXT  path PK
-        TEXT  type
-        TEXT  content_md5
+    directories {
+        INT   id PK
+        TEXT  repo
+        TEXT  path
+        TEXT  parent_path
         TEXT  summary
+        TEXT  summary_source
         TEXT  summary_updated_at
+        INT   file_count
     }
 
     skills {
@@ -204,7 +206,7 @@ erDiagram
 |---|---|
 | `skills` | Registry of curated + agent-created skills with effectiveness stats (`uses`, `successes`, `effectiveness`). Looked up by name. |
 | `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). |
-| `file_registry` | One row per `(repo, path)`. Phase 1 of `/scan` populates `path`/`size`/`content_md5`/`last_commit_sha` deterministically (bash + git + md5); Phase 2 fills `summary` via parallel background subagents. Drift detection is md5-only — `last_commit_sha` is metadata, not invalidation signal. Closed-task hook (`post-task-close-rescan.sh`) re-runs scan automatically; rows where md5 matches keep their summary, rows where md5 differs get the summary cleared. |
+| `directories` | One row per directory in each scanned repo — bro's world model (ADR 0001). `scan_run` populates `path` + `parent_path` + `file_count` + `summary`. `summary` preferentially comes from `<dir>/README.md` (author-curated, `summary_source='readme'`); otherwise `NULL` for lazy LLM fill. Companion `directories_fts` (keyword search) and `directories_embeddings` (semantic search via bge-small) back the `world_model_search` tool. Closed-task hook (`post-task-close-rescan.sh`) re-runs `scan_run` automatically; README-derived summaries refresh from disk on each scan. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
 | `plugin_meta` | Schema + plugin version. Current `schema_version=2`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. |
@@ -226,8 +228,8 @@ erDiagram
 
 ## How agents use this
 
-- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `audit_log`, `scan_run` (writes `repos`, `file_registry`, `deep_scan_completed` audit). Also reads `validation_history` to drive the retry loop (flow 8). Calls `file_registry_update_summaries` during V3 close (bro-only, server-enforced).
-- **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_log` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, `file_registry` summaries, or close tasks.
+- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `audit_log`, `scan_run` (writes `repos`, `directories`, `deep_scan_completed` audit). Reads the world model via `world_model_get` / `world_model_search` as the cold-start navigation surface. Also reads `validation_history` to drive the retry loop (flow 8).
+- **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_log` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, or close tasks. Reads the world model when scoping unfamiliar parts of the codebase.
 - **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, subagent_session_id)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call.
 - **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis'|'concern')` to record their position. Server-rejected on `task_create_batch`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
 

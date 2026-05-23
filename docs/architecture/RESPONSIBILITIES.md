@@ -40,7 +40,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
    - V1 — files match the spec's `## Files`
    - V2 — re-run the spec's `## Verification` commands inside the worktree
    - V3 — each `## Success Criteria` bullet visibly met by the diff
-8. `bro_atomic_close` MCP composite — single transaction: `bro_verification_pass` audit + `last_verified_sha` advance + `file_registry` summaries + status `closed` + optional issue close.
+8. `bro_atomic_close` MCP composite — single transaction: `bro_verification_pass` audit + `last_verified_sha` advance + status `closed` + optional issue close. The post-close hook (`post-task-close-rescan.sh`) backgrounds a fresh `scan_run` so the world model refreshes automatically.
 
 ### Server-enforced privileges (Layer 1)
 
@@ -48,7 +48,6 @@ Bro is the only agent allowed to call:
 - `task_create_batch`
 - `task_update_status` (shared with SWE; bro writes `closed`, SWE writes `completed`/`failed`)
 - `issue_create`, `issue_close`, `issue_resume`
-- `file_registry_update_summaries`
 - `discussion_append` for `kind='intent'`
 - `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
 - `pr_comments_get` (shared with pr-reviewer)
@@ -61,13 +60,13 @@ Bro is the only agent allowed to call:
 | Hook | When | Effect |
 |---|---|---|
 | `activation-routine.sh` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
-| `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, registry warmth) |
+| `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth) |
 | `ensure-gitignore.sh` | SessionStart | Ensure `.claude/` is gitignored |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
-| `require-summaries-before-task-close.sh` | PreToolUse `task_update_status` | Deny `closed` when summaries are missing/stale |
 | `cleanup-worktree-on-task-close.sh` | PostToolUse `task_update_status` | Remove worktree after bro closes task |
+| `post-task-close-rescan.sh` | PostToolUse `bro_atomic_close` | Background `scan_run` refreshes the world model |
 
 ### Universal rules
 
@@ -96,8 +95,6 @@ Frontmatter: `model: sonnet`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, W
 Batch in one response:
 1. Commit (using the spec's `## Commit` message)
 2. `task_update_status(agent='swe', status='completed', commit_sha)`
-
-SWE does **not** call `file_registry_update_summaries` — bro owns summaries (server-enforced).
 
 ### Server-enforced privileges (Layer 1)
 
@@ -169,7 +166,7 @@ Templates in `templates/agents/<name>.md`, instantiated per-project on demand vi
 
 ### Server-enforced constraints (Layer 1)
 
-Consultants **cannot write workflow state**: `task_create_batch`, `task_update_status`, `issue_create`, `issue_close`, `validation_record`, `file_registry_update_summaries` all return `forbidden`.
+Consultants **cannot write workflow state**: `task_create_batch`, `task_update_status`, `issue_create`, `issue_close`, `validation_record` all return `forbidden`.
 
 They **can write analyses**: `discussion_append(kind='analysis'|'concern')`, `audit_log`. Architect specifically also gets `issue_snapshot_md`.
 
@@ -190,7 +187,7 @@ Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireR
 | `task_update_status(closed)` | ✓ | | | |
 | `task_update_status(completed/failed)` | ✓ | ✓ | | |
 | `validation_record` | | | ✓ | |
-| `file_registry_update_summaries` | ✓ | | | |
+| `world_model_get` / `world_model_search` | ✓ | ✓ | ✓ | |
 | `onboard_*` (state_get/get_questions/apply) | ✓ | | | |
 | `discussion_append` | any kind | note/concern | any | analysis/concern |
 | `audit_log`, `task_get` | ✓ | ✓ | ✓ | ✓ |
