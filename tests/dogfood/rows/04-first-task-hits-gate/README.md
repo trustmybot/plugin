@@ -1,12 +1,12 @@
 # 04-first-task-hits-gate
 
-**Scenario under test:** the user onboarded but `/scan` never ran (no `deep_scan_completed` audit row). User asks for a code change ("make a todo CLI"). Bro must run `/scan` (or `scan_run` directly) BEFORE `task_create_batch` — the registry-cold gate enforces this server-side, and the test verifies bro responds correctly instead of waiving silently.
+**Scenario under test:** the user onboarded but `/scan` never ran (no `deep_scan_completed` audit row). User asks for a code change ("make a todo CLI"). Bro must run `/scan` (or `scan_run` directly) BEFORE `task_create_batch` — the world-model-cold gate enforces this server-side, and the test verifies bro responds correctly instead of waiving silently.
 
 The row also asserts the **skill-invocation hook attribution** (`skill_invocations` rows for `tmb_*` skills + at least one `agent_runs` row for `agent_type='bro'`) — folded in from the (now-retired) step 14 since these signals naturally land on any chain step that invokes tmb skills, and step 04 is the first such step.
 
 The prompt is a natural full-feature ask, so bro typically also dispatches SWE + atomic-closes in the same turn — that's not exclusive with step 05 (which adds a feature on top); step 05's assertion just measures its own dispatch + close round trip.
 
-**Bug class — Daisy's framing:** *"Assume bro will violate every step."* Bro skipping `/scan` is a P0 framework violation — the `file_registry` empty pattern from production traces directly to this.
+**Bug class — Daisy's framing:** *"Assume bro will violate every step."* Bro skipping `/scan` is a P0 framework violation — the empty-world-model pattern from production traces directly to this.
 
 ## Pre-state
 
@@ -23,7 +23,7 @@ The prompt is a natural full-feature ask, so bro typically also dispatches SWE +
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `deep_scan_completed` audit row; `tasks` ≥1; `repos` ≥1; `skill_invocations` (`tmb_*`) ≥1; `agent_runs` (`agent_type='bro'`) ≥1 |
+| `outcome.sql` | `deep_scan_completed` audit row; `tasks` ≥1; `repos` ≥1; `directories` ≥1 (world model warm); `skill_invocations` (`tmb_*`) ≥1; `agent_runs` (`agent_type='bro'`) ≥1 |
 | `outcome-coherence.json` | matching row counts |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `scan_run`, `task_create_batch` |

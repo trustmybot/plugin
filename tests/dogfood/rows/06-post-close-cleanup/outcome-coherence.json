@@ -1,5 +1,5 @@
 {
   "expected_writes": {
-    "file_registry WHERE path = 'src/cli.py' AND summary IS NOT NULL": "=1"
+    "directories WHERE summary IS NOT NULL": ">=1"
   }
 }

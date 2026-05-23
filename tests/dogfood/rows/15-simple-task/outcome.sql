@@ -2,8 +2,8 @@
 -- The scorer requires every row's pass column to be 1.
 --
 -- Scope: bro planning phase only. SWE is spawned but does not complete within
--- the L5 window, so post-SWE assertions (file_registry summaries,
--- last_verified_sha) belong in a separate SWE-return flow, not here.
+-- the L5 window, so post-SWE assertions (last_verified_sha, world-model
+-- refresh) belong in a separate SWE-return flow, not here.
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,

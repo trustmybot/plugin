@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Onboarded but no /scan has run — simulate the production state where
-# bro tried to dispatch tasks against an empty file_registry.
+# bro tried to dispatch tasks against an empty world model.
 #
 # Bro is asked to "make a todo CLI by Python in src/cli.py with tests in
 # tests/test_cli.py" — a full feature ask. The gate response is the
