@@ -206,14 +206,12 @@ function persistDirectories(db, out, now) {
     }
     return { dirs_upserted, dirs_readme_summarized };
 }
-// Persist repos[] + files[] from a scan output. Transactional.
-// Drift detection is md5-only: rows with matching md5 keep their summary
-// (so re-running /scan doesn't blow away populated descriptions); rows
-// where md5 differs get the summary cleared so future Reads repopulate.
+// Persist repos[] + directories[] from a scan output. Transactional.
+// File-level state lives entirely in the directories rows (file_count) and
+// the world model. Per-file md5/summary state was removed when file_registry
+// was retired (schema v7).
 function persistScan(db, out) {
     let repos_upserted = 0;
-    let files_upserted = 0;
-    let files_md5_changed = 0;
     let dirs_upserted = 0;
     let dirs_readme_summarized = 0;
     const now = nowISO();
@@ -227,29 +225,12 @@ function persistScan(db, out) {
            last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
             repos_upserted++;
         }
-        for (const f of out.files) {
-            const existing = db.get(`SELECT content_md5 FROM file_registry WHERE repo = ? AND path = ?`, [f.repo, f.path]);
-            const md5Changed = !existing || existing.content_md5 !== f.content_md5;
-            if (md5Changed)
-                files_md5_changed++;
-            // INSERT OR REPLACE rebuilds the row; preserve summary unless md5 changed.
-            const summaryClause = md5Changed
-                ? 'NULL, NULL'
-                : `(SELECT summary FROM file_registry WHERE repo = ? AND path = ?), (SELECT summary_updated_at FROM file_registry WHERE repo = ? AND path = ?)`;
-            const summaryArgs = md5Changed ? [] : [f.repo, f.path, f.repo, f.path];
-            db.run(`INSERT OR REPLACE INTO file_registry
-           (repo, path, type, content_md5, summary, summary_updated_at)
-         VALUES (?, ?, 'source', ?, ${summaryClause})`, [f.repo, f.path, f.content_md5, ...summaryArgs]);
-            files_upserted++;
-        }
         const dirStats = persistDirectories(db, out, now);
         dirs_upserted = dirStats.dirs_upserted;
         dirs_readme_summarized = dirStats.dirs_readme_summarized;
     });
     return {
         repos_upserted,
-        files_upserted,
-        files_md5_changed,
         dirs_upserted,
         dirs_readme_summarized,
     };
@@ -258,7 +239,7 @@ export function scanTools(db) {
     const definitions = [
         {
             name: 'scan_run',
-            description: 'Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo\'s tracked files, computes content_md5, and persists to repos + file_registry. Drift detection is md5-only (no git diff). Emits a deep_scan_completed audit event so the registry-cold gate clears. The audit content_json carries a `source` field naming who fired the scan (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) plus `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan) — useful for diagnostics + the scan-side renderer pass (#2881). Phase 1 only — file summaries are filled by parallel subagents in Phase 2 (see commands/scan.md).',
+            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo's tracked files, and persists to `repos` + `directories`. For each unique directory in the file set, populates `directories.summary` from `<dir>/README.md` (author-curated, summary_source='readme') or leaves NULL for lazy LLM fill. Emits a deep_scan_completed audit event. The audit content_json carries `source` (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) and `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan). See docs/architecture/WORLD_MODEL.md + ADR 0001.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -287,30 +268,6 @@ export function scanTools(db) {
                 required: ['agent'],
             },
         },
-        {
-            name: 'file_registry_bulk_upsert',
-            description: 'Bulk-upsert file_registry rows from a JSON array. Preserves existing summaries when content_md5 matches; clears them otherwise. Lower-level companion to scan_run for tooling that has already enumerated files.',
-            inputSchema: {
-                type: 'object',
-                properties: {
-                    agent: { type: 'string' },
-                    files: {
-                        type: 'array',
-                        description: 'Array of { repo, path, content_md5 } objects.',
-                        items: {
-                            type: 'object',
-                            properties: {
-                                repo: { type: 'string' },
-                                path: { type: 'string' },
-                                content_md5: { type: 'string' },
-                            },
-                            required: ['repo', 'path', 'content_md5'],
-                        },
-                    },
-                },
-                required: ['agent', 'files'],
-            },
-        },
     ];
     const handlers = {
         scan_run: requireRoles('scan_run', ['bro'], wrap(async (args) => {
@@ -329,7 +286,7 @@ export function scanTools(db) {
             // (id=-1) — this is a session-level event, not work-issue scoped.
             db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
            VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`, [
-                `Scanned ${out.repos.length} repos, ${out.files.length} files (${stats.files_md5_changed} md5-changed), ${stats.dirs_upserted} dirs (${stats.dirs_readme_summarized} README-summarized) — source=${source}${structuralChange ? ', structural-change' : ''}`,
+                `Scanned ${out.repos.length} repos, ${out.files.length} files, ${stats.dirs_upserted} dirs (${stats.dirs_readme_summarized} README-summarized) — source=${source}${structuralChange ? ', structural-change' : ''}`,
                 JSON.stringify({
                     ...stats,
                     session_dir: out.session_dir,
@@ -364,18 +321,6 @@ export function scanTools(db) {
         repos_list: requireRoles('repos_list', ['bro', 'swe', 'pr-reviewer'], wrap(async () => {
             const rows = db.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
             return ok({ repos: rows });
-        })),
-        file_registry_bulk_upsert: requireRoles('file_registry_bulk_upsert', ['bro', 'swe'], wrap(async (args) => {
-            const files = (args['files'] ?? []);
-            if (!Array.isArray(files))
-                return err('files must be an array');
-            const stats = persistScan(db, {
-                session_dir: '',
-                scanned_at: nowISO(),
-                repos: [],
-                files,
-            });
-            return ok(stats);
         })),
     };
     return { definitions, handlers };

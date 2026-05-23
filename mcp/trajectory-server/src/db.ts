@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 6;
+const TARGET_SCHEMA_VERSION = 7;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -368,6 +368,9 @@ function runMigrations(
   if (fromVersion < 6 && toVersion >= 6) {
     migrateV5toV6(db);
   }
+  if (fromVersion < 7 && toVersion >= 7) {
+    migrateV6toV7(db);
+  }
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -382,6 +385,31 @@ function tableExists(db: DatabaseSync, table: string): boolean {
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
     .get(table) as { name: string } | undefined;
   return row !== undefined;
+}
+
+function migrateV6toV7(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    // Drop file_registry infrastructure — superseded by the directory-level
+    // world model (ADR 0001). Order matters: triggers reference the virtual
+    // FTS table, which references the base table; drop in reverse-dependency.
+    db.exec('DROP TRIGGER IF EXISTS file_registry_au_new');
+    db.exec('DROP TRIGGER IF EXISTS file_registry_au');
+    db.exec('DROP TRIGGER IF EXISTS file_registry_ad');
+    db.exec('DROP TRIGGER IF EXISTS file_registry_ai');
+    db.exec('DROP INDEX IF EXISTS idx_file_registry_embeddings_model');
+    db.exec('DROP TABLE IF EXISTS file_registry_embeddings');
+    db.exec('DROP TABLE IF EXISTS file_registry_fts');
+    db.exec('DROP TABLE IF EXISTS file_registry');
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
 }
 
 function migrateV5toV6(db: DatabaseSync): void {

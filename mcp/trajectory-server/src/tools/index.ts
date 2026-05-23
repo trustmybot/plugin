@@ -12,7 +12,6 @@ import { commandTools } from './commands.js';
 import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
-import { fileRegistryTools } from './file-registry.js';
 import { branchReportMdTools } from './branch_report_md.js';
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
@@ -54,7 +53,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
   const agents = agentTools(db);
   const reports = reportTools(db);
   const config = configTools(db);
-  const fileRegistry = fileRegistryTools(db, dbPath);
   const branchReport = branchReportMdTools(db);
   const stats = statsTools(db);
   const roundtable = roundtableTools(db);
@@ -76,7 +74,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...agents.definitions,
     ...reports.definitions,
     ...config.definitions,
-    ...fileRegistry.definitions,
     ...branchReport.definitions,
     ...stats.definitions,
     ...roundtable.definitions,
@@ -99,7 +96,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...agents.handlers,
     ...reports.handlers,
     ...config.handlers,
-    ...fileRegistry.handlers,
     ...branchReport.handlers,
     ...stats.handlers,
     ...roundtable.handlers,

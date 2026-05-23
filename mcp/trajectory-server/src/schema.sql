@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 6, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 7, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. file_registry rows reference repos.name via the repo column.
@@ -179,19 +179,6 @@ CREATE TABLE IF NOT EXISTS repos (
     path              TEXT    NOT NULL,
     file_count        INTEGER NOT NULL DEFAULT 0,
     last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS file_registry (
-    repo                TEXT NOT NULL DEFAULT '',
-    path                TEXT NOT NULL,
-    type                TEXT NOT NULL DEFAULT 'unknown',
-    -- Codebase-memory columns (#45). content_md5 is the cheap drift probe;
-    -- summary is the LLM-generated summary written by bro on Read or by SWE
-    -- at atomic-close; summary_updated_at gates staleness.
-    content_md5         TEXT,
-    summary             TEXT,
-    summary_updated_at  TEXT,
-    PRIMARY KEY (repo, path)
 );
 
 CREATE TABLE IF NOT EXISTS plugin_config (
@@ -293,7 +280,7 @@ CREATE TABLE IF NOT EXISTS commands (
 -- Seed the bundled slash commands so a fresh DB doesn't sit empty
 -- (same pattern as agents + skills seeds above).
 INSERT OR IGNORE INTO commands (name, description, file_path, scope, args_schema, status, created_at, updated_at) VALUES
-    ('scan',       'Deterministically populate the file_registry by walking the session dir for git repos, computing content_md5 per file. Phase 1 (programmatic) clears the registry-cold gate; Phase 2 (parallel summary fill) runs in the background.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
+    ('scan',       'Populate the world model (`directories` table) by walking the session dir for git repos and pulling each dir''s README.md into a summary. Single phase — no background fill required for the primary navigation surface.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
     ('onboard',    'Configure or change identity, branching model, PR target, remotes, and issue-sync. Server-driven — bro orchestrates AskUserQuestion rounds; the MCP `onboard_*` tools own every if/else branch.',                                                       'commands/onboard.md',    'global', '{}',                                                          'active', datetime('now'), datetime('now')),
     ('monitor',    'Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them.',                                                                                                                                                       'commands/monitor.md',    'global', '{"argument_hint":"<PR or MR number>"}',                       'active', datetime('now'), datetime('now')),
     ('roundtable',    'Multi-agent deliberation on a topic with checkbox/radio AUQ ratification.',                                                                                                                                                                            'commands/roundtable.md',    'global', '{"argument_hint":"<topic to deliberate>"}',     'active', datetime('now'), datetime('now')),
@@ -380,30 +367,6 @@ CREATE TRIGGER IF NOT EXISTS audit_au AFTER UPDATE ON audit BEGIN
   INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
 END;
 
-CREATE VIRTUAL TABLE IF NOT EXISTS file_registry_fts USING fts5(
-  summary,
-  path,
-  content='file_registry',
-  tokenize='porter unicode61'
-);
-
-CREATE TRIGGER IF NOT EXISTS file_registry_ai AFTER INSERT ON file_registry
-WHEN new.summary IS NOT NULL BEGIN
-  INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
-END;
-CREATE TRIGGER IF NOT EXISTS file_registry_ad AFTER DELETE ON file_registry
-WHEN old.summary IS NOT NULL BEGIN
-  INSERT INTO file_registry_fts(file_registry_fts, rowid, summary, path) VALUES ('delete', old.rowid, old.summary, old.path);
-END;
-CREATE TRIGGER IF NOT EXISTS file_registry_au AFTER UPDATE ON file_registry
-WHEN old.summary IS NOT NULL BEGIN
-  INSERT INTO file_registry_fts(file_registry_fts, rowid, summary, path) VALUES ('delete', old.rowid, old.summary, old.path);
-END;
-CREATE TRIGGER IF NOT EXISTS file_registry_au_new AFTER UPDATE ON file_registry
-WHEN new.summary IS NOT NULL BEGIN
-  INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
-END;
-
 -- Embedding tables for semantic search (Phase 2 of #2905).
 -- One table per source. Empty on migration; populated by background backfill
 -- on server startup and inline on new writes.
@@ -423,14 +386,6 @@ CREATE TABLE IF NOT EXISTS audit_embeddings (
   embedded_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_id);
-
-CREATE TABLE IF NOT EXISTS file_registry_embeddings (
-  file_registry_id INTEGER PRIMARY KEY,
-  embedding BLOB NOT NULL,
-  model_id TEXT NOT NULL,
-  embedded_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_file_registry_embeddings_model ON file_registry_embeddings(model_id);
 
 -- Directory-level world model (v6). PRIMARY navigation surface for agents
 -- arriving cold. Populated by scan_run from the unique dirs implied by the

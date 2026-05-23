@@ -1,14 +1,9 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { createHash } from 'node:crypto';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, isAbsolute } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { resolveDefaultRepo } from '../utils/repo-paths.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
-import { embedAndStore } from '../embeddings/store.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -70,13 +65,9 @@ function intentToType(text: string): { prefix: string; confidence: number } {
   return { prefix: 'chore', confidence: 0.3 };
 }
 
-function md5OfBuffer(buf: Buffer): string {
-  return createHash('md5').update(buf).digest('hex');
-}
-
 export function compositeTools(
   db: TrajectoryDB,
-  dbPath: string,
+  _dbPath: string,
 ): { definitions: Tool[]; handlers: Record<string, Fn> } {
   const definitions: Tool[] = [
     {
@@ -234,35 +225,16 @@ export function compositeTools(
     {
       name: 'bro_atomic_close',
       description:
-        'Bro task-close composite — collapses the V3 four-call batch (audit, summaries, ' +
-        'task close, optional issue close) into one DB transaction. Server-side enforcement of ' +
-        'the close-step ordering eliminates the L5 close-drift failure mode. Hooks downstream of ' +
-        '`task_update_status` still fire (cleanup-worktree, audit log).',
+        'Bro task-close composite — writes the bro_verification_pass audit row, advances ' +
+        'last_verified_sha, flips the task to closed, and optionally closes the parent issue, ' +
+        'all in one DB transaction. Hooks downstream of `task_update_status` still fire ' +
+        '(cleanup-worktree, post-task-close-rescan, audit log).',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           task_id: { type: 'string' },
           commit_sha: { type: 'string' },
-          file_summaries: {
-            type: 'array',
-            description:
-              'Per-touched-path summaries that bro authored after V1/V2 verification. ' +
-              "Server md5's each path against the commit_sha so the registry stays truthful.",
-            items: {
-              type: 'object',
-              properties: {
-                path: { type: 'string' },
-                summary: { type: 'string' },
-                repo: {
-                  type: 'string',
-                  description:
-                    'Optional repo name from repos table. Defaults to tasks.repo, then tmb_default_repo. Required for workspace-pattern projects so paths resolve against the right inner repo.',
-                },
-              },
-              required: ['path', 'summary'],
-            },
-          },
           verification_summary: {
             type: 'string',
             description: "Free-text — lands in the bro_verification_pass audit row.",
@@ -274,7 +246,7 @@ export function compositeTools(
               'same transaction.',
           },
         },
-        required: ['agent', 'task_id', 'commit_sha', 'file_summaries', 'verification_summary'],
+        required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
       },
     },
   ];
@@ -619,24 +591,11 @@ export function compositeTools(
       wrap(async (args) => {
         const taskId = args['task_id'] as string;
         const commitSha = ((args['commit_sha'] as string) ?? '').toLowerCase();
-        const summaries = args['file_summaries'] as Array<{
-          path: string;
-          summary: string;
-          repo?: string;
-        }>;
         const verificationSummary = args['verification_summary'] as string;
         const closeIssueIfLast = args['close_issue_if_last_task'] === true;
 
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
           return err('commit_sha must be a 7..40-char hex SHA.');
-        }
-        if (!Array.isArray(summaries) || summaries.length === 0) {
-          return err('file_summaries must be a non-empty array of { path, summary }.');
-        }
-        for (const s of summaries) {
-          if (!s || typeof s.path !== 'string' || typeof s.summary !== 'string') {
-            return err('each file_summaries entry must have string { path, summary }.');
-          }
         }
 
         const task = db.get<{
@@ -658,6 +617,7 @@ export function compositeTools(
         }
 
         const now = nowISO();
+        const summarized = 0;
 
         const result = db.transaction(() => {
           // 1. bro_verification_pass audit row.
@@ -669,98 +629,10 @@ export function compositeTools(
               task.issue_id,
               task.branch_id,
               verificationSummary.slice(0, 200),
-              JSON.stringify({ task_id: task.id, commit_sha: commitSha, file_count: summaries.length }),
+              JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
               now,
             ],
           );
-
-          // 2. file_registry summaries — per-update repo resolution + md5 each
-          // path against the commit. Multi-repo workspace pattern requires
-          // resolving paths under the right inner repo, not the workspace root.
-          // Resolution order (per #2885 sibling fix): explicit s.repo → task.repo
-          // → tmb_default_repo → error mentioning all three.
-          const summaryErrors: Array<{ path: string; error: string }> = [];
-          let summarized = 0;
-          const defaultRepo = resolveDefaultRepo(db, dbPath);
-          for (const s of summaries) {
-            const explicit = typeof s.repo === 'string' && s.repo.length > 0 ? s.repo : null;
-            const repoName = explicit ?? task.repo ?? defaultRepo?.name ?? null;
-            if (!repoName) {
-              summaryErrors.push({
-                path: s.path,
-                error:
-                  'no repo specified, task.repo unset, and tmb_default_repo not set — ' +
-                  'pass `repo` on the file_summaries entry, or set task.repo via task_create_batch, ' +
-                  'or run /scan to populate tmb_default_repo',
-              });
-              continue;
-            }
-            const repoRow = db.get<{ path: string }>(
-              `SELECT path FROM repos WHERE name = ?`,
-              [repoName],
-            );
-            if (!repoRow?.path) {
-              summaryErrors.push({
-                path: s.path,
-                error: `repo '${repoName}' not found in repos table — run /scan first`,
-              });
-              continue;
-            }
-            const repoRoot = repoRow.path;
-
-            let md5: string | null = null;
-            const abs = isAbsolute(s.path) ? s.path : resolve(repoRoot, s.path);
-            if (existsSync(abs)) {
-              try {
-                md5 = md5OfBuffer(readFileSync(abs));
-              } catch {
-                /* fallthrough */
-              }
-            }
-            if (md5 === null) {
-              try {
-                const buf = execFileSync('git', ['show', `${commitSha}:${s.path}`], {
-                  cwd: repoRoot,
-                  stdio: ['ignore', 'pipe', 'ignore'],
-                  maxBuffer: 64 * 1024 * 1024,
-                });
-                md5 = md5OfBuffer(buf);
-              } catch {
-                summaryErrors.push({
-                  path: s.path,
-                  error: `not on disk at ${abs} and not in commit ${commitSha} of ${repoName}`,
-                });
-                continue;
-              }
-            }
-            db.run(
-              `INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
-               VALUES (?, ?, 'unknown', ?, ?, ?)
-               ON CONFLICT(repo, path) DO UPDATE SET
-                 content_md5        = excluded.content_md5,
-                 summary            = excluded.summary,
-                 summary_updated_at = excluded.summary_updated_at`,
-              [repoName, s.path, md5, s.summary, now],
-            );
-            const embRow = db.get<{ rowid: number }>(
-              'SELECT rowid FROM file_registry WHERE repo = ? AND path = ?',
-              [repoName, s.path],
-            );
-            if (embRow) {
-              embedAndStore(db, 'file_registry', embRow.rowid, s.summary).catch((e) =>
-                console.error('[embeddings] bro_atomic_close embed failed:', e),
-              );
-            }
-            summarized += 1;
-          }
-
-          if (summaryErrors.length > 0) {
-            throw new Error(
-              `bro_atomic_close: ${summaryErrors.length} file(s) failed summary md5 (` +
-                summaryErrors.map((e) => `${e.path}: ${e.error}`).join('; ') +
-                `). Aborted before status flip.`,
-            );
-          }
 
           // Advance last_verified_sha — invariant the close-gate hook checks.
           db.run(

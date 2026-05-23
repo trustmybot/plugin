@@ -23,7 +23,6 @@ _TMB_FALLBACK_ROLES_task_update_status='bro,swe'
 _TMB_FALLBACK_ROLES_discussion_append='bro,architect,swe,pr-reviewer'
 _TMB_FALLBACK_ROLES_audit_log='bro,architect,swe,pr-reviewer'
 _TMB_FALLBACK_ROLES_issue_close='bro'
-_TMB_FALLBACK_ROLES_file_registry_update_summaries='bro'
 
 _tmb_require_db() {
   local db; db=$(tmb_db_path) || true
@@ -139,21 +138,3 @@ SQL
   _tmb_fallback_audit_log "$db" issue_close "$agent" "{\"issue_id\":$issue_id}"
 }
 
-# tmb_fallback_file_registry_update_summary <agent> <path> <summary>
-tmb_fallback_file_registry_update_summary() {
-  local agent="$1" path="$2" summary="$3"
-  local db; db=$(_tmb_require_db) || return 1
-  tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
-  _tmb_fallback_check_role file_registry_update_summaries "$agent" || return 1
-  [ -f "$path" ] || { echo "sqlite3-fallback: file '$path' not on disk" >&2; return 1; }
-  local md5; md5=$(md5 -q "$path" 2>/dev/null || md5sum "$path" 2>/dev/null | awk '{print $1}')
-  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  local summary_esc; summary_esc=$(printf '%s' "$summary" | sed "s/'/''/g")
-  local path_esc; path_esc=$(printf '%s' "$path" | sed "s/'/''/g")
-  sqlite3 "$db" <<SQL
-INSERT INTO file_registry (path, content_md5, summary, summary_updated_at)
-VALUES ('$path_esc', '$md5', '$summary_esc', '$ts')
-ON CONFLICT(path) DO UPDATE SET content_md5=excluded.content_md5, summary=excluded.summary, summary_updated_at=excluded.summary_updated_at;
-SQL
-  _tmb_fallback_audit_log "$db" file_registry_update_summaries "$agent" "{\"path\":\"$path_esc\"}"
-}
