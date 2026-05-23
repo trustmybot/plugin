@@ -15,11 +15,13 @@ const INSERT_SQL = {
     discussions: 'INSERT OR REPLACE INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
     audit: 'INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
     file_registry: 'INSERT OR REPLACE INTO file_registry_embeddings (file_registry_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
+    directories: 'INSERT OR REPLACE INTO directories_embeddings (directory_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
 };
 const SELECT_SQL = {
     discussions: 'SELECT discussion_id AS rowid, embedding FROM discussions_embeddings',
     audit: 'SELECT audit_id AS rowid, embedding FROM audit_embeddings',
     file_registry: 'SELECT file_registry_id AS rowid, embedding FROM file_registry_embeddings',
+    directories: 'SELECT directory_id AS rowid, embedding FROM directories_embeddings',
 };
 export async function embedAndStore(db, table, rowid, text) {
     const v = await embed(text);
