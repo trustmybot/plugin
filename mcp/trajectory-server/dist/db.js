@@ -358,8 +358,11 @@ function migrateV7toV8(db) {
         db.exec('DROP TRIGGER IF EXISTS directories_ai');
         db.exec('DROP INDEX IF EXISTS idx_directories_embeddings_model');
         db.exec('DROP INDEX IF EXISTS idx_directories_parent');
+        // LINT-ALLOW: v7→v8 migration retires the SQLite world-model tables per ADR 0002 (graph DB substrate).
         db.exec('DROP TABLE IF EXISTS directories_embeddings');
+        // LINT-ALLOW: v7→v8 migration retires the SQLite world-model tables per ADR 0002 (graph DB substrate).
         db.exec('DROP TABLE IF EXISTS directories_fts');
+        // LINT-ALLOW: v7→v8 migration retires the SQLite world-model tables per ADR 0002 (graph DB substrate).
         db.exec('DROP TABLE IF EXISTS directories');
         db.exec('COMMIT');
     }
@@ -384,8 +387,11 @@ function migrateV6toV7(db) {
         db.exec('DROP TRIGGER IF EXISTS file_registry_ad');
         db.exec('DROP TRIGGER IF EXISTS file_registry_ai');
         db.exec('DROP INDEX IF EXISTS idx_file_registry_embeddings_model');
+        // LINT-ALLOW: v6→v7 migration retires file_registry per ADR 0001 (world-model substrate replaces per-file index).
         db.exec('DROP TABLE IF EXISTS file_registry_embeddings');
+        // LINT-ALLOW: v6→v7 migration retires file_registry per ADR 0001 (world-model substrate replaces per-file index).
         db.exec('DROP TABLE IF EXISTS file_registry_fts');
+        // LINT-ALLOW: v6→v7 migration retires file_registry per ADR 0001 (world-model substrate replaces per-file index).
         db.exec('DROP TABLE IF EXISTS file_registry');
         db.exec('COMMIT');
     }

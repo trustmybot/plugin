@@ -58,4 +58,4 @@ Re-running `scan_run` is summary-preserving via MERGE — existing nodes update 
 
 ADR 0001 placed the dir-level world model in a SQLite `directories` table — a stepping stone to validate the navigation pattern. ADR 0002 moves it to kuzu, the right substrate for graph-shaped data. Schema v8 drops the SQLite `directories` / `directories_fts` / `directories_embeddings` tables; the world model rebuilds from `/scan` on first boot under v8.
 
-`file_registry` (v6) was retired in v7. Per-file md5 + summary state is gone for good — leaf-zoom happens via direct Read on demand.
+The earlier per-file `file_registry` (v6) was dropped in v7. Per-file md5 + summary state is not part of the world model — leaf-zoom happens via direct Read on demand.

@@ -15,7 +15,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
-cd "$PLUGIN_ROOT"
+cd "$PLUGIN_ROOT" || exit 1
 
 HITS=$(grep -rlE 'file_registry|file-registry\.ts' \
   --include='*.ts' --include='*.js' --include='*.sh' \

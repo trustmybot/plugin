@@ -59,11 +59,8 @@ test('FTS5 virtual tables are queryable on fresh schema', () => {
     'audit_fts: FTS5 MATCH query must not throw on fresh schema',
   );
 
-  assert.doesNotThrow(
-    () => db.prepare('SELECT * FROM directories_fts WHERE directories_fts MATCH ? LIMIT 1').all('test'),
-    'directories_fts: FTS5 MATCH query must not throw on fresh schema',
-  );
-
+  // directories_fts is intentionally absent — the world model lives in the
+  // sibling kuzu graph DB (ADR 0002), not in this SQLite trajectory.db.
   db.close();
 });
 
@@ -82,11 +79,6 @@ test('embedding tables accept inserts after parent row created', () => {
     "INSERT INTO audit (id, issue_id, branch_id, from_node, event_type, summary, content_json, created_at)" +
     " VALUES (1, 1, null, 'bro', 'embedding_contract_test', 'audit row for embedding test', '{}', '2026-01-01T00:00:00Z')",
   );
-  db.exec(
-    "INSERT INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)" +
-    " VALUES ('plugin', 'src/test', '', 'embedding contract test dir', 'readme', '2026-01-01', 1)",
-  );
-
   const now = new Date().toISOString();
   const dummyEmbedding = Buffer.alloc(16);
 
@@ -102,17 +94,8 @@ test('embedding tables accept inserts after parent row created', () => {
     ).run(1, dummyEmbedding, 'test-model', now);
   }, 'audit_embeddings must accept insert after parent audit row exists');
 
-  const dirRow = db.prepare(
-    "SELECT id FROM directories WHERE repo = 'plugin' AND path = 'src/test'",
-  ).get();
-  assert.ok(dirRow, 'directories row must exist');
-
-  assert.doesNotThrow(() => {
-    db.prepare(
-      'INSERT INTO directories_embeddings (directory_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
-    ).run(dirRow.id, dummyEmbedding, 'test-model', now);
-  }, 'directories_embeddings must accept insert after parent directories row exists');
-
+  // directories_embeddings is intentionally absent — world model embeddings
+  // live in the sibling kuzu graph DB (ADR 0002).
   db.close();
 });
 
@@ -121,7 +104,7 @@ test('FTS5 sync triggers exist — at least 6 INSERT/DELETE sync triggers across
 
   const rows = db.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'trigger'" +
-    " AND (name LIKE 'discussions_%' OR name LIKE 'audit_%' OR name LIKE 'directories_%')",
+    " AND (name LIKE 'discussions_%' OR name LIKE 'audit_%')",
   ).all();
 
   const names = rows.map((r) => r.name).join(', ');

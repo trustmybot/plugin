@@ -35,11 +35,40 @@ if command -v node >/dev/null 2>&1; then
   SUFFIX=$(node -e 'process.stdout.write(process.platform + "-" + process.arch)' 2>/dev/null || true)
 fi
 
-if [ -n "$SUFFIX" ] && [ -f "$MCP_DIR/node_modules/kuzu/prebuilt/kuzujs-${SUFFIX}.node" ]; then
+# Two readiness signals: the platform prebuilt .node binary AND kuzu's root
+# index.js (kuzu's postinstall script copies the JS files from kuzu-source/
+# to the package root; bun's no-postinstall security default would leave the
+# binary present but the JS shim missing — Node then can't resolve `require('kuzu')`).
+KUZU_DIR="$MCP_DIR/node_modules/kuzu"
+PREBUILT_OK=1
+if [ -n "$SUFFIX" ] && [ ! -f "$KUZU_DIR/prebuilt/kuzujs-${SUFFIX}.node" ]; then
+  PREBUILT_OK=0
+fi
+ROOT_JS_OK=1
+[ -f "$KUZU_DIR/index.js" ] || ROOT_JS_OK=0
+
+# Fast-path: kuzu fully installed already.
+if [ "$PREBUILT_OK" = "1" ] && [ "$ROOT_JS_OK" = "1" ]; then
   exit 0
 fi
 
-# Pick the package manager.
+# Recovery-only: prebuilt is there but root JS is missing (the bun-no-postinstall
+# foot-gun). Just run kuzu's install.js directly — no full re-install needed.
+if [ "$PREBUILT_OK" = "1" ] && [ "$ROOT_JS_OK" = "0" ] && [ -f "$KUZU_DIR/install.js" ]; then
+  (
+    cd "$KUZU_DIR" || exit 0
+    node install.js >/dev/null 2>&1
+  ) >/dev/null 2>&1 &
+  disown
+  if command -v jq >/dev/null 2>&1; then
+    jq -nc '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:"📦 Finishing kuzu install (running install.js — postinstall step that bun skipped). Live on next CC restart."}}'
+  fi
+  exit 0
+fi
+
+# Full install path — prebuilts missing entirely. Pick package manager.
+# 'bun install' will read trustedDependencies from package.json (added in
+# slice 6.1) so it WILL run kuzu's postinstall this time.
 INSTALLER=""
 if command -v bun >/dev/null 2>&1; then
   INSTALLER="bun install --silent"
