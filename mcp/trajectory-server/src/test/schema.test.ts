@@ -7,7 +7,7 @@ import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh prod-mode DB contains 28 tables (no ledger, no eval/debug tables)', () => {
+  it('fresh prod-mode DB contains 25 tables (no ledger, no eval/debug tables, no file_registry post-v7)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -21,7 +21,6 @@ describe('schema — current table set, default values, constraints', () => {
       'roundtable_votes',
       'discussions',
       'plugin_meta',
-      'file_registry',
       'plugin_config',
       'agent_runs',
       'pr_review_runs',
@@ -34,11 +33,9 @@ describe('schema — current table set, default values, constraints', () => {
       // #2905 FTS5 virtual tables
       'discussions_fts',
       'audit_fts',
-      'file_registry_fts',
       // #2905 embedding tables
       'discussions_embeddings',
       'audit_embeddings',
-      'file_registry_embeddings',
       // v0.7 world-model — bro's directory-level memory (ADR 0001)
       'directories',
       'directories_fts',
@@ -54,14 +51,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 6 in plugin_meta', () => {
+  it('fresh DB has schema_version = 7 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 6);
+    assert.equal(meta.schema_version, 7);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',
@@ -124,26 +121,30 @@ describe('schema — current table set, default values, constraints', () => {
   });
 
 
-  it('file_registry has zero rows on init', () => {
+  it('directories has zero rows on init (world model populated by /scan)', () => {
     const db = tempDB();
 
-    const rows = db.all('SELECT * FROM file_registry');
+    const rows = db.all('SELECT * FROM directories');
     assert.equal(rows.length, 0);
 
     db.close();
   });
 
-  it('file_registry has the codebase-memory columns (#45) on a fresh DB', () => {
+  it('directories has the world-model columns (ADR 0001) on a fresh DB', () => {
     const db = tempDB();
 
     const cols = db.all<{ name: string; type: string }>(
-      'PRAGMA table_info(file_registry)',
+      'PRAGMA table_info(directories)',
     );
     const byName = new Map(cols.map((c) => [c.name, c.type]));
 
-    assert.equal(byName.get('content_md5'), 'TEXT');
+    assert.equal(byName.get('repo'), 'TEXT');
+    assert.equal(byName.get('path'), 'TEXT');
+    assert.equal(byName.get('parent_path'), 'TEXT');
     assert.equal(byName.get('summary'), 'TEXT');
+    assert.equal(byName.get('summary_source'), 'TEXT');
     assert.equal(byName.get('summary_updated_at'), 'TEXT');
+    assert.equal(byName.get('file_count'), 'INTEGER');
 
     db.close();
   });

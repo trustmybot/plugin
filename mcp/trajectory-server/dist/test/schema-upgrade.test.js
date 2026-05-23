@@ -538,7 +538,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta, 'plugin_meta row required');
-        assert.equal(meta.schema_version, 6);
+        assert.equal(meta.schema_version, 7);
         const identity = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='identity'");
         assert.equal(identity, undefined, 'identity table must be dropped');
         const regen = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='regen_state'");
@@ -566,7 +566,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         const onboardedRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'onboarded'`);
         assert.ok(onboardedRow, 'onboarded marker must be translated from legacy identity row');
         assert.equal(onboardedRow.value_json, 'true');
-        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak'));
+        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak'));
         assert.equal(backups.length, 1, 'exactly one backup file must exist');
         db.run(`INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, [1, 'feat/test-round-trip', 'desc', 'pending', '2026-01-01', '2026-01-01']);
         db.close();
@@ -578,8 +578,8 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta);
-        assert.equal(meta.schema_version, 6);
-        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak'));
+        assert.equal(meta.schema_version, 7);
+        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak'));
         assert.equal(backups.length, 1, 'backup must exist for rc-current upgrade');
         db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, ['post-upgrade', '', 'open', '2026-01-01', '2026-01-01']);
         db.close();
@@ -590,11 +590,11 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         seedLegacyV1Db(dbPath, 'pre-2886');
         const db1 = new TrajectoryDB(dbPath);
         db1.close();
-        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak')).length;
+        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak')).length;
         assert.equal(firstCount, 1, 'first upgrade creates exactly one backup');
         const db2 = new TrajectoryDB(dbPath);
         db2.close();
-        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak')).length;
+        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak')).length;
         assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
     });
     it('backup captures uncheckpointed WAL state (pending writes survive migration)', () => {
@@ -613,7 +613,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
         // The TrajectoryDB opens a separate connection — SQLite's WAL
         // arbitration plus busy_timeout handle the overlap.
         const db = new TrajectoryDB(dbPath);
-        const backupFile = readdirSync(dirname(dbPath)).find((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak'));
+        const backupFile = readdirSync(dirname(dbPath)).find((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak'));
         assert.ok(backupFile, 'backup file must exist');
         // Open the .bak as a standalone DB (no WAL companion) and verify the
         // pending-WAL row was captured by the checkpoint+copy sequence.
@@ -647,25 +647,22 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
        VALUES (-1, 'bro', 'note', 'pre-migration discussion body', '2026-01-01T00:00:00Z')`);
         seed.exec(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
        VALUES (-1, 'bro', 'test_event', 'pre-migration audit summary', '{}', '2026-01-01T00:00:00Z')`);
-        seed.exec(`INSERT INTO file_registry (repo, path, type, summary)
-       VALUES ('', 'src/test.ts', 'source', 'pre-migration file summary')`);
         seed.close();
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta, 'plugin_meta row required');
-        assert.equal(meta.schema_version, 6, 'schema_version must be 6 after migration');
-        for (const ftsTable of ['discussions_fts', 'audit_fts', 'file_registry_fts']) {
+        assert.equal(meta.schema_version, 7, 'schema_version must be 7 after migration');
+        // file_registry FTS was retired in v7; discussions_fts and audit_fts remain.
+        for (const ftsTable of ['discussions_fts', 'audit_fts']) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [ftsTable]);
-            assert.ok(row !== undefined, `${ftsTable} virtual table must exist after v3 migration`);
+            assert.ok(row !== undefined, `${ftsTable} virtual table must exist post-migration`);
         }
         const discFtsCount = db.get('SELECT COUNT(*) AS n FROM discussions_fts');
         assert.ok((discFtsCount?.n ?? 0) >= 1, 'discussions_fts must be backfilled with existing rows');
         const auditFtsCount = db.get('SELECT COUNT(*) AS n FROM audit_fts');
-        assert.ok((auditFtsCount?.n ?? 0) >= 1, 'audit_fts must be backfilled (excludes system seed rows not counted here)');
-        const fileFtsCount = db.get('SELECT COUNT(*) AS n FROM file_registry_fts');
-        assert.ok((fileFtsCount?.n ?? 0) >= 1, 'file_registry_fts must be backfilled with rows that have a summary');
-        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak'));
-        assert.equal(backups.length, 1, 'exactly one pre-v6 backup must exist');
+        assert.ok((auditFtsCount?.n ?? 0) >= 1, 'audit_fts must be backfilled');
+        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak'));
+        assert.equal(backups.length, 1, 'exactly one pre-v7 backup must exist');
         db.close();
     });
     it('INSERT trigger keeps discussions_fts in sync', () => {
@@ -721,41 +718,12 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
         seedV2Db(dbPath);
         const db1 = new TrajectoryDB(dbPath);
         db1.close();
-        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak')).length;
+        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak')).length;
         assert.equal(firstCount, 1, 'first v4 upgrade creates exactly one backup');
         const db2 = new TrajectoryDB(dbPath);
         db2.close();
-        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak')).length;
+        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak')).length;
         assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
-    });
-    it('FTS tables not populated for file_registry rows where summary IS NULL', () => {
-        const tmpDir = makeTmpDir();
-        const dbPath = join(tmpDir, 'trajectory.db');
-        seedV2Db(dbPath);
-        const seed = new DatabaseSync(dbPath);
-        seed.exec(`INSERT INTO file_registry (repo, path, type, summary)
-       VALUES ('', 'src/no-summary.ts', 'source', NULL)`);
-        seed.exec(`INSERT INTO file_registry (repo, path, type, summary)
-       VALUES ('', 'src/with-summary.ts', 'source', 'auth module for user login')`);
-        seed.close();
-        const db = new TrajectoryDB(dbPath);
-        // Non-null summary row must be searchable
-        const authMatch = db.get("SELECT rowid FROM file_registry_fts WHERE file_registry_fts MATCH 'auth'");
-        assert.ok(authMatch, 'file with non-null summary must be findable via FTS MATCH');
-        // The null-summary row must exist in the source table
-        const noSummaryRow = db.get("SELECT path FROM file_registry WHERE summary IS NULL");
-        assert.ok(noSummaryRow, 'null-summary row must exist in source file_registry table');
-        // FTS trigger was guarded by WHEN summary IS NOT NULL, so the null-summary row
-        // was not inserted into the FTS index. Searching for a term only in its summary
-        // (which is NULL) must return nothing — but we need to verify the trigger logic
-        // works for INSERTs post-migration too:
-        db.run(`INSERT INTO file_registry (repo, path, type, summary) VALUES ('', 'src/post-null.ts', 'source', NULL)`);
-        const postNullSearch = db.get("SELECT rowid FROM file_registry_fts WHERE file_registry_fts MATCH 'post'");
-        assert.equal(postNullSearch, undefined, 'post-migration INSERT with NULL summary must not be indexed in FTS');
-        db.run(`INSERT INTO file_registry (repo, path, type, summary) VALUES ('', 'src/post-with-summary.ts', 'source', 'database migration helper')`);
-        const postWithSummarySearch = db.get("SELECT rowid FROM file_registry_fts WHERE file_registry_fts MATCH 'migration'");
-        assert.ok(postWithSummarySearch, 'post-migration INSERT with non-null summary must be indexed in FTS');
-        db.close();
     });
 });
 function seedV3Db(dbPath) {
@@ -1005,7 +973,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta, 'plugin_meta row required');
-        assert.equal(meta.schema_version, 6, 'schema_version must be 6 after v4->v5 migration');
+        assert.equal(meta.schema_version, 7, 'schema_version must be 7 after v4->v5 migration');
         const cols = db.all('PRAGMA table_info(issues)').map((c) => c.name);
         assert.ok(cols.includes('gh_iid'), 'gh_iid column must exist after migration');
         assert.ok(cols.includes('gl_iid'), 'gl_iid column must exist after migration');
@@ -1049,11 +1017,11 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
         seedV4Db(dbPath);
         const db1 = new TrajectoryDB(dbPath);
         db1.close();
-        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak')).length;
+        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak')).length;
         assert.equal(firstCount, 1, 'first v5 upgrade creates exactly one backup');
         const db2 = new TrajectoryDB(dbPath);
         db2.close();
-        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak')).length;
+        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak')).length;
         assert.equal(secondCount, 1, 'reopening at v5 must not create another backup');
     });
     it('fresh v5 DB has gh_iid + gl_iid columns in issues', () => {
@@ -1061,7 +1029,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
         const dbPath = join(tmpDir, 'trajectory.db');
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
-        assert.equal(meta?.schema_version, 6, 'fresh DB schema_version must be 6');
+        assert.equal(meta?.schema_version, 7, 'fresh DB schema_version must be 7');
         const cols = db.all('PRAGMA table_info(issues)').map((c) => c.name);
         assert.ok(cols.includes('gh_iid'), 'gh_iid must exist in fresh DB');
         assert.ok(cols.includes('gl_iid'), 'gl_iid must exist in fresh DB');
@@ -1076,23 +1044,23 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta, 'plugin_meta row required');
-        assert.equal(meta.schema_version, 6, 'schema_version must be 6 after migration');
-        for (const t of ['discussions_embeddings', 'audit_embeddings', 'file_registry_embeddings']) {
+        assert.equal(meta.schema_version, 7, 'schema_version must be 7 after migration');
+        for (const t of ['discussions_embeddings', 'audit_embeddings', 'directories_embeddings']) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [t]);
-            assert.ok(row !== undefined, `${t} table must exist after v4 migration`);
+            assert.ok(row !== undefined, `${t} table must exist after migration chain`);
         }
         for (const idx of [
             'idx_discussions_embeddings_model',
             'idx_audit_embeddings_model',
-            'idx_file_registry_embeddings_model',
+            'idx_directories_embeddings_model',
         ]) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='index' AND name=?", [idx]);
-            assert.ok(row !== undefined, `index ${idx} must exist after v4 migration`);
+            assert.ok(row !== undefined, `index ${idx} must exist after migration chain`);
         }
         const embCount = db.get('SELECT COUNT(*) AS n FROM discussions_embeddings');
         assert.equal(embCount?.n, 0, 'embedding tables must be empty after migration (no backfill)');
-        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak'));
-        assert.equal(backups.length, 1, 'exactly one pre-v6 backup must exist');
+        const backups = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak'));
+        assert.equal(backups.length, 1, 'exactly one pre-v7 backup must exist');
         db.close();
     });
     it('v2 -> v3 -> v4 path works end-to-end', () => {
@@ -1102,14 +1070,19 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
         const db = new TrajectoryDB(dbPath);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta);
-        assert.equal(meta.schema_version, 6, 'v2 DB must reach v6 via chained migrations');
-        for (const t of ['discussions_fts', 'audit_fts', 'file_registry_fts']) {
+        assert.equal(meta.schema_version, 7, 'v2 DB must reach v7 via chained migrations');
+        for (const t of ['discussions_fts', 'audit_fts']) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [t]);
-            assert.ok(row !== undefined, `${t} must exist (v3 step)`);
+            assert.ok(row !== undefined, `${t} must exist after migration chain`);
         }
-        for (const t of ['discussions_embeddings', 'audit_embeddings', 'file_registry_embeddings']) {
+        for (const t of ['discussions_embeddings', 'audit_embeddings', 'directories_embeddings']) {
             const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [t]);
-            assert.ok(row !== undefined, `${t} must exist (v4 step)`);
+            assert.ok(row !== undefined, `${t} must exist after migration chain`);
+        }
+        // file_registry tables were dropped at v7 (ADR 0001); verify they're gone.
+        for (const t of ['file_registry', 'file_registry_fts', 'file_registry_embeddings']) {
+            const row = db.get("SELECT name FROM sqlite_master WHERE name=?", [t]);
+            assert.equal(row, undefined, `${t} must be absent after v7 drop`);
         }
         db.close();
     });
@@ -1119,11 +1092,11 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
         seedV3Db(dbPath);
         const db1 = new TrajectoryDB(dbPath);
         db1.close();
-        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak')).length;
+        const firstCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak')).length;
         assert.equal(firstCount, 1, 'first v4 upgrade creates exactly one backup');
         const db2 = new TrajectoryDB(dbPath);
         db2.close();
-        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v6.') && f.endsWith('.bak')).length;
+        const secondCount = readdirSync(dirname(dbPath)).filter((f) => f.startsWith(basename(dbPath) + '.pre-v7.') && f.endsWith('.bak')).length;
         assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
     });
     it('FK CASCADE — deleting a discussion removes its embedding', () => {
