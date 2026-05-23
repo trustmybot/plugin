@@ -58,17 +58,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   });
   assert.equal(progressAudit.ok, true, `audit_log: ${JSON.stringify(progressAudit)}`);
 
-  // 4. File registry update — swe is NOT in requireRoles for this tool
-  //    (currently architect/bro only; tracked in #50).
-  const upsert = await call(client, 'file_registry_upsert', {
-    agent: 'swe',
-    path: 'src/hello.py',
-    type: 'file',
-  });
-  assert.equal(upsert.ok, false, 'file_registry_upsert is currently architect/bro only');
-  assert.equal(upsert.error?.error, 'forbidden');
-
-  // 5. Audit log for lifecycle event
+  // 4. Audit log for lifecycle event
   const outputAudit = await call(client, 'audit_log', {
     agent: 'swe',
     issue_id: issueId,

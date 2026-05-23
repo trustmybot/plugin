@@ -262,8 +262,8 @@ function persistDirectories(
 
 // Persist repos[] + directories[] from a scan output. Transactional.
 // File-level state lives entirely in the directories rows (file_count) and
-// the world model. Per-file md5/summary state was removed when file_registry
-// was retired (schema v7).
+// the world model. Per-file md5/summary state was retired in schema v7
+// (ADR 0001) — leaf-zoom now happens via explicit Read on demand.
 function persistScan(db: TrajectoryDB, out: ScanOutput): {
   repos_upserted: number;
   dirs_upserted: number;

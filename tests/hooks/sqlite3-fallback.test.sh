@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/lib/sqlite3-fallback.sh
 # Covers: happy path writes + audit rows, role rejection, missing DB,
-# SQL injection guard (single-quote round-trip), and file_registry_update_summary.
+# SQL injection guard (single-quote round-trip).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,13 +67,6 @@ CREATE TABLE discussions (
   kind TEXT NOT NULL DEFAULT 'note',
   body TEXT NOT NULL,
   created_at TEXT NOT NULL
-);
-CREATE TABLE file_registry (
-  path TEXT PRIMARY KEY,
-  type TEXT NOT NULL DEFAULT 'unknown',
-  content_md5 TEXT,
-  summary TEXT,
-  summary_updated_at TEXT
 );
 INSERT INTO issues (id, created_at, updated_at) VALUES (1, datetime('now'), datetime('now'));
 INSERT INTO tasks (id, created_at, updated_at) VALUES (42, datetime('now'), datetime('now'));
@@ -203,34 +196,6 @@ assert_eq "1" "$count" "audit row after issue_close"
 test_case "issue_close role rejection: swe not allowed"
 out=$(call_lib "tmb_fallback_issue_close 1 swe" 2>&1 || true)
 assert_contains "$out" "not allowed for 'issue_close'" "role rejection"
-
-# ---------------------------------------------------------------------------
-# tmb_fallback_file_registry_update_summary
-# ---------------------------------------------------------------------------
-
-DUMMY_FILE="$TMPDIR_FIXTURE/dummy.sh"
-printf '#!/usr/bin/env bash\necho hello\n' > "$DUMMY_FILE"
-
-test_case "file_registry_update_summary happy path: row upserted"
-call_lib "tmb_fallback_file_registry_update_summary bro '$DUMMY_FILE' 'a dummy script'" >/dev/null
-summary=$(sqlite3 "$DB" "SELECT summary FROM file_registry WHERE path='$DUMMY_FILE';")
-assert_eq "a dummy script" "$summary" "file_registry summary"
-
-test_case "file_registry_update_summary happy path: content_md5 written"
-md5=$(sqlite3 "$DB" "SELECT content_md5 FROM file_registry WHERE path='$DUMMY_FILE';")
-[ -n "$md5" ] && _pass || _fail "content_md5 should be non-empty, got empty"
-
-test_case "file_registry_update_summary happy path: audit row written"
-count=$(audit_count_for "file_registry_update_summaries")
-assert_eq "1" "$count" "audit row after file_registry_update_summary"
-
-test_case "file_registry_update_summary role rejection: swe not allowed"
-out=$(call_lib "tmb_fallback_file_registry_update_summary swe '$DUMMY_FILE' 'test'" 2>&1 || true)
-assert_contains "$out" "not allowed for 'file_registry_update_summaries'" "role rejection"
-
-test_case "file_registry_update_summary: missing file returns error"
-out=$(call_lib "tmb_fallback_file_registry_update_summary bro '/no/such/file.sh' 'x'" 2>&1 || true)
-assert_contains "$out" "not on disk" "missing file error"
 
 # ---------------------------------------------------------------------------
 # Missing DB guard

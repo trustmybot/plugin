@@ -170,7 +170,7 @@ export function taskTools(db: TrajectoryDB): {
           waive_registry_gate: {
             type: 'boolean',
             description:
-              "Set true to bypass the registry-cold gate. Only acceptable when /scan can't run for some reason (offline / scratch test fixture). If false or omitted, file_registry MUST have at least one row for each task's repo before tasks can be created — populate via /scan or scan_run.",
+              "Set true to bypass the world-model-cold gate. Only acceptable when /scan can't run for some reason (offline / scratch test fixture). If false or omitted, `directories` MUST have at least one row for each task's repo before tasks can be created — populate via /scan or scan_run.",
           },
           waive_registry_gate_reason: {
             type: 'string',
@@ -352,14 +352,12 @@ export function taskTools(db: TrajectoryDB): {
         }
       }
 
-      // --- Registry-cold gate (MCP-level enforcement) ---
+      // --- World-model-cold gate (MCP-level enforcement) ---
       // /scan must have run at least once before bro can create tasks.
       // The check is "is there any deep_scan_completed audit row?" — once
-      // /scan runs once per project lifetime, the gate clears. md5-driven
-      // drift detection on rescans handles updates. Without this gate, bro
-      // can ship work into an empty file_registry, which silently breaks
-      // the close-time summary check + leaves bro re-Reading every file in
-      // future sessions.
+      // /scan runs once per project lifetime, the gate clears. Without this
+      // gate, bro can ship work into an empty `directories` table and plan
+      // blind — no project map to reason from.
       const registryGateWaived = args['waive_registry_gate'] === true;
       const registryGateWaiverReason = (args['waive_registry_gate_reason'] ?? '') as string;
 
@@ -383,8 +381,8 @@ export function taskTools(db: TrajectoryDB): {
                 text: JSON.stringify({
                   error: 'registry_cold_violation',
                   message:
-                    `Registry-cold gate: no deep_scan_completed audit row exists. ` +
-                    `Run /scan (or call scan_run directly) to discover repos and populate file_registry. ` +
+                    `World-model-cold gate: no deep_scan_completed audit row exists. ` +
+                    `Run /scan (or call scan_run directly) to discover repos and populate the world model. ` +
                     `For exceptional cases, pass waive_registry_gate=true with waive_registry_gate_reason="<why>".`,
                 }),
               },

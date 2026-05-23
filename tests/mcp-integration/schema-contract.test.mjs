@@ -60,8 +60,8 @@ test('FTS5 virtual tables are queryable on fresh schema', () => {
   );
 
   assert.doesNotThrow(
-    () => db.prepare('SELECT * FROM file_registry_fts WHERE file_registry_fts MATCH ? LIMIT 1').all('test'),
-    'file_registry_fts: FTS5 MATCH query must not throw on fresh schema',
+    () => db.prepare('SELECT * FROM directories_fts WHERE directories_fts MATCH ? LIMIT 1').all('test'),
+    'directories_fts: FTS5 MATCH query must not throw on fresh schema',
   );
 
   db.close();
@@ -83,8 +83,8 @@ test('embedding tables accept inserts after parent row created', () => {
     " VALUES (1, 1, null, 'bro', 'embedding_contract_test', 'audit row for embedding test', '{}', '2026-01-01T00:00:00Z')",
   );
   db.exec(
-    "INSERT INTO file_registry (repo, path, type, summary)" +
-    " VALUES ('plugin', 'src/test/contract.ts', 'source', 'embedding contract test file')",
+    "INSERT INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)" +
+    " VALUES ('plugin', 'src/test', '', 'embedding contract test dir', 'readme', '2026-01-01', 1)",
   );
 
   const now = new Date().toISOString();
@@ -102,16 +102,16 @@ test('embedding tables accept inserts after parent row created', () => {
     ).run(1, dummyEmbedding, 'test-model', now);
   }, 'audit_embeddings must accept insert after parent audit row exists');
 
-  const fileRow = db.prepare(
-    "SELECT rowid FROM file_registry WHERE path = 'src/test/contract.ts'",
+  const dirRow = db.prepare(
+    "SELECT id FROM directories WHERE repo = 'plugin' AND path = 'src/test'",
   ).get();
-  assert.ok(fileRow, 'file_registry row must exist');
+  assert.ok(dirRow, 'directories row must exist');
 
   assert.doesNotThrow(() => {
     db.prepare(
-      'INSERT INTO file_registry_embeddings (file_registry_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
-    ).run(fileRow.rowid, dummyEmbedding, 'test-model', now);
-  }, 'file_registry_embeddings must accept insert after parent file_registry row exists');
+      'INSERT INTO directories_embeddings (directory_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
+    ).run(dirRow.id, dummyEmbedding, 'test-model', now);
+  }, 'directories_embeddings must accept insert after parent directories row exists');
 
   db.close();
 });
@@ -121,7 +121,7 @@ test('FTS5 sync triggers exist — at least 6 INSERT/DELETE sync triggers across
 
   const rows = db.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'trigger'" +
-    " AND (name LIKE 'discussions_%' OR name LIKE 'audit_%' OR name LIKE 'file_registry_%')",
+    " AND (name LIKE 'discussions_%' OR name LIKE 'audit_%' OR name LIKE 'directories_%')",
   ).all();
 
   const names = rows.map((r) => r.name).join(', ');

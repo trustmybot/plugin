@@ -55,6 +55,7 @@ run_step "L1 lint: no negative directives in prompts" bash "$HERE/lint/no-negati
 run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/lint/issue-sync-test-isolation.sh"
 run_step "L1 lint: no audit_log without from_node"    bash "$HERE/lint/no-audit-log-without-from-node.sh"
 run_step "L1 lint: no citations in prompts"           bash "$HERE/lint/no-citations-in-prompts.sh"
+run_step "L1 lint: no file_registry refs (v7 retirement)"  bash "$HERE/lint/no-file-registry-refs.sh"
 run_step "L1 lint: no audit_log kind= arg"            bash "$HERE/lint/no-audit-log-kind.sh"
 run_step "L1 lint: no developer paths in artifacts"   bash "$HERE/lint/no-developer-paths.sh"
 run_step "L1 lint: no stale framing prose"            bash "$HERE/lint/stale-framing-prose.sh"

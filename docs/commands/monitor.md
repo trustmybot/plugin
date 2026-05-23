@@ -40,7 +40,7 @@ With a number, fetch starts immediately. Without arguments, bro resolves the PR 
 5. Task-worthy comments are grouped by file or concept into logical tasks.
 6. Tasks touching schema, arch docs, or agent files are flagged `(arch-impact)`.
 7. One `AskUserQuestion` (multiSelect) presents the plan — you pick which comments to address.
-8. SWE is dispatched for each ratified task. Arch-impact tasks trigger `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the file_registry.
+8. SWE is dispatched for each ratified task. Arch-impact tasks trigger `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the world model.
 9. `pr_review_runs` is updated with the fetch state for incremental next runs.
 
 For the full phase-by-phase flow, see [`skills/tmb_review/SKILL.md`](../../skills/tmb_review/SKILL.md).
