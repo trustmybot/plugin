@@ -12,7 +12,7 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
 
 ## Search-first retrieval
 
-When looking up past decisions, audit events, or file context, prefer `discussion_search` / `audit_search` / `file_registry_search` over the list/get tools — they return ranked snippets instead of full dumps. Use `mode='hybrid'` (the default) for combined keyword + semantic retrieval; `mode='keyword'` for exact-term queries where FTS5 precision matters; `mode='semantic'` when you know the concept but not the phrasing (e.g., "what did we decide about login flow?" returns results mentioning "authentication" and "JWT" even without those words in the query). Fallback to FTS5-only is automatic when the embedding model is unavailable; you'll see `warning: 'semantic_unavailable'` in the response.
+When looking up past decisions or project structure, prefer the search tools over list/get — they return ranked snippets, not full dumps. `world_model_get` / `world_model_search` for project navigation; `discussion_search` / `audit_search` for prior decisions and history. `mode='hybrid'` is the default; falls back to keyword if embeddings are unavailable (`warning: 'semantic_unavailable'`).
 
 ## A. AskUserQuestion error / TMB_HEADLESS=1
 
@@ -33,7 +33,6 @@ When looking up past decisions, audit events, or file context, prefer `discussio
 
 | Skill / form | Default | Reason |
 |---|---|---|
-| `tmb_planning` cold-start AUQ | Lazy fill | Cold-start scan is token-heavy; lazy is safer in CI. |
 | `tmb_planning` base-branch AUQ | `${pr_target}` | Matches the project's configured branching model. |
 | `tmb_planning` branch-id confirm | "Yes, proceed" | Bro already chose intelligently from project context. |
 | `tmb_planning` difficult Q+A | "proceed as proposed" | ADR is still authored; the deliberate-decision marker survives. |

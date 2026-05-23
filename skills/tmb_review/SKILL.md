@@ -160,11 +160,11 @@ multiSelect: true
 options: [<task title (with optional (arch-impact) suffix)> per ratified group]
 ```
 
-For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the file_registry.
+For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the world model.
 
 ## Search-first retrieval
 
-When looking up past decisions, audit events, or file context, prefer `discussion_search` / `audit_search` / `file_registry_search` over the list/get tools — they return ranked snippets instead of full dumps. Use `mode='hybrid'` (the default) for combined keyword + semantic retrieval; `mode='keyword'` for exact-term queries where FTS5 precision matters; `mode='semantic'` when you know the concept but not the phrasing (e.g., "what did we decide about login flow?" returns results mentioning "authentication" and "JWT" even without those words in the query). Fallback to FTS5-only is automatic when the embedding model is unavailable; you'll see `warning: 'semantic_unavailable'` in the response.
+When looking up past decisions or project structure, prefer the search tools over list/get — they return ranked snippets, not full dumps. `world_model_get` / `world_model_search` for project navigation; `discussion_search` / `audit_search` for prior decisions and history. `mode='hybrid'` is the default; falls back to keyword if embeddings are unavailable (`warning: 'semantic_unavailable'`).
 
 ## Code-quality criteria (qualitative reference)
 
