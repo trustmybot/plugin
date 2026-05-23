@@ -72,6 +72,7 @@ Catalog: `docs/commands/README.md`.
 | Hook | Trigger | Purpose |
 |---|---|---|
 | `ensure-gitignore.sh` | SessionStart | Project .gitignore must exclude .claude/ |
+| `ensure-kuzu-installed.sh` | SessionStart | Lazy-install kuzu native binary for the world-model graph DB (first session after plugin install/update) |
 | `mcp-health-check.sh` | SessionStart + UserPromptSubmit (periodic) | MCP server liveness probe |
 | `deferred-tools-drift-warn.sh` | SessionStart | Warn when MCP tools on disk newer than running server |
 | `write-active-workspace-sentinel.sh` | SessionStart | Sentinel for cross-session workspace resolution |
