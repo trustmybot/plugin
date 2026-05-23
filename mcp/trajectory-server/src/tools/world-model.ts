@@ -1,6 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { topKByCosine } from '../embeddings/store.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -112,6 +113,37 @@ export function worldModelTools(db: TrajectoryDB): {
         required: ['agent'],
       },
     },
+    {
+      name: 'world_model_search',
+      description:
+        "Search the world model — bro's directory-level memory — via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword if embeddings are unavailable (warning: 'semantic_unavailable'). Use for 'where in this codebase does X live' questions — cheaper than reading the full tree from world_model_get.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          query: {
+            type: 'string',
+            description:
+              'Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language.',
+          },
+          mode: {
+            type: 'string',
+            enum: ['keyword', 'semantic', 'hybrid'],
+            description: 'Search mode. Default: hybrid (RRF combines FTS5 + cosine).',
+          },
+          repo: {
+            type: 'string',
+            description:
+              'Optional — restrict to one repo. Defaults to `tmb_default_repo` from plugin_config.',
+          },
+          k: {
+            type: 'number',
+            description: 'Top-K rows to return. Default 5. Max 20.',
+          },
+        },
+        required: ['agent', 'query'],
+      },
+    },
   ];
 
   const handlers: Record<string, Fn> = {
@@ -153,6 +185,135 @@ export function worldModelTools(db: TrajectoryDB): {
         }
 
         return ok({ repo, root: tree });
+      }),
+    ),
+
+    world_model_search: requireRoles(
+      'world_model_search',
+      ['bro', 'swe', 'pr-reviewer'],
+      wrap(async (args) => {
+        const query = args['query'] as string;
+        if (!query || typeof query !== 'string') return err('query is required');
+        const mode = (args['mode'] as string | undefined) ?? 'hybrid';
+        const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
+
+        let repo = (args['repo'] as string | undefined) ?? '';
+        if (!repo) {
+          const cfg = db.get<{ value_json: string }>(
+            "SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'",
+          );
+          if (cfg?.value_json) {
+            try {
+              repo = JSON.parse(cfg.value_json) as string;
+            } catch {
+              // empty
+            }
+          }
+        }
+
+        interface SearchHit {
+          id: number;
+          repo: string;
+          path: string;
+          summary: string;
+          summary_source: string;
+          file_count: number;
+          score: number;
+        }
+
+        const fetchById = (id: number): SearchHit | null => {
+          const row = db.get<{
+            id: number;
+            repo: string;
+            path: string;
+            summary: string;
+            summary_source: string;
+            file_count: number;
+          }>(
+            'SELECT id, repo, path, summary, summary_source, file_count FROM directories WHERE id = ? AND (? = \'\' OR repo = ?)',
+            [id, repo, repo],
+          );
+          if (!row) return null;
+          return { ...row, score: 0 };
+        };
+
+        if (mode === 'keyword' || mode === 'hybrid') {
+          const ftsRows = db.all<{
+            id: number;
+            repo: string;
+            path: string;
+            summary: string;
+            summary_source: string;
+            file_count: number;
+            bm25_score: number;
+          }>(
+            "SELECT d.id, d.repo, d.path, d.summary, d.summary_source, d.file_count, bm25(directories_fts) AS bm25_score FROM directories_fts JOIN directories d ON d.id = directories_fts.rowid WHERE directories_fts MATCH ? AND (? = '' OR d.repo = ?) ORDER BY bm25(directories_fts) ASC LIMIT ?",
+            [query, repo, repo, k * 2],
+          );
+
+          if (mode === 'keyword') {
+            return ok({
+              results: ftsRows.slice(0, k).map((r) => ({
+                id: r.id,
+                repo: r.repo,
+                path: r.path,
+                summary: r.summary,
+                summary_source: r.summary_source,
+                file_count: r.file_count,
+                score: -r.bm25_score,
+              })),
+              total_matched: ftsRows.length,
+              mode: 'keyword',
+            });
+          }
+
+          // hybrid: RRF combine FTS rank + cosine rank
+          const cosineResults = await topKByCosine(db, 'directories', query, k * 2);
+          if (cosineResults.length === 0 && ftsRows.length === 0) {
+            return ok({ results: [], total_matched: 0, mode: 'hybrid' });
+          }
+
+          const RRF_K = 60;
+          const scoreById = new Map<number, number>();
+          ftsRows.forEach((row, idx) => {
+            const rrf = 1 / (RRF_K + idx + 1);
+            scoreById.set(row.id, (scoreById.get(row.id) ?? 0) + rrf);
+          });
+          cosineResults.forEach((cr, idx) => {
+            const rrf = 1 / (RRF_K + idx + 1);
+            scoreById.set(cr.rowid, (scoreById.get(cr.rowid) ?? 0) + rrf);
+          });
+
+          const ranked = [...scoreById.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, k);
+
+          const results: SearchHit[] = [];
+          for (const [id, score] of ranked) {
+            const hit = fetchById(id);
+            if (hit) results.push({ ...hit, score });
+          }
+
+          const out: Record<string, unknown> = {
+            results,
+            total_matched: scoreById.size,
+            mode: 'hybrid',
+          };
+          if (cosineResults.length === 0) out['warning'] = 'semantic_unavailable';
+          return ok(out);
+        }
+
+        // semantic
+        const cosineResults = await topKByCosine(db, 'directories', query, k);
+        if (cosineResults.length === 0) {
+          return ok({ results: [], total_matched: 0, warning: 'semantic_unavailable', mode: 'semantic' });
+        }
+        const results: SearchHit[] = [];
+        for (const cr of cosineResults) {
+          const hit = fetchById(cr.rowid);
+          if (hit) results.push({ ...hit, score: cr.score });
+        }
+        return ok({ results, total_matched: results.length, mode: 'semantic' });
       }),
     ),
   };
