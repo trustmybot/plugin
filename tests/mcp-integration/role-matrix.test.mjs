@@ -53,35 +53,6 @@ test('config_set — bro only; architect/swe/pr-reviewer all forbidden', async (
   }
 });
 
-test('file_registry_upsert — architect & bro allowed, swe & pr-reviewer forbidden', async (t) => {
-  const { client, close } = await startClient();
-  t.after(async () => { await close(); });
-
-  for (const wrongRole of ['swe', 'pr-reviewer']) {
-    const res = await call(client, 'file_registry_upsert', {
-      agent: wrongRole,
-      path: 'x.py',
-      type: 'file',
-    });
-    assert.equal(res.ok, false, `${wrongRole} must be forbidden`);
-    assert.equal(res.error?.error, 'forbidden');
-  }
-});
-
-test('file_registry_delete — architect & bro allowed, swe & pr-reviewer forbidden', async (t) => {
-  const { client, close } = await startClient();
-  t.after(async () => { await close(); });
-
-  for (const wrongRole of ['swe', 'pr-reviewer']) {
-    const res = await call(client, 'file_registry_delete', {
-      agent: wrongRole,
-      path: 'x.py',
-    });
-    assert.equal(res.ok, false);
-    assert.equal(res.error?.error, 'forbidden');
-  }
-});
-
 test('issue_snapshot_md — bro & pr-reviewer only; consultants forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });

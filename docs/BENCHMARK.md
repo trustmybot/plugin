@@ -172,7 +172,7 @@ from the prompt. Different mechanism, same intent.
 ## Open work — the next iteration
 
 The current bench is **single-shot**: each task starts in a fresh
-project, the trajectory DB and file_registry are wiped, the doctrine
+project, the trajectory DB and world model are wiped, the doctrine
 ceremony doesn't engage because bro autonomously judges single-bug-fix
 tasks too small to warrant it.
 
@@ -180,8 +180,8 @@ tasks too small to warrant it.
 state accumulates across tasks. The next bench iteration:
 
 - **Multi-task chained bench** — N sequential SWE-bench tasks against
-  the same repo, preserving trajectory.db + file_registry between
-  tasks. Measure per-task token decay (should drop as registry warms),
+  the same repo, preserving trajectory.db + world model between
+  tasks. Measure per-task token decay (should drop as world model warms),
   hallucination rate (should stay 0), and per-task duration. Compare
   against TMB-cold (fresh state per task) and raw Opus 4 cold-starting
   each task. Design captured in
