@@ -1,6 +1,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import type { WorldModelGraph } from '../graph-db.js';
 import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
 import { taskTools } from './tasks.js';
@@ -41,7 +42,12 @@ function decorateWithAgent(tools: Tool[]): Tool[] {
   }));
 }
 
-export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): void {
+export function registerTools(
+  server: Server,
+  db: TrajectoryDB,
+  dbPath = '',
+  graph: WorldModelGraph | null = null,
+): void {
   const discussions = discussionTools(db);
   const issues = issueTools(db, dbPath);
   const tasks = taskTools(db);
@@ -59,8 +65,8 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
   const prComments = prCommentsTools(db);
   const composites = compositeTools(db, dbPath);
   const onboard = onboardTools(db, dbPath);
-  const scan = scanTools(db);
-  const worldModel = worldModelTools(db);
+  const scan = scanTools(db, graph);
+  const worldModel = worldModelTools(db, graph);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,

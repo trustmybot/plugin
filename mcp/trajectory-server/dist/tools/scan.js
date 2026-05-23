@@ -164,45 +164,38 @@ function readReadmeSummary(absDirPath) {
     }
     return null;
 }
-function persistDirectories(db, out, now) {
+function persistDirectoriesGraph(graph, out, now) {
     const repoPaths = new Map();
     for (const r of out.repos)
         repoPaths.set(r.name, r.path);
     const dirMap = deriveDirectoryEntries(out);
     let dirs_upserted = 0;
     let dirs_readme_summarized = 0;
+    // Two-pass: first upsert all Directory nodes (so CONTAINS edge targets
+    // exist), then create CONTAINS edges from each child to its parent.
     for (const entry of dirMap.values()) {
         const repoPath = repoPaths.get(entry.repo);
         if (!repoPath)
             continue;
         const absDirPath = entry.path === '' ? repoPath : join(repoPath, entry.path);
         const readmeSummary = readReadmeSummary(absDirPath);
-        const existing = db.get('SELECT id FROM directories WHERE repo = ? AND path = ?', [entry.repo, entry.path]);
-        if (existing) {
-            if (readmeSummary !== null) {
-                db.run('UPDATE directories SET parent_path = ?, summary = ?, summary_source = ?, summary_updated_at = ?, file_count = ? WHERE id = ?', [entry.parent_path, readmeSummary, 'readme', now, entry.file_count, existing.id]);
-                dirs_readme_summarized++;
-            }
-            else {
-                db.run('UPDATE directories SET parent_path = ?, file_count = ? WHERE id = ?', [entry.parent_path, entry.file_count, existing.id]);
-            }
-        }
-        else {
-            const source = readmeSummary !== null ? 'readme' : 'llm';
-            const updatedAt = readmeSummary !== null ? now : null;
-            db.run('INSERT INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-                entry.repo,
-                entry.path,
-                entry.parent_path,
-                readmeSummary,
-                source,
-                updatedAt,
-                entry.file_count,
-            ]);
-            if (readmeSummary !== null)
-                dirs_readme_summarized++;
-        }
+        graph.upsertDirectory({
+            repo: entry.repo,
+            path: entry.path,
+            parent_path: entry.parent_path,
+            summary: readmeSummary,
+            summary_source: readmeSummary !== null ? 'readme' : 'llm',
+            summary_updated_at: readmeSummary !== null ? now : null,
+            file_count: entry.file_count,
+        });
+        if (readmeSummary !== null)
+            dirs_readme_summarized++;
         dirs_upserted++;
+    }
+    for (const entry of dirMap.values()) {
+        if (entry.parent_path === null)
+            continue;
+        graph.upsertContains({ repo: entry.repo, path: entry.parent_path }, { repo: entry.repo, path: entry.path });
     }
     return { dirs_upserted, dirs_readme_summarized };
 }
@@ -210,10 +203,8 @@ function persistDirectories(db, out, now) {
 // File-level state lives entirely in the directories rows (file_count) and
 // the world model. Per-file md5/summary state was retired in schema v7
 // (ADR 0001) — leaf-zoom now happens via explicit Read on demand.
-function persistScan(db, out) {
+function persistScan(db, graph, out) {
     let repos_upserted = 0;
-    let dirs_upserted = 0;
-    let dirs_readme_summarized = 0;
     const now = nowISO();
     db.transaction(() => {
         for (const r of out.repos) {
@@ -225,17 +216,21 @@ function persistScan(db, out) {
            last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
             repos_upserted++;
         }
-        const dirStats = persistDirectories(db, out, now);
-        dirs_upserted = dirStats.dirs_upserted;
-        dirs_readme_summarized = dirStats.dirs_readme_summarized;
     });
+    let dirs_upserted = 0;
+    let dirs_readme_summarized = 0;
+    if (graph) {
+        const stats = persistDirectoriesGraph(graph, out, now);
+        dirs_upserted = stats.dirs_upserted;
+        dirs_readme_summarized = stats.dirs_readme_summarized;
+    }
     return {
         repos_upserted,
         dirs_upserted,
         dirs_readme_summarized,
     };
 }
-export function scanTools(db) {
+export function scanTools(db, graph) {
     const definitions = [
         {
             name: 'scan_run',
@@ -275,7 +270,7 @@ export function scanTools(db) {
             const rawSource = args['source'] ?? 'bro_auto_initial';
             const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
             const out = runScan(sessionDir);
-            const stats = persistScan(db, out);
+            const stats = persistScan(db, graph, out);
             // #2881: structural-change detection vs previous deep_scan_completed
             // audit. The flag rides in the audit content_json so downstream
             // tooling (the scan-side renderer pass, manual diagnostic queries)

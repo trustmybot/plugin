@@ -8,13 +8,30 @@ import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
 import { TrajectoryDB, resolveDbPath } from './db.js';
 import { serverLog, serverLogSync } from './logger.js';
 import { startBackfill } from './embeddings/backfill.js';
+import { WorldModelGraph, resolveGraphDbPath } from './graph-db.js';
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
     mkdirSync(path.dirname(dbPath), { recursive: true });
 }
 const db = new TrajectoryDB(dbPath);
+// World-model graph DB (ADR 0002) — separate kuzu file beside trajectory.db.
+// If kuzu fails to load (missing native binary, sandbox), surface but don't
+// crash — world_model_* will return 'world-model-unavailable'; trajectory
+// workflow continues to function.
+let graph = null;
+try {
+    const graphPath = resolveGraphDbPath(dbPath);
+    graph = new WorldModelGraph(graphPath);
+    serverLogSync({ kind: 'graph_db_open', path: graphPath });
+}
+catch (e) {
+    serverLogSync({
+        kind: 'graph_db_open_failed',
+        error_message: e instanceof Error ? e.message : String(e),
+    });
+}
 const server = new Server({ name: 'trajectory-server', version: '0.3.2' }, { capabilities: { tools: {} } });
-registerTools(server, db, dbPath);
+registerTools(server, db, dbPath, graph);
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolDefinitions,
 }));
@@ -58,6 +75,7 @@ function shutdown(signal) {
     shuttingDown = true;
     serverLogSync({ kind: 'shutdown', signal, pid: process.pid });
     db.close();
+    graph?.close();
     process.exit(0);
 }
 process.on('uncaughtException', (err) => {
