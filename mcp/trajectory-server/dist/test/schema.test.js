@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 describe('schema — current table set, default values, constraints', () => {
-    it('fresh prod-mode DB contains 25 tables (no ledger, no eval/debug tables, no file_registry post-v7)', () => {
+    it('fresh prod-mode DB contains 22 tables (no ledger, no eval/debug, no directories post-v8 — world model in kuzu)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -28,27 +28,23 @@ describe('schema — current table set, default values, constraints', () => {
             'commands',
             'skill_invocations',
             'rule_invocations',
-            // #2905 FTS5 virtual tables
+            // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
             'discussions_fts',
             'audit_fts',
-            // #2905 embedding tables
+            // #2905 embedding tables (workflow tables only)
             'discussions_embeddings',
             'audit_embeddings',
-            // v0.7 world-model — bro's directory-level memory (ADR 0001)
-            'directories',
-            'directories_fts',
-            'directories_embeddings',
         ];
         const rows = db.all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%\_fts\_%' ESCAPE '\\' ORDER BY name");
         const actualNames = rows.map((r) => r.name).sort();
         assert.deepEqual(actualNames, [...expectedTables].sort());
         db.close();
     });
-    it('fresh DB has schema_version = 7 in plugin_meta', () => {
+    it('fresh DB has schema_version = 8 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 7);
+        assert.equal(meta.schema_version, 8);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });
@@ -89,23 +85,10 @@ describe('schema — current table set, default values, constraints', () => {
         ]);
         db.close();
     });
-    it('directories has zero rows on init (world model populated by /scan)', () => {
+    it('directories table does NOT exist post-v8 (world model lives in kuzu — ADR 0002)', () => {
         const db = tempDB();
-        const rows = db.all('SELECT * FROM directories');
-        assert.equal(rows.length, 0);
-        db.close();
-    });
-    it('directories has the world-model columns (ADR 0001) on a fresh DB', () => {
-        const db = tempDB();
-        const cols = db.all('PRAGMA table_info(directories)');
-        const byName = new Map(cols.map((c) => [c.name, c.type]));
-        assert.equal(byName.get('repo'), 'TEXT');
-        assert.equal(byName.get('path'), 'TEXT');
-        assert.equal(byName.get('parent_path'), 'TEXT');
-        assert.equal(byName.get('summary'), 'TEXT');
-        assert.equal(byName.get('summary_source'), 'TEXT');
-        assert.equal(byName.get('summary_updated_at'), 'TEXT');
-        assert.equal(byName.get('file_count'), 'INTEGER');
+        const row = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='directories'");
+        assert.equal(row, undefined, 'directories table must be absent — world model moved to kuzu graph DB');
         db.close();
     });
     it('eval_results has the A/B columns (#131) on a fresh DB', () => {
