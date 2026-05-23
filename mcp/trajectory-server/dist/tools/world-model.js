@@ -52,7 +52,7 @@ function buildTree(rows, rootPath, depth) {
     }
     return descend(root, depth);
 }
-export function worldModelTools(db) {
+export function worldModelTools(db, graph) {
     const definitions = [
         {
             name: 'world_model_get',
@@ -123,10 +123,14 @@ export function worldModelTools(db) {
             const path = args['path'] ?? '';
             const depthArg = args['depth'];
             const depth = depthArg === null ? null : typeof depthArg === 'number' ? depthArg : 2;
-            const rows = db.all('SELECT id, repo, path, parent_path, summary, summary_source, summary_updated_at, file_count FROM directories WHERE repo = ?', [repo]);
-            if (rows.length === 0) {
+            if (!graph) {
+                return ok({ repo, root: null, warning: 'world-model-unavailable' });
+            }
+            const nodes = graph.allDirectoriesForRepo(repo);
+            if (nodes.length === 0) {
                 return ok({ repo, root: null, warning: 'world-model-empty' });
             }
+            const rows = nodes.map((n, idx) => ({ ...n, id: idx }));
             const tree = buildTree(rows, path, depth);
             if (!tree) {
                 return ok({ repo, root: null, warning: 'path-not-found', path });

@@ -17,7 +17,7 @@ function seedDirs(db) {
 describe('world_model_get', () => {
     it('returns world-model-empty warning when no directories rows exist', async () => {
         const db = tempDB();
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_get']({ agent: 'bro' });
         const out = parse(r);
         assert.equal(out['warning'], 'world-model-empty');
@@ -26,7 +26,7 @@ describe('world_model_get', () => {
     it('returns root with one level of children at default depth=2', async () => {
         const db = tempDB();
         seedDirs(db);
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_get']({ agent: 'bro' });
         const out = parse(r);
         assert.equal(out.repo, 'app');
@@ -42,7 +42,7 @@ describe('world_model_get', () => {
     it('depth=0 returns only the requested directory, no children', async () => {
         const db = tempDB();
         seedDirs(db);
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_get']({ agent: 'bro', depth: 0 });
         const out = parse(r);
         assert.equal(out.root.children.length, 0);
@@ -50,7 +50,7 @@ describe('world_model_get', () => {
     it('depth=null returns the full subtree', async () => {
         const db = tempDB();
         seedDirs(db);
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_get']({ agent: 'bro', depth: null });
         const out = parse(r);
         const src = out.root.children.find((c) => c.path === 'src');
@@ -60,7 +60,7 @@ describe('world_model_get', () => {
     it('path scoping returns the named subtree as root', async () => {
         const db = tempDB();
         seedDirs(db);
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_get']({ agent: 'bro', path: 'src' });
         const out = parse(r);
         assert.equal(out.root.path, 'src');
@@ -69,7 +69,7 @@ describe('world_model_get', () => {
     it('unknown path returns warning, not an error', async () => {
         const db = tempDB();
         seedDirs(db);
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_get']({ agent: 'bro', path: 'nope/missing' });
         const out = parse(r);
         assert.equal(out['warning'], 'path-not-found');
@@ -79,7 +79,7 @@ describe('world_model_search', () => {
     it('keyword mode returns ranked hits by bm25', async () => {
         const db = tempDB();
         seedDirs(db);
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_search']({
             agent: 'bro',
             query: 'auth',
@@ -93,7 +93,7 @@ describe('world_model_search', () => {
     it('hybrid mode falls back gracefully when no embeddings are present', async () => {
         const db = tempDB();
         seedDirs(db);
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_search']({
             agent: 'bro',
             query: 'entrypoint',
@@ -107,7 +107,7 @@ describe('world_model_search', () => {
     it('semantic mode with no embeddings returns explicit warning', async () => {
         const db = tempDB();
         seedDirs(db);
-        const tools = worldModelTools(db);
+        const tools = worldModelTools(db, null);
         const r = await tools.handlers['world_model_search']({
             agent: 'bro',
             query: 'http handlers',

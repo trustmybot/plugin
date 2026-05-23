@@ -2,19 +2,11 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { topKByCosine } from '../embeddings/store.js';
+import type { WorldModelGraph, DirectoryNode } from '../graph-db.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-interface DirRow {
-  id: number;
-  repo: string;
-  path: string;
-  parent_path: string | null;
-  summary: string | null;
-  summary_source: string;
-  summary_updated_at: string | null;
-  file_count: number;
-}
+type DirRow = DirectoryNode & { id: number };
 
 interface TreeNode {
   path: string;
@@ -81,7 +73,7 @@ function buildTree(rows: DirRow[], rootPath: string, depth: number | null): Tree
   return descend(root, depth);
 }
 
-export function worldModelTools(db: TrajectoryDB): {
+export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -170,15 +162,16 @@ export function worldModelTools(db: TrajectoryDB): {
         const depth: number | null =
           depthArg === null ? null : typeof depthArg === 'number' ? depthArg : 2;
 
-        const rows = db.all<DirRow>(
-          'SELECT id, repo, path, parent_path, summary, summary_source, summary_updated_at, file_count FROM directories WHERE repo = ?',
-          [repo],
-        );
+        if (!graph) {
+          return ok({ repo, root: null, warning: 'world-model-unavailable' });
+        }
 
-        if (rows.length === 0) {
+        const nodes = graph.allDirectoriesForRepo(repo);
+        if (nodes.length === 0) {
           return ok({ repo, root: null, warning: 'world-model-empty' });
         }
 
+        const rows: DirRow[] = nodes.map((n, idx) => ({ ...n, id: idx }));
         const tree = buildTree(rows, path, depth);
         if (!tree) {
           return ok({ repo, root: null, warning: 'path-not-found', path });

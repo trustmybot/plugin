@@ -47,7 +47,7 @@ describe('scan_run — workspace discovery + persistence', () => {
       mkRepo(ws, 'lib', { 'core.ts': 'export const x = 1;\n' });
 
       const db = tempDB();
-      const tools = scanTools(db);
+      const tools = scanTools(db, null);
       const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!result.isError, `scan_run failed: ${JSON.stringify(result)}`);
 
@@ -83,7 +83,7 @@ describe('scan_run — workspace discovery + persistence', () => {
       const repo = mkRepo(ws, 'r', { 'a.txt': 'aaa\n', 'README.md': 'first version\n' });
 
       const db = tempDB();
-      const tools = scanTools(db);
+      const tools = scanTools(db, null);
 
       await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       const firstSummary = db.get<{ summary: string | null }>(
@@ -120,7 +120,7 @@ describe('scan_run — workspace discovery + persistence', () => {
       mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
 
       const db = tempDB();
-      const tools = scanTools(db);
+      const tools = scanTools(db, null);
       await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
 
       const cfg = db.get<{ value_json: string }>(
@@ -148,7 +148,7 @@ describe('scan_run — workspace discovery + persistence', () => {
       mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
 
       const db = tempDB();
-      const tools = scanTools(db);
+      const tools = scanTools(db, null);
       // Scan from inside the 'repo-c' subdir — user clearly working there.
       await call(tools.handlers, 'scan_run', {
         agent: 'bro',
@@ -178,7 +178,7 @@ describe('scan_run — workspace discovery + persistence', () => {
       mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
 
       const db = tempDB();
-      const tools = scanTools(db);
+      const tools = scanTools(db, null);
       // Scan from the workspace ROOT (above both repos). No enclosing repo —
       // alphabetical fallback applies.
       await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
@@ -202,7 +202,7 @@ describe('scan_run — workspace discovery + persistence', () => {
       mkRepo(ws, 'alpha', { 'a.txt': 'a\n' });
 
       const db = tempDB();
-      const tools = scanTools(db);
+      const tools = scanTools(db, null);
       await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       const result = await call(tools.handlers, 'repos_list', { agent: 'bro' });
       assert.ok(!result.isError);
@@ -224,7 +224,7 @@ describe('scan_run — workspace discovery + persistence', () => {
         mkRepo(ws, 'app', { 'a.txt': 'a\n' });
 
         const db = tempDB();
-        const tools = scanTools(db);
+        const tools = scanTools(db, null);
         const result = await call(tools.handlers, 'scan_run', {
           agent: 'bro',
           session_dir: ws,
@@ -255,7 +255,7 @@ describe('scan_run — workspace discovery + persistence', () => {
         mkRepo(ws, 'app', { 'a.txt': 'a\n' });
 
         const db = tempDB();
-        const tools = scanTools(db);
+        const tools = scanTools(db, null);
         const result = await call(tools.handlers, 'scan_run', {
           agent: 'bro',
           session_dir: ws,
@@ -275,7 +275,7 @@ describe('scan_run — workspace discovery + persistence', () => {
         mkRepo(ws, 'app', { 'a.txt': 'a\n' });
 
         const db = tempDB();
-        const tools = scanTools(db);
+        const tools = scanTools(db, null);
         const result = await call(tools.handlers, 'scan_run', {
           agent: 'bro',
           session_dir: ws,
@@ -296,7 +296,7 @@ describe('scan_run — workspace discovery + persistence', () => {
         mkRepo(ws, 'app', { 'a.txt': 'a\n' });
 
         const db = tempDB();
-        const tools = scanTools(db);
+        const tools = scanTools(db, null);
         const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
         const data = parse(result) as { structural_change: boolean };
         assert.equal(data.structural_change, true);
@@ -313,7 +313,7 @@ describe('scan_run — workspace discovery + persistence', () => {
         mkRepo(ws, 'app', { 'src/main.py': 'p\n' });
 
         const db = tempDB();
-        const tools = scanTools(db);
+        const tools = scanTools(db, null);
         await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
         // Second scan — same repo, same files, same top-level dirs.
         const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
@@ -332,7 +332,7 @@ describe('scan_run — workspace discovery + persistence', () => {
         mkRepo(ws, 'app', { 'src/main.py': 'p\n' });
 
         const db = tempDB();
-        const tools = scanTools(db);
+        const tools = scanTools(db, null);
         await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
 
         // Add a new top-level dir + commit.
