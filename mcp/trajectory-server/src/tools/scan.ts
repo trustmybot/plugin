@@ -176,32 +176,38 @@ function persistScan(db: TrajectoryDB, out: ScanOutput): {
         `SELECT content_md5 FROM file_registry WHERE repo = ? AND path = ?`,
         [f.repo, f.path],
       );
-      const md5Changed = !existing || existing.content_md5 !== f.content_md5;
-      if (md5Changed) files_md5_changed++;
 
-      // ON CONFLICT(repo, path) DO UPDATE preserves the row's rowid — critical
-      // because file_registry_embeddings.file_registry_id references that rowid
-      // via FK. INSERT OR REPLACE would delete + reinsert, getting a new rowid,
-      // orphaning every embedding row. md5-unchanged rows keep summary; md5-
-      // changed rows clear it (Phase 2 backfill or update_summaries refills).
+      if (!existing) {
+        // New file — INSERT with NULL summary (Phase 2 backfill fills later).
+        db.run(
+          `INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+           VALUES (?, ?, 'source', ?, NULL, NULL)`,
+          [f.repo, f.path, f.content_md5],
+        );
+        files_upserted++;
+        continue;
+      }
+
+      if (existing.content_md5 === f.content_md5) {
+        // No drift — skip the write entirely. Preserves rowid (critical for
+        // file_registry_embeddings FK) AND avoids needless DB churn.
+        continue;
+      }
+
+      // md5 changed — clear summary so Phase 2 backfill re-summarizes. UPDATE
+      // (not INSERT OR REPLACE) preserves rowid so any in-flight embedding row
+      // tied to this rowid stays joinable; it'll be re-embedded on next
+      // file_registry_update_summaries call.
       db.run(
-        `INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
-         VALUES (?, ?, 'source', ?, NULL, NULL)
-         ON CONFLICT(repo, path) DO UPDATE SET
-           type               = 'source',
-           content_md5        = excluded.content_md5,
-           summary            = CASE
-             WHEN file_registry.content_md5 = excluded.content_md5
-               THEN file_registry.summary
-             ELSE NULL
-           END,
-           summary_updated_at = CASE
-             WHEN file_registry.content_md5 = excluded.content_md5
-               THEN file_registry.summary_updated_at
-             ELSE NULL
-           END`,
-        [f.repo, f.path, f.content_md5],
+        `UPDATE file_registry
+            SET type='source',
+                content_md5=?,
+                summary=NULL,
+                summary_updated_at=NULL
+          WHERE repo=? AND path=?`,
+        [f.content_md5, f.repo, f.path],
       );
+      files_md5_changed++;
       files_upserted++;
     }
   });
