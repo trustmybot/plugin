@@ -172,8 +172,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
 INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 7, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
--- session dir. file_registry rows reference repos.name via the repo column.
--- Pure metadata — drift detection itself is md5-only on file_registry rows.
+-- session dir. directories rows reference repos.name via the repo column.
 CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
