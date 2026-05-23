@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# PostToolUse hook on bro_atomic_close: re-run /scan to refresh file_registry
-# against the post-close git state. Drift detection is md5-only — files
-# unchanged since the last scan keep their summary; only changed files get
-# the summary cleared so future Reads repopulate.
+# PostToolUse hook on bro_atomic_close: re-run /scan to refresh the world
+# model + file_registry against the post-close git state. scan_run walks
+# each repo's README.md tree to refresh dir summaries; file-level md5 drift
+# detection runs in the same pass.
 #
 # Backgrounds the rescan via `disown` so the hook returns immediately and
 # bro's response isn't blocked. The rescan output goes to stderr (visible
