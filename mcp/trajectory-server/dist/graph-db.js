@@ -3,7 +3,7 @@
 //
 // The graph stores bro's project mental model: Directory nodes today,
 // File + Symbol + IMPORTS + CALLS edges in follow-up slices. Lives in
-// a sibling file to trajectory.db at <project>/.claude/tmb/world-model.kuzu/.
+// a sibling file to trajectory.db at <project>/.claude/<plugin-name>/world-model.kuzu/.
 //
 // kuzu uses synchronous API (querySync / prepareSync) to match the rest
 // of the MCP server's sync style (node:sqlite synchronous bindings).
