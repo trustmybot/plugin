@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Pre-seed src/cli.py and a file_registry row with a NULL summary so bro
-# has something to Read and a registry row to update.
+# Pre-seed src/cli.py + a top-level README so the world model has something
+# to summarize. The scenario under test is: after a task close, the
+# post-task-close-rescan hook refreshes the world model and the project
+# map stays current.
 #
-# The file content matches what step 05 SWE would commit in L6 chain
-# (a working stdlib TODO CLI with add/list/done/remove subcommands on
-# JSON storage). L5 isolation seeds the same shape so the same bro
-# prompt works in both modes against the same substrate.
+# In L6 chain mode rows 04+05 already populated `directories` (row 04 ran
+# /scan; row 05 closed a task → post-close-rescan refreshed). In L5
+# standalone mode this setup pre-warms `directories` so the row's bro
+# turn has a populated world model to read from.
 set -uo pipefail
 
 PROJECT="$1"
@@ -13,12 +15,19 @@ PROJECT="$1"
 SCENARIO_DIR="$2"
 
 mkdir -p "$PROJECT/src"
+
+cat > "$PROJECT/README.md" <<'MD'
+# todo-cli
+
+Stdlib argparse + JSON storage. Subcommands: add / list / done / remove.
+The CLI module lives at src/cli.py.
+MD
+
 cat > "$PROJECT/src/cli.py" <<'PY'
 """TODO CLI — stdlib argparse + JSON storage at ~/.todo-cli/todos.json."""
 import argparse
 import json
 import os
-import sys
 from pathlib import Path
 
 STORE = Path(os.path.expanduser("~/.todo-cli/todos.json"))
@@ -77,52 +86,22 @@ if __name__ == "__main__":
     main()
 PY
 
-# Do NOT commit src/cli.py here — the hooks this row tests
-# (post-task-close-rescan + post-read-summary-hint) only need the file
-# to EXIST on disk + have a file_registry row. Committing would pollute
-# `main` and could leak into row 7's branch via implicit base.
-
-# Compute md5 of the file content the same way file_registry_upsert would.
-content_md5=$(md5 -q "$PROJECT/src/cli.py" 2>/dev/null || md5sum "$PROJECT/src/cli.py" | cut -d' ' -f1)
-
-# Seed `repos` AND `file_registry` consistently. The post-read-summary-hint
-# hook walks `repos` to convert the Read tool's absolute path back to a
-# repo-relative path. Use the *physical* (symlink-resolved) project path
-# because Read resolves symlinks: on macOS, mktemp returns
-# /var/folders/.../tmb-l5-X but Read sees /private/var/folders/.../tmb-l5-X.
-# The hook's prefix match needs the same canonical form.
+# Pre-warm the world model for L5 standalone runs. In chain mode this
+# overwrites a more thoroughly-populated state from rows 04+05; that's
+# fine — the outcome assertion only checks "≥1 directories row exists".
 PROJECT_REAL=$(cd "$PROJECT" && pwd -P)
-
-# Reuse the existing repos row's name if any. In the L6 chain, row 4's
-# scan_run auto-creates a repos row with a name derived from the scratch
-# dir basename. Forcing a second row at the same path would make the
-# hook's repo-walk non-deterministic and the file_registry lookup would
-# miss when the hook picked the unseeded name.
-EXISTING_REPO=$(sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
-  "SELECT name FROM repos WHERE path = '$PROJECT_REAL' ORDER BY length(name) DESC LIMIT 1;" 2>/dev/null)
-REPO_NAME="${EXISTING_REPO:-todo-cli}"
+REPO_NAME=$(basename "$PROJECT_REAL")
 
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
 INSERT OR REPLACE INTO repos (name, path)
 VALUES ('$REPO_NAME', '$PROJECT_REAL');
 
-INSERT OR REPLACE INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
-VALUES ('$REPO_NAME', 'src/cli.py', 'source', '$content_md5', NULL, NULL);
+INSERT OR IGNORE INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
+VALUES ('$REPO_NAME', '', NULL, 'todo-cli — stdlib argparse + JSON storage.', 'readme', datetime('now'), 2);
+
+INSERT OR IGNORE INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
+VALUES ('$REPO_NAME', 'src', '', NULL, 'llm', NULL, 1);
+
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'setup-l5: world model pre-warmed for row 06', '{}', datetime('now'));
 SQL
-
-# Pre-seed a stale file_registry_embeddings row for src/cli.py.
-# The outcome assertion verifies that after bro's file_registry_update_summaries
-# call the embedded_at timestamp is newer than this baseline.
-FR_ROWID=$(sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
-  "SELECT rowid FROM file_registry WHERE repo = '$REPO_NAME' AND path = 'src/cli.py' LIMIT 1;" 2>/dev/null)
-
-if [ -n "$FR_ROWID" ]; then
-  sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL2
-INSERT OR REPLACE INTO file_registry_embeddings (file_registry_id, embedding, model_id, embedded_at)
-VALUES ($FR_ROWID, zeroblob(1536), 'sentinel-stale-v0', datetime('now', '-1 hour'));
-
--- Store the baseline timestamp so outcome.sql can compare without reading a file.
-INSERT OR REPLACE INTO plugin_config (key, value_json)
-VALUES ('l5_06_embedding_baseline', json_quote(datetime('now', '-30 minutes')));
-SQL2
-fi

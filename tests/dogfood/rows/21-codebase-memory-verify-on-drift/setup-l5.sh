@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Seed stale file_registry row + drift: foo.py committed, registry row written
-# with wrong md5, then file modified on disk without commit.
+# Seed a stale world model row + drift: README committed with v1 text,
+# directory summary written from that content, then README edited on disk
+# without a commit. The pre-state mimics "world model from yesterday's
+# README" — bro should detect the drift on the next scan.
 set -uo pipefail
 
 PROJECT="$1"
@@ -9,15 +11,34 @@ SCENARIO_DIR="$2"
 
 mkdir -p "$PROJECT/src"
 echo "def foo(): return 'v1'" > "$PROJECT/src/foo.py"
+cat > "$PROJECT/README.md" <<'MD'
+# project — v1
+
+Returns 'v1' from foo().
+MD
 (cd "$PROJECT" && git add . && git commit -qm "v1")
 SEED_HEAD=$(git -C "$PROJECT" rev-parse HEAD)
+PROJECT_REAL=$(cd "$PROJECT" && pwd -P)
+REPO_NAME=$(basename "$PROJECT_REAL")
 
-sqlite3 "$PROJECT/.claude/tmb/trajectory.db" "
-INSERT INTO file_registry (path, type, content_md5, summary, summary_updated_at)
-VALUES ('src/foo.py', 'source', '00000000000000000000000000000000', 'returns v1', datetime('now'));
+sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
+INSERT OR REPLACE INTO repos (name, path)
+VALUES ('$REPO_NAME', '$PROJECT_REAL');
+
+INSERT INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
+VALUES ('$REPO_NAME', '', NULL, 'project — v1. Returns v1 from foo().', 'readme', datetime('now'), 1);
+
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'setup: seeded stale world model', '{}', datetime('now'));
+
 INSERT INTO plugin_config (key, value_json)
-VALUES ('last_verified_sha', '\"$SEED_HEAD\"');
-"
+VALUES ('last_verified_sha', '"$SEED_HEAD"');
+SQL
 
-# Simulate drift: edit the file on disk, don't commit
+# Simulate drift: edit foo.py + README on disk, do not commit.
 echo "def foo(): return 'v2-modified'" > "$PROJECT/src/foo.py"
+cat > "$PROJECT/README.md" <<'MD'
+# project — v2
+
+Returns 'v2-modified' from foo().
+MD

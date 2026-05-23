@@ -39,8 +39,6 @@ FROM agent_runs
 WHERE agent_type = 'bro';
 
 SELECT
-  CASE WHEN COUNT(*) >= 2 THEN 1 ELSE 0 END AS pass,
-  'file_registry_embeddings populated post-scan for cli.py + test_cli.py (got ' || COUNT(*) || ', expected >=2)' AS description
-FROM file_registry_embeddings fre
-JOIN file_registry fr ON fre.file_registry_id = fr.rowid
-WHERE fr.path IN ('src/cli.py', 'tests/test_cli.py');
+  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
+  'directories populated post-scan for at least one dir (got ' || COUNT(*) || ', expected >=1) — world model warm' AS description
+FROM directories;

@@ -1,1 +1,1 @@
-@bro this is a multi-repo workspace. Index the default code repo's source files into file_registry. Use repo-relative paths since file_registry is scoped per repo via tasks.repo / tmb_default_repo.
+@bro this is a multi-repo workspace. Run /scan and confirm the world model has the api repo indexed correctly — repo-relative paths in `directories.path`, no workspace prefix, no cross-repo leak.

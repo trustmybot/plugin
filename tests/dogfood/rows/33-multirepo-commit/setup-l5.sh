@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 33-multirepo-commit L5 isolation: builds the multi-repo workspace fixture.
 # Configures tmb_default_repo='api', creates api/ and app/ sibling git repos.
+# README per inner repo lets scan_run populate the directories table with
+# README-derived summaries when bro runs /scan.
 set -uo pipefail
 
 PROJECT="$1"
@@ -16,6 +18,11 @@ mkdir -p "$PROJECT/api"
   git init -q -b main
   git config user.email l5@l5.test
   git config user.name "L5 Test"
+  cat > README.md <<'MD'
+# api
+
+HTTP API handlers + utilities for the auth service.
+MD
   cat > handler.py <<'PY'
 def handle(request):
     return {"status": "ok"}
@@ -33,6 +40,11 @@ mkdir -p "$PROJECT/app/src"
   git init -q -b main
   git config user.email l5@l5.test
   git config user.name "L5 Test"
+  cat > README.md <<'MD'
+# app
+
+TypeScript app entrypoint.
+MD
   cat > src/index.ts <<'TS'
 export const hello = () => 'world';
 TS
