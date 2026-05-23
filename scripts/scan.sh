@@ -44,8 +44,11 @@ _md5() {
 }
 
 # Cross-platform file-size wrapper (bytes).
+# GNU stat: '-c %s' = byte size; '-f' would mean --file-system (wrong).
+# BSD stat (Mac): '-f %z' = byte size; '-c' is unrecognized (fails fast).
+# Try GNU first, then BSD, then wc as last resort.
 _size_bytes() {
-  stat -f '%z' "$1" 2>/dev/null || stat -c '%s' "$1" 2>/dev/null || \
+  stat -c '%s' "$1" 2>/dev/null || stat -f '%z' "$1" 2>/dev/null || \
     wc -c < "$1" 2>/dev/null | tr -d ' '
 }
 
