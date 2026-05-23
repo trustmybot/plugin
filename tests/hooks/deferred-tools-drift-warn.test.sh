@@ -37,7 +37,8 @@ out=$(TMB_MCP_PID_OVERRIDE="$FAKE_PID" TMB_MCP_START_OVERRIDE="$PAST_EPOCH" \
 assert_eq "" "$out" "missing tool dir = silent"
 
 test_case "MCP child running, all tool files older than child: silent no-op"
-OLD_MTIME="$(date -v-120S '+%Y%m%d%H%M.%S')"
+# Cross-platform: GNU date -d first, BSD date -v fallback.
+OLD_MTIME="$(date -d '120 seconds ago' '+%Y%m%d%H%M.%S' 2>/dev/null || date -v-120S '+%Y%m%d%H%M.%S')"
 touch -t "$OLD_MTIME" "$TOOL_DIR/index.js"
 touch -t "$OLD_MTIME" "$TOOL_DIR/tasks.js"
 out=$(TMB_MCP_PID_OVERRIDE="$FAKE_PID" TMB_MCP_START_OVERRIDE="$PAST_EPOCH" \
@@ -45,7 +46,7 @@ out=$(TMB_MCP_PID_OVERRIDE="$FAKE_PID" TMB_MCP_START_OVERRIDE="$PAST_EPOCH" \
 assert_eq "" "$out" "old files = silent"
 
 test_case "MCP child running, one tool file newer than child: emit additionalContext"
-NEW_MTIME="$(date -v+1S '+%Y%m%d%H%M.%S')"
+NEW_MTIME="$(date -d '1 second' '+%Y%m%d%H%M.%S' 2>/dev/null || date -v+1S '+%Y%m%d%H%M.%S')"
 touch -t "$NEW_MTIME" "$TOOL_DIR/index.js"
 out=$(TMB_MCP_PID_OVERRIDE="$FAKE_PID" TMB_MCP_START_OVERRIDE="$PAST_EPOCH" \
   TMB_TOOL_DIR_OVERRIDE="$TOOL_DIR" run_hook)
