@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 5, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 6, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. file_registry rows reference repos.name via the repo column.
@@ -431,3 +431,54 @@ CREATE TABLE IF NOT EXISTS file_registry_embeddings (
   embedded_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_file_registry_embeddings_model ON file_registry_embeddings(model_id);
+
+-- Directory-level world model (v6). PRIMARY navigation surface for agents
+-- arriving cold. Populated by scan_run from the unique dirs implied by the
+-- discovered file set; `summary` preferentially comes from `<dir>/README.md`
+-- (author-curated, high trust) and otherwise stays NULL until lazy LLM fill.
+-- Design + rationale: docs/architecture/WORLD_MODEL.md + ADR 0001.
+CREATE TABLE IF NOT EXISTS directories (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo                TEXT NOT NULL DEFAULT '',
+    path                TEXT NOT NULL,
+    parent_path         TEXT,
+    summary             TEXT,
+    summary_source      TEXT CHECK (summary_source IN ('readme','llm','manual')) DEFAULT 'llm',
+    summary_updated_at  TEXT,
+    file_count          INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(repo, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_directories_parent ON directories(repo, parent_path);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS directories_fts USING fts5(
+  summary,
+  path,
+  content='directories',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS directories_ai AFTER INSERT ON directories
+WHEN new.summary IS NOT NULL BEGIN
+  INSERT INTO directories_fts(rowid, summary, path) VALUES (new.id, new.summary, new.path);
+END;
+CREATE TRIGGER IF NOT EXISTS directories_ad AFTER DELETE ON directories
+WHEN old.summary IS NOT NULL BEGIN
+  INSERT INTO directories_fts(directories_fts, rowid, summary, path) VALUES ('delete', old.id, old.summary, old.path);
+END;
+CREATE TRIGGER IF NOT EXISTS directories_au AFTER UPDATE ON directories
+WHEN old.summary IS NOT NULL BEGIN
+  INSERT INTO directories_fts(directories_fts, rowid, summary, path) VALUES ('delete', old.id, old.summary, old.path);
+END;
+CREATE TRIGGER IF NOT EXISTS directories_au_new AFTER UPDATE ON directories
+WHEN new.summary IS NOT NULL BEGIN
+  INSERT INTO directories_fts(rowid, summary, path) VALUES (new.id, new.summary, new.path);
+END;
+
+CREATE TABLE IF NOT EXISTS directories_embeddings (
+  directory_id INTEGER PRIMARY KEY,
+  embedding BLOB NOT NULL,
+  model_id TEXT NOT NULL,
+  embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id);

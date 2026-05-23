@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 5;
+const TARGET_SCHEMA_VERSION = 6;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -326,6 +326,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 5 && toVersion >= 5) {
         migrateV4toV5(db);
     }
+    if (fromVersion < 6 && toVersion >= 6) {
+        migrateV5toV6(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -336,6 +339,43 @@ function tableExists(db, table) {
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
         .get(table);
     return row !== undefined;
+}
+function migrateV5toV6(db) {
+    db.exec('BEGIN');
+    try {
+        db.exec("CREATE TABLE IF NOT EXISTS directories (" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+            "repo TEXT NOT NULL DEFAULT '', " +
+            "path TEXT NOT NULL, " +
+            "parent_path TEXT, " +
+            "summary TEXT, " +
+            "summary_source TEXT CHECK (summary_source IN ('readme','llm','manual')) DEFAULT 'llm', " +
+            "summary_updated_at TEXT, " +
+            "file_count INTEGER NOT NULL DEFAULT 0, " +
+            "UNIQUE(repo, path))");
+        db.exec('CREATE INDEX IF NOT EXISTS idx_directories_parent ON directories(repo, parent_path)');
+        db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS directories_fts USING fts5(summary, path, content='directories', tokenize='porter unicode61')");
+        db.exec("CREATE TRIGGER IF NOT EXISTS directories_ai AFTER INSERT ON directories WHEN new.summary IS NOT NULL BEGIN INSERT INTO directories_fts(rowid, summary, path) VALUES (new.id, new.summary, new.path); END");
+        db.exec("CREATE TRIGGER IF NOT EXISTS directories_ad AFTER DELETE ON directories WHEN old.summary IS NOT NULL BEGIN INSERT INTO directories_fts(directories_fts, rowid, summary, path) VALUES ('delete', old.id, old.summary, old.path); END");
+        db.exec("CREATE TRIGGER IF NOT EXISTS directories_au AFTER UPDATE ON directories WHEN old.summary IS NOT NULL BEGIN INSERT INTO directories_fts(directories_fts, rowid, summary, path) VALUES ('delete', old.id, old.summary, old.path); END");
+        db.exec("CREATE TRIGGER IF NOT EXISTS directories_au_new AFTER UPDATE ON directories WHEN new.summary IS NOT NULL BEGIN INSERT INTO directories_fts(rowid, summary, path) VALUES (new.id, new.summary, new.path); END");
+        db.exec('CREATE TABLE IF NOT EXISTS directories_embeddings (' +
+            'directory_id INTEGER PRIMARY KEY, ' +
+            'embedding BLOB NOT NULL, ' +
+            'model_id TEXT NOT NULL, ' +
+            'embedded_at TEXT NOT NULL)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)');
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
 }
 function migrateV4toV5(db) {
     db.exec('BEGIN');

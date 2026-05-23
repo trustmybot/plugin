@@ -17,6 +17,7 @@ import { prCommentsTools } from './pr_comments.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
+import { worldModelTools } from './world-model.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
 function decorateWithAgent(tools) {
@@ -55,6 +56,7 @@ export function registerTools(server, db, dbPath = '') {
     const composites = compositeTools(db, dbPath);
     const onboard = onboardTools(db, dbPath);
     const scan = scanTools(db);
+    const worldModel = worldModelTools(db);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
@@ -75,6 +77,7 @@ export function registerTools(server, db, dbPath = '') {
         ...composites.definitions,
         ...onboard.definitions,
         ...scan.definitions,
+        ...worldModel.definitions,
     ]);
     toolHandlers = {
         ...discussions.handlers,
@@ -96,6 +99,7 @@ export function registerTools(server, db, dbPath = '') {
         ...composites.handlers,
         ...onboard.handlers,
         ...scan.handlers,
+        ...worldModel.handlers,
     };
 }
 //# sourceMappingURL=index.js.map
