@@ -18,16 +18,14 @@ export function cosine(a: Float32Array, b: Float32Array): number {
 const INSERT_SQL: Record<string, string> = {
   discussions: 'INSERT OR REPLACE INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
   audit:       'INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
-  directories: 'INSERT OR REPLACE INTO directories_embeddings (directory_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
 };
 
 const SELECT_SQL: Record<string, string> = {
   discussions: 'SELECT discussion_id AS rowid, embedding FROM discussions_embeddings',
   audit:       'SELECT audit_id AS rowid, embedding FROM audit_embeddings',
-  directories: 'SELECT directory_id AS rowid, embedding FROM directories_embeddings',
 };
 
-export type EmbeddableTable = 'discussions' | 'audit' | 'directories';
+export type EmbeddableTable = 'discussions' | 'audit';
 
 export async function embedAndStore(
   db: TrajectoryDB,

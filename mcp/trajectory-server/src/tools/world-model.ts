@@ -1,7 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { topKByCosine } from '../embeddings/store.js';
 import type { WorldModelGraph, DirectoryNode } from '../graph-db.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -204,109 +203,54 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
           }
         }
 
-        interface SearchHit {
-          id: number;
-          repo: string;
-          path: string;
-          summary: string;
-          summary_source: string;
-          file_count: number;
-          score: number;
+        if (!graph) {
+          return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
         }
 
-        const fetchById = (id: number): SearchHit | null => {
-          const row = db.get<{
-            id: number;
-            repo: string;
-            path: string;
-            summary: string;
-            summary_source: string;
-            file_count: number;
-          }>(
-            'SELECT id, repo, path, summary, summary_source, file_count FROM directories WHERE id = ? AND (? = \'\' OR repo = ?)',
-            [id, repo, repo],
-          );
-          if (!row) return null;
-          return { ...row, score: 0 };
-        };
+        // Keyword: substring match over summary + path. Score is constant
+        // until kuzu's FTS extension lands (follow-up post-v0.7).
+        // Semantic: requires kuzu's vector extension — also follow-up.
+        // Hybrid: falls back to keyword + 'semantic_unavailable' warning.
+        const hits = graph.keywordSearchDirectories(repo, query, k);
 
-        if (mode === 'keyword' || mode === 'hybrid') {
-          const ftsRows = db.all<{
-            id: number;
-            repo: string;
-            path: string;
-            summary: string;
-            summary_source: string;
-            file_count: number;
-            bm25_score: number;
-          }>(
-            "SELECT d.id, d.repo, d.path, d.summary, d.summary_source, d.file_count, bm25(directories_fts) AS bm25_score FROM directories_fts JOIN directories d ON d.id = directories_fts.rowid WHERE directories_fts MATCH ? AND (? = '' OR d.repo = ?) ORDER BY bm25(directories_fts) ASC LIMIT ?",
-            [query, repo, repo, k * 2],
-          );
-
-          if (mode === 'keyword') {
-            return ok({
-              results: ftsRows.slice(0, k).map((r) => ({
-                id: r.id,
-                repo: r.repo,
-                path: r.path,
-                summary: r.summary,
-                summary_source: r.summary_source,
-                file_count: r.file_count,
-                score: -r.bm25_score,
-              })),
-              total_matched: ftsRows.length,
-              mode: 'keyword',
-            });
-          }
-
-          // hybrid: RRF combine FTS rank + cosine rank
-          const cosineResults = await topKByCosine(db, 'directories', query, k * 2);
-          if (cosineResults.length === 0 && ftsRows.length === 0) {
-            return ok({ results: [], total_matched: 0, mode: 'hybrid' });
-          }
-
-          const RRF_K = 60;
-          const scoreById = new Map<number, number>();
-          ftsRows.forEach((row, idx) => {
-            const rrf = 1 / (RRF_K + idx + 1);
-            scoreById.set(row.id, (scoreById.get(row.id) ?? 0) + rrf);
+        if (mode === 'keyword') {
+          return ok({
+            results: hits.map((h) => ({
+              repo: h.repo,
+              path: h.path,
+              summary: h.summary,
+              summary_source: h.summary_source,
+              file_count: h.file_count,
+              score: h.score,
+            })),
+            total_matched: hits.length,
+            mode: 'keyword',
           });
-          cosineResults.forEach((cr, idx) => {
-            const rrf = 1 / (RRF_K + idx + 1);
-            scoreById.set(cr.rowid, (scoreById.get(cr.rowid) ?? 0) + rrf);
+        }
+
+        if (mode === 'semantic') {
+          return ok({
+            results: [],
+            total_matched: 0,
+            warning: 'semantic_unavailable',
+            mode: 'semantic',
           });
-
-          const ranked = [...scoreById.entries()]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, k);
-
-          const results: SearchHit[] = [];
-          for (const [id, score] of ranked) {
-            const hit = fetchById(id);
-            if (hit) results.push({ ...hit, score });
-          }
-
-          const out: Record<string, unknown> = {
-            results,
-            total_matched: scoreById.size,
-            mode: 'hybrid',
-          };
-          if (cosineResults.length === 0) out['warning'] = 'semantic_unavailable';
-          return ok(out);
         }
 
-        // semantic
-        const cosineResults = await topKByCosine(db, 'directories', query, k);
-        if (cosineResults.length === 0) {
-          return ok({ results: [], total_matched: 0, warning: 'semantic_unavailable', mode: 'semantic' });
-        }
-        const results: SearchHit[] = [];
-        for (const cr of cosineResults) {
-          const hit = fetchById(cr.rowid);
-          if (hit) results.push({ ...hit, score: cr.score });
-        }
-        return ok({ results, total_matched: results.length, mode: 'semantic' });
+        // hybrid — return keyword results with semantic_unavailable warning
+        return ok({
+          results: hits.map((h) => ({
+            repo: h.repo,
+            path: h.path,
+            summary: h.summary,
+            summary_source: h.summary_source,
+            file_count: h.file_count,
+            score: h.score,
+          })),
+          total_matched: hits.length,
+          warning: 'semantic_unavailable',
+          mode: 'hybrid',
+        });
       }),
     ),
   };
