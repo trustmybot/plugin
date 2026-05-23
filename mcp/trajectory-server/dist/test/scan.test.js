@@ -30,7 +30,7 @@ function mkRepo(parent, name, files) {
     return root;
 }
 describe('scan_run — workspace discovery + persistence', () => {
-    it('discovers multiple inner repos under a non-git workspace, persists repos + file_registry', async () => {
+    it('discovers multiple inner repos under a non-git workspace, persists repos + directories', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-test-'));
         try {
             mkRepo(ws, 'app', { 'src/main.py': 'def main():\n    pass\n', 'README.md': 'app\n' });
@@ -43,11 +43,12 @@ describe('scan_run — workspace discovery + persistence', () => {
                 .all('SELECT name FROM repos ORDER BY name')
                 .map((r) => r.name);
             assert.deepEqual(repoNames, ['app', 'lib']);
-            const fileCount = db.get('SELECT COUNT(*) as c FROM file_registry')?.c ?? 0;
-            assert.ok(fileCount >= 3, `expected ≥3 files, got ${fileCount}`);
-            const appMain = db.get(`SELECT content_md5 FROM file_registry WHERE repo='app' AND path='src/main.py'`);
-            assert.ok(appMain, 'src/main.py row should exist');
-            assert.equal(appMain.content_md5.length, 32, 'md5 should be populated');
+            const dirCount = db.get('SELECT COUNT(*) as c FROM directories')?.c ?? 0;
+            assert.ok(dirCount >= 2, `expected ≥2 directory rows (one per repo root), got ${dirCount}`);
+            const appRoot = db.get(`SELECT summary, summary_source FROM directories WHERE repo='app' AND path=''`);
+            assert.ok(appRoot, 'app repo root directory row should exist');
+            assert.equal(appRoot.summary_source, 'readme', 'app README.md should drive summary');
+            assert.ok(appRoot.summary?.includes('app'), 'app summary should reflect README content');
             const auditRow = db.get(`SELECT event_type FROM audit WHERE event_type='deep_scan_completed' ORDER BY id DESC LIMIT 1`);
             assert.ok(auditRow, 'deep_scan_completed audit row should exist');
             db.close();
@@ -56,26 +57,26 @@ describe('scan_run — workspace discovery + persistence', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('preserves summary on rescan when md5 unchanged; clears summary when md5 changes', async () => {
+    it('preserves dir summary on rescan when README unchanged; refreshes when README changes', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-md5-'));
         try {
-            const repo = mkRepo(ws, 'r', { 'a.txt': 'aaa\n' });
+            const repo = mkRepo(ws, 'r', { 'a.txt': 'aaa\n', 'README.md': 'first version\n' });
             const db = tempDB();
             const tools = scanTools(db);
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            // Plant a summary on the only file.
-            db.run(`UPDATE file_registry SET summary='owned-by-test', summary_updated_at='2026-01-01' WHERE repo='r' AND path='a.txt'`);
-            // Rescan unchanged content — summary must persist.
+            const firstSummary = db.get(`SELECT summary FROM directories WHERE repo='r' AND path=''`)?.summary;
+            assert.ok(firstSummary?.includes('first version'), 'first summary from README');
+            // Re-scan unchanged content — summary stays.
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            const afterClean = db.get(`SELECT summary FROM file_registry WHERE repo='r' AND path='a.txt'`);
-            assert.equal(afterClean?.summary, 'owned-by-test', 'summary preserved when md5 unchanged');
-            // Mutate the file. Rescan must clear the now-stale summary.
-            writeFileSync(join(repo, 'a.txt'), 'bbb\n');
+            const afterClean = db.get(`SELECT summary FROM directories WHERE repo='r' AND path=''`);
+            assert.ok(afterClean?.summary?.includes('first version'), 'summary preserved when README unchanged');
+            // Mutate README. Re-scan must refresh dir summary.
+            writeFileSync(join(repo, 'README.md'), 'second version\n');
             execFileSync('git', ['add', '.'], { cwd: repo });
             execFileSync('git', ['commit', '-qm', 'mutate'], { cwd: repo });
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            const afterChange = db.get(`SELECT summary FROM file_registry WHERE repo='r' AND path='a.txt'`);
-            assert.equal(afterChange?.summary, null, 'summary cleared when md5 changes');
+            const afterChange = db.get(`SELECT summary FROM directories WHERE repo='r' AND path=''`);
+            assert.ok(afterChange?.summary?.includes('second version'), 'summary refreshed from new README');
             db.close();
         }
         finally {
