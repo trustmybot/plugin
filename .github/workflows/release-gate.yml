@@ -26,7 +26,10 @@ jobs:
     timeout-minutes: 120
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      HF_HOME: ~/.cache/huggingface
+      # No HF_HOME — model.ts defaults to homedir() + /.cache/huggingface
+      # via Node's os.homedir() which resolves to an absolute path. Setting
+      # HF_HOME to '~/.cache/huggingface' in YAML produces a literal-tilde
+      # string that Node's fs API can't resolve.
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +42,7 @@ jobs:
       - name: Cache HuggingFace ONNX model
         uses: actions/cache@v4
         with:
-          path: ${{ env.HF_HOME }}
+          path: ~/.cache/huggingface
           key: hf-bge-small-${{ hashFiles('mcp/trajectory-server/src/embeddings/model.ts') }}
           restore-keys: hf-bge-small-
 
