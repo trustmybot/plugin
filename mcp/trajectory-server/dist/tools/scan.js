@@ -139,14 +139,26 @@ function persistScan(db, out) {
             const md5Changed = !existing || existing.content_md5 !== f.content_md5;
             if (md5Changed)
                 files_md5_changed++;
-            // INSERT OR REPLACE rebuilds the row; preserve summary unless md5 changed.
-            const summaryClause = md5Changed
-                ? 'NULL, NULL'
-                : `(SELECT summary FROM file_registry WHERE repo = ? AND path = ?), (SELECT summary_updated_at FROM file_registry WHERE repo = ? AND path = ?)`;
-            const summaryArgs = md5Changed ? [] : [f.repo, f.path, f.repo, f.path];
-            db.run(`INSERT OR REPLACE INTO file_registry
-           (repo, path, type, content_md5, summary, summary_updated_at)
-         VALUES (?, ?, 'source', ?, ${summaryClause})`, [f.repo, f.path, f.content_md5, ...summaryArgs]);
+            // ON CONFLICT(repo, path) DO UPDATE preserves the row's rowid — critical
+            // because file_registry_embeddings.file_registry_id references that rowid
+            // via FK. INSERT OR REPLACE would delete + reinsert, getting a new rowid,
+            // orphaning every embedding row. md5-unchanged rows keep summary; md5-
+            // changed rows clear it (Phase 2 backfill or update_summaries refills).
+            db.run(`INSERT INTO file_registry (repo, path, type, content_md5, summary, summary_updated_at)
+         VALUES (?, ?, 'source', ?, NULL, NULL)
+         ON CONFLICT(repo, path) DO UPDATE SET
+           type               = 'source',
+           content_md5        = excluded.content_md5,
+           summary            = CASE
+             WHEN file_registry.content_md5 = excluded.content_md5
+               THEN file_registry.summary
+             ELSE NULL
+           END,
+           summary_updated_at = CASE
+             WHEN file_registry.content_md5 = excluded.content_md5
+               THEN file_registry.summary_updated_at
+             ELSE NULL
+           END`, [f.repo, f.path, f.content_md5]);
             files_upserted++;
         }
     });
