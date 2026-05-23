@@ -40,7 +40,6 @@ KNOWN_WRITE_TOOLS=(
   discussion_append
   audit_log
   validation_record
-  file_registry_update_summaries
 )
 
 # ---------------------------------------------------------------------------
