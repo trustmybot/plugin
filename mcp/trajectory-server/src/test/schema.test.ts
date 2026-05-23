@@ -7,7 +7,7 @@ import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh prod-mode DB contains 25 tables (no ledger, no eval/debug tables)', () => {
+  it('fresh prod-mode DB contains 28 tables (no ledger, no eval/debug tables)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -39,6 +39,10 @@ describe('schema — current table set, default values, constraints', () => {
       'discussions_embeddings',
       'audit_embeddings',
       'file_registry_embeddings',
+      // v0.7 world-model — bro's directory-level memory (ADR 0001)
+      'directories',
+      'directories_fts',
+      'directories_embeddings',
     ];
 
     const rows = db.all<{ name: string }>(
@@ -50,14 +54,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 5 in plugin_meta', () => {
+  it('fresh DB has schema_version = 6 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 5);
+    assert.equal(meta.schema_version, 6);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

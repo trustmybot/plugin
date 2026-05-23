@@ -20,6 +20,7 @@ import { prCommentsTools } from './pr_comments.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
+import { worldModelTools } from './world-model.js';
 export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
 
@@ -61,6 +62,7 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
   const composites = compositeTools(db, dbPath);
   const onboard = onboardTools(db, dbPath);
   const scan = scanTools(db);
+  const worldModel = worldModelTools(db);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
@@ -82,6 +84,7 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
+    ...worldModel.definitions,
   ]);
 
   toolHandlers = {
@@ -104,5 +107,6 @@ export function registerTools(server: Server, db: TrajectoryDB, dbPath = ''): vo
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,
+    ...worldModel.handlers,
   };
 }

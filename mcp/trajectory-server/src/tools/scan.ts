@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -143,6 +143,123 @@ export function preferredDefaultRepo(
   return (enclosing ?? repos[0]).name;
 }
 
+// Directory-level world model population (v0.7 world-model). For each unique
+// dir implied by the scanned file set, populate the row's summary from
+// <dir>/README.md when present (author-curated, high-trust). Dirs without a
+// README land with summary=NULL — lazy LLM fill is the agent's responsibility.
+// See docs/architecture/WORLD_MODEL.md + ADR 0001.
+const README_CANDIDATES = ['README.md', 'readme.md', 'README.rst', 'readme.rst'];
+const README_MAX_BYTES = 1024;
+
+interface DirEntry {
+  repo: string;
+  path: string;
+  parent_path: string | null;
+  file_count: number;
+}
+
+function deriveDirectoryEntries(out: ScanOutput): Map<string, DirEntry> {
+  const dirMap = new Map<string, DirEntry>();
+
+  function ensureDir(repo: string, dirPath: string): void {
+    const key = `${repo} ${dirPath}`;
+    if (dirMap.has(key)) return;
+    let parent_path: string | null = null;
+    if (dirPath !== '') {
+      const lastSlash = dirPath.lastIndexOf('/');
+      parent_path = lastSlash >= 0 ? dirPath.slice(0, lastSlash) : '';
+    }
+    dirMap.set(key, { repo, path: dirPath, parent_path, file_count: 0 });
+    if (parent_path !== null) ensureDir(repo, parent_path);
+  }
+
+  for (const r of out.repos) ensureDir(r.name, '');
+
+  for (const f of out.files) {
+    const lastSlash = f.path.lastIndexOf('/');
+    const dirPath = lastSlash >= 0 ? f.path.slice(0, lastSlash) : '';
+    ensureDir(f.repo, dirPath);
+    const entry = dirMap.get(`${f.repo} ${dirPath}`);
+    if (entry) entry.file_count++;
+  }
+
+  return dirMap;
+}
+
+function readReadmeSummary(absDirPath: string): string | null {
+  for (const candidate of README_CANDIDATES) {
+    const readmePath = join(absDirPath, candidate);
+    if (!existsSync(readmePath)) continue;
+    try {
+      const raw = readFileSync(readmePath, 'utf8');
+      return raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
+    } catch {
+      // Unreadable — fall through.
+    }
+  }
+  return null;
+}
+
+function persistDirectories(
+  db: TrajectoryDB,
+  out: ScanOutput,
+  now: string,
+): { dirs_upserted: number; dirs_readme_summarized: number } {
+  const repoPaths = new Map<string, string>();
+  for (const r of out.repos) repoPaths.set(r.name, r.path);
+
+  const dirMap = deriveDirectoryEntries(out);
+  let dirs_upserted = 0;
+  let dirs_readme_summarized = 0;
+
+  for (const entry of dirMap.values()) {
+    const repoPath = repoPaths.get(entry.repo);
+    if (!repoPath) continue;
+
+    const absDirPath = entry.path === '' ? repoPath : join(repoPath, entry.path);
+    const readmeSummary = readReadmeSummary(absDirPath);
+
+    const existing = db.get<{ id: number }>(
+      'SELECT id FROM directories WHERE repo = ? AND path = ?',
+      [entry.repo, entry.path],
+    );
+
+    if (existing) {
+      if (readmeSummary !== null) {
+        db.run(
+          'UPDATE directories SET parent_path = ?, summary = ?, summary_source = ?, summary_updated_at = ?, file_count = ? WHERE id = ?',
+          [entry.parent_path, readmeSummary, 'readme', now, entry.file_count, existing.id],
+        );
+        dirs_readme_summarized++;
+      } else {
+        db.run(
+          'UPDATE directories SET parent_path = ?, file_count = ? WHERE id = ?',
+          [entry.parent_path, entry.file_count, existing.id],
+        );
+      }
+    } else {
+      const source = readmeSummary !== null ? 'readme' : 'llm';
+      const updatedAt = readmeSummary !== null ? now : null;
+      db.run(
+        'INSERT INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          entry.repo,
+          entry.path,
+          entry.parent_path,
+          readmeSummary,
+          source,
+          updatedAt,
+          entry.file_count,
+        ],
+      );
+      if (readmeSummary !== null) dirs_readme_summarized++;
+    }
+    dirs_upserted++;
+  }
+
+  return { dirs_upserted, dirs_readme_summarized };
+}
+
 // Persist repos[] + files[] from a scan output. Transactional.
 // Drift detection is md5-only: rows with matching md5 keep their summary
 // (so re-running /scan doesn't blow away populated descriptions); rows
@@ -151,10 +268,14 @@ function persistScan(db: TrajectoryDB, out: ScanOutput): {
   repos_upserted: number;
   files_upserted: number;
   files_md5_changed: number;
+  dirs_upserted: number;
+  dirs_readme_summarized: number;
 } {
   let repos_upserted = 0;
   let files_upserted = 0;
   let files_md5_changed = 0;
+  let dirs_upserted = 0;
+  let dirs_readme_summarized = 0;
   const now = nowISO();
 
   db.transaction(() => {
@@ -193,9 +314,19 @@ function persistScan(db: TrajectoryDB, out: ScanOutput): {
       );
       files_upserted++;
     }
+
+    const dirStats = persistDirectories(db, out, now);
+    dirs_upserted = dirStats.dirs_upserted;
+    dirs_readme_summarized = dirStats.dirs_readme_summarized;
   });
 
-  return { repos_upserted, files_upserted, files_md5_changed };
+  return {
+    repos_upserted,
+    files_upserted,
+    files_md5_changed,
+    dirs_upserted,
+    dirs_readme_summarized,
+  };
 }
 
 export function scanTools(db: TrajectoryDB): {
@@ -290,7 +421,7 @@ export function scanTools(db: TrajectoryDB): {
           `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
            VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
           [
-            `Scanned ${out.repos.length} repos, ${out.files.length} files (${stats.files_md5_changed} md5-changed) — source=${source}${structuralChange ? ', structural-change' : ''}`,
+            `Scanned ${out.repos.length} repos, ${out.files.length} files (${stats.files_md5_changed} md5-changed), ${stats.dirs_upserted} dirs (${stats.dirs_readme_summarized} README-summarized) — source=${source}${structuralChange ? ', structural-change' : ''}`,
             JSON.stringify({
               ...stats,
               session_dir: out.session_dir,
