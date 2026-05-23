@@ -4,6 +4,16 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-rc.6 — 2026-05-22
+
+### Fixed
+
+- `scripts/scan.sh`: try GNU `stat -c '%s'` before BSD `stat -f '%z'` (Linux interpreted `-f` as `--file-system`, returning garbage that jq rejected → scan persisted 0 files on GH).
+- `scripts/hooks/deferred-tools-drift-warn.sh`: GNU `date -d '@EPOCH'` fallback to BSD `date -j -r EPOCH` (hook was returning empty on Linux because BSD-only `-j -r` failed silently).
+- `tests/hooks/deferred-tools-drift-warn.test.sh`: epoch arithmetic for date offsets instead of BSD-only `date -v+1S` / GNU-ambiguous `date -d '1 second'`.
+- `.github/workflows/release-gate.yml`: dropped literal-tilde `HF_HOME` env (Node `fs` does not expand `~`); `model.ts` now defaults to `homedir()`. Added curl pre-download of the HuggingFace bge-small ONNX model with size verification, bypassing the transformers.js downloader. Installs `@anthropic-ai/claude-code` CLI before the L6 chain runs. Uploads `~/.claude/tmb/l6-chain-runs/` as an `actions/upload-artifact` (always, 14-day retention) so failures are debuggable.
+- v0.7.0 GH CI marketplace gate fully validated end-to-end (L0 docker + L1-L4 + L6 13/13).
+
 ## v0.7.0-rc.5 — 2026-05-22
 
 ### Fixed
