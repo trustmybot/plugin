@@ -1262,7 +1262,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     assert.ok(meta, 'plugin_meta row required');
     assert.equal(meta.schema_version, 8, 'schema_version must be 8 after migration');
 
-    for (const t of ['discussions_embeddings', 'audit_embeddings', 'directories_embeddings']) {
+    for (const t of ['discussions_embeddings', 'audit_embeddings', 'audit_embeddings']) {
       const row = db.get<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         [t],
@@ -1273,7 +1273,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     for (const idx of [
       'idx_discussions_embeddings_model',
       'idx_audit_embeddings_model',
-      'idx_directories_embeddings_model',
+      'idx_audit_embeddings_model',
     ]) {
       const row = db.get<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
@@ -1316,7 +1316,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
       assert.ok(row !== undefined, `${t} must exist after migration chain`);
     }
 
-    for (const t of ['discussions_embeddings', 'audit_embeddings', 'directories_embeddings']) {
+    for (const t of ['discussions_embeddings', 'audit_embeddings', 'audit_embeddings']) {
       const row = db.get<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         [t],

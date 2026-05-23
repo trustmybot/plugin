@@ -1,5 +1,5 @@
 {
   "expected_writes": {
-    "directories WHERE repo = 'api'": ">=1"
+    "repos WHERE name = 'api'": ">=1"
   }
 }

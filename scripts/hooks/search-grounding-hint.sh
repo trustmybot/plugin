@@ -2,7 +2,7 @@
 # UserPromptSubmit hook. When the user asks bro a "why did we X" / "what
 # was the rationale" / "what did we decide" question — i.e. a retrieval
 # question over past decisions — inject a hint nudging bro toward the
-# *_search MCP tools (discussion_search, audit_search, file_registry_search)
+# *_search MCP tools (discussion_search, audit_search, world_model_search)
 # instead of the linear-scan *_list / *_get_with_discussions tools.
 #
 # Motivation: CLAUDE.md already documents the search-first preference, but
@@ -51,7 +51,7 @@ REASON="🔎 search-grounding hint: the user's prompt contains '${matched}' — 
 Prefer the *_search MCP tools over linear scans:
 - \`discussion_search(query='<key terms>', mode='hybrid')\` returns ranked snippets across ALL issues (keyword + semantic). Use this first.
 - \`audit_search(query='<key terms>')\` for event-history grounding.
-- \`file_registry_search(query='<key terms>')\` for code-context grounding.
+- \`world_model_search(query='<key terms>')\` for code-context / project-structure grounding.
 
 Only fall back to \`discussion_list(issue_id=N)\` / \`issue_get_with_discussions\` once \`discussion_search\` has narrowed the candidate set — those tools enumerate, they don't rank. Hybrid mode auto-falls-back to keyword if the embedding model is offline (\`warning: 'semantic_unavailable'\`)."
 

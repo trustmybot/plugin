@@ -38,7 +38,9 @@ SELECT
 FROM agent_runs
 WHERE agent_type = 'bro';
 
-SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'directories populated post-scan for at least one dir (got ' || COUNT(*) || ', expected >=1) — world model warm' AS description
-FROM directories;
+-- World model lives in the sibling kuzu graph DB post-ADR 0002, not in
+-- this SQLite trajectory.db. The deep_scan_completed audit row above is
+-- the SQLite-side proxy for "scan ran successfully → kuzu graph warm."
+-- A direct kuzu state check would require querying world-model.kuzu —
+-- outside this outcome.sql's scope; covered by the L3 kuzu integration
+-- fixture (TBD post-v0.7).
