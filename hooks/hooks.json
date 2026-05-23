@@ -147,6 +147,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-reviewer-spawn-prompt-shape.sh",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-reviewer-after-atomic-close.sh",
+            "timeout": 3
           }
         ]
       },
