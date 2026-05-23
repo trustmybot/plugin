@@ -98,6 +98,15 @@ jobs:
           L6_FROM_STEP: ${{ inputs.l6_from_step || '1' }}
         run: bash tests/dogfood/run-l6-chain.sh --from "$L6_FROM_STEP" --fresh
 
+      - name: Upload L6 chain artifacts (on success or failure)
+        if: ${{ always() && inputs.skip_l6 != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: l6-chain-runs-${{ github.run_id }}
+          path: ~/.claude/tmb/l6-chain-runs/
+          if-no-files-found: warn
+          retention-days: 14
+
   install-smoke:
     name: L0 docker install-smoke
     runs-on: ubuntu-latest
