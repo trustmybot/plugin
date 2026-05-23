@@ -61,13 +61,15 @@ elif find docs/trustmybot/architecture -maxdepth 2 -type f -name '*.md' 2>/dev/n
   HAS_ARCH_DOCS="yes"
 fi
 
-# file_registry indexed status (cold vs warm).
-REGISTRY_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM file_registry;" 2>/dev/null || echo 0)
+# World model indexed status (cold vs warm). The world model is the
+# directory-level memory bro reasons from (ADR 0001); cold = no
+# directories row exists for the project, warm = at least one populated.
+WORLD_MODEL_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM directories;" 2>/dev/null || echo 0)
 SOURCE_FILE_COUNT=$(git ls-files 2>/dev/null | grep -cvE '^(\.claude/|node_modules/|dist/|build/|\.git/)' || echo 0)
 
-REGISTRY_STATE="warm"
-if [ "$REGISTRY_COUNT" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
-  REGISTRY_STATE="cold"
+WORLD_MODEL_STATE="warm"
+if [ "$WORLD_MODEL_COUNT" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
+  WORLD_MODEL_STATE="cold"
 fi
 
 LAST_5=$(printf '%s' "$LAST_5_RAW" | head -5 | sed 's/^/  /')
@@ -80,14 +82,14 @@ Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty path
 Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
 Architecture docs: ${HAS_ARCH_DOCS}
-file_registry:     ${REGISTRY_STATE} (${REGISTRY_COUNT} indexed / ${SOURCE_FILE_COUNT} source)
+World model:       ${WORLD_MODEL_STATE} (${WORLD_MODEL_COUNT} dirs indexed / ${SOURCE_FILE_COUNT} source files)
 Open issues:       ${OPEN_ISSUES}
 Pending tasks:     ${PENDING_TASKS}
 Last 5 commits:
 ${LAST_5}
 ================================================
-Judgment phase (tmb_planning §Step 0): on the first code-touching ask, decide
-deep-scan vs lazy-fill IF file_registry is cold.
+If World model is cold on the first code-touching ask, tell the Human to run /scan
+— world_model_get can't navigate an empty project map.
 EOF
 )
 
