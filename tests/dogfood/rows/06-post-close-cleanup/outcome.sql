@@ -1,17 +1,12 @@
 -- 06-post-close-cleanup — after bro_atomic_close, the post-task-close-rescan
--- hook fires scan_run which refreshes the world model. The assertion verifies
--- the directories table has populated rows for the project's repo so future
--- sessions can navigate via world_model_get instead of re-Reading every file.
-SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'directories table populated post-close (got ' || COUNT(*) || ' row(s), expected >=1) — world model warm' AS description
-FROM directories;
+-- hook fires scan_run which refreshes the world model (now in the kuzu graph
+-- DB, ADR 0002). The SQLite-side proxy for "world model refresh ran" is the
+-- deep_scan_completed audit row. A direct kuzu state check would require
+-- querying world-model.kuzu — outside this outcome.sql's scope; covered by
+-- the L3 kuzu integration fixture (TBD post-v0.7).
 
--- At least one directory's summary should come from a README.md walk
--- (summary_source='readme'). If no README exists in the test repo this
--- relaxes to "any directory row exists with a non-null summary OR no
--- summary yet" — the post-scan refresh ran either way.
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'directories has at least one row (got ' || COUNT(*) || ', expected >=1) — scan_run refreshed via post-close hook' AS description
-FROM directories;
+  'deep_scan_completed audit exists post-close (got ' || COUNT(*) || ', expected >=1) — proxy for kuzu refresh via post-close-rescan hook' AS description
+FROM audit
+WHERE event_type = 'deep_scan_completed';

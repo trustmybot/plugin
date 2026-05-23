@@ -10,11 +10,10 @@ SELECT
   'deep_scan_completed audit row (got ' || COUNT(*) || ', expected >=1) — bro self-fired scan_run in headless' AS description
 FROM audit WHERE event_type = 'deep_scan_completed';
 
--- The world model substrate must be populated post-scan.
-SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'directories row populated post-scan (got ' || COUNT(*) || ', expected >=1)' AS description
-FROM directories;
+-- World model lives in the sibling kuzu graph DB post-ADR 0002, not in this
+-- SQLite trajectory.db. The deep_scan_completed audit row above is the
+-- SQLite-side proxy for "world model warm." A direct kuzu state check would
+-- require querying world-model.kuzu — outside this outcome.sql's scope.
 
 -- Bro proceeds with planning after the scan.
 SELECT

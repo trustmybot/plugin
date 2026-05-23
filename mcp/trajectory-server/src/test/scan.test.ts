@@ -40,13 +40,15 @@ function mkRepo(parent: string, name: string, files: Record<string, string>): st
 }
 
 describe('scan_run — workspace discovery + persistence', () => {
-  it('discovers multiple inner repos under a non-git workspace, persists repos + directories', async () => {
+  it('discovers multiple inner repos under a non-git workspace, persists repos in SQLite', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'scan-test-'));
     try {
       mkRepo(ws, 'app', { 'src/main.py': 'def main():\n    pass\n', 'README.md': 'app\n' });
       mkRepo(ws, 'lib', { 'core.ts': 'export const x = 1;\n' });
 
       const db = tempDB();
+      // Pass null graph: world model writes are skipped (graph DB scope of
+      // this test is covered by L3 kuzu integration fixtures — TBD post-v0.7).
       const tools = scanTools(db, null);
       const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!result.isError, `scan_run failed: ${JSON.stringify(result)}`);
@@ -55,16 +57,6 @@ describe('scan_run — workspace discovery + persistence', () => {
         .all<{ name: string }>('SELECT name FROM repos ORDER BY name')
         .map((r) => r.name);
       assert.deepEqual(repoNames, ['app', 'lib']);
-
-      const dirCount = db.get<{ c: number }>('SELECT COUNT(*) as c FROM directories')?.c ?? 0;
-      assert.ok(dirCount >= 2, `expected ≥2 directory rows (one per repo root), got ${dirCount}`);
-
-      const appRoot = db.get<{ summary: string | null; summary_source: string }>(
-        `SELECT summary, summary_source FROM directories WHERE repo='app' AND path=''`,
-      );
-      assert.ok(appRoot, 'app repo root directory row should exist');
-      assert.equal(appRoot!.summary_source, 'readme', 'app README.md should drive summary');
-      assert.ok(appRoot!.summary?.includes('app'), 'app summary should reflect README content');
 
       const auditRow = db.get<{ event_type: string }>(
         `SELECT event_type FROM audit WHERE event_type='deep_scan_completed' ORDER BY id DESC LIMIT 1`,
@@ -77,36 +69,21 @@ describe('scan_run — workspace discovery + persistence', () => {
     }
   });
 
-  it('preserves dir summary on rescan when README unchanged; refreshes when README changes', async () => {
-    const ws = mkdtempSync(join(tmpdir(), 'scan-md5-'));
+  it('scan_run completes without error when graph is null (workflow path stays clean)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-no-graph-'));
     try {
-      const repo = mkRepo(ws, 'r', { 'a.txt': 'aaa\n', 'README.md': 'first version\n' });
+      mkRepo(ws, 'r', { 'a.txt': 'aaa\n', 'README.md': 'first version\n' });
 
       const db = tempDB();
       const tools = scanTools(db, null);
 
-      await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-      const firstSummary = db.get<{ summary: string | null }>(
-        `SELECT summary FROM directories WHERE repo='r' AND path=''`,
-      )?.summary;
-      assert.ok(firstSummary?.includes('first version'), 'first summary from README');
+      const r1 = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r1.isError, `first scan_run must succeed: ${JSON.stringify(r1)}`);
 
-      // Re-scan unchanged content — summary stays.
-      await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-      const afterClean = db.get<{ summary: string | null }>(
-        `SELECT summary FROM directories WHERE repo='r' AND path=''`,
-      );
-      assert.ok(afterClean?.summary?.includes('first version'), 'summary preserved when README unchanged');
-
-      // Mutate README. Re-scan must refresh dir summary.
-      writeFileSync(join(repo, 'README.md'), 'second version\n');
-      execFileSync('git', ['add', '.'], { cwd: repo });
-      execFileSync('git', ['commit', '-qm', 'mutate'], { cwd: repo });
-      await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-      const afterChange = db.get<{ summary: string | null }>(
-        `SELECT summary FROM directories WHERE repo='r' AND path=''`,
-      );
-      assert.ok(afterChange?.summary?.includes('second version'), 'summary refreshed from new README');
+      // Re-scan idempotency — without a graph the dirs_upserted count is 0
+      // but the audit row + repos table updates still apply.
+      const r2 = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r2.isError, `second scan_run must succeed: ${JSON.stringify(r2)}`);
 
       db.close();
     } finally {
