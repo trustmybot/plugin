@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 describe('TrajectoryDB', () => {
-    it('opens an in-memory DB and verifies all 25 prod tables exist with schema_version=7', () => {
+    it('opens an in-memory DB and verifies all 22 prod tables exist with schema_version=8 (world model in kuzu)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -28,16 +28,12 @@ describe('TrajectoryDB', () => {
             'commands',
             'skill_invocations',
             'rule_invocations',
-            // #2905 FTS5 virtual tables
+            // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
             'discussions_fts',
             'audit_fts',
-            // #2905 embedding tables
+            // #2905 embedding tables (workflow tables only)
             'discussions_embeddings',
             'audit_embeddings',
-            // v0.7 world-model — bro's directory-level memory (ADR 0001)
-            'directories',
-            'directories_fts',
-            'directories_embeddings',
         ];
         const rows = db.all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%\\_fts\\_%' ESCAPE '\\' ORDER BY name");
         const actualNames = rows.map((r) => r.name).sort();
@@ -45,7 +41,7 @@ describe('TrajectoryDB', () => {
         assert.deepEqual(actualNames, expectedSorted);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta should have a row');
-        assert.equal(meta.schema_version, 7);
+        assert.equal(meta.schema_version, 8);
         db.close();
     });
     it('run inserts a row into skills, get retrieves it, all lists multiple rows', () => {

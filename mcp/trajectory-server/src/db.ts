@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 7;
+const TARGET_SCHEMA_VERSION = 8;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -371,6 +371,9 @@ function runMigrations(
   if (fromVersion < 7 && toVersion >= 7) {
     migrateV6toV7(db);
   }
+  if (fromVersion < 8 && toVersion >= 8) {
+    migrateV7toV8(db);
+  }
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -385,6 +388,32 @@ function tableExists(db: DatabaseSync, table: string): boolean {
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
     .get(table) as { name: string } | undefined;
   return row !== undefined;
+}
+
+function migrateV7toV8(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    // Drop the SQLite directories infrastructure — world model moved to
+    // kuzu graph DB (ADR 0002). World-model data is rebuilt from /scan on
+    // first use; nothing to migrate out.
+    db.exec('DROP TRIGGER IF EXISTS directories_au_new');
+    db.exec('DROP TRIGGER IF EXISTS directories_au');
+    db.exec('DROP TRIGGER IF EXISTS directories_ad');
+    db.exec('DROP TRIGGER IF EXISTS directories_ai');
+    db.exec('DROP INDEX IF EXISTS idx_directories_embeddings_model');
+    db.exec('DROP INDEX IF EXISTS idx_directories_parent');
+    db.exec('DROP TABLE IF EXISTS directories_embeddings');
+    db.exec('DROP TABLE IF EXISTS directories_fts');
+    db.exec('DROP TABLE IF EXISTS directories');
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
 }
 
 function migrateV6toV7(db: DatabaseSync): void {
