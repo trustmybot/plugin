@@ -593,7 +593,12 @@ export function fileRegistryTools(db, dbPath = '') {
                summary_updated_at = excluded.summary_updated_at`, [resolvedRepoName, u2.path, md5, u2.summary, now]);
                 const embRow = db.get('SELECT rowid FROM file_registry WHERE repo = ? AND path = ?', [resolvedRepoName, u2.path]);
                 if (embRow) {
-                    embedAndStore(db, 'file_registry', embRow.rowid, u2.summary).catch((e) => console.error('[embeddings] file_registry_update_summaries embed failed:', e));
+                    try {
+                        await embedAndStore(db, 'file_registry', embRow.rowid, u2.summary);
+                    }
+                    catch (e) {
+                        console.error('[embeddings] file_registry_update_summaries embed failed:', e);
+                    }
                 }
                 updated += 1;
             }

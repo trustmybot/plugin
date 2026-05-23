@@ -680,9 +680,32 @@ export function compositeTools(
           // Resolution order (per #2885 sibling fix): explicit s.repo → task.repo
           // → tmb_default_repo → error mentioning all three.
           const summaryErrors: Array<{ path: string; error: string }> = [];
+          // Collected inside the transaction; awaited AFTER commit (db.transaction
+          // callback must be synchronous; embedAndStore is async).
+          const pendingEmbeds: Array<{ rowid: number; summary: string }> = [];
           let summarized = 0;
           const defaultRepo = resolveDefaultRepo(db, dbPath);
+          // For absolute-path normalization (mirrors file-registry.ts: longest
+          // repo-prefix wins). Without this, bro passing /abs/path/src/cli.py
+          // creates a file_registry row keyed on the absolute path, and
+          // downstream queries that filter on 'src/cli.py' (relative) miss.
+          const allReposForNorm = db.all<{ name: string; path: string }>(
+            `SELECT name, path FROM repos ORDER BY length(path) DESC`,
+          );
           for (const s of summaries) {
+            // Normalize absolute paths to relative against the matching repo.
+            if (isAbsolute(s.path)) {
+              const match = allReposForNorm.find(
+                (r) => s.path === r.path || s.path.startsWith(r.path + '/'),
+              );
+              if (match) {
+                s.path = s.path.slice(match.path.length + 1);
+              } else {
+                console.warn(
+                  `[bro_atomic_close] absolute path "${s.path}" does not match any repo root — storing as-is`,
+                );
+              }
+            }
             const explicit = typeof s.repo === 'string' && s.repo.length > 0 ? s.repo : null;
             const repoName = explicit ?? task.repo ?? defaultRepo?.name ?? null;
             if (!repoName) {
@@ -747,9 +770,7 @@ export function compositeTools(
               [repoName, s.path],
             );
             if (embRow) {
-              embedAndStore(db, 'file_registry', embRow.rowid, s.summary).catch((e) =>
-                console.error('[embeddings] bro_atomic_close embed failed:', e),
-              );
+              pendingEmbeds.push({ rowid: embRow.rowid, summary: s.summary });
             }
             summarized += 1;
           }
@@ -815,10 +836,25 @@ export function compositeTools(
             }
           }
 
-          return { task_id: task.id, summarized, issue_closed: issueClosed };
+          return { task_id: task.id, summarized, issue_closed: issueClosed, pendingEmbeds };
         });
 
-        return ok(result);
+        // Embeddings: fired AFTER the transaction commits so we can await each.
+        // Synchronous behavior is required for correctness — tests query
+        // file_registry_embeddings immediately after this call returns.
+        for (const e of result.pendingEmbeds) {
+          try {
+            await embedAndStore(db, 'file_registry', e.rowid, e.summary);
+          } catch (e2) {
+            console.error('[embeddings] bro_atomic_close embed failed:', e2);
+          }
+        }
+
+        return ok({
+          task_id: result.task_id,
+          summarized: result.summarized,
+          issue_closed: result.issue_closed,
+        });
       }),
     ),
   };

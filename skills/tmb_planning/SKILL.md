@@ -23,8 +23,9 @@ fully self-contained.
 4. `discussion_append(issue_id=<I>, author='bro', kind='decision', body='<chosen approach: what, why, trade-offs>')`. Required by the server-side decision gate on `task_create_batch`.
 5. `git switch -c <branch_id>` (the WorktreeCreate hook routes to the right inner repo when in a workspace).
 6. Author the spec body inline using the template in §"Spec body template". For architectural changes (touches `docs/trustmybot/architecture/`, schema, public API, or external side effects) also co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` and apply the blast-radius checklist (see §"Architectural changes" below).
-7. `task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, description, spec_body}], emit_planning_complete=true, waive_scope_gate=true, waive_scope_gate_reason='headless mode: defaults applied; <one-line scope summary>')`.
-8. Spawn SWE: `git worktree add .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`.
+7. `scan_run(agent='bro', source='bro_auto_initial')` — populates `repos` + `file_registry` and emits the `deep_scan_completed` audit row that satisfies the registry-cold gate. Always run before `task_create_batch` in headless mode; the gate is server-enforced, but running /scan unconditionally avoids the temptation to waive on "no source files yet" reasoning (the project may have scaffolded files bro hasn't seen).
+8. `task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, description, spec_body}], emit_planning_complete=true, waive_scope_gate=true, waive_scope_gate_reason='headless mode: defaults applied; <one-line scope summary>')`. Do NOT pass `waive_registry_gate=true` — step 7 above satisfied the gate.
+9. Spawn SWE: `git worktree add .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`.
 
 Interactive (Human-present) flow continues at Step 0.
 

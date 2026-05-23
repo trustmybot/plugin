@@ -735,9 +735,11 @@ export function fileRegistryTools(db: TrajectoryDB, dbPath = ''): {
             [resolvedRepoName, u2.path],
           );
           if (embRow) {
-            embedAndStore(db, 'file_registry', embRow.rowid, u2.summary).catch((e) =>
-              console.error('[embeddings] file_registry_update_summaries embed failed:', e),
-            );
+            try {
+              await embedAndStore(db, 'file_registry', embRow.rowid, u2.summary);
+            } catch (e) {
+              console.error('[embeddings] file_registry_update_summaries embed failed:', e);
+            }
           }
 
           updated += 1;
