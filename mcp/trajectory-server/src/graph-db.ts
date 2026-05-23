@@ -122,6 +122,41 @@ export class WorldModelGraph {
     return rows;
   }
 
+  keywordSearchDirectories(
+    repo: string,
+    query: string,
+    k: number,
+  ): Array<DirectoryNode & { score: number }> {
+    // kuzu Cypher: CONTAINS for substring match on summary OR path.
+    // Score is constant for now (1.0 per match) since we don't have a real
+    // FTS index yet — kuzu's FTS extension lands as a follow-up to this slice.
+    // Returns at most k rows.
+    const lowered = query.toLowerCase();
+    const stmt = this.conn.prepareSync(
+      `MATCH (d:Directory {repo: $repo})
+       WHERE lower(d.summary) CONTAINS $needle OR lower(d.path) CONTAINS $needle
+       RETURN d.key, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count
+       LIMIT $k`,
+    );
+    const result = single(this.conn.executeSync(stmt, { repo, needle: lowered, k }));
+    const rows: Array<DirectoryNode & { score: number }> = [];
+    while (result.hasNext()) {
+      const r = result.getNextSync() as Record<string, unknown>;
+      rows.push({
+        key: r['d.key'] as string,
+        repo: r['d.repo'] as string,
+        path: r['d.path'] as string,
+        parent_path: ((r['d.parent_path'] as string) || null),
+        summary: ((r['d.summary'] as string) || null),
+        summary_source: r['d.summary_source'] as string,
+        summary_updated_at: ((r['d.summary_updated_at'] as string) || null),
+        file_count: Number(r['d.file_count'] ?? 0),
+        score: 1.0,
+      });
+    }
+    return rows;
+  }
+
   directoryCount(): number {
     const result = single(this.conn.querySync('MATCH (d:Directory) RETURN COUNT(d) AS n'));
     if (result.hasNext()) {
