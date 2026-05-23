@@ -30,6 +30,7 @@ jobs:
       # via Node's os.homedir() which resolves to an absolute path. Setting
       # HF_HOME to '~/.cache/huggingface' in YAML produces a literal-tilde
       # string that Node's fs API can't resolve.
+      TMB_SCAN_DEBUG: '1'  # TEMP: emit scan.sh git-state debug for #62 — remove after RCA
     steps:
       - uses: actions/checkout@v4
 

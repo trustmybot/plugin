@@ -75,6 +75,24 @@ while IFS= read -r repo_root; do
   files_list=$(git -C "$repo_root" ls-files 2>/dev/null || true)
   file_count=0
 
+  # TEMP DIAGNOSTIC (#62 GH CI scan_run 0-files) — remove after root-cause
+  if [ -n "${TMB_SCAN_DEBUG:-}" ]; then
+    {
+      echo "=== scan.sh DEBUG: repo_root=$repo_root ==="
+      pwd; id 2>&1 | head -1
+      echo "-- ls -la repo_root --"
+      ls -la "$repo_root" 2>&1 | head -10
+      echo "-- git -C status --"
+      git -C "$repo_root" status 2>&1 | head -8
+      echo "-- git -C log -1 --"
+      git -C "$repo_root" log -1 --oneline 2>&1 | head -3
+      echo "-- git -C ls-files raw --"
+      git -C "$repo_root" ls-files 2>&1 | head -20
+      echo "-- files_list captured (lines): $(printf '%s' "$files_list" | wc -l) --"
+      echo "=== end DEBUG ==="
+    } >&2
+  fi
+
   if [ -n "$files_list" ]; then
     while IFS= read -r relpath; do
       [ -n "$relpath" ] || continue
