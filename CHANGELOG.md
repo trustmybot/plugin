@@ -4,6 +4,31 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-dev — 2026-05-23
+
+### Added — graph DB world model (ADR 0002)
+
+Bro's project mental model moves out of the trajectory DB's `directories` SQLite table into a dedicated **kuzu** graph database at `<project>/.claude/<plugin>/world-model.kuzu/`. Sibling file to trajectory.db. Trajectory DB returns to its purpose-pure role: workflow ledger only (issues / tasks / discussions / audit / validation / plugin metadata).
+
+Schema v8 drops the SQLite `directories` / `directories_fts` / `directories_embeddings` tables. World-model data rebuilds from `/scan` on first boot under v8.
+
+Initial graph schema: `Directory` node + `CONTAINS` edge. `File` / `Symbol` / `IMPORTS` / `CALLS` / `DEFINES` nodes + edges land post-v0.7.
+
+`world_model_get(repo, path, depth)` queries kuzu and returns an annotated directory tree. `world_model_search(query, mode)` does substring search today; real FTS5 + bge-small vector indexes via kuzu extensions are post-v0.7.
+
+### Added — dependency bundling
+
+- `scripts/hooks/ensure-kuzu-installed.sh` (SessionStart) lazy-installs kuzu's native binary on first session after plugin install/update. Detects the bun no-postinstall foot-gun (binary present, root JS shim missing) and runs `node install.js` directly without a full reinstall. Bypass: `TMB_SKIP_KUZU_INSTALL=1`.
+- `mcp/trajectory-server/package.json` declares `"trustedDependencies": ["kuzu"]` so bun honors kuzu's postinstall script when installing fresh.
+- New L1 lint `tests/lint/kuzu-trusted-dep.sh` blocks regression by asserting `kuzu` is in `trustedDependencies` whenever it's a declared dep.
+
+### Changed
+
+- Architecture docs (`docs/architecture/WORLD_MODEL.md`, `ERD.md`, `FILES.md`, `FLOWS.md`, `RESPONSIBILITIES.md`, `REFERENCE.md`) lead with the kuzu substrate.
+- `scan_run` writes Directory nodes + CONTAINS edges into kuzu (no more SQLite directories writes).
+- L5/L6 dogfood row outcome SQL (rows 04 / 06 / 20 / 21 / 33) reframed for the new substrate; kuzu-state assertions move to the (TBD) L3 kuzu integration fixture.
+- ADR 0002 supersedes ADR 0001 on the substrate question.
+
 ## v0.7.0-rc.6 — 2026-05-22
 
 ### Fixed
