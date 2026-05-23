@@ -86,6 +86,12 @@ jobs:
       - name: Run L1-L4 sweep (run-all.sh)
         run: bash tests/run-all.sh
 
+      - name: Install Claude Code CLI (required by L6 chain runner)
+        if: ${{ inputs.skip_l6 != true }}
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude --version
+
       - name: Run L6 13-step chain
         if: ${{ inputs.skip_l6 != true }}
         env:
