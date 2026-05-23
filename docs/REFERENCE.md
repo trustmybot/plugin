@@ -4,7 +4,8 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 ## Where state lives
 
-- **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Project-local, gitignored, per-developer.
+- **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. Holds the workflow ledger: issues, tasks, discussions, audit, validation, plugin metadata. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. Project-local, gitignored, per-developer.
+- **World model graph DB** — kuzu at `<project>/.claude/<plugin-name>/world-model.kuzu/`. Holds bro's project mental picture: Directory nodes + CONTAINS edges (more node/edge types in follow-up slices). Sibling file to the trajectory DB. See ADR 0002 + `docs/architecture/WORLD_MODEL.md`.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **ADRs** — `docs/trustmybot/architecture/manual/decisions/N-*.md`, hand-curated.
 - **Auto-rendered architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed by the scan-side renderer pass.

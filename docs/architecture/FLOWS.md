@@ -16,11 +16,11 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | `skills` (registered via `skill_register`) | — |
 | 6 | Push gate / PR review | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `validation_attempts` | `git-push-guard` |
-| 7 | Scan + world-model refresh | First code-touching ask of session, `/scan`, OR `post-task-close-rescan.sh` hook fires after `bro_atomic_close` | bro (or hook in background) | `repos`, `directories` (summary preferentially from `<dir>/README.md`), `audit(event_type='deep_scan_completed')` — `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs` | `post-task-close-rescan` |
+| 7 | Scan + world-model refresh | First code-touching ask of session, `/scan`, OR `post-task-close-rescan.sh` hook fires after `bro_atomic_close` | bro (or hook in background) | `repos` (SQLite) + Directory nodes / CONTAINS edges (kuzu graph, ADR 0002; summary preferentially from `<dir>/README.md`), `audit(event_type='deep_scan_completed')` | `post-task-close-rescan` |
 | 8 | SWE retry / escalation | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer at push) | `validation_attempts` (multiple), `discussions` | `task_retry_batch` composite |
 | 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
-| 33 | Multi-repo path discipline | `tmb_default_repo` set; bro indexes inner repo | bro | `directories` (repo-relative paths; `repo` column resolves to the right inner git repo) | — |
+| 33 | Multi-repo path discipline | `tmb_default_repo` set; bro indexes inner repo | bro | kuzu Directory nodes (repo-relative paths; `repo` property scopes to the right inner git repo) | — |
 | **C** | Consultant invocation | Human asks for second opinion | bro → consultant | `discussions(kind='analysis'/'concern')` | — |
 | **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_review` §C) | bro → pr-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
 
@@ -235,9 +235,9 @@ When the Human's prompt names what to delete (branches, temp files, etc.), bro e
 
 ## 33. Multi-repo path discipline
 
-When a workspace has multiple inner git repos (siblings or submodules), `tmb_default_repo` config or per-task `tasks.repo` names the active inner repo. `directories` paths are stored repo-relative — `scan_run` does NOT prepend the inner repo directory when writing rows.
+When a workspace has multiple inner git repos (siblings or submodules), `tmb_default_repo` config or per-task `tasks.repo` names the active inner repo. Directory node `path` properties are stored repo-relative — `scan_run` does NOT prepend the inner repo directory when writing nodes.
 
-The L5 row `tests/dogfood/rows/33-multirepo-commit/` catches regressions at the storage layer: `directories.path LIKE 'api/%' OR LIKE 'app/%'` returns ≥1 row only on a workspace-rooted path leak.
+The L5 row `tests/dogfood/rows/33-multirepo-commit/` catches regressions at the storage layer: a Cypher `MATCH (d:Directory) WHERE d.path STARTS WITH 'api/' OR d.path STARTS WITH 'app/'` returns ≥1 node only on a workspace-rooted path leak.
 
 ---
 
