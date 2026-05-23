@@ -114,7 +114,8 @@ mcp/trajectory-server/
 | `config.ts` | `config_get`, `config_set`, `config_list` |
 | `discussions.ts` | `discussion_append` (verified_human gate), `discussion_list`, `issue_get_with_discussions` |
 | `world-model.ts` | `world_model_get` (annotated dir tree), `world_model_search` (FTS5 / semantic / hybrid — ADR 0001) |
-| `scan.ts` | `scan_run` (forks `scripts/scan.sh`, persists to `repos` + `directories`, pulls each `<dir>/README.md` into `directories.summary`, emits `deep_scan_completed` audit with `source` + `structural_change` content_json), `repos_list` |
+| `scan.ts` | `scan_run` (forks `scripts/scan.sh`, persists to `repos` in SQLite + Directory nodes / CONTAINS edges in the kuzu graph via `graph-db.ts`, pulls each `<dir>/README.md` into the Directory's `summary`, emits `deep_scan_completed` audit), `repos_list` |
+| `graph-db.ts` | `WorldModelGraph` class — kuzu wrapper. Directory nodes + CONTAINS edges today; File / Symbol / IMPORTS / CALLS post-v0.7. Backs `world_model_get` / `world_model_search` (ADR 0002). |
 | `issues.ts` | `issue_create/get/resume/close/update_description/sync_retry` |
 | `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (writes `plugin_config('onboarded')`) |
 | `pr_comments.ts` | `pr_comments_get` (gh + glab backends, bot-filtered) |
