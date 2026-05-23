@@ -32,9 +32,8 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Bro creates the task branch (SWE may not invent / abbreviate) | 2 | `scripts/hooks/no-worktree-branch-create.sh` (also blocks `--detach`) |
 | Branch up-to-date with `origin/<pr_target>` before SWE attach | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
 | Worktree cleanup on task close | 2 | `scripts/hooks/cleanup-worktree-on-task-close.sh` |
-| Bro updates `file_registry` summaries before closing the task | 1 + 2 | `requireRoles('file_registry_update_summaries', ['bro'])` + `scripts/hooks/require-summaries-before-task-close.sh` |
-| `task_create_batch` blocked until `/scan` has run (registry-cold gate) | 1 | server gate in `tools/tasks.ts` rejects unless `audit` has a `deep_scan_completed` row OR `waive_registry_gate=true` + reason ≥10 chars |
-| `file_registry` auto-refresh after `bro_atomic_close` (md5-driven drift) | 4 | `scripts/hooks/post-task-close-rescan.sh` PostToolUse on `bro_atomic_close` backgrounds `scripts/maintenance/run-scan.mjs` |
+| `task_create_batch` blocked until `/scan` has run (world-model-cold gate) | 1 | server gate in `tools/tasks.ts` rejects unless `audit` has a `deep_scan_completed` row OR `waive_registry_gate=true` + reason ≥10 chars |
+| World model auto-refresh after `bro_atomic_close` | 4 | `scripts/hooks/post-task-close-rescan.sh` PostToolUse on `bro_atomic_close` backgrounds a fresh `scan_run` |
 | MCP calls include `agent: 'bro'` | 1 | `mcp/.../middleware/agent-scope.ts` |
 | `validation_record` requires `subagent_session_id` (#144) | 1 | `mcp/.../tools/validation.ts` |
 | `validation_record.feedback` MCP-availability prefix (#97) | 4 | schema CHECK on `validation_attempts.feedback` |
@@ -55,7 +54,6 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Spawned only with valid `task_id` referencing pending/open task with non-empty `spec_body` | 2 | `scripts/hooks/require-task-spec.sh` |
 | Runs in isolated worktree | 2 | worktree Bash hooks |
 | Cannot create branches (must attach to bro-pre-created branch; no `--detach`) | 2 | `scripts/hooks/no-worktree-branch-create.sh` |
-| Cannot write `file_registry` summaries | 1 | `requireRoles('file_registry_update_summaries', ['bro'])` |
 | Worktree branch must descend from `origin/<pr_target>` | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |
 | Scope-limited `tools:` keeps SWE off bro-only MCP writes | 1 + 3 | server `requireRoles` + `agents/swe.md` `tools:` list |
 | MCP calls include `agent: 'swe'`, scope-restricted | 1 | server middleware |
@@ -76,7 +74,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 
 | Interaction | Layer | Where |
 |---|---|---|
-| Cannot write workflow state (task_*, validation_record, issue_*, file_registry_update_summaries) | 1 | server middleware |
+| Cannot write workflow state (task_*, validation_record, issue_*) | 1 | server middleware |
 | Spawned only by bro, never by Human directly | 6 only | CLAUDE.md routing |
 | Return analyses, never decisions | 6 only | consultant agent prompts |
 
@@ -90,10 +88,10 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `scripts/hooks/naming-lint.sh` |
 | Conventional-commit subject format | 2 | `scripts/hooks/commit-msg-lint.sh` |
 | Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `scripts/hooks/code-quality-lint.sh` |
-| Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` (reports `file_registry: cold`/`warm`; bulk population belongs to `/scan`) |
+| Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` (reports world-model `cold`/`warm`; bulk population belongs to `/scan`) |
 | Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/consultant-spawn-required.sh` |
 | Roundtable capture-surface verification on `roundtable_close` | 2 | `scripts/hooks/roundtable-cleanup-postcheck.sh` |
-| Bro task-close atomic invariants (audit + summaries + status + issue close in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:bro_atomic_close` |
+| Bro task-close atomic invariants (audit + status + issue close in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:bro_atomic_close` |
 | SWE retry composite (rationale + new task + audit in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:task_retry_batch` |
 | `branch_id` derivation from intent | 1 (composite) | `mcp/.../tools/composites.ts:branch_id_propose` |
 

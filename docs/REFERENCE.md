@@ -28,10 +28,10 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
 - **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS), `pr_review_runs_list`
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
-- **file_registry**: `file_registry_upsert`, `file_registry_update_summaries` (bro-only; close-gate-enforced), `file_registry_list`, `file_registry_verify`, `file_registry_delete`
+- **world model** (bro's directory-level memory — ADR 0001): `world_model_get` (annotated dir tree), `world_model_search` (FTS5 / semantic / hybrid)
 - **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
 - **config**: `config_get`, `config_list`, `config_set`
-- **scan**: `scan_run`, `repos_list`, `file_registry_bulk_upsert`
+- **scan**: `scan_run`, `repos_list`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
 - **skills**: `skill_register`, `skill_promote`, `skill_record_outcome`, `skill_record_invocation`, `skill_invocations_list`
 - **rules**: `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list`
@@ -74,7 +74,7 @@ Catalog: `docs/commands/README.md`.
 | `mcp-health-check.sh` | SessionStart + UserPromptSubmit (periodic) | MCP server liveness probe |
 | `deferred-tools-drift-warn.sh` | SessionStart | Warn when MCP tools on disk newer than running server |
 | `write-active-workspace-sentinel.sh` | SessionStart | Sentinel for cross-session workspace resolution |
-| `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, registry warmth) |
+| `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth) |
 | `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner |
 | `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |
 | `consultant-spawn-required.sh` | UserPromptSubmit | Inject domain-expert prompt → suggest consultant spawn |
@@ -92,7 +92,6 @@ Catalog: `docs/commands/README.md`.
 | `require-task-spec.sh` | PreToolUse Agent | SWE spawn requires task_id + non-empty spec |
 | `require-feature-branch-active.sh` | PreToolUse Agent | Block issue/task ops without a feature branch |
 | `pr-reviewer-no-worktree.sh` | PreToolUse Agent | Prevent pr-reviewer from creating worktrees |
-| `require-summaries-before-task-close.sh` | PreToolUse task_update_status | Block close if file_registry summaries stale |
 | `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
 | `auq-headless-deny.sh` | PreToolUse AskUserQuestion | Deny AUQ when TMB_HEADLESS=1 |
@@ -102,11 +101,10 @@ Catalog: `docs/commands/README.md`.
 | `debug-trajectory.sh` | PreToolUse (all, debug-mode) | Persist trajectory rows when TMB_DEBUG_TRAJECTORY=1 |
 | `cleanup-worktree-on-task-close.sh` | PostToolUse task_update_status | Remove worktree on close |
 | `roundtable-cleanup-postcheck.sh` | PostToolUse roundtable_close | Verify capture surface on close |
-| `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background scan to refresh file_registry after close |
-| `post-read-summary-hint.sh` | PostToolUse Read | Hint to update file summary when null |
+| `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
 | `post-task-create-spawn-hint.sh` | PostToolUse task_create_batch | Remind bro to spawn SWE after task batch |
 | `skill-invocation-record.sh` | PostToolUse Skill | Record skill invocation in trajectory DB |
 | `swe-atomic-close.sh` | SubagentStop | Auto-close pending SWE task; capture agent_runs metrics |
 | `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |
 
-## Schema state — see ERD.md for full table list (19 tables)
+## Schema state — see ERD.md for full table list (schema v7)

@@ -98,11 +98,9 @@ plugin/
 ├── agents/swe.md                                      # atomic close: task_update_status(needs_validation)
 ├── scripts/hooks/
 │   ├── swe-atomic-close.sh                           # SubagentStop safety net if SWE skips close
-│   ├── require-summaries-before-task-close.sh        # blocks close if file summaries missing
 │   └── cleanup-worktree-on-task-close.sh             # removes worktree after bro closes task
 └── mcp/trajectory-server/src/tools/
-    ├── tasks.ts                                      # task_update_status(completed, commit_sha)
-    └── file-registry.ts                              # file_registry_update_summaries
+    └── tasks.ts                                      # task_update_status(completed, commit_sha)
 ```
 
 **Bro merges + pushes (MR opens)**
@@ -113,11 +111,10 @@ plugin/
 ├── scripts/hooks/
 │   ├── git-push-guard.sh                             # blocks push without pass verdicts
 │   ├── branch-up-to-date-with-remote.sh              # verifies local branch is current
-│   └── post-task-close-rescan.sh                     # PostToolUse: backgrounds /scan to refresh file_registry
+│   └── post-task-close-rescan.sh                     # PostToolUse: backgrounds /scan to refresh the world model
 └── mcp/trajectory-server/src/tools/
-    ├── composites.ts                                 # bro_atomic_close (audit + summaries + status + close)
+    ├── composites.ts                                 # bro_atomic_close (audit + status + close in one txn)
     ├── audit.ts                                      # audit_log(bro_verification_pass)
-    ├── file-registry.ts                              # file_registry_update_summaries (md5-driven drift)
     └── issues.ts                                     # issue_close
 ```
 
@@ -142,5 +139,5 @@ plugin/
 ├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
     ├── audit.ts                                      # audit_log(post-merge state)
-    └── scan.ts                                       # scan_run rerun via post-task-close-rescan hook updates file_registry + emits deep_scan_completed audit
+    └── scan.ts                                       # scan_run rerun via post-task-close-rescan hook refreshes the world model + emits deep_scan_completed audit
 ```

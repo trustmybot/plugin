@@ -65,10 +65,8 @@ Re-running `scan_run` is idempotent: existing rows keep their `summary` unless t
 | Cold session, code-touching ask | `world_model_get(depth=2)` — full project map |
 | Looking for "where in this codebase does X live" | `world_model_search(query='X')` |
 | Zoom into one part | `world_model_get(path='src/api', depth=1)` |
-| Need file-level detail (rare) | `file_registry_search` or direct Read |
+| Need file-level detail (rare) | direct Read with explicit paths |
 
-## Relation to `file_registry`
+## What was replaced
 
-`file_registry` continues to exist as the file-level index during the migration window. Its role is leaf-zoom — when dir-level isn't fine enough. The primary navigation surface is `world_model_get`. `file_registry.summary` becomes lazy (filled only when an agent reads inside a specific file).
-
-`file_registry` infrastructure removal is tracked separately and lands once every consumer (hooks, skills, agents, CLAUDE.md) has migrated to world-model surfaces.
+`file_registry` was retired in schema v7 (PR #253). Per-file md5 + summary state was the wrong granularity — too churn-prone, too narrow, and rarely consulted by agents on cold starts. The world model is the navigation surface now; explicit file reads handle leaf-zoom on demand.
