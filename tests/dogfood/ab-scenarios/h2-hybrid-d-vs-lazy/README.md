@@ -18,7 +18,7 @@
 ## What to look for
 
 - **outcome pass-rate**: if A ≈ B, Phase 4 added overhead without benefit in headless. If A > B, the audit-trail completeness pays off. If A < B, Phase 4 confused bro.
-- **trajectory_required**: A should show `headless_fallback` ledger event (per outcome.sql); B should not. Confirms each arm engages its own protocol.
+- **trajectory_required**: A should show `headless_fallback` audit event (per outcome.sql); B should not. Confirms each arm engages its own protocol.
 - **tokens_total**: B should be slightly cheaper (no AskUserQuestion attempt). The question is by how much.
 
 ## Decision

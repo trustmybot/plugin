@@ -100,7 +100,7 @@ After SWE returns `status=completed`:
 2. `## Verification` commands pass — re-run verbatim inside the SWE worktree. Do this BEFORE V3 — the cleanup hook removes the worktree on close.
 3. Each `## Success Criteria` bullet visibly met by the diff.
 
-**V3** — all pass → `bro_atomic_close(agent='bro', task_id=<N>, commit_sha=<sha>, file_summaries=[...], verification_summary='...', close_issue_if_last_task=true)`. The post-close hook re-scans automatically — the world model refreshes.
+**V3** — all pass → `bro_atomic_close(agent='bro', task_id=<N>, commit_sha=<sha>, verification_summary='...', close_issue_if_last_task=true)`. The post-close hook re-scans automatically — the world model refreshes.
 
 Then spawn pr-reviewer for the push gate (see `tmb_review` §C). On PASS: `git push -u origin <branch>`. On FAIL: surface, file the fix as a follow-up issue, do not push.
 

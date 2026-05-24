@@ -60,7 +60,7 @@ When the MCP server starts and finds `plugin_meta.schema_version < TARGET_SCHEMA
 
 - Drops zombie tables left over from earlier refactors (`identity`, `regen_state`, `project_metadata`).
 - Adds `skills.scope` (default `'global'`).
-- Rebuilds `tasks`, `roundtables`, `roundtable_votes` if any pre-v2 columns are still present. The new schema drops a handful of columns that were either never written or constant-by-construction; the rebuild copies surviving rows into a fresh table. The pre-v7 file-level registry is dropped at v7 as part of the world-model migration (ADR 0001).
+- Rebuilds `tasks`, `roundtables`, `roundtable_votes` if any pre-v2 columns are still present. The new schema drops a handful of columns that were either never written or constant-by-construction; the rebuild copies surviving rows into a fresh table. The pre-v7 file-level registry is dropped at v7 as part of the world-model migration.
 - Adds `agent_runs.started_at` and relaxes `completed_at` to nullable.
 
 Row data on every workflow table is preserved.

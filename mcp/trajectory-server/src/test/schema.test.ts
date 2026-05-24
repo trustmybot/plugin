@@ -7,7 +7,7 @@ import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh prod-mode DB contains 22 tables (no ledger, no eval/debug, no directories post-v8 — world model in kuzu)', () => {
+  it('fresh prod-mode DB contains 22 tables (no eval/debug, no directories post-v8 — world model in kuzu)', () => {
     const db = tempDB();
 
     const expectedTables = [
