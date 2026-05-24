@@ -1,11 +1,11 @@
 ---
-description: Populate the world model (`directories` table) by walking the session dir for git repos and pulling each dir's README.md into a summary. Single phase — no background fill required for the primary navigation surface.
+description: Populate the world model — a kuzu graph of the project's directories — by walking the session dir for git repos and pulling each dir's README.md into a summary. Single phase — no background fill required for the primary navigation surface.
 argument-hint: (none)
 ---
 
 # /scan
 
-One MCP call. The server walks the session dir, discovers git repos, and for each unique directory in each repo writes a `directories` row with the file count + a summary pulled from `<dir>/README.md` (when present).
+One MCP call. The server walks the session dir, discovers git repos, and for each unique directory in each repo writes a kuzu `Directory` node — linked to its parent by a `CONTAINS` edge — carrying the file count + a summary pulled from `<dir>/README.md` (when present).
 
 ## Auto-fire trigger
 
@@ -23,7 +23,7 @@ The server forks `scripts/scan.sh`, which:
 1. Discovers git repos under the session dir.
 2. For each repo: `git ls-files` (.gitignore-aware), then derives the unique directory set from the file paths.
 3. For each directory: checks disk for `<dir>/README.md` (or `readme.md` / `README.rst`); if found, content (truncated to ~1 KB) becomes the dir summary with `summary_source='readme'`. Otherwise `summary=NULL` (lazy LLM fill on first ask).
-4. Persists into `repos` + `directories` transactionally.
+4. Persists `repos` to the trajectory DB (transactionally), then `Directory` nodes + `CONTAINS` edges to the kuzu world-model graph.
 5. Emits `audit_log(from_node='bro', event_type='deep_scan_completed')`.
 6. Sets `tmb_default_repo` to the cwd-enclosing repo if not already set.
 
