@@ -12,7 +12,7 @@ The world model lives in a dedicated **kuzu** graph database at `<project>/.clau
 | Engine | kuzu (embedded, single file, MIT, Cypher) | SQLite via node:sqlite |
 | Bro's use | "What does this project look like?" / "Where does X live?" / "What depends on what?" | "What did we decide?" / "What's open?" / "What did SWE commit?" |
 
-See ADR 0002 for the substrate decision (supersedes 0001).
+**Why a graph DB.** Directory structure — and the import/call relations layered on top of it — is graph-shaped, so a graph engine turns refactor-blast-radius and dependency queries into single traversals instead of recursive SQL. kuzu also carries its own vector + full-text indexes, so semantic and keyword search travel with the graph rather than in a parallel SQLite store, and the trajectory DB stays purpose-pure as the workflow audit.
 
 ## Schema
 
@@ -54,8 +54,12 @@ Re-running `scan_run` is summary-preserving via MERGE — existing nodes update 
 | Zoom into one part | `world_model_get(path='src/api', depth=1)` |
 | File-level detail (rare) | direct Read with explicit paths |
 
-## What was replaced
+## Design history
 
-ADR 0001 placed the dir-level world model in a SQLite `directories` table — a stepping stone to validate the navigation pattern. ADR 0002 moves it to kuzu, the right substrate for graph-shaped data. Schema v8 drops the SQLite `directories` / `directories_fts` / `directories_embeddings` tables; the world model rebuilds from `/scan` on first boot under v8.
+The world model has had three substrates, each replacing the last:
 
-The earlier per-file `file_registry` (v6) was dropped in v7. Per-file md5 + summary state is not part of the world model — leaf-zoom happens via direct Read on demand.
+- **`file_registry` (v6)** — one row per file (md5 + an LLM summary). Wrong granularity (a file summary says what a file *contains*, not what part of the system it *serves*), drift-sensitive (a one-line edit cleared the summary), and token-heavy. Dropped in v7.
+- **SQLite `directories` table (v7)** — the dir-level model as a stepping stone inside the existing trajectory DB. It validated that a README-first directory map is the right cold-start surface: ~10× fewer rows than per-file, and directory summaries change monthly (a part's role) rather than per-commit (a file's contents). Dropped in v8.
+- **kuzu graph (v8, current)** — the same dir-level model on a graph engine, the right substrate for the import/call relations that follow. Schema v8 drops the SQLite `directories` / `directories_fts` / `directories_embeddings` tables; the world model rebuilds from `/scan` on first boot.
+
+Per-file md5 + summary state is not part of the world model — leaf-zoom happens via direct `Read` on demand.
