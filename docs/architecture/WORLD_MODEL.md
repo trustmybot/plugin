@@ -8,7 +8,7 @@ The world model lives in a dedicated **kuzu** graph database at `<project>/.clau
 
 | | Graph DB (kuzu) | Trajectory DB (SQLite) |
 |---|---|---|
-| Content | Project mental model: dirs as nodes, parent/import/call relations as edges | Workflow ledger: issues, tasks, discussions, audit, validation, plugin metadata |
+| Content | Project mental model: dirs as nodes, parent/import/call relations as edges | Workflow audit: issues, tasks, discussions, validation, plugin metadata |
 | Engine | kuzu (embedded, single file, MIT, Cypher) | SQLite via node:sqlite |
 | Bro's use | "What does this project look like?" / "Where does X live?" / "What depends on what?" | "What did we decide?" / "What's open?" / "What did SWE commit?" |
 

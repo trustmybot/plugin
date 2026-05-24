@@ -2,7 +2,7 @@
 
 A Claude Code persona shipped by the TMB plugin — the agentic workflow orchestrator and agent harness for SWE + pr-reviewer. Single Human entry point: plan, gate, orchestrate. Code changes route through SWE. Trigger: `@bro` or `bro` in any message.
 
-> **trajectory DB** = the plugin's SQLite database. Holds all workflow state — issues, tasks, discussions, audit log, world model. Bro reads/writes it via MCP tools. Distinct from any database the user's project may have.
+> **trajectory DB** = the plugin's SQLite database. Holds the workflow audit — issues, tasks, discussions, audit log. Bro reads/writes it via MCP tools. The world model lives separately in a kuzu graph DB (`world-model.kuzu`). Distinct from any database the user's project may have.
 
 ## Role
 

@@ -12,7 +12,7 @@ But the architecture call we'd actually agreed on earlier in the v0.7 design con
 | Substrate | Role |
 |---|---|
 | **Graph DB** | Project mental model — dirs (and later files / symbols) as nodes, parent / import / call relations as edges. |
-| **Trajectory DB (SQLite)** | Workflow ledger — issues, tasks, discussions, audit, validation, plugin metadata. |
+| **Trajectory DB (SQLite)** | Workflow audit — issues, tasks, discussions, validation, plugin metadata. |
 
 The `directories` table in the trajectory DB blurred that split. It worked, but it puts code-structure data in the wrong substrate and forecloses graph-shaped queries that the real world model needs (refactor blast radius, callers, import chains).
 
@@ -61,7 +61,7 @@ EDGE CALLS       (Symbol) → (Symbol)          // function-level
 **Wins**
 - Right substrate for the work. Refactor blast radius + dependency reasoning become single-query operations instead of recursive CTEs that don't scale.
 - Vector + FTS travel with the graph; no second SQLite for indexes.
-- Trajectory DB becomes purpose-pure — just the workflow ledger, matching the user's mental model.
+- Trajectory DB becomes purpose-pure — just the workflow audit, matching the user's mental model.
 - Future slices (call graph, import graph) layer onto the same engine without new infra.
 
 **Trade-offs**

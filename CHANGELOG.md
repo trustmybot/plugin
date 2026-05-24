@@ -8,7 +8,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Added — graph DB world model (ADR 0002)
 
-Bro's project mental model moves out of the trajectory DB's `directories` SQLite table into a dedicated **kuzu** graph database at `<project>/.claude/<plugin>/world-model.kuzu/`. Sibling file to trajectory.db. Trajectory DB returns to its purpose-pure role: workflow ledger only (issues / tasks / discussions / audit / validation / plugin metadata).
+Bro's project mental model moves out of the trajectory DB's `directories` SQLite table into a dedicated **kuzu** graph database at `<project>/.claude/<plugin>/world-model.kuzu/`. Sibling file to trajectory.db. Trajectory DB returns to its purpose-pure role: workflow audit only (issues / tasks / discussions / audit / validation / plugin metadata).
 
 Schema v8 drops the SQLite `directories` / `directories_fts` / `directories_embeddings` tables. World-model data rebuilds from `/scan` on first boot under v8.
 
