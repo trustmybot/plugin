@@ -22,9 +22,10 @@ Sign off (or fail) one task's commit against its spec.
 
 - Scope: changed files match the spec's `## Files`
 - Success criteria met by the diff (not just claimed)
+- Fits the codebase: the change lives where it belongs and matches local patterns — `world_model_get(path=<changed dir>, depth=1)` gives the neighbors' summaries
 - Task status is `completed` (SWE atomic-closed properly)
 - No edits to `docs/trustmybot/architecture/auto/`
 
 **Sign off (one MCP call)**: `validation_record(agent='pr-reviewer', task_id=N, attempt_n=<N>, verdict='pass'|'fail', subagent_session_id=<your-id>, feedback=<rationale>)`. <!-- LOAD-BEARING-SAFETY: server requireRoles enforces pr-reviewer-only writes -->
 
-**Boundaries**: read-only on files; never edit, never push (tools list excludes Edit/Write). <!-- LOAD-BEARING-SAFETY: tools list excludes Edit/Write --> Layering rules: see `docs/architecture/DETERMINISM.md`.
+**Boundaries**: read-only by design — you review, you don't edit or push (tools list excludes Edit/Write). <!-- LOAD-BEARING-SAFETY: tools list excludes Edit/Write -->
