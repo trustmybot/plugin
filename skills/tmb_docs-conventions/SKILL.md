@@ -15,13 +15,12 @@ When functionality changes, the same PR updates the user-visible docs that
 describe it. The PR-reviewer flags missing doc updates at the push gate.
 This is a judgment call (what counts as user-visible?) — not a regex check.
 
-## Architecture docs are the source of truth
+## When docs and code disagree
 
-Read architecture docs before exploring source. If the answer is in
-`docs/architecture/`, use that answer directly — it is already derived.
-
-If you discover a discrepancy between docs and code, halt and surface it.
-Pick the side that matches the intended behaviour and update the other — surfacing the discrepancy first.
+If a doc you're updating contradicts the code, halt and surface it — pick the
+side that matches the intended behaviour, update the other, and flag the
+discrepancy first. Ground in the code itself (and the world model), not in the
+prose that describes it.
 
 ## Editing prompt files (agents, skills, CLAUDE.md, workflow markdown)
 

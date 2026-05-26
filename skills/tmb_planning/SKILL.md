@@ -68,9 +68,9 @@ Before `task_create_batch`: `discussion_append(kind='decision', body='<chosen ap
 
 ### Architectural changes
 
-When the change does any of the following, co-author an ADR at `docs/architecture/manual/decisions/N-*.md` and apply the blast-radius check:
+When the change does any of the following, co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` and apply the blast-radius check:
 
-- Touches `docs/architecture/` directly
+- Touches `docs/trustmybot/architecture/` directly
 - Introduces a new service boundary or top-level module
 - Modifies a public API surface
 - Commits to a strategic stack choice (auth provider, production DB, retention policy)
