@@ -10,7 +10,7 @@ plugin/
 ├── README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE
 ├── .claude-plugin/plugin.json     # Claude Code plugin manifest
 ├── .codex-plugin/, .cursor-plugin/, .opencode/, gemini-extension.json
-│                              # PLACEHOLDERS — see docs/MULTI_PLATFORM.md
+│                              # PLACEHOLDERS — see docs/reference/MULTI_PLATFORM.md
 ├── CODEX.md, CURSOR.md, GEMINI.md  # PLACEHOLDER personas
 └── .gitignore, .mcp.json
 ```

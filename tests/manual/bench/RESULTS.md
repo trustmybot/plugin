@@ -2,7 +2,7 @@
 
 Technical per-task data, run metadata, and reproduction commands.
 
-> **Product-facing summary:** [`docs/BENCHMARK.md`](../../../docs/BENCHMARK.md)
+> **Product-facing summary:** [`docs/contributing/BENCHMARK.md`](../../../docs/contributing/BENCHMARK.md)
 
 ## Run metadata
 
@@ -374,7 +374,7 @@ substring match.
 
 ## Next iteration
 
-Documented in [`docs/BENCHMARK.md` → Open work](../../../docs/BENCHMARK.md#open-work--the-next-iteration):
+Documented in [`docs/contributing/BENCHMARK.md` → Open work](../../../docs/contributing/BENCHMARK.md#open-work--the-next-iteration):
 - Multi-task chained bench (TMB's long-term value claim)
 - N=3 per task for variance bars
 - Corpus expansion (10-15 per pool)

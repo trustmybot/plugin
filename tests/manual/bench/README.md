@@ -1,6 +1,6 @@
 # L7 Bench — TMB-augmented Claude vs Claude 4 Sonnet & Opus 4 (#6)
 
-> **Latest results: [docs/BENCHMARK.md](../../../docs/BENCHMARK.md)** —
+> **Latest results: [docs/contributing/BENCHMARK.md](../../../docs/contributing/BENCHMARK.md)** —
 > - **vs Claude 4 Opus** (Anthropic's published tools-harness, May 2025):
 >   TMB resolved **4/4 SWE-bench Verified tasks** where pure Opus 4
 >   failed. Same model snapshot (`claude-opus-4-20250514`). 0/4 hallucinations.

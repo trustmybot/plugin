@@ -10,7 +10,7 @@ Once implemented, this directory would hold the OpenAI Codex adapter:
 - Any Codex-specific persona/loading file (likely `../CODEX.md` at the repo root)
 - Any Codex-specific hook scripts under `../hooks/codex/`
 
-The shared content (skills, agent templates, MCP server, planning protocol) is already platform-agnostic and would be referenced via relative paths — no duplication. See [`../docs/MULTI_PLATFORM.md`](../docs/MULTI_PLATFORM.md) for the strategy and [Superpowers](https://github.com/obra/superpowers) for the canonical example of this pattern.
+The shared content (skills, agent templates, MCP server, planning protocol) is already platform-agnostic and would be referenced via relative paths — no duplication. See [`../docs/reference/MULTI_PLATFORM.md`](../docs/reference/MULTI_PLATFORM.md) for the strategy and [Superpowers](https://github.com/obra/superpowers) for the canonical example of this pattern.
 
 ## When this gets built
 

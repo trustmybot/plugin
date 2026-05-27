@@ -13,9 +13,9 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 ## Other docs
 
-- **Prompt-engineering guide (authoring agent prompts)** — [`PROMPT_ENGINEERING.md`](PROMPT_ENGINEERING.md)
-- **Agent layer model + override rules** — [`AGENTS.md`](AGENTS.md)
-- **Benchmark results vs Sonnet 4 + Opus 4** — [`BENCHMARK.md`](BENCHMARK.md)
+- **Prompt-engineering guide (authoring agent prompts)** — [`PROMPT_ENGINEERING.md`](../prompt-engineering/PROMPT_ENGINEERING.md)
+- **Agent layer model + override rules** — [`AGENTS.md`](../AGENTS.md)
+- **Benchmark results vs Sonnet 4 + Opus 4** — [`BENCHMARK.md`](../contributing/BENCHMARK.md)
 - **Performance budgets** — `CONTRIBUTING.md` → Performance section
 - **plugin_config keys** — `mcp/trajectory-server/docs/CONFIG_KEYS.md`
 - **Full architecture** — `docs/architecture/FLOWS.md`

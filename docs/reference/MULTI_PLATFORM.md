@@ -79,5 +79,5 @@ Driven by user demand, not by completionism. If 100 people ask for Codex support
 ## See also
 
 - [`obra/superpowers`](https://github.com/obra/superpowers) — the canonical example of this pattern in the AI-skills ecosystem
-- [`./CLAUDE.md`](../CLAUDE.md) — the bro persona for Claude Code
-- The placeholder per-platform persona files: [`./CODEX.md`](../CODEX.md), [`./CURSOR.md`](../CURSOR.md), [`./GEMINI.md`](../GEMINI.md)
+- [`./CLAUDE.md`](../../CLAUDE.md) — the bro persona for Claude Code
+- The placeholder per-platform persona files: [`./CODEX.md`](../../CODEX.md), [`./CURSOR.md`](../../CURSOR.md), [`./GEMINI.md`](../../GEMINI.md)

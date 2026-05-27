@@ -19,5 +19,5 @@ integration points (PreToolUse, PostToolUse, UserPromptSubmit) to Cursor's event
 ## See also
 
 - [`./CLAUDE.md`](./CLAUDE.md) — the canonical bro persona for Claude Code
-- [`./docs/MULTI_PLATFORM.md`](./docs/MULTI_PLATFORM.md)
+- [`./docs/reference/MULTI_PLATFORM.md`](./docs/reference/MULTI_PLATFORM.md)
 - [`./.cursor-plugin/`](./.cursor-plugin/)

@@ -80,8 +80,8 @@ How the above lands in this repo:
 
 Two architecture docs formalize the principles above for TMB — required reading before you write load-bearing prompt logic:
 
-- **[`architecture/DETERMINISM.md`](architecture/DETERMINISM.md)** — the determinism-vs-judgment layering rule: *if a step can fail because the LLM forgot, misordered, or misunderstood it, it doesn't belong in a prompt.* Carries the compound-failure math (a 5-step procedure ≈ 77% adherence at 95%/step) and a boundary test for deciding what stays in prose vs. migrates to a deterministic mechanism. This is the rigorous form of principles 11–12 (decompose, budget the window).
-- **[`architecture/ENFORCEMENT.md`](architecture/ENFORCEMENT.md)** — the six enforcement layers (MCP server → hooks → frontmatter → schema → skill paths → **prompts**) and the coverage matrix. Prompts are the *softest* layer; anything load-bearing should sit higher. Its "positive prompts as the floor" section is the pink-elephant rationale behind principle 8.
+- **[`DETERMINISM.md`](DETERMINISM.md)** — the determinism-vs-judgment layering rule: *if a step can fail because the LLM forgot, misordered, or misunderstood it, it doesn't belong in a prompt.* Carries the compound-failure math (a 5-step procedure ≈ 77% adherence at 95%/step) and a boundary test for deciding what stays in prose vs. migrates to a deterministic mechanism. This is the rigorous form of principles 11–12 (decompose, budget the window).
+- **[`ENFORCEMENT.md`](ENFORCEMENT.md)** — the six enforcement layers (MCP server → hooks → frontmatter → schema → skill paths → **prompts**) and the coverage matrix. Prompts are the *softest* layer; anything load-bearing should sit higher. Its "positive prompts as the floor" section is the pink-elephant rationale behind principle 8.
 
 Together they explain *why* we keep personas lean and fix recurring failures structurally rather than with more prose.
 
