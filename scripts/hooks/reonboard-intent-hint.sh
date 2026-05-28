@@ -46,8 +46,7 @@ for pat in \
   'live on a remote' 'live on github' 'live on gitlab' \
   'lives on a remote' 'lives on github' 'lives on gitlab' \
   'needs to live on' 'needs a remote' \
-  'change my issue tracker' 'switch issue tracker' \
-  'on github' 'on gitlab'; do
+  'change my issue tracker' 'switch issue tracker'; do
   case "$PROMPT" in
     *"$pat"*)
       matched="$pat"
