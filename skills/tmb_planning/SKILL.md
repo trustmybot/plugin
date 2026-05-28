@@ -40,8 +40,10 @@ On Yes:
 issue_create(agent='bro', objective=<short>)
 discussion_append(issue_id, author='bro', kind='intent', body=<verbatim>)
 discussion_append(issue_id, author='bro', kind='note',   body='Beginning planning on ${branch_id}.')
-git switch -c "${branch_id}"
+git branch "${branch_id}"
 ```
+
+Create the branch but **stay on the base** — don't switch the main checkout to it. SWE's worktree owns `${branch_id}` while the task runs; the main checkout sits on the base branch for the duration.
 
 ## 3. Author the spec
 
