@@ -39,7 +39,7 @@ function wrap(fn: Fn): Fn {
 
 // Build the tree by indexing rows by parent_path, then descending from the
 // requested root. Sorting children alphabetically gives stable output.
-function buildTree(rows: DirRow[], rootPath: string, depth: number | null): TreeNode | null {
+export function buildTree(rows: DirRow[], rootPath: string, depth: number | null): TreeNode | null {
   const byParent = new Map<string, DirRow[]>();
   for (const r of rows) {
     const key = r.parent_path ?? '__ROOT__';
@@ -50,10 +50,18 @@ function buildTree(rows: DirRow[], rootPath: string, depth: number | null): Tree
   const root = rows.find((r) => r.path === rootPath);
   if (!root) return null;
 
+  // Top-level dirs carry parent_path '' (the repo root's own path), so they're
+  // filed under '' alongside the root node itself. descend must exclude the
+  // node from its own child list, and a visited set guards against any cycle in
+  // the stored graph so traversal can't recurse forever. (#269, #272)
+  const visited = new Set<string>();
   function descend(node: DirRow, remainingDepth: number | null): TreeNode {
+    visited.add(node.path);
     const children: TreeNode[] = [];
     if (remainingDepth === null || remainingDepth > 0) {
-      const kids = byParent.get(node.path) ?? [];
+      const kids = (byParent.get(node.path) ?? []).filter(
+        (k) => k.path !== node.path && !visited.has(k.path),
+      );
       kids.sort((a, b) => a.path.localeCompare(b.path));
       for (const k of kids) {
         children.push(descend(k, remainingDepth === null ? null : remainingDepth - 1));
