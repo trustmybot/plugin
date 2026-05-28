@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Hook: Block SWE agent spawn when the main checkout is not on the task's branch_id.
-# Queries trajectory.db for the task's branch_id and repo, then compares against
-# the current branch of the main checkout.
+# Hook: Block SWE agent spawn when the task's branch_id does not yet exist.
+# Per docs/architecture/GIT.md, bro pre-creates <feature> without checking it
+# out (the main checkout stays on <base>; SWE's worktree owns the branch ref).
+# This gate verifies the branch exists before the worktree attaches to it.
 #
 # Bypass: TMB_ALLOW_BRANCH_MISMATCH=1 (emergency hotfix scenarios).
 set -uo pipefail
@@ -71,11 +72,11 @@ EOF
   fi
 fi
 
-ACTUAL=$(git -C "$REPO_ABS" branch --show-current 2>/dev/null || true)
-
-if [ "$ACTUAL" != "$EXPECTED" ]; then
+# Per GIT.md the prerequisite is that <feature> EXISTS (bro pre-created it),
+# not that the main checkout is on it — the main checkout stays on <base>.
+if ! git -C "$REPO_ABS" show-ref --verify --quiet "refs/heads/$EXPECTED"; then
   cat <<EOF
-{"decision":"block","reason":"BLOCKED: SWE spawn requires main checkout on branch '$EXPECTED' (task $TASK_ID), got '$ACTUAL'. Run 'git -C $REPO_ABS switch $EXPECTED' first. This invariant is documented in docs/architecture/GIT.md and enforced by hooks (#155)."}
+{"decision":"block","reason":"BLOCKED: SWE spawn for task $TASK_ID needs branch '$EXPECTED' to exist first — bro pre-creates it ('git -C $REPO_ABS branch $EXPECTED origin/<base>') and stays on <base>; SWE's worktree owns the branch. See docs/architecture/GIT.md."}
 EOF
   exit 0
 fi

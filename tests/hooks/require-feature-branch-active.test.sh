@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/require-feature-branch-active.sh
 #
-# Hook contract: block SWE agent spawn when the main checkout is not on the
-# task's branch_id. Passes through silently for non-swe agents, missing task_id,
+# Hook contract: block SWE agent spawn when the task's branch_id does not yet
+# exist (bro pre-creates it; main stays on <base>). Passes through silently for non-swe agents, missing task_id,
 # or missing DB. Bypass: TMB_ALLOW_BRANCH_MISMATCH=1.
 
 set -uo pipefail
@@ -80,24 +80,25 @@ cleanup() {
 
 # ----- tests ------------------------------------------------------------
 
-test_case "happy path: checkout on task branch_id — no block"
-setup_repo "fix/1-foo"
+test_case "happy path: branch exists, main on base — no block"
+setup_repo "dev"
+git -C "$REPO_PATH" branch "fix/1-foo"
 db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "fix/1-foo"
 payload=$(make_payload "swe" "task_id=1 You are SWE.")
 out=$(run_hook "$payload" "$db")
-assert_not_contains "$out" '"decision":"block"' "on-branch SWE spawn must not be blocked"
+assert_not_contains "$out" '"decision":"block"' "branch exists (main stays on base) must not be blocked"
 cleanup
 
-test_case "mismatch blocks: checkout on dev, task expects fix/1-foo"
+test_case "branch missing blocks: task expects fix/1-foo but it was never created"
 setup_repo "dev"
 db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "fix/1-foo"
 payload=$(make_payload "swe" "task_id=1 You are SWE.")
 out=$(run_hook "$payload" "$db")
-assert_contains "$out" '"decision":"block"' "branch mismatch must produce block decision"
+assert_contains "$out" '"decision":"block"' "missing branch must produce block decision"
 assert_contains "$out" "fix/1-foo" "block message must name the expected branch"
-assert_contains "$out" "switch" "block message must tell user to switch branches"
+assert_contains "$out" "exist" "block message must say the branch must exist"
 cleanup
 
 test_case "non-swe agent passes: architect bypasses the hook"
@@ -137,7 +138,7 @@ out=$(
 assert_not_contains "$out" '"decision":"block"' "bypass env var must suppress block even on mismatch"
 cleanup
 
-test_case "TMB workspace shape: tasks.repo=null + tmb_default_repo='plugin' + on right branch → passes"
+test_case "TMB workspace shape: tasks.repo=null + tmb_default_repo='plugin' + branch exists → passes"
 WORKSPACE=$(mktemp -d -t tmb-workspace-XXXX)
 INNER_REPO="$WORKSPACE/plugin"
 mkdir -p "$INNER_REPO"
@@ -164,7 +165,7 @@ sqlite3 "$WS_DB" "
 REPO_PATH="$INNER_REPO"
 payload=$(make_payload "swe" "task_id=10 You are SWE.")
 out=$(run_hook "$payload" "$WS_DB")
-assert_not_contains "$out" '"decision":"block"' "TMB workspace shape with default_repo set + on right branch must not block"
+assert_not_contains "$out" '"decision":"block"' "TMB workspace shape with default_repo set + branch exists must not block"
 rm -rf "$WORKSPACE"
 REPO_PATH=""
 
