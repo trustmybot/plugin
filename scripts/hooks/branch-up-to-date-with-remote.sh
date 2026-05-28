@@ -62,7 +62,7 @@ DB_PATH="${TRAJECTORY_DB_PATH:-$REPO_ROOT/.claude/${PLUGIN_NAME}/trajectory.db}"
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
-PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT value FROM plugin_config WHERE key='pr_target' LIMIT 1;" 2>/dev/null)
+PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target' LIMIT 1;" 2>/dev/null)
 [ -n "$PR_TARGET" ] || PR_TARGET="main"
 PR_TARGET=$(echo "$PR_TARGET" | tr -d '"')
 

@@ -61,14 +61,15 @@ elif find docs/trustmybot/architecture -maxdepth 2 -type f -name '*.md' 2>/dev/n
   HAS_ARCH_DOCS="yes"
 fi
 
-# World model indexed status (cold vs warm). The world model is the
-# directory-level memory bro reasons from (ADR 0001); cold = no
-# directories row exists for the project, warm = at least one populated.
-WORLD_MODEL_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM directories;" 2>/dev/null || echo 0)
+# World model status (cold vs warm). The world model lives in the kuzu graph
+# (ADR 0002), not SQLite — so the warm/cold proxy is the deep_scan_completed
+# audit event (the same signal the registry-cold gate uses): present ⇒ a scan
+# has populated the graph.
+WORLD_MODEL_SCANNED=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM audit WHERE event_type='deep_scan_completed';" 2>/dev/null || echo 0)
 SOURCE_FILE_COUNT=$(git ls-files 2>/dev/null | grep -cvE '^(\.claude/|node_modules/|dist/|build/|\.git/)' || echo 0)
 
 WORLD_MODEL_STATE="warm"
-if [ "$WORLD_MODEL_COUNT" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
+if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   WORLD_MODEL_STATE="cold"
 fi
 
@@ -82,7 +83,7 @@ Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty path
 Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
 Architecture docs: ${HAS_ARCH_DOCS}
-World model:       ${WORLD_MODEL_STATE} (${WORLD_MODEL_COUNT} dirs indexed / ${SOURCE_FILE_COUNT} source files)
+World model:       ${WORLD_MODEL_STATE} (kuzu graph; ${SOURCE_FILE_COUNT} source files)
 Open issues:       ${OPEN_ISSUES}
 Pending tasks:     ${PENDING_TASKS}
 Last 5 commits:
