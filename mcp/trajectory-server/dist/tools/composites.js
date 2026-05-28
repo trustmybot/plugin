@@ -430,7 +430,22 @@ export function compositeTools(db, _dbPath) {
                     // best-effort cleanup; don't override the command result
                 }
             }
-            return ok({ worktree: wtPath, exit_code: exitCode, stdout: stdout.slice(0, 4096), stderr: stderr.slice(0, 2048) });
+            const passed = exitCode === 0;
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            worktree: wtPath,
+                            exit_code: exitCode,
+                            passed,
+                            stdout: stdout.slice(0, 4096),
+                            stderr: stderr.slice(0, 2048),
+                        }),
+                    },
+                ],
+                isError: !passed,
+            };
         })),
         reap_and_review_prep: requireRoles('reap_and_review_prep', ['bro'], wrap(async (args) => {
             const taskIds = args['task_ids'];
@@ -445,7 +460,7 @@ export function compositeTools(db, _dbPath) {
             for (const tid of taskIds) {
                 const task = db.get('SELECT id, branch_id, commit_sha FROM tasks WHERE id = ? LIMIT 1', [tid]);
                 if (!task) {
-                    results.push({ task_id: Number(tid), branch_id: '', slug: '', commit_sha: null, reaped: false, error: `No task with id=${tid}` });
+                    results.push({ task_id: tid, branch_id: '', slug: '', commit_sha: null, reaped: false, error: `No task with id=${tid}` });
                     continue;
                 }
                 const slug = task.branch_id.replace(/^[^/]+\//, '');
@@ -458,7 +473,12 @@ export function compositeTools(db, _dbPath) {
                     results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: false, error: e.message });
                 }
             }
-            return ok({ reaped: results });
+            const anyFailed = results.some((r) => !r.reaped);
+            const allReaped = results.length > 0 && !anyFailed;
+            return {
+                content: [{ type: 'text', text: JSON.stringify({ reaped: results, all_reaped: allReaped }) }],
+                isError: anyFailed,
+            };
         })),
         bro_atomic_close: requireRoles('bro_atomic_close', ['bro'], wrap(async (args) => {
             const taskId = args['task_id'];
