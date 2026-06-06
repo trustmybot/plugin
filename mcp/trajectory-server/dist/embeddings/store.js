@@ -3,11 +3,14 @@ export function packEmbedding(v) {
     return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
 }
 export function unpackEmbedding(b) {
-    // Copy rather than alias b.buffer: a DB-read Buffer can have a non-4-aligned
-    // byteOffset, which makes a zero-copy Float32Array view throw RangeError. (#285)
+    // node:sqlite returns BLOBs as Uint8Array, which has no Buffer methods like
+    // readFloatLE. DataView reads floats from any ArrayBuffer-backed view
+    // regardless of byteOffset alignment (the zero-copy Float32Array view would
+    // throw RangeError on a non-4-aligned offset). LE matches packEmbedding. (#285)
     const out = new Float32Array(b.byteLength / 4);
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     for (let i = 0; i < out.length; i++)
-        out[i] = b.readFloatLE(i * 4);
+        out[i] = dv.getFloat32(i * 4, true);
     return out;
 }
 export function cosine(a, b) {
