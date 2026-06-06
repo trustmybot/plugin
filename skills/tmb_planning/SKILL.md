@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_tr
 
 ## 1. Verify the world model
 
-Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, tell the Human to run `/scan` first. Without it bro is planning blind.
+Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` yourself to build it — it's deterministic and needs no Human — then re-read. This also satisfies the registry-cold gate on `task_create_batch`; reserve `waive_registry_gate` for when scan genuinely cannot run (never as a headless shortcut). Without the world model bro is planning blind.
 
 Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
 
