@@ -68,33 +68,20 @@ else
   notes+=("no conventional-commits message in last 5 commits")
 fi
 
-# --- Sub-check 3: file_registry summaries fresh (arm A only) ---
+# --- Sub-check 3: world model populated (arm A only) ---
+# Per-file summaries (file_registry) were retired at v7; the world model now
+# lives in the kuzu graph (ADR 0002). Proxy "the agent populated its world
+# model" via the deep_scan_completed audit event in the trajectory DB.
 if [ -n "$DB" ] && [ -f "$DB" ]; then
-  # Get list of files the agent touched (modified in any commit since the
-  # initial "init" commit).
-  TOUCHED=$(git -C "$PROJECT" log --format='%H' HEAD --not --grep='^init$' 2>/dev/null \
-    | xargs -I {} git -C "$PROJECT" diff-tree --no-commit-id --name-only -r {} 2>/dev/null \
-    | sort -u | head -50)
-  if [ -z "$TOUCHED" ]; then
-    notes+=("no touched files; summaries sub-check skipped")
+  SCANNED=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='deep_scan_completed';" 2>/dev/null || echo 0)
+  if [ "${SCANNED:-0}" -gt 0 ]; then
+    SUMMARIES_FRESH=1
+    SCORE=$((SCORE + 1))
   else
-    TOTAL=0
-    FRESH=0
-    while IFS= read -r f; do
-      [ -z "$f" ] && continue
-      TOTAL=$((TOTAL + 1))
-      ROW=$(sqlite3 "$DB" "SELECT 1 FROM file_registry WHERE path = '$f' AND summary IS NOT NULL LIMIT 1;" 2>/dev/null)
-      [ "$ROW" = "1" ] && FRESH=$((FRESH + 1))
-    done <<< "$TOUCHED"
-    if [ "$TOTAL" -gt 0 ] && [ "$FRESH" -eq "$TOTAL" ]; then
-      SUMMARIES_FRESH=1
-      SCORE=$((SCORE + 1))
-    else
-      notes+=("summaries: $FRESH/$TOTAL touched files have fresh summary")
-    fi
+    notes+=("world model not populated (no deep_scan_completed audit)")
   fi
 else
-  notes+=("no trajectory DB; summaries sub-check is 0 by design (raw arm)")
+  notes+=("no trajectory DB; world-model sub-check is 0 by design (raw arm)")
 fi
 
 # --- Sub-check 4: ADR present when arch-impact ---
