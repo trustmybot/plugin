@@ -7,7 +7,7 @@
 //
 // kuzu uses synchronous API (querySync / prepareSync) to match the rest
 // of the MCP server's sync style (node:sqlite synchronous bindings).
-import { Database, Connection } from 'kuzu';
+import { createRequire } from 'node:module';
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 function single(result) {
@@ -20,8 +20,13 @@ export class WorldModelGraph {
         if (dbPath !== ':memory:' && !existsSync(dirname(dbPath))) {
             mkdirSync(dirname(dbPath), { recursive: true });
         }
-        this.db = new Database(dbPath);
-        this.conn = new Connection(this.db);
+        // Lazy-require kuzu so a missing/broken native binding fails HERE (caught
+        // by index.ts's try/catch → graph=null) rather than at module load, which
+        // would crash the whole MCP server. (#271)
+        const req = createRequire(import.meta.url);
+        const kuzu = req('kuzu');
+        this.db = new kuzu.Database(dbPath);
+        this.conn = new kuzu.Connection(this.db);
         this.applySchema();
     }
     applySchema() {
@@ -41,7 +46,8 @@ export class WorldModelGraph {
         this.conn.querySync(`CREATE REL TABLE IF NOT EXISTS CONTAINS (FROM Directory TO Directory)`);
     }
     static dirKey(repo, path) {
-        return `${repo}:${path}`;
+        // JSON tuple so a ':' (or any delimiter) in repo/path can't collide. (#282)
+        return JSON.stringify([repo, path]);
     }
     upsertDirectory(node) {
         const key = WorldModelGraph.dirKey(node.repo, node.path);
@@ -77,18 +83,23 @@ export class WorldModelGraph {
        RETURN d.key, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count`);
         const result = single(this.conn.executeSync(stmt, { repo }));
         const rows = [];
-        while (result.hasNext()) {
-            const r = result.getNextSync();
-            rows.push({
-                key: r['d.key'],
-                repo: r['d.repo'],
-                path: r['d.path'],
-                parent_path: (r['d.parent_path'] || null),
-                summary: (r['d.summary'] || null),
-                summary_source: r['d.summary_source'],
-                summary_updated_at: (r['d.summary_updated_at'] || null),
-                file_count: Number(r['d.file_count'] ?? 0),
-            });
+        try {
+            while (result.hasNext()) {
+                const r = result.getNextSync();
+                rows.push({
+                    key: r['d.key'],
+                    repo: r['d.repo'],
+                    path: r['d.path'],
+                    parent_path: (r['d.parent_path'] == null ? null : String(r['d.parent_path'])),
+                    summary: (r['d.summary'] || null),
+                    summary_source: r['d.summary_source'],
+                    summary_updated_at: (r['d.summary_updated_at'] || null),
+                    file_count: Number(r['d.file_count'] ?? 0),
+                });
+            }
+        }
+        finally {
+            result.close();
         }
         return rows;
     }
@@ -104,29 +115,39 @@ export class WorldModelGraph {
        LIMIT $k`);
         const result = single(this.conn.executeSync(stmt, { repo, needle: lowered, k }));
         const rows = [];
-        while (result.hasNext()) {
-            const r = result.getNextSync();
-            rows.push({
-                key: r['d.key'],
-                repo: r['d.repo'],
-                path: r['d.path'],
-                parent_path: (r['d.parent_path'] || null),
-                summary: (r['d.summary'] || null),
-                summary_source: r['d.summary_source'],
-                summary_updated_at: (r['d.summary_updated_at'] || null),
-                file_count: Number(r['d.file_count'] ?? 0),
-                score: 1.0,
-            });
+        try {
+            while (result.hasNext()) {
+                const r = result.getNextSync();
+                rows.push({
+                    key: r['d.key'],
+                    repo: r['d.repo'],
+                    path: r['d.path'],
+                    parent_path: (r['d.parent_path'] == null ? null : String(r['d.parent_path'])),
+                    summary: (r['d.summary'] || null),
+                    summary_source: r['d.summary_source'],
+                    summary_updated_at: (r['d.summary_updated_at'] || null),
+                    file_count: Number(r['d.file_count'] ?? 0),
+                    score: 1.0,
+                });
+            }
+        }
+        finally {
+            result.close();
         }
         return rows;
     }
     directoryCount() {
         const result = single(this.conn.querySync('MATCH (d:Directory) RETURN COUNT(d) AS n'));
-        if (result.hasNext()) {
-            const row = result.getNextSync();
-            return Number(row['n'] ?? 0);
+        try {
+            if (result.hasNext()) {
+                const row = result.getNextSync();
+                return Number(row['n'] ?? 0);
+            }
+            return 0;
         }
-        return 0;
+        finally {
+            result.close();
+        }
     }
     close() {
         try {
