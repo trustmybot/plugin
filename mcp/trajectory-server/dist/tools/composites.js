@@ -275,7 +275,7 @@ export function compositeTools(db, _dbPath, graph = null) {
             const taskId = args['task_id'];
             if (taskId === undefined || taskId === null)
                 return err('task_id is required');
-            const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.repo,
+            const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.commit_sha, t.repo,
                   i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`, [taskId]);
@@ -335,6 +335,7 @@ export function compositeTools(db, _dbPath, graph = null) {
                 title: task.title,
                 objective: task.objective,
                 status: task.status,
+                commit_sha: task.commit_sha,
                 repo,
                 spec_body: task.spec_body,
                 scope_world_model,

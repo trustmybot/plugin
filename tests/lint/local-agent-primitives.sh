@@ -49,7 +49,7 @@ lint_file() {
       check_frontmatter_tool "$file" "mcp__plugin_tmb_trajectory-server" || fail=1
       ;;
     pr-reviewer)
-      check_body "$file" "task_get(" "task_get\("                    || fail=1
+      check_body "$file" "task_brief(" "task_brief\("                || fail=1
       check_body "$file" "validation_record(" "validation_record\("  || fail=1
       check_frontmatter_tool "$file" "mcp__plugin_tmb_trajectory-server" || fail=1
       ;;

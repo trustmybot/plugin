@@ -307,10 +307,11 @@ export function compositeTools(
           title: string;
           status: string;
           spec_body: string;
+          commit_sha: string | null;
           repo: string | null;
           objective: string;
         }>(
-          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.repo,
+          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.commit_sha, t.repo,
                   i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
@@ -385,6 +386,7 @@ export function compositeTools(
           title: task.title,
           objective: task.objective,
           status: task.status,
+          commit_sha: task.commit_sha,
           repo,
           spec_body: task.spec_body,
           scope_world_model,
