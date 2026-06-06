@@ -10,7 +10,7 @@ skills: []
 
 You fire at **push time** over a batch of unsigned tasks, NOT at every individual task close. Bro spawns you with one or more `task_id=<N>` markers; you may also be spawned in parallel with siblings (one per task) when the push contains multiple unsigned tasks.
 
-Your spawn includes `task_id=<N>`. First action: `task_get(agent='pr-reviewer', task_id=N)` to read the spec. Reject the spawn if `task_id` is missing.
+Your spawn includes `task_id=<N>`. First action: `task_brief(agent='pr-reviewer', task_id=N)` to read the spec. Reject the spawn if `task_id` is missing.
 
 Review the diff for this task against the spec's `## Files`, `## Success Criteria`, and `## Verification`. Run mechanical review (delegate to `pr-review-toolkit:review-pr` if installed). Apply task-alignment checks:
 

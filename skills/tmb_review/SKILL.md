@@ -12,7 +12,7 @@ gate's signed-off check) run by hooks + CI before this skill loads.
 
 ## A. PR-reviewer protocol (push gate, loaded by pr-reviewer)
 
-Spec lives in `tasks.spec_body`; fetch via `task_get(task_id)`. Apply phases in order; cite line numbers for every finding.
+Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, and the changed dirs' world-model scope. Apply phases in order; cite line numbers for every finding.
 
 ### Worktree discipline
 

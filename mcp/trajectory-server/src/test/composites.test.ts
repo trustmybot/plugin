@@ -578,8 +578,8 @@ function seedTask(db: TrajectoryDB, opts: { repo?: string | null; spec: string }
      VALUES (1, 'brief test obj', 'd', 'open', datetime('now'), datetime('now'))`,
   );
   db.run(
-    `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
-     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, ?, datetime('now'), datetime('now'))`,
+    `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, repo, created_at, updated_at)
+     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, 'abc123def', ?, datetime('now'), datetime('now'))`,
     [opts.spec, opts.repo ?? null],
   );
   const row = db.get<{ id: number }>('SELECT last_insert_rowid() AS id');
@@ -602,6 +602,7 @@ describe('task_brief (#300)', () => {
     assert.equal(out['task_id'], id);
     assert.equal(out['branch_id'], 'fix/1-brief');
     assert.equal(out['spec_body'], SPEC);
+    assert.equal(out['commit_sha'], 'abc123def', 'commit_sha in brief (pr-reviewer needs it for the diff)');
     assert.equal(out['world_model_warning'], 'world-model-unavailable');
     const disc = out['task_discussions'] as Array<{ kind: string; body: string }>;
     assert.ok(disc.some((d) => d.kind === 'decision' && d.body === 'Use approach B'));

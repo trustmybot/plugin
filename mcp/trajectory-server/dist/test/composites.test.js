@@ -489,8 +489,8 @@ describe('parseFilesDirs (#300)', () => {
 function seedTask(db, opts) {
     db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
      VALUES (1, 'brief test obj', 'd', 'open', datetime('now'), datetime('now'))`);
-    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
-     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, ?, datetime('now'), datetime('now'))`, [opts.spec, opts.repo ?? null]);
+    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, repo, created_at, updated_at)
+     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, 'abc123def', ?, datetime('now'), datetime('now'))`, [opts.spec, opts.repo ?? null]);
     const row = db.get('SELECT last_insert_rowid() AS id');
     db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
      VALUES (1, 'bro', 'decision', 'Use approach B', datetime('now'))`);
@@ -507,6 +507,7 @@ describe('task_brief (#300)', () => {
         assert.equal(out['task_id'], id);
         assert.equal(out['branch_id'], 'fix/1-brief');
         assert.equal(out['spec_body'], SPEC);
+        assert.equal(out['commit_sha'], 'abc123def', 'commit_sha in brief (pr-reviewer needs it for the diff)');
         assert.equal(out['world_model_warning'], 'world-model-unavailable');
         const disc = out['task_discussions'];
         assert.ok(disc.some((d) => d.kind === 'decision' && d.body === 'Use approach B'));
