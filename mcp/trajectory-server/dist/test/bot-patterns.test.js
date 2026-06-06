@@ -69,5 +69,14 @@ describe('buildBotPatterns', () => {
         const patterns = buildBotPatterns('my-ci,,  ');
         assert.equal(patterns.length, DEFAULT_BOT_PATTERNS.length + 1);
     });
+    it('skips an invalid regex in config instead of throwing (#284)', () => {
+        // '[' is an unterminated character class — a bad config value must not crash.
+        let patterns = [];
+        assert.doesNotThrow(() => {
+            patterns = buildBotPatterns('good-bot,[,also-good');
+        });
+        // both valid extras survive; the invalid one is dropped.
+        assert.equal(patterns.length, DEFAULT_BOT_PATTERNS.length + 2);
+    });
 });
 //# sourceMappingURL=bot-patterns.test.js.map

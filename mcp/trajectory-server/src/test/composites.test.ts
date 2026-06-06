@@ -535,15 +535,21 @@ describe('reap_and_review_prep', () => {
     assert.match(parse(r)['error'] as string, /absolute/);
   });
 
-  it('reports missing task in per-task result without throwing', async () => {
+  it('surfaces a missing task as isError with the raw id preserved (#283)', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
     const r = await call(composites.handlers, 'reap_and_review_prep', {
       agent: 'bro', task_ids: ['99999'], repo_path: '/tmp',
     });
-    assert.ok(!r.isError, `expected outer ok; got: ${JSON.stringify(parse(r))}`);
-    const out = parse(r) as { reaped: Array<{ reaped: boolean; error: string }> };
+    // A failed reap must not read as success (#283): isError + all_reaped=false.
+    assert.ok(r.isError, `a missing task must surface isError; got: ${JSON.stringify(parse(r))}`);
+    const out = parse(r) as {
+      all_reaped: boolean;
+      reaped: Array<{ task_id: number | string; reaped: boolean; error: string }>;
+    };
+    assert.equal(out.all_reaped, false);
     assert.equal(out.reaped[0]!.reaped, false);
+    assert.equal(out.reaped[0]!.task_id, '99999', 'raw tid preserved, not NaN');
     assert.match(out.reaped[0]!.error, /No task/);
   });
 });

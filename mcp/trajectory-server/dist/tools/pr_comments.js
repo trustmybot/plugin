@@ -13,6 +13,16 @@ function err(message) {
         isError: true,
     };
 }
+function wrap(fn) {
+    return async (args) => {
+        try {
+            return await fn(args);
+        }
+        catch (e) {
+            return err(e.message);
+        }
+    };
+}
 function defaultSpawnFn(cmd, args, opts) {
     const result = spawnSync(cmd, args, opts);
     return {
@@ -177,7 +187,7 @@ export function prCommentsTools(db, _spawnFn) {
         },
     ];
     const handlers = {
-        pr_comments_get: requireRoles('pr_comments_get', ['bro'], async (args) => {
+        pr_comments_get: requireRoles('pr_comments_get', ['bro'], wrap(async (args) => {
             const prNumber = Number(args['pr_number']);
             if (!Number.isInteger(prNumber) || prNumber <= 0) {
                 return err('pr_number must be a positive integer');
@@ -245,7 +255,7 @@ export function prCommentsTools(db, _spawnFn) {
            last_fetched_at = excluded.last_fetched_at,
            last_comment_id = excluded.last_comment_id`, [prNumber, repo, now, lastCommentId]);
             return ok(fetchResult);
-        }),
+        })),
         pr_review_runs_list: requireRoles('pr_review_runs_list', ['bro'], async (args) => {
             const prFilter = args['pr_number'];
             const filterPrNumber = prFilter === undefined || prFilter === null ? null : Number(prFilter);

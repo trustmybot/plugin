@@ -18,7 +18,15 @@ export function buildBotPatterns(configOverride) {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
-        .map((s) => new RegExp(s, 'i'));
+        .map((s) => {
+        try {
+            return new RegExp(s, 'i');
+        }
+        catch {
+            return null; // skip an invalid user-supplied pattern rather than throw
+        }
+    })
+        .filter((r) => r !== null);
     return [...DEFAULT_BOT_PATTERNS, ...extras];
 }
 //# sourceMappingURL=bot_patterns.js.map

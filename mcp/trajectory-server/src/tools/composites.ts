@@ -537,7 +537,22 @@ export function compositeTools(
           }
         }
 
-        return ok({ worktree: wtPath, exit_code: exitCode, stdout: stdout.slice(0, 4096), stderr: stderr.slice(0, 2048) });
+        const passed = exitCode === 0;
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                worktree: wtPath,
+                exit_code: exitCode,
+                passed,
+                stdout: stdout.slice(0, 4096),
+                stderr: stderr.slice(0, 2048),
+              }),
+            },
+          ],
+          isError: !passed,
+        };
       }),
     ),
 
@@ -555,7 +570,7 @@ export function compositeTools(
           return err('repo_path must be an absolute path');
         }
 
-        const results: Array<{ task_id: number; branch_id: string; slug: string; commit_sha: string | null; reaped: boolean; error?: string }> = [];
+        const results: Array<{ task_id: number | string; branch_id: string; slug: string; commit_sha: string | null; reaped: boolean; error?: string }> = [];
 
         for (const tid of taskIds) {
           const task = db.get<{ id: number; branch_id: string; commit_sha: string | null }>(
@@ -563,7 +578,7 @@ export function compositeTools(
             [tid],
           );
           if (!task) {
-            results.push({ task_id: Number(tid), branch_id: '', slug: '', commit_sha: null, reaped: false, error: `No task with id=${tid}` });
+            results.push({ task_id: tid, branch_id: '', slug: '', commit_sha: null, reaped: false, error: `No task with id=${tid}` });
             continue;
           }
           const slug = task.branch_id.replace(/^[^/]+\//, '');
@@ -581,7 +596,12 @@ export function compositeTools(
           }
         }
 
-        return ok({ reaped: results });
+        const anyFailed = results.some((r) => !r.reaped);
+        const allReaped = results.length > 0 && !anyFailed;
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ reaped: results, all_reaped: allReaped }) }],
+          isError: anyFailed,
+        };
       }),
     ),
 

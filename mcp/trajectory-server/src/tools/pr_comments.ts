@@ -20,6 +20,18 @@ function err(message: string): CallToolResult {
   };
 }
 
+function wrap(
+  fn: (args: Record<string, unknown>) => Promise<CallToolResult>,
+): (args: Record<string, unknown>) => Promise<CallToolResult> {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err((e as Error).message);
+    }
+  };
+}
+
 export interface PrComment {
   id: string;
   author: string;
@@ -281,7 +293,7 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
   ];
 
   const handlers: Record<string, Fn> = {
-    pr_comments_get: requireRoles('pr_comments_get', ['bro'], async (args) => {
+    pr_comments_get: requireRoles('pr_comments_get', ['bro'], wrap(async (args) => {
       const prNumber = Number(args['pr_number']);
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
         return err('pr_number must be a positive integer');
@@ -365,7 +377,7 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
       );
 
       return ok(fetchResult);
-    }),
+    })),
 
     pr_review_runs_list: requireRoles('pr_review_runs_list', ['bro'], async (args) => {
       const prFilter = args['pr_number'];
