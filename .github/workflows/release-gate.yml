@@ -57,7 +57,9 @@ jobs:
       - name: Build dist
         run: bun run build
 
-      - name: Pre-download HF model via curl (bypass transformers.js downloader)
+      - name: Fetch bge-small model from CI-assets release (GitHub CDN — avoids HF 429)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           MODEL_DIR="$HOME/.cache/huggingface/Xenova/bge-small-en-v1.5"
@@ -67,25 +69,22 @@ jobs:
           if [ -f "$MODEL_FILE" ] && [ "$(stat -c%s "$MODEL_FILE" 2>/dev/null || stat -f%z "$MODEL_FILE")" = "$EXPECTED_SIZE" ]; then
             echo "Model already cached with correct size; skipping download."
           else
-            echo "Downloading model.onnx from HuggingFace..."
-            curl --fail --location --retry 6 --retry-delay 10 --retry-all-errors \
-              -o "$MODEL_FILE" \
-              'https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model.onnx'
+            # Mirror in the ci-assets-bge-small-en-v1.5 release (Xenova/bge-small-en-v1.5,
+            # MIT). GitHub's asset CDN is token-authed and not rate-limited, unlike
+            # huggingface.co which 429s GH-Actions runners.
+            echo "Downloading model assets from the ci-assets release..."
+            gh release download ci-assets-bge-small-en-v1.5 --repo "$GITHUB_REPOSITORY" \
+              --pattern model.onnx --dir "$MODEL_DIR/onnx" --clobber
+            gh release download ci-assets-bge-small-en-v1.5 --repo "$GITHUB_REPOSITORY" \
+              --pattern 'config.json' --pattern 'tokenizer.json' --pattern 'tokenizer_config.json' \
+              --dir "$MODEL_DIR" --clobber
             ACTUAL_SIZE=$(stat -c%s "$MODEL_FILE" 2>/dev/null || stat -f%z "$MODEL_FILE")
             echo "Downloaded $ACTUAL_SIZE bytes (expected $EXPECTED_SIZE)"
             if [ "$ACTUAL_SIZE" != "$EXPECTED_SIZE" ]; then
-              echo "FAIL: model.onnx size mismatch — download was truncated or HF served different content" >&2
+              echo "FAIL: model.onnx size mismatch — asset truncated or wrong" >&2
               exit 1
             fi
           fi
-          # Also fetch the supporting config files transformers.js needs.
-          for f in config.json tokenizer.json tokenizer_config.json special_tokens_map.json; do
-            if [ ! -f "$MODEL_DIR/$f" ]; then
-              curl --fail --location --retry 6 --retry-delay 10 --retry-all-errors \
-                -o "$MODEL_DIR/$f" \
-                "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/$f" || echo "warn: $f optional, skipping"
-            fi
-          done
           ls -la "$MODEL_DIR" "$MODEL_DIR/onnx"
 
       - name: Run L1-L4 sweep (run-all.sh)
