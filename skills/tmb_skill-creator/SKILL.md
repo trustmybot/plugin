@@ -48,7 +48,7 @@ allowed-tools: <optional, comma-separated — restricts tools the skill can invo
 [Body — concrete rules, checks, or patterns the agent should apply when this skill is loaded. Keep it focused; if this skill grows over 80 lines, propose splitting or trimming.]
 ```
 
-**Skill structure**: keep flat (single SKILL.md). Anthropic-style splits (SKILL.md + reference.md + forms.md + scripts/) sound clean but tax bro in headless mode — every deferred file is a tool call when bro can't ask the Human. Inline lookup tables and AUQ shapes; bundle scripts only when truly executable.
+**Skill structure**: keep flat (single SKILL.md). Anthropic-style splits (SKILL.md + reference.md + forms.md + scripts/) sound clean but tax bro in headless mode — every extra file is another Read when bro can't ask the Human. Inline lookup tables and AUQ shapes; bundle scripts only when truly executable.
 
 ## Step 3 — Pre-write lint
 

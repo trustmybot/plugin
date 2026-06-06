@@ -22,5 +22,5 @@ integration change per platform.
 ## See also
 
 - [`./CLAUDE.md`](./CLAUDE.md) — the canonical bro persona for Claude Code
-- [`./docs/MULTI_PLATFORM.md`](./docs/MULTI_PLATFORM.md) — the strategy
+- [`./docs/reference/MULTI_PLATFORM.md`](./docs/reference/MULTI_PLATFORM.md) — the strategy
 - [`./.codex-plugin/`](./.codex-plugin/) — the manifest placeholder

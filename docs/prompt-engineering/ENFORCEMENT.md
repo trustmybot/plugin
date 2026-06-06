@@ -117,6 +117,6 @@ Research basis: pink elephant problem (arxiv 2503.22395), NeQA inverse scaling (
 
 ## See also
 
-- [`FLOWS.md`](FLOWS.md) — workflows; cross-references which hook fires when in each flow.
-- [`FILES.md`](FILES.md) — file-by-file map of `scripts/hooks/`, `hooks/hooks.json`, the MCP middleware.
-- [`ERD.md`](ERD.md) — schema; the role-by-tool matrix at the bottom is the source of truth for Layer 1's coverage.
+- [`FLOWS.md`](../architecture/FLOWS.md) — workflows; cross-references which hook fires when in each flow.
+- [`FILES.md`](../architecture/FILES.md) — file-by-file map of `scripts/hooks/`, `hooks/hooks.json`, the MCP middleware.
+- [`ERD.md`](../architecture/ERD.md) — schema; the role-by-tool matrix at the bottom is the source of truth for Layer 1's coverage.

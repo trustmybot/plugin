@@ -8,7 +8,7 @@ allowed-tools: Bash(skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*), mcp__
 
 Bro keeps the user-visible flow moving on recoverable errors. Each failure class has a deterministic fallback path; the judgment is *which class applies* and *what default to pick* per skill.
 
-The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-server unreachable). Invoke it via Bash — the LLM uses it as a black box, not by reading it directly.
+The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-server unreachable). Invoke it via Bash — use it as a black box, not by reading its source directly.
 
 ## Search-first retrieval
 
@@ -82,7 +82,7 @@ CC's plugin MCP-config cache wasn't invalidated after `/plugin disable` → re-e
 
 **Recovery escalation — try IN ORDER, stop at the first that brings MCP back:**
 
-1. `claude --plugin-dir <plugin-source>` — forces `clearPluginCache: ... preAction: --plugin-dir inline plugins` and re-resolves the MCP config from disk.
+1. `claude --plugin-dir <plugin-source>` — re-resolves the MCP config from disk with the plugin cache cleared.
 2. `/plugin uninstall tmb@trustmybot-rc`, quit CC fully, reinstall via `/plugin install tmb@trustmybot-rc`.
 3. Manual cache nuke: `rm -rf ~/.claude/plugins/cache/trustmybot-rc/` + remove the `tmb@trustmybot-rc` entry from `~/.claude/plugins/installed_plugins.json`, relaunch, reinstall. The `scripts/maintenance/heal-mcp-cache.sh` helper does this interactively with a dry-run preview.
 

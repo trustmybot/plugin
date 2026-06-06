@@ -4,7 +4,7 @@ The decision chain is **Human → bro → SWE** with two distinct gates:
 - **bro is the task gate** — closes after SWE returns + verifies.
 - **pr-reviewer is the push gate** — fires only at `git push` over a batch of unsigned commits.
 
-All consultants (architect, cto, ceo, pm, project-local) advise but never write workflow state. The full role × tool matrix lives in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](ENFORCEMENT.md); schema in [`ERD.md`](ERD.md).
+All consultants (architect, cto, ceo, pm, project-local) advise but never write workflow state. The full role × tool matrix lives in [`RESPONSIBILITIES.md`](RESPONSIBILITIES.md); enforcement layers in [`ENFORCEMENT.md`](../prompt-engineering/ENFORCEMENT.md); schema in [`ERD.md`](ERD.md).
 
 ## Quick index
 

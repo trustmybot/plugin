@@ -66,13 +66,13 @@ Spec body sections (≤200 lines; split into multiple tasks linked by `parent_br
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
-Before `task_create_batch`: `discussion_append(kind='decision', body='<chosen approach>')`.
+Before `task_create_batch`: `discussion_append(issue_id, author='bro', kind='decision', body='<chosen approach>')`.
 
 ### Architectural changes
 
-When the change does any of the following, co-author an ADR at `docs/architecture/manual/decisions/N-*.md` and apply the blast-radius check:
+When the change does any of the following, co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` and apply the blast-radius check:
 
-- Touches `docs/architecture/` directly
+- Touches `docs/trustmybot/architecture/` directly
 - Introduces a new service boundary or top-level module
 - Modifies a public API surface
 - Commits to a strategic stack choice (auth provider, production DB, retention policy)
@@ -104,13 +104,13 @@ After SWE returns `status=completed`:
 
 **V3** — all pass → `bro_atomic_close(agent='bro', task_id=<N>, commit_sha=<sha>, verification_summary='...', close_issue_if_last_task=true)`. The post-close hook re-scans automatically — the world model refreshes.
 
-Then spawn pr-reviewer for the push gate (see `tmb_review` §C). On PASS: `git push -u origin <branch>`. On FAIL: surface, file the fix as a follow-up issue, do not push.
+Then spawn pr-reviewer for the push gate (see `tmb_review` §B). On PASS: `git push -u origin <branch>`. On FAIL: surface, file the fix as a follow-up issue, do not push.
 
 **V3 — any check fails**: `bro_verification_fail_record(agent='bro', task_id=<N>, which_check='<V1|V2|V3>', details='<≤500 chars>')`. Leave the task open. Retry via `task_retry_batch` (max 3) or escalate.
 
 ## Headless overrides (TMB_HEADLESS=1)
 
-No Human in the loop — skip AUQs, apply the documented defaults, and record the fallback. After `branch_id_propose`, call `headless_intent_start(agent='bro', issue_id=<I>, branch_id=<branch_id>, intent_verbatim=<verbatim>, fallback_summary='<defaults applied>')`, then proceed to step 3.
+No Human in the loop — skip AUQs, apply the documented defaults, and record the fallback. After `branch_id_propose`, run step 2's "On Yes" block (issue_create + intent/note `discussion_append` + branch create) without the AUQs to get `<I>` and `<branch_id>`, then call `headless_intent_start(agent='bro', issue_id=<I>, branch_id=<branch_id>, intent_verbatim=<verbatim>, fallback_summary='<defaults applied>')`, then proceed to step 3.
 
 | AUQ | Default |
 |---|---|

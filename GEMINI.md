@@ -22,5 +22,5 @@ so this single file does most of the work.
 ## See also
 
 - [`./CLAUDE.md`](./CLAUDE.md) — the canonical bro persona for Claude Code
-- [`./docs/MULTI_PLATFORM.md`](./docs/MULTI_PLATFORM.md)
+- [`./docs/reference/MULTI_PLATFORM.md`](./docs/reference/MULTI_PLATFORM.md)
 - [`./gemini-extension.json`](./gemini-extension.json) — the manifest placeholder

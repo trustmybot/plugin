@@ -73,7 +73,7 @@ The `feedback` column CHECK constraint: must start with `'MCP available: yes'` O
 
 If you spot a recurring pattern at the push gate, append a bullet to **Living patterns** below using the format documented there.
 
-## §C — Spawning pr-reviewer (bro-side discipline)
+## B. Spawning pr-reviewer (bro-side discipline)
 
 When bro spawns pr-reviewer, the prompt MUST contain task_id, commit_sha, branch_id, repo, and a one-line context summary. The prompt MUST NOT contain prior verdict text or rubber-stamp shortcuts. <!-- enforced by: pr-reviewer-spawn-prompt-shape.sh PreToolUse hook (mech 3) -->
 
@@ -81,10 +81,10 @@ When bro spawns pr-reviewer, the prompt MUST contain task_id, commit_sha, branch
 ```
 task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin
 
-Push-gate review. Per §A worktree discipline if running linters/build/tests against the working tree. Load spec via sqlite3 from tasks.spec_body; load diff via sha-based git ops. Verify each Success Criterion. Write validation_attempts row per §B (path 1 if you have MCP, path 2 if you have only Bash). Verdict='fail' if any check fails — do not fabricate.
+Push-gate review. Per §A worktree discipline if running linters/build/tests against the working tree. Load spec via sqlite3 from tasks.spec_body; load diff via sha-based git ops. Verify each Success Criterion. Write validation_attempts row per §A (path 1 if you have MCP, path 2 if you have only Bash). Verdict='fail' if any check fails — do not fabricate.
 ```
 
-## B. Push-gate orchestration (bro, loaded reactively)
+## C. Push-gate orchestration (bro, loaded reactively)
 
 Triggers:
 1. `git push` blocked by `git-push-guard.sh` ("BLOCKED: pushing N unsigned commits.")
@@ -112,7 +112,7 @@ Read pr-reviewer's first response line:
 
 `git switch <pr_target> && git pull --ff-only && git branch -d <feature>`. The cleanup-on-task-close hook removes the SWE worktree automatically on task close.
 
-## C. PR/MR comment triage (bro, loaded by /monitor)
+## D. PR/MR comment triage (bro, loaded by /monitor)
 
 `pr_comments_get` does the deterministic fetch + since-marker bookkeeping; comment rows are auto-persisted as discussion notes by `post-pr-comments-persist.sh` PostToolUse hook. This section is the judgment around what's task-worthy. <!-- enforced by: post-pr-comments-persist.sh PostToolUse hook (mech 4) -->
 
@@ -188,7 +188,7 @@ Format: `- <Pattern name> / Symptom: ... / Root cause: ... / Rule: ... / Check: 
   Symptom: Bro renders a 2–5 mutually-exclusive choice as markdown bullets and waits for prose, instead of calling AskUserQuestion.
   Root cause: Without an explicit doctrine entry, the LLM falls back to general-Claude prose-asking habits.
   Rule: For any 2–5 mutually-exclusive choice, use AskUserQuestion. Constraints + skip-cases live inline at `CLAUDE.md ## Asking the Human`.
-  Check: Bro turns offering a numbered list of choices and waiting for "1" / "2" / etc. should be flagged as a regression.
+  Check: Bro offering a numbered list of choices and waiting for "1" / "2" / etc. — flag as a regression.
 
 ### Prompt authoring
 

@@ -125,6 +125,6 @@ The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it a
 ## See also
 
 - `plugin/docs/architecture/RESPONSIBILITIES.md` — agent layer model + role boundaries
-- `plugin/docs/architecture/ENFORCEMENT.md` — hook + MCP enforcement matrix
+- `plugin/docs/prompt-engineering/ENFORCEMENT.md` — hook + MCP enforcement matrix
 - `plugin/docs/architecture/UI.md` — interactive UI primitives (AskUserQuestion modes)
 - `plugin/docs/AGENTS.md` — agent file conventions

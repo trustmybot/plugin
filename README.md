@@ -9,7 +9,7 @@
 
 TMB turns Claude Code from a clever code-generator into a disciplined engineering workflow: one Human entry point (`bro`), a separate executor (`swe`), state that survives session kills, and structural gates that close around every commit.
 
-> **Claude Code today.** v0.6.0 ships the Claude Code adapter only. Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/MULTI_PLATFORM.md`](docs/MULTI_PLATFORM.md).
+> **Claude Code today.** v0.6.0 ships the Claude Code adapter only. Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
 
 ---
 
@@ -55,9 +55,9 @@ TMB resolved **8 of 8** SWE-bench tasks (4 Verified + 4 Lite) where pure Claude 
 | **Hallucinations** | **0 / 8** | (not measured) | — |
 | **Total spend** | $17.33, ~17.7M tokens | — | — |
 
-Curated-hard subsets from the all-comparators-failed intersection. Methodology, fairness, per-task data: **[`docs/BENCHMARK.md`](docs/BENCHMARK.md)**.
+Curated-hard subsets from the all-comparators-failed intersection. Methodology, fairness, per-task data: **[`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md)**.
 
-> **The shape of the tradeoff.** Token + time data isn't published per-task by the public comparators, so we measured it locally with a same-model raw baseline (Claude Code, no plugin). On tasks where both can resolve: TMB pays **~+60% cost / ~+70% time per task**. On tasks where the published comparator failed (these 8), TMB's premium IS the value — it's not a tax for the same outcome, it's the difference between landing and not. Hallucination rates were 0/8 for both on this single-shot corpus; the "TMB hallucinates less" claim needs longer/messier tasks to differentiate (chained-bench iteration). Full measurement detail: [`docs/BENCHMARK.md`](docs/BENCHMARK.md) and [`tests/manual/bench/RESULTS.md`](tests/manual/bench/RESULTS.md).
+> **The shape of the tradeoff.** Token + time data isn't published per-task by the public comparators, so we measured it locally with a same-model raw baseline (Claude Code, no plugin). On tasks where both can resolve: TMB pays **~+60% cost / ~+70% time per task**. On tasks where the published comparator failed (these 8), TMB's premium IS the value — it's not a tax for the same outcome, it's the difference between landing and not. Hallucination rates were 0/8 for both on this single-shot corpus; the "TMB hallucinates less" claim needs longer/messier tasks to differentiate (chained-bench iteration). Full measurement detail: [`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md) and [`tests/manual/bench/RESULTS.md`](tests/manual/bench/RESULTS.md).
 
 ---
 
