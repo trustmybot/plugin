@@ -43,7 +43,7 @@ lint_file() {
 
   case "$name" in
     swe)
-      check_body "$file" "task_get(" "task_get\("                    || fail=1
+      check_body "$file" "task_brief(" "task_brief\("                || fail=1
       check_body "$file" "task_update_status(" "task_update_status\(" || fail=1
       check_body "$file" "atomic close" "atomic.{0,3}close"          || fail=1
       check_frontmatter_tool "$file" "mcp__plugin_tmb_trajectory-server" || fail=1
@@ -83,22 +83,22 @@ run_self_test() {
     fail=1
   fi
 
-  # Case 2: swe missing task_get — expect exit 1, message mentions task_get
-  printf '\n[self-test] case: swe-missing-task-get (expect exit 1, mentions task_get)\n'
+  # Case 2: swe missing task_brief — expect exit 1, message mentions task_brief
+  printf '\n[self-test] case: swe-missing-task-brief (expect exit 1, mentions task_brief)\n'
   local out2
-  out2="$(run_lint_against "$FIXTURES_DIR/swe-missing-task-get" 2>&1)" || true
-  if printf '%s\n' "$out2" | grep -q "task_get"; then
-    printf '[self-test] PASS: message mentions task_get\n'
+  out2="$(run_lint_against "$FIXTURES_DIR/swe-missing-task-brief" 2>&1)" || true
+  if printf '%s\n' "$out2" | grep -q "task_brief"; then
+    printf '[self-test] PASS: message mentions task_brief\n'
   else
-    printf '[self-test] FAIL: expected mention of task_get in output\n  got: %s\n' "$out2"
+    printf '[self-test] FAIL: expected mention of task_brief in output\n  got: %s\n' "$out2"
     fail=1
   fi
   local ec2=0
-  (run_lint_against "$FIXTURES_DIR/swe-missing-task-get" >/dev/null 2>&1) || ec2=$?
+  (run_lint_against "$FIXTURES_DIR/swe-missing-task-brief" >/dev/null 2>&1) || ec2=$?
   if [ "$ec2" -ne 0 ]; then
     printf '[self-test] PASS: exits non-zero\n'
   else
-    printf '[self-test] FAIL: expected non-zero exit for swe-missing-task-get\n'
+    printf '[self-test] FAIL: expected non-zero exit for swe-missing-task-brief\n'
     fail=1
   fi
 
