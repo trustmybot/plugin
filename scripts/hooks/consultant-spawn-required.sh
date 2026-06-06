@@ -73,7 +73,7 @@ DOMAIN=""
 if [ -z "$NAMED_ROLE" ]; then
   case "$LOWER" in
     *"security"*|*"vulnerability"*|*"injection"*|*"xss"*|*"csrf"*|*"auth bypass"*) DOMAIN="security" ;;
-    *"perf"*|*"latency"*|*"throughput"*|*"bottleneck"*|*"scaling"*|*"scales"*|*" scale"*|*"benchmark"*) DOMAIN="perf" ;;
+    *"perf"*|*"latency"*|*"throughput"*|*"bottleneck"*|*"scaling"*|*" scale"*|*"benchmark"*) DOMAIN="perf" ;;
     *"legal"*|*"licensing"*|*"compliance"*|*"gdpr"*|*"pii"*|*"copyright"*) DOMAIN="legal" ;;
     *"architecture decision"*|*"trade-off"*|*"tradeoff"*|*"design choice"*|*"adr"*|*"architecture trade"*|*"architectural trade"*) DOMAIN="architect" ;;
     *"json or sqlite"*|*"sqlite or postgres"*|*"postgres or sqlite"*|*"sqlite vs postgres"*|*"sql or nosql"*|*"storage"*"scale"*) DOMAIN="architect" ;;

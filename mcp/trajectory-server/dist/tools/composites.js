@@ -208,7 +208,7 @@ export function compositeTools(db, _dbPath) {
         {
             name: 'bro_atomic_close',
             description: 'Bro task-close composite — writes the bro_verification_pass audit row, advances ' +
-                'last_verified_sha, flips the task to closed, and optionally closes the parent issue, ' +
+                'flips the task to closed, and optionally closes the parent issue, ' +
                 'all in one DB transaction. Hooks downstream of `task_update_status` still fire ' +
                 '(cleanup-worktree, post-task-close-rescan, audit log).',
             inputSchema: {
@@ -508,11 +508,6 @@ export function compositeTools(db, _dbPath) {
                     JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
                     now,
                 ]);
-                // Advance last_verified_sha — invariant the close-gate hook checks.
-                db.run(`INSERT INTO plugin_config (key, value_json)
-             VALUES ('last_verified_sha', ?)
-             ON CONFLICT(key) DO UPDATE SET
-               value_json = excluded.value_json`, [JSON.stringify(commitSha)]);
                 // 3. flip task to closed.
                 db.run(`UPDATE tasks
                 SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?

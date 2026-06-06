@@ -72,11 +72,26 @@ function resolveScanScript(): string {
 
 function runScan(sessionDir: string): ScanOutput {
   const script = resolveScanScript();
-  const stdout = execFileSync('bash', [script, sessionDir], {
-    encoding: 'utf8',
-    maxBuffer: 200 * 1024 * 1024, // 200MB headroom for large monorepos
-  });
-  const parsed = JSON.parse(stdout) as ScanOutput;
+  let stdout: string;
+  try {
+    stdout = execFileSync('bash', [script, sessionDir], {
+      encoding: 'utf8',
+      maxBuffer: 200 * 1024 * 1024, // 200MB headroom for large monorepos
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e: unknown) {
+    // Surface scan.sh's real failure (exit code + stderr) rather than masking
+    // it as a JSON.parse error on partial stdout. (#285)
+    const se = e as { stderr?: string | Buffer; status?: number; message?: string };
+    const stderr = se.stderr ? se.stderr.toString().slice(0, 2000) : '';
+    throw new Error(`scan.sh failed (exit ${se.status ?? '?'}): ${stderr || se.message || 'unknown error'}`);
+  }
+  let parsed: ScanOutput;
+  try {
+    parsed = JSON.parse(stdout) as ScanOutput;
+  } catch {
+    throw new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`);
+  }
   if (!parsed.repos || !parsed.files) {
     throw new Error('scan.sh emitted unexpected shape (missing repos/files)');
   }
