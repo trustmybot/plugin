@@ -62,9 +62,12 @@ echo "$COMMENTS" | while IFS= read -r comment; do
   [ -n "$BODY" ] || continue
 
   NOTE_BODY="[PR #${PR_NUMBER} comment by ${AUTHOR}] ${BODY}"
-  # Escape single quotes for SQLite
-  NOTE_BODY_ESC="${NOTE_BODY//\'/\'\'}"
-  AUTHOR_ESC="${AUTHOR//\'/\'\'}"
+  # Escape single quotes for SQLite by doubling them (''). bash pattern
+  # substitution emits backslash-quote here, which SQLite does NOT treat as an
+  # escape — the literal stays open and the INSERT is silently dropped (#274).
+  # sed "s/'/''/g" is the correct, codebase-standard escape.
+  NOTE_BODY_ESC=$(printf '%s' "$NOTE_BODY" | sed "s/'/''/g")
+  AUTHOR_ESC=$(printf '%s' "$AUTHOR" | sed "s/'/''/g")
 
   sqlite3 "$DB" \
     "INSERT OR IGNORE INTO discussions (issue_id, author, kind, body, created_at)
