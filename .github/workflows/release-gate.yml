@@ -4,6 +4,8 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+    branches: [dev]
   workflow_dispatch:
     inputs:
       skip_l6:
@@ -87,19 +89,19 @@ jobs:
         run: bash tests/run-all.sh
 
       - name: Install Claude Code CLI (required by L6 chain runner)
-        if: ${{ inputs.skip_l6 != true }}
+        if: ${{ inputs.skip_l6 != true && github.event_name != 'pull_request' }}
         run: |
           npm install -g @anthropic-ai/claude-code
           claude --version
 
       - name: Run L6 13-step chain
-        if: ${{ inputs.skip_l6 != true }}
+        if: ${{ inputs.skip_l6 != true && github.event_name != 'pull_request' }}
         env:
           L6_FROM_STEP: ${{ inputs.l6_from_step || '1' }}
         run: bash tests/dogfood/run-l6-chain.sh --from "$L6_FROM_STEP" --fresh
 
       - name: Upload L6 chain artifacts (on success or failure)
-        if: ${{ always() && inputs.skip_l6 != true }}
+        if: ${{ always() && inputs.skip_l6 != true && github.event_name != 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: l6-chain-runs-${{ github.run_id }}
@@ -109,6 +111,8 @@ jobs:
 
   install-smoke:
     name: L0 docker install-smoke
+    # L0 docker smoke stays release-only; PR gate is L1–L4 (run-all.sh).
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
