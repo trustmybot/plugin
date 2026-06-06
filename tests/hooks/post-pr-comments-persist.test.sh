@@ -20,7 +20,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq unavailable"; exit 0; }
 REPO=$(mktemp -d)
 trap 'rm -rf "$REPO"' EXIT
 (
-  cd "$REPO"
+  cd "$REPO" || exit 1
   git init -q -b fix/1-pr
   git config user.email t@t.io
   git config user.name t
