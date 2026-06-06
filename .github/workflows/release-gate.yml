@@ -4,6 +4,9 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+'
+    # Also run L1–L4 on merges to dev — warms the dev-scoped HF model cache
+    # that PR runs restore from (so PRs don't re-download + risk HF 429).
+    branches: [dev]
   pull_request:
     branches: [dev]
   workflow_dispatch:
@@ -65,7 +68,7 @@ jobs:
             echo "Model already cached with correct size; skipping download."
           else
             echo "Downloading model.onnx from HuggingFace..."
-            curl --fail --location --retry 3 --retry-delay 5 \
+            curl --fail --location --retry 6 --retry-delay 10 --retry-all-errors \
               -o "$MODEL_FILE" \
               'https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model.onnx'
             ACTUAL_SIZE=$(stat -c%s "$MODEL_FILE" 2>/dev/null || stat -f%z "$MODEL_FILE")
@@ -78,7 +81,7 @@ jobs:
           # Also fetch the supporting config files transformers.js needs.
           for f in config.json tokenizer.json tokenizer_config.json special_tokens_map.json; do
             if [ ! -f "$MODEL_DIR/$f" ]; then
-              curl --fail --location --retry 3 --retry-delay 5 \
+              curl --fail --location --retry 6 --retry-delay 10 --retry-all-errors \
                 -o "$MODEL_DIR/$f" \
                 "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/$f" || echo "warn: $f optional, skipping"
             fi
@@ -89,19 +92,19 @@ jobs:
         run: bash tests/run-all.sh
 
       - name: Install Claude Code CLI (required by L6 chain runner)
-        if: ${{ inputs.skip_l6 != true && github.event_name != 'pull_request' }}
+        if: ${{ inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
         run: |
           npm install -g @anthropic-ai/claude-code
           claude --version
 
       - name: Run L6 13-step chain
-        if: ${{ inputs.skip_l6 != true && github.event_name != 'pull_request' }}
+        if: ${{ inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
         env:
           L6_FROM_STEP: ${{ inputs.l6_from_step || '1' }}
         run: bash tests/dogfood/run-l6-chain.sh --from "$L6_FROM_STEP" --fresh
 
       - name: Upload L6 chain artifacts (on success or failure)
-        if: ${{ always() && inputs.skip_l6 != true && github.event_name != 'pull_request' }}
+        if: ${{ always() && inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
         uses: actions/upload-artifact@v4
         with:
           name: l6-chain-runs-${{ github.run_id }}
@@ -112,7 +115,7 @@ jobs:
   install-smoke:
     name: L0 docker install-smoke
     # L0 docker smoke stays release-only; PR gate is L1–L4 (run-all.sh).
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
