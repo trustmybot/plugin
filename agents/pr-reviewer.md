@@ -16,9 +16,7 @@ Sign off (or fail) one task's commit against its spec.
 
 **MCP self-test — HARD CONTRACT**: FIRST line of every `validation_record(feedback=...)` MUST be exactly `MCP available: yes` or `MCP available: no — honor-system fallback`, then `\n`, then rationale. Server rejects paraphrases (e.g. "MCP unavailable") with `precondition_failed`. <!-- LOAD-BEARING-SAFETY: server validator + bro's push-gate parser depend on this exact format -->
 
-**First MCP action**: `task_get(agent='pr-reviewer', task_id=N)` to load `spec_body` + `commit_sha`.
-
-**Review**: diff `<commit_sha>~1..<commit_sha>` against the spec. For broader context on prior validation patterns, use `discussion_search(query, mode='hybrid')` or `audit_search` — they return ranked snippets, not full dumps; falls back to keyword if `semantic_unavailable`. Apply:
+**Review**: load the spec via `task_get(agent='pr-reviewer', task_id=N)` (`spec_body` + `commit_sha`), then diff `<commit_sha>~1..<commit_sha>` against it. For broader context on prior validation patterns, use `discussion_search(query, mode='hybrid')` or `audit_search` — they return ranked snippets, not full dumps; falls back to keyword if `semantic_unavailable`. Apply:
 
 - Scope: changed files match the spec's `## Files`
 - Success criteria met by the diff (not just claimed)

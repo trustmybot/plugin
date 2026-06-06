@@ -3,6 +3,22 @@ import assert from 'node:assert/strict';
 import { packEmbedding, unpackEmbedding, cosine, embedAndStore, topKByCosine } from '../embeddings/store.js';
 import { tempDB } from './helpers.js';
 
+describe('unpackEmbedding from a Uint8Array DB BLOB (#285)', () => {
+  it('unpacks a plain Uint8Array (no Buffer methods) without throwing', () => {
+    const original = new Float32Array([0.1, -0.2, 0.3, 0.42, -0.99]);
+    // node:sqlite returns BLOBs as Uint8Array, not Buffer — copy into a plain
+    // Uint8Array so readFloatLE (Buffer-only) is unavailable, as at runtime.
+    const blob = new Uint8Array(packEmbedding(original));
+    let restored: Float32Array | undefined;
+    assert.doesNotThrow(() => {
+      restored = unpackEmbedding(blob);
+    });
+    for (let i = 0; i < original.length; i++) {
+      assert.ok(Math.abs(restored![i]! - original[i]!) < 1e-6, `idx ${i} mismatch`);
+    }
+  });
+});
+
 describe('packEmbedding / unpackEmbedding round-trip', () => {
   it('round-trips a Float32Array through Buffer', () => {
     const original = new Float32Array([0.1, 0.2, 0.3, -0.5, 1.0]);
