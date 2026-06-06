@@ -4,8 +4,31 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+import type { WorldModelGraph } from '../graph-db.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
+
+// Extract the unique directories implied by a spec's `## Files` section. Each
+// bullet's first token is the path; its dirname is the directory ('' = repo
+// root). task_brief resolves these against the world model. (#300)
+export function parseFilesDirs(specBody: string): string[] {
+  const dirs = new Set<string>();
+  let inFiles = false;
+  for (const line of specBody.split('\n')) {
+    const h2 = line.match(/^##\s+(.+)/);
+    if (h2) {
+      inFiles = /^files\b/i.test(h2[1]!.trim());
+      continue;
+    }
+    if (!inFiles) continue;
+    const m = line.match(/^\s*[-*]\s+`?([^`\s—|]+)/);
+    if (!m) continue;
+    const path = m[1]!.replace(/[`,.;]+$/, '');
+    const slash = path.lastIndexOf('/');
+    dirs.add(slash >= 0 ? path.slice(0, slash) : '');
+  }
+  return [...dirs];
+}
 
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -68,6 +91,7 @@ function intentToType(text: string): { prefix: string; confidence: number } {
 export function compositeTools(
   db: TrajectoryDB,
   _dbPath: string,
+  graph: WorldModelGraph | null = null,
 ): { definitions: Tool[]; handlers: Record<string, Fn> } {
   const definitions: Tool[] = [
     {
@@ -249,9 +273,127 @@ export function compositeTools(
         required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
       },
     },
+    {
+      name: 'task_brief',
+      description:
+        "Full context bundle for one task in a single call — swe's only context read. " +
+        'Joins the trajectory DB (task row, spec_body, the task issue\'s discussion thread) ' +
+        'with the kuzu world model (each directory the spec\'s `## Files` touch, plus its ' +
+        'children\'s summaries). Lets swe receive scope instead of orchestrating task_get + ' +
+        'world_model_get + discussion_search itself. See docs/architecture/WORLD_MODEL.md.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task_id: { type: 'number', description: 'Task id to assemble the brief for.' },
+        },
+        required: ['agent', 'task_id'],
+      },
+    },
   ];
 
   const handlers: Record<string, Fn> = {
+    task_brief: requireRoles(
+      'task_brief',
+      ['bro', 'swe', 'pr-reviewer'],
+      wrap(async (args) => {
+        const taskId = args['task_id'];
+        if (taskId === undefined || taskId === null) return err('task_id is required');
+
+        const task = db.get<{
+          id: number;
+          issue_id: number;
+          branch_id: string;
+          title: string;
+          status: string;
+          spec_body: string;
+          repo: string | null;
+          objective: string;
+        }>(
+          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.repo,
+                  i.objective
+             FROM tasks t JOIN issues i ON i.id = t.issue_id
+            WHERE t.id = ? LIMIT 1`,
+          [taskId],
+        );
+        if (!task) return err(`No task with id=${taskId}`);
+
+        // Resolve repo: task.repo, else tmb_default_repo from config.
+        let repo = task.repo ?? '';
+        if (!repo) {
+          const cfg = db.get<{ value_json: string }>(
+            "SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'",
+          );
+          if (cfg?.value_json) {
+            try {
+              repo = JSON.parse(cfg.value_json) as string;
+            } catch {
+              // leave empty
+            }
+          }
+        }
+
+        // Scope: the dirs the spec's ## Files touch, resolved in the world model.
+        const dirs = parseFilesDirs(task.spec_body);
+        let scope_world_model: Array<{
+          dir: string;
+          summary: string | null;
+          children: Array<{ path: string; summary: string | null }>;
+        }> = [];
+        let world_model_warning: string | undefined;
+        if (!graph) {
+          world_model_warning = 'world-model-unavailable';
+        } else {
+          const nodes = graph.allDirectoriesForRepo(repo);
+          if (nodes.length === 0) {
+            world_model_warning = 'world-model-empty';
+          } else {
+            const byPath = new Map(nodes.map((n) => [n.path, n]));
+            const childrenByParent = new Map<string, typeof nodes>();
+            for (const n of nodes) {
+              const key = n.parent_path ?? '';
+              if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+              childrenByParent.get(key)!.push(n);
+            }
+            scope_world_model = dirs.map((d) => ({
+              dir: d,
+              summary: byPath.get(d)?.summary ?? null,
+              children: (childrenByParent.get(d) ?? []).map((c) => ({
+                path: c.path,
+                summary: c.summary,
+              })),
+            }));
+          }
+        }
+
+        // The task issue's own discussion thread (intent / decision / notes).
+        const task_discussions = db.all<{
+          author: string;
+          kind: string;
+          body: string;
+          created_at: string;
+        }>(
+          `SELECT author, kind, body, created_at FROM discussions
+            WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200`,
+          [task.issue_id],
+        );
+
+        return ok({
+          task_id: task.id,
+          issue_id: task.issue_id,
+          branch_id: task.branch_id,
+          title: task.title,
+          objective: task.objective,
+          status: task.status,
+          repo,
+          spec_body: task.spec_body,
+          scope_world_model,
+          ...(world_model_warning ? { world_model_warning } : {}),
+          task_discussions,
+        });
+      }),
+    ),
+
     branch_id_propose: requireRoles(
       'branch_id_propose',
       ['bro'],

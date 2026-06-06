@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tempDB } from './helpers.js';
-import { compositeTools } from '../tools/composites.js';
+import { compositeTools, parseFilesDirs } from '../tools/composites.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';
@@ -469,6 +469,77 @@ describe('reap_and_review_prep', () => {
         assert.equal(out.reaped[0].reaped, false);
         assert.equal(out.reaped[0].task_id, '99999', 'raw tid preserved, not NaN');
         assert.match(out.reaped[0].error, /No task/);
+    });
+});
+describe('parseFilesDirs (#300)', () => {
+    it('derives unique dirs from a spec ## Files section', () => {
+        const spec = [
+            '## Description', 'do a thing', '',
+            '## Files',
+            '- `src/api/handler.ts` — edit',
+            '- `src/api/util.ts` — add',
+            '- `docs/guide.md` — update',
+            '- `README.md` — touch',
+            '',
+            '## Success Criteria', '- `src/other.ts` must not be listed (wrong section)',
+        ].join('\n');
+        assert.deepEqual(parseFilesDirs(spec).sort(), ['', 'docs', 'src/api']);
+    });
+});
+function seedTask(db, opts) {
+    db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+     VALUES (1, 'brief test obj', 'd', 'open', datetime('now'), datetime('now'))`);
+    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, ?, datetime('now'), datetime('now'))`, [opts.spec, opts.repo ?? null]);
+    const row = db.get('SELECT last_insert_rowid() AS id');
+    db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
+     VALUES (1, 'bro', 'decision', 'Use approach B', datetime('now'))`);
+    return row.id;
+}
+describe('task_brief (#300)', () => {
+    const SPEC = ['## Files', '- `src/api/handler.ts` — edit', '', '## Success Criteria', '- works'].join('\n');
+    it('bundles task meta + spec + discussions; flags world model unavailable when graph is null', async () => {
+        const db = tempDB();
+        const id = seedTask(db, { repo: 'app', spec: SPEC });
+        const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id }));
+        const out = parse(r);
+        assert.equal(out['task_id'], id);
+        assert.equal(out['branch_id'], 'fix/1-brief');
+        assert.equal(out['spec_body'], SPEC);
+        assert.equal(out['world_model_warning'], 'world-model-unavailable');
+        const disc = out['task_discussions'];
+        assert.ok(disc.some((d) => d.kind === 'decision' && d.body === 'Use approach B'));
+        db.close();
+    });
+    it('populates scope_world_model from the spec dirs via the graph', async () => {
+        const db = tempDB();
+        const id = seedTask(db, { repo: 'app', spec: SPEC });
+        // Stub graph: only allDirectoriesForRepo is exercised by task_brief.
+        const stubGraph = {
+            allDirectoriesForRepo: () => [
+                { key: 'app:src/api', repo: 'app', path: 'src/api', parent_path: 'src', summary: 'api layer', summary_source: 'readme', summary_updated_at: null, file_count: 3 },
+                { key: 'app:src/api/v2', repo: 'app', path: 'src/api/v2', parent_path: 'src/api', summary: 'v2 handlers', summary_source: 'llm', summary_updated_at: null, file_count: 1 },
+            ],
+        };
+        const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', stubGraph);
+        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: id }));
+        const out = parse(r);
+        assert.equal(out['world_model_warning'], undefined);
+        const scope = out['scope_world_model'];
+        const apiDir = scope.find((sc) => sc.dir === 'src/api');
+        assert.ok(apiDir, 'src/api in scope');
+        assert.equal(apiDir.summary, 'api layer');
+        assert.ok(apiDir.children.some((c) => c.path === 'src/api/v2'), 'child surfaced');
+        db.close();
+    });
+    it('errors on a missing task', async () => {
+        const db = tempDB();
+        const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+        const r = (await tools.handlers['task_brief']({ agent: 'swe', task_id: 99999 }));
+        assert.ok(r.isError);
+        assert.match(parse(r)['error'], /No task/);
+        db.close();
     });
 });
 //# sourceMappingURL=composites.test.js.map
