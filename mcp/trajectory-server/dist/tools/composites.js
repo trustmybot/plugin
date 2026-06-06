@@ -2,6 +2,29 @@ import { execFileSync } from 'node:child_process';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+// Extract the unique directories implied by a spec's `## Files` section. Each
+// bullet's first token is the path; its dirname is the directory ('' = repo
+// root). task_brief resolves these against the world model. (#300)
+export function parseFilesDirs(specBody) {
+    const dirs = new Set();
+    let inFiles = false;
+    for (const line of specBody.split('\n')) {
+        const h2 = line.match(/^##\s+(.+)/);
+        if (h2) {
+            inFiles = /^files\b/i.test(h2[1].trim());
+            continue;
+        }
+        if (!inFiles)
+            continue;
+        const m = line.match(/^\s*[-*]\s+`?([^`\s—|]+)/);
+        if (!m)
+            continue;
+        const path = m[1].replace(/[`,.;]+$/, '');
+        const slash = path.lastIndexOf('/');
+        dirs.add(slash >= 0 ? path.slice(0, slash) : '');
+    }
+    return [...dirs];
+}
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -58,7 +81,7 @@ function intentToType(text) {
     }
     return { prefix: 'chore', confidence: 0.3 };
 }
-export function compositeTools(db, _dbPath) {
+export function compositeTools(db, _dbPath, graph = null) {
     const definitions = [
         {
             name: 'branch_id_propose',
@@ -230,8 +253,95 @@ export function compositeTools(db, _dbPath) {
                 required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
             },
         },
+        {
+            name: 'task_brief',
+            description: "Full context bundle for one task in a single call — swe's only context read. " +
+                'Joins the trajectory DB (task row, spec_body, the task issue\'s discussion thread) ' +
+                'with the kuzu world model (each directory the spec\'s `## Files` touch, plus its ' +
+                'children\'s summaries). Lets swe receive scope instead of orchestrating task_get + ' +
+                'world_model_get + discussion_search itself. See docs/architecture/WORLD_MODEL.md.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    task_id: { type: 'number', description: 'Task id to assemble the brief for.' },
+                },
+                required: ['agent', 'task_id'],
+            },
+        },
     ];
     const handlers = {
+        task_brief: requireRoles('task_brief', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
+            const taskId = args['task_id'];
+            if (taskId === undefined || taskId === null)
+                return err('task_id is required');
+            const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.repo,
+                  i.objective
+             FROM tasks t JOIN issues i ON i.id = t.issue_id
+            WHERE t.id = ? LIMIT 1`, [taskId]);
+            if (!task)
+                return err(`No task with id=${taskId}`);
+            // Resolve repo: task.repo, else tmb_default_repo from config.
+            let repo = task.repo ?? '';
+            if (!repo) {
+                const cfg = db.get("SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'");
+                if (cfg?.value_json) {
+                    try {
+                        repo = JSON.parse(cfg.value_json);
+                    }
+                    catch {
+                        // leave empty
+                    }
+                }
+            }
+            // Scope: the dirs the spec's ## Files touch, resolved in the world model.
+            const dirs = parseFilesDirs(task.spec_body);
+            let scope_world_model = [];
+            let world_model_warning;
+            if (!graph) {
+                world_model_warning = 'world-model-unavailable';
+            }
+            else {
+                const nodes = graph.allDirectoriesForRepo(repo);
+                if (nodes.length === 0) {
+                    world_model_warning = 'world-model-empty';
+                }
+                else {
+                    const byPath = new Map(nodes.map((n) => [n.path, n]));
+                    const childrenByParent = new Map();
+                    for (const n of nodes) {
+                        const key = n.parent_path ?? '';
+                        if (!childrenByParent.has(key))
+                            childrenByParent.set(key, []);
+                        childrenByParent.get(key).push(n);
+                    }
+                    scope_world_model = dirs.map((d) => ({
+                        dir: d,
+                        summary: byPath.get(d)?.summary ?? null,
+                        children: (childrenByParent.get(d) ?? []).map((c) => ({
+                            path: c.path,
+                            summary: c.summary,
+                        })),
+                    }));
+                }
+            }
+            // The task issue's own discussion thread (intent / decision / notes).
+            const task_discussions = db.all(`SELECT author, kind, body, created_at FROM discussions
+            WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200`, [task.issue_id]);
+            return ok({
+                task_id: task.id,
+                issue_id: task.issue_id,
+                branch_id: task.branch_id,
+                title: task.title,
+                objective: task.objective,
+                status: task.status,
+                repo,
+                spec_body: task.spec_body,
+                scope_world_model,
+                ...(world_model_warning ? { world_model_warning } : {}),
+                task_discussions,
+            });
+        })),
         branch_id_propose: requireRoles('branch_id_propose', ['bro'], wrap(async (args) => {
             const intent = args['intent'];
             if (typeof intent !== 'string' || intent.trim().length === 0) {

@@ -51,7 +51,7 @@ export function registerTools(server, db, dbPath = '', graph = null) {
     const stats = statsTools(db);
     const roundtable = roundtableTools(db);
     const prComments = prCommentsTools(db);
-    const composites = compositeTools(db, dbPath);
+    const composites = compositeTools(db, dbPath, graph);
     const onboard = onboardTools(db, dbPath);
     const scan = scanTools(db, graph);
     const worldModel = worldModelTools(db, graph);

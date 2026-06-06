@@ -54,6 +54,10 @@ Re-running `scan_run` is summary-preserving via MERGE — existing nodes update 
 | Zoom into one part | `world_model_get(path='src/api', depth=1)` |
 | File-level detail (rare) | direct Read with explicit paths |
 
+## Consumers
+
+`task_brief(task_id)` (a composite in `tools/composites.ts`) is the world model's main programmatic consumer: it parses a task spec's `## Files`, resolves those directories against the graph (each dir's summary + its children's), and bundles that with the task row + the issue's discussion thread into one read. swe receives this brief instead of orchestrating `task_get` + `world_model_get` + `discussion_search` itself — the Architect→SWE handoff. Decision record: issue #300.
+
 ## Design history
 
 The world model has had three substrates, each replacing the last:
