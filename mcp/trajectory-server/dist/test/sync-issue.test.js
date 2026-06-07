@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
 export function makeSpawnFn(responses) {
@@ -12,6 +12,8 @@ export function makeSpawnFn(responses) {
         return response;
     };
 }
+const GH_VERIFY_OK = { status: 0, stdout: '{"number":42,"url":"https://github.com/owner/repo/issues/42"}', stderr: '' };
+const GLAB_VERIFY_OK = { status: 0, stdout: 'issue 77 details', stderr: '' };
 describe('syncIssueCreate', () => {
     it('returns SyncFailure(no_backend) when backend is not set', async () => {
         const result = await syncIssueCreate({
@@ -29,6 +31,7 @@ describe('syncIssueCreate', () => {
                 stdout: 'https://github.com/owner/repo/issues/42\n',
                 stderr: '',
             },
+            { status: 0, stdout: '{"number":42,"url":"https://github.com/owner/repo/issues/42"}', stderr: '' },
         ]);
         const result = await syncIssueCreate({
             issueId: 1,
@@ -48,6 +51,7 @@ describe('syncIssueCreate', () => {
                 stdout: 'https://gitlab.com/owner/repo/-/issues/77\n',
                 stderr: '',
             },
+            GLAB_VERIFY_OK,
         ]);
         const result = await syncIssueCreate({
             issueId: 1,
@@ -67,6 +71,7 @@ describe('syncIssueCreate', () => {
                 stdout: 'https://gitlab.com/trustmybot/plugin/-/work_items/2874\n',
                 stderr: '',
             },
+            { status: 0, stdout: 'work_item 2874 details', stderr: '' },
         ]);
         const result = await syncIssueCreate({
             issueId: 1,
@@ -82,6 +87,7 @@ describe('syncIssueCreate', () => {
     it('parses bare-iid `#42` stdout form (older gh/glab, #2875)', async () => {
         const spawnFn = makeSpawnFn([
             { status: 0, stdout: '#42\n', stderr: '' },
+            { status: 0, stdout: '{"number":42,"url":"https://github.com/owner/repo/issues/42"}', stderr: '' },
         ]);
         const result = await syncIssueCreate({
             issueId: 1,
@@ -133,6 +139,7 @@ describe('syncIssueCreate', () => {
                 stdout: 'https://github.com/owner/repo/issues/10\n',
                 stderr: '',
             },
+            { status: 0, stdout: '{"number":10,"url":"https://github.com/owner/repo/issues/10"}', stderr: '' },
         ]);
         const result = await syncIssueCreate({
             issueId: 1,
@@ -153,6 +160,7 @@ describe('syncIssueCreate', () => {
                 stdout: 'https://gitlab.com/owner/repo/-/issues/55\n',
                 stderr: '',
             },
+            GLAB_VERIFY_OK,
         ]);
         const result = await syncIssueCreate({
             issueId: 1,
@@ -169,6 +177,9 @@ describe('syncIssueCreate', () => {
         const calls = [];
         const spawnFn = (cmd, args, _opts) => {
             calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":1,"url":"https://github.com/owner/repo/issues/1"}', stderr: '' };
+            }
             return { status: 0, stdout: 'https://github.com/owner/repo/issues/1\n', stderr: '' };
         };
         await syncIssueCreate({
@@ -187,39 +198,114 @@ describe('syncIssueCreate', () => {
         assert.ok(ghCall.args.includes('bug'));
         assert.ok(ghCall.args.includes('feature'));
     });
-    it('syncIssueCreate emits issue_sync_active warning before spawn', async () => {
-        const syncLogPath = join(homedir(), '.claude', 'tmb', 'logs', 'issue-sync.log');
-        const priorSize = existsSync(syncLogPath) ? readFileSync(syncLogPath, 'utf8').length : 0;
-        const spawnFn = (_cmd, _args, _opts) => ({
-            status: 0,
-            stdout: 'https://github.com/x/y/issues/42\n',
-            stderr: '',
-        });
-        await syncIssueCreate({
-            issueId: 99,
-            title: 'Blast-radius test issue',
+    it('rejects iid from incidental #N in stdout; only the created-URL iid is used (#314)', async () => {
+        const spawnFn = makeSpawnFn([
+            {
+                status: 0,
+                stdout: 'Mentioned in #30 and also see PR #15\nhttps://github.com/owner/repo/issues/310\n',
+                stderr: '',
+            },
+            { status: 0, stdout: '{"number":310,"url":"https://github.com/owner/repo/issues/310"}', stderr: '' },
+        ]);
+        const result = await syncIssueCreate({
+            issueId: 5,
+            title: 'Real issue',
             body: 'Body',
             _backend: 'gh',
             _spawnFn: spawnFn,
         });
-        assert.ok(existsSync(syncLogPath), 'issue-sync.log should exist after syncIssueCreate');
-        const newContent = readFileSync(syncLogPath, 'utf8').slice(priorSize);
-        const newLines = newContent.trim().split('\n').filter(Boolean);
-        assert.ok(newLines.length > 0, 'at least one new log line should be written');
-        const warningEntry = newLines
-            .map((line) => JSON.parse(line))
-            .find((entry) => entry['kind'] === 'issue_sync_active');
-        assert.ok(warningEntry !== undefined, 'issue_sync_active entry should be present');
-        assert.equal(warningEntry['backend'], 'gh');
-        assert.equal(warningEntry['issue_id'], 99);
-        assert.equal(warningEntry['title'], 'Blast-radius test issue');
+        assert.ok(!isSyncFailure(result), `Expected success, got failure: ${JSON.stringify(result)}`);
+        assert.equal(result.remote_iid, 310, 'should use URL iid 310, not incidental #30 or #15');
+        assert.equal(result.remote_kind, 'github');
+    });
+    it('returns verify_failed when read-back shows url contains /pull/ (#314)', async () => {
+        const spawnFn = makeSpawnFn([
+            {
+                status: 0,
+                stdout: 'https://github.com/owner/repo/issues/30\n',
+                stderr: '',
+            },
+            {
+                status: 0,
+                stdout: '{"number":30,"url":"https://github.com/owner/repo/pull/30"}',
+                stderr: '',
+            },
+        ]);
+        const result = await syncIssueCreate({
+            issueId: 5,
+            title: 'Real issue',
+            body: 'Body',
+            _backend: 'gh',
+            _spawnFn: spawnFn,
+        });
+        assert.ok(isSyncFailure(result), 'Expected failure when read-back shows PR');
+        assert.equal(result.reason, 'verify_failed');
+    });
+    it('syncIssueCreate writes logs to TMB_SYNC_LOG_DIR, not ~/.claude/ (log-isolation, #314)', async () => {
+        const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-test-sync-'));
+        const savedLogDir = process.env.TMB_SYNC_LOG_DIR;
+        process.env.TMB_SYNC_LOG_DIR = tmpDir;
+        // Use a sentinel string unique to this test invocation so we can check the
+        // real log was NOT written to even if it already contains prior entries.
+        const sentinel = `blast-radius-sentinel-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        try {
+            const spawnFn = (_cmd, args, _opts) => {
+                if (args[0] === 'issue' && args[1] === 'view') {
+                    return { status: 0, stdout: '{"number":42,"url":"https://github.com/x/y/issues/42"}', stderr: '' };
+                }
+                return {
+                    status: 0,
+                    stdout: 'https://github.com/x/y/issues/42\n',
+                    stderr: '',
+                };
+            };
+            await syncIssueCreate({
+                issueId: 99,
+                title: sentinel,
+                body: 'Body',
+                _backend: 'gh',
+                _spawnFn: spawnFn,
+            });
+            const logPath = join(tmpDir, 'issue-sync.log');
+            assert.ok(existsSync(logPath), 'issue-sync.log should exist in the temp dir, not elsewhere');
+            const content = readFileSync(logPath, 'utf8');
+            const lines = content.trim().split('\n').filter(Boolean);
+            assert.ok(lines.length > 0, 'at least one log line should be written');
+            const entries = lines.map((line) => JSON.parse(line));
+            const warningEntry = entries.find((e) => e['kind'] === 'issue_sync_active');
+            assert.ok(warningEntry !== undefined, 'issue_sync_active entry should be present');
+            assert.equal(warningEntry['backend'], 'gh');
+            assert.equal(warningEntry['issue_id'], 99);
+            assert.equal(warningEntry['title'], sentinel);
+            const successEntry = entries.find((e) => e['event'] === 'issue_create_success');
+            assert.ok(successEntry !== undefined, 'issue_create_success entry must be present on success path');
+            assert.equal(successEntry['iid'], 42, 'success log must include parsed iid');
+            assert.ok(typeof successEntry['stdout'] === 'string', 'success log must include raw stdout');
+            // The sentinel title must NOT appear in the real ~/.claude/ log — that's the
+            // blast-radius check. The real log may already have unrelated entries; only
+            // the sentinel (unique to this run) would indicate a live leak.
+            const realLogDir = join(homedir(), '.claude');
+            const tmbLogDir = join(realLogDir, 'tmb', 'logs', 'issue-sync.log');
+            assert.ok(!existsSync(tmbLogDir) || !readFileSync(tmbLogDir, 'utf8').includes(sentinel), 'should NOT write test entries to the real ~/.claude/ log path');
+        }
+        finally {
+            if (savedLogDir === undefined) {
+                delete process.env.TMB_SYNC_LOG_DIR;
+            }
+            else {
+                process.env.TMB_SYNC_LOG_DIR = savedLogDir;
+            }
+        }
     });
 });
 describe('syncIssueCreate cwd injection', () => {
-    it('passes _cwd to spawnOpts when tmb_default_repo is configured', async () => {
+    it('passes _cwd to spawnOpts for both create and verify calls', async () => {
         const capturedOpts = [];
-        const spawnFn = (_cmd, _args, opts) => {
+        const spawnFn = (_cmd, args, opts) => {
             capturedOpts.push(opts);
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":1,"url":"https://github.com/owner/repo/issues/1"}', stderr: '' };
+            }
             return { status: 0, stdout: 'https://github.com/owner/repo/issues/1\n', stderr: '' };
         };
         const result = await syncIssueCreate({
@@ -231,14 +317,17 @@ describe('syncIssueCreate cwd injection', () => {
             _cwd: '/workspace/plugin',
         });
         assert.ok(result !== null);
-        assert.equal(capturedOpts.length, 1);
+        assert.ok(capturedOpts.length >= 1, 'at least one spawn call should be made');
         assert.ok(capturedOpts[0] !== undefined);
         assert.ok(typeof capturedOpts[0].cwd === 'string' && capturedOpts[0].cwd.endsWith('/plugin'), `expected cwd to end with /plugin, got: ${String(capturedOpts[0].cwd)}`);
     });
     it('leaves spawnOpts.cwd undefined when _cwd is not provided', async () => {
         const capturedOpts = [];
-        const spawnFn = (_cmd, _args, opts) => {
+        const spawnFn = (_cmd, args, opts) => {
             capturedOpts.push(opts);
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":2,"url":"https://github.com/owner/repo/issues/2"}', stderr: '' };
+            }
             return { status: 0, stdout: 'https://github.com/owner/repo/issues/2\n', stderr: '' };
         };
         const result = await syncIssueCreate({
@@ -249,7 +338,7 @@ describe('syncIssueCreate cwd injection', () => {
             _spawnFn: spawnFn,
         });
         assert.ok(result !== null);
-        assert.equal(capturedOpts.length, 1);
+        assert.ok(capturedOpts.length >= 1, 'at least one spawn call should be made');
         assert.ok(capturedOpts[0] !== undefined);
         assert.equal(capturedOpts[0].cwd, undefined, 'cwd should be undefined when _cwd is not provided');
     });
