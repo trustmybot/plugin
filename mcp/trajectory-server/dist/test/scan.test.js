@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
-import { scanTools } from '../tools/scan.js';
+import { scanTools, preferredDefaultRepo } from '../tools/scan.js';
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }
@@ -114,19 +114,21 @@ describe('scan_run — workspace discovery + persistence', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('falls back to alphabetical when session_dir encloses no repo (#2885 edge case)', async () => {
+    it('picks largest-by-file-count when session_dir encloses no repo (#316)', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-fallback-'));
         try {
+            // repo-a has 1 file, repo-c has 3 files → repo-c wins despite sorting later.
             mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
-            mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
+            mkRepo(ws, 'repo-c', { 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n' });
             const db = tempDB();
             const tools = scanTools(db, null);
-            // Scan from the workspace ROOT (above both repos). No enclosing repo —
-            // alphabetical fallback applies.
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
             const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
             assert.ok(cfg);
-            assert.equal(cfg.value_json, '"repo-a"');
+            assert.equal(cfg.value_json, '"repo-c"', 'largest repo wins over alphabetical-first');
+            // A default_repo_guessed audit row must exist.
+            const audit = db.get(`SELECT event_type FROM audit WHERE event_type='default_repo_guessed' ORDER BY id DESC LIMIT 1`);
+            assert.ok(audit, 'default_repo_guessed audit row should be emitted when guessing');
             db.close();
         }
         finally {
@@ -271,6 +273,35 @@ describe('scan_run — workspace discovery + persistence', () => {
                 rmSync(ws, { recursive: true, force: true });
             }
         });
+    });
+});
+describe('preferredDefaultRepo — unit', () => {
+    it('returns cwd-enclosing repo when session_dir is inside one', () => {
+        const repos = [
+            { name: 'enterprise', path: '/ws/enterprise', file_count: 89 },
+            { name: 'plugin', path: '/ws/plugin', file_count: 901 },
+        ];
+        assert.equal(preferredDefaultRepo(repos, '/ws/plugin/src'), 'plugin', 'enclosing repo wins regardless of file_count');
+    });
+    it('returns largest repo by file_count when no repo encloses session_dir (#316)', () => {
+        const repos = [
+            { name: 'enterprise', path: '/ws/enterprise', file_count: 89 },
+            { name: 'marketplace', path: '/ws/marketplace', file_count: 0 },
+            { name: 'plugin', path: '/ws/plugin', file_count: 901 },
+        ];
+        const guesses = [];
+        const result = preferredDefaultRepo(repos, '/ws', (chosen, candidates) => {
+            guesses.push({ chosen });
+            assert.equal(candidates.length, 3);
+        });
+        assert.equal(result, 'plugin', 'largest repo wins over alphabetical-first (enterprise)');
+        assert.equal(guesses.length, 1, 'onGuessed callback fires once');
+    });
+    it('returns single repo name regardless of file_count', () => {
+        assert.equal(preferredDefaultRepo([{ name: 'solo', path: '/ws/solo', file_count: 0 }], '/other'), 'solo');
+    });
+    it('returns empty string for empty repos list', () => {
+        assert.equal(preferredDefaultRepo([], '/any'), '');
     });
 });
 //# sourceMappingURL=scan.test.js.map

@@ -141,13 +141,17 @@ export function detectStructuralChange(
 }
 
 // Pick the repo whose path encloses (or equals) the scan session_dir. This is
-// the cwd-aware default for `tmb_default_repo` — without it, scan picked the
-// alphabetically-first repo, which surprises users launching CC from a deeper
-// sibling (#2885). Falls back to repos[0].name when no repo encloses session_dir
-// (e.g. session_dir is the workspace root above all repos).
+// the cwd-aware default for `tmb_default_repo`. Resolution order:
+//   1. cwd-enclosing repo (session_dir is inside the repo root)
+//   2. largest repo by file_count (deterministic tiebreak: first in input order)
+//   3. repos[0] as a last resort when file counts are all zero or unavailable
+// Returns '' for an empty list.
+// onGuessed is called with the chosen name + all candidates when resolution
+// falls through to heuristic (no enclosing repo).
 export function preferredDefaultRepo(
-  repos: Array<{ name: string; path: string }>,
+  repos: Array<{ name: string; path: string; file_count?: number }>,
   sessionDir: string,
+  onGuessed?: (chosen: string, candidates: Array<{ name: string; file_count: number }>) => void,
 ): string {
   if (repos.length === 0) return '';
   const norm = (p: string) => p.replace(/\/+$/, '');
@@ -156,7 +160,14 @@ export function preferredDefaultRepo(
     const rp = norm(r.path);
     return sd === rp || sd.startsWith(rp + '/');
   });
-  return (enclosing ?? repos[0]).name;
+  if (enclosing) return enclosing.name;
+
+  // No enclosing repo — pick the largest by file_count.
+  const withCounts = repos.map((r) => ({ name: r.name, file_count: r.file_count ?? 0 }));
+  const largest = withCounts.reduce((best, cur) => (cur.file_count > best.file_count ? cur : best));
+  const chosen = largest.file_count > 0 ? largest.name : repos[0].name;
+  onGuessed?.(chosen, withCounts);
+  return chosen;
 }
 
 // Directory-level world model population (v0.7 world-model). For each unique
@@ -443,20 +454,31 @@ export function scanTools(db: TrajectoryDB, graph: WorldModelGraph | null): {
           ],
         );
 
-        // Set tmb_default_repo to the cwd-enclosing repo if possible, else
-        // fall back to the first discovered repo. Helps resolveSpawnCwd pick a
-        // sensible default for issue_sync (#2877) AND avoids the surprise where
-        // alphabetical-first wins on workspace-pattern repos (#2885: a user
-        // launching CC from ~/Git/GitHub/TMB/plugin saw tmb_default_repo set to
-        // 'enterprise' just because it sorted first alphabetically among sibling
-        // repos — every fallback path then targeted the wrong project).
+        // Set tmb_default_repo on first scan. Resolution order: cwd-enclosing
+        // repo → largest repo by file_count → repos[0]. A guessed default
+        // (no enclosing repo) emits an audit row so a wrong guess is visible.
         const existing = db.get<{ value_json: string }>(
           `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
         );
         if (!existing && out.repos.length > 0) {
+          const defaultRepo = preferredDefaultRepo(
+            out.repos,
+            sessionDir,
+            (chosen, candidates) => {
+              db.run(
+                `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+                 VALUES (-1, NULL, 'bro', 'default_repo_guessed', ?, ?, ?)`,
+                [
+                  `tmb_default_repo guessed as '${chosen}' (no enclosing repo) — largest by file_count among ${candidates.length} candidates`,
+                  JSON.stringify({ chosen, candidates, session_dir: sessionDir }),
+                  nowISO(),
+                ],
+              );
+            },
+          );
           db.run(
             `INSERT INTO plugin_config (key, value_json) VALUES (?, ?)`,
-            ['tmb_default_repo', JSON.stringify(preferredDefaultRepo(out.repos, sessionDir))],
+            ['tmb_default_repo', JSON.stringify(defaultRepo)],
           );
         }
 
