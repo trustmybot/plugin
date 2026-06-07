@@ -19,18 +19,27 @@ workers under the plugin) against **public** SWE-bench Lite tasks, then
 compare per-task pass/fail + hallucination rate against the **published
 claude-sonnet harnesses** in `SWE-bench/experiments`.
 
-## Why no local "raw arm"
+## Single-arm resolve comparison — why no routine raw arm
 
-Per-task pass/fail for Claude 4 Sonnet across 3 different agentic
-harnesses (SWE-agent, KGCompass, ExpeRepair) is already published in
+The **resolve axis** (did TMB solve tasks that published harnesses failed?)
+compares TMB-on against **published** per-task pass/fail data already in
 [swe-bench/experiments](https://github.com/SWE-bench/experiments/tree/main/evaluation/lite).
-Running a local raw-Sonnet arm just to reproduce numbers Anthropic + the
-SWE-bench team already published is a waste of tokens. The comparator we
-care about is **the public Sonnet entry**, not "Sonnet we re-ran ourselves."
+Running a local raw arm to reproduce numbers Anthropic + the SWE-bench team
+already published is a waste of tokens. The comparator we care about is
+**the public Sonnet/Opus entry**, not "Sonnet we re-ran ourselves."
 
-This also means: **only public benchmarks count.** Private (TMB-curated)
-tasks have no published comparator → not externally credible → out of
-scope for the headline corpus.
+**However, a one-off raw baseline was measured (2026-05-13, pure Claude Code
+no-plugin).** That run serves a different axis — the **cost/time tradeoff and
+v0.6→v0.7 token-efficiency comparison**, not the headline resolve claim. The
+full raw/v0.6/v0.7 three-way results, token-efficiency breakdown, and raw
+per-task data are in:
+
+- [docs/contributing/BENCHMARK.md](../../../docs/contributing/BENCHMARK.md) — three-way comparison, token-efficiency section, and raw baseline caveats
+- [RESULTS.md](RESULTS.md) — raw per-task table
+
+This also means: **only public benchmarks count for the resolve axis.**
+Private (TMB-curated) tasks have no published comparator → not externally
+credible → out of scope for the headline corpus.
 
 ## Win condition: "smart = fewer hallucinations"
 
@@ -62,22 +71,28 @@ agent's claims match reality*.
 
 ## Task corpus
 
-Cherry-picked from public benchmarks only:
+Cherry-picked from public benchmarks only. The current set spans tasks 01–22
+across the Aider diagnostic tier, the original 8-task Lite+Verified corpus
+(rounds 1–2), and the blind-hard round 2 expansion. Full per-task data:
+[RESULTS.md](RESULTS.md) and [docs/contributing/BENCHMARK.md](../../../docs/contributing/BENCHMARK.md).
 
-| # | Task | Source | Tier | Sonnet 4 result (3 harnesses) |
+| # | Task | Source | Tier | Comparator result |
 |---|---|---|---|---|
 | 01 | `01-aider-acronym` | Aider polyglot | Diagnostic | (no per-task data) |
 | 02 | `02-aider-word-count` | Aider polyglot | Diagnostic | (no per-task data) |
-| 03 | `03-swebench-flask-4045` | SWE-bench Lite | **Headline** | **All 3 failed** |
-| 04 | `04-swebench-sphinx-7686` | SWE-bench Lite | **Headline** | **All 3 failed** |
-| 05 | `05-swebench-pytest-8906` | SWE-bench Lite | **Headline** | **All 3 failed** |
-| 06 | `06-swebench-pylint-6506` | SWE-bench Lite | **Headline** | **All 3 failed** |
+| 03 | `03-swebench-flask-4045` | SWE-bench Lite | **Headline** | **All 3 Sonnet failed** |
+| 04 | `04-swebench-sphinx-7686` | SWE-bench Lite | **Headline** | **All 3 Sonnet failed** |
+| 05 | `05-swebench-pytest-8906` | SWE-bench Lite | **Headline** | **All 3 Sonnet failed** |
+| 06 | `06-swebench-pylint-6506` | SWE-bench Lite | **Headline** | **All 3 Sonnet failed** |
+| 07–10 | `07–10-verified-*` | SWE-bench Verified | **Headline** | Both Opus 4 submissions failed |
+| 11–22 | `11–22-*` | SWE-bench Lite + Verified | **Round 2 / blind-hard** | Comparator-failed; blind pick |
 
-The 4 SWE-bench Lite tasks are in the **intersection of failures** across
-all three published Sonnet 4 agentic harnesses (SWE-agent + KGCompass +
-ExpeRepair). 83 tasks total are in that intersection; we picked 4 with
-bounded test surfaces (≤2 FAIL_TO_PASS each) and diverse failure modes
-(web framework / docs tooling / test framework / linter).
+Tasks 03–10 are in the **intersection of failures** across the published
+comparators (Sonnet: SWE-agent + KGCompass + ExpeRepair; Opus: two Anthropic
+submissions). 83 Lite tasks and a comparable Verified set are in those
+intersections; we picked tasks with bounded test surfaces (≤4 FAIL_TO_PASS)
+and diverse failure modes. Tasks 11–22 were added in the round 2 blind-hard
+expansion — selected without pre-screening for TMB solvability.
 
 ## Fairness controls
 
