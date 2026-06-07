@@ -34,12 +34,13 @@ is_sticky_bro() {
   if grep -qiE 'exit bro mode|stop being bro' "$TRANSCRIPT" 2>/dev/null; then
     return 1
   fi
-  # Sticky if either the assistant announced explicitly OR any user
-  # message in the transcript contains the `bro` trigger keyword. Catches
-  # the case where bro skipped the announcement (h3/h4 prompt-discipline
-  # ceiling) but the user clearly addressed @bro in a prior turn.
+  # Sticky if either the assistant announced explicitly OR the user
+  # addressed `@bro` (the explicit sigil) in a prior turn. The sigil is
+  # required, not a bare `bro` word: a bare-keyword scan over the whole
+  # transcript matches the hooks' own emitted context and every assistant
+  # mention of bro, flipping plain sessions into bro-mode forever (#276).
   grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null && return 0
-  grep -qiE '\bbro\b' "$TRANSCRIPT" 2>/dev/null && return 0
+  grep -qiE '@bro\b' "$TRANSCRIPT" 2>/dev/null && return 0
   return 1
 }
 

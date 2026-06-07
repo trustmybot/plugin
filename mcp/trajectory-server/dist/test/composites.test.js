@@ -280,6 +280,65 @@ describe('bro_atomic_close', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
+    it('#277: mirrors the auto-close to the linked remote (no local/remote drift)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'bac-remote-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        writeFileSync(join(repoRoot, 'a.ts'), 'export const x = 1;\n');
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+        const issues = issueTools(db, dbPath);
+        const tasks = taskTools(db);
+        const composites = compositeTools(db, dbPath);
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        // Record every spawn so we can assert the remote close actually fired.
+        const spawnCalls = [];
+        const spawnFn = (cmd, args) => {
+            spawnCalls.push({ cmd, args });
+            return { status: 0, stdout: '', stderr: '' };
+        };
+        try {
+            const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+                agent: 'bro', objective: 'remote close mirror', description: 'x',
+            }))['id']));
+            // Simulate an issue already synced to a GitHub remote (iid 42).
+            db.run(`UPDATE issues SET gh_iid = 42, remote_kind = 'github' WHERE id = ?`, [issueId]);
+            await call(discussions.handlers, 'discussion_append', {
+                agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+            });
+            await call(audit.handlers, 'audit_log', {
+                agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+                from_node: 'bro', branch_id: 'fix/remote-close', summary: 's',
+            });
+            const created = parse(await call(tasks.handlers, 'task_create_batch', {
+                agent: 'bro', issue_id: issueId,
+                waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+                tasks: [{ branch_id: 'fix/remote-close', description: 'd', spec_body: 's', repo: 'app' }],
+            }));
+            const taskId = String(created[0].id);
+            await call(tasks.handlers, 'task_update_status', {
+                agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
+            });
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
+                close_issue_if_last_task: true, _spawnFn: spawnFn,
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            assert.equal(parse(r)['issue_closed'], true);
+            const closeCall = spawnCalls.find((c) => c.args.includes('issue') && c.args.includes('close'));
+            assert.ok(closeCall, `expected a remote 'issue close' spawn; got ${JSON.stringify(spawnCalls)}`);
+            assert.equal(closeCall.cmd, 'gh', 'github remote closes via gh');
+            assert.ok(closeCall.args.includes('42'), 'remote close must target gh_iid 42');
+        }
+        finally {
+            db.close();
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
 });
 describe('headless_intent_start', () => {
     it('writes audit + note + intent in one transaction', async () => {

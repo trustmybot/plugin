@@ -89,16 +89,16 @@ sequenceDiagram
     par
         B->>DB: task_create_batch(emit_planning_complete=true)
     and
-        B->>S: spawn Task(swe, task_id=N) [hook: require-task-spec verifies]
+        B->>S: spawn Task(swe, isolation='worktree', task_id=N) [hooks: require-task-spec verifies; worktree-create adds the worktree]
     and
         B->>DB: audit_log(event_type='planning_complete')
     end
 
-    Note over S: BATCHED — first SWE response
+    Note over S: arrives already inside the hook-created worktree
     par
-        S->>DB: task_get(task_id=N)
+        S->>DB: task_brief(task_id=N)
     and
-        S->>S: git worktree add <path> <branch>  (attached, no --detach)
+        S->>S: cd <worktree>
     end
     S->>S: implement per spec; run ## Verification commands
     S->>S: git commit (## Commit message from spec)

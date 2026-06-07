@@ -4,6 +4,8 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+import { syncIssueCloseRemotes } from './issues.js';
+import type { SpawnFn } from '../sync/issue_sync.js';
 import type { WorldModelGraph } from '../graph-db.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -90,7 +92,7 @@ function intentToType(text: string): { prefix: string; confidence: number } {
 
 export function compositeTools(
   db: TrajectoryDB,
-  _dbPath: string,
+  dbPath: string,
   graph: WorldModelGraph | null = null,
 ): { definitions: Tool[]; handlers: Record<string, Fn> } {
   const definitions: Tool[] = [
@@ -844,6 +846,15 @@ export function compositeTools(
 
           return { task_id: task.id, summarized, issue_closed: issueClosed };
         });
+
+        // Mirror the close to the linked remote(s) — same path issue_close
+        // uses — so closing the last task via the composite doesn't leave the
+        // GitHub/GitLab issue open (#277). Runs after the local transaction
+        // commits because the sync spawns gh/glab (async, can't sit inside the
+        // synchronous db.transaction).
+        if (result.issue_closed) {
+          await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'] as SpawnFn | undefined);
+        }
 
         return ok(result);
       }),

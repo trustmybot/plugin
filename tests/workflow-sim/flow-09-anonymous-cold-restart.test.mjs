@@ -117,6 +117,12 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
   const taskId = task.data[0].id;
   const branchId = task.data[0].branch_id;
 
+  // SWE finishes the work first — bro can only close verified ('completed')
+  // work, never jump a pending task straight to closed (#278).
+  await call(client, 'task_update_status', {
+    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
+  });
+
   // Bro's correct task-gate close sequence
   const verifEvent = await call(client, 'audit_log', {
     agent: 'bro',

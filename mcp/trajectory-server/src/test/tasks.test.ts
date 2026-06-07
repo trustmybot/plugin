@@ -123,8 +123,9 @@ describe('taskTools', () => {
       [issueId],
     );
 
+    // SWE completes the first (completion is swe's transition, not bro's).
     await call(tools.handlers, 'task_update_status', {
-      agent: 'bro',
+      agent: 'swe',
       task_id: String(allTasks[0].id),
       status: 'completed',
     });
@@ -146,42 +147,79 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_update_status accepts all valid statuses', async () => {
+  it('task_update_status accepts every legal bro transition through the lifecycle (#278)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
-    const validStatuses = ['pending', 'running', 'needs_validation', 'completed', 'failed', 'escalated'];
-    const branchNames = [
-      'feat/status-pending',
-      'feat/status-running',
-      'feat/status-needs-validation',
-      'feat/status-completed',
-      'feat/status-failed',
-      'feat/status-escalated',
-    ];
-
-    for (let i = 0; i < validStatuses.length; i++) {
-      const status = validStatuses[i]!;
-      const branchId = branchNames[i]!;
-      const batchResult = await call(tools.handlers, 'task_create_batch', {
-        waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+    const batchResult = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
       waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
-        agent: 'bro',
-        issue_id: String(issueId),
-        tasks: [{ branch_id: branchId, description: `Task for ${status}` }],
-      });
-      const tasks = parseResult(batchResult);
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{ branch_id: 'feat/lifecycle', description: 'lifecycle walk' }],
+    });
+    const taskId = String(parseResult(batchResult)[0].id);
 
+    const step = async (status: string) => {
       const result = await call(tools.handlers, 'task_update_status', {
-        agent: 'bro',
-        task_id: String(tasks[0].id),
-        status,
+        agent: 'bro', task_id: taskId, status,
       });
       const updated = parseResult(result);
-      assert.ok(!result.isError, `Expected no error for status "${status}": ${JSON.stringify(updated)}`);
+      assert.ok(!result.isError, `Expected legal transition to "${status}": ${JSON.stringify(updated)}`);
       assert.equal(updated.status, status);
-    }
+      return updated;
+    };
+
+    await step('running');           // pending → running
+    await step('needs_validation');  // running → needs_validation
+    const completed = await step('completed'); // needs_validation → completed
+    assert.ok(completed.completed_at, 'completed sets completed_at');
+    const closed = await step('closed');       // completed → closed
+    assert.ok(closed.completed_at, 'closed preserves the completion stamp');
+    await step('escalated');         // closed → escalated (push-gate pushback)
+
+    db.close();
+  });
+
+  it('task_update_status rejects illegal bro transitions and clears completed_at on reopen (#278)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const waivers = {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+    };
+    const mk = async (branch: string): Promise<string> => {
+      const r = await call(tools.handlers, 'task_create_batch', {
+        ...waivers, agent: 'bro', issue_id: String(issueId),
+        tasks: [{ branch_id: branch, description: 'x' }],
+      });
+      return String(parseResult(r)[0].id);
+    };
+
+    // pending → closed is rejected: bro can't skip verification.
+    const t1 = await mk('feat/illegal-close');
+    const r1 = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: t1, status: 'closed' });
+    assert.ok(r1.isError, 'bro must not jump pending → closed');
+
+    // pending → completed is rejected: bro can't fabricate completion.
+    const t2 = await mk('feat/illegal-complete');
+    const r2 = await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: t2, status: 'completed' });
+    assert.ok(r2.isError, 'bro must not jump pending → completed');
+
+    // Reopening out of 'completed' clears the stale completion stamp.
+    const t3 = await mk('feat/reopen-clears-stamp');
+    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: t3, status: 'running' });
+    const comp = parseResult(await call(tools.handlers, 'task_update_status', {
+      agent: 'swe', task_id: t3, status: 'completed', commit_sha: 'abc1234',
+    }));
+    assert.ok(comp.completed_at, 'completed sets completed_at');
+    const reopened = parseResult(await call(tools.handlers, 'task_update_status', {
+      agent: 'bro', task_id: t3, status: 'needs_validation',
+    }));
+    assert.equal(reopened.completed_at, null, 'reopening out of completed clears completed_at');
 
     db.close();
   });
@@ -620,7 +658,7 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_update_status allows bro to set any status including closed and needs_validation', async () => {
+  it('task_update_status lets bro close verified work and reopen for re-validation (#278)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -637,20 +675,24 @@ describe('taskTools', () => {
     });
     const tasks = parseResult(batchResult);
 
+    // SWE completes task 0, then bro closes it (completed → closed).
+    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[0].id), status: 'completed', commit_sha: 'abc1234' });
     const closedResult = await call(tools.handlers, 'task_update_status', {
       agent: 'bro',
       task_id: String(tasks[0].id),
       status: 'closed',
     });
-    assert.ok(!closedResult.isError, `Expected no error for bro + status='closed': ${JSON.stringify(parseResult(closedResult))}`);
+    assert.ok(!closedResult.isError, `Expected no error for completed → closed: ${JSON.stringify(parseResult(closedResult))}`);
     assert.equal(parseResult(closedResult).status, 'closed');
 
+    // Task 1: completed → needs_validation (bro reopens for re-validation).
+    await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[1].id), status: 'completed', commit_sha: 'def5678' });
     const nvResult = await call(tools.handlers, 'task_update_status', {
       agent: 'bro',
       task_id: String(tasks[1].id),
       status: 'needs_validation',
     });
-    assert.ok(!nvResult.isError, `Expected no error for bro + status='needs_validation': ${JSON.stringify(parseResult(nvResult))}`);
+    assert.ok(!nvResult.isError, `Expected no error for completed → needs_validation: ${JSON.stringify(parseResult(nvResult))}`);
     assert.equal(parseResult(nvResult).status, 'needs_validation');
 
     db.close();

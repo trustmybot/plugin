@@ -37,6 +37,49 @@ function wrapHandler(fn) {
 function resolveSpawnCwd(db, dbPath) {
     return resolveDefaultRepoPath(db, dbPath);
 }
+// Fire the remote (GitHub/GitLab) issue-close for whatever remotes the row is
+// linked to. The local `issues.status='closed'` UPDATE is the caller's
+// responsibility — this is only the remote-sync half. Sync failures are logged,
+// never thrown: a remote hiccup must not fail the local close. Shared by
+// `issue_close` and `bro_atomic_close` so the composite can't drift the remote
+// open while closing locally (#277).
+export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
+    const remoteRow = db.get(`SELECT remote_iid, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?`, [issueId]);
+    const closeCwd = resolveSpawnCwd(db, dbPath);
+    const closeTargets = [];
+    if (remoteRow?.gh_iid != null) {
+        closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
+    }
+    else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'github') {
+        closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'github' });
+    }
+    if (remoteRow?.gl_iid != null) {
+        closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: 'gitlab' });
+    }
+    else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'gitlab') {
+        closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
+    }
+    for (const target of closeTargets) {
+        const closeResult = await syncIssueClose({
+            remote_iid: target.remote_iid,
+            remote_kind: target.remote_kind,
+            _cwd: closeCwd,
+            _spawnFn: spawnFn,
+        });
+        if (!closeResult.ok) {
+            serverLog({
+                event: 'issue_close_sync_failed',
+                issueId,
+                remote_iid: target.remote_iid,
+                remote_kind: target.remote_kind,
+                reason: closeResult.reason,
+                exit_code: closeResult.exit_code,
+                stderr: closeResult.stderr?.slice(0, 1024),
+                message: closeResult.message,
+            });
+        }
+    }
+}
 export function issueTools(db, dbPath = '') {
     const definitions = [
         {
@@ -339,40 +382,7 @@ export function issueTools(db, dbPath = '') {
             db.run(`UPDATE issues
          SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
          WHERE id = ?`, [now, now, issueId]);
-            const remoteRow = db.get(`SELECT remote_iid, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?`, [issueId]);
-            const closeCwd = resolveSpawnCwd(db, dbPath);
-            const closeTargets = [];
-            if (remoteRow?.gh_iid != null) {
-                closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
-            }
-            else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'github') {
-                closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'github' });
-            }
-            if (remoteRow?.gl_iid != null) {
-                closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: 'gitlab' });
-            }
-            else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'gitlab') {
-                closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
-            }
-            for (const target of closeTargets) {
-                const closeResult = await syncIssueClose({
-                    remote_iid: target.remote_iid,
-                    remote_kind: target.remote_kind,
-                    _cwd: closeCwd,
-                });
-                if (!closeResult.ok) {
-                    serverLog({
-                        event: 'issue_close_sync_failed',
-                        issueId,
-                        remote_iid: target.remote_iid,
-                        remote_kind: target.remote_kind,
-                        reason: closeResult.reason,
-                        exit_code: closeResult.exit_code,
-                        stderr: closeResult.stderr?.slice(0, 1024),
-                        message: closeResult.message,
-                    });
-                }
-            }
+            await syncIssueCloseRemotes(db, dbPath, issueId, args['_spawnFn']);
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             return ok(decodeIssue(updated));
         })),

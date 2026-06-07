@@ -33,6 +33,13 @@ TRANSCRIPT_BRO_NO_ANNOUNCE="$TMPDIR/bro-no-announce.jsonl"
 echo '{"role":"user","content":"@bro tiny typo fix needed in src/foo.ts: change recieve to receive."}' > "$TRANSCRIPT_BRO_NO_ANNOUNCE"
 echo '{"role":"assistant","content":"On it."}' >> "$TRANSCRIPT_BRO_NO_ANNOUNCE"
 
+# #276 regression: a plain session that merely mentions the word "bro" (no
+# @bro sigil, no announcement) — incl. this hook's own block message — must
+# NOT flip into bro-mode. Bare-keyword scanning was the substring over-match.
+TRANSCRIPT_BARE_BRO="$TMPDIR/bare-bro.jsonl"
+echo '{"role":"user","content":"thanks bro, can you edit src/foo.ts"}' > "$TRANSCRIPT_BARE_BRO"
+echo '{"role":"assistant","content":"Source edits go through bro + swe; this is bro-mode territory."}' >> "$TRANSCRIPT_BARE_BRO"
+
 input() {
   jq -n --arg tn "$1" --arg fp "$2" --arg t "${3:-}" '{
     tool_name: $tn,
@@ -58,6 +65,10 @@ assert_eq "" "$out" "no transcript = no block"
 test_case "plain transcript (no bro mode): pass"
 out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_PLAIN")")
 assert_eq "" "$out" "non-bro session = no block"
+
+test_case "#276: bare 'bro' word (no @sigil, no announce): pass — no substring over-match"
+out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_BARE_BRO")")
+assert_eq "" "$out" "casual 'bro' mention must not flip into bro-mode"
 
 test_case "bro mode but exited: pass"
 out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_EXITED")")

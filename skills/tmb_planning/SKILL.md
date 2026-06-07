@@ -89,7 +89,14 @@ task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, spec_body, ...}]
 
 `waive_scope_gate` is valid for truly trivial work (`'trivial: <what>'`) or headless mode (`'headless mode, defaults applied; <one-line scope summary>'`).
 
-Then: `git worktree add .claude/worktrees/<slug> <branch_id>`, then `Task(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')`. Parallel spawns when tasks have no overlapping `## Files`; sequential when they share files.
+Then spawn SWE with `isolation='worktree'` — the worktree is created for you on `<branch_id>` at `<cwd>/.claude/worktrees/<slug>` (slug = `<branch_id>` minus its `<type>/` prefix). Pass that same absolute path so SWE lands in it:
+
+```
+Task(subagent_type='swe', isolation='worktree',
+     prompt='task_id=<N> worktree=<cwd>/.claude/worktrees/<slug>')
+```
+
+`isolation='worktree'` is the single creation path — the worktree is made for you on spawn. Parallel spawns when tasks have no overlapping `## Files`; sequential when they share files.
 
 ## 5. Verify on SWE return + atomic close
 

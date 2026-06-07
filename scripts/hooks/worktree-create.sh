@@ -52,17 +52,24 @@ REPO=$(sqlite3 "$DB_PATH" \
   "SELECT repo FROM tasks WHERE branch_id='$(printf '%s' "$BRANCH_NAME" | sed "s/'/''/g")' LIMIT 1;" \
   2>/dev/null || true)
 
-if [ -z "$REPO" ]; then
-  echo '{"continue":true}'
-  exit 0
-fi
-
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
 
-REPO_ABS="$WORKSPACE_ROOT/$REPO"
-if [ ! -d "$REPO_ABS" ]; then
-  printf 'tmb worktree-create: repo dir not found: %s\n' "$REPO_ABS" >&2
-  exit 1
+# Resolve the repo that owns the branch. repo SET → workspace_root/<repo>
+# (multi-repo routing). repo NULL/empty → single-repo CC, where the workspace
+# root itself is the git repo. This is the sole worktree-creation path: bro no
+# longer pre-creates the worktree manually, so the canonical .claude/worktrees/
+# <slug> checkout must always come from here (#306).
+if [ -n "$REPO" ]; then
+  REPO_ABS="$WORKSPACE_ROOT/$REPO"
+else
+  REPO_ABS="$WORKSPACE_ROOT"
+fi
+
+# If the resolved repo isn't a git work tree, fall back to the harness default
+# rather than hard-failing — keeps non-TMB / unusual layouts working.
+if ! git -C "$REPO_ABS" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo '{"continue":true}'
+  exit 0
 fi
 
 SLUG="${BRANCH_NAME#*/}"
@@ -74,6 +81,15 @@ SLUG="${BRANCH_NAME#*/}"
 WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
 
 mkdir -p "$(dirname "$WORKTREE_PATH")"
+
+# Idempotent: if a worktree already lives at the canonical path, reuse it
+# instead of a second `git worktree add` that fails "already exists" (#306).
+if [ -e "$WORKTREE_PATH/.git" ]; then
+  printf 'tmb worktree-create: reusing existing worktree %s for branch %s\n' \
+    "$WORKTREE_PATH" "$BRANCH_NAME" >&2
+  jq -nc --arg path "$WORKTREE_PATH" '{"continue":false,"worktreePath":$path}'
+  exit 0
+fi
 
 if ! git -C "$REPO_ABS" worktree add "$WORKTREE_PATH" "$BRANCH_NAME" 2>&1; then
   printf 'tmb worktree-create: git worktree add failed for branch %s in repo %s\n' \
