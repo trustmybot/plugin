@@ -1,15 +1,12 @@
 # TMB Plugin
 
-> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.**
-> `tests/dogfood/rows/*/prompt.txt` are Human-authored — they simulate real user language. Agents editing prompts to chase chain-pass results have drifted the L5/L6 suite repeatedly. If a test fails, the right move is to fix the assertion, setup-l5, hook, or doctrine — never the prompt — unless the Human explicitly says so in chat.
-
 > **Trust me bro, it works.**
 
 **Multi-agent engineering workflow for Claude Code. MIT, free forever.**
 
 TMB turns Claude Code from a clever code-generator into a disciplined engineering workflow: one Human entry point (`bro`), a separate executor (`swe`), state that survives session kills, and structural gates that close around every commit.
 
-> **Claude Code today.** v0.6.0 ships the Claude Code adapter only. Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
+> **Claude Code today.** TMB ships the Claude Code adapter; Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
 
 ---
 
