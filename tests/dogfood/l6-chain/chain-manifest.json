@@ -112,6 +112,7 @@
       "row_dir": "rows/11-roundtable",
       "partial_test": true,
       "seed_before": null,
+      "chain_setup_command": "mkdir -p .claude/agents && cp \"$PLUGIN_ROOT/templates/agents/cto.md\" .claude/agents/cto.md && cp \"$PLUGIN_ROOT/templates/agents/pm.md\" .claude/agents/pm.md",
       "seed_after": "seeds/after-11-roundtable.sql",
       "halt_on_fail": true
     },
