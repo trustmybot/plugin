@@ -88,6 +88,58 @@ After F1 + F2: 4/4. Aggregate spend includes the reruns.
 
 ---
 
+## Round 2 — 2026-06-07 — blind-hard slate (5 tasks)
+
+### Run metadata
+
+| Run | Date | Corpus | N | Model | Prompt |
+|---|---|---|---|---|---|
+| Verified arm | 2026-06-07 | 3 SWE-bench Verified tasks | 1 per task | `claude-opus-4-20250514` (harness default) | `enrich-prompt` (autonomy suffix added) |
+| Lite arm | 2026-06-07 | 2 SWE-bench Lite tasks | 1 per task | `claude-opus-4-20250514` (harness default) | verbatim `problem_statement` |
+
+- **TMB plugin loaded:** yes, via `--plugin-dir <plugin>`
+- **Onboarding:** pre-seeded
+- **TMB_BENCH_ENRICH_PROMPT:** `1` on Verified arm, off on Lite arm
+
+### Per-task results
+
+| Task | Arm | Resolved | Applied | Hallucinated | Tokens | Cost | Duration | Quality |
+|---|---|---|---|---|---|---|---|---|
+| `astropy__astropy-13033` | Verified | ✅ | ✅ | 0 | 690,222 | $0.69 | 201s | 3/5 |
+| `matplotlib__matplotlib-18869` | Lite | ✅ | ✅ | 0 | 1,262,617 | $1.19 | 286s | 3/5 |
+| `matplotlib__matplotlib-20488` | Verified | ❌ | ✅ | 0 | 1,257,334 | $1.27 | 286s | 3/5 |
+| `pydata__xarray-6938` | Verified | ❌ | ✅ | 0 | 1,230,407 | $1.18 | 242s | 3/5 |
+| `sympy__sympy-11400` | Lite | ❌ | ✅ | 0 | 343,429 | $0.38 | 70s | 3/5 |
+| **TOTAL** | | **2 / 5** | **5 / 5** | **0 / 5** | **~4.78M** | **~$4.71** | **1085s** | |
+
+### Selection criterion
+
+**Verified picks** (tasks 12, 14): failed by BOTH the Opus-tools harness (`20250522_tools_claude-4-opus`) AND the Sonnet-3.5-tools harness.
+
+**Lite picks** (tasks 16, 18): failed by ALL 3 published Sonnet 4 harnesses (SWE-agent, ExpeRepair-v1, KGCompass).
+
+3 of the planned 4+4 candidates (`django__django-10554`, `django__django-11019`, `scikit-learn__scikit-learn-10508`) were **excluded** — they pin Python 3.6 which `uv` cannot provision. Candidate selection now requires Python ≥ 3.7.
+
+### Framing
+
+Round 1 was a curated set TMB was known to win (8/8). Round 2 was picked **blind** from the failed-by-multiple-comparators set — this is the unbiased difficulty signal.
+
+Standout: **0/5 hallucinated** even on the 3 misses. Each of the 3 unresolved tasks applied a real patch but correctly did not claim success (`resolved=0, applied=1, hallucinated=0`). The hallucination gate held under adversarial difficulty.
+
+### Round-2 per-task env spec
+
+| Task | Repo @ base_commit | Python | FAIL_TO_PASS |
+|---|---|---|---|
+| `astropy__astropy-13033` | astropy/astropy @ `298ccb47` (v4.3) | 3.9 | `astropy/timeseries/tests/test_sampled.py::test_required_columns` |
+| `matplotlib__matplotlib-18869` | matplotlib/matplotlib @ `b7d05919` (v3.3) | 3.8 | `test_parse_to_version_info` (4 parametrized cases) |
+| `matplotlib__matplotlib-20488` | matplotlib/matplotlib @ `b7ce415c` (v3.4) | 3.8 | `lib/matplotlib/tests/test_image.py::test_huge_range_log[png--1]` |
+| `pydata__xarray-6938` | pydata/xarray @ `c4e40d99` (v2022.06) | 3.10 | `xarray/tests/test_variable.py::TestIndexVariable::test_to_index_variable_copy` |
+| `sympy__sympy-11400` | sympy/sympy @ `8dcb12a6` (v1.0) | 3.9 | `test_ccode_Relational`, `test_ccode_sinc` |
+
+Full env_install_cmd per task: see each task's `task.json` in `tests/manual/bench/tasks/`.
+
+---
+
 ## Methodology
 
 ### What's identical to the comparator setups

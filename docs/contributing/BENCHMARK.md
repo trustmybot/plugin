@@ -66,6 +66,43 @@ Claude 4 Sonnet agentic harnesses on SWE-bench Lite:
 
 ---
 
+## Round 2 — blind-hard corpus (2026-06-07)
+
+**Round 1 recap:** 8/8 on a curated set TMB was known to win — those tasks were
+picked precisely because every published comparator failed them. Strong signal
+on the resolution axis, but not a blind difficulty test.
+
+**Round 2 design:** tasks were picked **blind** from the comparator-failed set
+with no pre-screening for TMB solvability. Verified picks failed BOTH
+`20250522_tools_claude-4-opus` and the Sonnet-3.5-tools harness; Lite picks
+failed ALL 3 published Sonnet 4 harnesses (SWE-agent, ExpeRepair-v1, KGCompass).
+This is the honest unbiased difficulty signal.
+
+**Result (N=1, model `claude-opus-4-20250514`, onboarding pre-seeded):**
+
+| Metric | Round 2 |
+|---|---|
+| Tasks resolved | **2 / 5** |
+| Tasks applied (patch landed) | **5 / 5** |
+| Hallucinated | **0 / 5** |
+| Total spend | ~$4.71 / ~4.78M tokens |
+
+**The 0-hallucination result is the standout finding.** On the 3 unresolved
+tasks, TMB applied a real patch but correctly reported `resolved=0` — it did
+not claim success. The hallucination gate held even on the tasks TMB could not
+fully solve.
+
+**Caveats:**
+- **N=1** — single-run variance is unmeasured; ±1 task is plausible.
+- 3 planned candidates (`django__django-10554`, `django__django-11019`,
+  `scikit-learn__scikit-learn-10508`) were excluded because they pin
+  Python 3.6, which `uv` cannot provision. Candidate selection for future
+  rounds requires Python ≥ 3.7.
+
+Raw per-task data and env specs: [`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md#round-2--2026-06-07--blind-hard-slate-5-tasks).
+
+---
+
 ## The claim
 
 TMB is "smart" = **resolves harder tasks** than the same underlying
