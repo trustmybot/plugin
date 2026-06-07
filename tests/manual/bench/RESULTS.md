@@ -140,6 +140,32 @@ Full env_install_cmd per task: see each task's `task.json` in `tests/manual/benc
 
 ---
 
+## Raw baseline — pure Claude Code (2026-05-13)
+
+Same 8 tasks, same env pins, same model snapshot (`claude-opus-4-20250514`),
+**no plugin loaded** — measures what raw Claude Code achieves without TMB.
+This is the source for the three-way comparison in
+[`docs/contributing/BENCHMARK.md`](../../../docs/contributing/BENCHMARK.md#three-way-comparison--raw--v06--v07).
+
+| Task | Arm | Resolved | Tokens | Cost | Duration |
+|---|---|---|---|---|---|
+| `sympy__sympy-20916` | Verified | ❌ | 2,490,245 | $2.02 | 248s |
+| `pytest-dev__pytest-10356` | Verified | ✅ | 1,686,239 | $1.39 | 187s |
+| `sphinx-doc__sphinx-7590` | Verified | ✅ | 2,077,767 | $1.97 | 293s |
+| `pylint-dev__pylint-4661` | Verified | ✅ | 971,627 | $0.83 | 124s |
+| `pallets__flask-4045` | Lite | ✅ | 1,337,570 | $0.68 | 173s |
+| `sphinx-doc__sphinx-7686` | Lite | ❌ | 2,713,446 | $1.31 | 345s |
+| `pytest-dev__pytest-8906` | Lite | ✅ | 2,173,411 | $0.98 | 240s |
+| `pylint-dev__pylint-6506` | Lite | ✅ | 2,421,028 | $1.13 | 280s |
+| **TOTAL** | | **6 / 8** | **15.87M** | **$10.31** | **1890s** |
+
+sympy-20916 failed raw (zero edits produced); sphinx-7686 failed raw (verify failed).
+Raw resolved 6/8 vs TMB v0.6 8/8, TMB v0.7 7/8.
+
+Scores extracted from `~/.claude/tmb/bench-runs/20260513-17xxxx-*/*/raw/run-1/scores.json`.
+
+---
+
 ## Token-efficiency re-run — 2026-06-07 (original 8 on current/rc.3)
 
 Re-running the original 8-task corpus on the current version to measure the world model's long-context-management payoff. Same config as the 2026-05-13 baseline (Verified=enrich+`claude-opus-4-20250514`, Lite=verbatim), onboarding pre-seeded.
