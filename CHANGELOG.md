@@ -4,11 +4,17 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-rc.3 — 2026-06-07
+
+### Fixed
+
+- **`tmb_default_repo` no longer defaults to the alphabetically-first repo when CC runs above all repos (#316).** `scan_run` now resolves the default repo as cwd-enclosing → largest-by-file-count → first-in-list, and emits a `default_repo_guessed` audit when it falls back to the heuristic. Previously, launching from a workspace root above multiple repos silently picked the wrong repo — which, combined with auto issue-sync, created a real issue in the wrong repository. This is the actual root cause behind what rc.2's #314 note misattributed to a "phantom remote id".
+
 ## v0.7.0-rc.2 — 2026-06-07
 
 ### Fixed
 
-- **issue-sync no longer persists a phantom remote id (#314).** Auto-sync now parses the new issue number only from the created-issue URL (validated against the configured remote's host/repo), read-back-verifies the object exists and is an issue (not a PR), and skips entirely when the remote URL is unconfigured — ending bogus local→remote mappings. The create success path is now logged so a bad parse is traceable, and sync-test logs are isolated via `TMB_SYNC_LOG_DIR` instead of writing to the operator's real `~/.claude/`.
+- **issue-sync hardening (#314).** Auto-sync now parses the new issue number only from the created-issue URL (validated against the configured remote's host/repo), read-back-verifies the object is an issue (not a PR), and **skips entirely when the remote URL is unconfigured** — so a blank/misconfigured remote can no longer create issues in the wrong place. The create success path is now logged for traceability, and sync-test logs are isolated via `TMB_SYNC_LOG_DIR` instead of the operator's real `~/.claude/`. (The original mis-sync's root cause was the default-repo bug, fixed in rc.3 / #316.)
 - **Worktree creation works when CC runs above the repo (#315).** `worktree-create.sh` resolves the owning repo as `tasks.repo` → `tmb_default_repo` → workspace root and fails loudly instead of silently deferring, so dispatching SWE no longer breaks in workspace layouts where the session CWD isn't itself a git repo.
 
 ### Docs / test infrastructure
