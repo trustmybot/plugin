@@ -6,14 +6,14 @@
 # requested branch name, then looks up the task by branch_id in the
 # trajectory DB to find tasks.repo.
 #
-# Branches:
-#   repo IS NULL/empty  → no-op JSON {"continue": true}. Single-repo CC
-#                          continues with default worktree creation logic.
-#   repo IS SET         → runs `git -C <repo> worktree add <path> <branch>`
-#                          inside the resolved repo directory. The worktree
-#                          attaches to the named branch so SWE's commits
-#                          advance the branch ref directly and pushes carry
-#                          the commits (#2869 / #2879).
+# Repo resolution order:
+#   1. tasks.repo (matched by branch)
+#   2. tmb_default_repo (plugin_config) — used when CWD is not a git repo
+#   3. WORKSPACE_ROOT — fallback for single-repo layouts where workspace IS the repo
+#
+# Runs `git -C <repo> worktree add <path> <branch>` inside the resolved repo.
+# The worktree attaches to the named branch so SWE's commits advance the branch
+# ref directly and pushes carry the commits (#2869 / #2879).
 #
 # Worktree path: <workspace_root>/.claude/worktrees/<slug>
 # where slug strips the <type>/ prefix (fix/123-foo → 123-foo).
@@ -22,12 +22,13 @@
 # .claude/<plugin>/trajectory.db), found via tmb_db_path walk-up.
 #
 # Silent pass-through (continue: true) when:
+#   - no branch in input
 #   - no matching task found
-#   - task.repo IS NULL/empty
 #   - trajectory DB absent (not a TMB project)
 #
-# Exits non-zero if git worktree add fails (repo misconfigured or branch
-# does not exist pre-created).
+# Exits non-zero when:
+#   - resolved repo is not a git work tree (DB present = known TMB project)
+#   - git worktree add fails (branch does not exist pre-created)
 
 set -uo pipefail
 
@@ -48,28 +49,50 @@ fi
 
 tmb_have_sqlite || { echo '{"continue":true}'; exit 0; }
 
+SAFE_BRANCH="$(printf '%s' "$BRANCH_NAME" | sed "s/'/''/g")"
+TASK_COUNT=$(sqlite3 "$DB_PATH" \
+  "SELECT COUNT(*) FROM tasks WHERE branch_id='$SAFE_BRANCH';" \
+  2>/dev/null || echo 0)
+
+# No matching task → not a TMB-managed branch; defer to the harness default.
+if [ "$TASK_COUNT" = "0" ]; then
+  echo '{"continue":true}'
+  exit 0
+fi
+
 REPO=$(sqlite3 "$DB_PATH" \
-  "SELECT repo FROM tasks WHERE branch_id='$(printf '%s' "$BRANCH_NAME" | sed "s/'/''/g")' LIMIT 1;" \
+  "SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='$SAFE_BRANCH' LIMIT 1;" \
   2>/dev/null || true)
 
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
+DEFAULT_REPO=""
 
-# Resolve the repo that owns the branch. repo SET → workspace_root/<repo>
-# (multi-repo routing). repo NULL/empty → single-repo CC, where the workspace
-# root itself is the git repo. This is the sole worktree-creation path: bro no
-# longer pre-creates the worktree manually, so the canonical .claude/worktrees/
-# <slug> checkout must always come from here (#306).
+# Resolve the repo that owns the branch.
+# Priority: tasks.repo → tmb_default_repo (plugin_config) → WORKSPACE_ROOT.
 if [ -n "$REPO" ]; then
-  REPO_ABS="$WORKSPACE_ROOT/$REPO"
+  # tasks.repo is set: may be relative or absolute
+  case "$REPO" in
+    /*) REPO_ABS="$REPO" ;;
+    *)  REPO_ABS="$WORKSPACE_ROOT/$REPO" ;;
+  esac
 else
-  REPO_ABS="$WORKSPACE_ROOT"
+  DEFAULT_REPO=$(tmb_config_get "tmb_default_repo" 2>/dev/null || true)
+  if [ -n "$DEFAULT_REPO" ]; then
+    case "$DEFAULT_REPO" in
+      /*) REPO_ABS="$DEFAULT_REPO" ;;
+      *)  REPO_ABS="$WORKSPACE_ROOT/$DEFAULT_REPO" ;;
+    esac
+  else
+    REPO_ABS="$WORKSPACE_ROOT"
+  fi
 fi
 
-# If the resolved repo isn't a git work tree, fall back to the harness default
-# rather than hard-failing — keeps non-TMB / unusual layouts working.
+# If the resolved repo isn't a git work tree, fail loudly — silently continuing
+# into the harness default produces an opaque "not a directory" error from CC.
 if ! git -C "$REPO_ABS" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo '{"continue":true}'
-  exit 0
+  printf 'tmb worktree-create: resolved repo %s is not a git work tree (task repo=%s, default_repo=%s, workspace=%s)\n' \
+    "$REPO_ABS" "${REPO:-}" "$DEFAULT_REPO" "$WORKSPACE_ROOT" >&2
+  exit 1
 fi
 
 SLUG="${BRANCH_NAME#*/}"

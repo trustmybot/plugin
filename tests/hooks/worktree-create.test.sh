@@ -40,6 +40,10 @@ sqlite3 "$DB" "
     status TEXT,
     repo TEXT
   );
+  CREATE TABLE plugin_config (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL
+  );
   INSERT INTO tasks (id, branch_id, status, repo)
     VALUES (1, 'fix/123-with-repo', 'pending', 'inner');
   INSERT INTO tasks (id, branch_id, status, repo)
@@ -68,11 +72,26 @@ test_case "branch with no matching task: continue=true"
 out=$(run_hook "$(input_event 'feat/999-unknown')")
 assert_contains "$out" '"continue":true' "unknown branch → no-op"
 
-test_case "repo=NULL and workspace root is not a git repo: continue=true (fallback)"
-# Here the workspace root ($WORKSPACE) is not itself a git repo (only inner/ is),
-# so a repo=NULL task can't be routed — hook defers to the harness default.
+test_case "repo=NULL, no tmb_default_repo, workspace root is not a git repo: exit 1 with clear error"
+# repo=NULL + no default + workspace root is not a git repo → fail loudly
+# rather than silently continue into a harness "not a directory" error.
+out=$(run_hook "$(input_event 'feat/456-no-repo')" || true)
+assert_contains "$out" 'not a git work tree' "unroutable null repo → loud error"
+
+test_case "repo=NULL, tmb_default_repo set, workspace root is not a git repo: worktree created in default repo"
+# Inject tmb_default_repo = 'inner' into the DB so the hook can resolve the repo.
+sqlite3 "$DB" "
+  INSERT OR REPLACE INTO plugin_config (key, value_json)
+    VALUES ('tmb_default_repo', '\"inner\"');
+"
+git -C "$INNER_REPO" branch feat/456-no-repo HEAD
 out=$(run_hook "$(input_event 'feat/456-no-repo')")
-assert_contains "$out" '"continue":true' "unroutable null repo → harness default"
+assert_contains "$out" '"continue":false' "default_repo set → hook creates worktree"
+assert_contains "$out" '456-no-repo' "worktree path contains slug"
+DEFAULT_WT="$WORKSPACE/.claude/worktrees/456-no-repo"
+if [ -d "$DEFAULT_WT" ]; then _pass; else _fail "worktree not created at $DEFAULT_WT"; fi
+# Clean up so downstream tests are not affected
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='tmb_default_repo';"
 
 test_case "branch matching task with repo set: worktree created at workspace-rooted path"
 out=$(run_hook "$(input_event 'fix/123-with-repo')")
