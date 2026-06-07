@@ -37,6 +37,13 @@ echo '{"role":"assistant","content":"Entering bro mode."}' > "$TRANSCRIPT_EXITED
 echo '{"role":"user","content":"exit bro mode"}' >> "$TRANSCRIPT_EXITED"
 echo '{"role":"user","content":"hello"}' > "$TRANSCRIPT_PLAIN"
 
+# #276 regression: a transcript that merely mentions the word "bro" (no @bro
+# sigil, no announcement) must NOT make the session sticky-bro. Bare-keyword
+# scanning matched the hook's own emitted context + assistant mentions of bro.
+TRANSCRIPT_BARE_BRO="$TMPDIR/transcript-bare-bro.jsonl"
+echo '{"role":"user","content":"thanks bro"}' > "$TRANSCRIPT_BARE_BRO"
+echo '{"role":"assistant","content":"bro routes the work to swe; this is bro-mode territory."}' >> "$TRANSCRIPT_BARE_BRO"
+
 input() {
   jq -n --arg p "$1" --arg t "${2:-}" '{prompt:$p, transcript_path:$t}'
 }
@@ -62,6 +69,10 @@ assert_eq "" "$out" "no output for substring match"
 test_case "transcript had bro mode but user later exited: no-op"
 out=$(run_hook "$(input 'normal followup' "$TRANSCRIPT_EXITED")")
 assert_eq "" "$out" "no output once bro mode exited"
+
+test_case "#276: bare 'bro' in transcript (no @sigil, no announce): no sticky no-op"
+out=$(run_hook "$(input 'a normal question' "$TRANSCRIPT_BARE_BRO")")
+assert_eq "" "$out" "casual 'bro' mention must not make the session sticky-bro"
 
 # ---- bro trigger paths: emit additionalContext ----
 

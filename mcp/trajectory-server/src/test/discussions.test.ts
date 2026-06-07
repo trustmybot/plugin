@@ -239,7 +239,7 @@ describe('discussions + snapshot integration', () => {
     const sha = 'deadbeefcafe1234567890abcdef0123456789ab';
 
     const result = await call(tasks.handlers, 'task_update_status', {
-      agent: 'bro',
+      agent: 'swe',
       task_id: taskId,
       status: 'completed',
       commit_sha: sha,
@@ -318,7 +318,7 @@ describe('discussions + snapshot integration', () => {
     const taskId2 = String(batchData[0].id);
 
     const result = await call(tasks.handlers, 'task_update_status', {
-      agent: 'bro',
+      agent: 'swe',
       task_id: taskId2,
       status: 'completed',
     });

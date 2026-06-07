@@ -4,6 +4,14 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Fixed — v0.7.0 ship-blockers
+
+- **World model: every directory now carries a summary (#288).** Dirs without a README get a deterministic *structural* summary (immediate file + subdir names, `summary_source='structural'`) instead of `summary=NULL` — the whole map is now reachable by `world_model_search`, no more two-thirds-blind cold start.
+- **`bro_atomic_close` mirrors the issue close to the remote (#277).** Closing the last task with `close_issue_if_last_task=true` now fires the same GitHub/GitLab close as `issue_close`, ending the local/remote drift where the issue stayed open upstream.
+- **`task_update_status` enforces a state machine for bro (#278).** Illegal jumps (e.g. `pending→closed` skipping verification, `pending→completed` fabricating work) are rejected; reopening a task out of `completed` clears the stale `completed_at`.
+- **Single worktree-creation path (#306).** bro no longer pre-creates the worktree by hand; `isolation='worktree'` + the `worktree-create.sh` hook is the sole creator (now also covers single-repo, and is idempotent), removing the double-create.
+- **`@bro` activation no longer over-matches (#276).** Session/source-edit gates key on the explicit `@bro` sigil (or the "Entering bro mode." marker), so a casual mention of "bro" no longer flips a plain session into bro-mode forever.
+
 ## v0.7.0-dev — 2026-05-23
 
 ### Added — graph DB world model (ADR 0002)

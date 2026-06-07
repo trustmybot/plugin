@@ -23,7 +23,7 @@ function syncLog(entry: Record<string, unknown>): void {
   }
 }
 
-type SpawnFn = (
+export type SpawnFn = (
   cmd: string,
   args: string[],
   opts: SpawnSyncOptions,

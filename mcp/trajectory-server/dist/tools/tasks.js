@@ -57,6 +57,24 @@ const VALID_STATUSES = new Set([
     'failed',
     'escalated',
 ]);
+// Allowed status transitions for bro (#278). Without this, bro could move any
+// status to any status — e.g. pending→closed (skipping verification) or
+// closed→completed (re-satisfying a downstream gate by fiat). Keys not present
+// reject every outbound move; a same-status no-op is always allowed.
+//   - Into 'completed' only from a work state (running / needs_validation) —
+//     bro can't fabricate completion from pending or a terminal state.
+//   - Into 'closed' only from verified/terminal states, never from pending.
+//   - 'closed'→'escalated' is the push-gate pushback path (pr-reviewer FAILs
+//     after the task was closed; bro reopens the work).
+const BRO_TRANSITIONS = {
+    pending: new Set(['running', 'failed', 'escalated']),
+    running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
+    needs_validation: new Set(['running', 'completed', 'failed', 'escalated', 'closed']),
+    completed: new Set(['needs_validation', 'failed', 'escalated', 'closed']),
+    failed: new Set(['pending', 'running', 'escalated', 'closed']),
+    escalated: new Set(['pending', 'running', 'failed', 'closed']),
+    closed: new Set(['escalated']),
+};
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -580,9 +598,22 @@ export function taskTools(db) {
             if (!task) {
                 throw new Error(`Not found: ${taskId}`);
             }
+            if (args['agent'] === 'bro' && status !== task.status) {
+                const allowed = BRO_TRANSITIONS[task.status] ?? new Set();
+                if (!allowed.has(status)) {
+                    const valid = [...allowed].join(', ') || '(none — terminal)';
+                    throw new Error(`task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. ` +
+                        `Allowed from '${task.status}': ${valid}. ` +
+                        `Close verified work via bro_atomic_close; reopen a closed task by escalating. See #278.`);
+                }
+            }
             const now = nowISO();
             const attempts = args['attempts'] !== undefined ? args['attempts'] : task.attempts;
-            const completedAt = status === 'completed' ? now : task.completed_at;
+            // completed_at is carried only by post-completion states. Stamp it on
+            // 'completed', preserve it through 'closed', and clear it on any move to
+            // an active/failed/escalated state — a reopened task must not keep a
+            // stale completion stamp that downstream gates would trust (#278).
+            const completedAt = status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
             if (rawCommitSha !== undefined) {
                 db.run(`UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, attempts, now, completedAt, rawCommitSha, taskId]);
             }

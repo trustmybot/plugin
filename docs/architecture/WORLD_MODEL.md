@@ -29,7 +29,7 @@ Follow-up slices (post-v0.7) add `File`, `Symbol`, `IMPORTS`, `CALLS`, `DEFINES`
 
 ## Population
 
-`scan_run` walks the session dir for git repos, derives the unique directory set from each repo's tracked file list, then writes Directory nodes + CONTAINS edges to kuzu via `src/graph-db.ts`. For each directory it also checks disk for `<dir>/README.md` (or `readme.md` / `README.rst`); if present, content (truncated to ~1 KB) becomes the dir's `summary` with `summary_source='readme'`. Otherwise `summary=NULL`.
+`scan_run` walks the session dir for git repos, derives the unique directory set from each repo's tracked file list, then writes Directory nodes + CONTAINS edges to kuzu via `src/graph-db.ts`. For each directory it also checks disk for `<dir>/README.md` (or `readme.md` / `README.rst`); if present, content (truncated to ~1 KB) becomes the dir's `summary` with `summary_source='readme'`. Otherwise the scanner synthesizes a deterministic **structural** summary from the directory's immediate file + subdir names (`summary_source='structural'`) — so every node is non-empty and reachable by `world_model_search`, never `NULL`.
 
 Re-running `scan_run` is summary-preserving via MERGE — existing nodes update structural fields and refresh README-derived summaries.
 

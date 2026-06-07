@@ -82,7 +82,8 @@ Frontmatter: `model: sonnet`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, W
 ### Spawn contract
 
 - Spawn input MUST include `task_id=<N>`. SWE rejects spawn if missing or task status isn't `pending`/`open` (Layer 2 hook `require-task-spec.sh` enforces).
-- **First response** (parallel batch): `task_get(agent='swe', task_id=N)` + `Bash(git worktree add .claude/worktrees/<slug> <branch>)`. The `<branch>` MUST be `tasks.branch_id` verbatim — bro pre-created it.
+- bro spawns SWE with `isolation='worktree'`; the `WorktreeCreate` hook (`worktree-create.sh`) is the sole creator — it adds the worktree at `.claude/worktrees/<slug>` on `tasks.branch_id` (bro pre-created the branch) and routes it to `tasks.repo`. SWE arrives already in the worktree.
+- **First response** (parallel batch): `task_brief(agent='swe', task_id=N)` + `Bash(cd <worktree>)`. SWE never runs `git worktree add` itself.
 
 ### Work loop
 

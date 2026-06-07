@@ -160,18 +160,28 @@ export function preferredDefaultRepo(
 }
 
 // Directory-level world model population (v0.7 world-model). For each unique
-// dir implied by the scanned file set, populate the row's summary from
-// <dir>/README.md when present (author-curated, high-trust). Dirs without a
-// README land with summary=NULL — lazy LLM fill is the agent's responsibility.
+// dir implied by the scanned file set, the summary comes from <dir>/README.md
+// when present (author-curated, high-trust, summary_source='readme'). Dirs with
+// no README get a deterministic structural summary built from their immediate
+// file + subdir names (summary_source='structural') so every node is non-empty
+// and reachable by world_model_search — README excerpts beat reading the whole
+// tree, and a structural line beats a NULL the search can never hit (#288).
 // See docs/architecture/WORLD_MODEL.md + ADR 0001.
 const README_CANDIDATES = ['README.md', 'readme.md', 'README.rst', 'readme.rst'];
 const README_MAX_BYTES = 1024;
+const STRUCTURAL_LIST_MAX = 8;
 
 interface DirEntry {
   repo: string;
   path: string;
   parent_path: string | null;
   file_count: number;
+  file_names: string[];
+}
+
+function basename(p: string): string {
+  const i = p.lastIndexOf('/');
+  return i >= 0 ? p.slice(i + 1) : p;
 }
 
 function deriveDirectoryEntries(out: ScanOutput): Map<string, DirEntry> {
@@ -185,7 +195,7 @@ function deriveDirectoryEntries(out: ScanOutput): Map<string, DirEntry> {
       const lastSlash = dirPath.lastIndexOf('/');
       parent_path = lastSlash >= 0 ? dirPath.slice(0, lastSlash) : '';
     }
-    dirMap.set(key, { repo, path: dirPath, parent_path, file_count: 0 });
+    dirMap.set(key, { repo, path: dirPath, parent_path, file_count: 0, file_names: [] });
     if (parent_path !== null) ensureDir(repo, parent_path);
   }
 
@@ -196,10 +206,37 @@ function deriveDirectoryEntries(out: ScanOutput): Map<string, DirEntry> {
     const dirPath = lastSlash >= 0 ? f.path.slice(0, lastSlash) : '';
     ensureDir(f.repo, dirPath);
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
-    if (entry) entry.file_count++;
+    if (entry) {
+      entry.file_count++;
+      entry.file_names.push(basename(f.path));
+    }
   }
 
   return dirMap;
+}
+
+// Deterministic summary for a directory with no README: a one-line digest of
+// its immediate file + subdir names. Gives world_model_search real tokens to
+// match and bro a structure-only sense of the dir without reading the tree.
+function buildStructuralSummary(
+  dirPath: string,
+  fileNames: string[],
+  subdirNames: string[],
+): string {
+  const leaf = dirPath === '' ? '(repo root)' : basename(dirPath);
+  const join = (names: string[]): string => {
+    const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(', ');
+    const extra = names.length - STRUCTURAL_LIST_MAX;
+    return extra > 0 ? `${shown}, +${extra} more` : shown;
+  };
+  const parts: string[] = [];
+  if (fileNames.length > 0) {
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? '' : 's'} (${join(fileNames.slice().sort())})`);
+  }
+  if (subdirNames.length > 0) {
+    parts.push(`subdirs: ${join(subdirNames.slice().sort())}`);
+  }
+  return `${leaf}/ — ${parts.length > 0 ? parts.join('; ') : 'empty directory'}`;
 }
 
 function readReadmeSummary(absDirPath: string): string | null {
@@ -220,13 +257,24 @@ function persistDirectoriesGraph(
   graph: WorldModelGraph,
   out: ScanOutput,
   now: string,
-): { dirs_upserted: number; dirs_readme_summarized: number } {
+): { dirs_upserted: number; dirs_readme_summarized: number; dirs_structural_summarized: number } {
   const repoPaths = new Map<string, string>();
   for (const r of out.repos) repoPaths.set(r.name, r.path);
 
   const dirMap = deriveDirectoryEntries(out);
   let dirs_upserted = 0;
   let dirs_readme_summarized = 0;
+  let dirs_structural_summarized = 0;
+
+  // Immediate-subdir names per directory, for the structural summary.
+  const subdirsByParent = new Map<string, string[]>();
+  for (const entry of dirMap.values()) {
+    if (entry.parent_path === null) continue;
+    const key = `${entry.repo} ${entry.parent_path}`;
+    const list = subdirsByParent.get(key);
+    if (list) list.push(basename(entry.path));
+    else subdirsByParent.set(key, [basename(entry.path)]);
+  }
 
   // Two-pass: first upsert all Directory nodes (so CONTAINS edge targets
   // exist), then create CONTAINS edges from each child to its parent.
@@ -236,17 +284,21 @@ function persistDirectoriesGraph(
 
     const absDirPath = entry.path === '' ? repoPath : join(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
+    const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
+    const summary = readmeSummary
+      ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
 
     graph.upsertDirectory({
       repo: entry.repo,
       path: entry.path,
       parent_path: entry.parent_path,
-      summary: readmeSummary,
-      summary_source: readmeSummary !== null ? 'readme' : 'llm',
-      summary_updated_at: readmeSummary !== null ? now : null,
+      summary,
+      summary_source: readmeSummary !== null ? 'readme' : 'structural',
+      summary_updated_at: now,
       file_count: entry.file_count,
     });
     if (readmeSummary !== null) dirs_readme_summarized++;
+    else dirs_structural_summarized++;
     dirs_upserted++;
   }
 
@@ -258,7 +310,7 @@ function persistDirectoriesGraph(
     );
   }
 
-  return { dirs_upserted, dirs_readme_summarized };
+  return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
 }
 
 // Persist repos[] + directories[] from a scan output. Transactional.
@@ -273,6 +325,7 @@ function persistScan(
   repos_upserted: number;
   dirs_upserted: number;
   dirs_readme_summarized: number;
+  dirs_structural_summarized: number;
 } {
   let repos_upserted = 0;
   const now = nowISO();
@@ -294,16 +347,19 @@ function persistScan(
 
   let dirs_upserted = 0;
   let dirs_readme_summarized = 0;
+  let dirs_structural_summarized = 0;
   if (graph) {
     const stats = persistDirectoriesGraph(graph, out, now);
     dirs_upserted = stats.dirs_upserted;
     dirs_readme_summarized = stats.dirs_readme_summarized;
+    dirs_structural_summarized = stats.dirs_structural_summarized;
   }
 
   return {
     repos_upserted,
     dirs_upserted,
     dirs_readme_summarized,
+    dirs_structural_summarized,
   };
 }
 
@@ -315,7 +371,7 @@ export function scanTools(db: TrajectoryDB, graph: WorldModelGraph | null): {
     {
       name: 'scan_run',
       description:
-        "Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo's tracked files, and persists to `repos` + `directories`. For each unique directory in the file set, populates `directories.summary` from `<dir>/README.md` (author-curated, summary_source='readme') or leaves NULL for lazy LLM fill. Emits a deep_scan_completed audit event. The audit content_json carries `source` (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) and `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan). See docs/architecture/WORLD_MODEL.md + ADR 0001.",
+        "Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo's git-tracked files (.gitignore-aware — caches/build artifacts are excluded), and writes Directory nodes + CONTAINS edges to the kuzu world model. Each directory's summary comes from `<dir>/README.md` (author-curated, summary_source='readme') or, when absent, a deterministic structural summary of its immediate file + subdir names (summary_source='structural') — never NULL. Emits a deep_scan_completed audit event. The audit content_json carries `source` (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) and `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan). See docs/architecture/WORLD_MODEL.md.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -373,7 +429,7 @@ export function scanTools(db: TrajectoryDB, graph: WorldModelGraph | null): {
           `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
            VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
           [
-            `Scanned ${out.repos.length} repos, ${out.files.length} files, ${stats.dirs_upserted} dirs (${stats.dirs_readme_summarized} README-summarized) — source=${source}${structuralChange ? ', structural-change' : ''}`,
+            `Scanned ${out.repos.length} repos, ${out.files.length} files, ${stats.dirs_upserted} dirs (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural) — source=${source}${structuralChange ? ', structural-change' : ''}`,
             JSON.stringify({
               ...stats,
               session_dir: out.session_dir,

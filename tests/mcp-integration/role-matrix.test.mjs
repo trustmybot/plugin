@@ -186,8 +186,11 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
   const sweRun = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'running' });
   assert.equal(sweRun.ok, true, `swe should drive running; got ${JSON.stringify(sweRun)}`);
 
+  const sweDone = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234' });
+  assert.equal(sweDone.ok, true, `swe should complete; got ${JSON.stringify(sweDone)}`);
+
   const broClose = await call(client, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
-  assert.equal(broClose.ok, true, `bro should close; got ${JSON.stringify(broClose)}`);
+  assert.equal(broClose.ok, true, `bro should close verified work; got ${JSON.stringify(broClose)}`);
 });
 
 test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', async (t) => {

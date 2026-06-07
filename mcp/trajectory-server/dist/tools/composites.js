@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+import { syncIssueCloseRemotes } from './issues.js';
 // Extract the unique directories implied by a spec's `## Files` section. Each
 // bullet's first token is the path; its dirname is the directory ('' = repo
 // root). task_brief resolves these against the world model. (#300)
@@ -81,7 +82,7 @@ function intentToType(text) {
     }
     return { prefix: 'chore', confidence: 0.3 };
 }
-export function compositeTools(db, _dbPath, graph = null) {
+export function compositeTools(db, dbPath, graph = null) {
     const definitions = [
         {
             name: 'branch_id_propose',
@@ -650,6 +651,14 @@ export function compositeTools(db, _dbPath, graph = null) {
                 }
                 return { task_id: task.id, summarized, issue_closed: issueClosed };
             });
+            // Mirror the close to the linked remote(s) — same path issue_close
+            // uses — so closing the last task via the composite doesn't leave the
+            // GitHub/GitLab issue open (#277). Runs after the local transaction
+            // commits because the sync spawns gh/glab (async, can't sit inside the
+            // synchronous db.transaction).
+            if (result.issue_closed) {
+                await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn']);
+            }
             return ok(result);
         })),
     };
