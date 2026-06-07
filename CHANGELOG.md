@@ -4,6 +4,17 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-rc.2 — 2026-06-07
+
+### Fixed
+
+- **issue-sync no longer persists a phantom remote id (#314).** Auto-sync now parses the new issue number only from the created-issue URL (validated against the configured remote's host/repo), read-back-verifies the object exists and is an issue (not a PR), and skips entirely when the remote URL is unconfigured — ending bogus local→remote mappings. The create success path is now logged so a bad parse is traceable, and sync-test logs are isolated via `TMB_SYNC_LOG_DIR` instead of writing to the operator's real `~/.claude/`.
+- **Worktree creation works when CC runs above the repo (#315).** `worktree-create.sh` resolves the owning repo as `tasks.repo` → `tmb_default_repo` → workspace root and fails loudly instead of silently deferring, so dispatching SWE no longer breaks in workspace layouts where the session CWD isn't itself a git repo.
+
+### Docs / test infrastructure
+
+- World-model docs + dogfood fixtures retired the last references to the dropped SQLite `directories` table and the pre-v7 `file_registry`; READMEs now describe the kuzu graph + RAG reality. New L1 lint `no-directories-table-refs.sh` guards against reintroduction; `no-file-registry-refs.sh` scope extended to READMEs + tests.
+
 ## v0.7.0-rc.1 — 2026-06-06
 
 ### Test infrastructure
