@@ -229,6 +229,42 @@ state accumulates across tasks. The next bench iteration:
 
 ---
 
+## Token efficiency — v0.6→v0.7 (same corpus)
+
+Re-running the original 8-task corpus (same config: Verified=enrich+`claude-opus-4-20250514`, Lite=verbatim, onboarding pre-seeded) on the current version measures the world model's long-context-management payoff directly.
+
+### Before / after totals
+
+| | Baseline (pre-world-model) | Current | Delta |
+|---|---|---|---|
+| Tokens | 17.72M | 6.84M | **−61%** |
+| Cost | $17.33 | $6.78 | **−61%** |
+| Wall-clock | ~2557s | 1252s | **−51%** |
+| Resolved | 8 / 8 | 7 / 8 | −1 (flask-4045, see caveat) |
+| Hallucinated | 0 / 8 | 0 / 8 | same |
+
+### Verified subset — apples-to-apples (4/4 both runs)
+
+| | Baseline | Current | Delta |
+|---|---|---|---|
+| Tokens | 9.89M | 4.30M | **−57%** |
+| Resolved | 4 / 4 | 4 / 4 | same |
+
+### Lite subset
+
+| | Baseline | Current | Delta |
+|---|---|---|---|
+| Tokens | 7.83M | 2.54M | **−68%** |
+| Resolved | 4 / 4 | 3 / 4 | −1 (flask-4045) |
+
+### Caveat — flask-4045 regression (N=1)
+
+flask-4045 resolved on the baseline run but not on the re-run. **N=1** — single-run variance is unmeasured; this single slip on a single task should not be read as a systematic regression. The Verified subset (4/4 on both runs, same model) is the cleaner apples-to-apples signal.
+
+Per-task data: [`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md).
+
+---
+
 ## Source
 
 - Bench harness: [`tests/manual/bench/`](../../tests/manual/bench/)

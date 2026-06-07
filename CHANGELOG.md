@@ -6,6 +6,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## v0.7.0-rc.3 — 2026-06-07
 
+### Measured
+
+- **Measured: ~61% token reduction (v0.6→v0.7).** Re-running the original SWE-bench 8-task corpus on the current version used 6.8M tokens / $6.78 vs the pre-world-model baseline's 17.7M / $17.33 (−61% tokens, −51% wall-clock) — the world model's long-context-management payoff. Verified held 4/4 at −57% tokens; one Lite task slipped (N=1). See docs/contributing/BENCHMARK.md.
+
 ### Fixed
 
 - **`tmb_default_repo` no longer defaults to the alphabetically-first repo when CC runs above all repos (#316).** `scan_run` now resolves the default repo as cwd-enclosing → largest-by-file-count → first-in-list, and emits a `default_repo_guessed` audit when it falls back to the heuristic. Previously, launching from a workspace root above multiple repos silently picked the wrong repo — which, combined with auto issue-sync, created a real issue in the wrong repository. This is the actual root cause behind what rc.2's #314 note misattributed to a "phantom remote id".
