@@ -2,9 +2,9 @@
 
 > **Trust me bro, it works.**
 
-**An agentic engineering harness for Claude Code — planner/executor multi-agent orchestration, a persistent memory system, and wire-enforced governance gates. MIT, free forever.**
+**An agentic engineering harness for Claude Code — multi-agent orchestration, a persistent memory system, and guardrails enforced in code, not convention. MIT, free forever.**
 
-TMB wraps Claude Code in a production-grade agent harness: a role-isolated planner–executor architecture (`bro` plans + gates, `swe` executes, `pr-reviewer` independently signs off), a two-tier memory system that survives context resets, and deterministic, wire-enforced governance around every commit.
+TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `pr-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets, with every commit clearing guardrails enforced in code, not by convention.
 
 > **Claude Code today.** TMB ships the Claude Code adapter; Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
 
@@ -62,7 +62,7 @@ Curated-hard subsets from the all-comparators-failed intersection. Methodology, 
 
 Four structural innovations, each closing a specific single-agent failure mode.
 
-### 1. Agent Harness — role-isolated planner/executor architecture
+### 1. Agent Harness — planner and executor, kept apart
 
 `bro` plans + gates (full picture, long-term). `swe` executes (single task, isolated worktree). **Bro never writes source; swe never self-approves.** Out-of-role calls are rejected at the wire. No more "the same context that wrote the code marks its own homework."
 
