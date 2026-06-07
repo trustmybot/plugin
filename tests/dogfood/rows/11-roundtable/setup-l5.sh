@@ -45,45 +45,13 @@ PY
   git commit -qm 'feat: todo CLI'
 ) >/dev/null
 
-# Pre-seed cto (templated) so the roundtable's templated half is in place.
-src="$PLUGIN_ROOT/templates/agents/cto.md"
-[ -f "$src" ] && cp "$src" "$PROJECT/.claude/agents/cto.md"
+# Pre-seed the roundtable panel (cto + data-engineer) via the shared seed so
+# L5 and L6 (step-11 chain_setup_command) convene the identical panel.
+bash "$SCENARIO_DIR/seed-agents.sh" "$PROJECT" "$PLUGIN_ROOT"
 
-# Pre-seed data-engineer (from-scratch; matches what an earlier chain step
-# would have created via Branch C of /tmb:agent-create).
-cat > "$PROJECT/.claude/agents/data-engineer.md" <<'MD'
----
-name: data-engineer
-tmb_owner: bro
-description: Consultant. Storage architecture, query patterns, data-pipeline trade-offs.
-model: opus
-tools: Read, Glob, Grep, mcp__plugin_tmb_trajectory-server
-skills: []
----
-
-# Data Engineer
-
-Storage architecture + query patterns + data-pipeline trade-offs. Read code + DB shape before recommending.
-
-## TMB contract (binding)
-
-You are spawned analysis-only. If `issue_id=<N>` was given, use it; else call `issue_list(agent='data-engineer', status='open')` and use the most recent open issue. NEVER call `issue_create` — server-rejected for consultants.
-
-**Persistence is mandatory.** Before returning any text to bro, call `discussion_append(agent='data-engineer', issue_id=<N>, kind='analysis', body='<full analysis>')`. The DB row is the deliverable; text to bro is a summary.
-
-Roundtable mode: also call `roundtable_vote(agent='data-engineer', vote='...', reasoning='...')` after persisting the analysis.
-
-You decide nothing. Bro summarizes for the Human; the Human decides.
-MD
-
-# Pre-seed agents table + an open storage-scaling issue for the roundtable
-# to cite.
+# Pre-seed an open storage-scaling issue for the roundtable to cite. (L5-only:
+# in the L6 chain this issue already exists from the prior steps' discussion.)
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
-INSERT OR REPLACE INTO agents (name, kind, scope, file_path, created_at)
-VALUES
-  ('cto',           'consultant', 'project-local', '.claude/agents/cto.md',           datetime('now')),
-  ('data-engineer', 'consultant', 'project-local', '.claude/agents/data-engineer.md', datetime('now'));
-
 INSERT INTO issues (objective, description, status, created_at, updated_at)
 VALUES ('TODO CLI storage choice',
         'Team usage rising. JSON-file works at single-user; question is whether to move to SQLite or a small backend service.',
