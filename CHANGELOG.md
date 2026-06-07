@@ -4,6 +4,12 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0-rc.1 — 2026-06-06
+
+### Test infrastructure
+
+- L5≡L6 parity: a single shared `seed-agents.sh` now feeds both the L5 roundtable row and the L6 step-11 `chain_setup_command`, so both suites convene the identical panel. New L1 lint `agent-task-brief-contract.sh` locks the shipped swe/pr-reviewer `task_brief` contract (#300) at the layer the dogfood can't see (subagent trajectories).
+
 ### Fixed — v0.7.0 ship-blockers
 
 - **World model: every directory now carries a summary (#288).** Dirs without a README get a deterministic *structural* summary (immediate file + subdir names, `summary_source='structural'`) instead of `summary=NULL` — the whole map is now reachable by `world_model_search`, no more two-thirds-blind cold start.
