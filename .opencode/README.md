@@ -1,6 +1,6 @@
 # `.opencode/` — placeholder for OpenCode adapter
 
-> **Status: not implemented.** This directory is a placeholder so the repo's structure mirrors the multi-platform pattern (Claude / Codex / Cursor / OpenCode / Gemini). TMB ships Claude Code only as of v0.1.1.
+> **Status: not implemented.** This directory is a placeholder so the repo's structure mirrors the multi-platform pattern (Claude / Codex / Cursor / OpenCode / Gemini). TMB ships Claude Code only.
 
 ## What this would be
 
