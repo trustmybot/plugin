@@ -1,0 +1,24 @@
+{
+  "source": "swe-bench-lite",
+  "id": "matplotlib__matplotlib-18869",
+  "repo": "matplotlib/matplotlib",
+  "base_commit": "b7d05919865fc0c37a0164cf467d5d5513bd0ede",
+  "language": "python",
+  "version": "3.3",
+  "python_version": "3.8",
+  "both_failed_opus4_sonnet4": false,
+  "failed_all_sonnet4_harnesses": true,
+  "fail_to_pass": [
+    "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0-version_tuple0]",
+    "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0rc2-version_tuple1]",
+    "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0.dev820+g6768ef8c4c-version_tuple2]",
+    "lib/matplotlib/tests/test_matplotlib.py::test_parse_to_version_info[3.5.0.post820+g6768ef8c4c-version_tuple3]"
+  ],
+  "pass_to_pass_sample": [
+    "lib/matplotlib/tests/test_matplotlib.py::test_importable_with_no_home",
+    "lib/matplotlib/tests/test_matplotlib.py::test_use_doc_standard_backends",
+    "lib/matplotlib/tests/test_matplotlib.py::test_importable_with__OO"
+  ],
+  "env_install_cmd": "pip install --quiet pytest ipython && pip install --quiet -e .",
+  "test_patch_file": "test_patch.diff"
+}

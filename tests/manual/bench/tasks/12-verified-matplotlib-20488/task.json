@@ -1,0 +1,20 @@
+{
+  "source": "swe-bench-verified",
+  "id": "matplotlib__matplotlib-20488",
+  "repo": "matplotlib/matplotlib",
+  "base_commit": "b7ce415c15eb39b026a097a2865da73fbcf15c9c",
+  "language": "python",
+  "version": "3.4",
+  "python_version": "3.8",
+  "both_failed_opus4_sonnet4": true,
+  "fail_to_pass": [
+    "lib/matplotlib/tests/test_image.py::test_huge_range_log[png--1]"
+  ],
+  "pass_to_pass_sample": [
+    "lib/matplotlib/tests/test_image.py::test_image_interps[png]",
+    "lib/matplotlib/tests/test_image.py::test_image_interps[pdf]",
+    "lib/matplotlib/tests/test_image.py::test_alpha_interp[png]"
+  ],
+  "env_install_cmd": "pip install --quiet pytest ipython && pip install --quiet -e .",
+  "test_patch_file": "test_patch.diff"
+}

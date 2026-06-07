@@ -63,6 +63,14 @@ bench_run_arm() {
   args+=(--model "$model")
   if [ "$arm" = "tmb-on" ]; then
     args+=(--plugin-dir "$PLUGIN_ROOT")
+    # Pre-seed the project DB with onboarded state so the tmb-on arm skips
+    # onboarding noise/cost and the world-model-cold gate. Reuses the
+    # l5_seed_db helper + onboarding-named fixture to avoid schema drift.
+    if [ ! -f "$project/.claude/tmb/trajectory.db" ]; then
+      # shellcheck source=tests/dogfood/lib/flow-helpers.sh
+      source "$PLUGIN_ROOT/tests/dogfood/lib/flow-helpers.sh"
+      l5_seed_db "$project" "onboarding-named"
+    fi
   fi
   (
     cd "$project" || exit 1
