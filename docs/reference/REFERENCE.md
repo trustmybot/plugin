@@ -14,7 +14,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 ## Other docs
 
 - **Prompt-engineering guide (authoring agent prompts)** — [`PROMPT_ENGINEERING.md`](../prompt-engineering/PROMPT_ENGINEERING.md)
-- **Agent layer model + override rules** — [`AGENTS.md`](../AGENTS.md)
+- **Agent layer model + override rules** — [`architecture/RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md)
 - **Benchmark results vs Sonnet 4 + Opus 4** — [`BENCHMARK.md`](../contributing/BENCHMARK.md)
 - **Performance budgets** — `CONTRIBUTING.md` → Performance section
 - **plugin_config keys** — `mcp/trajectory-server/docs/CONFIG_KEYS.md`
@@ -48,7 +48,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - `/onboard` — interactive policy ceremony with two branches based on project shape (local-only vs remote-tracked). Auto-fired on first contact when `plugin_config('onboarded')` is unset; Human-typed for later changes (full procedure in `commands/onboard.md`)
 - `/monitor <PR_number>` — invokes `tmb_review` skill (PR comment triage section): fetches review comments, plans tasks, dispatches SWE per ratified comment
 
-Catalog: `docs/commands/README.md`.
+Runtime location: `plugin/commands/<name>.md`.
 
 ## Logs
 

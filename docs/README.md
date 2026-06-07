@@ -8,12 +8,9 @@ If something in `docs/` turns out to be load-bearing for bro's behavior, inline 
 
 | File / folder | Purpose |
 |---|---|
-| `AGENTS.md` | Agent layer model + override rules |
-| `reference/REFERENCE.md` | Where workflow state lives (DB, files, CC config) |
-| `reference/BENCHMARK.md` | L0–L6 test pyramid + perf notes |
+| `reference/REFERENCE.md` | Where workflow state lives (trajectory DB, kuzu world model, CC config) |
 | `reference/MULTI_PLATFORM.md` | OS compatibility notes |
 | `reference/UPGRADE.md` | Plugin version migration notes |
 | `architecture/` | Design rationale (ERD, FILES, FLOWS, GIT, RESPONSIBILITIES, UI, WORLD_MODEL) |
 | `prompt-engineering/` | DETERMINISM, ENFORCEMENT, PROMPT_ENGINEERING |
-| `commands/` | Per-slash-command design docs |
 | `contributing/` | Code-quality criteria + review findings catalogue |

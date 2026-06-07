@@ -2,6 +2,20 @@
 
 What each plugin-shipped agent is **actually** instructed to do, derived from the agent prompt files + their server-enforced role boundaries. Source of truth for "if it's not here and not in a hook/skill, the agent isn't doing it."
 
+## Agent layer model
+
+Two layers determine which agents are available in a project.
+
+**Layer 1 — Workflow backbone (always global):** `swe.md` and `pr-reviewer.md` ship in the plugin's `agents/` directory and are always available without any copy or onboarding step. Resolution rule: when bro spawns `swe` or `pr-reviewer`, CC dispatches by name — a project-local `.claude/agents/<name>.md` wins if present; the global serves as fallback. Use `/tmb:agent-create` Template-copy mode to create a project-local override.
+
+**Layer 2 — Consultants (templates, opt-in per project):** `architect`, `cto`, `ceo`, `pm` ship in `templates/agents/` and are instantiated per-project on first use via `/tmb:agent-create` template-copy mode. From then on, the project-local copy serves the consultant.
+
+The canonical registry for all known agents is the SQLite `agents` table in the trajectory DB — seeded at DB init with the backbone agents and consultant templates. Use `agent_list` to query it and `agent_register` to add project-local agents. This section is the prose explainer; the DB is the runtime source of truth.
+
+**Composition rule:** agent file = identity (immutable for global; project-local overrides allowed for backbone); `skills:` array = capabilities (additive via `tmb_skill-creator`); spawn prompt = task context (per-call). Never confuse layers: a "more skilled SWE" means `swe.md` plus added skills, not a different `swe.md`.
+
+---
+
 ## Design philosophy
 
 Three roles split by what each can be trusted to do without making its own homework, and which one stays alive when something unexpected fires:
