@@ -50,7 +50,7 @@ TMB resolved **8 of 8** SWE-bench tasks (4 Verified + 4 Lite) where pure Claude 
 | **SWE-bench Verified** (4 tasks, same `claude-opus-4-20250514`) | **4 / 4** ✅ | Anthropic [`tools_claude-4-opus`](https://github.com/SWE-bench/experiments/tree/main/evaluation/verified/20250522_tools_claude-4-opus) | 0 / 4 |
 | **SWE-bench Lite** (4 tasks) | **4 / 4** ✅ | 3 published Sonnet 4 harnesses (SWE-agent, KGCompass, ExpeRepair-v1) | 0 / 4 |
 | **Hallucinations** | **0 / 8** | (not measured) | — |
-| **Total spend** | $17.33, ~17.7M tokens | — | — |
+| **Token usage (v0.7.0)** | **~6.8M tokens · $6.78** — down from 17.7M · $17.33 (pre-world-model) | — | — |
 
 Curated-hard subsets from the all-comparators-failed intersection. Methodology, fairness, per-task data: **[`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md)**.
 
