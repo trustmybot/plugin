@@ -2,9 +2,9 @@
 
 > **Trust me bro, it works.**
 
-**Multi-agent engineering workflow for Claude Code. MIT, free forever.**
+**An agentic engineering harness for Claude Code — multi-agent orchestration, a persistent memory system, and guardrails enforced in code, not convention. MIT, free forever.**
 
-TMB turns Claude Code from a clever code-generator into a disciplined engineering workflow: one Human entry point (`bro`), a separate executor (`swe`), state that survives session kills, and structural gates that close around every commit.
+TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `pr-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets, with every commit clearing guardrails enforced in code, not by convention.
 
 > **Claude Code today.** TMB ships the Claude Code adapter; Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
 
@@ -62,24 +62,23 @@ Curated-hard subsets from the all-comparators-failed intersection. Methodology, 
 
 Four structural innovations, each closing a specific single-agent failure mode.
 
-### 1. Agent Harness — split planning from execution
+### 1. Agent Harness — planner and executor, kept apart
 
 `bro` plans + gates (full picture, long-term). `swe` executes (single task, isolated worktree). **Bro never writes source; swe never self-approves.** Out-of-role calls are rejected at the wire. No more "the same context that wrote the code marks its own homework."
 
 Details: [`CLAUDE.md`](CLAUDE.md), [`agents/swe.md`](agents/swe.md), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
 
-### 2. Trajectory Memory — state survives session kills
+### 2. Memory System — persistent state + long-context management
 
-Two stores, both project-local and gitignored:
+Two complementary memory tiers, both project-local and gitignored:
+- **Trajectory store** (`trajectory.db`, SQLite) — *procedural memory*: issues, discussions, ADR decisions, task specs, validation verdicts, append-only audit. Survives context resets and session kills — bro rehydrates and resumes.
+- **World model** (`world-model.kuzu`, kuzu graph + RAG) — *semantic memory + long-context management*: the codebase compressed into a navigable directory graph (README-derived summaries, parent/child edges), queried via `world_model_get` / `world_model_search`. The agent reasons from a small, stable map instead of re-ingesting the repo every turn — the context-engineering layer that keeps cold starts cheap and deterministic.
 
-- **Trajectory DB** (`trajectory.db`, SQLite) — procedural state: issues, discussions, ADR decisions, task specs, validation verdicts, append-only audit. Kill Claude mid-task, come back tomorrow — bro reads the trajectory and resumes.
-- **World model** (`world-model.kuzu`, kuzu graph DB) — semantic project map: every directory a node with a README-derived summary, edges linking parent ↔ child. Queried via `world_model_get` / `world_model_search` (RAG). Refreshed by `/scan` or the post-task-close-rescan hook.
-
-Big token dividend: no codebase-rediscovery tax. The world model answers "where does X live?" in one graph hop; local stores = no API round-trips on resume.
+Refreshed by `/scan` + the post-task-close rescan.
 
 Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architecture/FILES.md`](docs/architecture/FILES.md), [`docs/architecture/WORLD_MODEL.md`](docs/architecture/WORLD_MODEL.md).
 
-### 3. Evaluation System — verification you can audit later
+### 3. Verification & Evaluation — auditable, gated quality control
 
 **Two gates** close around every commit:
 - **Bro's task gate** (per task) re-runs the spec's verification after SWE returns.
@@ -89,7 +88,7 @@ Verdicts persist in the DB next to the code they judged — six months later "wh
 
 Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate-pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
 
-### 4. Agentic Workflow — composable, not monolithic
+### 4. Agentic Orchestration — composable, not monolithic
 
 Workflow shape scales by ask: simple task picks defaults inline; difficult task asks scope questions + captures ADR decisions; multi-task batch amortizes planning + fires the push gate once. Doctrine is wire-enforced, not aspirational.
 
