@@ -7,6 +7,7 @@ import type { Issue, IssueRow, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend, detectPreferred } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
+import type { SyncFailure } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
 
 type SpawnFn = (
@@ -53,6 +54,18 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 
 function resolveSpawnCwd(db: TrajectoryDB, dbPath: string): string | undefined {
   return resolveDefaultRepoPath(db, dbPath);
+}
+
+function resolveRemoteUrl(db: TrajectoryDB, backend: 'gh' | 'glab'): string | null {
+  const row = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = 'remotes'`,
+  );
+  if (!row) return null;
+  const remotes = JSON.parse(row.value_json) as Array<{ provider: string; url: string }>;
+  const provider = backend === 'gh' ? 'github' : 'gitlab';
+  const entry = remotes.find((r) => r.provider === provider);
+  if (!entry) return null;
+  return entry.url;
 }
 
 // Fire the remote (GitHub/GitLab) issue-close for whatever remotes the row is
@@ -265,105 +278,137 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         } else if (backend !== 'off') {
           const syncCwd = resolveSpawnCwd(db, dbPath);
           if (backend === 'both') {
-            const [ghResult, glResult] = await Promise.all([
-              syncIssueCreate({
-                issueId,
-                title: objective,
-                body: description,
-                labels,
-                _backend: 'gh',
-                _spawnFn: spawnFn,
-                _cwd: syncCwd,
-              }),
-              syncIssueCreate({
-                issueId,
-                title: objective,
-                body: description,
-                labels,
-                _backend: 'glab',
-                _spawnFn: spawnFn,
-                _cwd: syncCwd,
-              }),
-            ]);
-            const ghIid = !isSyncFailure(ghResult) && ghResult.remote_kind === 'github'
-              ? ghResult.remote_iid : null;
-            const glIid = !isSyncFailure(glResult) && glResult.remote_kind === 'gitlab'
-              ? glResult.remote_iid : null;
-            const firstSuccess = !isSyncFailure(ghResult) ? ghResult
-              : !isSyncFailure(glResult) ? glResult : null;
-            if (firstSuccess !== null) {
-              db.run(
-                `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId],
-              );
-            } else {
-              const failures: string[] = [];
-              if (isSyncFailure(ghResult)) {
-                serverLog({ event: 'issue_sync_failed', issueId, backend: 'gh', reason: ghResult.reason, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
-                failures.push('gh');
-              }
-              if (isSyncFailure(glResult)) {
-                serverLog({ event: 'issue_sync_failed', issueId, backend: 'glab', reason: glResult.reason, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
-                failures.push('glab');
-              }
+            const ghRemoteUrl = resolveRemoteUrl(db, 'gh');
+            const glRemoteUrl = resolveRemoteUrl(db, 'glab');
+            const ghBlank = ghRemoteUrl === '';
+            const glBlank = glRemoteUrl === '';
+            if (ghBlank && glBlank) {
+              serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
               syncDiagnostic = {
-                sync_failed: true,
-                reason: 'both_remotes_failed',
-                backends: failures,
-                hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+                sync_skipped: true,
+                reason: 'blank_remote_url',
+                backend,
+                hint: 'Configure remote URLs via /onboard before syncing issues.',
               };
-            }
-            if (ghIid !== null || glIid !== null) {
-              const partial: string[] = [];
-              if (isSyncFailure(ghResult)) partial.push('gh');
-              if (isSyncFailure(glResult)) partial.push('glab');
-              if (partial.length > 0) {
+            } else {
+              const [ghResult, glResult] = await Promise.all([
+                !ghBlank
+                  ? syncIssueCreate({
+                      issueId,
+                      title: objective,
+                      body: description,
+                      labels,
+                      _backend: 'gh',
+                      _spawnFn: spawnFn,
+                      _cwd: syncCwd,
+                      _remoteUrl: ghRemoteUrl ?? undefined,
+                    })
+                  : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', backend: 'gh', message: 'blank remote URL for gh' }),
+                !glBlank
+                  ? syncIssueCreate({
+                      issueId,
+                      title: objective,
+                      body: description,
+                      labels,
+                      _backend: 'glab',
+                      _spawnFn: spawnFn,
+                      _cwd: syncCwd,
+                      _remoteUrl: glRemoteUrl ?? undefined,
+                    })
+                  : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', backend: 'glab', message: 'blank remote URL for glab' }),
+              ]);
+              const ghIid = !isSyncFailure(ghResult) && ghResult.remote_kind === 'github'
+                ? ghResult.remote_iid : null;
+              const glIid = !isSyncFailure(glResult) && glResult.remote_kind === 'gitlab'
+                ? glResult.remote_iid : null;
+              const firstSuccess = !isSyncFailure(ghResult) ? ghResult
+                : !isSyncFailure(glResult) ? glResult : null;
+              if (firstSuccess !== null) {
+                db.run(
+                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId],
+                );
+              } else {
+                const failures: string[] = [];
+                if (isSyncFailure(ghResult)) {
+                  serverLog({ event: 'issue_sync_failed', issueId, backend: 'gh', reason: ghResult.reason, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
+                  failures.push('gh');
+                }
+                if (isSyncFailure(glResult)) {
+                  serverLog({ event: 'issue_sync_failed', issueId, backend: 'glab', reason: glResult.reason, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
+                  failures.push('glab');
+                }
                 syncDiagnostic = {
-                  sync_partial: true,
-                  failed_backends: partial,
-                  gh_iid: ghIid,
-                  gl_iid: glIid,
-                  hint: 'Try `issue_sync_retry` to retry the failed remote.',
+                  sync_failed: true,
+                  reason: 'both_remotes_failed',
+                  backends: failures,
+                  hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
                 };
+              }
+              if (ghIid !== null || glIid !== null) {
+                const partial: string[] = [];
+                if (isSyncFailure(ghResult)) partial.push('gh');
+                if (isSyncFailure(glResult)) partial.push('glab');
+                if (partial.length > 0) {
+                  syncDiagnostic = {
+                    sync_partial: true,
+                    failed_backends: partial,
+                    gh_iid: ghIid,
+                    gl_iid: glIid,
+                    hint: 'Try `issue_sync_retry` to retry the failed remote.',
+                  };
+                }
               }
             }
           } else {
-            const syncResult = await syncIssueCreate({
-              issueId,
-              title: objective,
-              body: description,
-              labels,
-              _backend: backend,
-              _spawnFn: spawnFn,
-              _cwd: syncCwd,
-            });
-            if (!isSyncFailure(syncResult)) {
-              const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
-              const glIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
-              db.run(
-                `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId],
-              );
-            } else {
-              serverLog({
-                event: 'issue_sync_failed',
-                issueId,
-                backend,
-                reason: syncResult.reason,
-                exit_code: syncResult.exit_code,
-                stderr: syncResult.stderr?.slice(0, 1024),
-                message: syncResult.message,
-              });
+            const remoteUrl = resolveRemoteUrl(db, backend);
+            if (remoteUrl === '') {
+              serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
               syncDiagnostic = {
-                sync_failed: true,
-                reason: syncResult.reason,
-                backend: syncResult.backend,
-                exit_code: syncResult.exit_code,
-                stderr: syncResult.stderr?.slice(0, 4096),
-                stdout: syncResult.stdout?.slice(0, 4096),
-                message: syncResult.message,
-                hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+                sync_skipped: true,
+                reason: 'blank_remote_url',
+                backend,
+                hint: 'Configure remote URLs via /onboard before syncing issues.',
               };
+            } else {
+              const syncResult = await syncIssueCreate({
+                issueId,
+                title: objective,
+                body: description,
+                labels,
+                _backend: backend,
+                _spawnFn: spawnFn,
+                _cwd: syncCwd,
+                _remoteUrl: remoteUrl ?? undefined,
+              });
+              if (!isSyncFailure(syncResult)) {
+                const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
+                const glIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
+                db.run(
+                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId],
+                );
+              } else {
+                serverLog({
+                  event: 'issue_sync_failed',
+                  issueId,
+                  backend,
+                  reason: syncResult.reason,
+                  exit_code: syncResult.exit_code,
+                  stderr: syncResult.stderr?.slice(0, 1024),
+                  message: syncResult.message,
+                });
+                syncDiagnostic = {
+                  sync_failed: true,
+                  reason: syncResult.reason,
+                  backend: syncResult.backend,
+                  exit_code: syncResult.exit_code,
+                  stderr: syncResult.stderr?.slice(0, 4096),
+                  stdout: syncResult.stdout?.slice(0, 4096),
+                  message: syncResult.message,
+                  hint: 'Try `issue_sync_retry` or run the underlying gh/glab command manually to debug.',
+                };
+              }
             }
           }
         }

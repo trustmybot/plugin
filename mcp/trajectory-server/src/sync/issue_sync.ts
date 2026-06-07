@@ -5,7 +5,12 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { resolvePluginName } from '../db.js';
 
-const logDir = join(homedir(), '.claude', resolvePluginName(process.env), 'logs');
+function resolveLogDir(): string {
+  if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
+  return join(homedir(), '.claude', resolvePluginName(process.env), 'logs');
+}
+
+const logDir = resolveLogDir();
 const syncLogPath = join(logDir, 'issue-sync.log');
 
 try {
@@ -15,9 +20,12 @@ try {
 }
 
 function syncLog(entry: Record<string, unknown>): void {
+  const currentLogPath = process.env.TMB_SYNC_LOG_DIR
+    ? join(process.env.TMB_SYNC_LOG_DIR, 'issue-sync.log')
+    : syncLogPath;
   try {
     const line = JSON.stringify({ ...entry, ts: new Date().toISOString() }) + '\n';
-    appendFileSync(syncLogPath, line);
+    appendFileSync(currentLogPath, line);
   } catch {
     // Swallow all errors — logging must never break the caller.
   }
@@ -42,18 +50,75 @@ function defaultSpawnFn(
   };
 }
 
-function parseRemoteIid(stdout: string, _kind: 'github' | 'gitlab'): number | null {
-  // #2875: glab ≥1.40 (2026-Q1) switched issue_create stdout from
-  //   `https://gitlab.com/o/r/-/issues/42`
-  // to
-  //   `https://gitlab.com/o/r/-/work_items/42`
-  // Accept both URL forms plus the older bare-iid form `#42` (some gh
-  // versions and the glab --output=text shape). Single pattern handles
-  // both backends — the URL host + provider mapping is decided upstream
-  // by the caller's `kind` arg, so the parser only needs the trailing iid.
-  const match = stdout.match(/(?:#|\/(?:issues|work_items)\/)(\d+)/);
-  if (match) return parseInt(match[1], 10);
+interface ParsedIid {
+  iid: number;
+  host: string;
+  repoPath: string;
+}
+
+function parseRemoteIid(stdout: string, _kind: 'github' | 'gitlab'): ParsedIid | null {
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    const urlMatch = trimmed.match(
+      /https?:\/\/([^/]+)\/([^/]+\/[^/]+)\/-?\/?(?:issues|work_items)\/(\d+)/,
+    );
+    if (urlMatch) {
+      const host = urlMatch[1]!;
+      const repoPath = urlMatch[2]!;
+      const iid = parseInt(urlMatch[3]!, 10);
+      return { iid, host, repoPath };
+    }
+  }
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (/^#\d+$/.test(trimmed)) {
+      const iid = parseInt(trimmed.slice(1), 10);
+      return { iid, host: '', repoPath: '' };
+    }
+  }
   return null;
+}
+
+function extractRemoteHostAndRepo(remoteUrl: string): { host: string; repoPath: string } | null {
+  if (!remoteUrl) return null;
+  const httpMatch = remoteUrl.match(/https?:\/\/([^/]+)\/([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (httpMatch) return { host: httpMatch[1]!, repoPath: httpMatch[2]! };
+  const sshMatch = remoteUrl.match(/git@([^:]+):([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (sshMatch) return { host: sshMatch[1]!, repoPath: sshMatch[2]! };
+  return null;
+}
+
+async function readBackVerify(
+  backend: 'gh' | 'glab',
+  iid: number,
+  spawnFn: SpawnFn,
+  spawnOpts: SpawnSyncOptions,
+): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    let result: { status: number | null; stdout: string; stderr: string };
+    if (backend === 'gh') {
+      result = spawnFn('gh', ['issue', 'view', String(iid), '--json', 'number,url'], spawnOpts);
+    } else {
+      result = spawnFn('glab', ['issue', 'view', String(iid)], spawnOpts);
+    }
+    if (result.status !== 0) {
+      return { ok: false, reason: 'read_back_non_zero_exit' };
+    }
+    if (backend === 'gh') {
+      let parsed: { number?: number; url?: string };
+      try {
+        parsed = JSON.parse(result.stdout) as { number?: number; url?: string };
+      } catch {
+        return { ok: false, reason: 'read_back_parse_failed' };
+      }
+      if (parsed.url && parsed.url.includes('/pull/')) {
+        return { ok: false, reason: 'read_back_is_pr' };
+      }
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: 'read_back_error' };
+  }
 }
 
 export interface SyncIssueCreateOpts {
@@ -63,6 +128,7 @@ export interface SyncIssueCreateOpts {
   labels?: string[];
   _spawnFn?: SpawnFn;
   _cwd?: string;
+  _remoteUrl?: string;
 }
 
 export interface SyncResult {
@@ -70,12 +136,9 @@ export interface SyncResult {
   remote_kind: 'github' | 'gitlab';
 }
 
-// #2871: callers need the failure reason to surface in tool responses,
-// not just a null. SyncFailure carries enough detail for bro to decide
-// whether to retry, fall back, or surface to the Human.
 export interface SyncFailure {
   ok: false;
-  reason: 'spawn_error' | 'non_zero_exit' | 'parse_failed' | 'no_backend';
+  reason: 'spawn_error' | 'non_zero_exit' | 'parse_failed' | 'no_backend' | 'verify_failed';
   backend: 'gh' | 'glab' | 'both' | null;
   stderr?: string;
   stdout?: string;
@@ -134,8 +197,8 @@ async function createOnBackend(
         exit_code: result.status ?? undefined,
       };
     }
-    const remote_iid = parseRemoteIid(result.stdout, kind);
-    if (remote_iid === null) {
+    const parsed = parseRemoteIid(result.stdout, kind);
+    if (parsed === null) {
       syncLog({
         event: 'issue_create_parse_failed',
         backend,
@@ -150,7 +213,63 @@ async function createOnBackend(
         message: `could not parse remote issue id from "${cmd} ${args.join(' ')}" output`,
       };
     }
-    return { remote_iid, remote_kind: kind };
+
+    if (opts._remoteUrl && parsed.host) {
+      const configured = extractRemoteHostAndRepo(opts._remoteUrl);
+      if (configured) {
+        const hostMismatch = parsed.host !== configured.host;
+        const repoMismatch = parsed.repoPath.replace(/\.git$/, '') !== configured.repoPath.replace(/\.git$/, '');
+        if (hostMismatch || repoMismatch) {
+          syncLog({
+            event: 'issue_create_verify_failed',
+            backend,
+            issueId: opts.issueId,
+            reason: 'host_repo_mismatch',
+            parsed_host: parsed.host,
+            parsed_repo: parsed.repoPath,
+            configured_host: configured.host,
+            configured_repo: configured.repoPath,
+            stdout: result.stdout,
+          });
+          return {
+            ok: false,
+            reason: 'verify_failed',
+            backend,
+            stdout: result.stdout,
+            message: `remote iid host/repo mismatch: got ${parsed.host}/${parsed.repoPath}, expected ${configured.host}/${configured.repoPath}`,
+          };
+        }
+      }
+    }
+
+    const verifyResult = await readBackVerify(backend, parsed.iid, spawnFn, spawnOpts);
+    if (!verifyResult.ok) {
+      syncLog({
+        event: 'issue_create_verify_failed',
+        backend,
+        issueId: opts.issueId,
+        reason: verifyResult.reason,
+        iid: parsed.iid,
+        stdout: result.stdout,
+      });
+      return {
+        ok: false,
+        reason: 'verify_failed',
+        backend,
+        stdout: result.stdout,
+        message: `read-back verify failed for iid ${parsed.iid}: ${verifyResult.reason}`,
+      };
+    }
+
+    syncLog({
+      event: 'issue_create_success',
+      backend,
+      issueId: opts.issueId,
+      iid: parsed.iid,
+      stdout: result.stdout,
+    });
+
+    return { remote_iid: parsed.iid, remote_kind: kind };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     syncLog({

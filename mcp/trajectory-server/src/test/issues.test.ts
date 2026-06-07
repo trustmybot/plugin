@@ -199,6 +199,10 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
         status: 0,
         stdout: 'https://github.com/owner/repo/issues/77\n',
         stderr: '',
+      }, {
+        status: 0,
+        stdout: '{"number":77,"url":"https://github.com/owner/repo/issues/77"}',
+        stderr: '',
       }]),
     });
     const issue = parseResult(result);
@@ -232,6 +236,10 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
       _spawnFn: makeSpawnFn([{
         status: 0,
         stdout: 'https://gitlab.com/owner/repo/-/issues/55\n',
+        stderr: '',
+      }, {
+        status: 0,
+        stdout: 'issue 55 details',
         stderr: '',
       }]),
     });
@@ -478,6 +486,10 @@ describe('issueTools — remote sync', () => {
         status: 0,
         stdout: 'https://github.com/owner/repo/issues/42\n',
         stderr: '',
+      }, {
+        status: 0,
+        stdout: '{"number":42,"url":"https://github.com/owner/repo/issues/42"}',
+        stderr: '',
       }]),
     });
     const issue = parseResult(result);
@@ -584,6 +596,80 @@ describe('issueTools — remote sync', () => {
     const phaseData = parseResult(phaseResult);
     assert.ok(!phaseResult.isError);
     assert.equal(phaseData.phase, 'tasks', `Expected tasks, got ${phaseData.phase}`);
+
+    db.close();
+  });
+});
+
+describe('issueTools — issue-sync hardening (#314)', () => {
+  it('blank remote URL in remotes config → sync skipped with diagnostic', async () => {
+    const db = tempDB();
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', {
+      agent: 'bro',
+      key: 'issue_sync',
+      value: 'gh',
+    });
+    db.run(
+      `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('remotes', ?)`,
+      [JSON.stringify([{ name: 'origin', provider: 'github', url: '' }])],
+    );
+    const tools = issueTools(db);
+
+    const noCallSpawn = makeSpawnFn([]);
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'blank URL sync skip test',
+      _spawnFn: noCallSpawn,
+    });
+    const issue = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+    assert.equal(issue.remote_iid ?? null, null, 'remote_iid must be null when URL is blank');
+    assert.ok(issue._sync, 'sync diagnostic must be present');
+    assert.equal(issue._sync.sync_skipped, true, 'sync_skipped must be true');
+    assert.equal(issue._sync.reason, 'blank_remote_url');
+
+    db.close();
+  });
+
+  it('read-back returns PR url → no gh_iid persisted, diagnostic surfaced (#314)', async () => {
+    const db = tempDB();
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', {
+      agent: 'bro',
+      key: 'issue_sync',
+      value: 'gh',
+    });
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'verify_failed PR test',
+      _spawnFn: makeSpawnFn([
+        {
+          status: 0,
+          stdout: 'https://github.com/owner/repo/issues/30\n',
+          stderr: '',
+        },
+        {
+          status: 0,
+          stdout: '{"number":30,"url":"https://github.com/owner/repo/pull/30"}',
+          stderr: '',
+        },
+      ]),
+    });
+    const issue = parseResult(result);
+    assert.ok(!result.isError, 'local insert must succeed even when verify fails');
+    assert.equal(issue.remote_iid ?? null, null, 'remote_iid must NOT be persisted when verify_failed');
+
+    const row = db.get<{ gh_iid: number | null }>(
+      'SELECT gh_iid FROM issues WHERE id = ?',
+      [issue.id],
+    );
+    assert.equal(row?.gh_iid ?? null, null, 'gh_iid must NOT be persisted when read-back shows PR');
+    assert.ok(issue._sync, 'sync diagnostic must be present');
+    assert.equal(issue._sync.sync_failed, true);
+    assert.equal(issue._sync.reason, 'verify_failed');
 
     db.close();
   });
