@@ -12,7 +12,7 @@ TMB turns Claude Code into a production-grade agent harness. Three roles split t
 
 ## Who is TMB for?
 
-**Solo devs and small teams running Claude Code on real production code.** If you want structural gates against agent drift, state that persists across sessions, and a doctrine for multi-agent deliberation — you're the target. TMB stays dormant until you address `@bro`; every other workflow keeps working.
+**Any engineer shipping real production code with Claude Code — solo dev to large org.** Pure Claude Code is a brilliant code generator, but production work needs guarantees it doesn't give you: structural gates against agent drift, state that survives session resets, an auditable record of every decision, and role separation so the agent that writes code never signs off on it. Those matter **more** as the stakes rise, not less. TMB stays dormant until you address `@bro`; every other workflow keeps working.
 
 ---
 
