@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Seed a stale world model row + drift: README committed with v1 text,
-# directory summary written from that content, then README edited on disk
-# without a commit. The pre-state mimics "world model from yesterday's
-# README" — bro should detect the drift on the next scan.
+# Seed a stale world model + drift: README committed with v1 text,
+# deep_scan_completed audit row written (SQLite-side proxy for "kuzu world
+# model warm with v1 summary"), then README edited on disk without a commit.
+# The pre-state mimics "world model from yesterday's README" — bro should
+# detect the drift on the next scan.
 set -uo pipefail
 
 PROJECT="$1"
@@ -24,9 +25,6 @@ REPO_NAME=$(basename "$PROJECT_REAL")
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
 INSERT OR REPLACE INTO repos (name, path)
 VALUES ('$REPO_NAME', '$PROJECT_REAL');
-
-INSERT INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
-VALUES ('$REPO_NAME', '', NULL, 'project — v1. Returns v1 from foo().', 'readme', datetime('now'), 1);
 
 INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
 VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'setup: seeded stale world model', '{}', datetime('now'));

@@ -23,13 +23,10 @@ check() {
 
 check 'discussions FTS5 virtual table'    'CREATE VIRTUAL TABLE IF NOT EXISTS discussions_fts USING fts5'
 check 'audit FTS5 virtual table'          'CREATE VIRTUAL TABLE IF NOT EXISTS audit_fts USING fts5'
-check 'directories FTS5 virtual table'    'CREATE VIRTUAL TABLE IF NOT EXISTS directories_fts USING fts5'
 check 'discussions_embeddings table'      'CREATE TABLE IF NOT EXISTS discussions_embeddings'
 check 'audit_embeddings table'            'CREATE TABLE IF NOT EXISTS audit_embeddings'
-check 'directories_embeddings table'      'CREATE TABLE IF NOT EXISTS directories_embeddings'
 check 'idx_discussions_embeddings_model'  'CREATE INDEX IF NOT EXISTS idx_discussions_embeddings_model'
 check 'idx_audit_embeddings_model'        'CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model'
-check 'idx_directories_embeddings_model'  'CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model'
 
 if [ "$FAIL" -ne 0 ]; then
   printf '\nrag-schema-invariants: FAIL\n' >&2

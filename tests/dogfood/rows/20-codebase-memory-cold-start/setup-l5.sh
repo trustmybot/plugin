@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Seed an existing-repo state: identity exists (so onboarding doesn't fire),
-# git ls-files non-empty (so cold-start trigger fires), world model empty
-# (no `directories` rows; no `deep_scan_completed` audit yet).
+# git ls-files non-empty (so cold-start trigger fires), world model cold
+# (no `deep_scan_completed` audit row yet; kuzu graph DB empty).
 set -uo pipefail
 
 PROJECT="$1"

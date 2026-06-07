@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 33-multirepo-commit L5 isolation: builds the multi-repo workspace fixture.
 # Configures tmb_default_repo='api', creates api/ and app/ sibling git repos.
-# README per inner repo lets scan_run populate the directories table with
+# README per inner repo lets scan_run populate the kuzu world model with
 # README-derived summaries when bro runs /scan.
 set -uo pipefail
 

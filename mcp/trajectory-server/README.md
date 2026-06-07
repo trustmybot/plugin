@@ -43,8 +43,8 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Reports | `tools/reports.ts` | `issue_report_md` |
 | Config | `tools/config.ts` | `config_get`, `config_set`, `config_list` |
 | Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
-| File registry | `tools/file-registry.ts` | `file_registry_upsert`, `file_registry_list`, `file_registry_verify`, `file_registry_delete`, `file_registry_update_summaries` |
-| Scan (workspace + repos + bulk file rows) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery), `repos_list`, `file_registry_bulk_upsert` |
+| Scan (workspace + repos) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery), `repos_list` |
+| World model | `tools/world-model.ts` | `world_model_get`, `world_model_search`, `scan_run` → kuzu graph DB |
 
 Role-gating is enforced per-tool via `requireRoles()` in `middleware/agent-scope.ts`. Valid first-class roles: `bro`, `swe`, `pr-reviewer`. Consultant roles (`architect`, `cto`, `ceo`, `pm`, and any user-created agent name) are accepted as open-enum values; the server grants them consultant-level access.
 
