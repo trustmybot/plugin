@@ -76,7 +76,13 @@ Stable users (`tmb@trustmybot`) auto-update on next `/plugin update`.
 
 When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class, schema migrations, doctrine flips), validate via `tmb-rc` channel before promoting to stable:
 
-1. **Develop on dev as usual.** When ready to test in marketplace, on `dev`:
+1. **Bump the version, then cut the RC tag.** The marketplace UI shows `plugin.json`'s `version` field, *not* the tag name — so bump it to the rc version first, or the install reads `-dev`. On a branch off `dev`:
+   ```bash
+   bash scripts/maintenance/bump-version.sh 0.4.0-rc.1   # 4 manifests + MCP startup version
+   bun run build                                         # refresh dist (index.ts startup version)
+   # add a `## v0.4.0-rc.1` CHANGELOG section, then PR → dev and merge
+   ```
+   Then, on `dev` (origin = GitHub — canonical; GitLab is a backup mirror only):
    ```bash
    # Cut RC tag
    git tag -a v0.4.0-rc.1 -m "v0.4.0 release candidate 1"
@@ -87,6 +93,7 @@ When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class,
    git push --force-with-lease origin rc
    git checkout dev
    ```
+   For a **new** rc number, also bump the `trustmybot/marketplace-rc` catalog's `ref` to the new tag (it pins `vX.Y.Z-rc.N`); re-cutting the same number needs no catalog change.
 2. **Install + test from `tmb-rc` channel:**
    ```
    /plugin update tmb-rc@trustmybot   # CC re-fetches the rc branch HEAD
