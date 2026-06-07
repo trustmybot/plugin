@@ -10,6 +10,11 @@
 #  - mcp/trajectory-server/src/db.ts — the migrateV6toV7 DROP TABLE itself
 #  - CHANGELOG.md — accurate history
 #  - tests/lint/no-file-registry-refs.sh — this script itself
+#  - tests/run-all.sh — step label references this script name
+#  - tests/EVALUATION.md — L6 journey table with historical step descriptions
+#  - tests/mcp-integration/search-tools.test.mjs — "replaces file_registry_search" note in comment
+#  - tests/manual/bench/ — historical bench scripts predating v7 retirement
+#  - tests/dogfood/ab-scenarios/ — frozen A/B comparison arms (historical baselines)
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +27,7 @@ HITS=$(grep -rlE 'file_registry|file-registry\.ts' \
   --include='*.mjs' --include='*.md' --include='*.json' \
   --include='*.sql' \
   agents/ skills/ commands/ hooks/ scripts/ mcp/trajectory-server/src/ docs/ CLAUDE.md \
+  mcp/trajectory-server/README.md tests/ \
   2>/dev/null || true)
 
 FAIL=0
@@ -35,6 +41,11 @@ while IFS= read -r f; do
     mcp/trajectory-server/src/test/schema.test.ts) continue;;
     mcp/trajectory-server/src/test/schema-upgrade.test.ts) continue;;
     tests/lint/no-file-registry-refs.sh) continue;;
+    tests/run-all.sh) continue;;
+    tests/EVALUATION.md) continue;;
+    tests/mcp-integration/search-tools.test.mjs) continue;;
+    tests/manual/bench/*) continue;;
+    tests/dogfood/ab-scenarios/*) continue;;
     # CLAUDE.md is Human-owned (feedback_claude_md_owned_by_human) — warn,
     # don't fail. Surfacing the drift is the value; the Human applies the fix.
     CLAUDE.md)
@@ -47,7 +58,7 @@ while IFS= read -r f; do
 done <<< "$HITS"
 
 if [ "$FAIL" -ne 0 ]; then
-  printf '\nno-file-registry-refs: FAIL — file_registry was retired in v7. Use the world model (`directories`, `world_model_get`, `world_model_search`).\n' >&2
+  printf '\nno-file-registry-refs: FAIL — file_registry was retired in v7. Use world_model_get / world_model_search (kuzu graph DB) or scan_run.\n' >&2
   exit 1
 fi
 

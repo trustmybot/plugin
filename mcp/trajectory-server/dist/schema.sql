@@ -172,7 +172,8 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
 INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 8, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
--- session dir. directories rows reference repos.name via the repo column.
+-- session dir. Kuzu world-model Directory nodes reference repos.name as their
+-- root; this SQLite table is the deterministic precursor to the kuzu writes.
 CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
@@ -279,7 +280,7 @@ CREATE TABLE IF NOT EXISTS commands (
 -- Seed the bundled slash commands so a fresh DB doesn't sit empty
 -- (same pattern as agents + skills seeds above).
 INSERT OR IGNORE INTO commands (name, description, file_path, scope, args_schema, status, created_at, updated_at) VALUES
-    ('scan',       'Populate the world model (`directories` table) by walking the session dir for git repos and pulling each dir''s README.md into a summary. Single phase — no background fill required for the primary navigation surface.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
+    ('scan',       'Populate the kuzu world model (graph DB) by walking the session dir for git repos and pulling each dir''s README.md into a summary. Single phase — no background fill required for the primary navigation surface.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
     ('onboard',    'Configure or change identity, branching model, PR target, remotes, and issue-sync. Server-driven — bro orchestrates AskUserQuestion rounds; the MCP `onboard_*` tools own every if/else branch.',                                                       'commands/onboard.md',    'global', '{}',                                                          'active', datetime('now'), datetime('now')),
     ('monitor',    'Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them.',                                                                                                                                                       'commands/monitor.md',    'global', '{"argument_hint":"<PR or MR number>"}',                       'active', datetime('now'), datetime('now')),
     ('roundtable',    'Multi-agent deliberation on a topic with checkbox/radio AUQ ratification.',                                                                                                                                                                            'commands/roundtable.md',    'global', '{"argument_hint":"<topic to deliberate>"}',     'active', datetime('now'), datetime('now')),

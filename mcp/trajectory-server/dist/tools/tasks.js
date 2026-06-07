@@ -157,7 +157,7 @@ export function taskTools(db) {
                     },
                     waive_registry_gate: {
                         type: 'boolean',
-                        description: "Set true to bypass the world-model-cold gate. Only acceptable when /scan can't run for some reason (offline / scratch test fixture). If false or omitted, `directories` MUST have at least one row for each task's repo before tasks can be created — populate via /scan or scan_run.",
+                        description: "Set true to bypass the world-model-cold gate. Only acceptable when /scan can't run for some reason (offline / scratch test fixture). If false or omitted, the kuzu world model MUST be warm (a deep_scan_completed audit row must exist) before tasks can be created — populate via /scan or scan_run.",
                     },
                     waive_registry_gate_reason: {
                         type: 'string',

@@ -10,7 +10,7 @@
     },
     "mcp/trajectory-server": {
       "name": "@trustmybot/trajectory-server",
-      "version": "0.7.0-rc.6",
+      "version": "0.7.0-rc.1",
       "dependencies": {
         "@huggingface/transformers": "^3.0.0",
         "@modelcontextprotocol/sdk": "^1.0",
@@ -22,6 +22,9 @@
       },
     },
   },
+  "trustedDependencies": [
+    "kuzu",
+  ],
   "packages": {
     "@emnapi/runtime": ["@emnapi/runtime@1.10.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA=="],
 

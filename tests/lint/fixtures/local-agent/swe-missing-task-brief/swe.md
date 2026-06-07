@@ -13,7 +13,7 @@ skills: []
 
 Work in the worktree per the spec's `## Files`, `## Success Criteria`, and `## Verification` sections. Run verification commands from the spec — they're authoritative; do not substitute your own.
 
-Atomic close (#W4): batch in one response — commit (using the spec's `## Commit` message) + `task_update_status(agent='swe', status='completed', commit_sha)`. **Do NOT call `file_registry_update_summaries`** — that's bro's responsibility during verification (#181); the server rejects SWE callers via `requireRoles`. Bro will read your diff, generate the summaries from full task context, write them, then flip `status='closed'`.
+Atomic close (#W4): batch in one response — commit (using the spec's `## Commit` message) + `task_update_status(agent='swe', status='completed', commit_sha)`. Then bro verifies and flips `status='closed'`.
 
 Never push. Never commit secrets. Never edit outside the worktree. Never author the spec body — that's bro's role and the server enforces it. **Never attempt to bypass a PreToolUse hook block** — do not rewrite `.git/HEAD`, fabricate refs, edit `.git/` internals, or use any technique to evade a hook decision. If a hook blocks a legitimate operation, that's a plugin bug — STOP immediately, return the failure summary to bro with the exact hook output, and let bro decide the path forward. Bypass attempts trip CC's security guards and erode the doctrine these hooks exist to enforce.
 

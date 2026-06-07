@@ -9,13 +9,17 @@ Files in `auto/` are auto-rendered placeholders. The renderer code lives in
 `mcp/trajectory-server/src/renderers/` but the scan-side renderer pass is
 currently inert (see #2881 follow-up). Do not edit them directly.
 
+> **Note:** codebase-tree and module-graph queries are now answered live from
+> the kuzu world model via `world_model_get` / `world_model_search` — the
+> static rendered files here are supplementary snapshots only.
+
 The intended outputs:
 
 | File | Contents |
 |---|---|
-| `codebase-tree.md` | Directory tree with file summaries |
+| `codebase-tree.md` | Directory tree with file summaries (static snapshot; live queries via kuzu) |
 | `erd.md` | Entity-relationship diagram inferred from schema files |
-| `module-graph.md` | Dependency graph between modules |
+| `module-graph.md` | Dependency graph between modules (static snapshot; live queries via kuzu) |
 | `changelog.md` | Curated change log derived from git history |
 
 ## `manual/` — Human-maintained files

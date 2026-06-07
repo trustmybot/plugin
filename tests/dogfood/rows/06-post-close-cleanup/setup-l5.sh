@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Pre-seed src/cli.py + a top-level README so the world model has something
 # to summarize. The scenario under test is: after a task close, the
-# post-task-close-rescan hook refreshes the world model and the project
-# map stays current.
+# post-task-close-rescan hook refreshes the world model (kuzu graph DB)
+# and the project map stays current.
 #
-# In L6 chain mode rows 04+05 already populated `directories` (row 04 ran
-# /scan; row 05 closed a task → post-close-rescan refreshed). In L5
-# standalone mode this setup pre-warms `directories` so the row's bro
-# turn has a populated world model to read from.
+# In L6 chain mode rows 04+05 already pre-warmed the world model (row 04
+# ran /scan; row 05 closed a task → post-close-rescan refreshed). In L5
+# standalone mode this setup seeds a deep_scan_completed audit row (the
+# SQLite-side proxy for "world model warm") so the row's bro turn starts
+# with a pre-warmed state.
 set -uo pipefail
 
 PROJECT="$1"
@@ -86,21 +87,16 @@ if __name__ == "__main__":
     main()
 PY
 
-# Pre-warm the world model for L5 standalone runs. In chain mode this
-# overwrites a more thoroughly-populated state from rows 04+05; that's
-# fine — the outcome assertion only checks "≥1 directories row exists".
+# Pre-warm the world model for L5 standalone runs. The kuzu graph DB is
+# populated by scan_run at runtime; here we seed the SQLite-side proxy
+# (deep_scan_completed audit row + repos row) so bro starts with a warm
+# world model rather than hitting the world-model-cold gate.
 PROJECT_REAL=$(cd "$PROJECT" && pwd -P)
 REPO_NAME=$(basename "$PROJECT_REAL")
 
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
 INSERT OR REPLACE INTO repos (name, path)
 VALUES ('$REPO_NAME', '$PROJECT_REAL');
-
-INSERT OR IGNORE INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
-VALUES ('$REPO_NAME', '', NULL, 'todo-cli — stdlib argparse + JSON storage.', 'readme', datetime('now'), 2);
-
-INSERT OR IGNORE INTO directories (repo, path, parent_path, summary, summary_source, summary_updated_at, file_count)
-VALUES ('$REPO_NAME', 'src', '', NULL, 'llm', NULL, 1);
 
 INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
 VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'setup-l5: world model pre-warmed for row 06', '{}', datetime('now'));

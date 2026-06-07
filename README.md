@@ -73,11 +73,14 @@ Details: [`CLAUDE.md`](CLAUDE.md), [`agents/swe.md`](agents/swe.md), [`agents/pr
 
 ### 2. Trajectory Memory — state survives session kills
 
-Every transition lands in `<project>/.claude/tmb/trajectory.db` (SQLite). Issues, discussions, ADR decisions, task specs, validation verdicts, append-only audit. Kill Claude mid-task, come back tomorrow — bro reads the trajectory and resumes.
+Two stores, both project-local and gitignored:
 
-Big token dividend: no codebase-rediscovery tax. Pre-computed architecture snapshots (codebase tree, module graph, schema map) refresh lazily; local SQLite = no API round-trips on resume.
+- **Trajectory DB** (`trajectory.db`, SQLite) — procedural state: issues, discussions, ADR decisions, task specs, validation verdicts, append-only audit. Kill Claude mid-task, come back tomorrow — bro reads the trajectory and resumes.
+- **World model** (`world-model.kuzu`, kuzu graph DB) — semantic project map: every directory a node with a README-derived summary, edges linking parent ↔ child. Queried via `world_model_get` / `world_model_search` (RAG). Refreshed by `/scan` or the post-task-close-rescan hook.
 
-Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architecture/FILES.md`](docs/architecture/FILES.md).
+Big token dividend: no codebase-rediscovery tax. The world model answers "where does X live?" in one graph hop; local stores = no API round-trips on resume.
+
+Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architecture/FILES.md`](docs/architecture/FILES.md), [`docs/architecture/WORLD_MODEL.md`](docs/architecture/WORLD_MODEL.md).
 
 ### 3. Evaluation System — verification you can audit later
 

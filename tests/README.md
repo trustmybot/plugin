@@ -72,7 +72,7 @@ tests/
     ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
     ├── rows/<NN>-<name>/       ← canonical row tree (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
     ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
-    ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the registry-cold gate so rows that exercise task_create_batch don't trip it
+    ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the world-model-cold gate so rows that exercise task_create_batch don't trip it
     └── ab-scenarios/           ← per-A/B-test layout
 ```
 
@@ -125,7 +125,7 @@ Run L5 locally before tagging a release candidate. The token is the one-time `CL
 
 ## Run L6 dogfood (multi-turn chain)
 
-L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, `file_registry` on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
+L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, and world-model state on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
 The 14 chain steps live in `tests/dogfood/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
 
@@ -172,7 +172,7 @@ L5/L6 test against bro's ability to translate user intent into the right orchest
 | `@bro I want to make this project available on GitHub.` | `@bro reonboard with remote=GitHub, branching_model=github-flow.` |
 | `@bro let's switch to Clerk for auth.` | `@bro plan a difficult-path migration from JWT to Clerk and dispatch SWE.` |
 
-Legitimate user-typed slash commands stay verbatim (`/onboard`, `/roundtable …`, `/monitor 123`, `/scan`). Don't have the user type `@bro scan the codebase` — `scan_run` is supposed to be fired implicitly by the registry-cold gate when bro reaches `task_create_batch`. Asking for it explicitly bypasses the very contract row 4 exists to verify.
+Legitimate user-typed slash commands stay verbatim (`/onboard`, `/roundtable …`, `/monitor 123`, `/scan`). Don't have the user type `@bro scan the codebase` — `scan_run` is supposed to be fired implicitly by the world-model-cold gate when bro reaches `task_create_batch`. Asking for it explicitly bypasses the very contract row 4 exists to verify.
 
 ## A/B prompt eval
 
@@ -232,7 +232,7 @@ Does the change affect:
 Does the change affect cross-step / multi-turn dynamics?
   - cumulative state across multiple bro turns
   - state continuity across `--resume` sessions
-  - empty-table regression patterns (registry, discussions, agent_runs, etc.)
+  - empty-table regression patterns (world model, discussions, agent_runs, etc.)
   → L2 + L3 + L6 (add a row under tests/dogfood/rows/ AND an entry to tests/dogfood/l6-chain/chain-manifest.json).
 
 Does the change introduce a hook or modify hook behavior?
