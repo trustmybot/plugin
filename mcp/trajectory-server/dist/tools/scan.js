@@ -301,7 +301,7 @@ export function scanTools(db, graph) {
     const definitions = [
         {
             name: 'scan_run',
-            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo's tracked files, and persists to `repos` + `directories`. For each unique directory in the file set, populates `directories.summary` from `<dir>/README.md` (author-curated, summary_source='readme') or leaves NULL for lazy LLM fill. Emits a deep_scan_completed audit event. The audit content_json carries `source` (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) and `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan). See docs/architecture/WORLD_MODEL.md + ADR 0001.",
+            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo's git-tracked files (.gitignore-aware — caches/build artifacts are excluded), and writes Directory nodes + CONTAINS edges to the kuzu world model. Each directory's summary comes from `<dir>/README.md` (author-curated, summary_source='readme') or, when absent, a deterministic structural summary of its immediate file + subdir names (summary_source='structural') — never NULL. Emits a deep_scan_completed audit event. The audit content_json carries `source` (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) and `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan). See docs/architecture/WORLD_MODEL.md.",
             inputSchema: {
                 type: 'object',
                 properties: {
