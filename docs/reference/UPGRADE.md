@@ -209,9 +209,9 @@ sqlite3 <workspace>/.claude/tmb/trajectory.db \
 ```bash
 git checkout main
 git merge --ff-only origin/rc            # or the validated commit
-bash scripts/maintenance/bump-version.sh 0.6.0
-git commit -am "🔖 release: v0.6.0"
-git tag v0.6.0
+bash scripts/maintenance/bump-version.sh <X.Y.Z>
+git commit -am "🔖 release: v<X.Y.Z>"
+git tag v<X.Y.Z>
 git push origin main --tags
 ```
 
@@ -244,8 +244,8 @@ The L0 install-smoke (`tests/docker/install-smoke.Dockerfile`) seeds a synthetic
 
 ```bash
 # 1. Materialize an old plugin version
-git worktree add /tmp/tmb-v0.5 v0.5.0
-( cd /tmp/tmb-v0.5 && bun install --frozen-lockfile && bun run build )
+git worktree add /tmp/tmb-old v<PREV.VERSION>
+( cd /tmp/tmb-old && bun install --frozen-lockfile && bun run build )
 
 # 2. Fresh test project
 TEST_PROJ=$(mktemp -d -t tmb-upgrade-XXXX)
@@ -254,7 +254,7 @@ TEST_PROJ=$(mktemp -d -t tmb-upgrade-XXXX)
 
 # 3. Run CC with the OLD plugin to populate v1-shape state
 cd "$TEST_PROJ"
-echo '@bro hi' | claude --plugin-dir /tmp/tmb-v0.5 -p --dangerously-skip-permissions
+echo '@bro hi' | claude --plugin-dir /tmp/tmb-old -p --dangerously-skip-permissions
 
 # Confirm pre-upgrade state — schema_version should be 1
 sqlite3 .claude/tmb/trajectory.db 'SELECT schema_version, plugin_version FROM plugin_meta;'
@@ -268,7 +268,7 @@ ls -la .claude/tmb/trajectory.db.pre-v2.*.bak           # one backup per target 
 sqlite3 .claude/tmb/trajectory.db "SELECT value_json FROM plugin_config WHERE key='onboarded';"
 
 # 6. Cleanup
-git worktree remove /tmp/tmb-v0.5
+git worktree remove /tmp/tmb-old
 rm -rf "$TEST_PROJ"
 ```
 
@@ -296,12 +296,12 @@ TEST_PROJ=$(mktemp -d -t tmb-upgrade-XXXX)
 mkdir -p "$TEST_PROJ/.claude/tmb"
 DB="$TEST_PROJ/.claude/tmb/trajectory.db"
 
-# Seed a minimal v1-shape DB matching what a v0.5.x install would have written
+# Seed a minimal v1-shape DB matching a pre-migration install
 sqlite3 "$DB" "
   CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY, schema_version INTEGER NOT NULL, plugin_version TEXT NOT NULL);
   CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
   CREATE TABLE identity (id INTEGER PRIMARY KEY);
-  INSERT INTO plugin_meta VALUES (1, 1, '0.5.0');
+  INSERT INTO plugin_meta VALUES (1, 1, '<prev-version>');
   INSERT INTO identity VALUES (1);
 "
 
