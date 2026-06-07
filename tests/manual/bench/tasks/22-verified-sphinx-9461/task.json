@@ -1,0 +1,22 @@
+{
+  "source": "swe-bench-verified",
+  "id": "sphinx-doc__sphinx-9461",
+  "repo": "sphinx-doc/sphinx",
+  "base_commit": "939c7bb7ff7c53a4d27df067cea637540f0e1dad",
+  "language": "python",
+  "version": "4.2",
+  "python_version": "3.9",
+  "both_failed_opus4_sonnet4": true,
+  "fail_to_pass": [
+    "tests/test_domain_py.py::test_pyproperty",
+    "tests/test_ext_autodoc_autoclass.py::test_properties",
+    "tests/test_ext_autodoc_autoproperty.py::test_class_properties"
+  ],
+  "pass_to_pass_sample": [
+    "tests/test_domain_py.py::test_function_signatures",
+    "tests/test_domain_py.py::test_pyfunction",
+    "tests/test_ext_autodoc_autoproperty.py::test_properties"
+  ],
+  "env_install_cmd": "sed -i 's/pytest/pytest -rA/' tox.ini && sed -i 's/Jinja2>=2.3/Jinja2<3.0/' setup.py && sed -i 's/sphinxcontrib-applehelp/sphinxcontrib-applehelp<=1.0.7/' setup.py && sed -i 's/sphinxcontrib-devhelp/sphinxcontrib-devhelp<=1.0.5/' setup.py && sed -i 's/sphinxcontrib-qthelp/sphinxcontrib-qthelp<=1.0.6/' setup.py && sed -i 's/alabaster>=0.7,<0.8/alabaster>=0.7,<0.7.12/' setup.py && sed -i \"s/'packaging',/'packaging', 'markupsafe<=2.0.1',/\" setup.py && sed -i 's/sphinxcontrib-htmlhelp>=2.0.0/sphinxcontrib-htmlhelp>=2.0.0,<=2.0.4/' setup.py && sed -i 's/sphinxcontrib-serializinghtml>=1.1.5/sphinxcontrib-serializinghtml>=1.1.5,<=1.1.9/' setup.py && pip install --quiet 'tox==4.16.0' 'tox-current-env==0.0.11' 'Jinja2==3.0.3' && pip install --quiet -e .[test]",
+  "test_patch_file": "test_patch.diff"
+}
