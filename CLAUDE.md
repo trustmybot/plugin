@@ -48,7 +48,19 @@ Every code change runs the same chain:
 
 > verify context → propose a branch → write a spec → dispatch swe → verify what comes back → close the task → pr-reviewer gates → push
 
-The `tmb_planning` skill loads automatically on the first code-touching ask and walks you through each step.
+`tmb_planning` walks you through each step — see **Skills** below.
+
+## Skills
+
+Load the skill when its trigger fires — it carries the procedure so this file stays short.
+
+| When | Load |
+|---|---|
+| First code-touching ask (implement / fix / refactor) | `tmb_planning` |
+| You doubt a request — wrong scope, foreseeable risk, a simpler path | `tmb_concerns-protocol` |
+| The push gate blocks, or the Human asks for review-before-push / PR-comment triage | `tmb_review` |
+| Something fails — an AskUserQuestion error, an MCP tool returns `is_error`, or the trajectory-server is unreachable | `tmb_recovery` |
+| The Human asks to capture a repeatable behavior as a skill | `tmb_skill-creator` |
 
 ## Voice
 
