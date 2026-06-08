@@ -16,7 +16,7 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`dogfood/run-l5.sh`](./dogfood/run-l5.sh), [`dogfood/rows/`](./dogfood/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
-| **L6** | Multi-turn chain. Walks the 14 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`dogfood/run-l6-chain.sh`](./dogfood/run-l6-chain.sh), [`dogfood/l6-chain/`](./dogfood/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
+| **L6** | Multi-turn chain. Walks the 13 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`dogfood/run-l6-chain.sh`](./dogfood/run-l6-chain.sh), [`dogfood/l6-chain/`](./dogfood/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
 | **A/B prompt eval** | Head-to-head comparison of doctrine variants (e.g. CLAUDE.md slim vs padded). N pairs per arm against an L5 flow → per-arm pass-rate + chi-squared p-value | [`dogfood/run-ab.sh`](./dogfood/run-ab.sh) + [`dogfood/ab-scenarios/`](./dogfood/ab-scenarios/) | Whether a doctrine change moves the needle vs is just rearrangement |
 | **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
@@ -127,10 +127,10 @@ Run L5 locally before tagging a release candidate. The token is the one-time `CL
 
 L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, and world-model state on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
-The 14 chain steps live in `tests/dogfood/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
+The 13 chain steps live in `tests/dogfood/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
 
 ```bash
-# Chained run — walks all 14 chain rows against a cumulative trajectory DB.
+# Chained run — walks all 13 chain rows against a cumulative trajectory DB.
 # Each row fires a fresh `claude -p`; DB continuity drives the chain.
 # Per-step logs land at ~/.claude/tmb/l6-chain-runs/<run-id>/.
 # See tests/dogfood/l6-chain/README.md.
@@ -139,7 +139,7 @@ bash tests/dogfood/run-l6-chain.sh --from 7         # resume from row 7
 bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
 ```
 
-Run L6 locally before tagging a release candidate; rc tag policy gates on 14/14 chain pass.
+Run L6 locally before tagging a release candidate; rc tag policy gates on 13/13 chain pass.
 
 ### Debugging an L6 chain failure
 

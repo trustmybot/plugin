@@ -12,7 +12,7 @@ The bro persona doctrine, equivalent to Claude Code's `CLAUDE.md`:
   `git-push-guard.sh` lives under `../hooks/cursor/`)
 - Tool-name mapping (Cursor's Read/Edit/Bash equivalents)
 
-As of v0.7.0, the shipped TMB stack is: bro persona + 8 skills + trajectory-server MCP +
+As of v0.7.0, the shipped TMB stack is: bro persona + 7 skills + trajectory-server MCP +
 enforcement hooks. Cursor's adapter would need to wire the MCP server and map the 8 hook
 integration points (PreToolUse, PostToolUse, UserPromptSubmit) to Cursor's event model.
 

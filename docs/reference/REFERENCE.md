@@ -8,7 +8,6 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **World model graph DB** — kuzu at `<project>/.claude/<plugin-name>/world-model.kuzu/`. Holds bro's project mental picture: Directory nodes + CONTAINS edges (more node/edge types in follow-up slices). Sibling file to the trajectory DB. See `docs/architecture/WORLD_MODEL.md`.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **ADRs** — `docs/trustmybot/architecture/manual/decisions/N-*.md`, hand-curated.
-- **Auto-rendered architecture docs** — `docs/trustmybot/architecture/auto/`, refreshed by the scan-side renderer pass.
 - **Snapshots** — `docs/trustmybot/snapshots/<issue_id>.md`, generated via `issue_snapshot_md`.
 
 ## Other docs
@@ -30,7 +29,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
 - **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS), `pr_review_runs_list`
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
-- **world model** (bro's directory-level memory): `world_model_get` (annotated dir tree), `world_model_search` (FTS5 / semantic / hybrid)
+- **world model** (bro's directory-level memory): `world_model_get` (annotated dir tree), `world_model_search` (keyword / semantic / hybrid)
 - **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
 - **config**: `config_get`, `config_list`, `config_set`
 - **scan**: `scan_run`, `repos_list`
@@ -110,4 +109,4 @@ Runtime location: `plugin/commands/<name>.md`.
 | `swe-atomic-close.sh` | SubagentStop | Auto-close pending SWE task; capture agent_runs metrics |
 | `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |
 
-## Schema state — see ERD.md for full table list (schema v7)
+## Schema state — see ERD.md for full table list (schema v8)
