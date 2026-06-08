@@ -114,7 +114,7 @@ Domain consultants outside this set are drafted on demand via `/tmb:agent-create
 
 ## Support · Contributing · License
 
-**Like it?** Star ⭐ or fork the repo — it helps others find TMB.
+**Like bro?** Star ⭐ or fork the repo — it helps others find TMB.
 
 **Support:** [Sponsor on GitHub](https://github.com/sponsors/trustmybot) keeps it maintained.
 
