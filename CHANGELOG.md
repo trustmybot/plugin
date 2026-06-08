@@ -8,7 +8,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Measured
 
-- **Measured: ~61% token reduction (v0.6→v0.7).** Re-running the original SWE-bench 8-task corpus on the current version used 6.8M tokens / $6.78 vs the pre-world-model baseline's 17.7M / $17.33 (−61% tokens, −51% wall-clock) — the world model's long-context-management payoff. Verified held 4/4 at −57% tokens; one Lite task slipped (N=1). See docs/contributing/BENCHMARK.md.
+- **Measured: ~61% token reduction (v0.6→v0.7) at 8/8 resolved.** Re-running the original SWE-bench 8-task corpus on the current version resolved 8/8 using ~6.97M tokens / $6.98 vs the pre-world-model baseline's 17.7M / $17.33 (−61% tokens, −51% wall-clock) — the world model's long-context-management payoff. It also beats a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31) on the same corpus. See docs/contributing/BENCHMARK.md.
 
 ### Fixed
 

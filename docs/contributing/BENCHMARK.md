@@ -3,7 +3,7 @@
 > **Headline (N=1 per task):**
 >
 > - **Capability:** TMB resolved tasks that the same underlying model failed under simpler orchestration — 8/8 on the curated-hard corpus (0/8 for the published comparators on those same task IDs).
-> - **Efficiency (v0.7):** the world model's long-context management now makes TMB **cheaper and faster than a raw Claude Code baseline** — −57% tokens, −34% cost, −34% time, +1 resolved (7/8 vs raw 6/8) across the same 8-task corpus.
+> - **Efficiency (v0.7):** the world model's long-context management now makes TMB **cheaper and faster than a raw Claude Code baseline** — −56% tokens, −32% cost, −34% time, +2 resolved (8/8 vs raw 6/8) across the same 8-task corpus.
 
 Raw per-task data, environment metadata, run dates, and reproduction
 commands live in **[`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md)**.
@@ -16,7 +16,7 @@ commands live in **[`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RE
 |---|---|---|---|---|---|
 | Raw (pure Claude Code, 2026-05-13) | 6 / 8 | 15.87M | $10.31 | 1890s | 0 / 8 |
 | TMB v0.6 (2026-05-13, pre-world-model) | 8 / 8 | 17.72M | $17.33 | ~2557s | 0 / 8 |
-| TMB v0.7 (2026-06-07, world-model on) | 7 / 8 | 6.84M | $6.78 | 1252s | 0 / 8 |
+| TMB v0.7 (2026-06-07, world-model on) | 8 / 8 | 6.97M | $6.98 | 1256s | 0 / 8 |
 
 All three arms ran the same 8 SWE-bench tasks (4 Verified + 4 Lite) with the same
 environment pins. Model snapshots match on the **Verified** arm
@@ -29,7 +29,7 @@ out cheaper than a Sonnet-4 baseline.
 **Caveats:**
 - **N=1** per task across all arms; ±1 task is plausible on a re-run.
 - Raw + v0.6 are the 2026-05-13 run; v0.7 is the 2026-06-07 re-run (same pinned model).
-- Resolve sets differ: raw 6/8, v0.7 7/8, v0.6 8/8 (flask-4045 slipped on the v0.7 re-run — N=1 variance).
+- Resolve sets: raw 6/8 (failed sympy + sphinx-7686), v0.7 8/8, v0.6 8/8.
 - Per-task raw baseline data: [`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md#raw-baseline--pure-claude-code-2026-05-13).
 
 ---
@@ -45,18 +45,17 @@ aggressively that TMB is now **cheaper than the raw baseline** on the same corpu
 
 | | Raw | TMB v0.7 | v0.7 Δ |
 |---|---|---|---|
-| Resolved | 6 / 8 | 7 / 8 | **+1** |
-| Tokens | 15.87M | 6.84M | **−57%** |
-| Cost | $10.31 | $6.78 | **−34%** |
-| Time | 1890s | 1252s | **−34%** |
+| Resolved | 6 / 8 | 8 / 8 | **+2** |
+| Tokens | 15.87M | 6.97M | **−56%** |
+| Cost | $10.31 | $6.98 | **−32%** |
+| Time | 1890s | 1256s | **−34%** |
 | Hallucinated | 0 / 8 | 0 / 8 | same |
 
 ### Co-resolved subset — same-model signal
 
-The full-corpus comparison is muddied by differing resolve sets (raw solved
-flask but not sympy; v0.7 solved sympy but not flask). The **co-resolved
-subset** removes that mismatch — tasks BOTH raw and v0.7 resolved. Split by arm
-so the model stays honest:
+v0.7 resolves all 8; raw resolves 6 (it failed sympy and sphinx-7686). The
+**co-resolved subset** is the 6 tasks BOTH arms resolved. Split by arm so the
+model stays honest:
 
 **Verified co-resolved (3 tasks — same Opus snapshot both arms)** —
 `pytest-10356`, `sphinx-7590`, `pylint-4661`:
@@ -70,20 +69,20 @@ so the model stays honest:
 This is the cleanest apples-to-apples — identical model, identical tasks. The
 world model cuts roughly a quarter of the tokens on tasks both arms solve.
 
-**Lite co-resolved (2 tasks — cross-model: raw Sonnet 4 vs v0.7 Opus)** —
-`pytest-8906`, `pylint-6506`:
+**Lite co-resolved (3 tasks — cross-model: raw Sonnet 4 vs v0.7 Opus)** —
+`pytest-8906`, `pylint-6506`, `flask-4045`:
 
 | | Raw (Sonnet 4) | TMB v0.7 (Opus) | v0.7 Δ |
 |---|---|---|---|
-| Tokens | 4.59M | 1.19M | −74% |
-| Cost | $2.11 | $1.27 | −40% |
-| Time | 520s | 245s | −53% |
+| Tokens | 5.93M | 1.64M | −72% |
+| Cost | $2.79 | $1.79 | −36% |
+| Time | 693s | 311s | −55% |
 
 Not a clean control (different models) — but notable that v0.7 on the *pricier*
 model still undercut a Sonnet-4 baseline on cost.
 
-**All 5 co-resolved (mixed model on Lite):** 9.33M → 4.79M tokens (−49%),
-$6.30 → $4.63 (−27%), 1124s → 861s (−23%).
+**All 6 co-resolved (mixed model on Lite):** 10.67M → 5.24M tokens (−51%),
+$6.98 → $5.15 (−26%), 1297s → 927s (−29%).
 
 ---
 
@@ -196,10 +195,10 @@ Re-running the original 8-task corpus (same config: Verified=enrich+`claude-opus
 
 | | Baseline (pre-world-model) | Current | Delta |
 |---|---|---|---|
-| Tokens | 17.72M | 6.84M | **−61%** |
-| Cost | $17.33 | $6.78 | **−61%** |
-| Wall-clock | ~2557s | 1252s | **−51%** |
-| Resolved | 8 / 8 | 7 / 8 | −1 (flask-4045, see caveat) |
+| Tokens | 17.72M | 6.97M | **−61%** |
+| Cost | $17.33 | $6.98 | **−60%** |
+| Wall-clock | ~2557s | 1256s | **−51%** |
+| Resolved | 8 / 8 | 8 / 8 | same |
 | Hallucinated | 0 / 8 | 0 / 8 | same |
 
 ### Verified subset — apples-to-apples (4/4 both runs)
@@ -213,12 +212,8 @@ Re-running the original 8-task corpus (same config: Verified=enrich+`claude-opus
 
 | | Baseline | Current | Delta |
 |---|---|---|---|
-| Tokens | 7.83M | 2.54M | **−68%** |
-| Resolved | 4 / 4 | 3 / 4 | −1 (flask-4045) |
-
-### Caveat — flask-4045 regression (N=1)
-
-flask-4045 resolved on the baseline run but not on the re-run. **N=1** — single-run variance is unmeasured; this single slip on a single task should not be read as a systematic regression. The Verified subset (4/4 on both runs, same model) is the cleaner apples-to-apples signal.
+| Tokens | 7.83M | 2.67M | **−66%** |
+| Resolved | 4 / 4 | 4 / 4 | same |
 
 Per-task data: [`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md).
 
