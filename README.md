@@ -43,7 +43,7 @@ Walkthroughs: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
 ## Benchmarks
 
-TMB resolved **8 of 8** SWE-bench tasks (4 Verified + 4 Lite) where pure Claude 4 Opus and pure Claude 4 Sonnet — using their official Anthropic-published agentic harnesses — **failed**. Same model snapshots, different orchestration. **Zero hallucinated success claims.**
+TMB resolved **8 of 8** SWE-bench tasks (4 Verified + 4 Lite) where pure Claude 4 Opus and pure Claude 4 Sonnet — using their official Anthropic-published agentic harnesses — **failed**. On Verified, same model snapshot both sides (`claude-opus-4-20250514`); on Lite, TMB's Opus against the comparators' published Sonnet 4 harnesses. Different orchestration, **zero hallucinated success claims.**
 
 | Corpus | TMB-on | Comparator | Comparator score on these tasks |
 |---|---|---|---|
@@ -56,7 +56,7 @@ Curated-hard subsets from the all-comparators-failed intersection. Methodology, 
 
 **Token efficiency.** On the same SWE-bench corpus, the current version uses **~61% fewer tokens (6.8M vs 17.7M) at roughly half the wall-clock** versus the pre-world-model baseline — the world model acting as long-context management (reasoning from a compressed repo graph instead of re-ingesting files). The Verified subset held **4/4 resolved at −57% tokens**. Zero hallucinations throughout. Per-task data: [`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md).
 
-> **The shape of the tradeoff.** Token + time data isn't published per-task by the public comparators, so we measured it locally with a same-model raw baseline (Claude Code, no plugin). On tasks where both can resolve: TMB pays **~+60% cost / ~+70% time per task**. On tasks where the published comparator failed (these 8), TMB's premium IS the value — it's not a tax for the same outcome, it's the difference between landing and not. Hallucination rates were 0/8 for both on this single-shot corpus; the "TMB hallucinates less" claim needs longer/messier tasks to differentiate (chained-bench iteration). Full measurement detail: [`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md) and [`tests/manual/bench/RESULTS.md`](tests/manual/bench/RESULTS.md).
+> **The shape of the tradeoff.** Token + time data isn't published per-task by the public comparators, so we measured it locally against a same-model raw baseline (Claude Code, no plugin, `claude-opus-4-20250514`). The pre-world-model build paid a real premium for bro's orchestration — roughly +60% cost / +70% time vs raw. **v0.7's world model erased it:** the same Verified tasks now run at **4.30M tokens · $4.15**, down 57% from the 9.89M · $10.01 measured pre-world-model — putting v0.7 at or below the raw baseline's 7.23M · $6.21, while still landing **4/4 vs raw's 3/4**. On the tasks the published comparators failed (these 8), that resolution gap IS the value. Hallucination rates were 0/8 for both arms on this single-shot corpus; the "TMB hallucinates less" claim needs longer/messier tasks to differentiate (chained-bench iteration). Full measurement detail: [`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md) and [`tests/manual/bench/RESULTS.md`](tests/manual/bench/RESULTS.md).
 
 ---
 
