@@ -4,6 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.0 — 2026-06-07
+
+Promotes `v0.7.0-rc.3` to stable. See `v0.7.0-rc.1`–`rc.3` + `v0.7.0-dev` for the cumulative changes from v0.6.0 — the **kuzu graph-DB world model** (ADR 0002, schema v8), the pre-release doc-accuracy sweep, and the #314 / #315 / #316 fixes. **Benchmarks:** 8/8 on the curated SWE-bench slate at ~6.97M tokens / $6.98 — cheaper than a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31), 0 hallucinations. L6 13/13 in CI.
+
 ## v0.7.0-rc.3 — 2026-06-07
 
 ### Measured
