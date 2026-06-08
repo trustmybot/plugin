@@ -114,6 +114,8 @@ Domain consultants outside this set are drafted on demand via `/tmb:agent-create
 
 ## Support · Contributing · License
 
+**Like it?** Star ⭐ or fork the repo — it helps others find TMB.
+
 **Support:** [Sponsor on GitHub](https://github.com/sponsors/trustmybot) keeps it maintained.
 
 **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow + tests. Start with [`CLAUDE.md`](CLAUDE.md) (bro persona), [`docs/architecture/RESPONSIBILITIES.md`](docs/architecture/RESPONSIBILITIES.md) (per-agent contract), [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema).

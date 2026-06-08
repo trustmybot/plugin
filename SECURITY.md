@@ -7,7 +7,7 @@ This project is pre-1.0 and ships from a single trunk. Only the latest stable re
 | Version | Supported |
 | ------- | --------- |
 | Latest stable (`tmb@trustmybot`) | ✅ |
-| Latest RC (`tmb-rc@trustmybot`) | ✅ (rolled into next stable) |
+| Latest RC (`tmb@trustmybot-rc`) | ✅ (rolled into next stable) |
 | Older releases | ❌ — upgrade |
 
 ## Reporting a Vulnerability
@@ -15,8 +15,8 @@ This project is pre-1.0 and ships from a single trunk. Only the latest stable re
 **Please do not file public issues for security vulnerabilities.**
 
 For security issues:
-- **GitLab (primary):** Use GitLab's confidential issues feature on `gitlab.com/trustmybot/plugin` — mark as confidential when creating
-- **GitHub (mirror, currently suspended):** When restored, use GitHub's private vulnerability reporting at `github.com/trustmybot/plugin/security/advisories/new`
+- **GitHub (primary):** Use GitHub's private vulnerability reporting at `github.com/trustmybot/plugin/security/advisories/new`
+- **GitLab (backup mirror):** Use GitLab's confidential issues on `gitlab.com/trustmybot/plugin` — mark confidential when creating
 - **Email fallback:** zax.shen@gmail.com
 
 Expected response: acknowledgement within 7 days, fix or disposition within 30 days for confirmed vulnerabilities. Coordinated disclosure timeline negotiated case-by-case.

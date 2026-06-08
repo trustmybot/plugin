@@ -1,218 +1,75 @@
 # Contributing to TMB Plugin
 
-Thanks for the interest. Public MIT-licensed plugin for Claude Code. Contributions welcome — issues, PRs, dogfood reports, all of it.
+Public MIT plugin for Claude Code. Issues, PRs, and dogfood reports all welcome — the bugs you hit *using* the plugin are the highest-value reports.
 
 ## TL;DR
 
-1. Open (or find) a GitHub issue for the change.
-2. Branch off `dev` using `<type>/<issue-number>-<slug>` (see Branching).
-3. Make the change + update or add tests.
-4. `bash tests/run-all.sh` — full suite must be green.
-5. Open a PR targeting `dev`. Reference the issue with `Closes #N`.
+1. Open or find a **GitHub** issue. `github.com/trustmybot/plugin` is canonical (a GitLab mirror exists as backup).
+2. Branch off `dev`: `<type>/<issue>-<slug>` (e.g. `fix/45-gitguards-merge`). Types: `feat fix refactor chore docs test perf`.
+3. Make the change **with tests**.
+4. `bash tests/run-all.sh` — must be green (L1–L4).
+5. `gh pr create --base dev` — reference the issue (`Closes #N`); pick from the existing [labels](docs/contributing/LABELS.md).
 
-### Submitting a change
+Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` + branch protection — always work on a branch and PR.
 
-The canonical repo is `github.com/trustmybot/plugin`. To submit changes:
+## Branches & channels
 
-1. Fork or clone the repo:
-   ```bash
-   git clone git@github.com:trustmybot/plugin.git
-   ```
-2. Branch off `dev`, make your change, run `bash tests/run-all.sh` (L1–L4 must pass)
-3. Push and open a pull request:
-   ```bash
-   gh pr create --base dev --title "<emoji> <type>(<scope>): <summary>"
-   ```
-4. Address review feedback; merge happens via GitHub UI or `gh pr merge`.
+| Branch | Role | Marketplace channel |
+|---|---|---|
+| `main` | stable tip; version tags live here | `tmb@trustmybot` (catalog `trustmybot/marketplace`) |
+| `rc` | fast-forwarded to the `vX.Y.Z-rc.N` tag under validation | `tmb@trustmybot-rc` (catalog `trustmybot/marketplace-rc`) |
+| `dev` | integration trunk; all PRs land here first | — (not published) |
 
-A GitLab mirror (`gitlab.com/trustmybot/plugin`) exists as a backup, but GitHub is canonical — issue IDs and PRs live there.
+## CI (GitHub Actions)
 
-## Label vocabulary
+`.github/workflows/release-gate.yml` runs on GitHub's runners:
+- **every push / PR to `dev`** → L1–L4 (`tests/run-all.sh`).
+- **version tags + manual dispatch** → L1–L4 **+ L6 chain** (`tests/dogfood/run-l6-chain.sh`) **+ L0 docker install-smoke**.
 
-This project uses Linear-native flat labels (`Bug`, `Feature`, `Install`, `Workflow`, `Priority: High`, etc.) — see [`docs/contributing/LABELS.md`](docs/contributing/LABELS.md) for the canonical list and [`docs/contributing/ENUMS.md`](docs/contributing/ENUMS.md) for the matching DB ENUM vocabulary. The label set is enforced by `tests/lint/labels-stable.sh`. When filing an issue, pick from the existing labels — adding a new label is a doctrine change.
+L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 
-## Branching
+## Release
 
-- `main` — stable release tip. Tags (`v0.3.1`, `v1.0.0`, …) live here. **Marketplace channel: `tmb@trustmybot`.**
-- `rc` — release-candidate channel. Fast-forwarded to whichever `vX.Y.Z-rc.N` tag is currently being validated. **Marketplace channel: `tmb@trustmybot-rc`.**
-- `dev` — integration branch. All work-branch PRs land here first. Not directly published to marketplace; promoted to `rc` for testing, then to `main` for stable.
-- Work branches — use `<type>/<issue-number>-<slug>`, e.g. `feat/42-dual-backend-issues`, `fix/45-gitguards-missing-branch`. Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`. Embedding the issue number makes every branch self-documenting and auto-links on PR merge.
+`scripts/maintenance/bump-version.sh <version>` keeps the version in sync across all four manifests.
 
-Direct commits to `dev` or `main` are blocked by `git-guards.sh`. Always work on a branch.
+1. On a branch off `dev`: `bump-version.sh X.Y.Z-rc.N`, add a `## vX.Y.Z-rc.N` CHANGELOG section, PR → `dev`.
+2. Tag the rc on `dev` and push → release-gate CI runs the full gate (L1–L4 + L6 + L0). Fast-forward `rc` to the tag.
+3. Validate via `tmb@trustmybot-rc` against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — marketplace install, **not** `--plugin-dir`.
+4. Green → PR `dev → main`, merge, then `bash scripts/release.sh` tags the stable `vX.Y.Z` on `main` and cuts the GitHub release. (`release.sh` checks that the manifests and the `## vX.Y.Z` CHANGELOG section agree, and is safe to re-run.)
 
-**Releases** go via `dev → main` PR. **Risky changes go through `rc` first** (see "Release ritual" below). The `git-guards.sh` hook permits dev → main as the only non-work-branch path to main.
+rc validation is **required** for anything touching install, schema, or doctrine — those are the breakage classes (v0.2.0 / v0.3.0) the rc channel exists to catch. Doc-only changes can skip the rc lap.
 
-## Two marketplace channels
+## Writing code & tests
 
-Users choose their risk tolerance:
-
-| Channel | Install command | What it tracks | Audience |
-|---|---|---|---|
-| **stable** | `/plugin install tmb@trustmybot` | `main` branch (latest tag) | Production users — only validated releases |
-| **release candidate** | `/plugin install tmb@trustmybot-rc` | `rc` branch (currently-testing RC tag) | Beta testers, contributors validating risky changes pre-promotion |
-
-Defined in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
-
-The `rc` branch is **fast-forwarded** to a new RC tag for each validation cycle. CC re-fetches on `/plugin update`, so `tmb@trustmybot-rc` users always get the current RC. When an RC graduates to stable, `main` advances; `rc` stays at the validated commit (which is now equivalent to main).
-
-### Release ritual
-
-Two paths depending on risk:
-
-#### Path 1 — Hotfix (low risk, urgent)
-
-For bug fixes that don't change behavior (security, doctrine-preserving fixes, install-path repairs):
-
-1. On a work branch off `dev`, bump `version` in `.claude-plugin/plugin.json`, `mcp/trajectory-server/package.json`, and root `package.json`. Add `## v<X.Y.Z>` section at the top of `CHANGELOG.md`. Commit + PR into `dev`.
-2. PR `dev → main`, merge.
-3. ```bash
-   git checkout main && git pull origin main
-   bash scripts/release.sh
-   ```
-
-Stable users (`tmb@trustmybot`) auto-update on next `/plugin update`.
-
-#### Path 2 — Release candidate (any risky change — required for cold-start, install path, doctrine, schema)
-
-When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class, schema migrations, doctrine flips), validate via `tmb@trustmybot-rc` channel before promoting to stable:
-
-1. **Bump the version, then cut the RC tag.** The marketplace UI shows `plugin.json`'s `version` field, *not* the tag name — so bump it to the rc version first, or the install reads `-dev`. On a branch off `dev`:
-   ```bash
-   bash scripts/maintenance/bump-version.sh 0.4.0-rc.1   # 4 manifests + MCP startup version
-   bun run build                                         # refresh dist (index.ts startup version)
-   # add a `## v0.4.0-rc.1` CHANGELOG section, then PR → dev and merge
-   ```
-   Then, on `dev` (origin = GitHub — canonical; GitLab is a backup mirror only):
-   ```bash
-   # Cut RC tag
-   git tag -a v0.4.0-rc.1 -m "v0.4.0 release candidate 1"
-   git push origin v0.4.0-rc.1
-
-   # Fast-forward rc branch to the RC tag
-   git checkout rc && git reset --hard v0.4.0-rc.1
-   git push --force-with-lease origin rc
-   git checkout dev
-   ```
-   For a **new** rc number, also bump the `trustmybot/marketplace-rc` catalog's `ref` to the new tag (it pins `vX.Y.Z-rc.N`); re-cutting the same number needs no catalog change.
-2. **Install + test from `tmb@trustmybot-rc` channel:**
-   ```
-   /plugin update tmb@trustmybot-rc   # CC re-fetches the rc branch HEAD
-   ```
-   **Validation protocol:** walk every item in [`tests/manual/scenarios.md`](tests/manual/scenarios.md) against the `tmb@trustmybot-rc` install (Path A — marketplace install, NOT Path B local). Path A is mandatory for RC validation because it exercises the marketplace install lifecycle that broke v0.2.0 and v0.3.0; Path B (`--plugin-dir`) silently sidesteps that bug class.
-
-   On green, set `MANUAL_DOGFOOD_PASSED=v0.4.0` (matching the planned final tag, not the rc.N tag) so `scripts/release.sh` accepts the eventual stable release.
-3. **If broken** → fix on `dev`, cut `v0.4.0-rc.2`, fast-forward `rc`, re-test. Iterate. Each new RC tag is **immutable**; only the floating `rc` branch ref moves.
-4. **If green** → promote: PR `dev → main`, merge, then run `bash scripts/release.sh` to tag `v0.4.0` on main.
-5. After stable release, `tmb@trustmybot-rc` users get the same code that stable users get (rc branch caught up to main). The `rc` branch stays at the validated commit until the next RC cycle starts.
-
-`scripts/release.sh` reads the version from `plugin.json`, validates that all 3 manifest versions agree, requires a matching `## v<version>` section in `CHANGELOG.md`, and asks for `y/N` confirmation at each step. It tags `main` HEAD, pushes the tag, creates a GitHub release with the CHANGELOG section as the body, and runs the L5 release canary. Re-running after a step succeeds is safe — already-done steps are skipped. The script also refuses to re-tag a published release (force-pushing tags would corrupt downstream caches; the only path forward is bump version + ship a new tag).
-
-#### Why both paths exist
-
-Path 1 is for fixes that don't need cold-start verification (e.g. doc-only releases). Path 2 is for everything else — especially anything touching install behavior, schema, or agent doctrine. **The v0.2.0 and v0.3.0 breakages happened because we shipped install-path changes via Path 1 with no real-world install verification.** Going forward, anything in those categories MUST go through `tmb@trustmybot-rc` first.
-
-## Branch protection + CI scope
-
-GitHub-side guardrails that match the doctrine above. The intent is "validation budget gets spent on dev/rc; main is already-known-good."
-
-### Branch protection (applied via `gh api`)
-
-| Branch | PR required | Status checks required | Force push | Delete | Why |
-|---|---|---|---|---|---|
-| `main` | ✓ | `lint + MCP unit + integration + hooks`, `L0 install-smoke (cold-start Docker)` | blocked | blocked | Production tip. Only path in is `dev → main` PR. Tags live here forever. |
-| `rc` | ✗ (fast-forward only) | — | allowed (force-with-lease) | blocked | Floating ref onto immutable RC tags. The release ritual rewrites it; protect the ref name from accidental delete. |
-| `dev` | ✗ | `lint + MCP unit + integration + hooks`, `L0 install-smoke (cold-start Docker)` (on PRs only) | blocked | blocked | Integration trunk. Direct doctrine pushes allowed (solo dev velocity), but force-push and delete blocked to prevent history loss. |
-
-No required-approvals (solo dev). Once a second maintainer joins, flip `required_approving_review_count: 1` on `main` + `rc`.
-
-### CI
-
-Tests run locally: `bash tests/run-all.sh` for L0–L4; `bash tests/dogfood/run-l5.sh` and `bash tests/dogfood/run-l6-chain.sh --fresh` for L5/L6. GitHub origin is canonical; release-gating is on-demand from a maintainer's workstation.
-
-## When to write an A/B prompt-eval scenario (#131)
-
-The A/B framework lives at `tests/dogfood/run-ab.sh`. Reach for it when shipping a doctrine change that's (a) prompt-only, (b) hard to verify by reading the prompt alone, and (c) you'd otherwise be guessing whether it helps.
-
-Rule of thumb: **if you find yourself writing "this should improve compliance" or "this should reduce token cost" in a PR description, write an A/B scenario instead of guessing.** Pre-existing examples of guesses worth measuring live in #153 (CLAUDE.md slim, Hybrid D' cold-start, first-action chain MANDATORY).
-
-Skip A/B for: schema / MCP / hook changes (those land via L1–L4 with deterministic tests), small mechanical edits, or anything where the right outcome is obvious.
-
-Token cost: a scenario with 5 paired runs against 2 arms = 10 claude calls (~$0.50–$2 depending on flow size). Document the budget in the scenario's README.
-
-## Writing code
-
-- Self-documenting code. Prefer deletion over addition.
-- Match existing patterns in the file before introducing new ones.
-- TypeScript for the MCP server (`mcp/trajectory-server/`). Bash for hooks.
-- Commit messages: emoji + Conventional Commits (see recent `git log`).
-
-## Writing tests
-
-Every code change should add or update tests.
-
-- **MCP server changes** → `mcp/trajectory-server/src/test/<name>.test.ts`. Helper API in `tests/README.md`; key fixture `tempDB()`.
-- **Hook changes** → `tests/hooks/<name>.test.sh`. Assertion helpers in `tests/lib/assert.sh`.
-- **Agent prompts / skills / docs** — no automated tests yet (known gap). Walk the manual dogfood checklist in [`tests/manual/setup.md`](tests/manual/setup.md) before opening the PR.
+- Self-documenting code; prefer deletion over addition; match the file's existing patterns. TypeScript for the MCP server, Bash for hooks. Emoji + Conventional Commit messages.
+- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → `tests/hooks/*.test.sh`; new enforcement → a lint in `tests/lint/`.
+- Prompt / skill / doc changes have no automated test — walk [`tests/manual/scenarios.md`](tests/manual/scenarios.md) before opening the PR.
 
 ## Pre-PR checklist
 
-- [ ] `bash tests/run-all.sh` passes locally (lint + MCP integration + hook suites).
-- [ ] Workflow state (issues, tasks, discussions, validation attempts) goes through MCP tools into SQLite — never onto disk.
+- [ ] `bash tests/run-all.sh` green.
+- [ ] Tests added or updated.
+- [ ] Workflow state (issues, tasks, discussions, validation) goes through MCP tools into SQLite — never onto disk.
 - [ ] `CHANGELOG.md` updated for user-visible changes.
-- [ ] If the edit affects a workflow contract, update every agent template body AND every consuming skill that cites it — not just one. Remember: agent templates are the immutable Lego stud, skills are the bricks. Behavior changes go in skills; identity changes go in templates.
-- [ ] If the edit changes a `tmb_*` skill's contract, also update the lint assertions in `tests/lint/` if a contract is involved.
-- [ ] If the edit touches the SQLite schema, rebuild the ER diagram in `docs/architecture/ERD.md` and update the `requireRoles` matrix in `mcp/trajectory-server/src/middleware/agent-scope.ts`.
-- [ ] PR description names the issue (`Closes #N`).
-
-## Filing an issue
-
-- **Bug**: include plugin version (`jq .version .claude-plugin/plugin.json`), Claude Code version, repro steps, expected vs actual.
-- **Feature request**: state the use case first, then the proposed mechanism.
-- **Dogfood report**: tell us what broke when you used the plugin — those bugs are the highest priority. Reference the workflow step that tripped (e.g., "onboarding step 2 hung when…").
+- [ ] Schema change → rebuild `docs/architecture/ERD.md` + update the `requireRoles` matrix in `mcp/trajectory-server/src/middleware/agent-scope.ts`.
+- [ ] PR names the issue (`Closes #N`).
 
 ## Design principles
 
-If you're proposing a big change, check these first.
+1. **SQLite is canonical state.** Files are for SE convention (README / CHANGELOG / ADR) or agent context (prompts / skills / rules). Issues, tasks, discussions, and validation live in the trajectory DB.
+2. **No bypass.** Every code change runs Human → bro → SWE, with bro as the task gate (verifies SWE's return) and pr-reviewer as the push gate (fires at `git push`). Bro never edits source.
+3. **Two-layer agents.** bro is a CLAUDE.md persona; `swe` / `pr-reviewer` ship globally in `agents/`; consultants are templates instantiated per project. A local `.claude/agents/<name>.md` overrides the global.
+4. **Lego layering.** Agent file = identity (immutable); the `skills:` array = capabilities (extend via `tmb_skill-creator`); spawn prompt = per-call context. Add behavior through skills, not by editing the template body.
+5. **Server-enforced chain.** `requireRoles` in the MCP server rejects out-of-role calls — doctrine is wire-enforced, not prompt discipline.
 
-1. **SQLite is canonical state.** Files are for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills, rules). Workflow state (issues, tasks, discussions, validation attempts) lives in the trajectory DB, never on disk.
-2. **No bypass in the workflow.** Every code change routes Human → bro → SWE, with bro as the **task gate** (verifies after SWE returns) and pr-reviewer as the **push gate** (fires only at `git push`). Bro never edits source files directly; the "fast path" is a lighter spec, not skipping the SWE spawn or a gate.
-3. **Two-layer agent model.** Bro is a CLAUDE.md persona on main Claude. **Workflow backbone** (`swe`, `pr-reviewer`) ships globally in `agents/` and is always available — onboarding does NOT copy it into the project. **Consultants** (`architect`, `cto`, `ceo`, `pm`) ship as templates in `templates/agents/` and are instantiated per-project on demand. Domain agents (legal-reviewer, security-reviewer, …) are user-created via `/tmb:agent-create` with explicit Human approval. Resolution rule for backbone agents: `if <project>/.claude/agents/<name>.md exists → local; else → global`.
-4. **Lego layering.** Three layers, never confused: agent file = identity (immutable), `skills:` array on the project copy = capabilities (additive via `tmb_skill-creator`), spawn prompt = task context (per-call). Don't edit the template body to add behavior — extend `skills:`.
-5. **Override per project.** Any agent template can be overridden by editing the same-named file in the project's `.claude/agents/`. Local wins. Plugin-shipped protocol skills (`tmb_*` in `plugin/skills/`) are reserved and cannot be name-overridden.
-6. **Server-enforced decision chain.** `requireRoles` middleware in `mcp/trajectory-server/src/middleware/agent-scope.ts` rejects calls that violate the chain (e.g. consultants trying to write `task_create_batch`). Doctrine isn't just prompt discipline — it's wire-enforced.
+## Scope
 
-## Out of scope
+Enterprise features (SSO, RBAC, SOC2, multi-tenant) are deferred until real paying-customer demand; focus stays on the solo/small-team workflow. Only `.claude-plugin/` is implemented today — other platform manifests are placeholders (see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md)).
 
-**Enterprise features** (SSO, RBAC, SOC2, audit export, multi-tenant role boundaries) are intentionally deferred until at least 3 unsolicited paying-customer inquiries land in the inbox. Until then, optimization stays focused on the solo/small-team workflow.
+## Security
 
-## Performance
-
-The plugin's overhead vs pure Claude Code on the same ask should land in this band:
-
-| Ask shape | Pure Claude | TMB target | Acceptable ceiling |
-|---|---|---|---|
-| Simple task (single feature) | ~30s | ~2–3 min | 5 min |
-| Difficult task (architecture change + ADR) | ~2 min | ~5–8 min | 12 min |
-| Multi-task batch | n/a | ≤ 1.5× single-task per task | 2× per task |
-
-**Doctrine — what's safe to trim, what isn't.** When proposing a perf change, classify the cost into one of three tiers:
-
-- **Tier 1 — pure waste, trim aggressively.** Sequential MCP writes that could batch in one assistant response; eager skill loading that fires on every spawn but is needed in <30% of spawns; forced chain-of-thought blocks for tasks that don't benefit; redundant approval prompts.
-- **Tier 2 — design overhead, trim with care.** Per-task gate spawns (justified for difficult-triage; the push-gate vs task-gate split keeps the per-push cost paid once over a batch); worktree creation; forced subagent cold-start.
-- **Tier 3 — load-bearing overhead, do NOT trim.** The trajectory DB writes (the audit trail IS the product); `requireRoles` enforcement (~1ms, structural protection); worktree isolation (prevents cross-task corruption); the push gate (only structural defence against pushing unreviewed commits).
-
-**Re-evaluate** when (a) a SWE or pr-reviewer cold-start in a Layer 3 dogfood takes >2× the previous baseline, (b) a user reports a chain >12 min for a simple-triage task, (c) a new gate / hook / skill fires on the per-task path, (d) CC platform changes subagent cold-start cost, or (e) a new platform adapter (Codex, Cursor, …) gets implemented — re-baseline on that platform.
-
-Historical perf-cycle records live in git history (PR #63 baseline, PR #64 optimizations) and the changelog, not in a separate doc.
-
-## Multi-platform structure
-
-The repo follows the [`obra/superpowers`](https://github.com/obra/superpowers) pattern: shared `skills/`, `templates/`, and `mcp/` at the root, with thin per-platform manifests in `.<platform>-plugin/` directories. Today only `.claude-plugin/` is implemented; `.codex-plugin/`, `.cursor-plugin/`, `.opencode/`, and `gemini-extension.json` are placeholders. See [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md) for the strategy and what an adapter would do. Adapters get built when there's user demand; until then, contributions should target Claude Code only.
-
-## Code of conduct
-
-Be direct. Disagree explicitly. Don't pad reviews with praise you don't mean. Engineering project, not a social graph.
+Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md). Don't open public issues for them.
 
 ## License
 
-MIT. By contributing, you agree your contribution is MIT-licensed under the same terms as the rest of the plugin.
+MIT. By contributing, you agree your contribution is MIT-licensed. Be direct in reviews — engineering project, not a social graph.
