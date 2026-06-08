@@ -49,9 +49,9 @@ And it runs lean. On the same slate, against a raw Claude Code baseline (no plug
 
 | | Raw Claude Code | **TMB** | Δ |
 |---|---|---|---|
-| Tokens | 15.87M | **6.84M** | **−57%** |
-| Cost | $10.31 | **$6.78** | **−34%** |
-| Wall-clock | 1890s | **1252s** | **−34%** |
+| Tokens | 15.87M | **6.97M** | **−56%** |
+| Cost | $10.31 | **$6.98** | **−32%** |
+| Wall-clock | 1890s | **1256s** | **−34%** |
 | Hallucinations | 0 | 0 | — |
 
 The world model — reasoning from a compressed repo graph instead of re-reading files — is what makes TMB cheaper than raw, not pricier.
