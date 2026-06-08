@@ -2,7 +2,7 @@
 
 Reproducible test recipe for the file-based logging added in the `feat/debug-mode-expand` PR. Run from a working plugin checkout with `dist/` built.
 
-Prerequisites: `cd mcp/trajectory-server && bun run build` must succeed.
+Prerequisites: `cd mcp/trajectory-server && npm run build` must succeed.
 
 ---
 

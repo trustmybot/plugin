@@ -10,22 +10,22 @@ Thanks for the interest. Public MIT-licensed plugin for Claude Code. Contributio
 4. `bash tests/run-all.sh` — full suite must be green.
 5. Open a PR targeting `dev`. Reference the issue with `Closes #N`.
 
-### Submitting a change
+### Submitting via GitLab (primary host since 2026-04-28)
 
-The canonical repo is `github.com/trustmybot/plugin`. To submit changes:
+The primary repo is now `gitlab.com/trustmybot/plugin`. To submit changes:
 
-1. Fork or clone the repo:
+1. Fork or clone the GitLab repo:
    ```bash
-   git clone git@github.com:trustmybot/plugin.git
+   git clone git@gitlab.com:trustmybot/plugin.git
    ```
 2. Branch off `dev`, make your change, run `bash tests/run-all.sh` (L1–L4 must pass)
-3. Push and open a pull request:
+3. Push and open a merge request:
    ```bash
-   gh pr create --base dev --title "<emoji> <type>(<scope>): <summary>"
+   glab mr create --target-branch dev --title "<emoji> <type>(<scope>): <summary>"
    ```
-4. Address review feedback; merge happens via GitHub UI or `gh pr merge`.
+4. Address review feedback; merge happens via GitLab UI or `glab mr merge`.
 
-A GitLab mirror (`gitlab.com/trustmybot/plugin`) exists as a backup, but GitHub is canonical — issue IDs and PRs live there.
+The GitHub mirror (`github.com/trustmybot/plugin`, account currently suspended) remains as a backup. Once restored we may switch primary host back — the contribution flow stays the same shape.
 
 ## Label vocabulary
 
@@ -33,8 +33,8 @@ This project uses Linear-native flat labels (`Bug`, `Feature`, `Install`, `Workf
 
 ## Branching
 
-- `main` — stable release tip. Tags (`v0.3.1`, `v1.0.0`, …) live here. **Marketplace channel: `tmb@trustmybot`.**
-- `rc` — release-candidate channel. Fast-forwarded to whichever `vX.Y.Z-rc.N` tag is currently being validated. **Marketplace channel: `tmb@trustmybot-rc`.**
+- `main` — stable release tip. Tags (`v0.3.1`, `v1.0.0`, …) live here. **Marketplace channel: `tmb`.**
+- `rc` — release-candidate channel. Fast-forwarded to whichever `vX.Y.Z-rc.N` tag is currently being validated. **Marketplace channel: `tmb-rc`.**
 - `dev` — integration branch. All work-branch PRs land here first. Not directly published to marketplace; promoted to `rc` for testing, then to `main` for stable.
 - Work branches — use `<type>/<issue-number>-<slug>`, e.g. `feat/42-dual-backend-issues`, `fix/45-gitguards-missing-branch`. Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`. Embedding the issue number makes every branch self-documenting and auto-links on PR merge.
 
@@ -49,11 +49,11 @@ Users choose their risk tolerance:
 | Channel | Install command | What it tracks | Audience |
 |---|---|---|---|
 | **stable** | `/plugin install tmb@trustmybot` | `main` branch (latest tag) | Production users — only validated releases |
-| **release candidate** | `/plugin install tmb@trustmybot-rc` | `rc` branch (currently-testing RC tag) | Beta testers, contributors validating risky changes pre-promotion |
+| **release candidate** | `/plugin install tmb-rc@trustmybot` | `rc` branch (currently-testing RC tag) | Beta testers, contributors validating risky changes pre-promotion |
 
 Defined in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
 
-The `rc` branch is **fast-forwarded** to a new RC tag for each validation cycle. CC re-fetches on `/plugin update`, so `tmb@trustmybot-rc` users always get the current RC. When an RC graduates to stable, `main` advances; `rc` stays at the validated commit (which is now equivalent to main).
+The `rc` branch is **fast-forwarded** to a new RC tag for each validation cycle. CC re-fetches on `/plugin update`, so `tmb-rc` users always get the current RC. When an RC graduates to stable, `main` advances; `rc` stays at the validated commit (which is now equivalent to main).
 
 ### Release ritual
 
@@ -74,7 +74,7 @@ Stable users (`tmb@trustmybot`) auto-update on next `/plugin update`.
 
 #### Path 2 — Release candidate (any risky change — required for cold-start, install path, doctrine, schema)
 
-When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class, schema migrations, doctrine flips), validate via `tmb@trustmybot-rc` channel before promoting to stable:
+When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class, schema migrations, doctrine flips), validate via `tmb-rc` channel before promoting to stable:
 
 1. **Bump the version, then cut the RC tag.** The marketplace UI shows `plugin.json`'s `version` field, *not* the tag name — so bump it to the rc version first, or the install reads `-dev`. On a branch off `dev`:
    ```bash
@@ -94,22 +94,22 @@ When a change could plausibly break users (the v0.2.0/v0.3.0 install-path class,
    git checkout dev
    ```
    For a **new** rc number, also bump the `trustmybot/marketplace-rc` catalog's `ref` to the new tag (it pins `vX.Y.Z-rc.N`); re-cutting the same number needs no catalog change.
-2. **Install + test from `tmb@trustmybot-rc` channel:**
+2. **Install + test from `tmb-rc` channel:**
    ```
-   /plugin update tmb@trustmybot-rc   # CC re-fetches the rc branch HEAD
+   /plugin update tmb-rc@trustmybot   # CC re-fetches the rc branch HEAD
    ```
-   **Validation protocol:** walk every item in [`tests/manual/scenarios.md`](tests/manual/scenarios.md) against the `tmb@trustmybot-rc` install (Path A — marketplace install, NOT Path B local). Path A is mandatory for RC validation because it exercises the marketplace install lifecycle that broke v0.2.0 and v0.3.0; Path B (`--plugin-dir`) silently sidesteps that bug class.
+   **Validation protocol:** walk every item in [`tests/manual/scenarios.md`](tests/manual/scenarios.md) against the `tmb-rc` install (Path A — marketplace install, NOT Path B local). Path A is mandatory for RC validation because it exercises the marketplace install lifecycle that broke v0.2.0 and v0.3.0; Path B (`--plugin-dir`) silently sidesteps that bug class.
 
    On green, set `MANUAL_DOGFOOD_PASSED=v0.4.0` (matching the planned final tag, not the rc.N tag) so `scripts/release.sh` accepts the eventual stable release.
 3. **If broken** → fix on `dev`, cut `v0.4.0-rc.2`, fast-forward `rc`, re-test. Iterate. Each new RC tag is **immutable**; only the floating `rc` branch ref moves.
 4. **If green** → promote: PR `dev → main`, merge, then run `bash scripts/release.sh` to tag `v0.4.0` on main.
-5. After stable release, `tmb@trustmybot-rc` users get the same code that stable users get (rc branch caught up to main). The `rc` branch stays at the validated commit until the next RC cycle starts.
+5. After stable release, `tmb-rc` users get the same code that stable users get (rc branch caught up to main). The `rc` branch stays at the validated commit until the next RC cycle starts.
 
 `scripts/release.sh` reads the version from `plugin.json`, validates that all 3 manifest versions agree, requires a matching `## v<version>` section in `CHANGELOG.md`, and asks for `y/N` confirmation at each step. It tags `main` HEAD, pushes the tag, creates a GitHub release with the CHANGELOG section as the body, and runs the L5 release canary. Re-running after a step succeeds is safe — already-done steps are skipped. The script also refuses to re-tag a published release (force-pushing tags would corrupt downstream caches; the only path forward is bump version + ship a new tag).
 
 #### Why both paths exist
 
-Path 1 is for fixes that don't need cold-start verification (e.g. doc-only releases). Path 2 is for everything else — especially anything touching install behavior, schema, or agent doctrine. **The v0.2.0 and v0.3.0 breakages happened because we shipped install-path changes via Path 1 with no real-world install verification.** Going forward, anything in those categories MUST go through `tmb@trustmybot-rc` first.
+Path 1 is for fixes that don't need cold-start verification (e.g. doc-only releases). Path 2 is for everything else — especially anything touching install behavior, schema, or agent doctrine. **The v0.2.0 and v0.3.0 breakages happened because we shipped install-path changes via Path 1 with no real-world install verification.** Going forward, anything in those categories MUST go through `tmb-rc` first.
 
 ## Branch protection + CI scope
 
@@ -127,7 +127,7 @@ No required-approvals (solo dev). Once a second maintainer joins, flip `required
 
 ### CI
 
-Tests run locally: `bash tests/run-all.sh` for L0–L4; `bash tests/dogfood/run-l5.sh` and `bash tests/dogfood/run-l6-chain.sh --fresh` for L5/L6. GitHub origin is canonical; release-gating is on-demand from a maintainer's workstation.
+Tests run locally: `bash tests/run-all.sh` for L0–L4; `bash tests/dogfood/run-l5.sh` and `bash tests/dogfood/run-l6-chain.sh --fresh` for L5/L6. GitLab origin is canonical; release-gating is on-demand from a maintainer's workstation.
 
 ## When to write an A/B prompt-eval scenario (#131)
 

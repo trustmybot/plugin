@@ -10,7 +10,7 @@ Gemini CLI extensions reference a `contextFileName` (configured via `gemini-exte
 - Skill loading instructions specific to Gemini's tool surface
 - `@./skills/...` references to the shared skill library at `./skills/` (Gemini auto-resolves these)
 
-As of v0.7.0, the shipped TMB stack is: bro persona + 7 skills + trajectory-server MCP +
+As of v0.7.0, the shipped TMB stack is: bro persona + 8 skills + trajectory-server MCP +
 enforcement hooks. Gemini's adapter would need to: wire the trajectory-server MCP (Gemini
 CLI supports MCP servers via `mcpServers` in `gemini-extension.json`), map Gemini's tool
 names to TMB's MCP calls, and determine how to replicate the PreToolUse / PostToolUse hook

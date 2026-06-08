@@ -22,6 +22,7 @@ Sign off (or fail) one task's commit against its spec.
 - Scope: changed files match the spec's `## Files`
 - Success criteria met by the diff (not just claimed)
 - Task status is `completed` (SWE atomic-closed properly)
+- No edits to `docs/trustmybot/architecture/auto/`
 
 **Sign off (one MCP call)**: `validation_record(agent='pr-reviewer', task_id=N, attempt_n=<N>, verdict='pass'|'fail', subagent_session_id=<your-id>, feedback=<rationale>)`. <!-- LOAD-BEARING-SAFETY: server requireRoles enforces pr-reviewer-only writes -->
 
