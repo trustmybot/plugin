@@ -1,0 +1,161 @@
+# Plugin file map
+
+Tracked files in `plugin/` grouped by purpose. Counts are correct as of the current commit; treat the shell (`ls scripts/hooks/*.sh | wc -l` etc.) as the source of truth if this doc drifts.
+
+## Top-level
+
+```
+plugin/
+├── CLAUDE.md                 # auto-loaded bro persona for Claude Code
+├── README.md, CHANGELOG.md, CONTRIBUTING.md, LICENSE
+├── .claude-plugin/plugin.json     # Claude Code plugin manifest
+├── .codex-plugin/, .cursor-plugin/, .opencode/, gemini-extension.json
+│                              # PLACEHOLDERS — see docs/reference/MULTI_PLATFORM.md
+├── CODEX.md, CURSOR.md, GEMINI.md  # PLACEHOLDER personas
+└── .gitignore, .mcp.json
+```
+
+## Workflow backbone agents
+
+```
+agents/
+├── pr-reviewer.md            # push gate — runs at git push over batch of unsigned tasks
+└── swe.md                    # executor — one task per spawn, isolated worktree, atomic close
+```
+
+`bro` is a `CLAUDE.md` persona on main Claude (no agent file). Backbone agents auto-discover; project can override per-name via `<project>/.claude/agents/<name>.md`.
+
+## Skills (8 total)
+
+```
+skills/
+├── tmb_planning/             # bro's full code-touching flow
+├── tmb_review/               # pr-reviewer judgment + bro push-gate orchestration + PR comment triage
+├── tmb_recovery/             # bro's response when AUQ errors / MCP returns is_error / trajectory-server unreachable
+├── tmb_concerns-protocol/    # how bro raises a concern when doubting the Human's plan
+├── tmb_agent-creator/        # propose & write new agent files on user approval
+├── tmb_skill-creator/        # propose & write new skill files
+├── tmb_swe-checklist/        # SWE pre-commit judgment checklist
+└── tmb_docs-conventions/     # prompt-editing discipline (loaded by SWE on markdown spec files)
+```
+
+Slash commands (Human-triggered ceremonies, not skills):
+
+```
+commands/
+├── onboard.md                # /onboard — auto-fired on first contact + Human-typed for changes
+├── roundtable.md             # /roundtable <topic> — multi-agent deliberation
+├── monitor.md                # /monitor <PR_number> — PR comment review
+└── scan.md                   # /scan — deterministic project scan (Phase 1 bash; Phase 2 parallel summary fill)
+```
+
+## Consultant templates
+
+Copied per-project on first request via `/tmb:agent-create`:
+
+```
+templates/
+├── agents/                   # 4 consultant templates (≤30 lines each, lint-enforced)
+│   ├── architect.md, ceo.md, cto.md, pm.md
+└── docs-trustmybot/          # seeded docs skeleton for downstream projects
+    ├── architecture/auto/    # auto-rendered output (changelog, codebase-tree, erd, module-graph)
+    ├── architecture/manual/  # hand-curated (decisions/, data-flow, infrastructure, security-model)
+    └── snapshots/.gitkeep    # for issue_snapshot_md output
+```
+
+## Hooks
+
+```
+hooks/hooks.json              # CC hooks manifest (matchers + script paths)
+scripts/hooks/
+├── lib/query-task.sh         # shared sqlite helpers
+└── *.sh                      # lifecycle hooks
+scripts/maintenance/
+└── run-scan.mjs              # standalone scan invoker — used by post-task-close-rescan.sh
+```
+
+Group by event:
+
+| Event | Scripts |
+|---|---|
+| **SessionStart** | `ensure-gitignore`, `mcp-health-check`, `deferred-tools-drift-warn`, `write-active-workspace-sentinel`, `session-start-prescan` |
+| **UserPromptSubmit** | `activation-routine`, `mcp-health-check`, `session-log-capture`, `consultant-spawn-required`, `roundtable-slash-detect`, `concerns-protocol-hint`, `push-intent-hint`, `reonboard-intent-hint`, `resume-intent-hint`, `adr-required-hint` |
+| **PreToolUse** | `git-guards`, `git-push-guard`, `no-worktree-branch-create`, `branch-up-to-date-with-remote`, `commit-msg-lint`, `require-task-spec`, `require-feature-branch-active`, `pr-reviewer-no-worktree`, `require-summaries-before-task-close`, `askuserquestion-length-lint`, `roundtable-auq-shape`, `auq-headless-deny`, `no-source-edit-from-main`, `naming-lint`, `code-quality-lint`, `debug-trajectory` |
+| **PostToolUse** | `cleanup-worktree-on-task-close`, `roundtable-cleanup-postcheck`, `post-task-close-rescan`, `post-read-summary-hint`, `post-task-create-spawn-hint`, `skill-invocation-record` |
+| **SubagentStop** | `swe-atomic-close` |
+| **WorktreeCreate** | `worktree-create` |
+
+## MCP server
+
+```
+mcp/trajectory-server/
+├── package.json, tsconfig.json, README.md, bun.lock
+├── docs/CONFIG_KEYS.md       # canonical plugin_config key list
+└── src/
+    ├── db.ts                 # opens DB, applies schema.sql, runs migrations
+    ├── index.ts              # MCP server entrypoint (stdio transport)
+    ├── schema.sql            # authoritative schema (19 tables)
+    ├── schema-eval.sql       # eval-mode-only tables (debug_trajectory, eval_results)
+    ├── types.ts              # shared TS types
+    ├── middleware/agent-scope.ts    # AgentRole, normalizeAgent, requireRoles, redact
+    ├── sync/                 # gh/glab issue sync (backend.ts + issue_sync.ts)
+    ├── tools/                # MCP tool families (one file per domain — see below)
+    └── test/                 # node:test unit tests (~480 tests across 35 files)
+```
+
+### Tool families
+
+| File | Tools |
+|---|---|
+| `agents.ts` | `agent_list`, `agent_register` |
+| `audit.ts` | `audit_log`, `audit_log_list` (event-only since #179) |
+| `branch_report_md.ts` | `branch_report_md` |
+| `composites.ts` | `branch_id_propose`, `task_retry_batch`, `bro_atomic_close` (per-update `repo` resolution post-#2873) |
+| `config.ts` | `config_get`, `config_set`, `config_list` |
+| `discussions.ts` | `discussion_append` (verified_human gate), `discussion_list`, `issue_get_with_discussions` |
+| `world-model.ts` | `world_model_get` (annotated dir tree), `world_model_search` (FTS5 / semantic / hybrid) |
+| `scan.ts` | `scan_run` (forks `scripts/scan.sh`, persists to `repos` in SQLite + Directory nodes / CONTAINS edges in the kuzu graph via `graph-db.ts`, pulls each `<dir>/README.md` into the Directory's `summary`, emits `deep_scan_completed` audit), `repos_list` |
+| `graph-db.ts` | `WorldModelGraph` class — kuzu wrapper. Directory nodes + CONTAINS edges today; File / Symbol / IMPORTS / CALLS post-v0.7. Backs `world_model_get` / `world_model_search`. |
+| `issues.ts` | `issue_create/get/resume/close/update_description/sync_retry` |
+| `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (writes `plugin_config('onboarded')`) |
+| `pr_comments.ts` | `pr_comments_get` (gh + glab backends, bot-filtered) |
+| `reports.ts` | `issue_report_md`, `issue_snapshot_md` |
+| `roundtable.ts` | `roundtable_create/vote/close/finalize_decisions/summarize` (state machine) |
+| `skills.ts` | `skill_register` (scope arg, #2886), `skill_promote`, `skill_record_outcome`, `skill_record_invocation` + `skill_invocations_list` (#2886 junction) |
+| `rules.ts` | `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list` (#2886) |
+| `commands.ts` | `command_register`, `command_list` — schema-seeds the 4 plugin-shipped slash commands (#2886) |
+| `stats.ts` | `task_stats`, `task_first_actionable` |
+| `tasks.ts` | `task_create_batch`, `task_get`, `task_update_status` |
+| `validation.ts` | `validation_record` (pr-reviewer-only + subagent_session_id + MCP-availability prefix), `validation_history` |
+
+## Tests
+
+```
+tests/
+├── README.md, run-all.sh         # L1–L4 aggregator
+├── lint/                          # L1 lint scripts
+├── mcp-integration/               # L2 — 7 .mjs files
+├── hooks/                         # L3 — 23 .test.sh files
+├── workflow-sim/                  # L4 — 6 .mjs files
+├── dogfood/                       # L5 — claude -p flows
+│   ├── run-l5.sh, run-ab.sh
+│   ├── flows/                     # per-flow scaffolding
+│   ├── fixtures/                  # SQL fixtures (empty, onboarding-named, onboarding-anonymous)
+│   ├── lib/                       # flow-helpers, scorers, smoke-helpers
+│   └── ab-scenarios/              # historical A/B prompt-eval scenarios
+└── manual/                        # L0 install-smoke + manual scenarios
+```
+
+## Architecture docs
+
+```
+docs/architecture/
+├── DETERMINISM.md      # 7 enforcement mechanisms; judgment vs determinism
+├── ENFORCEMENT.md      # 6 layers + per-agent × per-interaction coverage matrix
+├── RESPONSIBILITIES.md # what bro/swe/pr-reviewer/consultants are actually instructed to do
+├── ERD.md              # SQLite schema: Mermaid ER + FK + soft-refs + role × tool matrix
+├── FLOWS.md            # workflow flowcharts (canonical chain + per-flow deltas)
+├── FILES.md            # this file
+├── GIT.md              # git state across a task lifecycle (worktree model)
+├── UI.md               # AskUserQuestion modes + constraints
+```

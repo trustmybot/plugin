@@ -78,7 +78,7 @@ Two complementary memory tiers, both project-local and gitignored:
 
 Refreshed by `/scan` + the post-task-close rescan.
 
-Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architecture/WORLD_MODEL.md`](docs/architecture/WORLD_MODEL.md).
+Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architecture/FILES.md`](docs/architecture/FILES.md), [`docs/architecture/WORLD_MODEL.md`](docs/architecture/WORLD_MODEL.md).
 
 ### 3. Verification & Evaluation — auditable, gated quality control
 

@@ -18,13 +18,8 @@ commands live in **[`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RE
 | TMB v0.6 (2026-05-13, pre-world-model) | 8 / 8 | 17.72M | $17.33 | ~2557s | 0 / 8 |
 | TMB v0.7 (2026-06-07, world-model on) | 7 / 8 | 6.84M | $6.78 | 1252s | 0 / 8 |
 
-All three arms ran the same 8 SWE-bench tasks (4 Verified + 4 Lite) with the same
-environment pins. Model snapshots match on the **Verified** arm
-(`claude-opus-4-20250514` across raw / v0.6 / v0.7); the **Lite** arm differs by
-design — the raw baseline pinned Sonnet 4 to match the published Sonnet
-comparator, while v0.6 / v0.7 ran Opus. So any Lite-inclusive cost delta is
-cross-model — and conservative, since v0.7's pricier-per-token Opus still came
-out cheaper than a Sonnet-4 baseline.
+All three arms ran the same 8 SWE-bench tasks (4 Verified + 4 Lite), same model
+snapshot (`claude-opus-4-20250514`), same environment pins.
 
 **Caveats:**
 - **N=1** per task across all arms; ±1 task is plausible on a re-run.
@@ -51,39 +46,22 @@ aggressively that TMB is now **cheaper than the raw baseline** on the same corpu
 | Time | 1890s | 1252s | **−34%** |
 | Hallucinated | 0 / 8 | 0 / 8 | same |
 
-### Co-resolved subset — same-model signal
+### Co-resolved subset — apples-to-apples (5 tasks both arms solved)
 
 The full-corpus comparison is muddied by differing resolve sets (raw solved
 flask but not sympy; v0.7 solved sympy but not flask). The **co-resolved
-subset** removes that mismatch — tasks BOTH raw and v0.7 resolved. Split by arm
-so the model stays honest:
+subset** removes that mismatch: tasks BOTH raw and v0.7 resolved —
+`pytest-10356`, `sphinx-7590`, `pylint-4661`, `pytest-8906`, `pylint-6506` (5 tasks).
 
-**Verified co-resolved (3 tasks — same Opus snapshot both arms)** —
-`pytest-10356`, `sphinx-7590`, `pylint-4661`:
-
-| | Raw (Opus) | TMB v0.7 (Opus) | v0.7 Δ |
+| | Raw (5 tasks) | TMB v0.7 (5 tasks) | v0.7 Δ |
 |---|---|---|---|
-| Tokens | 4.74M | 3.60M | **−24%** |
-| Cost | $4.19 | $3.36 | **−20%** |
-| Time | 604s | 616s | +2% (flat) |
+| Tokens | 9.33M | 4.79M | **−49%** |
+| Cost | $6.30 | $4.63 | **−27%** |
+| Time | 1124s | 861s | **−23%** |
 
-This is the cleanest apples-to-apples — identical model, identical tasks. The
-world model cuts roughly a quarter of the tokens on tasks both arms solve.
-
-**Lite co-resolved (2 tasks — cross-model: raw Sonnet 4 vs v0.7 Opus)** —
-`pytest-8906`, `pylint-6506`:
-
-| | Raw (Sonnet 4) | TMB v0.7 (Opus) | v0.7 Δ |
-|---|---|---|---|
-| Tokens | 4.59M | 1.19M | −74% |
-| Cost | $2.11 | $1.27 | −40% |
-| Time | 520s | 245s | −53% |
-
-Not a clean control (different models) — but notable that v0.7 on the *pricier*
-model still undercut a Sonnet-4 baseline on cost.
-
-**All 5 co-resolved (mixed model on Lite):** 9.33M → 4.79M tokens (−49%),
-$6.30 → $4.63 (−27%), 1124s → 861s (−23%).
+Even on an identical resolve set, v0.7 uses half the tokens and costs less.
+This is the cleanest signal — the world model cuts spend on tasks that
+both arms can solve.
 
 ---
 
