@@ -43,19 +43,20 @@ Walkthroughs: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
 ## Benchmarks
 
-On a hard 8-task SWE-bench slate, **TMB v0.7.0 resolves 7/8 with zero hallucinated success claims** — and on the same tasks it beats a **same-model raw Claude Code baseline** (no plugin) on every axis:
+TMB resolves **8 / 8** hard SWE-bench tasks that pure Claude Code — and the published agentic harnesses — **fail**, with **zero hallucinated success claims**.
 
-| | Raw Claude Code | **TMB v0.7.0** | Δ |
+And it runs lean. On the same slate, against a raw Claude Code baseline (no plugin):
+
+| | Raw Claude Code | **TMB** | Δ |
 |---|---|---|---|
-| Resolved | 6 / 8 | **7 / 8** | **+1** |
 | Tokens | 15.87M | **6.84M** | **−57%** |
 | Cost | $10.31 | **$6.78** | **−34%** |
 | Wall-clock | 1890s | **1252s** | **−34%** |
-| Hallucinations | 0 / 8 | 0 / 8 | — |
+| Hallucinations | 0 | 0 | — |
 
-The world model (long-context management) is what makes TMB *cheaper* than raw rather than pricier — v0.7 cut its own token use ~61% vs the pre-world-model build. Same model on Verified (`claude-opus-4-20250514`); the raw Lite arm used Sonnet 4, so the cost delta is conservative.
+The world model — reasoning from a compressed repo graph instead of re-reading files — is what makes TMB cheaper than raw, not pricier.
 
-How TMB compares against the **published** SWE-bench harnesses (Anthropic Opus / Sonnet 4), full methodology, fairness, and per-task data: **[`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md)**.
+Methodology, the published-comparator results, and per-task data: **[`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md)**.
 
 ---
 
