@@ -575,7 +575,7 @@ To set your name post-first-contact: say `@bro reonboard` or `@bro update my nam
 
 ## v0.4.1 — 2026-04-25
 
-**Cluster of bugs found during cold-session marketplace dogfood by [@ZaxShen](https://github.com/ZaxShen).** All four were doctrine drift, not infra: bro had stale instructions, server enforcement was working but invisible.
+**Cluster of bugs found during cold-session marketplace dogfood by [@trustmybot](https://github.com/trustmybot).** All four were doctrine drift, not infra: bro had stale instructions, server enforcement was working but invisible.
 
 ### Fixed — Anonymous identity now persists (issue #95)
 
@@ -800,7 +800,7 @@ The workflow soft-fails when the secret is absent — the L0 install piece still
 
 ## v0.3.2 — 2026-04-25
 
-**Hook + agent-prompt hotfix.** Two real bugs in `git-guards.sh` that broke every SWE commit-from-worktree, plus a SWE doctrine violation. Found by [@ZaxShen](https://github.com/ZaxShen) during v0.3.1 marketplace test — bro spent 12 minutes hitting the same hook-block before reporting.
+**Hook + agent-prompt hotfix.** Two real bugs in `git-guards.sh` that broke every SWE commit-from-worktree, plus a SWE doctrine violation. Found by [@trustmybot](https://github.com/trustmybot) during v0.3.1 marketplace test — bro spent 12 minutes hitting the same hook-block before reporting.
 
 ### Fixed — `git-guards.sh` worktree-blind branch detection
 
