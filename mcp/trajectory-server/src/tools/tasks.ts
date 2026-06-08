@@ -1,13 +1,30 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import { genId, nowISO } from '../db.js';
+import { nowISO } from '../db.js';
 import type { Task, TaskInput } from '../types.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { serverLog } from '../logger.js';
+import { spawnSync } from 'node:child_process';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 export const BRANCH_ID_RE =
   /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
+
+const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
+
+// Hard cap on tasks.spec_body. Architect should cite existing code/conventions
+// rather than restate them; a spec longer than ~8k is usually a sign the task
+// should be split via depends_on. Very long specs push SWE cold-start into the
+// minutes range (issue #55: a 55k-char spec hung the session). Tunable via
+// the TMB_SPEC_BODY_MAX_BYTES env var for downstream users with a different
+// SWE token budget; defaults to 8000 chars.
+export const SPEC_BODY_MAX_BYTES = (() => {
+  const raw = process.env['TMB_SPEC_BODY_MAX_BYTES'];
+  if (raw === undefined) return 8000;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8000;
+})();
 
 function validateBranchId(branchId: string): void {
   if (!BRANCH_ID_RE.test(branchId)) {
@@ -19,6 +36,34 @@ function validateBranchId(branchId: string): void {
   }
 }
 
+function validateParentBranchId(branchId: string): void {
+  if (BASE_BRANCH_ALLOWLIST.has(branchId) || BRANCH_ID_RE.test(branchId)) return;
+  throw new Error(
+    `Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention ` +
+      `format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
+      `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`,
+  );
+}
+
+function validateBranchExistsInRepo(branchId: string, repo: string): void {
+  const result = spawnSync('git', ['-C', repo, 'rev-parse', '--verify', branchId], { encoding: 'utf8' });
+  if (result.status === 0) return;
+  const stderr = (result.stderr ?? '') as string;
+  if (stderr.includes('not a git repository') || stderr.includes('cannot change to')) {
+    serverLog({
+      level: 'warn',
+      msg: `[task_create_batch] repo '${repo}' is not a resolvable git repository; skipping branch-existence check for '${branchId}'.`,
+    });
+    return;
+  }
+  throw new Error(
+    `task_create_batch rejected: branch '${branchId}' does not exist in repo '${repo}'. ` +
+      `Pre-create the branch before filing the task: ` +
+      `'git -C ${repo} branch ${branchId} <parent>'. ` +
+      `Bro is responsible for branch creation — SWE never creates branches (#11, #102).`,
+  );
+}
+
 const VALID_STATUSES = new Set([
   'pending',
   'running',
@@ -28,6 +73,25 @@ const VALID_STATUSES = new Set([
   'failed',
   'escalated',
 ]);
+
+// Allowed status transitions for bro (#278). Without this, bro could move any
+// status to any status — e.g. pending→closed (skipping verification) or
+// closed→completed (re-satisfying a downstream gate by fiat). Keys not present
+// reject every outbound move; a same-status no-op is always allowed.
+//   - Into 'completed' only from a work state (running / needs_validation) —
+//     bro can't fabricate completion from pending or a terminal state.
+//   - Into 'closed' only from verified/terminal states, never from pending.
+//   - 'closed'→'escalated' is the push-gate pushback path (pr-reviewer FAILs
+//     after the task was closed; bro reopens the work).
+const BRO_TRANSITIONS: Record<string, Set<string>> = {
+  pending: new Set(['running', 'failed', 'escalated']),
+  running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
+  needs_validation: new Set(['running', 'completed', 'failed', 'escalated', 'closed']),
+  completed: new Set(['needs_validation', 'failed', 'escalated', 'closed']),
+  failed: new Set(['pending', 'running', 'escalated', 'closed']),
+  escalated: new Set(['pending', 'running', 'failed', 'closed']),
+  closed: new Set(['escalated']),
+};
 
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -80,16 +144,20 @@ export function taskTools(db: TrajectoryDB): {
                 parent_branch_id: { type: 'string' },
                 title: { type: 'string' },
                 description: { type: 'string' },
-                tools_required: { type: 'array', items: { type: 'string' } },
-                skills_required: { type: 'array', items: { type: 'string' } },
-                success_criteria: { type: 'string' },
                 spec_body: {
                   type: 'string',
                   description:
-                    'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 64000 chars.',
+                    'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 8000 chars — over this, the architect should split into multiple tasks via depends_on, or cite existing code/conventions rather than restating them. See issue #55.',
+                },
+                repo: {
+                  type: 'string',
+                  description:
+                    'Optional relative path to the git repo for this task (e.g. "inner", "repos/backend"). ' +
+                    'Must not contain ".." or start with "/". Null/omitted for single-repo CC. ' +
+                    'Used by the WorktreeCreate hook to route worktree creation to the right repo.',
                 },
               },
-              required: ['branch_id', 'description', 'success_criteria'],
+              required: ['branch_id', 'description'],
             },
           },
           waive_scope_gate: {
@@ -97,10 +165,56 @@ export function taskTools(db: TrajectoryDB): {
             description:
               "Set true to bypass the scope-ambiguity gate. Only acceptable for truly trivial changes (typo fix, one-line doc change, etc.) where no Q+A was needed. If false or omitted, the issue MUST have at least one discussion row with kind='question' before tasks can be created.",
           },
+          emit_planning_complete: {
+            type: 'boolean',
+            description:
+              "Set true to atomically emit a planning_complete audit event in the same transaction as the task INSERTs. Eliminates the L5 03/12 failure mode where the LLM would create tasks but skip the closing audit_log call. The tmb_planning skill (Step 4) should set this to true.",
+          },
+          planning_complete_summary: {
+            type: 'string',
+            description:
+              "Optional override for the planning_complete event's summary text. Defaults to: 'Planning complete for issue <id>: <N> task(s) created on <branch>.'",
+          },
           waive_scope_gate_reason: {
             type: 'string',
             description:
               "Required when waive_scope_gate=true. Min 10 chars. Explain why this task has no Human-reviewed scope (e.g. 'typo fix in README line 12; no interpretation needed').",
+          },
+          waive_branch_gate: {
+            type: 'boolean',
+          },
+          waive_branch_gate_reason: {
+            type: 'string',
+          },
+          waive_registry_gate: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the world-model-cold gate. Only acceptable when /scan can't run for some reason (offline / scratch test fixture). If false or omitted, the kuzu world model MUST be warm (a deep_scan_completed audit row must exist) before tasks can be created — populate via /scan or scan_run.",
+          },
+          waive_registry_gate_reason: {
+            type: 'string',
+            description:
+              "Required when waive_registry_gate=true. Min 10 chars. Explain why /scan can't run.",
+          },
+          waive_intent_gate: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the intent-discussion gate. Acceptable for trivial work where the user intent is unambiguous and verbatim capture would be ceremony. If false or omitted, the issue MUST have at least one discussion row with kind='intent' before tasks can be created.",
+          },
+          waive_intent_gate_reason: {
+            type: 'string',
+            description:
+              "Required when waive_intent_gate=true. Min 10 chars. Explain why intent capture is unnecessary.",
+          },
+          waive_decision_gate: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the decision-audit gate. Acceptable only for trivial work where capturing a chosen approach as a kind='decision' discussion is ceremony (typo fix, mechanical rename, etc.). If false or omitted, the issue MUST have at least one kind='decision' discussion summarizing bro's chosen approach (1-3 sentences: what, why, trade-offs) before tasks can be created.",
+          },
+          waive_decision_gate_reason: {
+            type: 'string',
+            description:
+              "Required when waive_decision_gate=true. Min 10 chars. Explain why an explicit decision-audit row is unnecessary.",
           },
         },
         required: ['agent', 'issue_id', 'tasks'],
@@ -219,6 +333,176 @@ export function taskTools(db: TrajectoryDB): {
         }
       }
 
+      // --- Branch-id-proposal gate (MCP-level enforcement, #155) ---
+      // task_create_batch must be preceded by an audit event with
+      // event_type='branch_id_proposed' for this issue. Stops bro from spawning
+      // SWE without first running tmb_planning §Step 2 (which calls
+      // branch_id_propose, asks the Human to confirm, runs git switch -c, and
+      // emits the branch_id_proposed audit event).
+      const branchGateWaived = args['waive_branch_gate'] === true;
+      const branchGateWaiverReason = (args['waive_branch_gate_reason'] ?? '') as string;
+
+      if (branchGateWaived) {
+        if (typeof branchGateWaiverReason !== 'string' || branchGateWaiverReason.trim().length < 10) {
+          return err('waive_branch_gate_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const proposed = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM audit WHERE issue_id = ? AND event_type = 'branch_id_proposed'`,
+          [issueId],
+        );
+        if ((proposed?.c ?? 0) === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'branch_state_violation',
+                  message:
+                    `branch_state_violation: issue ${issueId} has zero audit events with event_type='branch_id_proposed'. ` +
+                    `Run tmb_planning §Step 2 first (it calls branch_id_propose, confirms with Human, runs git switch -c, and emits the audit event). ` +
+                    `For exceptional cases, pass waive_branch_gate=true with waive_branch_gate_reason="<why>".`,
+                  issue_id: issueId,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      // --- World-model-cold gate (MCP-level enforcement) ---
+      // /scan must have run at least once before bro can create tasks.
+      // The check is "is there any deep_scan_completed audit row?" — once
+      // /scan runs once per project lifetime, the gate clears. Without this
+      // gate, bro can ship work into an empty `directories` table and plan
+      // blind — no project map to reason from.
+      const registryGateWaived = args['waive_registry_gate'] === true;
+      const registryGateWaiverReason = (args['waive_registry_gate_reason'] ?? '') as string;
+
+      if (registryGateWaived) {
+        if (
+          typeof registryGateWaiverReason !== 'string' ||
+          registryGateWaiverReason.trim().length < 10
+        ) {
+          return err('waive_registry_gate_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const scanRow = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM audit WHERE event_type = 'deep_scan_completed'`,
+        );
+        if ((scanRow?.c ?? 0) === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'registry_cold_violation',
+                  message:
+                    `World-model-cold gate: no deep_scan_completed audit row exists. ` +
+                    `Run /scan (or call scan_run directly) to discover repos and populate the world model. ` +
+                    `For exceptional cases, pass waive_registry_gate=true with waive_registry_gate_reason="<why>".`,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      // --- Intent-discussion gate (MCP-level enforcement) ---
+      // tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human
+      // intent verbatim: ...') before task_create_batch. Production showed 0
+      // intent rows across 9 issues — bro consistently skipped this write
+      // because no gate enforced it. Server-side now does.
+      const intentGateWaived = args['waive_intent_gate'] === true;
+      const intentGateWaiverReason = (args['waive_intent_gate_reason'] ?? '') as string;
+
+      if (intentGateWaived) {
+        if (
+          typeof intentGateWaiverReason !== 'string' ||
+          intentGateWaiverReason.trim().length < 10
+        ) {
+          return err('waive_intent_gate_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const intentRow = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'intent'`,
+          [issueId],
+        );
+        if ((intentRow?.c ?? 0) === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'intent_gate_violation',
+                  message:
+                    `Intent gate: issue ${issueId} has zero kind='intent' discussions. ` +
+                    `tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human intent verbatim: "<the request>"') ` +
+                    `before task_create_batch. For exceptional cases, pass waive_intent_gate=true with waive_intent_gate_reason="<why>".`,
+                  issue_id: issueId,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      // --- Decision-audit gate (MCP-level enforcement) ---
+      // Universal: every issue must have at least one kind='decision' discussion
+      // summarizing bro's chosen approach (what, why, trade-offs) before
+      // task_create_batch. Replaces the older simple/difficult triage gate +
+      // decision-when-difficult gate combo. The audit trail is uniformly useful
+      // — for trivial work the decision body can be one short sentence; for
+      // architectural work it's bro's planned rationale (and a sibling ADR
+      // file lands under docs/trustmybot/architecture/manual/decisions/).
+      const decisionGateWaived = args['waive_decision_gate'] === true;
+      const decisionGateWaiverReason = (args['waive_decision_gate_reason'] ?? '') as string;
+
+      if (decisionGateWaived) {
+        if (
+          typeof decisionGateWaiverReason !== 'string' ||
+          decisionGateWaiverReason.trim().length < 10
+        ) {
+          return err('waive_decision_gate_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const decisionRow = db.get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'decision'`,
+          [issueId],
+        );
+        if ((decisionRow?.c ?? 0) === 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'decision_gate_violation',
+                  message:
+                    `Decision gate: issue ${issueId} has zero kind='decision' discussions. ` +
+                    `tmb_planning mandates discussion_append(kind='decision', body='<chosen approach: what, why, trade-offs>') ` +
+                    `before task_create_batch. For architectural changes also author an ADR at docs/trustmybot/architecture/manual/decisions/. ` +
+                    `For trivial waives, pass waive_decision_gate=true with waive_decision_gate_reason="<why>".`,
+                  issue_id: issueId,
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      for (const t of taskInputs) {
+        if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
+          const repo = t.repo as string;
+          if (!repo.includes('..') && !repo.startsWith('/')) {
+            validateBranchExistsInRepo(t.branch_id, repo);
+          }
+        }
+      }
+
       const inserted = db.transaction(() => {
         const results: Task[] = [];
         const now = nowISO();
@@ -226,47 +510,86 @@ export function taskTools(db: TrajectoryDB): {
         for (const t of taskInputs) {
           if (!t.branch_id) throw new Error('Missing required arg: branch_id');
           validateBranchId(t.branch_id);
-          if (t.parent_branch_id != null) validateBranchId(t.parent_branch_id);
+          if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
           if (!t.description) throw new Error('Missing required arg: description');
-          if (!t.success_criteria) throw new Error('Missing required arg: success_criteria');
           if (t.spec_body !== undefined) {
             if (typeof t.spec_body !== 'string') {
               throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
             }
-            // Hard cap: 8000 chars per task. Architect should cite existing
-            // code/conventions rather than restate them; a spec longer than
-            // ~8k is usually a sign the task should be split. Over-long specs
-            // force SWE to spend tokens reading instead of coding.
-            // See issue #55 (P0: architect over-engineered 55k-char spec
-            // → session hang).
-            if (t.spec_body.length > 8000) {
+            // Hard cap: SPEC_BODY_MAX_BYTES (default 8000) per task. See the
+            // export at the top of the file for rationale + env override.
+            if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
               throw new Error(
-                `spec_body exceeds 8000 char limit (actual: ${t.spec_body.length}). ` +
+                `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
                 `Split into multiple tasks via depends_on, or cite existing code/` +
                 `conventions rather than restating them inline. Very long specs ` +
-                `push SWE cold-start into the minutes range; see issue #55.`,
+                `push SWE cold-start into the minutes range; see issue #55. ` +
+                `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
               );
             }
           }
 
-          void genId('task');
+          let repoValue: string | null = null;
+          if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
+            const repo = t.repo as string;
+            if (repo.includes('..')) {
+              throw new Error(
+                `Invalid repo "${repo}": must not contain "..". Use a relative path like "inner" or "repos/backend".`,
+              );
+            }
+            if (repo.startsWith('/')) {
+              throw new Error(
+                `Invalid repo "${repo}": must not start with "/". Use a relative path like "inner" or "repos/backend".`,
+              );
+            }
+            repoValue = repo;
+          } else {
+            const defaultRepoRow = db.get<{ value_json: string }>(
+              `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
+            );
+            if (defaultRepoRow?.value_json) {
+              const defaultRepo = JSON.parse(defaultRepoRow.value_json) as unknown;
+              if (typeof defaultRepo === 'string' && defaultRepo.length > 0) {
+                repoValue = defaultRepo;
+              }
+            }
+          }
+
+          // Server-side parent_branch_id default: when omitted/null, read pr_target
+          // from plugin_config (default 'main'). Fixes L5 92-base-branch where bro
+          // skipped reading config('pr_target') and tasks landed against main on
+          // gitflow projects with pr_target='dev'.
+          let parentBranchId: string | null = t.parent_branch_id ?? null;
+          if (parentBranchId == null) {
+            const prTargetRow = db.get<{ value_json: string }>(
+              `SELECT value_json FROM plugin_config WHERE key = 'pr_target'`,
+            );
+            if (prTargetRow?.value_json) {
+              try {
+                const prTarget = JSON.parse(prTargetRow.value_json) as unknown;
+                if (typeof prTarget === 'string' && prTarget.length > 0) {
+                  parentBranchId = prTarget;
+                }
+              } catch {
+                // malformed config row — leave as null and fall through
+              }
+            }
+            if (parentBranchId == null) parentBranchId = 'main';
+          }
 
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                tools_required, skills_required, success_criteria,
-                status, attempts, spec_body, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
+                status, attempts, spec_body, repo, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
-              t.parent_branch_id ?? null,
+              parentBranchId,
               t.title ?? '',
               t.description,
-              JSON.stringify(t.tools_required ?? []),
-              JSON.stringify(t.skills_required ?? []),
-              t.success_criteria,
               t.spec_body ?? '',
+              repoValue,
               now,
               now,
             ],
@@ -275,32 +598,71 @@ export function taskTools(db: TrajectoryDB): {
           const row = db.get<Task>(
             'SELECT * FROM tasks WHERE rowid = last_insert_rowid()',
           );
-          if (row) results.push(row);
+          if (row) {
+            results.push(row);
+            // Bro-as-agent_run (#2886): open a bro row per task at planning
+            // time. `completed_at` stays NULL until bro_atomic_close finalizes
+            // the row with duration + (eventually) tokens. Makes bro's
+            // skill/rule invocations attributable to a tracked agent_run.
+            db.run(
+              `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
+               VALUES (?, ?, 'bro', ?)`,
+              [row.id, issueId, now],
+            );
+          }
+        }
+
+        // Optional atomic audit emission: when emit_planning_complete=true, insert
+        // the planning_complete event in the SAME transaction as the task creation.
+        // This eliminates the L5 03/12 failure mode where the LLM would create
+        // tasks but skip the closing audit_log call. With this flag, the closing
+        // event is server-side and cannot be dropped between LLM turns.
+        const emitPlanningComplete = args['emit_planning_complete'] === true;
+        if (emitPlanningComplete && results.length > 0) {
+          const firstTask = results[0]!;
+          const branchForAudit = firstTask.branch_id;
+          const summary =
+            (args['planning_complete_summary'] as string | undefined) ??
+            `Planning complete for issue ${issueId}: ${results.length} task(s) created on ${branchForAudit}.`;
+          const contentJson = JSON.stringify({
+            issue_id: issueId,
+            task_count: results.length,
+            task_branch_ids: results.map((r) => r.branch_id),
+            parent_branch_ids: results.map((r) => r.parent_branch_id),
+          });
+          const fromNode = (args['agent'] as string) ?? 'bro';
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
+            [issueId, branchForAudit, fromNode, summary, contentJson, now],
+          );
+        }
+
+        // Audit log for gate waivers so pr-reviewer / human-review can flag
+        // tasks that skipped the alignment loop. Runs inside the same txn as
+        // task INSERTs so a crash between commit and audit cannot lose the record.
+        if (waived) {
+          const firstBranch = results[0]?.branch_id ?? '';
+          db.run(
+            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`,
+            [
+              issueId,
+              firstBranch,
+              args['agent'] as string,
+              waiverReason.slice(0, 200),
+              JSON.stringify({
+                waive_scope_gate_reason: waiverReason,
+                tasks_created: results.length,
+              }),
+              now,
+            ],
+          );
         }
 
         return results;
       });
-
-      // Audit log for gate waivers so pr-reviewer / human-review can flag
-      // tasks that skipped the alignment loop.
-      if (waived) {
-        const now = nowISO();
-        db.run(
-          `INSERT INTO ledger (issue_id, branch_id, from_node, event_type, summary, content, created_at)
-           VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`,
-          [
-            issueId,
-            inserted[0]?.branch_id ?? '',
-            args['agent'] as string,
-            waiverReason.slice(0, 200),
-            JSON.stringify({
-              waive_scope_gate_reason: waiverReason,
-              tasks_created: inserted.length,
-            }),
-            now,
-          ],
-        );
-      }
 
       return ok(inserted);
     })),
@@ -320,7 +682,9 @@ export function taskTools(db: TrajectoryDB): {
       requireArg(args, 'agent');
       const taskId = requireArg(args, 'task_id') as string;
       const status = requireArg(args, 'status') as string;
-      const rawCommitSha = args['commit_sha'] as string | undefined;
+      const rawCommitSha = args['commit_sha'] !== undefined
+        ? (args['commit_sha'] as string).toLowerCase()
+        : undefined;
 
       if (!VALID_STATUSES.has(status)) {
         throw new Error(
@@ -328,8 +692,17 @@ export function taskTools(db: TrajectoryDB): {
         );
       }
 
+      const SWE_ALLOWED_STATUSES = new Set(['running', 'completed', 'failed']);
+      if (args['agent'] === 'swe' && !SWE_ALLOWED_STATUSES.has(status)) {
+        throw new Error(
+          `task_update_status rejected: SWE may only set status to 'running', 'completed', or 'failed' (got '${status}'). ` +
+          `Pre-execution states (pending, escalated) are bro-managed; 'closed' is bro's atomic-close transition; ` +
+          `'needs_validation' is not a valid SWE terminal state — use 'failed' instead if the work blocked. See #114.`
+        );
+      }
+
       if (rawCommitSha !== undefined) {
-        if (rawCommitSha.length < 7 || !/^[0-9a-fA-F]+$/.test(rawCommitSha)) {
+        if (rawCommitSha.length < 7 || !/^[0-9a-f]+$/.test(rawCommitSha)) {
           throw new Error(
             `Invalid commit_sha: "${rawCommitSha}". Must be a hex string of at least 7 characters (short SHA) or 40 characters (full SHA).`,
           );
@@ -341,9 +714,26 @@ export function taskTools(db: TrajectoryDB): {
         throw new Error(`Not found: ${taskId}`);
       }
 
+      if (args['agent'] === 'bro' && status !== task.status) {
+        const allowed = BRO_TRANSITIONS[task.status] ?? new Set<string>();
+        if (!allowed.has(status)) {
+          const valid = [...allowed].join(', ') || '(none — terminal)';
+          throw new Error(
+            `task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. ` +
+            `Allowed from '${task.status}': ${valid}. ` +
+            `Close verified work via bro_atomic_close; reopen a closed task by escalating. See #278.`
+          );
+        }
+      }
+
       const now = nowISO();
       const attempts = args['attempts'] !== undefined ? (args['attempts'] as number) : task.attempts;
-      const completedAt = status === 'completed' ? now : task.completed_at;
+      // completed_at is carried only by post-completion states. Stamp it on
+      // 'completed', preserve it through 'closed', and clear it on any move to
+      // an active/failed/escalated state — a reopened task must not keep a
+      // stale completion stamp that downstream gates would trust (#278).
+      const completedAt =
+        status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
 
       if (rawCommitSha !== undefined) {
         db.run(

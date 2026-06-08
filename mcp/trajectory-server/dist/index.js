@@ -1,23 +1,46 @@
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
 import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
 import { TrajectoryDB, resolveDbPath } from './db.js';
+import { serverLog, serverLogSync } from './logger.js';
+import { startBackfill } from './embeddings/backfill.js';
+import { WorldModelGraph, resolveGraphDbPath } from './graph-db.js';
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
     mkdirSync(path.dirname(dbPath), { recursive: true });
 }
 const db = new TrajectoryDB(dbPath);
+// World-model graph DB (ADR 0002) — separate kuzu file beside trajectory.db.
+// If kuzu fails to load (missing native binary, sandbox), surface but don't
+// crash — world_model_* will return 'world-model-unavailable'; trajectory
+// workflow continues to function.
+let graph = null;
+try {
+    const graphPath = resolveGraphDbPath(dbPath);
+    graph = new WorldModelGraph(graphPath);
+    serverLogSync({ kind: 'graph_db_open', path: graphPath });
+}
+catch (e) {
+    serverLogSync({
+        kind: 'graph_db_open_failed',
+        error_message: e instanceof Error ? e.message : String(e),
+    });
+}
 const server = new Server({ name: 'trajectory-server', version: '0.3.2' }, { capabilities: { tools: {} } });
-registerTools(server, db);
+registerTools(server, db, dbPath, graph);
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolDefinitions,
 }));
-// L5 trajectory capture (issue #108). Active only when TMB_DEBUG_TRAJECTORY=1.
+// L5 trajectory capture. Requires both TMB_DEBUG_TRAJECTORY=1 (opt-in switch)
+// AND TMB_EVAL_MODE=1 — the latter is what loads schema-eval.sql, which is
+// where the `debug_trajectory` table is defined. Without eval mode the
+// INSERT would target a missing table and silently no-op.
 // Session ID is per-server-spawn — covers a single `claude -p` invocation.
-const debugTrajectoryEnabled = process.env['TMB_DEBUG_TRAJECTORY'] === '1';
+const debugTrajectoryEnabled = process.env['TMB_DEBUG_TRAJECTORY'] === '1' && process.env['TMB_EVAL_MODE'] === '1';
 const debugSessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 let debugStepCounter = 0;
 function maybeRecordTrajectory(toolName, args, result) {
@@ -45,25 +68,91 @@ function maybeRecordTrajectory(toolName, args, result) {
         // Trajectory capture must never break the actual tool call.
     }
 }
+let shuttingDown = false;
+function shutdown(signal) {
+    if (shuttingDown)
+        return;
+    shuttingDown = true;
+    serverLogSync({ kind: 'shutdown', signal, pid: process.pid });
+    db.close();
+    graph?.close();
+    process.exit(0);
+}
+process.on('uncaughtException', (err) => {
+    serverLogSync({ kind: 'uncaughtException', error_message: err.message, stack: err.stack, pid: process.pid });
+    process.stderr.write(`uncaughtException: ${err.message}\n${err.stack ?? ''}\n`);
+    process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    const stack = reason instanceof Error ? reason.stack : undefined;
+    serverLogSync({ kind: 'unhandledRejection', error_message: msg, stack, pid: process.pid });
+    process.stderr.write(`unhandledRejection: ${msg}\n`);
+    process.exit(1);
+});
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     const handler = toolHandlers[name];
     if (!handler) {
         throw new Error(`Unknown tool: ${name}`);
     }
-    const result = await handler(args ?? {});
+    const start = performance.now();
+    const agent = args?.agent ?? null;
+    serverLog({ kind: 'tool_entry', tool: name, agent });
+    if (name === 'task_create_batch') {
+        const typedArgs = args;
+        const tasks = (typedArgs?.['tasks'] ?? []);
+        const total_bytes = JSON.stringify(args ?? {}).length;
+        const max_spec_bytes = tasks.length > 0
+            ? Math.max(...tasks.map((t) => (t.spec_body ?? '').length))
+            : 0;
+        const n_tasks = tasks.length;
+        serverLog({ kind: 'tool_size', tool: 'task_create_batch', total_bytes, max_spec_bytes, n_tasks, agent });
+        if (max_spec_bytes > 8192) {
+            serverLog({
+                kind: 'oversize_warning',
+                tool: 'task_create_batch',
+                total_bytes,
+                max_spec_bytes,
+                n_tasks,
+                agent,
+                threshold: 8192,
+                upstream_ref: 'anthropics/claude-code#36319',
+            });
+        }
+    }
+    let result;
+    try {
+        result = await handler(args ?? {});
+    }
+    catch (err) {
+        const duration_ms = Math.round(performance.now() - start);
+        serverLog({
+            kind: 'tool_exit',
+            tool: name,
+            agent,
+            is_error: true,
+            error_message: err instanceof Error ? err.message : String(err),
+            duration_ms,
+        });
+        throw err;
+    }
+    const duration_ms = Math.round(performance.now() - start);
+    serverLog({
+        kind: 'tool_exit',
+        tool: name,
+        agent,
+        is_error: result.isError ?? false,
+        duration_ms,
+    });
     maybeRecordTrajectory(name, args, result);
     return result;
 });
-process.on('SIGINT', () => {
-    db.close();
-    process.exit(0);
-});
-process.on('SIGTERM', () => {
-    db.close();
-    process.exit(0);
-});
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 const transport = new StdioServerTransport();
 await server.connect(transport);
+serverLog({ kind: 'startup', pid: process.pid, version: '0.7.0', db_path: dbPath });
 process.stderr.write(`server started (db: ${dbPath})\n`);
+startBackfill(db).catch((e) => console.error('[embeddings] startBackfill error:', e));
 //# sourceMappingURL=index.js.map

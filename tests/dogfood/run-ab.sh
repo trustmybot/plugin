@@ -13,7 +13,7 @@
 #                             overrides the plugin's CLAUDE.md when arm A runs)
 #
 # Reuses the scorer config (outcome.sql + tools-required.json + tools-forbidden.json
-# + cost-budget.json) from tests/dogfood/flows/<flow>/.
+# + cost-budget.json) from tests/dogfood/rows/<flow>/.
 #
 # Token-heavy: each arm-pair = 2 full claude -p invocations. Default N=5 → 10
 # claude calls per scenario. Treat as opt-in (similar to Release canary scope);
@@ -24,6 +24,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 export PLUGIN_ROOT
+export TMB_EVAL_MODE=1
 
 SCENARIO_NAME="${1:-}"
 N="${N:-5}"
@@ -58,15 +59,16 @@ done
 . "$HERE/lib/flow-helpers.sh"
 . "$HERE/lib/smoke-helpers.sh"
 . "$HERE/lib/ab-helpers.sh"
+. "$HERE/lib/sandbox.sh"
 
 # Parse scenario.json
 FLOW=$(jq -r '.flow' "$SCENARIO_DIR/scenario.json")
 PROMPT=$(jq -r '.prompt' "$SCENARIO_DIR/scenario.json")
 ARMS=$(jq -r '.arms[]' "$SCENARIO_DIR/scenario.json")
-SCORER_DIR="$HERE/flows/$FLOW"
+SCORER_DIR="$HERE/rows/$FLOW"
 
 if [ ! -d "$SCORER_DIR" ]; then
-  printf "❌ Flow scorer dir not found: %s\n" "$SCORER_DIR"
+  printf "❌ Row scorer dir not found: %s\n" "$SCORER_DIR"
   exit 1
 fi
 
@@ -115,7 +117,9 @@ for pair in $(seq 1 "$N"); do
     # references — bro correctly responds 'nothing to do' and the test is moot.
     l5_setup_scenario_state "$PROJECT" "$SCENARIO_DIR"
 
+    tmb_test_sandbox_init "$PROJECT"
     l5_run_arm "$PROJECT" "$ARM_PLUGIN" "$PROMPT"
+    tmb_test_sandbox_teardown
     if PLUGIN_ROOT="$ARM_PLUGIN" l5_score_with_arm "$PROJECT" "$FLOW" "$SCORER_DIR" "$RUN_ID" "$arm" "$SCENARIO_NAME"; then
       printf "    ✓ all scorers passed\n"
     else

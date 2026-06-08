@@ -33,11 +33,13 @@ function wrapHandler(fn) {
         }
     };
 }
+const VALID_SCOPES = new Set(['global', 'template', 'project-local']);
+const VALID_INVOCATION_OUTCOMES = new Set(['completed', 'failed', 'partial']);
 export function skillTools(db) {
     const definitions = [
         {
             name: 'skill_register',
-            description: 'Register a new skill. Status defaults to draft.',
+            description: 'Register a new skill. Status defaults to draft. Scope defaults to project-local (the common case for tmb_skill-creator output); plugin-shipped skills are schema-seeded with scope=global.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -46,9 +48,47 @@ export function skillTools(db) {
                     description: { type: 'string' },
                     file_path: { type: 'string' },
                     trust_tier: { type: 'string', enum: ['curated', 'agent'] },
-                    created_by: { type: 'string' },
+                    scope: {
+                        type: 'string',
+                        enum: ['global', 'template', 'project-local'],
+                        description: 'Defaults to project-local.',
+                    },
                 },
-                required: ['agent', 'name', 'description', 'file_path', 'trust_tier', 'created_by'],
+                required: ['agent', 'name', 'description', 'file_path', 'trust_tier'],
+            },
+        },
+        {
+            name: 'skill_record_invocation',
+            description: 'Record one skill load — bridges the catalog (skills) to the agent_run that invoked it. Writes one row to skill_invocations. agent_run_id and task_id are optional (free-floating invocations during onboarding etc.).',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    skill_name: { type: 'string', description: 'Must reference an existing skills.name.' },
+                    agent_name: { type: 'string', description: 'bro / swe / pr-reviewer / consultant name.' },
+                    agent_run_id: { type: 'integer', description: 'Optional agent_runs.id this invocation belongs to.' },
+                    task_id: { type: 'integer', description: 'Optional tasks.id when scoped to a specific task.' },
+                    outcome: {
+                        type: 'string',
+                        enum: ['completed', 'failed', 'partial'],
+                        description: 'Defaults to completed.',
+                    },
+                },
+                required: ['agent', 'skill_name', 'agent_name'],
+            },
+        },
+        {
+            name: 'skill_invocations_list',
+            description: 'List skill_invocations rows. Bidirectional: filter by skill_name (which agent_runs used skill X?) or by agent_run_id/task_id (what did this run/task touch?).',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    skill_name: { type: 'string' },
+                    agent_run_id: { type: 'integer' },
+                    task_id: { type: 'integer' },
+                    limit: { type: 'integer', description: 'Default 200, max 1000.' },
+                },
             },
         },
         {
@@ -86,16 +126,76 @@ export function skillTools(db) {
             const description = requireArg(args, 'description');
             const filePath = requireArg(args, 'file_path');
             const trustTier = requireArg(args, 'trust_tier');
-            const createdBy = requireArg(args, 'created_by');
+            const scope = args['scope'] ?? 'project-local';
             if (!VALID_TRUST_TIERS.has(trustTier)) {
                 throw new Error(`Invalid trust_tier: "${trustTier}". Allowed values: ${[...VALID_TRUST_TIERS].join(', ')}`);
             }
+            if (!VALID_SCOPES.has(scope)) {
+                throw new Error(`Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES].join(', ')}`);
+            }
             const now = nowISO();
             db.run(`INSERT INTO skills
-           (name, description, file_path, trust_tier, created_by, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)`, [name, description, filePath, trustTier, createdBy, now, now]);
+           (name, description, file_path, scope, trust_tier, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)`, [name, description, filePath, scope, trustTier, now, now]);
             const row = db.get('SELECT * FROM skills WHERE rowid = last_insert_rowid()');
             return ok(row);
+        }),
+        skill_record_invocation: wrapHandler(async (args) => {
+            requireArg(args, 'agent');
+            const skillName = requireArg(args, 'skill_name');
+            const agentName = requireArg(args, 'agent_name');
+            const agentRunId = args['agent_run_id'] === undefined || args['agent_run_id'] === null
+                ? null
+                : Number(args['agent_run_id']);
+            const taskId = args['task_id'] === undefined || args['task_id'] === null
+                ? null
+                : Number(args['task_id']);
+            const outcome = args['outcome'] ?? 'completed';
+            if (!VALID_INVOCATION_OUTCOMES.has(outcome)) {
+                throw new Error(`Invalid outcome: "${outcome}". Allowed values: ${[...VALID_INVOCATION_OUTCOMES].join(', ')}`);
+            }
+            if (agentRunId !== null && !Number.isInteger(agentRunId)) {
+                throw new Error('agent_run_id must be an integer when provided');
+            }
+            if (taskId !== null && !Number.isInteger(taskId)) {
+                throw new Error('task_id must be an integer when provided');
+            }
+            const skill = db.get('SELECT name FROM skills WHERE name = ?', [skillName]);
+            if (!skill) {
+                throw new Error(`Skill not registered: ${skillName}`);
+            }
+            const now = nowISO();
+            db.run(`INSERT INTO skill_invocations
+           (skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome)
+         VALUES (?, ?, ?, ?, ?, ?)`, [skillName, agentName, agentRunId, taskId, now, outcome]);
+            const row = db.get('SELECT * FROM skill_invocations WHERE rowid = last_insert_rowid()');
+            return ok(row);
+        }),
+        skill_invocations_list: wrapHandler(async (args) => {
+            requireArg(args, 'agent');
+            const filters = [];
+            const params = [];
+            if (typeof args['skill_name'] === 'string') {
+                filters.push('skill_name = ?');
+                params.push(args['skill_name']);
+            }
+            if (args['agent_run_id'] !== undefined && args['agent_run_id'] !== null) {
+                filters.push('agent_run_id = ?');
+                params.push(Number(args['agent_run_id']));
+            }
+            if (args['task_id'] !== undefined && args['task_id'] !== null) {
+                filters.push('task_id = ?');
+                params.push(Number(args['task_id']));
+            }
+            const where = filters.length > 0 ? 'WHERE ' + filters.join(' AND ') : '';
+            const limit = Math.min(Math.max(1, Number(args['limit'] ?? 200)), 1000);
+            params.push(limit);
+            const rows = db.all(`SELECT id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome
+           FROM skill_invocations
+           ${where}
+           ORDER BY id DESC
+           LIMIT ?`, params);
+            return ok({ rows, count: rows.length });
         }),
         skill_record_outcome: wrapHandler(async (args) => {
             requireArg(args, 'agent');

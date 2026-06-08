@@ -1,6 +1,6 @@
-# Layer 4 — Workflow Simulation
+# L4 — Workflow Simulation
 
-These tests **drive the real MCP server through scripted tool sequences** to verify that each FLOWS.md flow produces the right state transitions, ledger events, and role-enforcement behavior — **without needing Claude Code to be running**.
+These tests **drive the real MCP server through scripted tool sequences** to verify that each FLOWS.md flow produces the right state transitions, audit events, and role-enforcement behavior — **without needing Claude Code to be running**.
 
 The harness is `tests/mcp-integration/harness.mjs` (shared with L3). Each test spawns the MCP server in a subprocess, opens an in-memory SQLite DB (`TRAJECTORY_DB_PATH=:memory:`), and walks one flow end-to-end as multiple MCP tool calls — first as bro, then SWE, then pr-reviewer, etc.
 
@@ -16,9 +16,9 @@ Cross-reference: [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md
 | 4 — Agent-creator | n/a | **L5 only** — pure filesystem write |
 | 5 — Skill creation | n/a | **L5 only** — pure filesystem write |
 | 6 — Push gate | `flow-06-push-gate.test.mjs` | ✅ closed-task + validation_record + retry |
-| 7 — Architecture regen | `flow-07-architecture-regen.test.mjs` | ✅ regen_state + file_registry orchestration |
+| 7 — Scan + architecture refresh | covered by `mcp/trajectory-server/src/test/scan.test.ts` (unit) | ✅ scan_run + deep_scan_completed audit |
 | 8 — SWE retry / escalation | `flow-08-swe-retry.test.mjs` | ✅ multiple validation_attempts + status='escalated' |
-| 9 — Roundtable | n/a | covered by ledger 'roundtable_summary' event in flow-03 + role-matrix |
+| 9 — Roundtable | n/a | covered by audit 'roundtable_summary' event in flow-03 + role-matrix |
 | C — Consultant invocation | n/a | covered by `tests/mcp-integration/role-matrix.test.mjs` |
 
 ## What L4 does NOT test
@@ -33,10 +33,10 @@ Each test asserts the **structural contract** of a flow:
 - The right MCP tools get called in the right order
 - The right rows land in the right tables
 - Role enforcement (`requireRoles`) fires correctly per agent
-- Ledger events are recorded for downstream snapshot/report use
+- Audit events are recorded for downstream snapshot/report use
 - Status transitions follow the documented state machine
 
-If a flow's contract changes (new step, new role enforcement, new ledger event), the corresponding test file changes too — that's how `FLOWS.md` and the code stay in sync.
+If a flow's contract changes (new step, new role enforcement, new audit event), the corresponding test file changes too — that's how `FLOWS.md` and the code stay in sync.
 
 ## Running
 

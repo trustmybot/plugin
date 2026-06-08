@@ -1,0 +1,5 @@
+{
+  "max_turns": 1,
+  "user_after_bro": [],
+  "terminal_pattern": "/onboard|reonboard|onboarding|want to run|run it again|kick off|fire it"
+}

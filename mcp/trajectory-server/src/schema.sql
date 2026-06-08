@@ -3,16 +3,16 @@ PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS issues (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_issue_id   INTEGER REFERENCES issues(id),
     objective         TEXT    NOT NULL,
     description       TEXT    NOT NULL DEFAULT '',
-    pre_commit_hash   TEXT    NOT NULL DEFAULT '',
-    post_commit_hash  TEXT,
     status            TEXT    NOT NULL DEFAULT 'open',
-    current_task_id   INTEGER REFERENCES tasks(id),
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
-    closed_at         TEXT
+    closed_at         TEXT,
+    remote_iid        INTEGER,
+    remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+    gh_iid            INTEGER,
+    gl_iid            INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -22,13 +22,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     parent_branch_id  TEXT,
     title             TEXT    NOT NULL DEFAULT '',
     description       TEXT    NOT NULL,
-    tools_required    TEXT    NOT NULL DEFAULT '[]',
-    skills_required   TEXT    NOT NULL DEFAULT '[]',
-    success_criteria  TEXT    NOT NULL,
     status            TEXT    NOT NULL DEFAULT 'pending',
     attempts          INTEGER NOT NULL DEFAULT 0,
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
+    repo              TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     completed_at      TEXT
@@ -36,40 +34,33 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
 
-CREATE TABLE IF NOT EXISTS ledger (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id     INTEGER NOT NULL REFERENCES issues(id),
-    branch_id    TEXT,
-    from_node    TEXT    NOT NULL,
-    event_type   TEXT    NOT NULL,
-    summary      TEXT    NOT NULL DEFAULT '',
-    content      TEXT    NOT NULL DEFAULT '{}',
-    is_truncated INTEGER NOT NULL DEFAULT 0,
-    created_at   TEXT    NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS audit (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id     INTEGER NOT NULL REFERENCES issues(id),
     branch_id    TEXT,
     from_node    TEXT    NOT NULL DEFAULT 'executor',
-    round        INTEGER NOT NULL DEFAULT 0,
-    tool_name    TEXT    NOT NULL,
-    tool_args    TEXT    NOT NULL DEFAULT '{}',
-    output       TEXT    NOT NULL DEFAULT '',
-    output_chars INTEGER NOT NULL DEFAULT 0,
-    is_truncated INTEGER NOT NULL DEFAULT 0,
+    event_type   TEXT    NOT NULL,
+    summary      TEXT    NOT NULL,
+    content_json TEXT    NOT NULL DEFAULT '{}',
     created_at   TEXT    NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS validation_attempts (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id         INTEGER NOT NULL REFERENCES tasks(id),
-    attempt_n       INTEGER NOT NULL,
-    agent           TEXT    NOT NULL DEFAULT '',
-    verdict         TEXT    NOT NULL,
-    feedback         TEXT    NOT NULL DEFAULT '',
-    created_at      TEXT    NOT NULL,
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id             INTEGER NOT NULL REFERENCES tasks(id),
+    attempt_n           INTEGER NOT NULL,
+    agent               TEXT    NOT NULL DEFAULT '',
+    verdict             TEXT    NOT NULL,
+    -- LOAD-BEARING-SAFETY (#97): feedback MUST start with the literal MCP-availability prefix.
+    -- Bro's push-gate parser depends on this exact format; raw-SQL inserts via sqlite3 fallback
+    -- (tmb_review §B) bypass the MCP handler, so the constraint lives at the schema layer.
+    feedback            TEXT    NOT NULL DEFAULT '' CHECK (
+        feedback LIKE 'MCP available: yes%' OR
+        feedback LIKE 'MCP available: no — honor-system fallback%' OR
+        feedback = ''
+    ),
+    subagent_session_id TEXT,
+    created_at          TEXT    NOT NULL,
     UNIQUE(task_id, attempt_n)
 );
 
@@ -78,46 +69,95 @@ CREATE TABLE IF NOT EXISTS skills (
     name            TEXT    NOT NULL UNIQUE,
     description     TEXT    NOT NULL,
     file_path       TEXT    NOT NULL,
-    tags            TEXT    NOT NULL DEFAULT '[]',
-    created_by      TEXT    NOT NULL DEFAULT 'system',
+    -- scope mirrors agents.scope (#2886). 'global' = plugin-shipped `tmb_*`
+    -- skills in skills/<name>/SKILL.md; 'template' = `templates/skills/...`
+    -- copied per-project on demand; 'project-local' = `<project>/.claude/
+    -- skills/<name>/SKILL.md` authored by `tmb_skill-creator`.
+    scope           TEXT    NOT NULL DEFAULT 'global'
+                      CHECK (scope IN ('global','template','project-local')),
     trust_tier      TEXT    NOT NULL DEFAULT 'curated',
     status          TEXT    NOT NULL DEFAULT 'active',
-    when_to_use     TEXT    NOT NULL DEFAULT '',
-    when_not_to_use TEXT    NOT NULL DEFAULT '',
     uses            INTEGER NOT NULL DEFAULT 0,
     successes       INTEGER NOT NULL DEFAULT 0,
-    failures        INTEGER NOT NULL DEFAULT 0,
     effectiveness   REAL,
     created_at      TEXT    NOT NULL,
     updated_at      TEXT    NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS roundtables (
+CREATE TABLE IF NOT EXISTS agents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id    INTEGER NOT NULL REFERENCES issues(id),
-    topic       TEXT    NOT NULL,
-    status      TEXT    NOT NULL DEFAULT 'open',
-    outcome     TEXT    NOT NULL DEFAULT '',
-    created_at  TEXT    NOT NULL,
-    closed_at   TEXT
+    name        TEXT    NOT NULL UNIQUE,
+    kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+    scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
+    file_path   TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'active',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
+    ('swe',          'backbone',   'global',   'agents/swe.md'),
+    ('pr-reviewer',  'backbone',   'global',   'agents/pr-reviewer.md'),
+    ('architect',    'consultant', 'template', 'templates/agents/architect.md'),
+    ('cto',          'consultant', 'template', 'templates/agents/cto.md'),
+    ('ceo',          'consultant', 'template', 'templates/agents/ceo.md'),
+    ('pm',           'consultant', 'template', 'templates/agents/pm.md');
+
+-- Schema-seed the bundled tmb_* skills (#2884). Without this seed the skills
+-- table sits empty on every install — none of the shipped skills register
+-- themselves at session start. Mirrors the `agents` seed pattern above.
+-- Descriptions come from each SKILL.md's frontmatter (kept short — full
+-- routing logic lives in the SKILL.md body, this row is just the index).
+INSERT OR IGNORE INTO skills (name, description, file_path, scope, trust_tier, status, created_at, updated_at) VALUES
+    ('tmb_planning',           'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_concerns-protocol',  'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_recovery',           'Bro''s response when something fails — AskUserQuestion errors / TMB_HEADLESS=1, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                  'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_review',             'Review surface — pr-reviewer''s qualitative phases at the push gate, bro''s PR/MR comment triage flow, and bro''s push-time orchestration.',                                                                 'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_swe-checklist',      'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_docs-conventions',   'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_skill-creator',      'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now')),
+    ('tmb_agent-creator',      'Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn.',                  'skills/tmb_agent-creator/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'));
+
+-- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
+-- discussion writes that don't belong to any user-created work issue. The
+-- tmb_recovery doctrine and the /onboard headless-block path target this id.
+-- Schema-seeded so every fresh DB has it without fixtures needing to add it.
+--
+-- Negative sentinel rather than a high positive (e.g. 999999) so SQLite's
+-- AUTOINCREMENT counter remains at 0 and the first user-created issue gets
+-- id=1 — production installs see clean 1, 2, 3... numbering without a
+-- million-id gap polluting the issue space.
+INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+VALUES (-1, 'system', 'parent issue for headless-recovery / system-level audit and discussion events', 'open', datetime('now'), datetime('now'));
+
+CREATE TABLE IF NOT EXISTS roundtables (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id                INTEGER NOT NULL REFERENCES issues(id),
+    topic                   TEXT    NOT NULL,
+    outcome                 TEXT    NOT NULL DEFAULT '',
+    created_at              TEXT    NOT NULL,
+    closed_at               TEXT,
+    state                   TEXT    NOT NULL DEFAULT 'collecting'
+                              CHECK (state IN ('collecting','awaiting_human','closed','skipped')),
+    expected_participants   INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS roundtable_votes (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     roundtable_id  INTEGER NOT NULL REFERENCES roundtables(id),
-    agent          TEXT    NOT NULL,
+    participant    TEXT    NOT NULL,
     vote           TEXT    NOT NULL,
     rationale      TEXT    NOT NULL DEFAULT '',
     created_at     TEXT    NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS discussions (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id    INTEGER NOT NULL REFERENCES issues(id),
-    author      TEXT    NOT NULL,
-    kind        TEXT    NOT NULL DEFAULT 'note',
-    body        TEXT    NOT NULL,
-    created_at  TEXT    NOT NULL
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id       INTEGER NOT NULL REFERENCES issues(id),
+    author         TEXT    NOT NULL,
+    kind           TEXT    NOT NULL DEFAULT 'note',
+    body           TEXT    NOT NULL,
+    created_at     TEXT    NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
@@ -126,110 +166,228 @@ CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
 CREATE TABLE IF NOT EXISTS plugin_meta (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     schema_version INTEGER NOT NULL,
-    plugin_version TEXT    NOT NULL,
-    updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+    plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (schema_version, plugin_version) VALUES (1, '0.3.2');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 8, '0.0.0');
 
-CREATE TABLE IF NOT EXISTS file_registry (
-    path                TEXT PRIMARY KEY,
-    type                TEXT NOT NULL DEFAULT 'unknown',
-    language            TEXT,
-    size_bytes          INTEGER,
-    last_commit_sha     TEXT,
-    last_change_type    TEXT,
-    last_change_at      TEXT,
-    imports_json        TEXT NOT NULL DEFAULT '[]',
-    exports_json        TEXT NOT NULL DEFAULT '[]',
-    metadata_json       TEXT NOT NULL DEFAULT '{}',
-    -- Codebase-memory columns (#45). content_md5 is the cheap drift probe;
-    -- summary is the LLM-generated summary written by bro on Read or by SWE
-    -- at atomic-close; summary_updated_at gates staleness.
-    content_md5         TEXT,
-    summary             TEXT,
-    summary_updated_at  TEXT
+-- repos table: written by /scan. One row per discovered git repo under the
+-- session dir. Kuzu world-model Directory nodes reference repos.name as their
+-- root; this SQLite table is the deterministic precursor to the kuzu writes.
+CREATE TABLE IF NOT EXISTS repos (
+    name              TEXT PRIMARY KEY,
+    path              TEXT    NOT NULL,
+    file_count        INTEGER NOT NULL DEFAULT 0,
+    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    value_json TEXT NOT NULL
 );
 
 -- Default policy keys, seeded at DB init so bro never has to "apply defaults"
 -- on first contact. Modern-agent UX: the system gives bro working state out
 -- of the box; the user changes anything via tmb_reonboard. INSERT OR IGNORE
 -- makes this safe to re-run on existing DBs (no overwrite of user choices).
-INSERT OR IGNORE INTO plugin_config (key, value_json, updated_at) VALUES
-    ('branching_model',    '"github-flow"', datetime('now')),
-    ('pr_target',          '"main"',        datetime('now')),
-    ('protected_branches', '["main"]',      datetime('now'));
+INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
+    ('branching_model',    '"github-flow"'),
+    ('pr_target',          '"main"'),
+    ('protected_branches', '["main"]'),
+    ('remotes',            '[]'),
+    ('issue_sync',         '"off"');
 
-CREATE TABLE IF NOT EXISTS identity (
-    id               INTEGER PRIMARY KEY CHECK (id = 1),
-    human_name       TEXT,
-    created_at       TEXT NOT NULL,
-    updated_at       TEXT NOT NULL
+-- The "onboarded" marker lives in plugin_config now (#2876). The legacy
+-- identity table was a single-row marker with no columns of meaning —
+-- folded into plugin_config('onboarded': true).
+
+-- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
+-- via swe-atomic-close.sh on every SWE completion, AND by composites for the
+-- bro-as-agent_run row (#2886): bro's per-task tokens become a first-class
+-- citizen so skill_invocations + rule_invocations can FK to them. Bro rows
+-- are inserted at task_create_batch (completed_at NULL until close) and
+-- finalized at bro_atomic_close — hence completed_at is nullable.
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id      INTEGER REFERENCES tasks(id),
+    issue_id     INTEGER REFERENCES issues(id),
+    agent_type   TEXT    NOT NULL,
+    tokens_in    INTEGER NOT NULL DEFAULT 0,
+    tokens_out   INTEGER NOT NULL DEFAULT 0,
+    tokens_total INTEGER NOT NULL DEFAULT 0,
+    tool_uses    INTEGER NOT NULL DEFAULT 0,
+    duration_ms  INTEGER NOT NULL DEFAULT 0,
+    started_at   TEXT,
+    completed_at TEXT
 );
 
-CREATE TABLE IF NOT EXISTS regen_state (
-    target        TEXT PRIMARY KEY,
-    last_regen_at TEXT,
-    last_seen_sha TEXT,
-    notes         TEXT NOT NULL DEFAULT ''
+CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
+
+-- Incremental polling state for the /monitor flow (#2886 follow-up). One row
+-- per (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the
+-- next `since` query; `last_comment_id` is the comment-id cursor when the
+-- backend supports id-based deltas (gh REST does; glab uses created_at).
+CREATE TABLE IF NOT EXISTS pr_review_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pr_number INTEGER NOT NULL,
+  repo TEXT NOT NULL,
+  last_fetched_at DATETIME NOT NULL,
+  last_comment_id TEXT
 );
 
--- L6 deterministic-trajectory test infrastructure (issue #108).
--- Populated ONLY when env TMB_DEBUG_TRAJECTORY=1. Off by default — zero
--- overhead in production. The L6 test runner pre-seeds DB state, runs
--- claude -p with the env set, then asserts the resulting trajectory
--- matches an expected sequence from FLOWS.md.
-CREATE TABLE IF NOT EXISTS debug_trajectory (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id       TEXT    NOT NULL,
-    step_n           INTEGER NOT NULL,
-    kind             TEXT    NOT NULL,            -- 'mcp_call' | 'tool_use' | 'agent_thinking'
-    agent            TEXT,                        -- 'bro' | 'swe' | 'pr-reviewer' | NULL
-    tool_or_mcp_name TEXT    NOT NULL,            -- e.g. 'mcp__plugin_tmb_trajectory-server__identity_get' or 'Bash'
-    args_json        TEXT    NOT NULL DEFAULT '{}',
-    result_json      TEXT    NOT NULL DEFAULT '{}',
-    is_error         INTEGER NOT NULL DEFAULT 0,
-    -- Cost / latency tracking (#110 evals v2). Defaulted to 0; populated when
-    -- the capture layer can attribute a token / latency value to this call.
-    tokens_in        INTEGER NOT NULL DEFAULT 0,
-    tokens_out       INTEGER NOT NULL DEFAULT 0,
-    latency_ms       INTEGER NOT NULL DEFAULT 0,
-    created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo);
+
+-- Rules catalog (#2886). First-class registry for `.claude/rules/*.md`
+-- documents. Severity captures enforcement weight — some rules are
+-- advisory (suggestion only), some are warning (surface to bro on read),
+-- some are blocking (deny the operation via a hook). Plugin ships no
+-- built-in rules; the table is populated by project-local `rule_register`
+-- calls or by an upcoming rules-scanner.
+CREATE TABLE IF NOT EXISTS rules (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE,
+    description TEXT    NOT NULL,
+    file_path   TEXT    NOT NULL,
+    scope       TEXT    NOT NULL DEFAULT 'project-local'
+                  CHECK (scope IN ('global','template','project-local')),
+    severity    TEXT    NOT NULL DEFAULT 'advisory'
+                  CHECK (severity IN ('advisory','warning','blocking')),
+    status      TEXT    NOT NULL DEFAULT 'active',
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_debug_trajectory_session
-    ON debug_trajectory(session_id, step_n);
+-- Commands catalog (#2886). One row per slash command. The plugin ships
+-- 5 first-class commands (/scan, /onboard, /monitor, /roundtable, /tmb:agent-create); project-
+-- local commands land at `<project>/.claude/commands/<name>.md`.
+CREATE TABLE IF NOT EXISTS commands (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL UNIQUE,
+    description  TEXT    NOT NULL,
+    file_path    TEXT    NOT NULL,
+    scope        TEXT    NOT NULL DEFAULT 'global'
+                   CHECK (scope IN ('global','template','project-local')),
+    args_schema  TEXT    NOT NULL DEFAULT '{}',
+    status       TEXT    NOT NULL DEFAULT 'active',
+    created_at   TEXT    NOT NULL,
+    updated_at   TEXT    NOT NULL
+);
 
--- Per-scorer results for L6 v2 (issue #110). One row per (flow, scorer) per run.
--- The runner writes here after each scorer evaluates; reports aggregate over
--- run_id. The "outcome" scorer is the primary signal (binary pass/fail);
--- "trajectory_subset" / "trajectory_superset" are secondary structural checks;
--- "cost" is observability-only (warns on drift but doesn't fail).
-CREATE TABLE IF NOT EXISTS eval_results (
+-- Seed the bundled slash commands so a fresh DB doesn't sit empty
+-- (same pattern as agents + skills seeds above).
+INSERT OR IGNORE INTO commands (name, description, file_path, scope, args_schema, status, created_at, updated_at) VALUES
+    ('scan',       'Populate the kuzu world model (graph DB) by walking the session dir for git repos and pulling each dir''s README.md into a summary. Single phase — no background fill required for the primary navigation surface.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
+    ('onboard',    'Configure or change identity, branching model, PR target, remotes, and issue-sync. Server-driven — bro orchestrates AskUserQuestion rounds; the MCP `onboard_*` tools own every if/else branch.',                                                       'commands/onboard.md',    'global', '{}',                                                          'active', datetime('now'), datetime('now')),
+    ('monitor',    'Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them.',                                                                                                                                                       'commands/monitor.md',    'global', '{"argument_hint":"<PR or MR number>"}',                       'active', datetime('now'), datetime('now')),
+    ('roundtable',    'Multi-agent deliberation on a topic with checkbox/radio AUQ ratification.',                                                                                                                                                                            'commands/roundtable.md',    'global', '{"argument_hint":"<topic to deliberate>"}',     'active', datetime('now'), datetime('now')),
+    ('agent-create', 'Create or copy an agent into the project .claude/agents/ directory. Routes to template-copy (Branch B) or from-scratch (Branch C) via tmb_agent-creator.',                                                                                           'commands/agent-create.md', 'global', '{"argument_hint":"<kebab-case agent name>"}', 'active', datetime('now'), datetime('now'));
+
+-- Junction tables — the load-bearing bridge (#2886). One row per
+-- skill / rule invocation. Bridges the catalog (skills, rules) to the
+-- agent_run that triggered it. Enables forward queries ("what did this
+-- agent_run touch") and reverse queries ("which agent_runs used skill X")
+-- with cheap indexes on both sides.
+--
+-- agent_run_id is nullable: a Skill can fire during a session that has no
+-- tracked agent_run yet (e.g., bro firing tmb_planning during onboarding
+-- before the first task_create_batch creates a bro row). In that case
+-- agent_name is the fallback attribution.
+CREATE TABLE IF NOT EXISTS skill_invocations (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id        TEXT    NOT NULL,            -- groups all scorers for one flow run
-    flow_name     TEXT    NOT NULL,            -- e.g. '02-simple-task'
-    scorer_name   TEXT    NOT NULL,            -- 'outcome' | 'trajectory_subset' | 'trajectory_superset' | 'cost' | 'llm_judge'
-    pass          INTEGER NOT NULL,            -- 1 = pass, 0 = fail
-    value         TEXT,                        -- numeric or categorical detail
-    explanation   TEXT,                        -- why pass/fail
-    metadata_json TEXT    NOT NULL DEFAULT '{}',
-    -- A/B prompt-eval columns (#131). Default 'control' so existing single-arm
-    -- L5 dogfood runs continue to work unchanged. A/B scenarios set arm to
-    -- 'A' / 'B' / etc. and scenario to a stable identifier (e.g. 'claude-md-slim').
-    arm           TEXT    NOT NULL DEFAULT 'control',
-    scenario      TEXT,
-    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    skill_name    TEXT    NOT NULL REFERENCES skills(name),
+    agent_name    TEXT    NOT NULL,
+    agent_run_id  INTEGER REFERENCES agent_runs(id),
+    task_id       INTEGER REFERENCES tasks(id),
+    invoked_at    TEXT    NOT NULL,
+    outcome       TEXT    NOT NULL DEFAULT 'completed'
+                    CHECK (outcome IN ('completed','failed','partial'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_eval_results_run
-    ON eval_results(run_id, scorer_name);
+CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_name);
+CREATE INDEX IF NOT EXISTS idx_skill_invocations_task  ON skill_invocations(task_id);
+CREATE INDEX IF NOT EXISTS idx_skill_invocations_agent_run ON skill_invocations(agent_run_id);
 
-CREATE INDEX IF NOT EXISTS idx_eval_results_flow
-    ON eval_results(flow_name, created_at);
+CREATE TABLE IF NOT EXISTS rule_invocations (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_name     TEXT    NOT NULL REFERENCES rules(name),
+    agent_name    TEXT    NOT NULL,
+    agent_run_id  INTEGER REFERENCES agent_runs(id),
+    task_id       INTEGER REFERENCES tasks(id),
+    applied_at    TEXT    NOT NULL,
+    outcome       TEXT    NOT NULL DEFAULT 'applied'
+                    CHECK (outcome IN ('applied','violated','skipped'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_rule_invocations_rule ON rule_invocations(rule_name);
+CREATE INDEX IF NOT EXISTS idx_rule_invocations_task ON rule_invocations(task_id);
+CREATE INDEX IF NOT EXISTS idx_rule_invocations_agent_run ON rule_invocations(agent_run_id);
+
+-- FTS5 virtual tables for keyword search (Phase 1 of #2905).
+-- content= tables shadow the source table so SQLite keeps them in sync
+-- via the triggers below; we also backfill on fresh DBs here.
+
+CREATE VIRTUAL TABLE IF NOT EXISTS discussions_fts USING fts5(
+  body,
+  content='discussions',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS discussions_ai AFTER INSERT ON discussions BEGIN
+  INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS discussions_ad AFTER DELETE ON discussions BEGIN
+  INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+END;
+CREATE TRIGGER IF NOT EXISTS discussions_au AFTER UPDATE ON discussions BEGIN
+  INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+  INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+END;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS audit_fts USING fts5(
+  summary,
+  content_json,
+  content='audit',
+  content_rowid='id',
+  tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS audit_ai AFTER INSERT ON audit BEGIN
+  INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
+END;
+CREATE TRIGGER IF NOT EXISTS audit_ad AFTER DELETE ON audit BEGIN
+  INSERT INTO audit_fts(audit_fts, rowid, summary, content_json) VALUES ('delete', old.id, old.summary, old.content_json);
+END;
+CREATE TRIGGER IF NOT EXISTS audit_au AFTER UPDATE ON audit BEGIN
+  INSERT INTO audit_fts(audit_fts, rowid, summary, content_json) VALUES ('delete', old.id, old.summary, old.content_json);
+  INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
+END;
+
+-- Embedding tables for semantic search (Phase 2 of #2905).
+-- One table per source. Empty on migration; populated by background backfill
+-- on server startup and inline on new writes.
+
+CREATE TABLE IF NOT EXISTS discussions_embeddings (
+  discussion_id INTEGER PRIMARY KEY REFERENCES discussions(id) ON DELETE CASCADE,
+  embedding BLOB NOT NULL,
+  model_id TEXT NOT NULL,
+  embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_discussions_embeddings_model ON discussions_embeddings(model_id);
+
+CREATE TABLE IF NOT EXISTS audit_embeddings (
+  audit_id INTEGER PRIMARY KEY REFERENCES audit(id) ON DELETE CASCADE,
+  embedding BLOB NOT NULL,
+  model_id TEXT NOT NULL,
+  embedded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_id);
+
+-- World model lives in a sibling kuzu graph DB (ADR 0002), not in this
+-- SQLite file. The previous v6 'directories' / 'directories_fts' /
+-- 'directories_embeddings' tables were retired at v8 — see migrateV7toV8
+-- in db.ts. scan_run populates the kuzu file via src/graph-db.ts.

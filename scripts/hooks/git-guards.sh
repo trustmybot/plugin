@@ -60,6 +60,28 @@ cmd_branch() {
   fi
 }
 
+# Resolve the effective branch for a command. When cmd_branch returns empty
+# (detached HEAD — SWE's worktree pattern), derive the branch via DB lookup:
+# slug = basename of the working directory → tasks.branch_id LIKE '%/<slug>'.
+# Falls back to empty if DB is unavailable or no match — Rule 2 stays a no-op
+# (status quo with the detached-HEAD blind-spot, but no false-positive blocks).
+cmd_effective_branch() {
+  local result
+  result=$(cmd_branch "$1")
+  if [ -n "$result" ]; then
+    echo "$result"
+    return
+  fi
+  local wd slug db branch_id
+  wd=$(cmd_cwd "$1")
+  slug=$(basename "$wd")
+  db=$(tmb_db_path 2>/dev/null || true)
+  if [ -n "$db" ] && [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1; then
+    branch_id=$(sqlite3 "$db" "SELECT branch_id FROM tasks WHERE branch_id LIKE '%/$slug' LIMIT 1;" 2>/dev/null || true)
+    echo "$branch_id"
+  fi
+}
+
 BRANCHING_MODEL=$(tmb_config_get "branching_model")
 
 if [ -z "$BRANCHING_MODEL" ]; then
@@ -126,9 +148,10 @@ case "$CMD" in
 esac
 
 # --- Rule 2: No direct commits to protected_branches (worktree-aware) ---
+# Uses cmd_effective_branch so detached-HEAD worktrees resolve via DB lookup.
 case "$CMD" in
   *"git commit"*)
-    BRANCH=$(cmd_branch "$CMD")
+    BRANCH=$(cmd_effective_branch "$CMD")
     if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
       echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: No direct commits to ${BRANCH}. Create a feature branch first.\"}"
       exit 0

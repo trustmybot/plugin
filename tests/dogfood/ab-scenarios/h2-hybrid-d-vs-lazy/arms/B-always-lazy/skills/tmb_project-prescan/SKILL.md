@@ -2,7 +2,7 @@
 name: tmb_project-prescan
 description: Deterministic, non-LLM scan of the project at the first code-touching ask of a session. Enumerates git state, top-level layout, stack indicators, agents present, and open MCP issues into a flat inventory block. Skipped on greetings and read-only asks.
 agent: bro
-allowed-tools: Bash, Glob, Grep, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__config_get, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__file_registry_list, mcp__plugin_tmb_trajectory-server__ledger_log
+allowed-tools: Bash, Glob, Grep, mcp__plugin_tmb_trajectory-server__issue_resume, mcp__plugin_tmb_trajectory-server__config_get, mcp__plugin_tmb_trajectory-server__config_list, mcp__plugin_tmb_trajectory-server__file_registry_list, mcp__plugin_tmb_trajectory-server__audit_log
 ---
 
 # project-prescan
@@ -16,10 +16,10 @@ Bro invokes this skill **only** on:
 
 Pure read-only questions, status asks, and conversational clarifications do NOT trigger the pre-scan.
 
-**Ordering note:** On the first code-touching ask, the `lazy-regen-check` skill always runs immediately before this pre-scan. The chain is:
+**Ordering note:** On the first code-touching ask, the `lazy-arch-check` skill always runs immediately before this pre-scan. The chain is:
 
 ```
-lazy-regen-check → project-prescan → inventory block → triage → branch-id-proposal → routing
+lazy-arch-check → project-prescan → inventory block → triage → branch-id-proposal → routing
 ```
 
 ## Pre-scan procedure

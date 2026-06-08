@@ -2,6 +2,355 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## Unreleased
+
+## v0.7.0 — 2026-06-07
+
+Promotes `v0.7.0-rc.3` to stable. See `v0.7.0-rc.1`–`rc.3` + `v0.7.0-dev` for the cumulative changes from v0.6.0 — the **kuzu graph-DB world model** (ADR 0002, schema v8), the pre-release doc-accuracy sweep, and the #314 / #315 / #316 fixes. **Benchmarks:** 8/8 on the curated SWE-bench slate at ~6.97M tokens / $6.98 — cheaper than a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31), 0 hallucinations. L6 13/13 in CI.
+
+## v0.7.0-rc.3 — 2026-06-07
+
+### Measured
+
+- **Measured: ~61% token reduction (v0.6→v0.7) at 8/8 resolved.** Re-running the original SWE-bench 8-task corpus on the current version resolved 8/8 using ~6.97M tokens / $6.98 vs the pre-world-model baseline's 17.7M / $17.33 (−61% tokens, −51% wall-clock) — the world model's long-context-management payoff. It also beats a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31) on the same corpus. See docs/contributing/BENCHMARK.md.
+
+### Fixed
+
+- **`tmb_default_repo` no longer defaults to the alphabetically-first repo when CC runs above all repos (#316).** `scan_run` now resolves the default repo as cwd-enclosing → largest-by-file-count → first-in-list, and emits a `default_repo_guessed` audit when it falls back to the heuristic. Previously, launching from a workspace root above multiple repos silently picked the wrong repo — which, combined with auto issue-sync, created a real issue in the wrong repository. This is the actual root cause behind what rc.2's #314 note misattributed to a "phantom remote id".
+
+## v0.7.0-rc.2 — 2026-06-07
+
+### Fixed
+
+- **issue-sync hardening (#314).** Auto-sync now parses the new issue number only from the created-issue URL (validated against the configured remote's host/repo), read-back-verifies the object is an issue (not a PR), and **skips entirely when the remote URL is unconfigured** — so a blank/misconfigured remote can no longer create issues in the wrong place. The create success path is now logged for traceability, and sync-test logs are isolated via `TMB_SYNC_LOG_DIR` instead of the operator's real `~/.claude/`. (The original mis-sync's root cause was the default-repo bug, fixed in rc.3 / #316.)
+- **Worktree creation works when CC runs above the repo (#315).** `worktree-create.sh` resolves the owning repo as `tasks.repo` → `tmb_default_repo` → workspace root and fails loudly instead of silently deferring, so dispatching SWE no longer breaks in workspace layouts where the session CWD isn't itself a git repo.
+
+### Docs / test infrastructure
+
+- World-model docs + dogfood fixtures retired the last references to the dropped SQLite `directories` table and the pre-v7 `file_registry`; READMEs now describe the kuzu graph + RAG reality. New L1 lint `no-directories-table-refs.sh` guards against reintroduction; `no-file-registry-refs.sh` scope extended to READMEs + tests.
+
+## v0.7.0-rc.1 — 2026-06-06
+
+### Test infrastructure
+
+- L5≡L6 parity: a single shared `seed-agents.sh` now feeds both the L5 roundtable row and the L6 step-11 `chain_setup_command`, so both suites convene the identical panel. New L1 lint `agent-task-brief-contract.sh` locks the shipped swe/pr-reviewer `task_brief` contract (#300) at the layer the dogfood can't see (subagent trajectories).
+
+### Fixed — v0.7.0 ship-blockers
+
+- **World model: every directory now carries a summary (#288).** Dirs without a README get a deterministic *structural* summary (immediate file + subdir names, `summary_source='structural'`) instead of `summary=NULL` — the whole map is now reachable by `world_model_search`, no more two-thirds-blind cold start.
+- **`bro_atomic_close` mirrors the issue close to the remote (#277).** Closing the last task with `close_issue_if_last_task=true` now fires the same GitHub/GitLab close as `issue_close`, ending the local/remote drift where the issue stayed open upstream.
+- **`task_update_status` enforces a state machine for bro (#278).** Illegal jumps (e.g. `pending→closed` skipping verification, `pending→completed` fabricating work) are rejected; reopening a task out of `completed` clears the stale `completed_at`.
+- **Single worktree-creation path (#306).** bro no longer pre-creates the worktree by hand; `isolation='worktree'` + the `worktree-create.sh` hook is the sole creator (now also covers single-repo, and is idempotent), removing the double-create.
+- **`@bro` activation no longer over-matches (#276).** Session/source-edit gates key on the explicit `@bro` sigil (or the "Entering bro mode." marker), so a casual mention of "bro" no longer flips a plain session into bro-mode forever.
+
+## v0.7.0-dev — 2026-05-23
+
+### Added — graph DB world model (ADR 0002)
+
+Bro's project mental model moves out of the trajectory DB's `directories` SQLite table into a dedicated **kuzu** graph database at `<project>/.claude/<plugin>/world-model.kuzu/`. Sibling file to trajectory.db. Trajectory DB returns to its purpose-pure role: workflow audit only (issues / tasks / discussions / audit / validation / plugin metadata).
+
+Schema v8 drops the SQLite `directories` / `directories_fts` / `directories_embeddings` tables. World-model data rebuilds from `/scan` on first boot under v8.
+
+Initial graph schema: `Directory` node + `CONTAINS` edge. `File` / `Symbol` / `IMPORTS` / `CALLS` / `DEFINES` nodes + edges land post-v0.7.
+
+`world_model_get(repo, path, depth)` queries kuzu and returns an annotated directory tree. `world_model_search(query, mode)` does substring search today; real FTS5 + bge-small vector indexes via kuzu extensions are post-v0.7.
+
+### Added — dependency bundling
+
+- `scripts/hooks/ensure-kuzu-installed.sh` (SessionStart) lazy-installs kuzu's native binary on first session after plugin install/update. Detects the bun no-postinstall foot-gun (binary present, root JS shim missing) and runs `node install.js` directly without a full reinstall. Bypass: `TMB_SKIP_KUZU_INSTALL=1`.
+- `mcp/trajectory-server/package.json` declares `"trustedDependencies": ["kuzu"]` so bun honors kuzu's postinstall script when installing fresh.
+- New L1 lint `tests/lint/kuzu-trusted-dep.sh` blocks regression by asserting `kuzu` is in `trustedDependencies` whenever it's a declared dep.
+
+### Changed
+
+- Architecture docs (`docs/architecture/WORLD_MODEL.md`, `ERD.md`, `FLOWS.md`, `RESPONSIBILITIES.md`, `REFERENCE.md`) lead with the kuzu substrate.
+- `scan_run` writes Directory nodes + CONTAINS edges into kuzu (no more SQLite directories writes).
+- L5/L6 dogfood row outcome SQL (rows 04 / 06 / 20 / 21 / 33) reframed for the new substrate; kuzu-state assertions move to the (TBD) L3 kuzu integration fixture.
+- ADR 0002 supersedes ADR 0001 on the substrate question.
+
+## v0.6.0 — 2026-05-15
+
+Promotes `v0.6.0-rc.8` to stable. See `v0.6.0-rc.1` through `v0.6.0-rc.8` for the cumulative changes from v0.5.x — including the audit pass (12 MRs from !178 to !189), the pr-reviewer stack fix that closed a real push-gate bypass, channel-isolation sweep, and the bug-capture lint tier that catches each fixed pattern at lint-time.
+
+L6 multi-turn integration: 12/13 passed (1 known-tracked test prompt brittleness on a single row, not a regression).
+
+## v0.6.0-rc.8 — 2026-05-15
+
+Pre-release audit pass — 9 audit-fix MRs (!178-!187) plus 1 ENUMS framing follow-up (!187), 1 pr-reviewer stack fix (!188 — closes a workflow violation where bro skipped the push gate), and 1 bug-capture lint sweep (!189) so each fixed pattern is now caught at L1 lint-time. Side-by-side `tmb` + `tmb-rc` installs no longer collide on logs/sentinels.
+
+### Fixed
+
+- 🐛 **TS MCP correctness (!181 / !2890).** 3 BLOCKERs + 5 MAJORs:
+  - `issue_get_phase` returns new 5th phase `'ready_to_close'` when all tasks completed but issue is open (was misreporting `'blueprint'`).
+  - `scope_gate_waived` audit INSERT now atomic with task INSERTs in the same `db.transaction()`.
+  - `roundtable_summarize` 3 discussions queries fenced to current roundtable (`created_at` window).
+  - `audit_log` `requireRoles(['bro','swe','pr-reviewer','consultant'])` guard.
+  - `file_registry_delete` requires `repo`; `file_registry_verify` repo-filtered + per-repo verdicts.
+  - `pr_comments` `JSON.parse` type-guarded; `commit_sha` lowercase-normalized; `console.warn` → `serverLog`.
+  - Drops dead `genId()` export and the no-op `withAgentScope` middleware.
+
+- 🐛 **Schema invariants (!180 / !2891).** `bro_atomic_close` now sets `closed_at` on auto-close; `remote_iid` UPDATEs bump `updated_at`. Adds `idx_audit_event_type` + `idx_audit_issue_branch` for the roundtable/scan/branch_report hot paths. Regression tests added.
+
+- 🐛 **Channel isolation full sweep (!183 / !2896).** 8 hardcoded `'tmb'` plugin-name sites now use `resolvePluginName` (TS) and a new `scripts/lib/resolve-plugin-name.sh` helper sourced by 5 hooks. Sentinel filename incorporates `${PLUGIN_NAME}`; `heal-mcp-cache.sh` detects channels via `installed_plugins.json` scan + `--channel` flag. Side-by-side `tmb` + `tmb-rc` installs no longer collide.
+
+- 🐛 **pr-reviewer stack — push gate + skill rewrites (!188 / !2899 + most of !2900).** Closes a workflow violation where bro could skip the pr-reviewer push gate:
+  - `git-push-guard.sh` first-push fallback (universal `git push -u origin <new-branch>` case used to bypass the gate because no `@{u}` existed yet).
+  - `tmb_planning` Step 5.5: mandates pr-reviewer spawn between `bro_atomic_close` and `git push`.
+  - `tmb_review` §A per-SHA worktree mandate (reviewers were reading the parent's wrong-branch working tree); §B self-write mandate (reviewer writes `validation_attempts` directly via MCP or sqlite3 — never delegates to bro); §C bro spawn-prompt discipline (no prior verdict, no rubber-stamp shortcuts).
+  - New `templates/project-seed/.claude/agents/pr-reviewer.md` with `mcpServers` frontmatter (project-local subagents support MCP; plugin subagents do not, per CC docs).
+  - 13 new push-gate regression tests.
+
+- 🐛 **Prompts broken refs (!185 / !2892).** `audit_log(...)` examples across 7 prompt files now pass required `from_node='bro'` arg (was crashing on first invocation). `tmb_planning` Step 2 example uses `author='bro'` (was `'human'`, failed `verified_human` gate). 6 MAJOR fixes: `tmb_owner: bro` added to 6 template agents; nonexistent `success_criteria` field removed from examples; invalid `since=<auto>` literal dropped; 3 broken doc/skill refs cleaned (`CODE_QUALITY.md`, `tmb_planning-simple/-difficult`, `tmb_code-quality`).
+
+- 📝 **Docs drift (!184 / !2893).** 3 BLOCKERs on README + MCP server README first-impression surfaces. 14 MAJORs:
+  - `REFERENCE.md` MCP tool list refreshed to 60 tools + hooks table to 39 entries (was "50+" / 19).
+  - `ENUMS.md` schema_version corrected 1→2; nonexistent event_type renamed; broken anchor fixed; legacy `roundtables.status` block deleted.
+  - `RESPONSIBILITIES.md` + `ENFORCEMENT.md` SWE frontmatter corrected (`maxTurns: 150`, no `isolation` field).
+  - `audit_log(kind='event')` sweep across docs (the `kind` arg was dropped from the schema in rc.2).
+  - `AGENTS.md` retired-skill ref + doctrine-banned commentary swept; `MULTI_PLATFORM.md` version refresh; `ERD.md` `plugin_version` mechanism documented.
+
+- 📝 **ENUMS.md `deprecated` description (!187 / !2901).** Reworded the `skills.status` `deprecated` enum-value description to drop "back-compat" framing while preserving the value documentation (caught by the !184 strict pr-reviewer).
+
+### Cleanup
+
+- 🧹 **CI fossils + orphan helpers (!178 / !2894).** Deleted superseded `l5-l6-combined.yml` (referenced removed Dockerfile, would have red-flagged every release tag), the `l6-dogfood.yml` fossil after L6→L5 rename, and the unused `glab-retry-merge.sh` orphan helper + paired test.
+
+- 🧹 **Test orphans + dist hygiene (!179 / !2895).** Deleted orphan `dist/test/audit-merge.test.js.map` and added a `prebuild` script (`rm -rf dist/test`) so it can't recur. Deleted 2 legacy l5-row fixtures with explicit retired/superseded READMEs. Moved `tests/dogfood/bench/` → `tests/manual/bench/` for a clean L0–L5-vs-manual tier model. Fixed `chain-manifest.json` count typo (12→13).
+
+- 🧹 **Developer paths + timeout consts (!182 / !2897).** Replaced personal `/Users/Zax/...` paths in `docs/UPGRADE.md` and `tests/manual/mcp-health-hook.md` with `<placeholder>` forms. Extracted `SUBPROCESS_TIMEOUT_MS` (5000) and `AUTH_PROBE_TIMEOUT_MS` (1000) constants; adopted across 8 sites in `sync/backend.ts`, `sync/issue_sync.ts`, `tools/pr_comments.ts`, `tools/onboard.ts`.
+
+- 🧹 **Doctrine cleanup in prompts (!186 / !2898).** Linter-driven: 35 negative-directive WARNs resolved (positive rewrites or `<!-- LOAD-BEARING-SAFETY: ... -->` annotations); 5 `(#NNNN)` citation sites swept; stale `no longer persisted` commentary rewritten to current-state framing.
+
+### Tests
+
+- 🧪 **Bug-capture lints for the 9 audit-fix MRs (!189 / !2902).** 7 new L1 lints, each capturing a specific bug pattern so future regressions are caught at lint-time rather than escaping to the next audit:
+  - `no-audit-log-without-from-node.sh` — !2892 BLOCKER 1
+  - `no-citations-in-prompts.sh` — !2898
+  - `no-audit-log-kind.sh` — !2892 MINOR + !2893 cross-cut
+  - `no-developer-paths.sh` — !2897
+  - `stale-framing-prose.sh` — !2898 + !2901 (with backtick carve-out for enum value literals)
+  - `no-hardcoded-plugin-name.sh` — !2896 channel-iso
+  - `ci-workflow-refs-exist.sh` — !2894
+  - Each ships with a violation fixture proving it catches the pattern; all wired into `tests/run-all.sh` L1 tier. The `no-developer-paths` lint immediately caught 2 paths the !188 design doc had inadvertently introduced into `tmb_review` — meta-validation that the lint works.
+
+## v0.6.0-rc.7 — 2026-05-15
+
+### Added
+
+- 🩺 **`heal-mcp-cache.sh` Step A — clear per-project `disabledMcpServers` flags.** CC stores a per-project `disabledMcpServers` array under `.projects."<path>"` in `~/.claude.json`; when it contains `"plugin:tmb:trajectory-server"` the MCP server silently refuses to start in that one project even though it works fine elsewhere. The flag survives plugin re-enable, plugin updates, full CC restarts, and `rm -rf .claude/` — it's CC-owned state the plugin cannot reach from inside a session. Step A diagnoses every affected project, lists them in the dry-run preview, backs `~/.claude.json` up once, then removes only `"plugin:tmb:trajectory-server"` from each project's array (preserving every other disabled server and every other key in the project entry). This was the actual recovery path that resolved a real TMB-specific failure earlier today; the existing Step B (cache nuke + `installed_plugins.json` cleanup) wouldn't have touched it. Each step now has its own y/N prompt so users can take the lighter recovery (A only) and skip the more aggressive B.
+- 🧪 **`tests/hooks/mcp-health-check.test.sh` — L3 hook test.** Covers the full Mode A / Mode B / healthy / unknown-event matrix that the rc.4 and rc.5 bugs slipped past:
+  - healthy + SessionStart and healthy + UserPromptSubmit → silent stdout, JSONL `mcp_alive=true mode=null`
+  - absent + SessionStart → stdout contains "NEVER STARTED", JSONL `mode="A"`
+  - absent + UPS in the same session as an absent SessionStart → Mode A cross-fire, "NEVER STARTED" warning preserved
+  - absent + UPS in a different session from a healthy SessionStart → Mode B "no longer reachable" warning
+  - emitted JSON parses cleanly via `jq` and validates against CC's documented schema (`hookSpecificOutput.hookEventName` ∈ {`SessionStart`, `UserPromptSubmit`}, `additionalContext` is a string) — the assertion that would have caught the rc.4/rc.5 `"hookEventName": "unknown"` bug
+  - unknown event name → guard fires, no JSON emitted, JSONL still records the event name verbatim
+  - Uses a PATH-shadowed `pgrep` stub so test runs are isolated from any real trajectory-server processes on the developer's machine.
+
+### Docs
+
+- 📄 **`docs/UPGRADE.md` "Failure modes"** opens with a new section on the per-project `disabledMcpServers` flag — symptoms (one project broken, others healthy), the `jq` diagnose command, both recovery paths (heal script Step A or the manual one-liner), and a note that this is CC-owned state outside the plugin's reach. Tracks at #2888.
+
+### Tightened
+
+- ⚠️ **`heal-mcp-cache.sh` "running inside CC" guard** now names `~/.claude.json` explicitly in the warning, because Step A mutates a file CC reads on every prompt — mid-session edits can race with CC's writes.
+
+## v0.6.0-rc.6 — 2026-05-15
+
+### Fixed
+
+- 🐛 **Root cause of "Hook JSON output validation failed — (root): Invalid input".** Found via direct inspection of CC's debug log. The hook was emitting `hookSpecificOutput.hookEventName: "unknown"` because the input parser used `.hookEventName` (camelCase) while CC actually sends `.hook_event_name` (snake_case). The jq fallback `// "unknown"` always fired, and CC's output schema rejects "unknown" as an invalid event name. This bug existed since the hook was first written but was masked by the pre-rc.4 output hardcoding `hookEventName: "UserPromptSubmit"`. My rc.4 change to mirror the parsed event surfaced it. **In practice, the loud Mode A warning never reached users in rc.4 or rc.5** — CC always rejected the output. Fixed by parsing `.hook_event_name // .hookEventName // .event // "unknown"` so CC's real input shape resolves first.
+- 🐛 **Reverted the rc.5 SessionStart-silent block.** Based on a wrong reading of the docs (re-read `code.claude.com/docs/en/hooks` directly: SessionStart hooks DO accept `additionalContext` in `hookSpecificOutput`). The hook now emits the warning on both event types, mirroring the actual `hook_event_name` so CC's schema validates it. A guard skips emission when the event is unrecognized (avoids re-introducing the `"unknown"` rejection).
+
+## v0.6.0-rc.5 — 2026-05-15
+
+### Fixed
+
+- 🐛 **rc.4 hot-fix: Mode A misclassification + hardcoded hookEventName.** Two bugs caught during post-rc.4 manual verification of the MCP-absent detection hook:
+  - `mcp-health-check.sh` read `last_alive_at_session_start` via `jq -r '.last_alive_at_session_start // empty'`. jq's `//` operator treats `false` as falsy, so the literal boolean `false` (the state set when SessionStart sees MCP absent) returned an empty string and the string comparison fell through. The **load-bearing UserPromptSubmit-re-fire-in-same-session case** was misclassified as Mode B instead of Mode A — meaning the loud HALT message rc.4 was built to ship would never fire for the actual CC cache-bug scenario. Fixed by replacing `// empty` with `if has(...) then ... else "missing" end` so `false` reads as the literal string `"false"`.
+  - `hookSpecificOutput.hookEventName` was hardcoded to `"UserPromptSubmit"` even on SessionStart fires. CC's hook contract expects this field to mirror the actual event; a mismatch could cause CC to silently drop the `additionalContext`. Fixed by passing the actual event via `--arg ev "$event"`.
+- 📝 **Follow-up debt:** L1-L4 don't currently exercise `mcp-health-check.sh` end-to-end (no L3 hook test exists for it). Both bugs survived the green suite. Adding an L3 mode-classification test is deferred follow-up.
+
+## v0.6.0-rc.4 — 2026-05-15
+
+### Fixed (#2888 — CC plugin MCP-config cache bug, defense-in-depth)
+
+- 🚨 **`mcp-health-check.sh` now distinguishes two MCP-absent failure modes** and emits a mode-specific `additionalContext` warning. Previously the hook fired the same "kill zombies + relaunch" message in both cases — useless for the cache-bug failure mode where relaunch demonstrably does not recover.
+  - **Mode A — MCP never spawned this session.** Triggered when SessionStart fires with `mcp_alive=false`, or when a subsequent UserPromptSubmit in the same session keeps showing `mcp_alive=false`. The new warning identifies this as the CC cache bug, tells bro to HALT (not silently degrade), and lists the three-step recovery escalation: `claude --plugin-dir`, `/plugin uninstall` + reinstall, or manual cache nuke.
+  - **Mode B — MCP died mid-session.** Triggered when UserPromptSubmit shows `mcp_alive=false` but the SessionStart record for the current session was `mcp_alive=true` (or the session_id changed). The existing kill-zombies + relaunch doctrine applies, with a clear note that if relaunch doesn't recover MCP the failure has escalated into Mode A.
+  - Cross-fire state lives at `~/.claude/tmb/logs/mcp-health.state` (single JSON object, `{last_session_id, last_alive_at_session_start}`) — written on SessionStart, read on UserPromptSubmit. Session ID resolved from CC's hook input JSON or `CLAUDE_SESSION_ID` fallback.
+  - JSONL log shape gains `mode` (`"A"` | `"B"` | `null`) and `session_id` fields. Existing `mcp_alive` / `pgrep_count` / `db_path` / `event` / `ts` unchanged.
+- 🩺 **`scripts/maintenance/heal-mcp-cache.sh`** — interactive remediation helper for Mode A. Discovers the cache dir + installed_plugins.json entries that would be removed, prints a dry-run preview, prompts for confirmation, then nukes only the `trustmybot-rc` cache and the `tmb@trustmybot-rc` entry. Preserves every other installed plugin. Idempotent (a second run sees nothing to do and exits 0). BSD-sed compatible. NOT autorun from any hook — purely a user-invoked tool.
+- 📄 **`skills/tmb_recovery/SKILL.md` § C** restructured to cover both failure modes. C.1 documents Mode A with the escalation order; C.2 keeps the existing degraded-mode read-fallback doctrine for Mode B and adds the cross-pointer ("if relaunch doesn't recover MCP, you're now in Mode A").
+- 📄 **`docs/UPGRADE.md` "Failure modes"** gains a section covering the cache bug with symptoms (CC-log signature, mcp-health.log signature) and the same three-step recovery escalation.
+
+### Reference
+
+- Upstream Claude Code bug: issue #2888. CC's `clearPluginCache` only fires on `--plugin-dir inline plugins`, not on marketplace plugin lifecycle events (`/plugin disable`/enable, auto-update). We can't fix that from inside the plugin; this release is pure defense — loud detection plus a sharp recovery doctrine.
+
+## v0.6.0-rc.3 — 2026-05-14
+
+### Fixed
+
+- 🛡️ **Migration backup now flushes WAL before copyFile.** The pre-v2 audit on eb1 (post rc.1→rc.2 upgrade) found an audit row in the live DB that was missing from the `.pre-v2.<ts>.bak` companion — the row was in the SQLite WAL at backup time, and `copyFileSync` captures only the main `.db` file. `backupDbBeforeMigration` now calls `PRAGMA wal_checkpoint(FULL)` on the live DB handle before `copyFileSync` so the backup captures all committed state, not just the checkpointed subset. Try/catch wraps the checkpoint — if a concurrent writer holds the lock, we degrade gracefully to a best-effort backup. New L2 case in `schema-upgrade.test.ts` seeds a WAL-mode DB, writes a row leaving the WAL uncheckpointed, triggers migration, and asserts the row is in the `.bak`.
+- 🐛 **L5 trajectory capture silently failed.** `index.ts` wrote to a `debug_trajectory` table that only exists when `TMB_EVAL_MODE=1` (loaded from `schema-eval.sql`), but the writer was gated only on `TMB_DEBUG_TRAJECTORY=1`. Both flags now required together; comment clarifies the linkage.
+- 🐛 **`post-read-summary-hint.sh` was missing the HOME-boundary guard** the other 5 hooks have. Walk-up could silently adopt a stale `~/.claude/tmb/trajectory.db`. Added the standard guard.
+- 🐛 **`require-summaries-before-task-close.sh` hardcoded git-root DB lookup.** Failed silently in workspace-pattern projects (DB lives at workspace root above the inner repos). Replaced with the standard walk-up + HOME-guard pattern.
+
+### Changed (docs honesty pass)
+
+- 📄 **Dropped the false channel-isolation claim.** `docs/REFERENCE.md` + `docs/architecture/ERD.md` previously said "stable channel writes to `.claude/tmb/`, RC channel writes to `.claude/tmb-rc/`". False today — rc's `plugin.json.name` is still `"tmb"`, so both channels resolve to the same path. Replaced with the honest current state and a pointer at issue #1, where true isolation is tracked.
+- 📄 **ERD.md schema_version baseline updated 1 → 2.** The migration framework target.
+- 📄 **`tests/EVALUATION.md` now documents row 14** (`14-skill-invocation-recorded`) in the journey table; all "13 rows" / "12 steps" references bumped to 14 / 13.
+
+### Removed (dead code + retired surfaces)
+
+- 🗑️ **Vestigial `success_criteria` arg in `task_retry_batch`.** Read by the handler but never used; the task spec lives in `spec_body`. Removed from the inputSchema (`properties` + `required`) and from the handler.
+- 🗑️ **`tasks.ts:561` `void genId('task')` no-op** + its now-unused `genId` import.
+- 🗑️ **`scripts/hooks/diagnostic/probe-bash.sh`** — orphan from #14 debugging; never registered in `hooks.json`. Entire `diagnostic/` directory deleted.
+- 🗑️ **`tests/workflow-sim/flow-M-monitor-cursor.test.mjs`** — never invoked by `run-all.sh`; coverage exists at L2 (`pr-comments.test.ts`) and L5 row 13.
+- 🗑️ **`tests/lint/no-ledger-references.sh`** — post-#170 the `ledger_log` / `ledger_list` tools were merged into `audit`, making this lint structurally impossible to violate.
+- 🗑️ **`scripts/lib/sqlite3-fallback.sh:tmb_fallback_issue_close`** lost its vestigial `[post_git_sha]` positional arg (no caller passed it; column was dropped in the pre-release schema scrub).
+
+### Stale-ref sweep
+
+- 🧹 **Full audit + sweep of references to retired surfaces.** Across docs, hooks, skills, tests:
+  - Dead MCP tool names (`identity_get`, `identity_set`, `identity_reset`) replaced with current equivalents (`onboard_state_get`, `onboard_apply`) in: `commands/onboard.md`, `docs/architecture/RESPONSIBILITIES.md`, `tests/README.md`, `tests/manual/{setup,debug-mode-expand,scenarios,mcp-readonly-fallback}.md`, `tests/dogfood/flows/{01-first-contact,95-anonymous-cold-restart}/`.
+  - `docs/AGENTS.md` — reframed `tmb_owner` as a frontmatter-only convention (column was dropped from the `agents` table; frontmatter still meaningful as file content).
+  - `docs/contributing/ENUMS.md` — dropped the `agent_runs.exit_status` enum section (column gone).
+  - `scripts/hooks/activation-routine.sh` — renamed `IDENTITY_ROW_COUNT` variable + comments to `ONBOARDED_ROW_COUNT` (SQL was already correct).
+  - `scripts/scan.sh` — dropped emission of `default_branch` + `head_commit_sha` JSON fields (zero consumers in repo).
+  - `tests/hooks/activation-routine.test.sh` — fixture no longer references `plugin_config.updated_at` (column dropped).
+  - `mcp/trajectory-server/src/test/agent-scope.test.ts` — `requireRoles` tests use `task_create_batch` instead of the dead `identity_set` tool name.
+  - 47 task-item literals across 6 L2 test files lost the `success_criteria` property (schema dropped it from `task_create_batch` input).
+  - 8+ doc files: dropped "(replaced the retired …)" / "(legacy …)" / "#2876 / #2881 follow-up" historical commentary so the live docs are forward-facing (CHANGELOG keeps the history).
+- 🐛 **Fixed `bro-sqlite-readonly.sh` runtime crash.** The MCP-unreachable fallback's `issue_resume` / `issue_get` selected columns dropped from `issues` (`parent_issue_id`, `post_commit_hash`, `current_task_id`) — would crash with "no such column" on every invocation. SQL rewritten to current columns only.
+- 🐛 **Fixed `tmb_agent-creator` doctrine bug.** The skill instructed bro to call `agent_register(..., tmb_owner='bro')`, but the `tmb_owner` arg was dropped from the MCP tool schema (column dropped from the `agents` table). Stripped from all 3 call sites; clarifying sentence added that `tmb_owner` now lives only in the agent's `.md` frontmatter.
+- 🐛 **Fixed `branch_report_md` dead-path crash.** The MCP tool selected `last_commit_sha` from `file_registry` — a column dropped from the schema. Tests passed because no test set `tasks.commit_sha`, so `commitShas.length > 0` was always false; in production the first task that closed with a real commit sha would have crashed the report with "no such column". The `## file_registry entries touched on this branch` section is dropped from the rendered markdown.
+
+### Added (#2887 follow-up — schema discipline + upgrade tooling)
+
+- 🛠️ **Reintroduced the trajectory DB migration layer.** v0.6.0 is the floor for schema discipline: `db.ts` carries a `TARGET_SCHEMA_VERSION` constant and a versioned migration chain that runs on boot before `applySchema`. Reverses the pre-release "no shim" stance — the shim was right for the rc cycle, but stable users need smooth upgrades from rc → 0.6.0 → 0.7.0. Behavior:
+  - **Pre-migration backup** — when `plugin_meta.schema_version < TARGET`, the DB is copied to `<dbpath>.pre-v<TARGET>.<timestamp>.bak` before any migration step runs. One backup per target version.
+  - **v1 → v2 migration** drops zombie tables (`identity`, `regen_state`, `project_metadata`), translates the legacy `identity` row to `plugin_config('onboarded': true)`, adds `skills.scope` if absent, and rebuilds `tasks` / `roundtables` / `roundtable_votes` / `file_registry` via the SQLite `CREATE _new` + copy + `DROP` + `RENAME` recipe when pre-v2 columns are present. `agent_runs.started_at` added if missing; `completed_at` rebuilt as nullable if it was previously NOT NULL.
+  - **Downgrade protection** — refuses to open a DB whose `schema_version` is newer than the code's `TARGET`, with a clear error pointing at the backup file.
+  - **L2 coverage** — `mcp/trajectory-server/src/test/schema-upgrade.test.ts` adds 5 cases: legacy pre-#2886 → v2, rc-current → v2, idempotent re-open (no second backup), WAL-state preservation, downgrade-protection throw.
+- 📄 **`docs/UPGRADE.md`** — end-to-end upgrade guide covering plugin-file refresh, channel switches (stable ↔ rc), DB migration behavior, failure-mode diagnostics, and rollback via `.bak` restore. Maintainer section covers `/reload-plugins` requirement, rc→stable promotion ceremony, when/how to bump `TARGET_SCHEMA_VERSION`, and three test recipes for the migration end-to-end (`--plugin-dir` worktree, real marketplace, hand-crafted v1 DB).
+- 🔧 **`scripts/maintenance/bump-version.sh`** — atomic version bump across the four sync'd version locations: `.claude-plugin/plugin.json`, `package.json`, `mcp/trajectory-server/package.json`, and the `serverLog('startup', version: …)` literal in `mcp/trajectory-server/src/index.ts`. Validates SemVer, stages to tempfiles, only commits if every file matches. Idempotent. BSD-sed compatible.
+- 🧪 **L0 install-smoke A7 assertion** — seeds a minimal v1-shape DB in `/tmp`, boots the MCP server pointing at it, then asserts: `schema_version` bumped to 2, `onboarded` marker translated to `plugin_config`, `.bak` file written, post-upgrade `onboard_state_get` returns `first_run=false`. Catches end-to-end upgrade regressions under the same install layout users see.
+- 🧪 **L0 install-smoke A3 + A3b assertions** updated — they referenced the removed `identity_get` tool and `human_name` response field. Replaced with `onboard_state_get` + `first_run`. Pattern tolerates MCP's JSON-escaped response wrapper (`grep -qE 'first_run[^a-zA-Z]'`).
+
+## v0.6.0-rc.2 — 2026-05-13
+
+### Added (#2886 — capability catalog + junction-based analytics)
+
+- 📚 **Catalog enrichment**: the trajectory DB now carries a portable catalog of every capability (skills + rules + commands) plus per-invocation junction rows. Designed so the enterprise LangGraph runtime can adopt the same schema with the DB as source-of-truth, while in the plugin the catalog acts as an analytics overlay on top of the file system.
+  - **`skills.scope`** column add (`global` / `template` / `project-local`, mirrors `agents.scope`). Plugin-shipped `tmb_*` skills schema-seeded as `global`; `skill_register` defaults new entries to `project-local`.
+  - **`rules`** table (new) — first-class registry for `<project>/.claude/rules/*.md`. Severity enum captures enforcement weight (`advisory` / `warning` / `blocking`). MCP tools: `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list`.
+  - **`commands`** table (new) — first-class registry for slash commands. Schema-seeds the 4 plugin-shipped commands (`/scan`, `/onboard`, `/monitor`, `/roundtable`). MCP tools: `command_register`, `command_list`.
+  - **`skill_invocations`** + **`rule_invocations`** junction tables — one row per skill/rule activation. Both indexed on the capability name AND on `task_id` for cheap forward queries ("what did this run touch?") and reverse queries ("which runs used skill X?"). MCP tools: `skill_record_invocation`, `skill_invocations_list`, `rule_record_invocation`, `rule_invocations_list`.
+  - **Bro as a first-class `agent_runs` row** — composites now insert one `agent_type='bro'` row per task at `task_create_batch` / `task_retry_batch` time (with `started_at`, `completed_at NULL`) and finalize it at `bro_atomic_close` (sets `completed_at` + computes `duration_ms` from `started_at`). Lets skill/rule invocations from bro attribute to a tracked `agent_run_id`, closing the analytics loop. `agent_runs.completed_at` relaxed to nullable; new `started_at` column.
+  - **Skill `PostToolUse` hook** (`scripts/hooks/skill-invocation-record.sh`) writes one `skill_invocations` row every time the `Skill` tool fires. Resolves `agent_run_id` from bro's open row (NULL if no run open — onboarding / scan-only sessions). Analytics-only, never blocks; bypass via `TMB_DISABLE_SKILL_INVOCATION_HOOK=1`.
+  - **L5 row 14** (`14-skill-invocation-recorded`) — exercises the full Skill→hook→junction chain with assertions on `skill_invocations` count + schema shape. Wired into the L6 chain manifest as the final step.
+  - **L2 unit coverage**: +17 tests in `rules-commands-junctions.test.ts` covering catalog registries, junction writes, bidirectional list filtering, and the bro-as-agent_run composite lifecycle. **401/401 pass** (was 384).
+
+### Changed (breaking — pre-release schema slim)
+
+- 🧹 **Schema cleanup — dropped dead columns + collapsed the migration layer.** Production-data audit (run against `eb1` and the dev fixture) showed ~25 columns across 14 tables that were either never written, never read, or constant-by-construction. Dropped them all in one pass. Pre-release means no migration shim — `db.ts` shed every `migrateXxx` helper (~250 lines), `schema.sql` is now the single source of truth applied via `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`. Users on rc bumps re-init `.claude/<plugin>/trajectory.db`.
+  - **Workflow side:** `issues.{post_commit_hash, remote_synced_at}`, `tasks.{tools_required, skills_required, success_criteria}` (the spec lives in `spec_body`; `task_create_batch` no longer requires `success_criteria`), `audit.{kind, is_truncated}` (kind was CHECK-constrained to a single value), `discussions.verified_human` (the human-author gate stays at write time; the stored flag was never read), `roundtables.{status, ratification_received_at}` (status superseded by `state`), `roundtable_votes.agent` (legacy duplicate of `participant`).
+  - **Registry side:** `skills.{tags, when_to_use, when_not_to_use, failures, created_by}`, `agents.tmb_owner`, `agent_runs.exit_status` (constant `'completed'` from the only writer), `repos.{default_branch, head_commit_sha, created_at, updated_at}`, `plugin_config.updated_at`, `plugin_meta.updated_at`, `eval_results.metadata_json`, `debug_trajectory.{tokens_in, tokens_out, latency_ms}` (eval-mode columns never populated).
+  - **file_registry:** dropped the 8 derived-metadata columns (`language`, `size_bytes`, `last_commit_sha`, `last_change_type`, `last_change_at`, `imports_json`, `exports_json`, `metadata_json`) flagged all-NULL in production. Only `repo`, `path`, `type`, `content_md5`, `summary`, `summary_updated_at` remain.
+  - **Renderers retired:** `mcp/trajectory-server/src/renderers/{changelog,codebase-tree,erd,module-graph,types}.ts` deleted along with their four test files — the scan-side renderer pass was inert and the columns it consumed are gone. Auto-rendered templates in `templates/docs-trustmybot/architecture/auto/*.md` remain as inert placeholders.
+- ✨ **Wired the `/monitor` incremental-polling cursor.** `pr_review_runs` was redesigned to `(id, pr_number, repo, last_fetched_at, last_comment_id)` with a UNIQUE index on `(pr_number, repo)`. `pr_comments_get` now reads `last_fetched_at` from the prior row and passes it as the `since=` filter, then upserts the cursor on exit. Prior shape (`comments_processed`, `tasks_created`, `remote_kind`, `created_at`) was pure telemetry no consumer read. Net result: re-running `/monitor 42` fetches only new comments instead of re-paginating every time.
+- 🪪 **Manifest-shape lint accepts SemVer pre-release tags.** `tests/lint/manifest-shape.sh` now matches `X.Y.Z` or `X.Y.Z-<pre>` (so `0.6.0-rc.1` validates).
+- 🔧 **bro inputSchema slim.** `task_create_batch`'s task-item schema drops the (now-unwritten) `tools_required` / `skills_required` / `success_criteria` properties.
+
+### Added (#2887 — schema migration framework + upgrade tooling)
+
+- ⚠️ **Upgrade action required.** Schema discipline starts at v0.6.0. When CC delivers this version, **run `/reload-plugins`** in your CC session (or restart the session) so the new MCP server boots and applies the v1→v2 migration to your existing `trajectory.db`. A pre-migration backup is written to `<dbpath>.pre-v2.<timestamp>.bak` automatically. See `docs/UPGRADE.md` for the full ceremony + recovery instructions.
+
+- 🛠️ **Reintroduced the trajectory DB migration layer.** v0.6.0 is now the floor for schema discipline: `db.ts` carries a `TARGET_SCHEMA_VERSION` constant and a versioned migration chain that runs on boot before `applySchema`. Reverses the pre-release "no shim" stance (line 21 above): the shim was right for the rc cycle, but stable users need smooth upgrades from rc → 0.6.0 → 0.7.0. Behavior:
+  - **Pre-migration backup** — when `plugin_meta.schema_version < TARGET`, the DB is copied to `<dbpath>.pre-v<TARGET>.<timestamp>.bak` before any migration step runs. One backup per target version (existence-check prevents per-boot churn).
+  - **v1 → v2 migration** drops zombie tables (`identity`, `regen_state`, `project_metadata`), adds `skills.scope` if absent, and rebuilds `tasks` / `roundtables` / `roundtable_votes` / `file_registry` via the SQLite `CREATE _new` + copy + `DROP` + `RENAME` recipe when pre-v2 columns are present. `agent_runs.started_at` added if missing; `completed_at` rebuilt as nullable if it was previously NOT NULL.
+  - **Downgrade protection** — refuses to open a DB whose `schema_version` is newer than the code's `TARGET`, with a clear error pointing at the backup file.
+  - **L2 coverage** — `mcp/trajectory-server/src/test/schema-upgrade.test.ts` adds 4 cases: legacy pre-#2886 → v2, rc-current → v2, idempotent re-open (no second backup), downgrade-protection throw. **406/406 pass** (was 401).
+
+- 📄 **`docs/UPGRADE.md`** — end-to-end upgrade guide covering plugin-file refresh, channel switches (stable ↔ rc), DB migration behavior, failure-mode diagnostics, and rollback via `.bak` restore. Maintainer section documents the rc→stable promotion ceremony + when/how to bump `TARGET_SCHEMA_VERSION`.
+
+- 🔧 **`scripts/maintenance/bump-version.sh`** — atomic version bump across the four sync'd version locations: `.claude-plugin/plugin.json`, `package.json`, `mcp/trajectory-server/package.json`, and the `serverLog('startup', version: …)` literal in `mcp/trajectory-server/src/index.ts`. Validates SemVer, stages to tempfiles, only commits if every file matches. Re-running with the same version is a no-op.
+
+### Fixed (#2887 follow-up — stale-ref sweep)
+
+- 🐛 **`branch_report_md` dead-path crash.** `tools/branch_report_md.ts` was selecting `last_commit_sha` from `file_registry` — a column dropped from the schema. Tests passed because no test set `tasks.commit_sha`, so `commitShas.length > 0` was always false. In production, the first task that closed with a real commit sha would have crashed the report with `no such column: last_commit_sha`. The `## file_registry entries touched on this branch` section is dropped from the rendered markdown (the column was its only sensible scoping mechanism; a flat repo-scoped list would have been noise). New regression test exercises `tasks.commit_sha` populated.
+- 🧹 **Stale field names** in `scan_run` + `file_registry_bulk_upsert` MCP tool descriptions and the `commands` seed for `/scan` (`size_bytes`, `last_commit_sha`) scrubbed. No runtime impact — handlers already ignored them — but the descriptions misled callers.
+- 🧹 **Vestigial migration comment** in `tools/onboard.ts` updated to point at the new v1→v2 migration step that actually drops the legacy `identity` table.
+
+## v0.6.0-rc.1 — 2026-05-12
+
+### Changed
+
+- 🧹 **Total scrub of the retired arch-refresh surface** following the standalone-tool → `scan_run` consolidation (#2881). Deleted two dead hooks (one read a dropped legacy drift-cache table; the other checked for an audit event no longer written) and their `hooks/hooks.json` registrations. Deleted the dead arch-walker directory under `mcp/trajectory-server/src/` (no importers). Dropped the unused drift-cache trigger field from `scan_run` return + the `deep_scan_completed` audit `content_json`. Deleted the legacy drift-cache type and migration entirely (pre-release; no released DBs need the drop). Renderer headers (`changelog/codebase-tree/erd/module-graph`) switched to `<!-- Auto-rendered YYYY-MM-DD. Do not edit. -->`. Templates under `templates/docs-trustmybot/architecture/auto/` simplified to "currently inert" placeholders. Retired the architecture-refresh-complete audit event_type (replaced by `deep_scan_completed`). CLAUDE.md routing now points "refresh arch" at `scan_run(source='user_manual')`. Docs / skills / tests across the repo scrubbed for retired-tool mentions. Audit-merge legacy fixture no longer recreates the dropped drift-cache table.
+- 🔢 **Production `issues.id` now starts at 1.** The schema-seeded system sentinel issue moved from `id=999999` to `id=-1` (negative sentinel — SQLite AUTOINCREMENT picks `MAX(MAX(id), 0) + 1`, so the first user-created issue gets `id=1`). Fresh `tmb` installs see clean 1, 2, 3… numbering instead of starting at 1000000. All FK references and hook filters (scan.ts, activation-routine.sh, roundtable-slash-detect.sh, harness/fixtures/L5 outcome SQL, ERD.md, tmb_recovery skill) updated to the new sentinel.
+- ♻️ **Retired the simple/difficult triage.** The triage gate and decision-when-difficult gate in `mcp/trajectory-server/src/tools/tasks.ts` are replaced by a single universal **decision gate**: every `task_create_batch` requires ≥1 `kind='decision'` discussion on the issue. The `Triage:` note + `simple|difficult` classifier are gone. ADR authoring + blast-radius check now trigger on architectural intent (file patterns + keyword heuristics in the new `scripts/hooks/adr-required-hint.sh` UserPromptSubmit hook), not on a user-classified label. Q+A deliberation is delegated to Claude Code's native plan mode (Shift+Tab). `composites.ts:branch_id_propose` no longer returns a `triage` field. `waive_triage_gate` → `waive_decision_gate`. L5 row `08-difficult-path` renamed to `08-architectural-change`; outcome.sql asserts the universal decision row + a tasks row, no `Triage:` requirement.
+- 🚚 Skill→determinism migration phase 1 (#181): 5 skills deleted (`tmb_naming-conventions`, `tmb_git-conventions`, `tmb_create-hook`, `tmb_lazy-arch-check`, `tmb_roundtable-cleanup`); 9 skills shrunk to judgment-only (`tmb_swe-checklist`, `tmb_review-protocol`, `tmb_refresh-architecture`, `tmb_branch-id-proposal`, `tmb_pr-review-handler`, `tmb_push-gate`, `tmb_swe-spawn-workflow`, `tmb_feedback-loop`, `tmb_project-prescan`); 2 skills shrunk to qualitative criteria (`tmb_code-quality`, `tmb_docs-conventions`).
+- 🔖 Polish ledger→audit prose in 5 skills + extend lint to flag bare ledger word (#171)
+- ♻️ Split eval_results + debug_trajectory out of prod schema.sql; load via TMB_EVAL_MODE=1 (#163)
+- 🧪 L5 dogfood scorers updated post-#170 audit merge; add coverage for skills + roundtable_votes table writes (#159, #160)
+
+### Added
+
+- **Determinism layer expansion (#181):** 8 new hooks + 3 new MCP composites absorb the deterministic content the deleted/shrunk skills used to carry.
+  - PreToolUse lints: `naming-lint.sh` (Edit/Write — file naming per language), `commit-msg-lint.sh` (Bash — Conventional Commits + emoji), `code-quality-lint.sh` (Edit/Write — bare except, mutable defaults, f-string SQL, etc.).
+  - PreToolUse gate: `greenfield-arch-required.sh` blocks `task_create_batch` when no `docs/trustmybot/` and no prior architecture-refresh audit.
+  - UserPromptSubmit hint: `consultant-spawn-required.sh` injects advisory `additionalContext` on domain-expert keywords (security, perf, legal, architecture).
+  - SessionStart inventory: `session-start-prescan.sh` injects the deterministic project inventory (git state, stacks, registry warmth, open issues) so bro doesn't re-derive it on the first ask.
+  - PostToolUse: `lazy-arch-postcheck.sh` (file_registry_update_summaries — drift warn), `roundtable-cleanup-postcheck.sh` (roundtable_close — capture-surface verification).
+  - MCP composites (`mcp/.../tools/composites.ts`): `branch_id_propose(intent, objective?)` (heuristic mapping → conventional branch_id + triage), `task_retry_batch(failed_task_id, …)` (one transaction for retry rationale + new task + audit), `bro_atomic_close(task_id, sha, summaries, …)` (one transaction for V3 audit + summaries + status flip + optional issue close — eliminates the L5 close-step drift failure mode).
+
+- **Enforcement:** New PreToolUse hook `require-feature-branch-active.sh` blocks SWE spawn when the main checkout is not on the task's `branch_id`. New MCP gate in `task_create_batch` requires a prior `branch_id_proposed` ledger event. `tmb_branch-id-proposal` skill now runs `git switch -c` itself instead of only logging intent. (#155)
+
+- **Doctrine:** Positive-prompt enforcement integrated into `tmb_skill-creator`, `tmb_agent-creator`, and `tmb_review-findings`. New L1 lint `no-negative-directives.sh` scans skills + agents + CLAUDE.md. Audit pass converted 12 negations to positive directives; 10 load-bearing safety rules retained with inline justification. (#148, GL#21)
+
+- **Roundtable MCP tools — deterministic state machine (#141):** `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`. Server auto-flips `roundtables.state` from `collecting → awaiting_human` when all expected votes are in. AUQ shape validated by new `roundtable-auq-shape.sh` PreToolUse hook. New columns: `roundtables.state`, `roundtables.expected_participants`, `roundtables.ratification_received_at`, `roundtable_votes.participant`.
+
+- **Roundtable MCP tools — initial 3 tools (#24 / TRU-63):** `roundtable_create`, `roundtable_vote`, `roundtable_close` (state-machine-free predecessors, superseded by #141).
+
+- **PR comments fetching (#142):** `pr_comments_get` tool (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS). New `pr_review_runs` table tracks per-PR fetch state. New skill `tmb_pr-review-handler` drives the `/monitor` slash command flow.
+
+- **Issue sync retry (#132):** `issue_sync_retry` tool for retrying failed remote syncs. New columns: `issues.remote_iid`, `issues.remote_kind`, `issues.remote_synced_at`. New log: `~/.claude/tmb/logs/issue-sync.log`.
+
+- **Issue sync kill-switch (#146):** `issue_sync` config key (values: `gh|glab|both|off|auto`; safe default `off`). `TMB_DISABLE_REMOTE_SYNC=1` env var overrides config at the handler level (defense-in-depth). Bro no longer syncs issues to any remote without explicit opt-in.
+
+- **Validation gate — pr-reviewer session tracking (#144):** `validation_record` now requires `subagent_session_id` when `agent='pr-reviewer'`. New column: `validation_attempts.subagent_session_id`. MCP tool handler rejects missing `subagent_session_id` for pr-reviewer role.
+
+- **Discussion gate — Human author verification (#145):** `discussion_append(author='human')` requires `verified_human=true`. New column: `discussions.verified_human` (DEFAULT 0). Guards against agents impersonating the Human in discussion history.
+
+- **Slash commands (#143):** `/roundtable <topic>` and `/monitor <PR_number>` ship as explicit-trigger commands in `commands/`. Catalog at `docs/commands/README.md`.
+
+- **New L5 flow — 13-bulk-cleanup (#99):** Proves bro executes pre-authorized bulk deletes via single Bash call without AskUserQuestion or SWE spawn.
+
+- **Workflow-violation tracking (#144, #145, #146, #147):** Bro logs workflow violations to ledger when agents attempt forbidden operations. Basis for future Layer 2 enforcement.
+
+- **Doctrine — pre-authorized destructive cleanup (#99):** CLAUDE.md `## Pre-authorized destructive cleanup` section. When the Human's prompt contains explicit authorization for bulk deletion, bro executes in one Bash call — no per-step re-confirmation, no SWE spawn.
+
+- **Doctrine — V1/V2/V3 verification (#121-02):** CLAUDE.md `## Bro verification (task gate)` formalizes the three-step gate (V1: files match, V2: verification commands pass, V3: success criteria met) as non-negotiable before closing any task.
+
+- **Doctrine — positive-prompt + LOAD-BEARING-SAFETY annotation (#148):** All remaining negative directives in agent prompts and skills converted to positive alternatives. Load-bearing safety rules kept with explicit `<!-- LOAD-BEARING-SAFETY: reason -->` annotation. New ENFORCEMENT.md section.
+
+- **Doctrine — blast-radius review checklist (#147):** `tmb_planning-difficult` updated with blast-radius review step before SWE spawn for high-risk changes.
+
+- **Doctrine — onboarding sync opt-in (#147):** `tmb_reonboard` updated to present `issue_sync` config option during re-onboarding.
+
+### Fixed
+
+- 🐛 lazy-arch-check skips nudge for hand-curated arch projects (#162)
+
+- 🐛 Drop stale git-worktree literal check from local-agent-primitives lint (#169)
+
+- 🐛 (mcp): `plugin_meta` seed no longer re-inserts on every MCP boot; one-time migration collapses any pre-existing duplicates to a single `id=1` row. (GL #23)
+
+- **Removed:** `scripts/hooks/create-worktree.sh` (#4 / TRU-80) — redundant since SWE explicitly creates its own task-branch worktree per #170/#171. Eliminates the orphan-worktree side effect (one stray `.claude/worktrees/agent-*` per SWE spawn).
+
 ## v0.5.0 — 2026-04-27
 
 **Headline: bro is now a structurally-enforced pure planner.** Direct Mode removed (#162) and 7 hard-enforcement hooks promote previously prompt-only doctrine to Layer 2 (deterministic shell scripts). New `docs/architecture/ENFORCEMENT.md` documents the 6-layer model (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` → prompts) and the per-agent × per-interaction coverage matrix.
@@ -41,7 +390,7 @@ The h3 + h4 A/B scenarios proved prompt-only doctrine compliance is 0/10 in both
 |---|---|---|
 | `activation-routine.sh` | UserPromptSubmit | Pre-fetches `identity` + pending issue from the trajectory DB on every bro-triggered message; injects as `additionalContext` so bro never has to remember to call `identity_get` / `issue_resume` |
 | `no-source-edit-from-main.sh` | PreToolUse on Edit/Write/MultiEdit/NotebookEdit | Blocks bro from editing source files outside an SWE worktree (allowlist: markdown, LICENSE, agent/skill prompts, plugin/hooks manifests, `.github/`). Bypass: `TMB_ALLOW_SOURCE_EDIT=1` |
-| `session-start-regen-check.sh` | SessionStart | Computes git drift vs `regen_state.last_seen_sha`; nudges bro to run `tmb_refresh-architecture` when drift > 25 commits (override: `TMB_REGEN_DRIFT_THRESHOLD`) |
+| `session-start-arch-check.sh` | SessionStart | Computes git drift vs the legacy arch-cache last-seen SHA; nudges bro to run `tmb_refresh-architecture` when drift > 25 commits (override: `TMB_ARCH_DRIFT_THRESHOLD`) |
 | `ensure-gitignore.sh` | SessionStart | Ensures `.claude/` is in the project's `.gitignore`. Creates `.gitignore` if missing; appends if rule absent; idempotent. Prevents the trajectory.db-leaking-into-worktrees footgun |
 | `no-worktree-branch-create.sh` | PreToolUse on Bash | Blocks `git worktree add -b/-B/--create-branch ...`. Branch authority is bro's: bro pre-creates `<task.branch_id>` from the latest origin, SWE attaches via `git worktree add <path> <branch>` (no creation, no abbreviation). Bypass: `TMB_ALLOW_WORKTREE_BRANCH_CREATE=1` |
 | `branch-up-to-date-with-remote.sh` | PreToolUse on Bash | Fetches `origin/<pr_target>`, denies worktree-add if `<branch>` is behind. Catches the stale-local-main bug. Bypass: `TMB_ALLOW_STALE_BRANCH=1` |
@@ -77,7 +426,7 @@ Also:
 Per the doctrine "prompt-only enforcement caps at the LLM compliance ceiling — promote load-bearing rules to a harder layer," two new hooks land:
 
 - **`scripts/hooks/no-source-edit-from-main.sh`** (PreToolUse on `Edit|Write|MultiEdit|NotebookEdit`). Blocks the call when bro mode is active *and* the target is source code *and* the current shell isn't inside an SWE worktree. Allowlist covers markdown, `LICENSE`, `.gitignore`-class configs, agent/skill prompts, plugin/hooks manifests, `.github/`. Bypass via `TMB_ALLOW_SOURCE_EDIT=1` for emergencies. Enforces the "bro is a pure planner — every code change goes through SWE" rule that until now was prompt-only.
-- **`scripts/hooks/session-start-regen-check.sh`** (SessionStart). Reads `regen_state.last_seen_sha`, computes drift to `HEAD`, and emits `additionalContext` suggesting `tmb_refresh-architecture` when drift exceeds the threshold (default 25 commits, override via `TMB_REGEN_DRIFT_THRESHOLD`). Pre-empts the manual lazy-regen check bro is supposed to do at the start of every code-touching ask.
+- **`scripts/hooks/session-start-arch-check.sh`** (SessionStart). Reads the legacy arch-cache last-seen SHA, computes drift to `HEAD`, and emits `additionalContext` suggesting `tmb_refresh-architecture` when drift exceeds the threshold (default 25 commits, override via `TMB_ARCH_DRIFT_THRESHOLD`). Pre-empts the manual lazy arch-check bro is supposed to do at the start of every code-touching ask.
 
 New doc: **`docs/architecture/ENFORCEMENT.md`** — canonical reference for the 6 enforcement layers (MCP middleware → hooks → frontmatter → tool-handler validation → skill `paths:` auto-load → prompts) plus a per-agent × per-interaction coverage matrix showing which layer covers what. Includes a section listing remaining Layer-6-only doctrine items as promotion candidates.
 
@@ -230,7 +579,7 @@ To set your name post-first-contact: say `@bro reonboard` or `@bro update my nam
 
 ## v0.4.1 — 2026-04-25
 
-**Cluster of bugs found during cold-session marketplace dogfood by [@ZaxShen](https://github.com/ZaxShen).** All four were doctrine drift, not infra: bro had stale instructions, server enforcement was working but invisible.
+**Cluster of bugs found during cold-session marketplace dogfood by [@trustmybot](https://github.com/trustmybot).** All four were doctrine drift, not infra: bro had stale instructions, server enforcement was working but invisible.
 
 ### Fixed — Anonymous identity now persists (issue #95)
 
@@ -291,7 +640,7 @@ This is the doctrine half of #38. The DB-side half (`issue_labels` table + 4 MCP
 
 #### Architecture docs bootstrap on small projects (issue #94)
 
-`tmb_lazy-regen-check` previously did nothing on first-ever session, waiting for the Human to manually request `/tmb refresh-architecture`. Tiny dogfood projects rarely cross the 25-commit threshold, so they never got `docs/trustmybot/architecture/auto/` populated.
+`tmb_lazy-arch-check` previously did nothing on first-ever session, waiting for the Human to manually request `/tmb refresh-architecture`. Tiny dogfood projects rarely cross the 25-commit threshold, so they never got `docs/trustmybot/architecture/auto/` populated.
 
 New behavior: on first-ever session, count source files (`git ls-files | exclude .claude/, node_modules/, dist/, etc.`):
 - 0 files → skip (empty repo)
@@ -383,7 +732,7 @@ Manual L5 dogfood was the release bottleneck. L6 automates it by pre-seeding DB 
 - `D-direct-mode` — ≤3-line typo fix → Edit + commit, no SWE spawn (with hard invariant assertions)
 - `95-anonymous-cold-restart` — regression for #95; cold session must skip re-onboarding
 
-**12 scaffolded flows** (auto-skip until expected-trajectory authored): `03-difficult-task`, `04-agent-creator`, `05-skill-creation`, `06-push-gate`, `07-architecture-regen`, `08-swe-retry`, `09-roundtable`, `C-consultant`, `32-team-config`, `92-base-branch`, `94-arch-bootstrap`, `96-halt-on-error`.
+**12 scaffolded flows** (auto-skip until expected-trajectory authored): `03-difficult-task`, `04-agent-creator`, `05-skill-creation`, `06-push-gate`, `07-architecture-refresh`, `08-swe-retry`, `09-roundtable`, `C-consultant`, `32-team-config`, `92-base-branch`, `94-arch-bootstrap`, `96-halt-on-error`.
 
 **CI workflow** `.github/workflows/l6-dogfood.yml`:
 - Triggers: tag pushes, PRs labeled `L6`, manual dispatch
@@ -455,7 +804,7 @@ The workflow soft-fails when the secret is absent — the L0 install piece still
 
 ## v0.3.2 — 2026-04-25
 
-**Hook + agent-prompt hotfix.** Two real bugs in `git-guards.sh` that broke every SWE commit-from-worktree, plus a SWE doctrine violation. Found by [@ZaxShen](https://github.com/ZaxShen) during v0.3.1 marketplace test — bro spent 12 minutes hitting the same hook-block before reporting.
+**Hook + agent-prompt hotfix.** Two real bugs in `git-guards.sh` that broke every SWE commit-from-worktree, plus a SWE doctrine violation. Found by [@trustmybot](https://github.com/trustmybot) during v0.3.1 marketplace test — bro spent 12 minutes hitting the same hook-block before reporting.
 
 ### Fixed — `git-guards.sh` worktree-blind branch detection
 
@@ -612,7 +961,7 @@ New directory `tests/workflow-sim/` holds **5 trajectory tests**, one per FLOWS.
 | 2 — Simple task | `flow-02-simple-task.test.mjs` | bro plans → swe completes → bro closes; **no per-task pr-reviewer** (push gate is amortized); planning_complete event lands in ledger |
 | 3 — Difficult task | `flow-03-difficult-task.test.mjs` | Q+A discussion sequence satisfies scope gate without `waive_scope_gate`; decision row queryable for ADR generation; positive + negative cases |
 | 6 — Push gate | `flow-06-push-gate.test.mjs` | bro forbidden from `validation_record` (only pr-reviewer); fail-then-pass attempt sequence preserved in `validation_history` |
-| 7 — Architecture regen | `flow-07-architecture-regen.test.mjs` | regen_state cursor lifecycle; swe forbidden from `architecture_regen` and `regen_state_set` |
+| 7 — Architecture refresh | `flow-07-architecture-refresh.test.mjs` | legacy arch-cache cursor lifecycle; swe forbidden from the legacy arch-refresh tool and cache-writer tool |
 | 8 — SWE retry | `flow-08-swe-retry.test.mjs` | 3-attempt sequence preserved; UNIQUE(task_id, attempt_n) yields upsert (latest verdict wins); `'escalated'` is a valid terminal status |
 | D — Direct Mode | `flow-D-direct-mode.test.mjs` | `direct_mode_used` ledger event; no task / validation rows created |
 
@@ -767,7 +1116,7 @@ Bumped `.claude-plugin/plugin.json`, `mcp/trajectory-server/package.json`, and r
 
 ### Added
 
-- **Multi-platform placeholder structure** ([#73](https://github.com/trustmybot/plugin/pull/73)). Per-platform adapter dirs (`.codex-plugin/`, `.cursor-plugin/`, `.opencode/`) and root-level personas (`CODEX.md`, `CURSOR.md`, `GEMINI.md`, `gemini-extension.json`) ship as **placeholders only** — clearly marked "not implemented." The strategy doc at [`docs/multi-platform.md`](docs/multi-platform.md) explains how the per-platform adapter pattern works, what an adapter would do, and why placeholders ship now (discoverability + path-precedent). No platform other than Claude Code is functional in this release.
+- **Multi-platform placeholder structure** ([#73](https://github.com/trustmybot/plugin/pull/73)). Per-platform adapter dirs (`.codex-plugin/`, `.cursor-plugin/`, `.opencode/`) and root-level personas (`CODEX.md`, `CURSOR.md`, `GEMINI.md`, `gemini-extension.json`) ship as **placeholders only** — clearly marked "not implemented." The strategy doc at [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md) explains how the per-platform adapter pattern works, what an adapter would do, and why placeholders ship now (discoverability + path-precedent). No platform other than Claude Code is functional in this release.
 - **`scripts/release.sh`** — generic, idempotent release ritual. Reads version from `plugin.json`, validates `mcp pkg.json` agrees, requires a matching CHANGELOG section, asks for `y/N` per step, then tags + pushes + creates the GitHub release. Replaces the v0.1.0-specific stranded script. Documented under "Release ritual" in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ### Changed
@@ -815,7 +1164,7 @@ The chain is **Human → bro → SWE**, with `pr-reviewer` as a push gate and `a
 
 - **Bro as the single Human entry point.** Triggered by the literal word "bro" in any message. Plans, captures intent in MCP, writes task specs, spawns SWE, verifies SWE's work, drives retry loops. Stays out of the way for non-"bro" messages.
 - **Lego templates.** Plugin's `agents/` is empty. `templates/agents/` ships 6 minimal agent templates (≤30 lines each, lint-enforced): swe, pr-reviewer, architect, cto, ceo, pm. Bro copies them into `<project>/.claude/agents/` verbatim — never edits the body. Project customization happens by extending the `skills:` array via `tmb_skill-creator`.
-- **Bundled SQLite trajectory MCP server.** Node + `better-sqlite3` + `@modelcontextprotocol/sdk` in `mcp/trajectory-server/`. ~30 tools spanning issues, tasks, discussions, validation, ledger, audit, file-registry, architecture-regen, identity, config, skills.
+- **Bundled SQLite trajectory MCP server.** Node + `better-sqlite3` + `@modelcontextprotocol/sdk` in `mcp/trajectory-server/`. ~30 tools spanning issues, tasks, discussions, validation, ledger, audit, file-registry, architecture-refresh, identity, config, skills.
 - **Server-enforced role-based access.** `requireRoles` middleware structurally rejects calls that violate the decision chain (e.g. consultants can't write task rows; only pr-reviewer can write `validation_record`). Doctrine isn't just prompt-discipline — it's wire-enforced.
 - **Two distinct gates.**
   - **Bro's task gate** — runs after every SWE return: re-runs the spec's `## Verification` commands, sanity-checks diff against `## Files`, confirms each `## Success Criteria` bullet. Fast, mandatory, never skipped.
@@ -834,7 +1183,7 @@ The chain is **Human → bro → SWE**, with `pr-reviewer` as a push gate and `a
 
 **Plugin protocol skills** (in `skills/`, `tmb_*` prefix to prevent project-skill collisions):
 
-`tmb_first-run-onboarding`, `tmb_planning-simple`, `tmb_planning-difficult`, `tmb_swe-spawn-workflow`, `tmb_branch-id-proposal`, `tmb_agent-creator`, `tmb_skill-creator`, `tmb_bootstrap` (recovery), `tmb_project-prescan`, `tmb_lazy-regen-check`, `tmb_refresh-architecture`, `tmb_reonboard`, `tmb_create-hook`, `tmb_feedback-loop`, `tmb_roundtable`, `tmb_roundtable-cleanup`, `tmb_validate-swe-output`.
+`tmb_first-run-onboarding`, `tmb_planning-simple`, `tmb_planning-difficult`, `tmb_swe-spawn-workflow`, `tmb_branch-id-proposal`, `tmb_agent-creator`, `tmb_skill-creator`, `tmb_bootstrap` (recovery), `tmb_project-prescan`, `tmb_lazy-arch-check`, `tmb_refresh-architecture`, `tmb_reonboard`, `tmb_create-hook`, `tmb_feedback-loop`, `tmb_roundtable`, `tmb_roundtable-cleanup`, `tmb_validate-swe-output`.
 
 **Template skills** (in `templates/skills/`, copied into projects via onboarding):
 

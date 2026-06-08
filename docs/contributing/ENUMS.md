@@ -42,6 +42,26 @@ Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`fail
 
 We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded.
 
+### `roundtables.state` — roundtable state machine
+
+| Value | Source | Meaning |
+|---|---|---|
+| `collecting` | TMB | Votes being gathered from participants |
+| `awaiting_human` | TMB | All expected votes received; pending Human ratification |
+| `closed` | TMB | Human ratified; decisions finalized |
+| `skipped` | TMB | Roundtable cancelled or consensus reached without full vote |
+
+Server enforces valid transitions: `collecting → awaiting_human → closed | skipped`. Other transitions return `is_error: true`.
+
+### `issues.remote_kind` — git remote host for issue sync
+
+| Value | Source | Meaning |
+|---|---|---|
+| `github` | TMB | GitHub (github.com or GHE) |
+| `gitlab` | TMB | GitLab (gitlab.com or self-hosted) |
+
+Mirrors `plugin_config.remotes[].provider` (see [`plugin_config.remotes[].provider`](#plugin_configremotesprovider---git-host-provider-per-remote)). Only these two values supported for issue sync (#132). Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
+
 ### `discussions.kind` — narrative kind in issue discussions
 
 | Value | Source | Meaning |
@@ -51,10 +71,12 @@ We considered aligning to GH PR review states (`approved`/`changes_requested`/`c
 | `question` | TMB | Open question raised by an agent or the Human |
 | `answer` | TMB | Resolution to a `question` |
 | `concern` | TMB | An agent's surfaced concern about the plan |
+| `analysis` | TMB | Consultant's structured analysis on a topic |
+| `decision` | TMB | Bro's architectural decision record (narrative form) |
 
 K8s Events have a `reason` field with a similar shape but different semantics. **TMB-specific** — these mirror our agent communication patterns.
 
-### `ledger.from_node` — which agent or persona logged the event
+### `audit.from_node` — which agent or persona logged the event
 
 | Value | Source | Notes |
 |---|---|---|
@@ -69,7 +91,7 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 
 **TMB-specific** — these are TMB's role names. Custom agents added to a project become valid `from_node` values for that project's DB only.
 
-### `ledger.event_type` — workflow events
+### `audit.event_type` — workflow events
 
 | Value | Trigger |
 |---|---|
@@ -77,8 +99,8 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | `scope_gate_waived` | Bro waives the scope gate with explicit reason |
 | `bro_verification_pass` | Bro task-gate V1/V2/V3 all passed |
 | `bro_verification_fail` | Bro task-gate found a check that failed |
-| `architecture_regen_complete` | docs/trustmybot/architecture/auto/ refreshed |
-| `swe_attempt_n_failed` | SWE returned with status=failed; counts toward retry cap |
+| `deep_scan_completed` | `scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs` |
+| `swe_retry_spawned` | Bro spawned a SWE retry after failure; captures retry rationale in `content_json` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
 
@@ -98,13 +120,41 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | `draft` | TMB | Created but not yet validated |
 | `pending_review` | TMB | Awaiting human review before activation |
 | `active` | TMB | Discoverable + invocable |
-| `deprecated` | TMB | Kept for back-compat; new code should not invoke |
+| `deprecated` | TMB | Skill exists but must not be used in new code; prefer `active` |
 
 Inspired by typical lifecycle states; not from a single named convention.
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `1`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration script.
+Currently `2`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration script in `db.ts:runMigrations`.
+
+### `agent_runs.agent_type` (open enum)
+
+Common values: `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.
+
+### `plugin_config.remotes[].provider` — git host provider per remote
+
+| Value | Meaning |
+|---|---|
+| `github` | github.com or GitHub Enterprise |
+| `gitlab` | gitlab.com or self-hosted GitLab |
+| `bitbucket` | Atlassian's git host (bitbucket.org) |
+| `codeberg` | codeberg.org (Forgejo-based public forge) |
+| `gitea` | Self-hosted Gitea instance |
+| `forgejo` | Self-hosted Forgejo instance |
+| `azuredev` | Azure DevOps (dev.azure.com) |
+| `other` | Unrecognised or custom host |
+
+URL-pattern auto-detection rules:
+
+- `github.com` → `github`
+- `gitlab.com` or `gitlab.<corp>.<tld>` → `gitlab`
+- `bitbucket.org` → `bitbucket`
+- `codeberg.org` → `codeberg`
+- `dev.azure.com` → `azuredev`
+- everything else → `other`
+
+`remotes` is a `plugin_config` key whose value is a JSON array of `{ name, provider, url }` objects (e.g. `[{ "name": "origin", "provider": "gitlab", "url": "git@gitlab.com:org/repo.git" }]`). An empty array means no remote is configured.
 
 ---
 

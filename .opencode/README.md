@@ -1,13 +1,13 @@
 # `.opencode/` — placeholder for OpenCode adapter
 
-> **Status: not implemented.** This directory is a placeholder so the repo's structure mirrors the multi-platform pattern (Claude / Codex / Cursor / OpenCode / Gemini). TMB ships Claude Code only as of v0.1.1.
+> **Status: not implemented.** This directory is a placeholder so the repo's structure mirrors the multi-platform pattern (Claude / Codex / Cursor / OpenCode / Gemini). TMB ships Claude Code only.
 
 ## What this would be
 
 Once implemented, this directory would hold the OpenCode adapter:
 
 - `plugins/tmb.js` — OpenCode plugin entry point (auto-discovers `./skills/` from repo root)
-- An `INSTALL.md` documenting the install path: `/plugin install superpowers@git+https://github.com/trustmybot/plugin.git` (or equivalent)
+- An `INSTALL.md` documenting the install path: `/plugin install tmb@trustmybot` (or equivalent)
 
 OpenCode uses native skill auto-discovery, so the manifest is thinner than other platforms.
 

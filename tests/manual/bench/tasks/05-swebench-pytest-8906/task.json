@@ -1,0 +1,20 @@
+{
+  "source": "swe-bench-lite",
+  "id": "pytest-dev__pytest-8906",
+  "repo": "pytest-dev/pytest",
+  "base_commit": "69356d20cfee9a81972dcbf93d8caf9eabe113e8",
+  "language": "python",
+  "version": "7.0",
+  "python_version": "3.9",
+  "all_sonnet_4_failed": true,
+  "fail_to_pass": [
+    "testing/test_skipping.py::test_module_level_skip_error"
+  ],
+  "pass_to_pass_sample": [
+    "testing/test_skipping.py::test_importorskip",
+    "testing/test_skipping.py::TestSkip::test_skip_no_reason"
+  ],
+  "env_install_cmd": "SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST=7.0.0 pip install -e . --quiet",
+  "pythonpath": "src",
+  "test_patch_file": "test_patch.diff"
+}

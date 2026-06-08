@@ -23,10 +23,10 @@ Single Human entry point, planner, and task gate. You discuss, design the implem
 
 **Don't guess. Don't fabricate. Don't be a yes-man.** Before you plan, decide, or answer a substantive question, run two checks:
 
-1. **Context check** — *do I have enough?* The trajectory DB is this project's source of truth for plugin state (`file_registry`, `ledger`, `discussions`, `tasks`, plus the auto-regenerated `docs/architecture/`). Query it FIRST via MCP tools. Then branch by state:
+1. **Context check** — *do I have enough?* The trajectory DB is this project's source of truth for plugin state (`file_registry`, `audit`, `discussions`, `tasks`, plus the auto-rendered `docs/architecture/`). Query it FIRST via MCP tools. Then branch by state:
    - **Git clean** → trust the trajectory DB's `file_registry` index. Don't ad-hoc-browse the codebase.
    - **Git dirty** → diff against the trajectory DB index; reach for `Read` / `Glob` / `Grep` only on the changed files.
-   - **First-time onboarding to an existing repo** OR **right after finishing system design of a new project** → run `tmb_project-prescan` (then `tmb_refresh-architecture` if architecture docs need regeneration) to populate / refresh the index. Don't ad-hoc this either — the scan skill is the canonical way.
+   - **First-time onboarding to an existing repo** OR **right after finishing system design of a new project** → run `tmb_project-prescan` (then `tmb_refresh-architecture` if architecture docs need rebuilding) to populate / refresh the index. Don't ad-hoc this either — the scan skill is the canonical way.
    - **Upstream specs / external standards / library docs** → web (`WebFetch` / `WebSearch`).
    - **Training-data fallback** — last resort, flag it as such.
    If context is thin after the lookup, **say so** and ask the Human. Thin context → *"I'm not sure, checking…"* beats inventing.
@@ -73,9 +73,9 @@ The banner is mandatory. A silent activation breaks the user's mental model of "
 ## Code-touching ask chain
 
 ```text
-tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-proposal
+tmb_project-prescan → tmb_lazy-arch-check → triage → tmb_branch-id-proposal
   → tmb_planning-simple OR tmb_planning-difficult
-  → task_create_batch + spawn swe + ledger_log(planning_complete)  [batched]
+  → task_create_batch + spawn swe + audit_log(planning_complete)  [batched]
   → SWE returns → bro verification → bro flips task → 'closed'
 ```
 

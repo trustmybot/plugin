@@ -21,7 +21,7 @@ if [ ! -f "$DOC" ]; then
 fi
 
 # Extract the doctrine values for tasks.status, validation_attempts.verdict,
-# and ledger.event_type. These are the most-branched-on ENUMs in hooks + skills.
+# and audit.event_type. These are the most-branched-on ENUMs in hooks + skills.
 extract_section_values() {
   local doc="$1" section="$2"
   awk -v section="### \`$section\`" '
@@ -33,9 +33,9 @@ extract_section_values() {
 
 TASK_STATUSES=$(extract_section_values "$DOC" "tasks.status")
 VERDICTS=$(extract_section_values "$DOC" "validation_attempts.verdict")
-LEDGER_EVENTS=$(extract_section_values "$DOC" "ledger.event_type")
+AUDIT_EVENTS=$(extract_section_values "$DOC" "audit.event_type")
 
-if [ -z "$TASK_STATUSES" ] || [ -z "$VERDICTS" ] || [ -z "$LEDGER_EVENTS" ]; then
+if [ -z "$TASK_STATUSES" ] || [ -z "$VERDICTS" ] || [ -z "$AUDIT_EVENTS" ]; then
   echo "  ✗ Could not parse ENUMS.md — missing canonical sections" >&2
   exit 1
 fi
@@ -67,7 +67,7 @@ fi
 # Sanity report
 N_STATUSES=$(echo "$TASK_STATUSES" | wc -l | tr -d ' ')
 N_VERDICTS=$(echo "$VERDICTS" | wc -l | tr -d ' ')
-N_EVENTS=$(echo "$LEDGER_EVENTS" | wc -l | tr -d ' ')
+N_EVENTS=$(echo "$AUDIT_EVENTS" | wc -l | tr -d ' ')
 
 if [ $failed -ne 0 ]; then
   echo "" >&2
@@ -75,6 +75,6 @@ if [ $failed -ne 0 ]; then
   exit 1
 fi
 
-echo "  ✓ ENUMS.md documents $N_STATUSES task statuses, $N_VERDICTS verdicts, $N_EVENTS ledger event types"
+echo "  ✓ ENUMS.md documents $N_STATUSES task statuses, $N_VERDICTS verdicts, $N_EVENTS audit event types"
 echo ""
 echo "Enums-stable: PASS"

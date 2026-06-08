@@ -42,6 +42,7 @@ interface ValidationAttempt {
   agent: string;
   verdict: string;
   feedback: string;
+  subagent_session_id: string | null;
   created_at: string;
 }
 
@@ -71,6 +72,7 @@ export function validationTools(db: TrajectoryDB): {
           attempt_n: { type: 'number' },
           verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
           feedback: { type: 'string' },
+          subagent_session_id: { type: 'string', description: 'Required when agent="pr-reviewer": the spawned pr-reviewer subagent\'s session ID.' },
         },
         required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
       },
@@ -84,6 +86,8 @@ export function validationTools(db: TrajectoryDB): {
           agent: { type: 'string' },
           task_id: { type: 'string' },
           own_task_id: { type: 'string', description: 'The calling agent\'s own task ID (used to gate feedback access for swe)' },
+          limit: { type: 'number', description: 'Optional — max rows to return. When provided, response includes next_cursor.' },
+          cursor: { type: 'string', description: 'Opaque cursor from a previous response.' },
         },
         required: ['agent', 'task_id'],
       },
@@ -98,9 +102,24 @@ export function validationTools(db: TrajectoryDB): {
       const verdict = requireArg(args, 'verdict') as string;
       requireArg(args, 'feedback');
 
+      const subagentSessionId = (args['subagent_session_id'] ?? null) as string | null;
+
+      if (agent === 'pr-reviewer' && !subagentSessionId) {
+        throw new Error(
+          'precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent\'s session ID). This prevents bro from self-authoring pr-reviewer verdicts.',
+        );
+      }
+
       if (!VALID_VERDICTS.has(verdict)) {
         throw new Error(
           `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`,
+        );
+      }
+
+      const feedbackArg = args['feedback'] as string;
+      if (!/^MCP available: (yes|no)\b/.test(feedbackArg)) {
+        throw new Error(
+          'precondition_failed: validation_record.feedback must start with "MCP available: yes" or "MCP available: no — honor-system fallback" (LOAD-BEARING-SAFETY #97 — bro\'s push-gate parses this prefix to detect dead MCP). Prepend the line, then put your rationale on subsequent lines.',
         );
       }
 
@@ -118,14 +137,15 @@ export function validationTools(db: TrajectoryDB): {
 
       db.run(
         `INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+           (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_id, attempt_n) DO UPDATE SET
            agent = excluded.agent,
            verdict = excluded.verdict,
            feedback = excluded.feedback,
+           subagent_session_id = excluded.subagent_session_id,
            created_at = excluded.created_at`,
-        [taskId, attemptN, agent, verdict, feedback, now],
+        [taskId, attemptN, agent, verdict, feedback, subagentSessionId, now],
       );
 
       const row = db.get<ValidationAttempt>(
@@ -144,13 +164,53 @@ export function validationTools(db: TrajectoryDB): {
         ownTaskIdRaw !== undefined && ownTaskIdRaw !== null
           ? coerceTaskId(ownTaskIdRaw)
           : undefined;
+      const limitArg = args['limit'] as number | undefined;
+      const cursorArg = args['cursor'] as string | undefined;
 
-      const rows = db.all<ValidationAttempt>(
-        `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
-        [taskId],
-      );
+      if (limitArg === undefined || limitArg === null) {
+        const rows = db.all<ValidationAttempt>(
+          `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
+          [taskId],
+        );
+        return ok(rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })));
+      }
 
-      return ok(rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })));
+      const limit = Math.min(Math.max(1, limitArg), 500);
+      let cursorFilter = '';
+      let cursorParams: unknown[] = [];
+
+      if (cursorArg) {
+        try {
+          const decoded = JSON.parse(Buffer.from(cursorArg, 'base64').toString('utf8')) as {
+            attempt_n: number;
+          };
+          if (typeof decoded.attempt_n === 'number') {
+            cursorFilter = 'AND attempt_n > ?';
+            cursorParams = [decoded.attempt_n];
+          }
+        } catch {
+          // ignore invalid cursor
+        }
+      }
+
+      const sql =
+        'SELECT * FROM validation_attempts WHERE task_id = ? ' +
+        cursorFilter +
+        ' ORDER BY attempt_n ASC LIMIT ?';
+      const fetchedRows = db.all<ValidationAttempt>(sql, [taskId, ...cursorParams, limit + 1]);
+
+      const hasMore = fetchedRows.length > limit;
+      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+      const last = rows[rows.length - 1];
+      const next_cursor =
+        hasMore && last
+          ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString('base64')
+          : undefined;
+
+      return ok({
+        rows: rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })),
+        next_cursor,
+      });
     }),
   };
 

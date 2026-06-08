@@ -1,32 +1,45 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
+import { TrajectoryDB } from '../db.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh DB contains all 16 tables', () => {
+  it('fresh prod-mode DB contains 22 tables (no eval/debug, no directories post-v8 — world model in kuzu)', () => {
     const db = tempDB();
 
     const expectedTables = [
       'issues',
       'tasks',
-      'ledger',
       'audit',
       'validation_attempts',
       'skills',
+      'agents',
       'roundtables',
       'roundtable_votes',
       'discussions',
       'plugin_meta',
-      'file_registry',
       'plugin_config',
-      'identity',
-      'regen_state',
-      'debug_trajectory',
-      'eval_results',
+      'agent_runs',
+      'pr_review_runs',
+      'repos',
+      // #2886 capability catalog + junctions
+      'rules',
+      'commands',
+      'skill_invocations',
+      'rule_invocations',
+      // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
+      'discussions_fts',
+      'audit_fts',
+      // #2905 embedding tables (workflow tables only)
+      'discussions_embeddings',
+      'audit_embeddings',
     ];
 
     const rows = db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%\_fts\_%' ESCAPE '\\' ORDER BY name",
     );
     const actualNames = rows.map((r) => r.name).sort();
     assert.deepEqual(actualNames, [...expectedTables].sort());
@@ -34,14 +47,18 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 1 in plugin_meta', () => {
+  it('fresh DB has schema_version = 8 in plugin_meta', () => {
     const db = tempDB();
 
-    const meta = db.get<{ schema_version: number }>(
-      'SELECT schema_version FROM plugin_meta LIMIT 1',
+    const meta = db.get<{ schema_version: number; plugin_version: string }>(
+      'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 1);
+    assert.equal(meta.schema_version, 8);
+    assert.ok(
+      typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
+      'plugin_version must be a non-empty string',
+    );
 
     db.close();
   });
@@ -79,16 +96,7 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('identity has zero rows on init', () => {
-    const db = tempDB();
-
-    const rows = db.all('SELECT * FROM identity');
-    assert.equal(rows.length, 0);
-
-    db.close();
-  });
-
-  it('plugin_config has the 3 schema-seeded default policy keys on init', () => {
+  it('plugin_config has the 5 schema-seeded default policy keys on init', () => {
     const db = tempDB();
 
     const rows = db.all<{ key: string; value_json: string }>(
@@ -99,66 +107,53 @@ describe('schema — current table set, default values, constraints', () => {
     const plain = rows.map((r) => ({ key: r.key, value_json: r.value_json }));
     assert.deepEqual(plain, [
       { key: 'branching_model', value_json: '"github-flow"' },
+      { key: 'issue_sync', value_json: '"off"' },
       { key: 'pr_target', value_json: '"main"' },
       { key: 'protected_branches', value_json: '["main"]' },
+      { key: 'remotes', value_json: '[]' },
     ]);
 
     db.close();
   });
 
-  it('regen_state has zero rows on init', () => {
+
+  it('directories table does NOT exist post-v8 (world model lives in kuzu — ADR 0002)', () => {
     const db = tempDB();
 
-    const rows = db.all('SELECT * FROM regen_state');
-    assert.equal(rows.length, 0);
-
-    db.close();
-  });
-
-  it('file_registry has zero rows on init', () => {
-    const db = tempDB();
-
-    const rows = db.all('SELECT * FROM file_registry');
-    assert.equal(rows.length, 0);
-
-    db.close();
-  });
-
-  it('file_registry has the codebase-memory columns (#45) on a fresh DB', () => {
-    const db = tempDB();
-
-    const cols = db.all<{ name: string; type: string }>(
-      'PRAGMA table_info(file_registry)',
+    const row = db.get<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='directories'",
     );
-    const byName = new Map(cols.map((c) => [c.name, c.type]));
-
-    assert.equal(byName.get('content_md5'), 'TEXT');
-    assert.equal(byName.get('summary'), 'TEXT');
-    assert.equal(byName.get('summary_updated_at'), 'TEXT');
+    assert.equal(row, undefined, 'directories table must be absent — world model moved to kuzu graph DB');
 
     db.close();
   });
 
   it('eval_results has the A/B columns (#131) on a fresh DB', () => {
-    const db = tempDB();
+    process.env['TMB_EVAL_MODE'] = '1';
+    let db;
+    try {
+      db = tempDB();
 
-    const cols = db.all<{ name: string; type: string; dflt_value: string | null; notnull: number }>(
-      'PRAGMA table_info(eval_results)',
-    );
-    const byName = new Map(cols.map((c) => [c.name, c]));
+      const cols = db.all<{ name: string; type: string; dflt_value: string | null; notnull: number }>(
+        'PRAGMA table_info(eval_results)',
+      );
+      const byName = new Map(cols.map((c) => [c.name, c]));
 
-    const arm = byName.get('arm');
-    assert.ok(arm, 'arm column must exist');
-    assert.equal(arm!.type, 'TEXT');
-    assert.equal(arm!.notnull, 1, 'arm must be NOT NULL');
-    assert.equal(arm!.dflt_value, "'control'", 'arm must default to control');
+      const arm = byName.get('arm');
+      assert.ok(arm, 'arm column must exist');
+      assert.equal(arm!.type, 'TEXT');
+      assert.equal(arm!.notnull, 1, 'arm must be NOT NULL');
+      assert.equal(arm!.dflt_value, "'control'", 'arm must default to control');
 
-    const scenario = byName.get('scenario');
-    assert.ok(scenario, 'scenario column must exist');
-    assert.equal(scenario!.type, 'TEXT');
-    assert.equal(scenario!.notnull, 0, 'scenario is nullable');
+      const scenario = byName.get('scenario');
+      assert.ok(scenario, 'scenario column must exist');
+      assert.equal(scenario!.type, 'TEXT');
+      assert.equal(scenario!.notnull, 0, 'scenario is nullable');
 
-    db.close();
+      db.close();
+    } finally {
+      delete process.env['TMB_EVAL_MODE'];
+    }
   });
 
   it('last_verified_sha config key is NOT schema-seeded (#45 — initial null is correct)', () => {
@@ -172,99 +167,169 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('debug_trajectory has zero rows on init (issue #108)', () => {
+  it('prod-mode DB does NOT have eval_results or debug_trajectory tables (#163)', () => {
     const db = tempDB();
 
-    const rows = db.all('SELECT * FROM debug_trajectory');
-    assert.equal(rows.length, 0);
+    const evalTable = db.get<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='eval_results'",
+    );
+    assert.equal(evalTable, undefined, 'eval_results must be absent in prod mode');
+
+    const debugTable = db.get<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='debug_trajectory'",
+    );
+    assert.equal(debugTable, undefined, 'debug_trajectory must be absent in prod mode');
 
     db.close();
+  });
+
+  it('eval-mode DB has eval_results + debug_trajectory when TMB_EVAL_MODE=1 (#163)', () => {
+    process.env['TMB_EVAL_MODE'] = '1';
+    let db;
+    try {
+      db = tempDB();
+
+      const evalTable = db.get<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='eval_results'",
+      );
+      assert.ok(evalTable !== undefined, 'eval_results must be present in eval mode');
+
+      const debugTable = db.get<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='debug_trajectory'",
+      );
+      assert.ok(debugTable !== undefined, 'debug_trajectory must be present in eval mode');
+
+      db.close();
+    } finally {
+      delete process.env['TMB_EVAL_MODE'];
+    }
+  });
+
+  it('debug_trajectory has zero rows on init (issue #108)', () => {
+    process.env['TMB_EVAL_MODE'] = '1';
+    let db;
+    try {
+      db = tempDB();
+      const rows = db.all('SELECT * FROM debug_trajectory');
+      assert.equal(rows.length, 0);
+      db.close();
+    } finally {
+      delete process.env['TMB_EVAL_MODE'];
+    }
   });
 
   it('debug_trajectory has expected columns + index (issue #108, extended for #110)', () => {
-    const db = tempDB();
+    process.env['TMB_EVAL_MODE'] = '1';
+    let db;
+    try {
+      db = tempDB();
 
-    const cols = db.all<{ name: string }>('PRAGMA table_info(debug_trajectory)');
-    const colNames = cols.map((c) => c.name).sort();
-    assert.deepEqual(colNames, [
-      'agent',
-      'args_json',
-      'created_at',
-      'id',
-      'is_error',
-      'kind',
-      'latency_ms',
-      'result_json',
-      'session_id',
-      'step_n',
-      'tokens_in',
-      'tokens_out',
-      'tool_or_mcp_name',
-    ]);
+      const cols = db.all<{ name: string }>('PRAGMA table_info(debug_trajectory)');
+      const colNames = cols.map((c) => c.name).sort();
+      assert.deepEqual(colNames, [
+        'agent',
+        'args_json',
+        'created_at',
+        'id',
+        'is_error',
+        'kind',
+        'latency_ms',
+        'result_json',
+        'session_id',
+        'step_n',
+        'tokens_in',
+        'tokens_out',
+        'tool_or_mcp_name',
+      ]);
 
-    const indexes = db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='debug_trajectory'",
-    );
-    const indexNames = indexes.map((i) => i.name);
-    assert.ok(
-      indexNames.includes('idx_debug_trajectory_session'),
-      'session-step index must exist for L5 reads',
-    );
+      const indexes = db.all<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='debug_trajectory'",
+      );
+      const indexNames = indexes.map((i) => i.name);
+      assert.ok(
+        indexNames.includes('idx_debug_trajectory_session'),
+        'session-step index must exist for L5 reads',
+      );
 
-    db.close();
+      db.close();
+    } finally {
+      delete process.env['TMB_EVAL_MODE'];
+    }
   });
 
   it('eval_results table exists with v2 multi-scorer schema (issue #110)', () => {
+    process.env['TMB_EVAL_MODE'] = '1';
+    let db;
+    try {
+      db = tempDB();
+
+      const rows = db.all('SELECT * FROM eval_results');
+      assert.equal(rows.length, 0, 'eval_results must be empty on init');
+
+      const cols = db.all<{ name: string }>('PRAGMA table_info(eval_results)');
+      const colNames = cols.map((c) => c.name).sort();
+      assert.deepEqual(colNames, [
+        'arm',
+        'created_at',
+        'explanation',
+        'flow_name',
+        'id',
+        'metadata_json',
+        'pass',
+        'run_id',
+        'scenario',
+        'scorer_name',
+        'value',
+      ]);
+
+      const indexes = db.all<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='eval_results'",
+      );
+      const indexNames = indexes.map((i) => i.name).sort();
+      assert.ok(indexNames.includes('idx_eval_results_run'), 'run_id index required');
+      assert.ok(indexNames.includes('idx_eval_results_flow'), 'flow_name index required');
+
+      db.close();
+    } finally {
+      delete process.env['TMB_EVAL_MODE'];
+    }
+  });
+
+  it('audit table has idx_audit_event_type and idx_audit_issue_branch indexes', () => {
     const db = tempDB();
-
-    const rows = db.all('SELECT * FROM eval_results');
-    assert.equal(rows.length, 0, 'eval_results must be empty on init');
-
-    const cols = db.all<{ name: string }>('PRAGMA table_info(eval_results)');
-    const colNames = cols.map((c) => c.name).sort();
-    assert.deepEqual(colNames, [
-      'arm',
-      'created_at',
-      'explanation',
-      'flow_name',
-      'id',
-      'metadata_json',
-      'pass',
-      'run_id',
-      'scenario',
-      'scorer_name',
-      'value',
-    ]);
 
     const indexes = db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='eval_results'",
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='audit'",
     );
-    const indexNames = indexes.map((i) => i.name).sort();
-    assert.ok(indexNames.includes('idx_eval_results_run'), 'run_id index required');
-    assert.ok(indexNames.includes('idx_eval_results_flow'), 'flow_name index required');
-
-    db.close();
-  });
-
-  it('identity CHECK constraint rejects a second row with id != 1', () => {
-    const db = tempDB();
-    const now = new Date().toISOString();
-
-    db.run(
-      `INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (1, 'Alice', ?, ?)`,
-      [now, now],
+    const names = indexes.map((i) => i.name);
+    assert.ok(
+      names.includes('idx_audit_event_type'),
+      `idx_audit_event_type must exist, found: ${names.join(', ')}`,
     );
-
-    assert.throws(
-      () => {
-        db.run(
-          `INSERT INTO identity (id, human_name, created_at, updated_at) VALUES (2, 'Bob', ?, ?)`,
-          [now, now],
-        );
-      },
-      /CHECK constraint failed/,
+    assert.ok(
+      names.includes('idx_audit_issue_branch'),
+      `idx_audit_issue_branch must exist, found: ${names.join(', ')}`,
     );
 
     db.close();
   });
+
+  it('plugin_meta has exactly 1 row after 10 sequential opens of the same file-backed DB (GL #23)', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-schema-test-'));
+    try {
+      const dbPath = join(tmpDir, 'trajectory.db');
+      for (let i = 0; i < 10; i++) {
+        const db = new TrajectoryDB(dbPath);
+        db.close();
+      }
+      const db = new TrajectoryDB(dbPath);
+      const row = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM plugin_meta');
+      assert.ok(row !== undefined);
+      assert.equal(row.cnt, 1, 'plugin_meta must have exactly 1 row after 10 opens');
+      db.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
 });

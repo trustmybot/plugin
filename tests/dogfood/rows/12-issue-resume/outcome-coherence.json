@@ -1,0 +1,6 @@
+{
+  "expected_writes": {
+    "tasks WHERE LOWER(title) LIKE '%count%' OR LOWER(branch_id) LIKE '%count%'": ">=1",
+    "tasks WHERE (LOWER(title) LIKE '%count%' OR LOWER(branch_id) LIKE '%count%') AND status='pending'": "=0"
+  }
+}

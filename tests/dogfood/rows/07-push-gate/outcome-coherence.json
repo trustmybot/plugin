@@ -1,0 +1,7 @@
+{
+  "expected_writes": {
+    "validation_attempts": ">=1",
+    "validation_attempts WHERE verdict = 'pass'": ">=1",
+    "audit": ">=1"
+  }
+}

@@ -1,4 +1,3 @@
-import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -83,17 +82,14 @@ export function configTools(db) {
             catch {
                 return err('config value not JSON-serializable');
             }
-            const now = nowISO();
-            db.run(`INSERT INTO plugin_config (key, value_json, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET
-           value_json = excluded.value_json,
-           updated_at = excluded.updated_at`, [key, valueJson, now]);
-            return ok({ key, updated_at: now });
+            db.run(`INSERT INTO plugin_config (key, value_json)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [key, valueJson]);
+            return ok({ key });
         })),
         config_get: wrapHandler(async (args) => {
             const key = args['key'];
-            const row = db.get(`SELECT key, value_json, updated_at FROM plugin_config WHERE key = ?`, [key]);
+            const row = db.get(`SELECT key, value_json FROM plugin_config WHERE key = ?`, [key]);
             if (!row) {
                 return ok(null);
             }

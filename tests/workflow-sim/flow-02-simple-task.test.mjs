@@ -1,11 +1,11 @@
 // Flow 2 — Simple Task (FLOWS.md §2)
 //
 // Trajectory: bro triages simple → issue_create → discussion (intent + triage) →
-// task_create_batch + ledger_log(planning_complete) → SWE returns
+// task_create_batch + audit_log(planning_complete) → SWE returns
 // (task_update_status='completed') → bro verifies (no validation row at task close;
 // pr-reviewer fires only at push gate) → bro flips task to 'closed' → issue_close.
 //
-// Asserts the structural contract: state transitions, ledger events, role
+// Asserts the structural contract: state transitions, audit events, role
 // enforcement at each call. Direct-runs the MCP server, no Claude.
 
 import { test } from 'node:test';
@@ -15,9 +15,6 @@ import { startClient, call } from '../mcp-integration/harness.mjs';
 test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per-task pr-reviewer)', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
-
-  // Setup: minimal identity + config so role checks are cleaner
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
 
   // 1. bro creates issue
   const issue = await call(client, 'issue_create', {
@@ -31,7 +28,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   // 2. bro logs intent + triage discussion
   const intent = await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, author: 'human', kind: 'intent',
-    body: '@bro add /hello endpoint',
+    body: '@bro add /hello endpoint', verified_human: true,
   });
   assert.equal(intent.ok, true);
 
@@ -47,11 +44,16 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
     issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'simple-triage personal endpoint; defaults named in triage note (single file, stdlib router)',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{
       branch_id: 'feat/hello',
       title: 'Add /hello endpoint',
       description: 'Wire /hello → 200 OK {msg:"hello"}.',
-      success_criteria: 'GET /hello returns 200 with documented body',
       spec_body: '## Files\n- app/routes.py\n## Verification\n```\ncurl localhost/hello\n```\n## Success Criteria\n- 200 OK',
     }],
   });
@@ -60,12 +62,12 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
   assert.ok(taskId, `no task id returned: ${JSON.stringify(batch.data)}`);
 
-  const planning = await call(client, 'ledger_log', {
+  const planning = await call(client, 'audit_log', {
     agent: 'bro', issue_id: issueId, branch_id: 'feat/hello',
     from_node: 'bro',
     event_type: 'planning_complete', summary: 'Triage simple. Spec authored for task_id=' + taskId,
   });
-  assert.equal(planning.ok, true, `ledger_log: ${JSON.stringify(planning)}`);
+  assert.equal(planning.ok, true, `audit_log: ${JSON.stringify(planning)}`);
 
   // 4. SWE picks up the task: read spec → mark running
   const taskRead = await call(client, 'task_get', { agent: 'swe', task_id: taskId });
@@ -113,9 +115,9 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(finalTask.data.status, 'closed');
   assert.equal(finalTask.data.commit_sha, 'aaaaaaa1111111111111111111111111111aaaaa');
 
-  // ledger event recorded
-  const ledger = await call(client, 'ledger_list', { agent: 'bro', issue_id: issueId });
-  assert.equal(ledger.ok, true);
-  assert.ok(ledger.data.some(e => e.event_type === 'planning_complete'),
-    'planning_complete event must land in ledger');
+  // audit event recorded
+  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId });
+  assert.equal(audit.ok, true);
+  assert.ok(audit.data.some(e => e.event_type === 'planning_complete'),
+    'planning_complete event must land in audit');
 });

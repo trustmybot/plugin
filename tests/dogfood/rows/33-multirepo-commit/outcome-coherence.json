@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "repos WHERE name = 'api'": ">=1"
+  }
+}

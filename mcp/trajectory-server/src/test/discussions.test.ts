@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { TrajectoryDB } from '../db.js';
+import { tempDB } from './helpers.js';
 import { discussionTools } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -32,7 +33,7 @@ describe('discussions + snapshot integration', () => {
   let tmpWorkDir: string;
 
   before(() => {
-    db = new TrajectoryDB(':memory:');
+    db = tempDB();
 
     tmpWorkDir = join(tmpdir(), `tmb-test-${Date.now()}`);
     snapshotDir = join(tmpWorkDir, 'docs', 'trustmybot', 'snapshots');
@@ -187,9 +188,11 @@ describe('discussions + snapshot integration', () => {
   it('step 3d: discussion_list for unknown issue returns empty with warning', async () => {
     const disc = discussionTools(db);
 
+    // Use an id below the schema-seeded system issue (-1) but definitely
+    // not created by any test setup. 8 has no fixtures or upstream creates.
     const result = await call(disc.handlers, 'discussion_list', {
       agent: 'bro',
-      issue_id: '999999',
+      issue_id: '8',
     });
     assert.ok(!result.isError, 'Should NOT throw for unknown issue');
     const data = parseResult(result);
@@ -205,6 +208,7 @@ describe('discussions + snapshot integration', () => {
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
       agent: 'bro',
       issue_id: issueId,
       tasks: [
@@ -212,7 +216,6 @@ describe('discussions + snapshot integration', () => {
           branch_id: 'feat/discussions-integration',
           title: 'discussions task',
           description: 'Implement discussion tools',
-          success_criteria: 'All tools work',
           spec_body: 'This is the spec body for the discussions task.',
         },
       ],
@@ -236,7 +239,7 @@ describe('discussions + snapshot integration', () => {
     const sha = 'deadbeefcafe1234567890abcdef0123456789ab';
 
     const result = await call(tasks.handlers, 'task_update_status', {
-      agent: 'bro',
+      agent: 'swe',
       task_id: taskId,
       status: 'completed',
       commit_sha: sha,
@@ -301,13 +304,13 @@ describe('discussions + snapshot integration', () => {
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
       agent: 'bro',
       issue_id: issueId,
       tasks: [
         {
           branch_id: 'feat/commit-sha-optional',
           description: 'Task that finishes without a commit_sha',
-          success_criteria: 'completes without commit_sha argument',
         },
       ],
     });
@@ -315,7 +318,7 @@ describe('discussions + snapshot integration', () => {
     const taskId2 = String(batchData[0].id);
 
     const result = await call(tasks.handlers, 'task_update_status', {
-      agent: 'bro',
+      agent: 'swe',
       task_id: taskId2,
       status: 'completed',
     });
@@ -392,5 +395,117 @@ describe('discussions + snapshot integration', () => {
     assert.ok(taskFields.includes('branch_id'), 'Task must have branch_id');
     assert.ok(taskFields.includes('status'), 'Task must have status');
     assert.ok(taskFields.includes('title'), 'Task must have title');
+  });
+});
+
+describe('discussion_append verified_human gate (#145)', () => {
+  let db: TrajectoryDB;
+  let issueId: string;
+
+  before(async () => {
+    db = tempDB();
+    const issues = issueTools(db);
+
+    async function call(
+      handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+      name: string,
+      args: Record<string, unknown>,
+    ) {
+      const handler = handlers[name];
+      return handler(args) as unknown as RawResult;
+    }
+
+    const result = await call(issues.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'verified_human gate test issue',
+      description: 'Isolated issue for gate tests.',
+    });
+    const created = JSON.parse((result as RawResult).content[0].text);
+    issueId = String(created.id);
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  async function call(
+    handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<RawResult> {
+    const handler = handlers[name];
+    assert.ok(handler, `Handler not found: ${name}`);
+    return handler(args) as unknown as RawResult;
+  }
+
+  it('rejects author="human" without verified_human', async () => {
+    const disc = discussionTools(db);
+
+    const result = await call(disc.handlers, 'discussion_append', {
+      agent: 'bro',
+      issue_id: issueId,
+      author: 'human',
+      kind: 'intent',
+      body: 'This should be rejected',
+    });
+    assert.ok(result.isError, 'Should be error when author="human" without verified_human');
+    const data = parseResult(result);
+    assert.ok(
+      data.error.includes('precondition_failed'),
+      `Error must cite precondition_failed: ${data.error}`,
+    );
+    assert.ok(
+      data.error.includes('verified_human=true'),
+      `Error must mention verified_human=true: ${data.error}`,
+    );
+  });
+
+  it('accepts author="human" with verified_human=true', async () => {
+    const disc = discussionTools(db);
+
+    const result = await call(disc.handlers, 'discussion_append', {
+      agent: 'bro',
+      issue_id: issueId,
+      author: 'human',
+      kind: 'intent',
+      body: 'Verified human prompt capture',
+      verified_human: true,
+    });
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const data = parseResult(result);
+    assert.equal(data.author, 'human');
+  });
+
+  it('accepts author="bro" without verified_human', async () => {
+    const disc = discussionTools(db);
+
+    const result = await call(disc.handlers, 'discussion_append', {
+      agent: 'bro',
+      issue_id: issueId,
+      author: 'bro',
+      kind: 'note',
+      body: 'Per Human in chat: "@bro do the thing"',
+    });
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const data = parseResult(result);
+    assert.equal(data.author, 'bro');
+  });
+
+  it('accepts consultant authors (ceo, cto, pm) without verified_human', async () => {
+    const disc = discussionTools(db);
+
+    for (const consultantAuthor of ['ceo', 'cto', 'pm']) {
+      const result = await call(disc.handlers, 'discussion_append', {
+        agent: 'bro',
+        issue_id: issueId,
+        author: consultantAuthor,
+        kind: 'analysis',
+        body: `${consultantAuthor} analysis entry`,
+      });
+      assert.ok(
+        !result.isError,
+        `author="${consultantAuthor}" must be accepted: ${JSON.stringify(parseResult(result))}`,
+      );
+    }
   });
 });

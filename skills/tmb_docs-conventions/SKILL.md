@@ -1,112 +1,33 @@
 ---
 name: tmb_docs-conventions
-description: When and how to update docs alongside code changes, plus the discipline for editing agent prompts and skill files.
-agent: bro, swe, pr-reviewer
+description: Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation. Mechanical link-rot and architecture-doc-drift checks live in tests/lint/link-check.sh.
 ---
 
-# Docs Conventions
+# Docs Conventions — Editing Discipline
 
-## Docs Update Rule
+Mechanical link integrity is enforced by `tests/lint/link-check.sh`. This skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
 
-When functionality changes, update the corresponding documentation **in the
-same PR**. Stale docs are worse than no docs — they actively mislead.
+## Docs-update expectation
 
-### What to update
+When functionality changes, the same PR updates the user-visible docs that describe it. The PR-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?) — not a regex check.
 
-| Change type | Update |
-|---|---|
-| New CLI command or flag | `README.md` (Usage section) |
-| New API endpoint | `docs/api.md` (or equivalent) |
-| New page or component | Relevant component/pages doc if one exists |
-| New module or package | Project-level architecture doc |
-| Permission or auth changes | `docs/security.md` or equivalent |
-| DB schema changes | `docs/schema.md` or migration index |
-| New config options | `README.md` (Configuration section) |
-| Breaking changes | `CHANGELOG.md` (if one exists) |
+## When docs and code disagree
 
-### Rules
+If a doc you're updating contradicts the code, halt and surface it — pick the side that matches the intended behaviour, update the other, and flag the discrepancy first. Ground in the code itself (and the world model), not in the prose that describes it.
 
-1. **Docs update in the SAME commit/PR as the code change.** Not "next PR" — same PR.
-2. **If docs don't exist yet** and the change is non-trivial, create the doc.
-3. **If a doc exists but is stale** and you're touching the related code,
-   fix the doc in the same change.
+## Editing prompt files (agents, skills, CLAUDE.md, workflow markdown)
 
-### Enforcement
+When the task spec names a markdown file under `agents/`, `skills/`, `CLAUDE.md`, or any workflow markdown, apply these rules. They are the hardest-won discipline in the project: a sloppy prompt edit can swing every agent's behaviour next session.
 
-The PR Reviewer flags any commit that changes observable behavior without
-updating the corresponding docs. "Observable" = anything a user, operator,
-or downstream developer would notice.
-
-## Architecture Docs Are the Source of Truth
-
-### Rule
-
-Agents must read architecture docs FIRST before exploring the codebase.
-If the answer is in the docs, do NOT re-read source files.
-
-When any feature changes the system design, DB schema, API routes, or service
-architecture, the PR MUST update the corresponding architecture doc in the
-same commit.
-
-**If you discover a discrepancy between architecture docs and the actual
-codebase, STOP and report it to the Bro.** Do not silently follow
-stale docs or silently follow code that contradicts docs. The discrepancy
-must be resolved — either the doc is updated or the code is wrong.
-
-### What Must Be Documented
-
-| Change Type | Update |
-|---|---|
-| New DB table or column | `docs/architecture/schema.md` (or equivalent) |
-| New service or module boundary | `docs/architecture/overview.md` |
-| New API endpoint | `docs/architecture/api.md` |
-| Change in data flow or pipeline | `docs/architecture/dataflow.md` |
-| New dependency on external service | `docs/architecture/dependencies.md` |
-| Permission or access changes | `docs/architecture/permissions.md` |
-
-### If Architecture Docs Don't Exist Yet
-
-This is normal for new projects. For projects without architecture docs:
-- Agents explore the codebase via `Grep`/`Read` as usual
-- The first significant architectural change should also create the doc
-- Smaller projects may live entirely in `README.md` and `CLAUDE.md`
-
-### Enforcement
-
-PR-reviewer flags architectural changes that don't update docs at push time. Bro escalates systemic discrepancies back to the Human during planning when it spots a doc/code mismatch.
-
-## Editing Agent Prompts and Skill Files
-
-When modifying `agents/*.md`, `skills/**/SKILL.md`, `CLAUDE.md`, or any
-workflow markdown, follow the discipline below. Any agent touching prompt
-files applies these rules. In TMB, that's SWE (when the task spec names a
-markdown file).
-
-### Scope
-
-Markdown only. `src/`, `tests/`, or runtime-consumed config files are
-off-limits for prompt-style edits. If a fix touches those paths, route via
-bro → SWE (the standard task chain) instead of doing it inline.
-
-### Rules
-
-1. **Delete before you add.** A shorter prompt is usually clearer. Prefer
-   removal over addition when both achieve the goal.
-2. **Preserve operational meaning.** Constraints, prohibitions, and examples
-   with operational or legal weight are copied verbatim unless the request
-   explicitly changes them.
-3. **Match tone and structure.** Edits blend into the target file; they do
-   not impose a different style.
-4. **Don't expand scope.** Correct what was asked; don't opportunistically
-   rewrite adjacent content.
-5. **Update referenced paths.** If you rename or move a file the prompt
-   cites, grep for every reference and update it in the same commit.
-6. **Diff, don't rewrite.** Produce edits as a focused diff unless a full
-   rewrite was explicitly requested.
+1. **Delete before you add.** A shorter prompt is usually clearer. Prefer removal over addition when both achieve the goal.
+2. **Preserve operational meaning.** Constraints, prohibitions, and examples with operational or legal weight are copied verbatim unless the request explicitly changes them.
+3. **Match tone and structure.** Edits blend into the target file; they don't impose a different style.
+4. **Stay in scope.** Correct what was asked; don't opportunistically rewrite adjacent content.
+5. **Update referenced paths.** When you rename or move a file the prompt cites, grep for every reference and update it in the same commit.
+6. **Diff, don't rewrite.** Produce edits as a focused diff unless a full rewrite was explicitly requested.
 
 ### Escalation
 
-- Ambiguous rewrite request → return specific questions, don't guess.
+- Ambiguous rewrite request → ask specific questions, don't guess.
 - Target file has internal contradictions → quote them, flag to the caller.
-- Change would break files that reference this one → flag the ripple before
-  proceeding.
+- Change would break files that reference this one → flag the ripple before proceeding.

@@ -1,0 +1,5 @@
+{
+  "max_turns": 1,
+  "user_after_bro": [],
+  "terminal_pattern": "onboard|let's onboard|first-run|what's the|tell me about|configure"
+}

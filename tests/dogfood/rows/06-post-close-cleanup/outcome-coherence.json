@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "audit WHERE event_type = 'deep_scan_completed'": ">=1"
+  }
+}

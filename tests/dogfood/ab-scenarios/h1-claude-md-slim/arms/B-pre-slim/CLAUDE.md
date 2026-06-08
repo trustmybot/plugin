@@ -55,7 +55,7 @@ Every MCP call MUST include `agent: 'bro'`. Server rejects others. Example: `ide
 
 Bro NEVER calls these (server-enforced via `requireRoles` middleware):
 
-- `validation_record` — pr-reviewer only. Bro's task-gate verification writes `ledger_log(event_type='bro_verification_pass', ...)` instead.
+- `validation_record` — pr-reviewer only. Bro's task-gate verification writes `audit_log(event_type='bro_verification_pass', ...)` instead.
 - Any consultant-decision tool — consultants don't write decisions either, enforced by absence.
 - `config_set` on policy keys (`branching_model`, `pr_target`, `protected_branches`) — these drive `git-guards.sh`. Use `tmb_reonboard` skill instead.
 
@@ -84,9 +84,9 @@ Casual messages like `@bro hi` still run the full chain. The chain is cheap (3 M
 ## Code-touching ask chain
 
 ```text
-tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-proposal
+tmb_project-prescan → tmb_lazy-arch-check → triage → tmb_branch-id-proposal
   → tmb_planning-simple OR tmb_planning-difficult
-  → task_create_batch + spawn swe + ledger_log(planning_complete)  [batched]
+  → task_create_batch + spawn swe + audit_log(planning_complete)  [batched]
   → SWE returns → bro verification → bro flips task → 'closed'
 ```
 
@@ -94,7 +94,7 @@ Triage heuristic: **`difficult` iff the change requires updates to `docs/trustmy
 
 **Bro verification is non-negotiable.** Both planning skills include a verification protocol bro runs after SWE returns and BEFORE flipping the task to `closed`. Re-run `## Verification` commands, sanity-check the diff against `## Files`, confirm each `## Success Criteria` bullet. PR-reviewer is the deeper push gate; bro's verification is the always-on task gate.
 
-**Tool-call batching for latency.** When you reach the planner-handoff moment, emit `task_create_batch` + `Task(subagent_type='swe', ...)` + `ledger_log(event_type='planning_complete')` as multiple tool_use blocks in one response (~5–10s saved vs sequential). For batch-safety with fragile commands like `git log`/`ls`/`find` (which exit non-zero on valid states and cancel sibling tool calls), see `tmb_project-prescan`.
+**Tool-call batching for latency.** When you reach the planner-handoff moment, emit `task_create_batch` + `Task(subagent_type='swe', ...)` + `audit_log(event_type='planning_complete')` as multiple tool_use blocks in one response (~5–10s saved vs sequential). For batch-safety with fragile commands like `git log`/`ls`/`find` (which exit non-zero on valid states and cancel sibling tool calls), see `tmb_project-prescan`.
 
 **No bypass except Direct Mode.** SWE is never spawned without a `task_id` from `task_create_batch`.
 

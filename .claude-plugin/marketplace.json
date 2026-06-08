@@ -1,18 +1,18 @@
 {
   "name": "trustmybot",
   "metadata": {
-    "description": "Public marketplace for trustmybot plugins. Two channels — 'tmb' tracks main (production-ready releases), 'tmb-rc' tracks the rc branch (release candidates under active testing). Install whichever you want."
+    "description": "LEGACY marketplace catalog — kept for backward compat. New installs should use trustmybot/marketplace (stable) or trustmybot/marketplace-rc (RC) instead. See https://gitlab.com/trustmybot/marketplace for the canonical stable channel."
   },
   "owner": {
     "name": "trustmybot",
-    "url": "https://github.com/trustmybot"
+    "url": "https://gitlab.com/trustmybot"
   },
   "plugins": [
     {
       "name": "tmb",
       "source": {
-        "source": "github",
-        "repo": "trustmybot/plugin",
+        "source": "url",
+        "url": "https://gitlab.com/trustmybot/plugin.git",
         "ref": "main"
       },
       "description": "TMB multi-agent Claude Code plugin with SQLite trajectory MCP — STABLE channel (tags from main branch only)."
@@ -20,8 +20,8 @@
     {
       "name": "tmb-rc",
       "source": {
-        "source": "github",
-        "repo": "trustmybot/plugin",
+        "source": "url",
+        "url": "https://gitlab.com/trustmybot/plugin.git",
         "ref": "rc"
       },
       "description": "TMB release-candidate channel — points at the 'rc' branch which is fast-forwarded to whichever vX.Y.Z-rc.N tag is currently being validated. Install only if you want to test pre-release builds and tolerate breakage. Promotes to 'tmb' (main) once validated."

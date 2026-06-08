@@ -25,6 +25,11 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/resolve-plugin-name.sh
+. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+PLUGIN_NAME=$(tmb_resolve_plugin_name)
+
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 [ "$TOOL_NAME" = "Bash" ] || exit 0
@@ -53,11 +58,11 @@ BRANCH=$(echo "$CMD" | awk '{print $NF}')
 [ -n "$BRANCH" ] || exit 0
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-DB_PATH="${TRAJECTORY_DB_PATH:-$REPO_ROOT/.claude/tmb/trajectory.db}"
+DB_PATH="${TRAJECTORY_DB_PATH:-$REPO_ROOT/.claude/${PLUGIN_NAME}/trajectory.db}"
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
-PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT value FROM plugin_config WHERE key='pr_target' LIMIT 1;" 2>/dev/null)
+PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target' LIMIT 1;" 2>/dev/null)
 [ -n "$PR_TARGET" ] || PR_TARGET="main"
 PR_TARGET=$(echo "$PR_TARGET" | tr -d '"')
 

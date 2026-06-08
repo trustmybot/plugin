@@ -1,31 +1,28 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import type { WorldModelGraph } from '../graph-db.js';
 import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
 import { taskTools } from './tasks.js';
-import { ledgerTools } from './ledger.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
+import { ruleTools } from './rules.js';
+import { commandTools } from './commands.js';
+import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
-import { identityTools } from './identity.js';
-import { regenStateTools } from './regen-state.js';
-import { fileRegistryTools } from './file-registry.js';
-import { architectureRegenTools } from './architecture-regen.js';
-import { withAgentScope } from '../middleware/agent-scope.js';
-
+import { branchReportMdTools } from './branch_report_md.js';
+import { statsTools } from './stats.js';
+import { roundtableTools } from './roundtable.js';
+import { prCommentsTools } from './pr_comments.js';
+import { compositeTools } from './composites.js';
+import { onboardTools } from './onboard.js';
+import { scanTools } from './scan.js';
+import { worldModelTools } from './world-model.js';
 export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
-
-function wrapAll(
-  handlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>>,
-): Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> {
-  return Object.fromEntries(
-    Object.entries(handlers).map(([name, handler]) => [name, withAgentScope(name, handler)]),
-  );
-}
 
 function decorateWithAgent(tools: Tool[]): Tool[] {
   return tools.map((t) => ({
@@ -36,59 +33,82 @@ function decorateWithAgent(tools: Tool[]): Tool[] {
         ...((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
         agent: {
           type: 'string',
-          enum: ['bro', 'architect', 'swe', 'pr-reviewer'],
+          pattern: '^[a-z][a-z0-9_-]*$',
           description:
-            "Calling agent identity. Required for role-enforced writes (identity_set, config_set, task_update_status, validation_record, etc.). Must match the spawning agent's role.",
+            "Calling agent identity. First-class roles: bro, swe, pr-reviewer. Any other valid name is treated as consultant.",
         },
       },
     },
   }));
 }
 
-export function registerTools(server: Server, db: TrajectoryDB): void {
+export function registerTools(
+  server: Server,
+  db: TrajectoryDB,
+  dbPath = '',
+  graph: WorldModelGraph | null = null,
+): void {
   const discussions = discussionTools(db);
-  const issues = issueTools(db);
+  const issues = issueTools(db, dbPath);
   const tasks = taskTools(db);
-  const ledger = ledgerTools(db);
   const audit = auditTools(db);
   const validation = validationTools(db);
   const skills = skillTools(db);
+  const rules = ruleTools(db);
+  const commands = commandTools(db);
+  const agents = agentTools(db);
   const reports = reportTools(db);
   const config = configTools(db);
-  const identity = identityTools(db);
-  const regenState = regenStateTools(db);
-  const fileRegistry = fileRegistryTools(db);
-  const architectureRegen = architectureRegenTools(db);
+  const branchReport = branchReportMdTools(db);
+  const stats = statsTools(db);
+  const roundtable = roundtableTools(db);
+  const prComments = prCommentsTools(db);
+  const composites = compositeTools(db, dbPath, graph);
+  const onboard = onboardTools(db, dbPath);
+  const scan = scanTools(db, graph);
+  const worldModel = worldModelTools(db, graph);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
     ...tasks.definitions,
-    ...ledger.definitions,
     ...audit.definitions,
     ...validation.definitions,
     ...skills.definitions,
+    ...rules.definitions,
+    ...commands.definitions,
+    ...agents.definitions,
     ...reports.definitions,
     ...config.definitions,
-    ...identity.definitions,
-    ...regenState.definitions,
-    ...fileRegistry.definitions,
-    ...architectureRegen.definitions,
+    ...branchReport.definitions,
+    ...stats.definitions,
+    ...roundtable.definitions,
+    ...prComments.definitions,
+    ...composites.definitions,
+    ...onboard.definitions,
+    ...scan.definitions,
+    ...worldModel.definitions,
   ]);
 
   toolHandlers = {
-    ...wrapAll(discussions.handlers),
-    ...wrapAll(issues.handlers),
-    ...wrapAll(tasks.handlers),
-    ...wrapAll(ledger.handlers),
-    ...wrapAll(audit.handlers),
-    ...wrapAll(validation.handlers),
-    ...wrapAll(skills.handlers),
-    ...wrapAll(reports.handlers),
-    ...wrapAll(config.handlers),
-    ...wrapAll(identity.handlers),
-    ...wrapAll(regenState.handlers),
-    ...wrapAll(fileRegistry.handlers),
-    ...wrapAll(architectureRegen.handlers),
+    ...discussions.handlers,
+    ...issues.handlers,
+    ...tasks.handlers,
+    ...audit.handlers,
+    ...validation.handlers,
+    ...skills.handlers,
+    ...rules.handlers,
+    ...commands.handlers,
+    ...agents.handlers,
+    ...reports.handlers,
+    ...config.handlers,
+    ...branchReport.handlers,
+    ...stats.handlers,
+    ...roundtable.handlers,
+    ...prComments.handlers,
+    ...composites.handlers,
+    ...onboard.handlers,
+    ...scan.handlers,
+    ...worldModel.handlers,
   };
 }

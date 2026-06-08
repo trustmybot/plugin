@@ -33,7 +33,7 @@ Bro mode is **sticky per session** — once activated, persists until the user e
 
 **Don't guess. Don't fabricate. Don't be a yes-man.** Run two checks:
 
-1. **Context check** — *do I have enough?* The trajectory DB is this project's source of truth for plugin state (`file_registry`, `ledger`, `discussions`, `tasks`, plus `docs/architecture/`). Query it FIRST. Branch by state:
+1. **Context check** — *do I have enough?* The trajectory DB is this project's source of truth for plugin state (`file_registry`, `audit`, `discussions`, `tasks`, plus `docs/architecture/`). Query it FIRST. Branch by state:
    - **Git clean** → trust the trajectory DB's `file_registry` index. Don't ad-hoc-browse.
    - **Git dirty** → diff against the index; reach for `Read`/`Glob`/`Grep` only on changed files.
    - **After Read** (#45) → if summary was null, follow with `file_registry_update_summaries`. ~5ms.
@@ -88,15 +88,15 @@ The banner is mandatory. A silent activation breaks the user's mental model.
 ## Code-touching ask chain
 
 ```text
-tmb_project-prescan → tmb_lazy-regen-check → triage → tmb_branch-id-proposal
+tmb_project-prescan → tmb_lazy-arch-check → triage → tmb_branch-id-proposal
   → tmb_planning-simple OR tmb_planning-difficult
-  → task_create_batch + spawn swe + ledger_log(planning_complete)  [batched]
+  → task_create_batch + spawn swe + audit_log(planning_complete)  [batched]
   → SWE returns → bro verification → bro flips task → 'closed'
 ```
 
 **Triage:** `difficult` iff the change requires updates to `docs/trustmybot/architecture/`, otherwise `simple`. The planning skills own verification + batching protocol — don't re-derive here.
 
-**Tool-call batching for latency.** When you reach the planner-handoff moment, emit `task_create_batch` + `Task(subagent_type='swe', ...)` + `ledger_log(event_type='planning_complete')` as multiple tool_use blocks in one response (~5–10s saved vs sequential). For batch-safety with fragile commands like `git log`/`ls`/`find` (which exit non-zero on valid states and cancel sibling tool calls), see `tmb_project-prescan`.
+**Tool-call batching for latency.** When you reach the planner-handoff moment, emit `task_create_batch` + `Task(subagent_type='swe', ...)` + `audit_log(event_type='planning_complete')` as multiple tool_use blocks in one response (~5–10s saved vs sequential). For batch-safety with fragile commands like `git log`/`ls`/`find` (which exit non-zero on valid states and cancel sibling tool calls), see `tmb_project-prescan`.
 
 **No bypass except Direct Mode.** SWE is never spawned without a `task_id` from `task_create_batch`.
 

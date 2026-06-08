@@ -1,0 +1,20 @@
+{
+  "source": "swe-bench-verified",
+  "id": "pydata__xarray-6938",
+  "repo": "pydata/xarray",
+  "base_commit": "c4e40d991c28be51de9ac560ce895ac7f9b14924",
+  "language": "python",
+  "version": "2022.06",
+  "python_version": "3.10",
+  "both_failed_opus4_sonnet4": true,
+  "fail_to_pass": [
+    "xarray/tests/test_variable.py::TestIndexVariable::test_to_index_variable_copy"
+  ],
+  "pass_to_pass_sample": [
+    "xarray/tests/test_variable.py::TestVariable::test_properties",
+    "xarray/tests/test_variable.py::TestVariable::test_attrs",
+    "xarray/tests/test_variable.py::TestVariable::test_getitem_dict"
+  ],
+  "env_install_cmd": "pip install --quiet 'numpy==1.23.0' 'packaging==23.1' 'pandas==1.5.3' 'pytest==7.4.0' 'python-dateutil==2.8.2' 'pytz==2023.3' 'six==1.16.0' 'scipy==1.11.1' 'setuptools==68.0.0' 'dask==2022.8.1' && pip install --quiet -e .",
+  "test_patch_file": "test_patch.diff"
+}

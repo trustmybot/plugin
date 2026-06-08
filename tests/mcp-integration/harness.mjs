@@ -17,6 +17,21 @@ export async function startClient() {
   const client = new Client({ name: 'tmb-integration-test', version: '1.0' }, { capabilities: {} });
   await client.connect(transport);
 
+  // Pre-seed the registry-cold gate so workflow-sim tests don't need to
+  // know about the gate's existence. Tests that target the gate itself
+  // can run a separate client without this seed.
+  await client.callTool({
+    name: 'audit_log',
+    arguments: {
+      agent: 'bro',
+      issue_id: '-1',
+      from_node: 'bro',
+      kind: 'event',
+      event_type: 'deep_scan_completed',
+      summary: 'integration-test fixture: gate cleared',
+    },
+  });
+
   return {
     client,
     async close() {

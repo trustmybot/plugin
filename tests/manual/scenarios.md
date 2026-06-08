@@ -1,6 +1,6 @@
-# Layer 5 — Manual Dogfood Checklist
+# Manual smoke — Human-driven CC walk-through
 
-> **What this is:** a tight, ~10-item checklist of the things **only a human walking through Claude Code can verify**. L0–L4 cover the rest structurally (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests).
+> **What this is:** a tight, ~15-item checklist of the things **only a human walking through Claude Code can verify**. L0–L4 cover the rest structurally (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests). L5 dogfood (`tests/dogfood/`) covers automated CC behavior.
 >
 > **When you must run this:**
 > - **Before promoting a release candidate to stable** (the canonical RC validation step — see [`CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) Path 2).
@@ -17,11 +17,11 @@ Two test paths — see [`setup.md`](./setup.md) for the full instructions, inclu
 | Path | Command | Use when |
 |---|---|---|
 | **A — Local dev** | `claude --plugin-dir <plugin-clone>` | Active development; fast iteration; hot reload via `/reload-plugins`. |
-| **B — Marketplace RC** | `/plugin install tmb-rc@trustmybot` (in CC) | **REQUIRED for RC validation** before promoting to stable. Exercises CC's actual install lifecycle. |
+| **B — Marketplace RC** | `/plugin install tmb@trustmybot-rc` (in CC) | **REQUIRED for RC validation** before promoting to stable. Exercises CC's actual install lifecycle. |
 
 **For RC validation: use Path B.** Path A bypasses the install lifecycle that broke v0.2.0 + v0.3.0 — it can't catch that bug class. Path B is the only manual path that does.
 
-For each scenario below: set up a fresh scratch project per [`setup.md`](./setup.md), run the trigger, verify against the expected behavior, then reset (`rm -rf .claude/tmb .claude/tmb-rc`) before the next scenario.
+For each scenario below: set up a fresh scratch project per [`setup.md`](./setup.md), run the trigger, verify against the expected behavior, then reset (`rm -rf .claude/tmb`) before the next scenario.
 
 ---
 
@@ -56,7 +56,7 @@ ls .claude/agents/ 2>&1   # should NOT exist OR be empty
 ls .claude/skills/ 2>&1   # should NOT exist OR be empty
 ```
 
-✅ Pass criteria: **`.claude/agents/` and `.claude/skills/` are EMPTY (or don't exist).** swe + pr-reviewer + 7 default skills serve from the plugin globally. The trajectory DB at `.claude/<plugin-name>/trajectory.db` (`.claude/tmb/` for stable, `.claude/tmb-rc/` for the RC channel) SHOULD exist with identity + config rows. Onboarding only writes to MCP, never to the filesystem.
+✅ Pass criteria: **`.claude/agents/` and `.claude/skills/` are EMPTY (or don't exist).** swe + pr-reviewer + 7 default skills serve from the plugin globally. The trajectory DB at `.claude/<plugin-name>/trajectory.db` (`.claude/tmb/` for stable, `.claude/tmb-rc/` for the RC channel) SHOULD exist with the onboarded marker + 5 config rows (`branching_model`, `pr_target`, `protected_branches`, `remotes`, `issue_sync`, plus `onboarded` if set). Onboarding only writes to MCP, never to the filesystem.
 
 ---
 
@@ -138,6 +138,270 @@ Across all scenarios:
 - Tone is terse and in-character (not corporate AI-fluff).
 - "Trust me bro, it works" only appears AFTER a successful task close + push gate, never on a fail / retry / unverified state.
 - No padding, no narration of what bro is about to do — bro just does it and reports.
+
+---
+
+### S-22: Agent collision dialog (TRU-72 / #22)
+
+Validates the `/tmb:agent-create` collision flow.
+
+**Setup:**
+1. Fresh scratch project (or any project without `.claude/agents/legal-reviewer.md`).
+2. Hand-create `<project>/.claude/agents/legal-reviewer.md` with minimal content:
+   ```yaml
+   ---
+   name: legal-reviewer
+   description: User-authored legal reviewer (test fixture)
+   ---
+   ```
+
+**Run:**
+- In CC, ask `@bro create a legal-reviewer agent` (or otherwise trigger `/tmb:agent-create` with the same name).
+
+**Expect:**
+- bro detects the collision, shows a unified diff, calls AskUserQuestion with 3 options (Skip / Adopt+manage / Overwrite).
+- **Pick Skip** → file unchanged; audit has `tmb_agent_collision_skipped` event.
+- **Pick Adopt + manage** → file content unchanged; audit has `tmb_agent_adopted` event.
+- **Pick Overwrite** → file content replaced with template/from-scratch; audit has `tmb_agent_overwritten` event.
+
+**Headless variant:** with `TMB_HEADLESS=1`, the same flow halts before any of the three writes.
+
+---
+
+---
+
+### S-24: Roundtable deterministic workflow (#141 / TRU-63)
+
+Validates the full roundtable flow end-to-end: state machine enforcement,
+AUQ shape hook, atomic `roundtable_finalize_decisions`, five DB capture
+surfaces, and follow-up issue creation.
+
+**Setup:**
+1. Fresh scratch project with at least 3 consultant agents under `.claude/agents/`
+   (ceo, cto, pm — or trigger `/tmb:agent-create` first).
+2. Create a carrier issue via `@bro let's hold a roundtable on <topic>`.
+
+**Run:**
+- Ask `@bro hold a roundtable on <topic> — participants: ceo, cto, pm`.
+
+**Expect — Phase 1:**
+- `roundtable_create(expected_participants=3)` called at the start;
+  server rejects if `expected_participants` is missing or outside 2–5.
+- Initial `state='collecting'` returned.
+
+**Expect — Phase 2 (collect):**
+- Each participant spawned in parallel (one `Task` per agent).
+- After each responds: `discussion_append(kind='analysis')` + `roundtable_vote`.
+- After the 3rd distinct non-human vote: server auto-flips `state → awaiting_human`.
+
+**Expect — Phase 4 (AUQ):**
+- ONE `AskUserQuestion` with Q1 `multiSelect:true` (agreements) + Q2–Q4 radio
+  (disagreements). The `roundtable-auq-shape` hook blocks any other shape while
+  `state=awaiting_human` and no human vote is recorded yet.
+- Headless variant (`TMB_HEADLESS=1`): bro halts per `tmb_recovery §A`.
+
+**Expect — Phase 5 (finalize):**
+- ONE `roundtable_finalize_decisions(ratified=[...], unratified=[...], resolutions=[...])`
+  call. Server writes all discussion + vote rows atomically.
+- Attempting `roundtable_close` BEFORE `roundtable_finalize_decisions` results
+  in `precondition_failed` (no human votes yet).
+
+**Expect — Phase 6 (close):**
+- `roundtable_close` succeeds only after `roundtable_finalize_decisions` has
+  recorded ≥1 human vote.
+- `roundtable_summarize` assembles the canonical summary; passed to `audit_log(kind='event')`.
+
+**Expect — Phase 7 (follow-ups):**
+- Second `AskUserQuestion` (multiSelect, one option per ratified agreement).
+- `issue_create` per checked item.
+- Carrier issue closed if one-shot.
+
+**DB verification (via sqlite3 or MCP):**
+```sql
+-- State machine columns
+SELECT id, topic, state, expected_participants, closed_at
+FROM roundtables WHERE issue_id = <N>;
+
+-- 1. kind='analysis' rows (one per participant)
+SELECT author, kind, body FROM discussions WHERE issue_id = <N> AND kind = 'analysis';
+
+-- 2. answer + decision rows (per Human ratification)
+SELECT author, kind, body FROM discussions WHERE issue_id = <N> AND kind IN ('answer','decision');
+
+-- 3. roundtable record state
+SELECT id, topic, state, outcome, closed_at FROM roundtables WHERE issue_id = <N>;
+
+-- 4. vote attribution (participant column)
+SELECT participant, vote, rationale FROM roundtable_votes WHERE roundtable_id = <id>;
+
+-- 5. audit event summary
+SELECT event_type, summary FROM audit WHERE issue_id = <N> AND event_type = 'roundtable_summary';
+```
+
+All five surfaces must have data; `state='closed'`.
+
+**Optional local mirror:**
+```bash
+ls <workspace>/.claude/tmb/roundtables/  # file exists if dir was writable
+git -C <plugin-path> status <workspace>/.claude/tmb/roundtables/  # nothing tracked
+```
+
+✅ Pass criteria:
+- `roundtable_create` rejected without `expected_participants`.
+- Server auto-flips `state → awaiting_human` after Nth vote.
+- AUQ shape hook blocks malformed batches; valid shape passes.
+- ONE `roundtable_finalize_decisions` call writes all ratification rows atomically.
+- `roundtable_close` before finalize → `precondition_failed`.
+- `roundtable_close` after finalize → `state='closed'`.
+- All five DB surfaces populated.
+- AUQ rendered as checkbox (agreements) + radio (disagreements).
+- Dissent explicitly in `kind='decision'` row.
+- Follow-up issues created for ratified actions.
+
+---
+
+## S-25: /roundtable slash command end-to-end
+
+1. User types `/roundtable Should we adopt feature flags?`
+2. Verify: /roundtable slash command skill invokes with topic
+3. Skill runs Phase 1-7 per the deterministic flow
+4. Verify all 5 DB capture surfaces populated
+5. Verify carrier issue closes (one-shot pattern)
+
+## S-25b: /roundtable (no args) — prompts for topic
+
+1. User types `/roundtable` with no arguments
+2. Verify: Claude Code prompts for the topic via AskUserQuestion
+3. User provides topic; skill invokes with the supplied topic
+4. Skill runs Phase 1-7 per the deterministic flow
+5. Verify all 5 DB capture surfaces populated
+
+---
+
+## S-26: /monitor end-to-end — 5 mocked comments → 3 tasks → 1 arch-impact → SWE dispatch → scan refresh → push gate
+
+**Setup:**
+1. Fresh scratch project with TMB plugin active.
+2. Create a carrier issue: `@bro let's work on feature X`.
+3. Create a task and branch off it so `tasks.branch_id` maps to the current branch.
+4. Patch `PATH` to inject mock `gh` and `glab` binaries that return a fixed 5-comment payload:
+   - Comment A (human): "This function should be extracted into a helper." (file: `src/utils.ts:42`)
+   - Comment B (human): "src/utils.ts line 55 also has the same issue." (file: `src/utils.ts:55`)
+   - Comment C (human): "The schema needs a new index for performance." (file: `mcp/trajectory-server/src/schema.sql`)
+   - Comment D (bot, dependabot[bot]): "Bump lodash to 4.17.21."
+   - Comment E (human): "LGTM overall, nice work!"
+
+**Run:**
+```
+/monitor 42
+```
+(or `/monitor` with the current branch having an open PR)
+
+**Expect — Phase 3 (fetch):**
+- `pr_comments_get` returns all 5 comments.
+
+**Expect — Phase 5 (classify):**
+- Comment D filtered as `author_kind='bot'`.
+- Comment E filtered as informational (`LGTM` pattern).
+- 3 comments remain task-worthy: A, B, C.
+
+**Expect — Phase 6 (group):**
+- Comments A + B grouped into one task (same file: `src/utils.ts`).
+- Comment C becomes a separate task.
+- 2 tasks total (or 3 if the model didn't group A+B).
+
+**Expect — Phase 7 (arch-impact):**
+- The `schema.sql` task is flagged `(arch-impact)`.
+
+**Expect — Phase 8 (AUQ):**
+- AskUserQuestion renders with `multiSelect:true`.
+- Options include the 2 (or 3) tasks; the schema task has `(arch-impact)` suffix.
+- Select all tasks.
+
+**Expect — Phase 9 (dispatch):**
+- `task_create_batch` called once per task.
+- SWE spawned for each.
+- After SWE completes the arch-impact task: `scan_run(source='bro_auto_post_change')` is invoked before moving to the next task or push gate.
+
+**Expect — Phase 10 (state update):**
+```sql
+SELECT pr_number, repo, last_fetched_at, last_comment_id
+FROM pr_review_runs
+WHERE pr_number = 42;
+```
+- A single row per (pr_number, repo); `last_fetched_at` advanced on each fetch.
+- `last_comment_id` is non-null.
+
+**DB verification:**
+```sql
+-- pr_review_runs state
+SELECT * FROM pr_review_runs WHERE pr_number = 42;
+
+-- discussion entries from Phase 4
+SELECT author, kind, body FROM discussions
+WHERE kind = 'note' AND body LIKE '[PR #42%'
+ORDER BY id;
+
+-- tasks created
+SELECT title, status FROM tasks ORDER BY id DESC LIMIT 5;
+```
+
+**Push gate:**
+After all SWE tasks close, run `git push` — verify push gate requires pr-reviewer sign-off per the normal `tmb_review §B` flow.
+
+✅ Pass criteria:
+- 5 comments fetched, 3 remain after bot + informational filter.
+- Tasks grouped by file (A+B merged if grouping works).
+- AUQ shows tasks with `(arch-impact)` suffix on the schema task.
+- `scan_run(source='bro_auto_post_change')` invoked after the arch-impact task's SWE returns.
+- `pr_review_runs` row has correct counts.
+- Discussion entries created for all 5 fetched comments.
+
+---
+
+## S-27: Onboarding issue-sync opt-in end-to-end
+
+Validates the `/onboard slash command` issue-sync opt-in phase added in #147.
+
+**Setup:**
+1. Fresh scratch project with TMB plugin active.
+2. Authenticate `glab` only (`gh auth logout` if needed), so the phase detects exactly one backend.
+3. Ensure `config_get('issue_sync')` returns `'off'` (the default).
+
+**Run:**
+- Trigger `/onboard slash command` (e.g. `@bro re-onboard`).
+
+**Expect — Issue-sync opt-in phase:**
+- Skill runs `gh auth status` (exits non-zero) and `glab auth status` (exits 0).
+- Because only GitLab is authenticated, exactly two options appear:
+  - "Mirror to GitLab"
+  - "Skip — keep local-only"
+- Header is "Issue sync"; text mentions "Detected: glab".
+- User picks **"Mirror to GitLab"**.
+- `config_set('issue_sync', 'glab')` is called.
+
+**Verify state after:**
+```bash
+# config_get via MCP or sqlite3:
+sqlite3 .claude/tmb/trajectory.db "SELECT value FROM config WHERE key='issue_sync';"
+# → glab
+```
+
+**Verify log entries after issue_create:**
+1. Create a new issue: `@bro create issue: test blast-radius`.
+2. Inspect the log:
+```bash
+tail -5 ~/.claude/tmb/logs/issue-sync.log | jq 'select(.kind == "issue_sync_active")'
+```
+Expected: an entry with `kind=issue_sync_active`, `backend=glab`, and the new issue's id + title.
+
+**Headless variant:** with `TMB_HEADLESS=1`, skip the AUQ; `issue_sync` remains `'off'` — no config write occurs.
+
+✅ Pass criteria:
+- `/onboard slash command` detects `glab` authenticated; shows two-option AUQ (Mirror to GitLab / Skip).
+- After picking "Mirror to GitLab": `config_get('issue_sync')` returns `'glab'`.
+- Subsequent `issue_create` triggers `syncIssueCreate`; `issue_sync_active` entry appears in `~/.claude/tmb/logs/issue-sync.log`.
+- Headless mode leaves `issue_sync='off'` unchanged.
 
 ---
 

@@ -1,0 +1,6 @@
+{
+  "max_tokens_total": 8000,
+  "max_duration_ms": 10000,
+  "fail_above_max": false,
+  "_comment": "Cold restart with seeded identity should be the cheapest possible bro turn — just probe + greet."
+}

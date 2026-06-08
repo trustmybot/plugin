@@ -2,67 +2,30 @@
 
 > **Trust me bro, it works.**
 
-**Multi-agent engineering workflow for Claude Code. MIT, free forever.**
+**An agentic engineering harness for Claude Code — multi-agent orchestration, a persistent memory system, and guardrails enforced in code, not convention. MIT, free forever.**
 
-TMB turns Claude Code from a clever code-generator into a disciplined engineering workflow: one Human entry point (`bro`), a separate executor (`swe`), state that survives session kills, and structural gates that close around every commit.
+TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `pr-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets, with every commit clearing guardrails enforced in code, not by convention.
 
-> **Multi-platform structure, Claude Code today.** TMB ships only the Claude Code adapter as of v0.1.2. Codex / Cursor / OpenCode / Gemini CLI dirs exist as **placeholders** — see [`docs/multi-platform.md`](docs/multi-platform.md). Adapters arrive when there's user demand.
+> **Claude Code today.** TMB ships the Claude Code adapter; Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
+
+---
+
+## Who is TMB for?
+
+**Any engineer shipping real production code with Claude Code — solo dev to large org.** Pure Claude Code is a brilliant code generator, but production work needs guarantees it doesn't give you: structural gates against agent drift, state that survives session resets, an auditable record of every decision, and role separation so the agent that writes code never signs off on it. Those matter **more** as the stakes rise, not less.
 
 ---
 
 ## Install
 
 ```bash
-/plugin marketplace add trustmybot/plugin
+/plugin marketplace add trustmybot/marketplace
 /plugin install tmb@trustmybot
 ```
 
-The plugin sits dormant until you address `@bro` in a message. No auto-takeover, no surprise behavior — every regular Claude Code workflow keeps working in TMB-enabled sessions.
+Use `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` for the beta channel (pre-promotion testing — tolerate occasional breakage). Pick one channel per CC install; to switch, `/plugin uninstall tmb` then add the other.
 
-### Channels
-
-The `trustmybot` marketplace currently ships two channels of the `tmb` plugin:
-
-| Channel | Install | Tracks | Audience |
-|---|---|---|---|
-| **`tmb`** (stable) | `/plugin install tmb@trustmybot` | `main` branch (latest tag) | Production users — only validated releases land here |
-| **`tmb-rc`** (release candidate) | `/plugin install tmb-rc@trustmybot` | `rc` branch (currently-testing build) | Beta testers — help validate risky changes pre-promotion. Tolerate occasional breakage. |
-
-The RC channel exists because v0.2.0 and v0.3.0 both shipped install-path bugs that broke every stable user. Now anything risky goes through `tmb-rc` first; stable users only get validated releases. See [`CONTRIBUTING.md` § Release ritual](CONTRIBUTING.md#release-ritual).
-
-### Manage the marketplace from CC
-
-In Claude Code, navigate the plugin UI:
-
-```
-/plugin    →    Marketplaces    →    trustmybot    →    Browse plugins
-```
-
-You'll see one entry per channel (`tmb`, `tmb-rc`). Future channels and add-on plugins from the trustmybot org will appear here as new entries.
-
-### Refresh after upstream marketplace changes
-
-`/plugin marketplace add trustmybot/plugin` is **idempotent** — it won't re-fetch if the marketplace was already added in a previous session. If new channels (or new plugins) were added upstream after you first added the marketplace, refresh:
-
-```
-/plugin marketplace update trustmybot
-```
-
-If `update` isn't supported in your CC version:
-
-```
-/plugin marketplace remove trustmybot
-/plugin marketplace add trustmybot/plugin
-```
-
-### Coming later — pinned versions + add-ons
-
-The marketplace can host more channels and entirely new plugins as the trustmybot ecosystem grows:
-
-- **Pinned-version channels** like `tmb-v0.3.1` (locks to a specific release tag, no auto-update). Useful for users who want a frozen baseline. Achievable today by adding a `marketplace.json` entry with `"source": { "ref": "v0.3.1" }` — file an issue if you want a specific pinned channel published.
-- **Add-on plugins** like `tmb-monitoring`, `tmb-fintech`, etc. (separate plugins published from the same trustmybot marketplace). Each gets its own entry with its own source repo / ref / channels.
-
-Both extend the same marketplace UI — no separate `add` step needed for users; they just appear in `Browse plugins` when the marketplace refreshes.
+Refresh after upstream changes: `/plugin marketplace update trustmybot`.
 
 ---
 
@@ -72,121 +35,93 @@ Both extend the same marketplace UI — no separate `add` step needed for users;
 @bro write a todo cli
 ```
 
-That's the entry point. Saying `@bro` activates the bro persona for the rest of the session. From there:
+Saying `@bro` activates the persona for the rest of the session. First trigger in a project runs ~30s of silent onboarding (one shape question + 0–3 follow-ups). Code-touching asks route through bro → SWE → pr-reviewer at push time. Read-only asks are answered inline. Messages that don't address `@bro` are answered by regular Claude Code.
 
-- **First trigger in a project** runs onboarding — bro asks 3 short questions (name, branching model, PR target). ~30 seconds. Answers persist to the trajectory DB.
-- **Code-touching asks** route through bro → SWE, with bro verifying SWE's work before closing the task and pr-reviewer gating at `git push` time.
-- **Read-only / casual asks** (status, "what's in this dir") are answered inline by bro without spawning anyone.
+Walkthroughs: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
-Casual messages that don't address `@bro` are answered by regular Claude Code — TMB stays out of your way.
+---
 
-Walkthroughs of every workflow path: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
+## Benchmarks
+
+TMB resolves **8 / 8** hard SWE-bench tasks that pure Claude Code — and the published agentic harnesses — **fail**, with **zero hallucinated success claims**.
+
+And it runs lean. On the same slate, against a raw Claude Code baseline (no plugin):
+
+| | Raw Claude Code | **TMB** | Δ |
+|---|---|---|---|
+| Tokens | 15.87M | **6.97M** | **−56%** |
+| Cost | $10.31 | **$6.98** | **−32%** |
+| Wall-clock | 1890s | **1256s** | **−34%** |
+| Hallucinations | 0 | 0 | — |
+
+The world model — reasoning from a compressed repo graph instead of re-reading files — is what makes TMB cheaper than raw, not pricier.
+
+Methodology, the published-comparator results, and per-task data: **[`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md)**.
 
 ---
 
 ## Why TMB
 
-Four structural innovations, in service of long-term engineering quality. Each closes a specific failure mode that single-agent Claude Code hits in real projects.
+Four structural innovations, each closing a specific single-agent failure mode.
 
-### 1. Agent Harness — split planning from execution
+### 1. Agent Harness — planner and executor, kept apart
 
-TMB separates two cognitive jobs into two contexts:
+`bro` plans + gates (full picture, long-term). `swe` executes (single task, isolated worktree). **Bro never writes source; swe never self-approves.** Out-of-role calls are rejected at the wire. No more "the same context that wrote the code marks its own homework."
 
-- **`bro` — planner + gate.** Long-term, full-picture. Discusses with you, designs the breakdown, writes task specs to MCP, verifies SWE's work, drives retry loops. **Never writes source code itself** — every code change goes through SWE.
-- **`swe` — executor.** Short-term, single-task focus. Implements one task per spawn in an isolated git worktree. **Cannot self-approve** — bro re-runs the spec's verification before closing the task; pr-reviewer signs off before push.
+Details: [`CLAUDE.md`](CLAUDE.md), [`agents/swe.md`](agents/swe.md), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
 
-Memory is structurally split: bro carries strategy, swe carries only the task spec. No cross-contamination, no swe drifting into "while I'm here, let me also refactor X." Out-of-role calls are rejected at the wire — consultants can't write workflow state, swe can't close its own task.
+### 2. Memory System — persistent state + long-context management
 
-> **Single-agent (conflict of interest):** one context juggles goals + spec + diff + tests + verification, then claims "done" because the same context that wrote the code is also marking its own homework. You should never trust a guy self-merging their own PR.
+Two complementary memory tiers, both project-local and gitignored:
+- **Trajectory store** (`trajectory.db`, SQLite) — *procedural memory*: issues, discussions, ADR decisions, task specs, validation verdicts, append-only audit. Survives context resets and session kills — bro rehydrates and resumes.
+- **World model** (`world-model.kuzu`, kuzu graph + RAG) — *semantic memory + long-context management*: the codebase compressed into a navigable directory graph (README-derived summaries, parent/child edges), queried via `world_model_get` / `world_model_search`. The agent reasons from a small, stable map instead of re-ingesting the repo every turn — the context-engineering layer that keeps cold starts cheap and deterministic.
 
-Details: [`CLAUDE.md`](CLAUDE.md) (bro persona), [`agents/swe.md`](agents/swe.md), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
+Refreshed by `/scan` + the post-task-close rescan.
 
-### 2. Trajectory Memory — state survives session kills
+Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architecture/WORLD_MODEL.md`](docs/architecture/WORLD_MODEL.md).
 
-Every transition lands in a per-project SQLite DB at `<project>/.claude/tmb/trajectory.db`. Five tables you'll touch directly:
+### 3. Verification & Evaluation — auditable, gated quality control
 
-- **`issues`** — your goals + objectives, one row per ask
-- **`discussions`** — Human ↔ bro Q+A, ADR (Architecture Decision Record) notes, design decisions
-- **`roundtables`** + **`roundtable_votes`** — multi-consultant debate transcripts (when convened)
-- **`tasks`** — execution specs (planned by bro, executed by swe), status, commit SHAs
-- **`validation_attempts`** — pr-reviewer verdicts; the structural record of what was approved
-- **`ledger`** + **`audit`** — append-only event log + tool I/O for replay
+**Two gates** close around every commit:
+- **Bro's task gate** (per task) re-runs the spec's verification after SWE returns.
+- **PR-reviewer's push gate** (per push) blocks `git push` until every commit has been signed off.
 
-Kill Claude mid-task, come back tomorrow, bro reads the trajectory and resumes where you left off. The DB is canonical state — files stay reserved for SE convention (README, CHANGELOG, ADRs) or agent-loaded context (prompts, skills).
+Verdicts persist in the DB next to the code they judged — six months later "why did we ship this commit?" is still queryable.
 
-**Big token dividend — no codebase-rediscovery tax.** A cold-start agent without persistent memory has to re-derive what your project even *is* every session: glob the tree, read scattered files, walk git log, query the schema. Hundreds of tool round-trips, each one pulling content back into context. TMB sidesteps this two ways:
+Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate-pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
 
-- **Auto-regenerated architecture docs.** A handful of pre-computed snapshots (codebase tree, module graph, schema map, recent changelog) live under your project's docs dir, refreshed lazily as commits drift. Bro reads those once at session start and has the project's shape — no glob-and-read bounce.
-- **Local SQLite, no remote round-trips.** Trajectory lives in your project, not in a cloud service. No API call, no rate limit, no auth dance. Resume is one local read.
+### 4. Agentic Orchestration — composable, not monolithic
 
-> **Single-agent (amnesia + rediscovery tax):** kill Claude → lose your place. Re-explain context every session. Worse, the agent re-derives the codebase from scratch on every cold start — globbing, reading, walking git log — paying the discovery tax in tokens before it can do any actual work.
+Workflow shape scales by ask: simple task picks defaults inline; difficult task asks scope questions + captures ADR decisions; multi-task batch amortizes planning + fires the push gate once. Doctrine is wire-enforced, not aspirational.
 
-Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema + role-by-tool matrix), [`docs/architecture/FILES.md`](docs/architecture/FILES.md) (file map).
-
-### 3. Evaluation System — verification you can audit later
-
-Long-term engineering quality decays when verification is implicit. TMB makes it structural and persistent through **two gates** that close around every commit:
-
-- **Bro's task gate (per task).** Every task carries a contract — what changes, what proves it works, what success looks like. After SWE returns, bro re-runs the verification, checks the diff matches what was promised, confirms success criteria. Fast, mandatory, **never skipped**.
-- **PR-reviewer's push gate (per push).** `git push` to a protected branch is blocked by a pre-push hook unless every commit being pushed has been signed off by pr-reviewer. No back-channel, no "I'll review after merge."
-
-**Verdicts persist next to the code they judged.** Every pr-reviewer pass/fail lands in the trajectory DB alongside the task it ruled on — not in chat scrollback that disappears with the session. Six months later, when someone asks "why did we ship this commit?", the verdict + reasoning is still queryable. Long-term quality means the *reasoning* survives, not just the diff.
-
-> **Single-agent (no audit):** the agent says "tests pass" — you trust the chat scrollback. Three days later production breaks, the chat is gone, the reasoning is gone, and the only artifact is a green CI badge that didn't catch what mattered.
-
-Details: [`docs/architecture/FLOWS.md` § 6 (Push gate)](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md), [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (`validation_attempts` table).
-
-### 4. Agentic Workflow — composable, not monolithic
-
-The harness + memory + evaluation compose into a workflow whose shape **scales by ask**:
-
-- **Simple task** (a feature, no architecture impact) → bro picks defaults inline, spawns SWE, verifies, closes. ~2–3 min.
-- **Difficult task** (architecture change, ADR needed) → bro asks scope-clarifying questions, captures decisions to ADR, then runs the simple-task flow.
-- **Multi-task batch** → planning amortized across tasks; pr-reviewer's push gate fires once over the batch, not per task.
-
-Wire-enforced decision chain: the same MCP server that records workflow state structurally rejects calls that would let a consultant decide for you, or let SWE close its own task. Doctrine is a constraint, not a habit.
-
-> **Single-agent (one-shape-fits-all):** every ask gets the same monolithic loop — no fast-lane for typos, no escalation path for cross-cutting changes. Either too heavy for trivial work or too thin for architectural decisions.
-
-Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) (10 workflow flowcharts), [`CONTRIBUTING.md` § Performance](CONTRIBUTING.md#performance) (latency budget + trim doctrine).
+Details: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
 ---
 
 ## Roster on disk
 
-The plugin ships **zero subagents**. Bro is a CLAUDE.md persona on main Claude. Every other agent lives as a **Lego template** that bro copies into `<project>/.claude/agents/` on demand:
+The plugin ships a **layered agent model**. Bro is a CLAUDE.md persona. Two backbone subagents (`swe`, `pr-reviewer`) ship globally in `agents/` and are available in every project the moment the plugin is installed — no copy step required. Consultant agents are templates that get copied into `<project>/.claude/agents/` on demand:
 
-| Template | When bro copies it |
-|---|---|
-| `swe.md` | First-run onboarding (silent, no extra question) |
-| `pr-reviewer.md` | First time the push gate fires (`@bro review before push`) |
-| `architect.md`, `cto.md`, `ceo.md`, `pm.md` | First time you ask for that consultant's read |
+| Agent | Where | When available |
+|---|---|---|
+| `swe.md` | `agents/swe.md` (global) | Always — backbone executor |
+| `pr-reviewer.md` | `agents/pr-reviewer.md` (global) | Always — push gate |
+| `architect.md`, `cto.md`, `ceo.md`, `pm.md` | `templates/agents/` (copied on demand) | First time you ask for that consultant |
 
-Domain consultants outside this set (`legal-reviewer`, `security-reviewer`, …) are drafted on demand via the `tmb_agent-creator` skill — bro proposes a tailored prompt, you approve, the file gets written. No canned company-org-chart pretending to know your domain.
-
-Override any agent by editing the project-local file. Local wins.
+Domain consultants outside this set are drafted on demand via `/tmb:agent-create`. Override any agent by dropping a project-local file — local wins over the global.
 
 ---
 
-## Contributing
+## Support · Contributing · License
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch workflow, test expectations, design principles, and the release ritual.
+**Like bro?** Star ⭐ or fork the repo — it helps others find TMB.
+
+**Support:** [Sponsor on GitHub](https://github.com/sponsors/trustmybot) keeps it maintained.
+
+**Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow + tests. Start with [`CLAUDE.md`](CLAUDE.md) (bro persona), [`docs/architecture/RESPONSIBILITIES.md`](docs/architecture/RESPONSIBILITIES.md) (per-agent contract), [`docs/architecture/ERD.md`](docs/architecture/ERD.md) (schema).
 
 ```bash
 bash tests/run-all.sh
 ```
 
-Architecture reference for new contributors:
-- [`CLAUDE.md`](CLAUDE.md) — bro persona, first-action chain, push gate
-- [`docs/architecture/RESPONSIBILITIES.md`](docs/architecture/RESPONSIBILITIES.md) — design philosophy + per-agent contract (bro / SWE / pr-reviewer / consultants)
-- [`docs/architecture/ENFORCEMENT.md`](docs/architecture/ENFORCEMENT.md) — 6-layer enforcement model + per-agent × per-interaction coverage matrix
-- [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md) — workflow flowcharts
-- [`docs/architecture/FILES.md`](docs/architecture/FILES.md) — file-by-file map
-- [`docs/architecture/ERD.md`](docs/architecture/ERD.md) — SQLite schema
-- [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — manual dogfood test plan
-
----
-
-## License
-
-MIT. Fork it, ship it, sell it. Credit nice but not required.
+**License:** MIT. Fork it, ship it, sell it. Credit nice but not required.

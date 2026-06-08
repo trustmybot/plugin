@@ -1,43 +1,31 @@
-// Flow 09 — Cold-restart after Anonymous onboarding (regression for issue #95)
+// Flow 09 — Cold-restart after onboarding
 //
-// Trajectory: Human chooses "Anonymous" during first-run onboarding. Server
-// MUST persist a row with human_name=NULL (not skip the write). On any
-// subsequent cold session, identity_get must return created_at != null so
-// bro's first-action chain skips re-onboarding.
-//
-// Pre-fix bug (v0.3.x): the onboarding skill said "skip identity_set if
-// Anonymous", so no row was ever written. Cold restart found
-// identity_get().created_at == null → re-triggered full onboarding every time.
-//
-// Post-fix (v0.4.1): identity_set(anonymous=true) writes a row with
-// human_name=NULL. created_at populates. Cold restart sees the row → skips
-// re-onboarding. The Anonymous choice is now durable.
-//
-// Also asserts the related #96 invariant: bro calling validation_record gets
-// rejected with 'forbidden' (must use ledger_log(bro_verification_pass)
-// instead).
+// Human completes /onboard (any path). Server MUST persist the onboarded
+// marker (plugin_config 'onboarded'='true'). On any subsequent cold session,
+// onboard_state_get must return first_run=false so bro's first-action chain
+// skips re-firing /onboard.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startClient, call } from '../mcp-integration/harness.mjs';
 
-test('Flow 09 — Anonymous cold-restart: identity_set(anonymous=true) persists; created_at non-null', async (t) => {
+test('Flow 09 — Cold-restart: onboard_apply marks first_run=false; marker persists', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  // Step 1: First-run onboarding — Human picks Anonymous
-  const setResult = await call(client, 'identity_set', { agent: 'bro', anonymous: true });
-  assert.equal(setResult.ok, true, 'identity_set(anonymous=true) must succeed');
-  assert.equal(setResult.data.human_name, null);
-  assert.ok(setResult.data.created_at, 'created_at must be set after Anonymous onboarding');
+  // Step 1: /onboard completes → onboard_apply marks the project onboarded.
+  const apply = await call(client, 'onboard_apply', { agent: 'bro', shape: 'local' });
+  assert.equal(apply.ok, true, `onboard_apply must succeed: ${JSON.stringify(apply)}`);
+  assert.equal(apply.data.applied.onboarded, true);
 
-  // Step 2: Simulate cold session — bro's first-action chain calls identity_get
-  const probe = await call(client, 'identity_get', {});
+  // Step 2: Simulate cold session — bro's first-action chain calls
+  // onboard_state_get. first_run must be false so /onboard does not re-fire.
+  const probe = await call(client, 'onboard_state_get', { agent: 'bro' });
   assert.equal(probe.ok, true);
-  assert.equal(probe.data.human_name, null, 'human_name stays null for Anonymous');
-  assert.ok(
-    probe.data.created_at,
-    'created_at MUST be non-null — this is the "onboarded" signal that prevents re-onboarding (issue #95)',
+  assert.equal(
+    probe.data.first_run,
+    false,
+    'first_run MUST be false — this is the signal that prevents re-firing /onboard (issue #95)',
   );
 });
 
@@ -45,8 +33,8 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  // Set up identity + an issue + task so validation_record has a valid target
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
+  // Set up onboarded marker + an issue + task so validation_record has a valid target
+  await call(client, 'onboard_apply', { agent: 'bro', shape: 'local' });
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
     objective: 'Verify role enforcement',
@@ -59,11 +47,16 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
     issue_id: issue.data.id,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'test fixture',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{
       branch_id: 'feat/role-test',
       title: 'role test',
       description: 'fixture',
-      success_criteria: 'fixture',
       spec_body: '## Description\nfixture\n## Files\n- none\n## Success Criteria\n- none\n## Verification\n```\necho ok\n```',
     }],
   });
@@ -91,15 +84,15 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   assert.equal(history.data.length, 0, 'no validation row should have been recorded');
 });
 
-test('Flow 09c — Bro task-gate uses ledger_log(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
+test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  await call(client, 'identity_set', { agent: 'bro', human_name: 'Test' });
+  await call(client, 'onboard_apply', { agent: 'bro', shape: 'local' });
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
-    objective: 'Verify bro_verification_pass ledger event',
-    description: 'Bro must record its task-gate verdict in the ledger, not in validation_attempts.',
+    objective: 'Verify bro_verification_pass audit event',
+    description: 'Bro must record its task-gate verdict in audit, not in validation_attempts.',
   });
   const issueId = issue.data.id;
 
@@ -108,19 +101,30 @@ test('Flow 09c — Bro task-gate uses ledger_log(bro_verification_pass), not val
     issue_id: issueId,
     waive_scope_gate: true,
     waive_scope_gate_reason: 'test fixture',
+    waive_branch_gate: true,
+    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
+    waive_intent_gate: true,
+    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
+    waive_decision_gate: true,
+    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [{
-      branch_id: 'feat/ledger-event-test',
-      title: 'ledger event test',
+      branch_id: 'feat/audit-event-test',
+      title: 'audit event test',
       description: 'fixture',
-      success_criteria: 'fixture',
       spec_body: '## Description\nfixture',
     }],
   });
   const taskId = task.data[0].id;
   const branchId = task.data[0].branch_id;
 
+  // SWE finishes the work first — bro can only close verified ('completed')
+  // work, never jump a pending task straight to closed (#278).
+  await call(client, 'task_update_status', {
+    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
+  });
+
   // Bro's correct task-gate close sequence
-  const verifEvent = await call(client, 'ledger_log', {
+  const verifEvent = await call(client, 'audit_log', {
     agent: 'bro',
     issue_id: issueId,
     branch_id: branchId,
@@ -138,9 +142,9 @@ test('Flow 09c — Bro task-gate uses ledger_log(bro_verification_pass), not val
   });
   assert.equal(closed.ok, true);
 
-  // Verify the ledger has the bro_verification_pass event
-  const ledger = await call(client, 'ledger_list', { agent: 'bro', issue_id: issueId });
-  const verifEvents = ledger.data.filter(e => e.event_type === 'bro_verification_pass');
+  // Verify the audit table has the bro_verification_pass event
+  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId });
+  const verifEvents = audit.data.filter(e => e.event_type === 'bro_verification_pass');
   assert.equal(verifEvents.length, 1, 'exactly one bro_verification_pass event recorded');
   assert.equal(verifEvents[0].from_node, 'bro');
 

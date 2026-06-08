@@ -7,6 +7,9 @@
 
 set -uo pipefail
 
+# shellcheck source=tests/dogfood/lib/timeout-shim.sh
+source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
+
 # l5_make_arm_plugin <arm_overrides_dir> — copies $PLUGIN_ROOT to a temp dir
 # and overlays arm-specific overrides on top. Echoes the temp dir path.
 #
@@ -80,11 +83,13 @@ l5_setup_scenario_state() {
   fi
 }
 
-# l5_run_arm <project_dir> <arm_plugin_dir> <prompt> — runs claude -p against
-# the arm-specific plugin. Echoes claude output to stderr (same as l5_run_claude
-# in flow-helpers.sh), masks exit code so scoring proceeds regardless.
+# l5_run_arm <project_dir> <arm_plugin_dir> <prompt> — runs claude with
+# stream-json output against the arm-specific plugin. Pipes JSONL to
+# <dir>/trajectory.jsonl; echoes a slim summary to stderr. Masks exit code
+# so scoring proceeds regardless.
 l5_run_arm() {
   local dir="$1" arm_plugin="$2" prompt="$3"
+  local jsonl="$dir/trajectory.jsonl"
   (
     cd "$dir" || exit 1
     export TMB_DEBUG_TRAJECTORY=1
@@ -93,9 +98,22 @@ l5_run_arm() {
     echo "  cwd: $dir" >&2
     echo "  arm plugin-dir: $arm_plugin" >&2
     echo "  prompt: $prompt" >&2
-    timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude --plugin-dir "$arm_plugin" --dangerously-skip-permissions -p "$prompt" 2>&1 \
-      | sed 's/^/  [arm] /' >&2 || true
-    echo "  ── claude (arm) end ──" >&2
+    echo "  jsonl: $jsonl" >&2
+    _l5_timeout "${TMB_CLAUDE_TIMEOUT:-180}" claude \
+      --plugin-dir "$arm_plugin" \
+      --dangerously-skip-permissions \
+      --output-format stream-json \
+      --include-hook-events \
+      --include-partial-messages \
+      --verbose \
+      -p "$prompt" \
+      > "$jsonl" 2>/tmp/tmb-claude-stderr.$$ || true
+    [ -s /tmp/tmb-claude-stderr.$$ ] && sed 's/^/  [arm-err] /' /tmp/tmb-claude-stderr.$$ >&2
+    rm -f /tmp/tmb-claude-stderr.$$
+    local assistant_msgs duration_ms
+    assistant_msgs=$(grep -c '"type":"assistant"' "$jsonl" 2>/dev/null || echo 0)
+    duration_ms=$(jq -s 'map(select(.type=="result") | .duration_ms // 0) | max // 0' "$jsonl" 2>/dev/null || echo 0)
+    echo "  ── claude (arm) end (assistant_msgs=$assistant_msgs, duration_ms=$duration_ms) ──" >&2
   )
 }
 

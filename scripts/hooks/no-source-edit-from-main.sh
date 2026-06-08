@@ -52,16 +52,17 @@ if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
 fi
 # Bro mode active when:
 #   - Assistant announced "Entering bro mode." (explicit), OR
-#   - Any user message in the transcript contains the word "bro" (the
-#     trigger keyword — same logic CLAUDE.md specifies for activation).
-# The latter catches the real-world case where bro skips the announcement
-# in headless `claude -p` mode (the h3/h4 prompt-discipline ceiling).
+#   - The user addressed `@bro` (the explicit sigil) in the transcript.
+# The sigil is required, not a bare `bro` word: a bare-keyword scan over the
+# whole transcript matches this hook's own block message and every assistant
+# mention of bro, false-blocking plain sessions forever (#276). `@bro` still
+# catches headless `claude -p "@bro ..."` runs where the announcement is skipped.
 # Sticky-exit: a later "exit bro mode" / "stop being bro" deactivates.
 if grep -qiE 'exit bro mode|stop being bro' "$TRANSCRIPT" 2>/dev/null; then
   exit 0
 fi
 if ! grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null \
-   && ! grep -qiE '\bbro\b' "$TRANSCRIPT" 2>/dev/null; then
+   && ! grep -qiE '@bro\b' "$TRANSCRIPT" 2>/dev/null; then
   exit 0
 fi
 
@@ -99,7 +100,7 @@ case "$TARGET" in
   *.github/*) exit 0 ;;
 esac
 
-REASON="BLOCKED: bro is a pure planner — every code change goes through SWE. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning-simple or tmb_planning-difficult → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
+REASON="BLOCKED: bro is a pure planner — every code change goes through SWE. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning skill → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
 
 jq -nc --arg reason "$REASON" '{
   hookSpecificOutput: {

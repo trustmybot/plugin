@@ -15,13 +15,13 @@ async function seedIssueAndTask(client) {
   assert.equal(issue.ok, true);
   const batch = await call(client, 'task_create_batch', {
     waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+    waive_branch_gate: true, waive_branch_gate_reason: 'integration-test fixture; branch gate not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic triage; not under test',
     agent: 'bro',
     issue_id: issue.data.id,
     tasks: [{
       branch_id: 'feat/swe-test',
       title: 't',
       description: 'd',
-      success_criteria: 'ok',
       spec_body: '# spec',
     }],
   });
@@ -48,7 +48,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   assert.equal(running.ok, true, `status running: ${JSON.stringify(running)}`);
 
   // 3. Log progress during work
-  const ledger = await call(client, 'ledger_log', {
+  const progressAudit = await call(client, 'audit_log', {
     agent: 'swe',
     issue_id: issueId,
     branch_id: 'feat/swe-test',
@@ -56,31 +56,18 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     event_type: 'swe_progress',
     summary: 'wrote initial handler',
   });
-  assert.equal(ledger.ok, true, `ledger_log: ${JSON.stringify(ledger)}`);
+  assert.equal(progressAudit.ok, true, `audit_log: ${JSON.stringify(progressAudit)}`);
 
-  // 4. File registry update — swe is NOT in requireRoles for this tool
-  //    (currently architect/bro only; tracked in #50).
-  const upsert = await call(client, 'file_registry_upsert', {
-    agent: 'swe',
-    path: 'src/hello.py',
-    type: 'file',
-    language: 'python',
-  });
-  assert.equal(upsert.ok, false, 'file_registry_upsert is currently architect/bro only');
-  assert.equal(upsert.error?.error, 'forbidden');
-
-  // 5. Audit log for larger tool outputs
-  const audit = await call(client, 'audit_log', {
+  // 4. Audit log for lifecycle event
+  const outputAudit = await call(client, 'audit_log', {
     agent: 'swe',
     issue_id: issueId,
     branch_id: 'feat/swe-test',
     from_node: 'swe',
-    tool_name: 'Bash',
-    tool_args: 'pytest tests/',
-    output: 'OK: 12 passed',
-    round: 1,
+    event_type: 'tool_output_logged',
+    summary: 'pytest tests/ — OK: 12 passed',
   });
-  assert.equal(audit.ok, true, `audit_log: ${JSON.stringify(audit)}`);
+  assert.equal(outputAudit.ok, true, `audit_log: ${JSON.stringify(outputAudit)}`);
 
   // 6. Atomic close — status → completed
   const completed = await call(client, 'task_update_status', {

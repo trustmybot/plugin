@@ -1,0 +1,3 @@
+@bro should we keep src/cli.py's storage in JSON or move to SQLite as the CLI scales?
+
+Don't ask questions.

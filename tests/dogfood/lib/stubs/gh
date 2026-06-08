@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# tmb sandbox: gh stub. Fails loudly so bro recognizes the signal.
+set -u
+[ -t 0 ] || cat >/dev/null 2>&1
+echo "tmb sandbox: gh CLI disabled in test mode." >&2
+echo "Reason: prevents accidental real-API calls + abuse-detection triggers." >&2
+echo "For git remote tests, use: \$TMB_TEST_REMOTE = ${TMB_TEST_REMOTE:-<not set>}" >&2
+echo "Attempted: gh $*" >&2
+exit 1
