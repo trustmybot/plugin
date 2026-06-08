@@ -7,7 +7,7 @@ L0–L6 are automated (Docker install-smoke, lint, MCP unit + integration, workf
 | File | Purpose |
 |---|---|
 | [`setup.md`](./setup.md) | **Read this first.** Two test paths explained: Path A (local `claude --plugin-dir`, fast iteration) vs Path B (marketplace `/plugin install tmb@trustmybot-rc`, REQUIRED for RC validation). Plus reset, hot reload, common errors, the Docker install-smoke fallback (Path C). |
-| [`scenarios.md`](./scenarios.md) | The 10-item manual-smoke checklist. Walk every item against the install you're validating. |
+| [`scenarios.md`](./scenarios.md) | The 15-item manual-smoke checklist. Walk every item against the install you're validating. |
 
 ## When to run
 
