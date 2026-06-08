@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 2` baseline). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 8`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -201,7 +201,7 @@ erDiagram
 | `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). |
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `plugin_meta` | Schema + plugin version. Current `schema_version=2`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
+| `plugin_meta` | Schema + plugin version. Current `schema_version=8`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. |
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`). Used by `/monitor` flow — `pr_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments. UNIQUE index on `(pr_number, repo)`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
@@ -243,9 +243,9 @@ Pre-release — every new install is a fresh DB. `schema.sql` is applied on open
 
 ## Capability catalog — junction-based (#2886, landed)
 
-The current `skills` table records the **catalog** of available skills + aggregate counters (`uses`, `successes`, `failures`). It does **not** record per-invocation history — which agent on which task invoked which skill. The same gap exists for rules (no table at all today) and slash commands (no table).
+Before #2886 the `skills` table recorded only the **catalog** of available skills + aggregate counters (`uses`, `successes`, `failures`), with no per-invocation history — which agent on which task invoked which skill — and rules and slash commands had no table at all.
 
-#2886 closes this with three table additions + one schema enrichment, designed as a **portable catalog** that's analytics-only in the Claude Code plugin (file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
+#2886 closed this gap with three table additions + one schema enrichment, designed as a **portable catalog** that's analytics-only in the Claude Code plugin (file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
 
 ### Catalog tables
 
@@ -266,9 +266,9 @@ Indexes on both `(skill_name | rule_name)` and `(task_id)` make both query direc
 
 ### Bro as a first-class agent_run
 
-Today `agent_runs` only captures **subagent spawns** (SWE, pr-reviewer, consultants). Bro itself — the main process — has no row, so bro's skill/rule invocations have no `agent_run_id` to attribute to, AND we have no record of bro's token cost per session/task.
+Before #2886 `agent_runs` only captured **subagent spawns** (SWE, pr-reviewer, consultants). Bro itself — the main process — had no row, so bro's skill/rule invocations had no `agent_run_id` to attribute to, AND there was no record of bro's token cost per session/task.
 
-Add bro to `agent_runs` at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. Recorded by composites (`task_create_batch` opens the bro row, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
+#2886 adds bro to `agent_runs` at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. Recorded by composites (`task_create_batch` opens the bro row, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
 
 ### How this serves both runtimes
 
@@ -316,4 +316,4 @@ GROUP BY t.id, t.branch_id;
 
 ### Implementation status
 
-Schema design ratified in #2886; implementation is a separate substantial MR (schema + idempotent migrations + 4 new MCP tool surfaces + skill-invocation PostToolUse hook + bro `agent_run` composite + L5 row for the bro→skill→invocation chain). This doc lands the design ahead of the code so the schema gets reviewed before implementation begins.
+Landed in #2886. The schema additions (`rules`, `commands`, `skill_invocations`, `rule_invocations` tables + the `skills.scope` enrichment, with bundled `skills` / `commands` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the skill-invocation capture path, and the MCP tool surfaces (`skill_record_invocation`, `rule_register` / `rule_record_invocation`, `command_register`, plus the `skill_invocations_list` / `rule_invocations_list` readers).

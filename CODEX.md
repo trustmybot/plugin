@@ -12,7 +12,7 @@ The bro persona doctrine, equivalent to Claude Code's `CLAUDE.md`:
 - Routing table mapping Codex's tool surface to TMB's MCP calls
 - Catchphrase + communication style (unchanged from CLAUDE.md)
 
-As of v0.7.0, the shipped TMB stack is: bro persona (`CLAUDE.md`) + 8 skills
+As of v0.7.0, the shipped TMB stack is: bro persona (`CLAUDE.md`) + 7 skills
 (`tmb_planning`, `tmb_review`, `/tmb:agent-create`, `tmb_recovery`, `tmb_skill-creator`,
 `tmb_docs-conventions`, `tmb_concerns-protocol`, `tmb_swe-checklist`) + trajectory-server
 MCP + enforcement hooks (push guard, lint, worktree, scope-ambiguity gate). Most of this

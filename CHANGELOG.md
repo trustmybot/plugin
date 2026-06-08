@@ -59,7 +59,7 @@ Initial graph schema: `Directory` node + `CONTAINS` edge. `File` / `Symbol` / `I
 
 ### Changed
 
-- Architecture docs (`docs/architecture/WORLD_MODEL.md`, `ERD.md`, `FILES.md`, `FLOWS.md`, `RESPONSIBILITIES.md`, `REFERENCE.md`) lead with the kuzu substrate.
+- Architecture docs (`docs/architecture/WORLD_MODEL.md`, `ERD.md`, `FLOWS.md`, `RESPONSIBILITIES.md`, `REFERENCE.md`) lead with the kuzu substrate.
 - `scan_run` writes Directory nodes + CONTAINS edges into kuzu (no more SQLite directories writes).
 - L5/L6 dogfood row outcome SQL (rows 04 / 06 / 20 / 21 / 33) reframed for the new substrate; kuzu-state assertions move to the (TBD) L3 kuzu integration fixture.
 - ADR 0002 supersedes ADR 0001 on the substrate question.

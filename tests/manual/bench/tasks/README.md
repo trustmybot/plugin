@@ -72,18 +72,22 @@ Tasks 01–22. Per-task run data: [RESULTS.md](../RESULTS.md) and
 | 08 | `08-verified-pytest-10356` | SWE-bench Verified | Both Opus submissions failed | test framework |
 | 09 | `09-verified-sphinx-7590` | SWE-bench Verified | Both Opus submissions failed | docs tooling |
 | 10 | `10-verified-pylint-4661` | SWE-bench Verified | Both Opus submissions failed | linter |
-| 11 | `11-verified-django-10554` | SWE-bench Verified | Round 2 blind-hard | web framework |
+| 11 | `11-verified-django-10554` | SWE-bench Verified | EXCLUDED | web framework — pins Python 3.6 |
 | 12 | `12-verified-matplotlib-20488` | SWE-bench Verified | Round 2 blind-hard | plotting |
 | 13 | `13-verified-astropy-13033` | SWE-bench Verified | Round 2 blind-hard | astronomy lib |
 | 14 | `14-verified-xarray-6938` | SWE-bench Verified | Round 2 blind-hard | data arrays |
-| 15 | `15-lite-django-11019` | SWE-bench Lite | Round 2 blind-hard | web framework |
+| 15 | `15-lite-django-11019` | SWE-bench Lite | EXCLUDED | web framework — pins Python 3.6 |
 | 16 | `16-lite-sympy-11400` | SWE-bench Lite | Round 2 blind-hard | symbolic math |
-| 17 | `17-lite-scikit-learn-10508` | SWE-bench Lite | Round 2 blind-hard | ML library |
+| 17 | `17-lite-scikit-learn-10508` | SWE-bench Lite | EXCLUDED | ML library — pins Python 3.6 |
 | 18 | `18-lite-matplotlib-18869` | SWE-bench Lite | Round 2 blind-hard | plotting |
 | 19 | `19-verified-django-16263` | SWE-bench Verified | Round 2 blind-hard | web framework |
 | 20 | `20-verified-astropy-13398` | SWE-bench Verified | Round 2 blind-hard | astronomy lib |
 | 21 | `21-verified-sympy-16597` | SWE-bench Verified | Round 2 blind-hard | symbolic math |
 | 22 | `22-verified-sphinx-9461` | SWE-bench Verified | Round 2 blind-hard | docs tooling |
+
+Tasks 11, 15, and 17 are **excluded** from the runnable corpus: each pins
+Python 3.6 in `task.json`, which `uv` cannot provision, so they fail selection
+criterion #2 and cannot be built locally.
 
 ## Cherry-pick candidates for future expansion
 
