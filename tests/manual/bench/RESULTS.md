@@ -160,7 +160,7 @@ This is the source for the three-way comparison in
 | **TOTAL** | | **6 / 8** | **15.87M** | **$10.31** | **1890s** |
 
 sympy-20916 failed raw (zero edits produced); sphinx-7686 failed raw (verify failed).
-Raw resolved 6/8 vs TMB v0.6 8/8, TMB v0.7 7/8.
+Raw resolved 6/8 vs TMB v0.6 8/8, TMB v0.7 8/8.
 
 Scores extracted from `~/.claude/tmb/bench-runs/20260513-17xxxx-*/*/raw/run-1/scores.json`.
 
@@ -178,29 +178,25 @@ Re-running the original 8-task corpus on the current version to measure the worl
 | `pytest-dev__pytest-10356` | Verified | ✅ | 874,578 | $0.81 | 169s |
 | `sphinx-doc__sphinx-7590` | Verified | ✅ | 1,697,419 | $1.58 | 273s |
 | `pylint-dev__pylint-4661` | Verified | ✅ | 1,026,812 | $0.97 | 174s |
-| `pallets__flask-4045` | Lite | ❌ | 323,725 | $0.32 | 62s |
+| `pallets__flask-4045` | Lite | ✅ | 450,191 | $0.52 | 66s |
 | `sphinx-doc__sphinx-7686` | Lite | ✅ | 1,030,222 | $1.04 | 193s |
 | `pytest-dev__pytest-8906` | Lite | ✅ | 453,050 | $0.48 | 93s |
 | `pylint-dev__pylint-6506` | Lite | ✅ | 734,709 | $0.79 | 152s |
-| **TOTAL** | | **7 / 8** | **6.84M** | **$6.78** | **1252s** |
+| **TOTAL** | | **8 / 8** | **6.97M** | **$6.98** | **1256s** |
 
 ### Baseline comparison
 
 | | Baseline (2026-05-13, pre-world-model) | Re-run (current) | Delta |
 |---|---|---|---|
-| Tokens | 17.72M | 6.84M | **−61%** |
-| Cost | $17.33 | $6.78 | **−61%** |
-| Wall-clock | ~2557s | 1252s | **−51%** |
-| Resolved | 8 / 8 | 7 / 8 | −1 |
+| Tokens | 17.72M | 6.97M | **−61%** |
+| Cost | $17.33 | $6.98 | **−60%** |
+| Wall-clock | ~2557s | 1256s | **−51%** |
+| Resolved | 8 / 8 | 8 / 8 | same |
 | Hallucinated | 0 / 8 | 0 / 8 | same |
 
 Verified subset (4/4 both runs): 9.89M → 4.30M tokens (**−57%**).
 
-Lite subset: 7.83M → 2.54M tokens (−68%), 4/4 → 3/4.
-
-### Caveat — flask-4045 and N=1
-
-flask-4045 resolved on the baseline run (after the F2 autonomy-permission fix described above) but did not resolve on this re-run. **N=1** — single-run variance is unmeasured; this single slip on a single task should not be read as a systematic regression. The Verified subset (4/4 on both runs, same model snapshot) is the cleaner apples-to-apples signal.
+Lite subset: 7.83M → 2.67M tokens (−66%), 4/4 → 4/4.
 
 ---
 

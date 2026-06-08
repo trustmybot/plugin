@@ -10,7 +10,7 @@ tests/dogfood/l6-chain/
 └── seeds/                  # between-row SQL bridges (post-AUQ pseudo-data)
     ├── after-01-cold-start.sql
     ├── after-03-reonboard-remote.sql
-    ├── after-08-difficult-path.sql
+    ├── after-08-architectural-change.sql
     └── after-11-roundtable.sql
 ```
 
@@ -46,15 +46,15 @@ Per-step logs land under `~/.claude/tmb/l6-chain-runs/<run-id>/`:
 
 ## How rows chain together
 
-L5 runs each row alone against its fixture. L6 walks all 13 against ONE cumulative trajectory DB — each row fires a fresh `claude -p`, and bro picks up state from the DB via `tmb_recovery` / `issue_state_get` / `task_first_actionable` on every cold start. Row N's DB writes are row N+1's pre-state — that's what the chain tests.
+L5 runs each row alone against its fixture. L6 walks all 13 against ONE cumulative trajectory DB — each row fires a fresh `claude -p`, and bro picks up state from the DB via `tmb_recovery` / `issue_get_phase` / `task_first_actionable` on every cold start. Row N's DB writes are row N+1's pre-state — that's what the chain tests.
 
 **Between-row seeds** bridge the AUQ gaps for partial-test rows (1, 2, 3, 8, 11, 13):
 
 | After step | Seed applied | What it does |
 |---|---|---|
 | 1 cold-start | `after-01-cold-start.sql` | seeds `identity`, `plugin_config` defaults, `deep_scan_completed` audit |
-| 3 reonboard-remote | `after-03-reonboard-remote.sql` | flips config to gitflow + GitLab + pr_target='dev' |
-| 8 difficult-path | `after-08-difficult-path.sql` | injects `kind='question'` + `kind='answer'` rows for the Q+A loop |
+| 3 reonboard-remote | `after-03-reonboard-remote.sql` | flips config to gitflow + GitHub + pr_target='dev' |
+| 8 architectural-change | `after-08-architectural-change.sql` | records the chosen architectural conclusion as a `kind='decision'` discussion + ADR data |
 | 11 roundtable | `after-11-roundtable.sql` | injects the human's ratify vote |
 
 Rows 4, 5, 6, 7, 9, 10, 12 are not partial-test — they progress purely on the DB writes bro made in earlier rows + their per-row `setup.sh` for any extra repo state.

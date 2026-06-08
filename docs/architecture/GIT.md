@@ -4,9 +4,9 @@ Where each actor's git state lives at every stage of a TMB task. Helps you answe
 
 ## Core principle: local is canonical, origin is downstream
 
-Your local `<feature>` branch is the source of truth at every step of a task. SWE's commits flow INTO the local branch (via merge), then the local branch flows OUT to origin (via push). SWE never pushes straight to origin — that would bypass the local-canonical invariant and your review.
+Your local `<feature>` branch is the source of truth at every step of a task. SWE's commits land directly on `<feature>` — its worktree owns the branch ref — then the branch flows OUT to origin (via push). SWE never pushes straight to origin — that would bypass the local-canonical invariant and your review.
 
-This mirrors standard developer flow: edit + commit locally, push to origin, open PR. The TMB twist is that "edit + commit" happens in SWE's worktree, then bro merges those commits into the local branch before push.
+This mirrors standard developer flow: edit + commit locally, push to origin, open PR. The TMB twist is that "edit + commit" happens in SWE's worktree, which is attached directly to `<feature>` — so its commits advance the branch ref with no separate bro-side merge. Bro just pushes `<feature>` and opens the PR/MR; integration into `<base>` happens on the remote when the PR merges.
 
 ## Actors
 
@@ -41,7 +41,7 @@ Routing SWE's commits through your local branch (rather than letting SWE push st
 | Path | Belongs to | Lifetime |
 |---|---|---|
 | `<project>/` (main checkout) | You + bro | Permanent; switches between `<base>` and `<feature>` per task |
-| `<project>/.claude/worktrees/<slug>/` | SWE (on the task's `<feature>` branch) | Per-task; created on spawn, removed after bro merges its commits into local `<feature>` |
+| `<project>/.claude/worktrees/<slug>/` | SWE (on the task's `<feature>` branch) | Per-task; created on spawn, removed after bro closes the task (its commits are already on `<feature>` via the shared branch ref) |
 | `origin/<base>` | Shared | Permanent; advances on merges |
 | `origin/<feature>` | Shared | Per-task; created by bro's push from local; removed after MR merge |
 
@@ -103,7 +103,7 @@ plugin/
     └── tasks.ts                                      # task_update_status(completed, commit_sha)
 ```
 
-**Bro merges + pushes (MR opens)**
+**Bro pushes (MR opens)**
 ```text
 plugin/
 ├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)

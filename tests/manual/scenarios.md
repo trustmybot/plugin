@@ -1,6 +1,6 @@
 # Manual smoke — Human-driven CC walk-through
 
-> **What this is:** a tight, ~10-item checklist of the things **only a human walking through Claude Code can verify**. L0–L4 cover the rest structurally (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests). L5 dogfood (`tests/dogfood/`) covers automated CC behavior.
+> **What this is:** a tight, ~15-item checklist of the things **only a human walking through Claude Code can verify**. L0–L4 cover the rest structurally (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests). L5 dogfood (`tests/dogfood/`) covers automated CC behavior.
 >
 > **When you must run this:**
 > - **Before promoting a release candidate to stable** (the canonical RC validation step — see [`CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) Path 2).

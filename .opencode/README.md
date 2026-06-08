@@ -7,7 +7,7 @@
 Once implemented, this directory would hold the OpenCode adapter:
 
 - `plugins/tmb.js` — OpenCode plugin entry point (auto-discovers `./skills/` from repo root)
-- An `INSTALL.md` documenting the install path: `/plugin install superpowers@git+https://github.com/trustmybot/plugin.git` (or equivalent)
+- An `INSTALL.md` documenting the install path: `/plugin install tmb@trustmybot` (or equivalent)
 
 OpenCode uses native skill auto-discovery, so the manifest is thinner than other platforms.
 
