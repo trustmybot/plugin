@@ -43,20 +43,19 @@ Walkthroughs: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
 
 ## Benchmarks
 
-TMB resolved **8 of 8** SWE-bench tasks (4 Verified + 4 Lite) where pure Claude 4 Opus and pure Claude 4 Sonnet — using their official Anthropic-published agentic harnesses — **failed**. On Verified, same model snapshot both sides (`claude-opus-4-20250514`); on Lite, TMB's Opus against the comparators' published Sonnet 4 harnesses. Different orchestration, **zero hallucinated success claims.**
+On a hard 8-task SWE-bench slate, **TMB v0.7.0 resolves 7/8 with zero hallucinated success claims** — and on the same tasks it beats a **same-model raw Claude Code baseline** (no plugin) on every axis:
 
-| Corpus | TMB-on | Comparator | Comparator score on these tasks |
+| | Raw Claude Code | **TMB v0.7.0** | Δ |
 |---|---|---|---|
-| **SWE-bench Verified** (4 tasks, same `claude-opus-4-20250514`) | **4 / 4** ✅ | Anthropic [`tools_claude-4-opus`](https://github.com/SWE-bench/experiments/tree/main/evaluation/verified/20250522_tools_claude-4-opus) | 0 / 4 |
-| **SWE-bench Lite** (4 tasks) | **4 / 4** ✅ | 3 published Sonnet 4 harnesses (SWE-agent, KGCompass, ExpeRepair-v1) | 0 / 4 |
-| **Hallucinations** | **0 / 8** | (not measured) | — |
-| **Token usage (v0.7.0)** | **~6.8M tokens · $6.78** — down from 17.7M · $17.33 (pre-world-model) | — | — |
+| Resolved | 6 / 8 | **7 / 8** | **+1** |
+| Tokens | 15.87M | **6.84M** | **−57%** |
+| Cost | $10.31 | **$6.78** | **−34%** |
+| Wall-clock | 1890s | **1252s** | **−34%** |
+| Hallucinations | 0 / 8 | 0 / 8 | — |
 
-Curated-hard subsets from the all-comparators-failed intersection. Methodology, fairness, per-task data: **[`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md)**.
+The world model (long-context management) is what makes TMB *cheaper* than raw rather than pricier — v0.7 cut its own token use ~61% vs the pre-world-model build. Same model on Verified (`claude-opus-4-20250514`); the raw Lite arm used Sonnet 4, so the cost delta is conservative.
 
-**Token efficiency.** On the same SWE-bench corpus, the current version uses **~61% fewer tokens (6.8M vs 17.7M) at roughly half the wall-clock** versus the pre-world-model baseline — the world model acting as long-context management (reasoning from a compressed repo graph instead of re-ingesting files). The Verified subset held **4/4 resolved at −57% tokens**. Zero hallucinations throughout. Per-task data: [`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md).
-
-> **The shape of the tradeoff.** Token + time data isn't published per-task by the public comparators, so we measured it locally against a same-model raw baseline (Claude Code, no plugin, `claude-opus-4-20250514`). The pre-world-model build paid a real premium for bro's orchestration — roughly +60% cost / +70% time vs raw. **v0.7's world model erased it:** the same Verified tasks now run at **4.30M tokens · $4.15**, down 57% from the 9.89M · $10.01 measured pre-world-model — putting v0.7 at or below the raw baseline's 7.23M · $6.21, while still landing **4/4 vs raw's 3/4**. On the tasks the published comparators failed (these 8), that resolution gap IS the value. Hallucination rates were 0/8 for both arms on this single-shot corpus; the "TMB hallucinates less" claim needs longer/messier tasks to differentiate (chained-bench iteration). Full measurement detail: [`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md) and [`tests/manual/bench/RESULTS.md`](tests/manual/bench/RESULTS.md).
+How TMB compares against the **published** SWE-bench harnesses (Anthropic Opus / Sonnet 4), full methodology, fairness, and per-task data: **[`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md)**.
 
 ---
 
