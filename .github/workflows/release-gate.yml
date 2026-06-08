@@ -1,14 +1,11 @@
 name: release-gate
 on:
+  # Release gate: fires ONLY on release tags (rc.N + stable) + manual dispatch.
+  # Not on dev pushes/PRs — the full gate (incl. L6) is a release-time check.
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+'
-    # Also run L1–L4 on merges to dev — warms the dev-scoped HF model cache
-    # that PR runs restore from (so PRs don't re-download + risk HF 429).
-    branches: [dev]
-  pull_request:
-    branches: [dev]
   workflow_dispatch:
     inputs:
       skip_l6:
