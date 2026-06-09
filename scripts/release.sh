@@ -231,7 +231,7 @@ fi
 if confirm "Step 4: Run L5 release canary (re-clone tag in Docker, run install-smoke)?"; then
   if ! command -v docker >/dev/null 2>&1; then
     printf "  ⊘ docker not available — skipping canary. Run manually before announcing the release:\n"
-    printf "      bash tests/docker/run-install-smoke.sh\n"
+    printf "      bash tests/l0-install/run-install-smoke.sh\n"
   else
     CANARY_DIR=$(mktemp -d -t tmb-canary-XXXX)
     trap 'rm -rf "$CANARY_DIR"' EXIT
@@ -239,7 +239,7 @@ if confirm "Step 4: Run L5 release canary (re-clone tag in Docker, run install-s
     if git clone --quiet --depth 1 --branch "$NEW_TAG" \
         "https://github.com/trustmybot/plugin.git" "$CANARY_DIR/plugin"; then
       if (cd "$CANARY_DIR/plugin" && docker build \
-            -f tests/docker/install-smoke.Dockerfile \
+            -f tests/l0-install/install-smoke.Dockerfile \
             -t "tmb-canary-$NEW_VERSION" \
             --quiet .); then
         printf "  ✓ Canary PASSED — published %s installs cleanly from a fresh clone\n\n" "$NEW_TAG"
@@ -255,7 +255,7 @@ if confirm "Step 4: Run L5 release canary (re-clone tag in Docker, run install-s
     fi
   fi
 else
-  printf "  Skipped — run 'bash tests/docker/run-install-smoke.sh' manually before announcing.\n\n"
+  printf "  Skipped — run 'bash tests/l0-install/run-install-smoke.sh' manually before announcing.\n\n"
 fi
 
 # ---------- summary ----------

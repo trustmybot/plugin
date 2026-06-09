@@ -42,7 +42,7 @@ rc validation is **required** for anything touching install, schema, or doctrine
 ## Writing code & tests
 
 - Self-documenting code; prefer deletion over addition; match the file's existing patterns. TypeScript for the MCP server, Bash for hooks. Emoji + Conventional Commit messages.
-- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → `tests/hooks/*.test.sh`; new enforcement → a lint in `tests/lint/`.
+- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → `tests/l3-integration/hooks/*.test.sh`; new enforcement → a lint in `tests/l1-lint/`.
 - Prompt / skill / doc changes have no automated test — walk [`tests/manual/scenarios.md`](tests/manual/scenarios.md) before opening the PR.
 
 ## Pre-PR checklist

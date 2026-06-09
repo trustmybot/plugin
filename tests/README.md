@@ -10,14 +10,14 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 
 | Layer | What | Where | Catches |
 |---|---|---|---|
-| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`docker/install-smoke.Dockerfile`](./docker/) | dist/ shipping, prebuild, MCP server cold-spawn |
-| **L1** | Lint (version sync, link check, dist freshness, layer-budget, etc.) | [`lint/*.sh`](./lint/) | Stale CHANGELOG, broken links, version drift, agent-template line caps, doctrine doc parity |
+| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`l0-install/install-smoke.Dockerfile`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn |
+| **L1** | Lint (version sync, link check, dist freshness, layer-budget, etc.) | [`l1-lint/*.sh`](./l1-lint/) | Stale CHANGELOG, broken links, version drift, agent-template line caps, doctrine doc parity |
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
-| **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
-| **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
+| **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), [`l3-integration/hooks/*.sh`](./l3-integration/hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
+| **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`l4-workflow-sim/*.test.mjs`](./l4-workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.sh`](./l5-l6/run-l5.sh), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
 | **L6** | Multi-turn chain. Walks the 13 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.sh`](./l5-l6/run-l6-chain.sh), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
-| **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
+| **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`l0-install/release-canary.Dockerfile`](./l0-install/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
 | **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
 **Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed every test while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
@@ -56,11 +56,12 @@ tests/
 ├── README.md                   ← (this) framework + operational
 ├── EVALUATION.md               ← L5 + L6 evaluation system reference + TODO-CLI journey table
 ├── run-all.sh                  ← orchestrator — runs L1–L4
-├── docker/                     ← L0 install-smoke + Release canary
-├── lint/                       ← L1 lints (version sync, links, doctrine docs, layer budgets)
-├── mcp-integration/            ← L3 real server subprocess + JSON-RPC
-├── hooks/                      ← L3 hook script tests
-├── workflow-sim/               ← L4 MCP-only multi-step workflow tests
+├── l0-install/                 ← L0 install-smoke + Release canary
+├── l1-lint/                    ← L1 lints (version sync, links, doctrine docs, layer budgets)
+├── l3-integration/
+│   ├── mcp/                    ← L3 real server subprocess + JSON-RPC
+│   └── hooks/                  ← L3 hook script tests
+├── l4-workflow-sim/            ← L4 MCP-only multi-step workflow tests
 ├── lib/                        ← shared shell-assert helpers
 ├── manual/                     ← Manual smoke (human-run against real CC)
 │   ├── README.md
@@ -88,20 +89,20 @@ Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Ex
 
 ```bash
 # L1 — lint
-bash tests/lint/agent-line-budget.sh
-# (and any other tests/lint/*.sh)
+bash tests/l1-lint/agent-line-budget.sh
+# (and any other tests/l1-lint/*.sh)
 
 # L2 — MCP unit (handlers direct, synthetic args)
 (cd mcp/trajectory-server && bun run build && node --experimental-sqlite --test dist/test/*.test.js)
 
 # L3 — MCP integration (real server subprocess + JSON-RPC)
-bash tests/mcp-integration/run.sh
+bash tests/l3-integration/mcp/run.sh
 
 # L3 — Hook scripts
-bash tests/hooks/run.sh
+bash tests/l3-integration/hooks/run.sh
 
 # L4 — Workflow simulation
-bun test tests/workflow-sim/*.test.mjs
+bun test tests/l4-workflow-sim/*.test.mjs
 ```
 
 ## Run L5 (per-flow)
@@ -217,7 +218,7 @@ Does the change affect cross-step / multi-turn dynamics?
   → L2 + L3 + L6 (add a row under tests/l5-l6/rows/ AND an entry to tests/l5-l6/l6-chain/chain-manifest.json).
 
 Does the change introduce a hook or modify hook behavior?
-  → L3 (tests/hooks/<name>.test.sh).
+  → L3 (tests/l3-integration/hooks/<name>.test.sh).
 
 Does the change touch the schema (DB tables, columns, CHECK constraints)?
   → L2 (test the new shape) + L3 (regression test that callers handle migration).
@@ -237,8 +238,8 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 | Change | Location | Pattern |
 |---|---|---|
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
-| Protocol / role / workflow | `tests/mcp-integration/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
-| Hook script | `tests/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
+| Protocol / role / workflow | `tests/l3-integration/mcp/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
+| Hook script | `tests/l3-integration/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
 | L5 / L6 row | `tests/l5-l6/rows/<NN>-<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
 | Manual scenario | `tests/manual/scenarios.md` | follow the 8-section template at the top of that file |
 
@@ -248,8 +249,8 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "$HERE/../lib/assert.sh"
-PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
+. "$HERE/../../lib/assert.sh"
+PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/<your-hook>.sh"
 
 test_case "describe the scenario"
@@ -287,14 +288,14 @@ When `$TMB_TEST_REMOTE` is set (test/sandbox mode), `origin` is a local bare rep
 
 ### L3 isolation test
 
-`tests/hooks/sandbox-isolation.test.sh` is the acceptance gate. It verifies:
+`tests/l3-integration/hooks/sandbox-isolation.test.sh` is the acceptance gate. It verifies:
 
 1. `gh repo create` → exit 1 + "tmb sandbox" in stderr
 2. `glab repo create` → exit 1 + "tmb sandbox" in stderr
 3. `git push https://github.com/...` → exit 1 + sandbox-blocked message
 4. After teardown: `PATH`, `HOME`, `TMB_TEST_REMOTE` all restored / unset
 
-Run it directly: `bash tests/hooks/sandbox-isolation.test.sh`. It runs automatically as part of `bash tests/hooks/run.sh` (L3).
+Run it directly: `bash tests/l3-integration/hooks/sandbox-isolation.test.sh`. It runs automatically as part of `bash tests/l3-integration/hooks/run.sh` (L3).
 
 ## Anti-patterns
 

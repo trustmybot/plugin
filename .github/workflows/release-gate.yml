@@ -117,4 +117,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run install-smoke
-        run: bash tests/docker/run-install-smoke.sh
+        run: bash tests/l0-install/run-install-smoke.sh

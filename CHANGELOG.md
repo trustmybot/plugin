@@ -1089,7 +1089,7 @@ Bumped all three manifest versions to `0.1.4`. No schema migration.
 
 ### Added — Layer 0 distribution test (so this can't ship again)
 
-Added a Docker-based **install-smoke test** at [`tests/docker/install-smoke.Dockerfile`](tests/docker/install-smoke.Dockerfile) and a local wrapper [`tests/docker/run-install-smoke.sh`](tests/docker/run-install-smoke.sh). The Dockerfile:
+Added a Docker-based **install-smoke test** at [`tests/l0-install/install-smoke.Dockerfile`](tests/l0-install/install-smoke.Dockerfile) and a local wrapper [`tests/l0-install/run-install-smoke.sh`](tests/l0-install/run-install-smoke.sh). The Dockerfile:
 
 1. Starts from a clean `node:20-slim` (no preexisting `dist/`, no `node_modules/`).
 2. Installs bun + sqlite, copies the plugin tree.

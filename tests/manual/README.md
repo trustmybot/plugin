@@ -23,7 +23,7 @@ L0–L6 are automated (Docker install-smoke, lint, MCP unit + integration, workf
 
 v0.2.0 and v0.3.0 both shipped install-path bugs that broke every stable user. Both were validated locally via Path A and passed. **Path A doesn't exercise the marketplace install lifecycle** (`bun install --ignore-scripts`) where both bugs lived. Path B is the only manual path that catches that bug class.
 
-The companion automated test (Path C — `tests/docker/run-install-smoke.sh`) catches it in CI starting v0.3.1, but manual smoke also requires a real-CC walk because Claude-side behaviors (trigger word, AskUserQuestion, etc.) aren't testable in Docker.
+The companion automated test (Path C — `tests/l0-install/run-install-smoke.sh`) catches it in CI starting v0.3.1, but manual smoke also requires a real-CC walk because Claude-side behaviors (trigger word, AskUserQuestion, etc.) aren't testable in Docker.
 
 ## Why this is in `tests/` and not `docs/`
 

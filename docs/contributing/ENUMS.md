@@ -162,13 +162,13 @@ URL-pattern auto-detection rules:
 
 1. Open a PR that adds the value to this doc AND to the schema/code that consumes it.
 2. Add a test that covers the new value's path.
-3. Update `tests/lint/enums-stable.sh` if it has a hardcoded list.
+3. Update `tests/l1-lint/enums-stable.sh` if it has a hardcoded list.
 
 ---
 
 ## Lint guard
 
-`tests/lint/enums-stable.sh` checks that this doc and `mcp/trajectory-server/src/schema.sql` agree on the ENUM-bearing columns. Drift fails CI.
+`tests/l1-lint/enums-stable.sh` checks that this doc and `mcp/trajectory-server/src/schema.sql` agree on the ENUM-bearing columns. Drift fails CI.
 
 ---
 

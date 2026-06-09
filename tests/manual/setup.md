@@ -221,7 +221,7 @@ This is the automated test that simulates Path B without Claude Code in the loop
 
 ```bash
 cd "$PLUGIN_PATH"
-bash tests/docker/run-install-smoke.sh
+bash tests/l0-install/run-install-smoke.sh
 ```
 
 Builds a fresh `node:22-slim` Docker image, copies the plugin tree as if from a marketplace fetch, runs `bun install --frozen-lockfile --ignore-scripts` (CC's actual install behavior), then asserts:
