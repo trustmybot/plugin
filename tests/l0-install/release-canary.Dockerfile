@@ -87,7 +87,7 @@ ENV TMB_CLAUDE_TIMEOUT=600
 RUN --mount=type=secret,id=cc_token,uid=1000 \
     if [ -f /run/secrets/cc_token ]; then \
       export CLAUDE_CODE_OAUTH_TOKEN="$(cat /run/secrets/cc_token)"; \
-      bash tests/dogfood/run-l5.sh \
+      bash tests/l5-l6/run-l5.sh \
         || (echo "❌ FAIL: L5 flows failed against marketplace-installed plugin" && exit 1); \
     else \
       echo "⊘ skip: cc_token secret not provided — install-only smoke (L0 piece passed); L5 piece needs CLAUDE_CODE_OAUTH_TOKEN."; \

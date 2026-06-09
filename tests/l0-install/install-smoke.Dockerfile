@@ -96,7 +96,7 @@ RUN ( \
 RUN echo "✓ A3c: discussion_search(mode=semantic) returns results or semantic_unavailable (no MCP error)"
 
 # A4: every shipped agent template parses (frontmatter + body, ≤30 lines)
-RUN bash tests/lint/agent-line-budget.sh \
+RUN bash tests/l1-lint/agent-line-budget.sh \
  || (echo "❌ FAIL: agent-line-budget lint failed in clean install" && exit 1)
 
 # A5: hook scripts are executable + syntactically valid
