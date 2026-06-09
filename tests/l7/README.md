@@ -118,7 +118,7 @@ samples adjacent to the modified file in each task.json.
 ```
 tests/l7/
 ├── README.md                       — this file
-├── run-bench.sh                    — runner: tasks × {tmb-on} × N
+├── run-l7.sh                       — runner: tasks × {tmb-on} × N
 ├── tasks/                          — public benchmark tasks only
 │   ├── README.md                   — task corpus doc
 │   ├── 03-swebench-flask-4045/     — SWE-bench Lite (param via swebench-runner.sh)
@@ -144,19 +144,19 @@ tests/l7/
 
 ```bash
 # Single task, N=1
-bash tests/l7/run-bench.sh 03-swebench-flask-4045
+bash tests/l7/run-l7.sh 03-swebench-flask-4045
 
 # All tasks, N=1 (~$3–8)
-bash tests/l7/run-bench.sh --all
+bash tests/l7/run-l7.sh --all
 
 # Custom N (per-task repeat for variance smoothing)
-N=3 bash tests/l7/run-bench.sh --all
+N=3 bash tests/l7/run-l7.sh --all
 ```
 
 **Prompt tiers:** Two env vars control the prompt sent to Claude. `TMB_BENCH_ENRICH_PROMPT=1` appends an overnight-autonomous suffix ("I will go to sleep…") to model real TMB usage. `TMB_BENCH_PROMPT_PREFIX` prepends a verbatim string to the prompt — set it to `'@bro '` to run the **bro-mode tier**, where the plugin's doctrine chain (`tmb_planning` → SWE → V1/V2/V3 → atomic-close) fires as designed:
 
 ```bash
-TMB_BENCH_PROMPT_PREFIX='@bro ' bash tests/l7/run-bench.sh 03-swebench-flask-4045
+TMB_BENCH_PROMPT_PREFIX='@bro ' bash tests/l7/run-l7.sh 03-swebench-flask-4045
 ```
 
 When `TMB_BENCH_PROMPT_PREFIX` is unset or empty, the prompt is unchanged (byte-identical to previous behaviour). The two vars compose: prefix is applied first, enrich suffix last.

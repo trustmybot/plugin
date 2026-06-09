@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for the L7 bench harness (#6). Source from run-bench.sh +
+# Shared helpers for the L7 bench harness (#6). Source from run-l7.sh +
 # scorers. Mirrors tests/l5-l6/lib/flow-helpers.sh + l6-chain-helpers.sh
 # patterns but specialized for the two-arm benchmark structure.
 

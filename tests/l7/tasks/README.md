@@ -1,6 +1,6 @@
 # L7 bench tasks — public benchmarks only
 
-This dir holds the curated agentic-SWE corpus for `run-bench.sh`. Tasks
+This dir holds the curated agentic-SWE corpus for `run-l7.sh`. Tasks
 are **public** so the harness produces externally-credible signal that
 can be cross-referenced against published submissions in
 [swe-bench/experiments](https://github.com/SWE-bench/experiments).

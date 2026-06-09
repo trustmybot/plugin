@@ -281,7 +281,7 @@ state accumulates across tasks. The next bench iteration:
   hallucination rate (should stay 0), and per-task duration. Compare
   against TMB-cold (fresh state per task) and raw Opus 4 cold-starting
   each task. Design captured in
-  [`tests/l7/run-chained-bench.sh`](../../tests/l7/run-chained-bench.sh).
+  [`tests/l7/run-l7-chain.sh`](../../tests/l7/run-l7-chain.sh).
 - Bump N to 3 per task for variance bars (~$25 per full pass).
 - Expand corpus from 4 to 10-15 tasks per corpus.
 - Tighten the hallucination scorer (LLM-as-judge on the final message).

@@ -251,14 +251,14 @@ export TMB_BENCH_ENRICH_PROMPT=1
 export TMB_BENCH_MODEL=claude-opus-4-20250514
 for t in 07-verified-sympy-20916 08-verified-pytest-10356 \
          09-verified-sphinx-7590 10-verified-pylint-4661; do
-  bash tests/l7/run-bench.sh "$t"
+  bash tests/l7/run-l7.sh "$t"
 done
 
 # Lite pass (vs Sonnet 4, autonomous)
 unset TMB_BENCH_ENRICH_PROMPT TMB_BENCH_MODEL
 for t in 03-swebench-flask-4045 04-swebench-sphinx-7686 \
          05-swebench-pytest-8906 06-swebench-pylint-6506; do
-  bash tests/l7/run-bench.sh "$t"
+  bash tests/l7/run-l7.sh "$t"
 done
 ```
 

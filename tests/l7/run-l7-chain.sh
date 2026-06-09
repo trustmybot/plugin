@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Multi-task chained bench (#6 follow-up) — STUB / DESIGN DOC.
 #
-# Today's bench (run-bench.sh) resets the scratch project between tasks:
+# Today's bench (run-l7.sh) resets the scratch project between tasks:
 # fresh clone, fresh .claude/tmb/, fresh git. That measures single-shot
 # completion but invisibility-erases TMB's actual value prop — cumulative
 # state across tasks (file_registry warming, atomic-close history, decision
@@ -18,17 +18,17 @@
 #
 # Intended usage (when implemented):
 #
-#   bash tests/l7/run-chained-bench.sh \
+#   bash tests/l7/run-l7-chain.sh \
 #     django__django-11019 django__django-11283 django__django-11564 \
 #     django__django-11630 django__django-11742
 #
-#   N=3 bash tests/l7/run-chained-bench.sh ...  # 3 arms: tmb-chained, tmb-cold, raw-opus-4
+#   N=3 bash tests/l7/run-l7-chain.sh ...  # 3 arms: tmb-chained, tmb-cold, raw-opus-4
 
 set -uo pipefail
 
 cat >&2 <<'EOF'
 ================================================================
-  run-chained-bench.sh is a STUB. Not implemented yet.
+  run-l7-chain.sh is a STUB. Not implemented yet.
 ================================================================
 
 Design captured in docs/BENCHMARK.md → "Multi-task chained bench
@@ -65,7 +65,7 @@ To implement, the harness needs:
 Approximate cost: $15-30 for 5 tasks × 3 arms × N=1.
 
 To kick off implementation: see issue #6 (the parent ticket) or follow
-the run-bench.sh pattern with the modifications above.
+the run-l7.sh pattern with the modifications above.
 EOF
 
 exit 2

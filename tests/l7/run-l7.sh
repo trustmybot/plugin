@@ -3,9 +3,9 @@
 # Three orthogonal scoring axes: problem-solving, token-saving, quality.
 #
 # Usage:
-#   bash tests/l7/run-bench.sh <task-name>     # one task
-#   bash tests/l7/run-bench.sh --all           # every task in tasks/
-#   N=3 bash tests/l7/run-bench.sh --all       # N runs per (task, arm)
+#   bash tests/l7/run-l7.sh <task-name>     # one task
+#   bash tests/l7/run-l7.sh --all           # every task in tasks/
+#   N=3 bash tests/l7/run-l7.sh --all       # N runs per (task, arm)
 #
 # See tests/l7/README.md for full design + cost ceiling.
 
