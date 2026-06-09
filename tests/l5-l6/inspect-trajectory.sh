@@ -4,12 +4,12 @@
 # Use this when authoring an expected-trajectory file for a new flow:
 #   1. Run the flow once with TMB_DEBUG_TRAJECTORY=1
 #   2. Run this script against the resulting DB
-#   3. Copy the output to tests/dogfood/expected/<flow>.txt
+#   3. Copy the output to tests/l5-l6/expected/<flow>.txt
 #
 # Usage:
-#   bash tests/dogfood/inspect-trajectory.sh <project-dir>
-#   bash tests/dogfood/inspect-trajectory.sh /tmp/tmb-l5-XXXX
-#   bash tests/dogfood/inspect-trajectory.sh                  # uses $PWD
+#   bash tests/l5-l6/inspect-trajectory.sh <project-dir>
+#   bash tests/l5-l6/inspect-trajectory.sh /tmp/tmb-l5-XXXX
+#   bash tests/l5-l6/inspect-trajectory.sh                  # uses $PWD
 
 set -uo pipefail
 
@@ -37,7 +37,7 @@ if [ "$ROW_COUNT" = "0" ]; then
 fi
 
 echo "# Trajectory from $DB_PATH ($ROW_COUNT rows)"
-echo "# Copy lines below into tests/dogfood/expected/<flow>.txt"
+echo "# Copy lines below into tests/l5-l6/expected/<flow>.txt"
 echo "# (Edit out any setup/teardown calls that aren't part of the flow under test.)"
 echo
 

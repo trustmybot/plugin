@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared substrate-health checks for any test runner that spawns claude.
-# Used by tests/dogfood/run-l5.sh.
+# Used by tests/l5-l6/run-l5.sh.
 #
 # Philosophy: anything an L0–L4 test would catch (MCP server can spawn,
 # schema applies, auth works, plugin tree is intact) must be verified
@@ -11,7 +11,7 @@
 
 set -uo pipefail
 
-# shellcheck source=tests/dogfood/lib/timeout-shim.sh
+# shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
 
 # l5_smoke_mcp <plugin_dir> — verifies the plugin tree at <plugin_dir> can

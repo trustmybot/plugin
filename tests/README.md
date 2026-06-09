@@ -1,6 +1,6 @@
 # tests
 
-> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.** `dogfood/rows/*/prompt.txt` are Human-authored to simulate real-user language. Agents that edit prompts to make a flaky chain pass have drifted the entire L5/L6 suite multiple times. On failure: fix the assertion, `setup-l5.sh`, hook, manifest, or doctrine — never the prompt — unless the Human explicitly says so in chat.
+> **⚠️ DO NOT TOUCH ANY TEST PROMPTS WITHOUT HUMAN APPROVAL.** `l5-l6/rows/*/prompt.txt` are Human-authored to simulate real-user language. Agents that edit prompts to make a flaky chain pass have drifted the entire L5/L6 suite multiple times. On failure: fix the assertion, `setup-l5.sh`, hook, manifest, or doctrine — never the prompt — unless the Human explicitly says so in chat.
 
 How to run, what each layer covers, when to add a test where.
 
@@ -15,8 +15,8 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`mcp-integration/*.test.mjs`](./mcp-integration/), [`hooks/*.sh`](./hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`workflow-sim/*.test.mjs`](./workflow-sim/) | Workflow contract bugs at the MCP-call level |
-| **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`dogfood/run-l5.sh`](./dogfood/run-l5.sh), [`dogfood/rows/`](./dogfood/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
-| **L6** | Multi-turn chain. Walks the 13 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`dogfood/run-l6-chain.sh`](./dogfood/run-l6-chain.sh), [`dogfood/l6-chain/`](./dogfood/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
+| **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.sh`](./l5-l6/run-l5.sh), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
+| **L6** | Multi-turn chain. Walks the 13 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.sh`](./l5-l6/run-l6-chain.sh), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
 | **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
@@ -66,7 +66,7 @@ tests/
 │   ├── README.md
 │   ├── setup.md
 │   └── scenarios.md
-└── dogfood/                    ← L5 + L6 dogfood
+└── l5-l6/                      ← L5 + L6
     ├── run-l5.sh, run-l6-chain.sh
     ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
     ├── rows/<NN>-<name>/       ← canonical row tree (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
@@ -104,7 +104,7 @@ bash tests/hooks/run.sh
 bun test tests/workflow-sim/*.test.mjs
 ```
 
-## Run L5 dogfood (per-flow)
+## Run L5 (per-flow)
 
 L5 drives real Claude Code through one pre-seeded flow and asserts the MCP/tool sequence + DB state matches doctrine. See [`EVALUATION.md`](./EVALUATION.md) for the scorer model and the TODO-CLI journey table.
 
@@ -113,28 +113,28 @@ L5 drives real Claude Code through one pre-seeded flow and asserts the MCP/tool 
 export CLAUDE_CODE_OAUTH_TOKEN="<your-cc-oauth-token>"
 
 # Run all flows
-bash tests/dogfood/run-l5.sh
+bash tests/l5-l6/run-l5.sh
 
 # Run a single flow by name substring
-bash tests/dogfood/run-l5.sh onboarding
+bash tests/l5-l6/run-l5.sh onboarding
 ```
 
 Run L5 locally before tagging a release candidate. The token is the one-time `CLAUDE_CODE_OAUTH_TOKEN` from a `claude setup-token` flow.
 
-## Run L6 dogfood (multi-turn chain)
+## Run L6 (multi-turn chain)
 
 L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, and world-model state on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
-The 13 chain steps live in `tests/dogfood/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
+The 13 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
 
 ```bash
 # Chained run — walks all 13 chain rows against a cumulative trajectory DB.
 # Each row fires a fresh `claude -p`; DB continuity drives the chain.
 # Per-step logs land at ~/.claude/tmb/l6-chain-runs/<run-id>/.
-# See tests/dogfood/l6-chain/README.md.
-bash tests/dogfood/run-l6-chain.sh                  # full chain
-bash tests/dogfood/run-l6-chain.sh --from 7         # resume from row 7
-bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
+# See tests/l5-l6/l6-chain/README.md.
+bash tests/l5-l6/run-l6-chain.sh                  # full chain
+bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from row 7
+bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
 ```
 
 Run L6 locally before tagging a release candidate; rc tag policy gates on 13/13 chain pass.
@@ -144,7 +144,7 @@ Run L6 locally before tagging a release candidate; rc tag policy gates on 13/13 
 When an L6 step fails, the failure can come from either the step itself or from prior chain steps that left bad state behind. To isolate, run the same row in L5 mode:
 
 ```bash
-bash tests/dogfood/run-l5.sh <NN>-<step-name>     # e.g. 10-consultant
+bash tests/l5-l6/run-l5.sh <NN>-<step-name>     # e.g. 10-consultant
 ```
 
 L5 applies the step's `setup-l5.sh` to simulate ONLY the prior-state surface (a clean approximation of what the prior chain step should have left), then drives the same prompt + scorers as L6. Two outcomes:
@@ -208,13 +208,13 @@ Does the change affect:
   - a skill's behavior?
   - a routing rule in bro/architect?
   - the UX of any single user-facing interaction?
-  → L2 + L3 + L5 (add a row under tests/dogfood/rows/).
+  → L2 + L3 + L5 (add a row under tests/l5-l6/rows/).
 
 Does the change affect cross-step / multi-turn dynamics?
   - cumulative state across multiple bro turns
   - state continuity across `--resume` sessions
   - empty-table regression patterns (world model, discussions, agent_runs, etc.)
-  → L2 + L3 + L6 (add a row under tests/dogfood/rows/ AND an entry to tests/dogfood/l6-chain/chain-manifest.json).
+  → L2 + L3 + L6 (add a row under tests/l5-l6/rows/ AND an entry to tests/l5-l6/l6-chain/chain-manifest.json).
 
 Does the change introduce a hook or modify hook behavior?
   → L3 (tests/hooks/<name>.test.sh).
@@ -239,7 +239,7 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
 | Protocol / role / workflow | `tests/mcp-integration/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
 | Hook script | `tests/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
-| L5 / L6 row | `tests/dogfood/rows/<NN>-<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/dogfood/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
+| L5 / L6 row | `tests/l5-l6/rows/<NN>-<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
 | Manual scenario | `tests/manual/scenarios.md` | follow the 8-section template at the top of that file |
 
 ### Hook test skeleton
@@ -269,13 +269,13 @@ Assertion helpers (`tests/lib/assert.sh`):
 
 ## L5/L6 sandbox
 
-All L5 (`run-l5.sh`) and L6 (`run-l6-chain.sh`) runs execute inside a network-isolated sandbox. The sandbox is initialized by `tmb_test_sandbox_init` (from `tests/dogfood/lib/sandbox.sh`) before each `claude -p` invocation and torn down after.
+All L5 (`run-l5.sh`) and L6 (`run-l6-chain.sh`) runs execute inside a network-isolated sandbox. The sandbox is initialized by `tmb_test_sandbox_init` (from `tests/l5-l6/lib/sandbox.sh`) before each `claude -p` invocation and torn down after.
 
 ### What the sandbox does
 
 | Layer | Effect |
 |---|---|
-| PATH prepend | `tests/dogfood/lib/stubs/` wins over real binaries — `gh`, `glab`, `curl`, `wget`, `git-remote-https`, `git-remote-http` are all stub scripts that exit 1 with `tmb sandbox:` in stderr |
+| PATH prepend | `tests/l5-l6/lib/stubs/` wins over real binaries — `gh`, `glab`, `curl`, `wget`, `git-remote-https`, `git-remote-http` are all stub scripts that exit 1 with `tmb sandbox:` in stderr |
 | HOME override | `$HOME` is redirected to `$PROJECT/_home` with a minimal `.gitconfig` (test identity) and empty `.ssh/`. Real `~/.config/gh`, `~/.ssh`, `~/.gitconfig` are unreachable |
 | Credential purge | `GH_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN`, `GL_TOKEN`, `SSH_AUTH_SOCK`, `SSH_AGENT_PID`, `NPM_TOKEN`, `AWS_*` all unset |
 | Pseudo-remote | `$TMB_TEST_REMOTE` is a local bare git repo at `$PROJECT/_remote.git`. Bro can push/pull against this URL without hitting GitHub or GitLab |
@@ -299,7 +299,7 @@ Run it directly: `bash tests/hooks/sandbox-isolation.test.sh`. It runs automatic
 ## Anti-patterns
 
 - **"L2 is green, ship it."** L2 bypasses the MCP protocol layer. The 0-tool-uses bug in PR #41 had 235 L2 tests green while every bro-only MCP write call in production returned `forbidden` because the schema stripped the `agent` param before the handler saw it. Always validate at the wire level (L3).
-- **"L5 will catch it."** Dogfood is slow (minutes per scenario) and non-deterministic (depends on LLM). Schema bugs, role bugs, and required-arg bugs should be caught in ms by L2/L3. L5 is for what only a real LLM session can reveal.
+- **"L5 will catch it."** L5 is slow (minutes per scenario) and non-deterministic (depends on LLM). Schema bugs, role bugs, and required-arg bugs should be caught in ms by L2/L3. L5 is for what only a real LLM session can reveal.
 - **"The handler already validates args, so schema doesn't matter."** It does. The LLM discovers what params to pass from the inputSchema. If `agent` isn't declared there, the LLM won't pass it, and role enforcement silently fails.
 - **Adding a new MCP tool without an L3 test.** Ship a test alongside the tool, not after. Every protected tool must have a role-matrix test; every tool used in any agent's workflow must appear in that agent's workflow test.
 

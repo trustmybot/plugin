@@ -23,7 +23,7 @@ Cross-reference: [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md
 
 ## What L4 does NOT test
 
-- The **Claude side** of the chain — bro's prompt parsing, AskUserQuestion rendering, agent-spawn isolation, subagent prompt precedence. Those need L5 (manual dogfood with Claude Code).
+- The **Claude side** of the chain — bro's prompt parsing, AskUserQuestion rendering, agent-spawn isolation, subagent prompt precedence. Those need L5 (real Claude Code eval).
 - **Filesystem-only flows** (template copy, ADR file write, agent-creator file write) — handled directly by bash via Bro's tools, not by MCP. Those are caught at Layer 0 (file presence after install) and Layer 5 (visual confirmation).
 
 ## Why these flows exist as L4 tests

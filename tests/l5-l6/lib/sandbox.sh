@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sandbox library for L5/L6 dogfood tests.
+# Sandbox library for L5/L6 tests.
 #
 # Provides two functions:
 #   tmb_test_sandbox_init <scratch_dir>

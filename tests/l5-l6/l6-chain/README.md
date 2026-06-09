@@ -1,11 +1,11 @@
 # L6 chain — single chained integration
 
-This directory holds the **L6 chain manifest** + **between-row seeds**. Each L5 row in `tests/dogfood/rows/` doubles as a chain step here — same outcome bundle, same fixtures, no duplication of scorer config.
+This directory holds the **L6 chain manifest** + **between-row seeds**. Each L5 row in `tests/l5-l6/rows/` doubles as a chain step here — same outcome bundle, same fixtures, no duplication of scorer config.
 
 ## Layout
 
 ```
-tests/dogfood/l6-chain/
+tests/l5-l6/l6-chain/
 ├── chain-manifest.json     # ordered step list + per-step seed paths
 └── seeds/                  # between-row SQL bridges (post-AUQ pseudo-data)
     ├── after-01-cold-start.sql
@@ -18,13 +18,13 @@ tests/dogfood/l6-chain/
 
 ```bash
 # Full chain (~$5–10, ~10 min)
-bash tests/dogfood/run-l6-chain.sh
+bash tests/l5-l6/run-l6-chain.sh
 
 # Resume from a specific row (e.g. after fixing a row-7 bug)
-bash tests/dogfood/run-l6-chain.sh --from 7
+bash tests/l5-l6/run-l6-chain.sh --from 7
 
 # Keep going past failures (instead of halting at first fail)
-bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0
+bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0
 ```
 
 Per-step logs land under `~/.claude/tmb/l6-chain-runs/<run-id>/`:
@@ -61,7 +61,7 @@ Rows 4, 5, 6, 7, 9, 10, 12 are not partial-test — they progress purely on the 
 
 ## Adding a new row to the chain
 
-1. Add the L5 row directory under `tests/dogfood/rows/`.
+1. Add the L5 row directory under `tests/l5-l6/rows/`.
 2. Append an entry to `chain-manifest.json`:
    ```json
    {

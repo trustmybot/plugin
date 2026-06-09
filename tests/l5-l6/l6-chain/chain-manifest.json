@@ -112,7 +112,7 @@
       "row_dir": "rows/11-roundtable",
       "partial_test": true,
       "seed_before": null,
-      "chain_setup_command": "bash \"$PLUGIN_ROOT/tests/dogfood/rows/11-roundtable/seed-agents.sh\" \"$PWD\" \"$PLUGIN_ROOT\"",
+      "chain_setup_command": "bash \"$PLUGIN_ROOT/tests/l5-l6/rows/11-roundtable/seed-agents.sh\" \"$PWD\" \"$PLUGIN_ROOT\"",
       "seed_after": "seeds/after-11-roundtable.sql",
       "halt_on_fail": true
     },

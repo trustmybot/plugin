@@ -77,7 +77,7 @@ if ! grep -q "^## ${NEW_TAG} " CHANGELOG.md; then
   exit 1
 fi
 
-# Manual smoke gate (formerly 'L5 manual dogfood'). The release script refuses
+# Manual smoke gate. The release script refuses
 # to tag without an explicit signed-off env var matching this exact version.
 # See tests/manual/scenarios.md for the checklist that produces this sign-off.
 #

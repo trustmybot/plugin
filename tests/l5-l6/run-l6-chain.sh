@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # L6 chain runner — drives ALL 14 journey rows sequentially through ONE
-# cumulative trajectory DB. Rows live in tests/dogfood/rows/ (canonical tree).
+# cumulative trajectory DB. Rows live in tests/l5-l6/rows/ (canonical tree).
 # State carries across rows via DB; see tests/EVALUATION.md for the journey spec
-# and tests/dogfood/l6-chain/chain-manifest.json for the step manifest.
+# and tests/l5-l6/l6-chain/chain-manifest.json for the step manifest.
 # Row dirs are resolved as $HERE/<manifest.row_dir> where row_dir = "rows/...".
 #
 # Usage:
-#   bash tests/dogfood/run-l6-chain.sh                         # auto-resume (or fresh if nothing to resume)
-#   bash tests/dogfood/run-l6-chain.sh --fresh                 # force fresh full chain from row 1
-#   bash tests/dogfood/run-l6-chain.sh --from 7                # explicit resume from row 7
-#   bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0        # don't halt on first fail
+#   bash tests/l5-l6/run-l6-chain.sh                         # auto-resume (or fresh if nothing to resume)
+#   bash tests/l5-l6/run-l6-chain.sh --fresh                 # force fresh full chain from row 1
+#   bash tests/l5-l6/run-l6-chain.sh --from 7                # explicit resume from row 7
+#   bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0        # don't halt on first fail
 #
 # Auto-resume: with no flag, the runner scans the most recent prior run's
 # _results.jsonl for the first non-passing step and resumes from there,
@@ -62,14 +62,14 @@ for cmd in claude sqlite3 jq git diff; do
 done
 [ -f "$MANIFEST" ] || { printf "❌ manifest not found: %s\n" "$MANIFEST" >&2; exit 1; }
 
-# shellcheck source=tests/dogfood/lib/smoke-helpers.sh
+# shellcheck source=tests/l5-l6/lib/smoke-helpers.sh
 . "$HERE/lib/smoke-helpers.sh"
 l5_pre_flight_or_abort "$PLUGIN_ROOT"
 
-# shellcheck source=tests/dogfood/lib/l6-chain-helpers.sh
+# shellcheck source=tests/l5-l6/lib/l6-chain-helpers.sh
 . "$HERE/lib/l6-chain-helpers.sh"
 
-# shellcheck source=tests/dogfood/lib/sandbox.sh
+# shellcheck source=tests/l5-l6/lib/sandbox.sh
 . "$HERE/lib/sandbox.sh"
 
 RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)-$$}"

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Shared helpers for L5 row scripts. Source this from tests/dogfood/run-l5.sh + helpers under tests/dogfood/lib/.
+# Shared helpers for L5 row scripts. Source this from tests/l5-l6/run-l5.sh + helpers under tests/l5-l6/lib/.
 
 set -uo pipefail
 
-# shellcheck source=tests/dogfood/lib/timeout-shim.sh
+# shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
 
 # l5_setup_scratch_project: creates a fresh Docker-isolated scratch dir,
@@ -25,7 +25,7 @@ l5_setup_scratch_project() {
 }
 
 # l5_seed_db <project_dir> <fixture_name>: applies a SQL fixture to the
-# project's trajectory.db. Fixture must exist at tests/dogfood/fixtures/<name>.sql.
+# project's trajectory.db. Fixture must exist at tests/l5-l6/fixtures/<name>.sql.
 l5_seed_db() {
   local dir="$1" fixture="$2"
   local fixture_path="$L5_DOGFOOD_DIR/fixtures/${fixture}.sql"
@@ -165,5 +165,5 @@ L5_DOGFOOD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export L5_DOGFOOD_DIR
 
 # Source v2 scorers (issue #110).
-# shellcheck source=tests/dogfood/lib/scorers.sh
+# shellcheck source=tests/l5-l6/lib/scorers.sh
 . "$L5_DOGFOOD_DIR/lib/scorers.sh"

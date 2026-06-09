@@ -1,6 +1,6 @@
 # Contributing to TMB Plugin
 
-Public MIT plugin for Claude Code. Issues, PRs, and dogfood reports all welcome — the bugs you hit *using* the plugin are the highest-value reports.
+Public MIT plugin for Claude Code. Issues, PRs, and real-use reports all welcome — the bugs you hit *using* the plugin are the highest-value reports.
 
 ## TL;DR
 
@@ -24,7 +24,7 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 
 `.github/workflows/release-gate.yml` runs on GitHub's runners:
 - **every push / PR to `dev`** → L1–L4 (`tests/run-all.sh`).
-- **version tags + manual dispatch** → L1–L4 **+ L6 chain** (`tests/dogfood/run-l6-chain.sh`) **+ L0 docker install-smoke**.
+- **version tags + manual dispatch** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**.
 
 L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 

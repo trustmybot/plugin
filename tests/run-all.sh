@@ -8,8 +8,8 @@
 #   L2 — Unit (MCP handlers)             → mcp/trajectory-server/src/test/*.ts ← this file
 #   L3 — Integration (server + hooks)    → tests/mcp-integration/*.mjs + tests/hooks/*.sh ← this file
 #   L4 — Workflow simulation             → tests/workflow-sim/*.mjs     ← this file
-#   L5 — Per-row dogfood (real CC)       → bash tests/dogfood/run-l5.sh (token required)
-#   L6 — Multi-turn chain (real CC)      → bash tests/dogfood/run-l6-chain.sh (token required)
+#   L5 — Per-row eval (real CC)          → bash tests/l5-l6/run-l5.sh (token required)
+#   L6 — Multi-turn chain (real CC)      → bash tests/l5-l6/run-l6-chain.sh (token required)
 #   Release canary                       → tests/docker/release-canary.Dockerfile (CI-only, RC tags)
 #   Manual smoke (fallback)              → tests/manual/scenarios.md (human-walked)
 
@@ -77,7 +77,7 @@ fi
 
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/mcp-integration/run.sh"
 run_step "L3 integration: hook script tests"                         bash "$HERE/hooks/run.sh"
-run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/dogfood/lib/scorers-test.sh"
+run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
 

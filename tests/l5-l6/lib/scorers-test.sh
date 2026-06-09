@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unit-style tests for the new coherence + git scorers (Phase 1).
 # Builds a synthetic scratch project + DB, exercises pass/fail paths.
-# Run: bash tests/dogfood/lib/scorers-test.sh
+# Run: bash tests/l5-l6/lib/scorers-test.sh
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

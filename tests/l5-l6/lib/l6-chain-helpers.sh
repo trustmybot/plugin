@@ -4,17 +4,17 @@
 # invocation — continuity is DB-driven, not LLM-session-driven. Bro's
 # tmb_recovery + state-aware MCPs (issue_state_get, task_first_actionable)
 # pick up from the DB on every cold start. See
-# tests/dogfood/l6-chain/chain-manifest.json for the row order + between-row
+# tests/l5-l6/l6-chain/chain-manifest.json for the row order + between-row
 # seeds, and tests/EVALUATION.md for the journey spec.
 
 set -uo pipefail
 
 L6C_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=tests/dogfood/lib/flow-helpers.sh
+# shellcheck source=tests/l5-l6/lib/flow-helpers.sh
 . "$L6C_LIB_DIR/flow-helpers.sh"
-# shellcheck source=tests/dogfood/lib/scorers.sh
+# shellcheck source=tests/l5-l6/lib/scorers.sh
 . "$L6C_LIB_DIR/scorers.sh"
-# shellcheck source=tests/dogfood/lib/timeout-shim.sh
+# shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 . "$L6C_LIB_DIR/timeout-shim.sh"
 
 # l6c_uuid: emit a UUID for --session-id. Falls back to /dev/urandom hex if

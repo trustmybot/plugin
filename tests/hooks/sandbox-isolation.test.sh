@@ -12,9 +12,9 @@ PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
 . "$HERE/../lib/assert.sh"
 
-SANDBOX_LIB="$PLUGIN_ROOT/tests/dogfood/lib/sandbox.sh"
+SANDBOX_LIB="$PLUGIN_ROOT/tests/l5-l6/lib/sandbox.sh"
 
-# shellcheck source=tests/dogfood/lib/sandbox.sh
+# shellcheck source=tests/l5-l6/lib/sandbox.sh
 . "$SANDBOX_LIB"
 
 SCRATCH=$(mktemp -d)

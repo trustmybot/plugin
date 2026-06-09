@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared helpers for the L7 bench harness (#6). Source from run-bench.sh +
-# scorers. Mirrors tests/dogfood/lib/flow-helpers.sh + l6-chain-helpers.sh
+# scorers. Mirrors tests/l5-l6/lib/flow-helpers.sh + l6-chain-helpers.sh
 # patterns but specialized for the two-arm benchmark structure.
 
 set -uo pipefail
@@ -67,8 +67,8 @@ bench_run_arm() {
     # onboarding noise/cost and the world-model-cold gate. Reuses the
     # l5_seed_db helper + onboarding-named fixture to avoid schema drift.
     if [ ! -f "$project/.claude/tmb/trajectory.db" ]; then
-      # shellcheck source=tests/dogfood/lib/flow-helpers.sh
-      source "$PLUGIN_ROOT/tests/dogfood/lib/flow-helpers.sh"
+      # shellcheck source=tests/l5-l6/lib/flow-helpers.sh
+      source "$PLUGIN_ROOT/tests/l5-l6/lib/flow-helpers.sh"
       l5_seed_db "$project" "onboarding-named"
     fi
   fi

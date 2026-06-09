@@ -1,6 +1,6 @@
 # Manual smoke
 
-L0–L6 are automated (Docker install-smoke, lint, MCP unit + integration, workflow simulation, L5 per-flow dogfood, L6 multi-turn integration, release canary). Manual smoke is the residue — Claude-side behaviors that have no automated test surface: trigger detection, AskUserQuestion radio rendering, agent spawn isolation, subagent prompt precedence, tone, real worktree creation.
+L0–L6 are automated (Docker install-smoke, lint, MCP unit + integration, workflow simulation, L5 per-flow eval, L6 multi-turn integration, release canary). Manual smoke is the residue — Claude-side behaviors that have no automated test surface: trigger detection, AskUserQuestion radio rendering, agent spawn isolation, subagent prompt precedence, tone, real worktree creation.
 
 ## Files
 

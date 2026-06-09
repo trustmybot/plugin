@@ -6,7 +6,7 @@
 # Scans: README.md, CONTRIBUTING.md, CODEX.md, CURSOR.md, GEMINI.md, CLAUDE.md,
 #        SECURITY.md, docs/, tests/manual/, agents/, skills/, commands/, templates/.
 #
-# Allowlist (excluded): tests/lint/fixtures/, tests/dogfood/fixtures/,
+# Allowlist (excluded): tests/lint/fixtures/, tests/l5-l6/fixtures/,
 #                       templates/docs-trustmybot/snapshots/, CHANGELOG.md.
 #
 # --self-test: scan fixtures/developer-paths/has-personal-path.md and assert exit 1.
@@ -20,7 +20,7 @@ DEV_PATH_REGEX='/Users/[A-Za-z][A-Za-z0-9_-]*/|/home/[a-z][a-z0-9_-]*/|/Volumes/
 
 ALLOWLIST_PATTERNS=(
   "tests/lint/fixtures/"
-  "tests/dogfood/fixtures/"
+  "tests/l5-l6/fixtures/"
   "tests/manual/bench/"
   "templates/docs-trustmybot/snapshots/"
   "CHANGELOG.md"

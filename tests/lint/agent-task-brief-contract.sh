@@ -3,7 +3,7 @@
 #
 # swe + pr-reviewer load their context through the `task_brief` composite (one
 # read: spec + scoped world model + decision thread) instead of orchestrating
-# task_get + world_model_get + discussion_search themselves. The dogfood (L5/L6)
+# task_get + world_model_get + discussion_search themselves. The L5/L6 layer
 # can't assert this — swe/pr-reviewer run as Agent subagents whose calls never
 # appear in bro's scored trajectory — so it's locked here at L1 instead.
 #

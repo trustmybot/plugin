@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # L5 multi-scorer test runner — canonical rows/ tree.
 #
-# Each row in tests/dogfood/rows/ is an isolated L5 eval: fixture.txt seeds
+# Each row in tests/l5-l6/rows/ is an isolated L5 eval: fixture.txt seeds
 # the DB, setup-l5.sh (if present) pre-seeds env state, claude runs with
 # script.json config, all scorers present in the row dir are evaluated.
 #
 # Usage:
-#   bash tests/dogfood/run-l5.sh             # all rows
-#   bash tests/dogfood/run-l5.sh 14          # filter by substring match on row name
+#   bash tests/l5-l6/run-l5.sh             # all rows
+#   bash tests/l5-l6/run-l5.sh 14          # filter by substring match on row name
 #
 # Requirements:
 #   - CLAUDE_CODE_OAUTH_TOKEN env var (or active CC session in macOS keychain)
@@ -40,10 +40,10 @@ done
 . "$HERE/lib/smoke-helpers.sh"
 l5_pre_flight_or_abort "$PLUGIN_ROOT"
 
-# shellcheck source=tests/dogfood/lib/l6-chain-helpers.sh
+# shellcheck source=tests/l5-l6/lib/l6-chain-helpers.sh
 . "$HERE/lib/l6-chain-helpers.sh"
 
-# shellcheck source=tests/dogfood/lib/sandbox.sh
+# shellcheck source=tests/l5-l6/lib/sandbox.sh
 . "$HERE/lib/sandbox.sh"
 
 printf "=== claude --version (informational) ===\n"
@@ -118,7 +118,7 @@ for row_dir in "$HERE/rows"/*/; do
 done
 
 printf "\n========================================\n"
-printf "L5 dogfood: %d passed, %d failed\n" "$PASS" "$FAIL"
+printf "L5: %d passed, %d failed\n" "$PASS" "$FAIL"
 
 if [ "$FAIL" -gt 0 ]; then
   printf "Failed rows: %s\n" "${FAILED_ROWS[*]}"
