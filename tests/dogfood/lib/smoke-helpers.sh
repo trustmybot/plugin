@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared substrate-health checks for any test runner that spawns claude.
-# Used by tests/dogfood/run-l5.sh AND tests/dogfood/run-ab.sh.
+# Used by tests/dogfood/run-l5.sh.
 #
 # Philosophy: anything an L0–L4 test would catch (MCP server can spawn,
 # schema applies, auth works, plugin tree is intact) must be verified

@@ -18,7 +18,6 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`dogfood/run-l5.sh`](./dogfood/run-l5.sh), [`dogfood/rows/`](./dogfood/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
 | **L6** | Multi-turn chain. Walks the 13 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`dogfood/run-l6-chain.sh`](./dogfood/run-l6-chain.sh), [`dogfood/l6-chain/`](./dogfood/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`docker/release-canary.Dockerfile`](./docker/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
-| **A/B prompt eval** | Head-to-head comparison of doctrine variants (e.g. CLAUDE.md slim vs padded). N pairs per arm against an L5 flow → per-arm pass-rate + chi-squared p-value | [`dogfood/run-ab.sh`](./dogfood/run-ab.sh) + [`dogfood/ab-scenarios/`](./dogfood/ab-scenarios/) | Whether a doctrine change moves the needle vs is just rearrangement |
 | **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
 **Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed every test while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
@@ -67,13 +66,12 @@ tests/
 │   ├── README.md
 │   ├── setup.md
 │   └── scenarios.md
-└── dogfood/                    ← L5 + L6 dogfood + A/B framework
-    ├── run-l5.sh, run-l6-chain.sh, run-ab.sh
+└── dogfood/                    ← L5 + L6 dogfood
+    ├── run-l5.sh, run-l6-chain.sh
     ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
     ├── rows/<NN>-<name>/       ← canonical row tree (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
     ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
-    ├── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the world-model-cold gate so rows that exercise task_create_batch don't trip it
-    └── ab-scenarios/           ← per-A/B-test layout
+    └── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the world-model-cold gate so rows that exercise task_create_batch don't trip it
 ```
 
 L2 (MCP unit) lives at `mcp/trajectory-server/src/test/` — colocated with the source it tests, following the convention used elsewhere in that package.
@@ -174,23 +172,6 @@ L5/L6 test against bro's ability to translate user intent into the right orchest
 
 Legitimate user-typed slash commands stay verbatim (`/onboard`, `/roundtable …`, `/monitor 123`, `/scan`). Don't have the user type `@bro scan the codebase` — `scan_run` is supposed to be fired implicitly by the world-model-cold gate when bro reaches `task_create_batch`. Asking for it explicitly bypasses the very contract row 4 exists to verify.
 
-## A/B prompt eval
-
-Reach for the A/B framework when you're about to ship a doctrine change ("tightening this CLAUDE.md section, hope it helps") and want data instead of vibes:
-
-- Compare two CLAUDE.md slim variants on the same flow + prompt → which one improves outcome pass-rate?
-- Compare Hybrid D' (cold-start AskUserQuestion + lazy default) against pure-lazy → did the question add value?
-
-Skip A/B for: small mechanical fixes (typos, lint), schema/MCP changes (those land via L1–L4), or anything where the right outcome is obvious without measurement.
-
-```bash
-export CLAUDE_CODE_OAUTH_TOKEN=<token>
-N=10 bash tests/dogfood/run-ab.sh <scenario-name>
-bash tests/dogfood/scripts/ab-report.sh <scenario-name> --db <persisted-trajectory.db>
-```
-
-See `tests/dogfood/ab-scenarios/example-claude-md-slim/README.md` for the worked-example scenario layout.
-
 ## Run manual smoke
 
 See [`manual/README.md`](./manual/README.md) — setup, scenarios, and what to do when a scenario fails.
@@ -201,7 +182,7 @@ Three opt-in / always-on diagnostic surfaces. Used together they cover the "what
 
 | Mode | Surface | Trigger | Purpose |
 |---|---|---|---|
-| Trajectory capture | `debug_trajectory` SQL table inside the trajectory DB | `TMB_DEBUG_TRAJECTORY=1` | Capture canonical L5 expected-sequence; A/B prompt-eval input |
+| Trajectory capture | `debug_trajectory` SQL table inside the trajectory DB | `TMB_DEBUG_TRAJECTORY=1` | Capture canonical L5 expected-sequence |
 | MCP server log | `~/.claude/tmb/logs/mcp-server.log` (JSONL, file-based) | always-on | Forensics: lifecycle (startup/shutdown/error) + per-tool entry/exit; survives MCP/CC crash |
 | SQL query log | `~/.claude/tmb/logs/sql.log` (JSONL, file-based) | `TMB_DEBUG_SQL=1` | Every `run`/`get`/`all` with sql, params, duration_ms; verbose, off by default |
 
@@ -288,7 +269,7 @@ Assertion helpers (`tests/lib/assert.sh`):
 
 ## L5/L6 sandbox
 
-All L5 (`run-l5.sh`), L6 (`run-l6-chain.sh`), and A/B (`run-ab.sh`) runs execute inside a network-isolated sandbox. The sandbox is initialized by `tmb_test_sandbox_init` (from `tests/dogfood/lib/sandbox.sh`) before each `claude -p` invocation and torn down after.
+All L5 (`run-l5.sh`) and L6 (`run-l6-chain.sh`) runs execute inside a network-isolated sandbox. The sandbox is initialized by `tmb_test_sandbox_init` (from `tests/dogfood/lib/sandbox.sh`) before each `claude -p` invocation and torn down after.
 
 ### What the sandbox does
 
