@@ -93,8 +93,11 @@ bench_run_arm() {
     # tier that compares fairly against published Sonnet 4 harnesses.
     # See docs/BENCHMARK.md for the two-tier framing.
     local final_prompt="$prompt"
+    if [ -n "${TMB_BENCH_PROMPT_PREFIX:-}" ]; then
+      final_prompt="${TMB_BENCH_PROMPT_PREFIX}${final_prompt}"
+    fi
     if [ "${TMB_BENCH_ENRICH_PROMPT:-0}" = "1" ]; then
-      final_prompt="${prompt}
+      final_prompt="${final_prompt}
 
 I will go to sleep. You solve all of the issues automatically. Don't ask questions."
     fi

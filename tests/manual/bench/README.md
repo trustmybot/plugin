@@ -153,6 +153,14 @@ bash tests/manual/bench/run-bench.sh --all
 N=3 bash tests/manual/bench/run-bench.sh --all
 ```
 
+**Prompt tiers:** Two env vars control the prompt sent to Claude. `TMB_BENCH_ENRICH_PROMPT=1` appends an overnight-autonomous suffix ("I will go to sleep…") to model real TMB usage. `TMB_BENCH_PROMPT_PREFIX` prepends a verbatim string to the prompt — set it to `'@bro '` to run the **bro-mode tier**, where the plugin's doctrine chain (`tmb_planning` → SWE → V1/V2/V3 → atomic-close) fires as designed:
+
+```bash
+TMB_BENCH_PROMPT_PREFIX='@bro ' bash tests/manual/bench/run-bench.sh 03-swebench-flask-4045
+```
+
+When `TMB_BENCH_PROMPT_PREFIX` is unset or empty, the prompt is unchanged (byte-identical to previous behaviour). The two vars compose: prefix is applied first, enrich suffix last.
+
 Requires:
 - `claude` (with `CLAUDE_CODE_OAUTH_TOKEN` set)
 - `uv` (per-task Python pinning) — `brew install uv` or `pip install uv`
