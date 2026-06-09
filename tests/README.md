@@ -12,7 +12,7 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 |---|---|---|---|
 | **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`l0-install/install-smoke.Dockerfile`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn |
 | **L1** | Lint (version sync, link check, dist freshness, layer-budget, etc.) | [`l1-lint/*.sh`](./l1-lint/) | Stale CHANGELOG, broken links, version drift, agent-template line caps, doctrine doc parity |
-| **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` | Handler bugs, constraint violations, return-shape drift |
+| **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` (see [`l2-mcp-unit/`](./l2-mcp-unit/)) | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), [`l3-integration/hooks/*.sh`](./l3-integration/hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`l4-workflow-sim/*.test.mjs`](./l4-workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.sh`](./l5-l6/run-l5.sh), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
@@ -58,6 +58,7 @@ tests/
 ├── run-all.sh                  ← orchestrator — runs L1–L4
 ├── l0-install/                 ← L0 install-smoke + Release canary
 ├── l1-lint/                    ← L1 lints (version sync, links, doctrine docs, layer budgets)
+├── l2-mcp-unit/                ← pointer — see mcp/trajectory-server/src/test/ for the actual tests
 ├── l3-integration/
 │   ├── mcp/                    ← L3 real server subprocess + JSON-RPC
 │   └── hooks/                  ← L3 hook script tests
