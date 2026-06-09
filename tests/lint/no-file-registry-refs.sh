@@ -13,7 +13,7 @@
 #  - tests/run-all.sh — step label references this script name
 #  - tests/EVALUATION.md — L6 journey table with historical step descriptions
 #  - tests/mcp-integration/search-tools.test.mjs — "replaces file_registry_search" note in comment
-#  - tests/manual/bench/ — historical bench scripts predating v7 retirement
+#  - tests/l7/ — historical bench scripts predating v7 retirement
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,7 +43,7 @@ while IFS= read -r f; do
     tests/run-all.sh) continue;;
     tests/EVALUATION.md) continue;;
     tests/mcp-integration/search-tools.test.mjs) continue;;
-    tests/manual/bench/*) continue;;
+    tests/l7/*) continue;;
     # CLAUDE.md is Human-owned (feedback_claude_md_owned_by_human) — warn,
     # don't fail. Surfacing the drift is the value; the Human applies the fix.
     CLAUDE.md)

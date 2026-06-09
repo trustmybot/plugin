@@ -21,7 +21,7 @@ DEV_PATH_REGEX='/Users/[A-Za-z][A-Za-z0-9_-]*/|/home/[a-z][a-z0-9_-]*/|/Volumes/
 ALLOWLIST_PATTERNS=(
   "tests/lint/fixtures/"
   "tests/l5-l6/fixtures/"
-  "tests/manual/bench/"
+  "tests/l7/"
   "templates/docs-trustmybot/snapshots/"
   "CHANGELOG.md"
 )
