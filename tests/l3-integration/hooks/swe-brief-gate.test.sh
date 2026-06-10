@@ -188,4 +188,31 @@ INPUT=$(jq -n --arg tr "$TR" '{
 out=$(run_hook "$INPUT")
 assert_eq "" "$out" "bro should never be denied by brief gate"
 
+# ---- SQL injection via tool_input.task_id: treated as missing ----------------
+test_case "Injection: task_id='1; DROP TABLE tasks;--' treated as missing (no SQL error, no row)"
+AUDIT_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit;")
+INPUT=$(jq -n '{
+  agent_type: "swe",
+  tool_name: "mcp__tmb__trajectory-server__task_update_status",
+  tool_input: {task_id: "1; DROP TABLE tasks;--"}
+}')
+out=$(run_hook "$INPUT")
+assert_not_contains "$out" '"permissionDecision":"deny"' "injected task_id should be treated as missing (allow)"
+assert_not_contains "$out" "Error" "injected task_id should not surface a SQL error"
+TASKS_TABLE=$(sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks';")
+assert_eq "tasks" "$TASKS_TABLE" "tasks table must survive injection attempt"
+AUDIT_AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit;")
+assert_eq "$AUDIT_BEFORE" "$AUDIT_AFTER" "no audit row should be written for injected task_id"
+
+test_case "Injection: task_brief with injected task_id writes no sentinel"
+INPUT=$(jq -n '{
+  agent_type: "swe",
+  tool_name: "mcp__tmb__trajectory-server__task_brief",
+  tool_input: {task_id: "1; DROP TABLE tasks;--"}
+}')
+out=$(run_hook "$INPUT")
+assert_eq "" "$out" "injected task_brief should pass through silently"
+AUDIT_AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit;")
+assert_eq "$AUDIT_BEFORE" "$AUDIT_AFTER" "injected task_brief should not write a sentinel row"
+
 summarize

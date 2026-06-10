@@ -117,6 +117,14 @@ test_case "(a) bro git push: NOT denied (bro is the push agent)"
 out=$(run_hook_bro "$(make_bash_input bro 'git push origin dev')")
 assert_not_contains "$out" '"permissionDecision":"deny"' "bro push should not be denied"
 
+test_case "(a) bro INSIDE worktree path: git commit/fetch/rebase NOT denied (explicit identity wins)"
+out=$(run_hook_swe "$(make_bash_input bro 'git commit -m "review fixup"')")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bro git commit inside worktree should be allowed"
+out=$(run_hook_swe "$(make_bash_input bro 'git fetch origin')")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bro git fetch inside worktree should be allowed"
+out=$(run_hook_swe "$(make_bash_input bro 'git rebase origin/dev')")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bro git rebase inside worktree should be allowed"
+
 test_case "(a) SWE git status: NOT denied (read-only git)"
 out=$(run_hook_swe "$(make_bash_input swe 'git status')")
 assert_not_contains "$out" '"permissionDecision":"deny"' "git status should not be denied"

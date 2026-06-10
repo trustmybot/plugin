@@ -152,4 +152,33 @@ out=$(cd "$TMPDIR/repo" && \
 assert_contains "$out" '"permissionDecision":"deny"' "timeout should deny"
 assert_contains "$out" "timed out" "deny reason should mention timeout"
 
+# ---- SQL injection via task_id: treated as missing ---------------------------
+test_case "Injection: task_id='1; DROP TABLE tasks;--' treated as missing (no SQL error, no row)"
+AUDIT_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit;")
+INPUT=$(jq -n '{
+  tool_name: "mcp__tmb__trajectory-server__task_update_status",
+  tool_input: {agent: "swe", status: "completed", task_id: "1; DROP TABLE tasks;--", waive_verification_gate_reason: "waiver text long enough"}
+}')
+out=$(run_hook "$INPUT")
+assert_not_contains "$out" '"permissionDecision":"deny"' "injected task_id should be treated as missing (allow)"
+assert_not_contains "$out" "Error" "injected task_id should not surface a SQL error"
+TASKS_TABLE=$(sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks';")
+assert_eq "tasks" "$TASKS_TABLE" "tasks table must survive injection attempt"
+AUDIT_AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit;")
+assert_eq "$AUDIT_BEFORE" "$AUDIT_AFTER" "no audit row should be written for injected task_id"
+
+# ---- Waiver reason with single quotes: audit row written intact --------------
+test_case "Waiver reason containing single quotes: allowed, audit row intact"
+WAIVER="tests can't run here — it's a doc-only change"
+INPUT=$(jq -n --arg w "$WAIVER" '{
+  tool_name: "mcp__tmb__trajectory-server__task_update_status",
+  tool_input: {agent: "swe", status: "completed", task_id: "4", waive_verification_gate_reason: $w}
+}')
+out=$(run_hook "$INPUT")
+assert_not_contains "$out" '"permissionDecision":"deny"' "quoted waiver should allow"
+ROW=$(sqlite3 "$DB" "SELECT content_json FROM audit WHERE event_type='verification_gate_waived' ORDER BY id DESC LIMIT 1;")
+assert_contains "$ROW" "it's a doc-only change" "stored content_json should retain single quotes"
+EXTRACTED=$(sqlite3 "$DB" "SELECT json_extract(content_json, '\$.waiver_reason') FROM audit WHERE event_type='verification_gate_waived' ORDER BY id DESC LIMIT 1;")
+assert_contains "$EXTRACTED" "can't run here" "content_json should be valid JSON (json_extract works)"
+
 summarize

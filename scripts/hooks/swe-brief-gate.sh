@@ -51,10 +51,12 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
     .[] | select(.type == "text") | .text // ""
   ' "$TRANSCRIPT_PATH" 2>/dev/null \
     | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+  case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
 fi
 
 if [ -z "$TASK_ID" ]; then
   TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // empty' 2>/dev/null || true)
+  case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
 fi
 
 if [ -z "$TASK_ID" ]; then
@@ -71,16 +73,17 @@ if [ "$IS_TASK_BRIEF" = "yes" ]; then
   ALREADY=$(tmb_sqlite_ro "$DB" "
     SELECT COUNT(*) FROM audit
      WHERE event_type = 'swe_brief_fetched'
-       AND content_json LIKE '%\"task_id\":${TASK_ID}%'
+       AND json_extract(content_json, '\$.task_id') = ${TASK_ID}
     LIMIT 1;
   " 2>/dev/null || echo "0")
   if [ "${ALREADY:-0}" -eq 0 ]; then
     CONTENT_JSON="{\"task_id\":${TASK_ID},\"agent_type\":\"swe\"}"
+    CONTENT_JSON_SQL=${CONTENT_JSON//\'/\'\'}
     sqlite3 "$DB" "
       INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
       SELECT COALESCE(t.issue_id, -1), t.branch_id, 'swe', 'swe_brief_fetched',
              'SWE fetched task_brief for task_id=${TASK_ID}',
-             '${CONTENT_JSON}', datetime('now')
+             '${CONTENT_JSON_SQL}', datetime('now')
         FROM tasks t WHERE t.id = ${TASK_ID}
        LIMIT 1;
     " 2>/dev/null || true
@@ -92,7 +95,7 @@ fi
 SENTINEL=$(tmb_sqlite_ro "$DB" "
   SELECT COUNT(*) FROM audit
    WHERE event_type = 'swe_brief_fetched'
-     AND content_json LIKE '%\"task_id\":${TASK_ID}%'
+     AND json_extract(content_json, '\$.task_id') = ${TASK_ID}
   LIMIT 1;
 " 2>/dev/null || echo "0")
 

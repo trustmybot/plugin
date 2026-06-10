@@ -175,6 +175,7 @@ if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
         .[] | select(.type == "text") | .text // ""
       ' "$TRANSCRIPT_PATH" 2>/dev/null \
         | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+      case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
     fi
     if [ -n "$TASK_ID" ]; then
       PROMPT_BEARING=$(tmb_sqlite_ro "$DB" "

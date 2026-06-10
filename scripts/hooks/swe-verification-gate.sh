@@ -28,6 +28,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 INPUT=$(cat)
 
+# Portable per-command timeout: prefer `timeout`, fall back to `gtimeout`
+# (brew coreutils), else perl alarm(). Exit 124 on timeout (GNU convention).
+tmb_run_with_timeout() {
+  secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"
+  else
+    perl -e '
+      use strict; use warnings;
+      my $secs = shift @ARGV;
+      my $pid = fork();
+      if (!defined $pid) { exit 1; }
+      if ($pid == 0) { exec @ARGV; exit 1; }
+      local $SIG{ALRM} = sub { kill 9, $pid; waitpid($pid, 0); exit 124 };
+      alarm $secs;
+      waitpid($pid, 0);
+      alarm 0;
+      exit(($? >> 8) & 0xff);
+    ' "$secs" "$@"
+  fi
+}
+
 AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.tool_input.agent // empty' 2>/dev/null || true)")
 
 [ "$AGENT_TYPE" = "swe" ] || exit 0
@@ -36,6 +60,7 @@ STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // empty' 2>/dev/null || true
 [ "$STATUS" = "completed" ] || exit 0
 
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // empty' 2>/dev/null || true)
+case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
 if [ -z "$TASK_ID" ]; then
   exit 0
 fi
@@ -49,11 +74,12 @@ fi
 WAIVER=$(echo "$INPUT" | jq -r '.tool_input.waive_verification_gate_reason // empty' 2>/dev/null || true)
 if [ -n "$WAIVER" ] && [ ${#WAIVER} -ge 10 ]; then
   CONTENT_JSON="{\"task_id\":${TASK_ID},\"waiver_reason\":$(echo "$WAIVER" | jq -Rs .)}"
+  CONTENT_JSON_SQL=${CONTENT_JSON//\'/\'\'}
   sqlite3 "$DB" "
     INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
     SELECT COALESCE(t.issue_id, -1), t.branch_id, 'swe', 'verification_gate_waived',
            'SWE waived verification gate for task_id=${TASK_ID}',
-           '${CONTENT_JSON}', datetime('now')
+           '${CONTENT_JSON_SQL}', datetime('now')
       FROM tasks t WHERE t.id = ${TASK_ID}
      LIMIT 1;
   " 2>/dev/null || true
@@ -157,8 +183,14 @@ while IFS= read -r line; do
     exit 0
   fi
 
-  # Run command in worktree with remaining time budget.
-  CMD_OUTPUT=$(cd "$WT_PATH" && eval "$CMD" 2>&1) || {
+  # Run command in worktree, bounded by the remaining time budget.
+  CMD_OUTPUT=$( (cd "$WT_PATH" && tmb_run_with_timeout "$REMAINING" bash -c "$CMD") 2>&1 ) || {
+    CMD_RC=$?
+    if [ "$CMD_RC" -eq 124 ]; then
+      jq -nc --arg cmd "$CMD" --arg t "$TIMEOUT_S" \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: verification timed out after " + $t + "s total budget while running: " + $cmd + ". Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands.")}}'
+      exit 0
+    fi
     FAILED_CMD="$CMD"
     FAILED_OUTPUT=$(echo "$CMD_OUTPUT" | tail -20)
     break
