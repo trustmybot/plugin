@@ -7,6 +7,9 @@ import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { syncIssueCloseRemotes } from './issues.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import type { WorldModelGraph } from '../graph-db.js';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+
+const WORKTREE_TIMEOUT_MS = 60_000;
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -657,6 +660,7 @@ export function compositeTools(
         try {
           execFileSync('git', ['-C', repoPath, 'worktree', 'add', wtPath, commitSha], {
             stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: WORKTREE_TIMEOUT_MS,
           });
         } catch (e) {
           return err(`worktree add failed: ${(e as Error).message}`);
@@ -678,6 +682,7 @@ export function compositeTools(
           try {
             execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wtPath], {
               stdio: 'ignore',
+              timeout: WORKTREE_TIMEOUT_MS,
             });
           } catch {
             // best-effort cleanup; don't override the command result

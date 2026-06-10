@@ -3,6 +3,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { syncIssueCloseRemotes } from './issues.js';
+const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a spec's `## Files` section. Each
 // bullet's first token is the path; its dirname is the directory ('' = repo
 // root). task_brief resolves these against the world model. (#300)
@@ -514,6 +515,7 @@ export function compositeTools(db, dbPath, graph = null) {
             try {
                 execFileSync('git', ['-C', repoPath, 'worktree', 'add', wtPath, commitSha], {
                     stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: WORKTREE_TIMEOUT_MS,
                 });
             }
             catch (e) {
@@ -537,6 +539,7 @@ export function compositeTools(db, dbPath, graph = null) {
                 try {
                     execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wtPath], {
                         stdio: 'ignore',
+                        timeout: WORKTREE_TIMEOUT_MS,
                     });
                 }
                 catch {

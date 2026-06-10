@@ -28,12 +28,15 @@ describe('roundtable tools', () => {
   before(async () => {
     db = tempDB();
 
-    // Seed the slash-invoke audit so the roundtable_create gate clears.
-    // Tests targeting the gate explicitly use a fresh DB without this seed.
-    db.run(
-      `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-       VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'test fixture: gate cleared', '{}', datetime('now'))`,
-    );
+    // Seed enough slash-invoke audit rows to cover all roundtable_create calls
+    // in the shared-db test suite. Each successful create consumes one row (#356).
+    // 20 rows covers all creates in this suite with margin.
+    for (let i = 0; i < 20; i++) {
+      db.run(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'test fixture: gate cleared', '{}', datetime('now'))`,
+      );
+    }
 
     const issues = issueTools(db);
     const result = await call(issues.handlers, 'issue_create', {
@@ -756,10 +759,12 @@ describe('roundtable tools', () => {
   describe('roundtable_summarize cross-roundtable fence', () => {
     it('returns only items from the target roundtable when multiple roundtables exist on same issue', async () => {
       const localDb = tempDB();
-      localDb.run(
-        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'fence test fixture', '{}', datetime('now'))`,
-      );
+      for (let i = 0; i < 5; i++) {
+        localDb.run(
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'fence test fixture', '{}', datetime('now'))`,
+        );
+      }
 
       const issues = issueTools(localDb);
       const issueResult = await call(issues.handlers, 'issue_create', {
@@ -833,6 +838,128 @@ describe('roundtable tools', () => {
       const summary2 = parseResult(summary2Result);
       assert.equal(summary2.agreements_ratified.length, 1, 'rt2 summary must include only rt2 answers');
       assert.equal(summary2.agreements_ratified[0], 'answer from rt2');
+
+      localDb.close();
+    });
+  });
+
+  describe('roundtable_create slash gate (#356)', () => {
+    it('rejects when no slash-invoke audit row exists within 10 minutes', async () => {
+      const localDb = tempDB();
+      const issues = issueTools(localDb);
+      const issueResult = await call(issues.handlers, 'issue_create', {
+        agent: 'bro',
+        objective: 'gate expiry test',
+      });
+      const localIssueId = parseResult(issueResult).id as number;
+      const rt = roundtableTools(localDb);
+
+      const result = await call(rt.handlers, 'roundtable_create', {
+        agent: 'bro',
+        issue_id: localIssueId,
+        topic: 'should be rejected',
+        expected_participants: 2,
+      });
+      assert.ok(result.isError, 'Expected isError=true when no slash row exists');
+      const data = parseResult(result);
+      assert.equal(data.error, 'roundtable_slash_gate_violation');
+
+      localDb.close();
+    });
+
+    it('rejects when slash-invoke row exists but is older than 10 minutes (expiry)', async () => {
+      const localDb = tempDB();
+      localDb.run(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'stale fixture', '{}', datetime('now', '-11 minutes'))`,
+      );
+      const issues = issueTools(localDb);
+      const issueResult = await call(issues.handlers, 'issue_create', {
+        agent: 'bro',
+        objective: 'gate expiry test',
+      });
+      const localIssueId = parseResult(issueResult).id as number;
+      const rt = roundtableTools(localDb);
+
+      const result = await call(rt.handlers, 'roundtable_create', {
+        agent: 'bro',
+        issue_id: localIssueId,
+        topic: 'should be rejected — stale slash row',
+        expected_participants: 2,
+      });
+      assert.ok(result.isError, 'Expected isError=true for stale slash row');
+      const data = parseResult(result);
+      assert.equal(data.error, 'roundtable_slash_gate_violation');
+
+      localDb.close();
+    });
+
+    it('rejects when slash-invoke row already consumed (single-use)', async () => {
+      const localDb = tempDB();
+      localDb.run(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'single-use fixture', '{}', datetime('now'))`,
+      );
+      const issues = issueTools(localDb);
+      const issueResult = await call(issues.handlers, 'issue_create', {
+        agent: 'bro',
+        objective: 'single-use test',
+      });
+      const localIssueId = parseResult(issueResult).id as number;
+      const rt = roundtableTools(localDb);
+
+      const firstResult = await call(rt.handlers, 'roundtable_create', {
+        agent: 'bro',
+        issue_id: localIssueId,
+        topic: 'first roundtable — should succeed',
+        expected_participants: 2,
+      });
+      assert.ok(!firstResult.isError, `First create must succeed: ${JSON.stringify(parseResult(firstResult))}`);
+      const firstRtId = parseResult(firstResult).roundtable_id as number;
+      assert.ok(typeof firstRtId === 'number' && firstRtId > 0);
+
+      const secondResult = await call(rt.handlers, 'roundtable_create', {
+        agent: 'bro',
+        issue_id: localIssueId,
+        topic: 'second roundtable — should be rejected (row consumed)',
+        expected_participants: 2,
+      });
+      assert.ok(secondResult.isError, 'Second create must fail — slash row consumed');
+      const secondData = parseResult(secondResult);
+      assert.equal(secondData.error, 'roundtable_slash_gate_violation');
+
+      localDb.close();
+    });
+
+    it('accepts roundtable_create when fresh slash row present, stamps roundtable_id into content_json', async () => {
+      const localDb = tempDB();
+      localDb.run(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (-1, NULL, 'system', 'roundtable_slash_invoked', 'fresh fixture', '{}', datetime('now'))`,
+      );
+      const issues = issueTools(localDb);
+      const issueResult = await call(issues.handlers, 'issue_create', {
+        agent: 'bro',
+        objective: 'stamp test',
+      });
+      const localIssueId = parseResult(issueResult).id as number;
+      const rt = roundtableTools(localDb);
+
+      const result = await call(rt.handlers, 'roundtable_create', {
+        agent: 'bro',
+        issue_id: localIssueId,
+        topic: 'stamp test',
+        expected_participants: 2,
+      });
+      assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+      const rtId = parseResult(result).roundtable_id as number;
+
+      const auditRow = localDb.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'roundtable_slash_invoked' LIMIT 1`,
+      );
+      assert.ok(auditRow, 'Audit row must exist');
+      const content = JSON.parse(auditRow.content_json) as { consumed_by_roundtable_id?: number };
+      assert.equal(content.consumed_by_roundtable_id, rtId, 'content_json must be stamped with roundtable_id');
 
       localDb.close();
     });

@@ -232,6 +232,14 @@ export function skillTools(db) {
             if (!isStatusTransition && !isTierTransition) {
                 throw new Error(`Invalid transition: ${fromStatus}→${toStatus}`);
             }
+            if (isStatusTransition && skill.status !== fromStatus) {
+                throw new Error(`skill_promote rejected: skill '${name}' is in status '${skill.status}', not '${fromStatus}'. ` +
+                    `from_status must match the skill's current status.`);
+            }
+            if (isTierTransition && skill.trust_tier !== fromStatus) {
+                throw new Error(`skill_promote rejected: skill '${name}' has trust_tier '${skill.trust_tier}', not '${fromStatus}'. ` +
+                    `from_status must match the skill's current trust_tier for tier transitions.`);
+            }
             const now = nowISO();
             if (isStatusTransition) {
                 db.run(`UPDATE skills SET status = ?, updated_at = ? WHERE name = ?`, [toStatus, now, name]);
