@@ -79,6 +79,11 @@ test_case "SWE with pending task and non-empty body passes silently"
 out=$(run_hook "$(swe_input 'task_id=1 please do the thing')")
 assert_eq "" "$out" "silent pass"
 
+test_case "SWE with colon-form 'task_id: N' passes silently (separator-agnostic parser)"
+out=$(run_hook "$(swe_input 'task_id: 1
+please do the thing')")
+assert_eq "" "$out" "silent pass for colon form"
+
 test_case "SWE with open task and non-empty body passes silently"
 out=$(run_hook "$(swe_input 'task_id=3 please do the thing')")
 assert_eq "" "$out" "silent pass"
