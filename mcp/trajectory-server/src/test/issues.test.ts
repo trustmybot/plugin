@@ -276,6 +276,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const closeResult = await call(tools.handlers, 'issue_close', {
       agent: 'bro',
       issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([{ status: 0, stdout: '', stderr: '' }]),
     });
     const closed = parseResult(closeResult);
     assert.ok(!closeResult.isError, 'issue_close should succeed with gh_iid set');
@@ -302,6 +303,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const closeResult = await call(tools.handlers, 'issue_close', {
       agent: 'bro',
       issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([{ status: 0, stdout: '', stderr: '' }]),
     });
     const closed = parseResult(closeResult);
     assert.ok(!closeResult.isError, 'issue_close should succeed with gl_iid set');
@@ -444,6 +446,7 @@ describe('issueTools — remote sync', () => {
     const closeResult = await call(tools.handlers, 'issue_close', {
       agent: 'bro',
       issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated remote close failure' }]),
     });
     const closed = parseResult(closeResult);
     assert.ok(!closeResult.isError, 'issue_close should be non-fatal even if remote close fails');
@@ -840,7 +843,14 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
     await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
     const tools = issueTools(db);
 
-    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'already synced test' });
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'already synced test',
+      _spawnFn: makeSpawnFn([
+        { status: 1, stdout: '', stderr: 'simulated gh create failure' },
+        { status: 1, stdout: '', stderr: 'simulated glab create failure' },
+      ]),
+    });
     const issue = parseResult(createResult);
 
     db.run('UPDATE issues SET gh_iid = 10, gl_iid = 20, remote_iid = 10, remote_kind = ? WHERE id = ?', ['github', issue.id]);
@@ -848,6 +858,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
     const retryResult = await call(tools.handlers, 'issue_sync_retry', {
       agent: 'bro',
       issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([]),
     });
     const data = parseResult(retryResult);
     assert.ok(!retryResult.isError);
@@ -863,7 +874,14 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
     await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
     const tools = issueTools(db);
 
-    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'partial sync gh done' });
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'partial sync gh done',
+      _spawnFn: makeSpawnFn([
+        { status: 1, stdout: '', stderr: 'simulated gh create failure' },
+        { status: 1, stdout: '', stderr: 'simulated glab create failure' },
+      ]),
+    });
     const issue = parseResult(createResult);
 
     db.run('UPDATE issues SET gh_iid = 55, remote_iid = 55, remote_kind = ? WHERE id = ?', ['github', issue.id]);
@@ -871,6 +889,10 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
     const retryResult = await call(tools.handlers, 'issue_sync_retry', {
       agent: 'bro',
       issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([
+        { status: 0, stdout: 'https://gitlab.com/owner/repo/-/issues/20\n', stderr: '' },
+        { status: 0, stdout: 'issue 20 details', stderr: '' },
+      ]),
     });
     assert.ok(!retryResult.isError, 'retry must not error');
 

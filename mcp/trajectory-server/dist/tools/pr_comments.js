@@ -4,6 +4,7 @@ import { resolveBackend } from '../sync/backend.js';
 import { buildBotPatterns, isBot } from '../sync/bot_patterns.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -24,6 +25,10 @@ function wrap(fn) {
     };
 }
 function defaultSpawnFn(cmd, args, opts) {
+    const blockReason = liveCliBlockReason();
+    if (blockReason) {
+        return { status: null, stdout: '', stderr: liveCliBlockedMessage(blockReason, cmd, args) };
+    }
     const result = spawnSync(cmd, args, opts);
     return {
         status: result.status,

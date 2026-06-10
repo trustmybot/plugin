@@ -15,6 +15,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
+import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
@@ -98,6 +99,7 @@ function probeCli(cmd: string): { installed: boolean; authed: boolean } {
   const installed = which.status === 0 && (which.stdout ?? '').trim().length > 0;
   if (!installed) return { installed: false, authed: false };
 
+  if (liveCliBlockReason()) return { installed: true, authed: false };
   const authR = spawnSync(cmd, ['auth', 'status'], { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS });
   return { installed: true, authed: authR.status === 0 };
 }

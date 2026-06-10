@@ -421,3 +421,44 @@ describe('syncIssueClose', () => {
     assert.equal(result.stderr, 'not found');
   });
 });
+
+describe('defaultSpawnFn live-CLI guard', () => {
+  it('refuses to spawn under TMB_FORBID_LIVE_SYNC=1 and surfaces a SyncFailure', async () => {
+    const savedForbid = process.env.TMB_FORBID_LIVE_SYNC;
+    const savedTestCtx = process.env.NODE_TEST_CONTEXT;
+    process.env.TMB_FORBID_LIVE_SYNC = '1';
+    delete process.env.NODE_TEST_CONTEXT;
+    try {
+      const result = await syncIssueCreate({
+        issueId: 1,
+        title: 'guard test',
+        body: 'must never reach a real gh binary',
+        _backend: 'gh',
+      });
+      assert.ok(isSyncFailure(result), 'guarded create must fail');
+      assert.match(result.stderr ?? '', /live CLI blocked in test context/);
+      assert.match(result.stderr ?? '', /TMB_FORBID_LIVE_SYNC=1/);
+    } finally {
+      if (savedForbid !== undefined) process.env.TMB_FORBID_LIVE_SYNC = savedForbid;
+      else delete process.env.TMB_FORBID_LIVE_SYNC;
+      if (savedTestCtx !== undefined) process.env.NODE_TEST_CONTEXT = savedTestCtx;
+    }
+  });
+
+  it('refuses to spawn under the node test runner (NODE_TEST_CONTEXT)', async () => {
+    assert.ok(process.env.NODE_TEST_CONTEXT, 'suite must run under node --test');
+    const savedForbid = process.env.TMB_FORBID_LIVE_SYNC;
+    delete process.env.TMB_FORBID_LIVE_SYNC;
+    try {
+      const result = await syncIssueClose({
+        remote_iid: 999999,
+        remote_kind: 'github',
+      });
+      assert.equal(result.ok, false);
+      assert.match(result.stderr ?? '', /live CLI blocked in test context/);
+      assert.match(result.stderr ?? '', /NODE_TEST_CONTEXT/);
+    } finally {
+      if (savedForbid !== undefined) process.env.TMB_FORBID_LIVE_SYNC = savedForbid;
+    }
+  });
+});

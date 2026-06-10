@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +31,12 @@ function syncLog(entry) {
     }
 }
 function defaultSpawnFn(cmd, args, opts) {
+    const blockReason = liveCliBlockReason();
+    if (blockReason) {
+        const message = liveCliBlockedMessage(blockReason, cmd, args);
+        syncLog({ event: 'live_cli_blocked', cmd, args, reason: blockReason });
+        return { status: null, stdout: '', stderr: message };
+    }
     const result = spawnSync(cmd, args, opts);
     return {
         status: result.status,

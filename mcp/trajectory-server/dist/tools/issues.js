@@ -545,6 +545,8 @@ export function issueTools(db, dbPath = '') {
         })),
         issue_sync_retry: requireRoles('issue_sync_retry', ['bro'], wrapHandler(async (args) => {
             const issueId = requireArg(args, 'issue_id');
+            // _spawnFn: test-only injection point; not in inputSchema
+            const spawnFn = args['_spawnFn'] ?? undefined;
             const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             if (!row) {
                 return err(`not_found: issue ${issueId}`);
@@ -556,7 +558,7 @@ export function issueTools(db, dbPath = '') {
             if (syncConfig === 'off') {
                 return ok({ skipped: true, reason: 'issue_sync is off' });
             }
-            const backend = resolveBackend(syncConfig);
+            const backend = resolveBackend(syncConfig, !!spawnFn);
             if (backend === null || backend === 'off') {
                 return ok({ skipped: true, reason: 'no remote backend configured' });
             }
@@ -584,6 +586,7 @@ export function issueTools(db, dbPath = '') {
                     const closeResult = await syncIssueClose({
                         remote_iid: target.remote_iid,
                         remote_kind: target.remote_kind,
+                        _spawnFn: spawnFn,
                         _cwd: retryCwd,
                     });
                     if (!closeResult.ok) {
@@ -629,6 +632,7 @@ export function issueTools(db, dbPath = '') {
                     body: row.description,
                     labels: [],
                     _backend: target,
+                    _spawnFn: spawnFn,
                     _cwd: retryCwd,
                 });
                 if (!isSyncFailure(syncResult)) {
