@@ -297,12 +297,12 @@ if [ -n "$TRANSCRIPT_PATH" ]; then
 fi
 
 # Sanitize: ensure all values are integers (default 0 if not)
-TOKENS_IN=$(printf '%d' "${TOKENS_IN}" 2>/dev/null || echo "0")
-TOKENS_OUT=$(printf '%d' "${TOKENS_OUT}" 2>/dev/null || echo "0")
-TOOL_USES=$(printf '%d' "${TOOL_USES}" 2>/dev/null || echo "0")
-DURATION_MS=$(printf '%d' "${DURATION_MS}" 2>/dev/null || echo "0")
-CACHE_READ_TOKENS=$(printf '%d' "${CACHE_READ_TOKENS}" 2>/dev/null || echo "0")
-CACHE_CREATION_TOKENS=$(printf '%d' "${CACHE_CREATION_TOKENS}" 2>/dev/null || echo "0")
+case "${TOKENS_IN}" in (''|*[!0-9]*) TOKENS_IN=0 ;; esac
+case "${TOKENS_OUT}" in (''|*[!0-9]*) TOKENS_OUT=0 ;; esac
+case "${TOOL_USES}" in (''|*[!0-9]*) TOOL_USES=0 ;; esac
+case "${DURATION_MS}" in (''|*[!0-9]*) DURATION_MS=0 ;; esac
+case "${CACHE_READ_TOKENS}" in (''|*[!0-9]*) CACHE_READ_TOKENS=0 ;; esac
+case "${CACHE_CREATION_TOKENS}" in (''|*[!0-9]*) CACHE_CREATION_TOKENS=0 ;; esac
 
 TOKENS_TOTAL=$((TOKENS_IN + TOKENS_OUT))
 
