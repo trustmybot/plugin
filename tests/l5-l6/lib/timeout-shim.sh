@@ -13,13 +13,17 @@ _l5_timeout() {
   else
     perl -e '
       use strict; use warnings;
+      use POSIX ":sys_wait_h";
       my $secs = shift @ARGV;
-      eval {
-        local $SIG{ALRM} = sub { kill 9, $$; exit 124 };
-        alarm $secs;
-        exec @ARGV;
-      };
-      exit 124;
+      my $pid = fork();
+      if (!defined $pid) { exit 1; }
+      if ($pid == 0) { exec @ARGV; exit 1; }
+      local $SIG{ALRM} = sub { kill 9, $pid; waitpid($pid, 0); exit 124 };
+      alarm $secs;
+      waitpid($pid, 0);
+      alarm 0;
+      my $status = $?;
+      exit(($status >> 8) & 0xff);
     ' "$secs" "$@"
   fi
 }

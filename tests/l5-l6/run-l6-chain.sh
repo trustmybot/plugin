@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 chain runner — drives ALL 14 journey rows sequentially through ONE
+# L6 chain runner — drives ALL 13 journey rows sequentially through ONE
 # cumulative trajectory DB. Rows live in tests/l5-l6/rows/ (canonical tree).
 # State carries across rows via DB; see tests/EVALUATION.md for the journey spec
 # and tests/l5-l6/l6-chain/chain-manifest.json for the step manifest.
@@ -109,13 +109,13 @@ trap 'if [ -f "$HOME/.claude/tmb-active-workspace.l6-bak-$$" ]; then mv "$HOME/.
 PROJECT="$RUN_DIR/project"
 
 # Most recent prior run dir (excluding $RUN_DIR), sorted by mtime desc.
-# BSD-stat compatible.
+# Dual-platform stat: GNU stat -c on Linux, BSD stat -f on macOS.
 l6c_find_recent_prior_runs() {
   while IFS= read -r d; do
     [ "$d" = "$RUN_DIR" ] && continue
     [ -d "$d" ] && echo "$d"
   done < <(find "$RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d -print0 \
-            | xargs -0 stat -f '%m %N' 2>/dev/null \
+            | xargs -0 sh -c 'stat -c "%Y %n" "$@" 2>/dev/null || stat -f "%m %N" "$@" 2>/dev/null' -- \
             | sort -rn \
             | awk '{$1=""; sub(/^ /,""); print}')
 }
@@ -286,16 +286,6 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
     printf "  chain_setup_command: %s\n" "$chain_setup_cmd"
     ( cd "$PROJECT" && eval "$chain_setup_cmd" ) >> "$STEP_DIR/chain-setup.log" 2>&1 \
       || printf "  ⚠ chain_setup_command exited non-zero (continuing)\n" >&2
-  fi
-
-  # Per-row setup.sh (mirrors L5 — extra pre-state on top of seeds).
-  if [ -f "$ROW_DIR/setup.sh" ]; then
-    bash "$ROW_DIR/setup.sh" "$PROJECT" "$ROW_DIR" || {
-      printf "  ✗ step %d: setup.sh failed\n" "$step_id" >&2
-      CHAIN_FAIL=$((CHAIN_FAIL + 1))
-      [ "$HALT_ON_FAIL" = "1" ] && [ "$halt_step" = "true" ] && break
-      continue
-    }
   fi
 
   l6c_snapshot_db "$PROJECT" "$STEP_DIR/pre-state.sql"

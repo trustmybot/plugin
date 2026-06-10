@@ -1,6 +1,5 @@
 {
-  "$schema": "./schema.json",
-  "description": "Single chained L6 integration test. 14 sequential rows fired via fresh `claude -p` each, against a cumulative trajectory DB. State carries across rows via the trajectory DB. See tests/EVALUATION.md for the journey spec.",
+  "description": "Single chained L6 integration test. 13 sequential rows fired via fresh `claude -p` each, against a cumulative trajectory DB. State carries across rows via the trajectory DB. See tests/EVALUATION.md for the journey spec.",
   "initial_fixture": "empty",
   "initial_setup": null,
   "steps": [

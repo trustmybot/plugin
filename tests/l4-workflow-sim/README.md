@@ -40,10 +40,11 @@ If a flow's contract changes (new step, new role enforcement, new audit event), 
 
 ## Running
 
-These tests are run by the integration runner alongside `tests/l3-integration/mcp/`:
+The canonical runner is `bun test` per file (or the full suite via `run-all.sh`):
 
 ```
-bash tests/l3-integration/mcp/run.sh
+bun test tests/l4-workflow-sim/flow-02-simple-task.test.mjs
+bun test tests/l4-workflow-sim/*.test.mjs
 ```
 
 Or via the full suite:
@@ -52,4 +53,4 @@ Or via the full suite:
 bash tests/run-all.sh
 ```
 
-CI runs them on every PR.
+Run locally before every push; the release-gate workflow (workflow_dispatch + RC tags) also runs them in CI.
