@@ -158,7 +158,7 @@ export function issueTools(db, dbPath = '') {
         },
         {
             name: 'issue_list',
-            description: 'Enumerate issues for the bro pre-scan. Returns a thin index (id, objective, status, created_at, updated_at) ordered by updated_at DESC. Used at session start to decide whether to resume an in-flight issue or start fresh.',
+            description: 'Enumerate issues for the bro pre-scan. Returns a thin index (id, objective, status, created_at, updated_at) ordered by updated_at DESC. Supports optional fields projection to further reduce payload: pass fields=[\'id\',\'status\',\'objective\'] (unknown fields return a named error; id/status/objective/created_at always safe to include).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -170,6 +170,11 @@ export function issueTools(db, dbPath = '') {
                     },
                     limit: { type: 'number', description: 'Max rows. Default 50, max 200.' },
                     offset: { type: 'number', description: 'Row offset. Default 0.' },
+                    fields: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Optional column projection. Allowed: id, objective, status, created_at, updated_at. Unknown fields return a named error. Default: all five columns.',
+                    },
                 },
                 required: ['agent'],
             },
@@ -469,20 +474,36 @@ export function issueTools(db, dbPath = '') {
             const rawStatus = args['status'];
             const rawLimit = args['limit'] ?? 50;
             const rawOffset = args['offset'] ?? 0;
+            const fieldsArg = args['fields'];
             const limit = Math.min(Math.max(1, rawLimit), 200);
             const offset = Math.max(0, rawOffset);
             const VALID_ISSUE_STATUSES = new Set(['open', 'closed']);
             if (rawStatus !== undefined && !VALID_ISSUE_STATUSES.has(rawStatus)) {
                 return err(`Invalid status: "${rawStatus}". Allowed values: ${[...VALID_ISSUE_STATUSES].join(', ')}`);
             }
+            const ALLOWED_ISSUE_LIST_FIELDS = new Set(['id', 'objective', 'status', 'created_at', 'updated_at']);
+            if (fieldsArg !== undefined) {
+                const unknown = fieldsArg.filter((f) => !ALLOWED_ISSUE_LIST_FIELDS.has(f));
+                if (unknown.length > 0) {
+                    return err(`Unknown fields: ${unknown.join(', ')}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(', ')}`);
+                }
+            }
+            function projectRow(row) {
+                if (!fieldsArg)
+                    return row;
+                const out = {};
+                for (const f of fieldsArg)
+                    out[f] = row[f];
+                return out;
+            }
             let rows;
             if (rawStatus !== undefined) {
-                rows = db.all(`SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`, [rawStatus, limit, offset]);
+                rows = db.all('SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?', [rawStatus, limit, offset]);
             }
             else {
-                rows = db.all(`SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?`, [limit, offset]);
+                rows = db.all('SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?', [limit, offset]);
             }
-            return ok(rows);
+            return ok(rows.map(projectRow));
         }),
         issue_update_description: requireRoles('issue_update_description', ['bro'], wrapHandler(async (args) => {
             const issueId = requireArg(args, 'issue_id');

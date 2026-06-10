@@ -59,12 +59,17 @@ export function reportTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'issue_report_md',
-      description: 'Assemble a markdown narrative for an issue including tasks, validation, and audit event timeline.',
+      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, all audit events, and skill usage.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string' },
+          mode: {
+            type: 'string',
+            enum: ['summary', 'detail'],
+            description: 'Report depth. Default: summary (~500 tokens). Use detail for full narrative.',
+          },
         },
         required: ['agent', 'issue_id'],
       },
@@ -91,12 +96,63 @@ export function reportTools(db: TrajectoryDB): {
     issue_report_md: wrapHandler(async (args) => {
       requireArg(args, 'agent');
       const issueId = requireArg(args, 'issue_id') as string;
+      const mode = (args['mode'] as string | undefined) ?? 'summary';
+
+      if (mode !== 'summary' && mode !== 'detail') {
+        throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
+      }
 
       const issue = db.get<Issue>('SELECT * FROM issues WHERE id = ?', [issueId]);
       if (!issue) {
         throw new Error(`Not found: ${issueId}`);
       }
 
+      const lines: string[] = [];
+      lines.push(`# Issue Report: ${issue.id}`);
+      lines.push('');
+      lines.push('## Objective + Status');
+      lines.push('');
+      lines.push(`**Objective:** ${issue.objective}`);
+      lines.push(`**Status:** ${issue.status}`);
+      lines.push(`**Created:** ${issue.created_at}`);
+      if (issue.closed_at) {
+        lines.push(`**Closed:** ${issue.closed_at}`);
+      }
+      lines.push('');
+
+      if (mode === 'summary') {
+        const taskCounts = db.get<{ total: number; completed: number; failed: number }>(
+          `SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN status IN ('completed','closed') THEN 1 ELSE 0 END) AS completed,
+                  SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+           FROM tasks WHERE issue_id = ?`,
+          [issueId],
+        );
+        lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.completed ?? 0} completed, ${taskCounts?.failed ?? 0} failed`);
+        lines.push('');
+
+        const auditCount = (db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit WHERE issue_id = ?`, [issueId]))?.n ?? 0;
+        lines.push(`**Audit events:** ${auditCount}`);
+        lines.push('');
+
+        lines.push('## Last 5 Audit Events');
+        lines.push('');
+        const recentAudit = db.all<AuditEventEntry>(
+          `SELECT * FROM audit WHERE issue_id = ? ORDER BY id DESC LIMIT 5`,
+          [issueId],
+        );
+        if (recentAudit.length === 0) {
+          lines.push('_No audit events._');
+        } else {
+          for (const e of recentAudit.reverse()) {
+            lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
+          }
+        }
+
+        return ok({ markdown: lines.join('\n'), mode: 'summary' });
+      }
+
+      // detail mode: full report
       const tasks = db.all<Task>(
         `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
         [issueId],
@@ -108,7 +164,7 @@ export function reportTools(db: TrajectoryDB): {
       if (taskIds.length > 0) {
         const placeholders = taskIds.map(() => '?').join(', ');
         validationAttempts = db.all<ValidationAttempt>(
-          `SELECT * FROM validation_attempts WHERE task_id IN (${placeholders}) ORDER BY task_id ASC, attempt_n ASC`,
+          'SELECT * FROM validation_attempts WHERE task_id IN (' + placeholders + ') ORDER BY task_id ASC, attempt_n ASC',
           taskIds,
         );
       }
@@ -121,21 +177,6 @@ export function reportTools(db: TrajectoryDB): {
       const skillsUsed = db.all<SkillUsage>(
         `SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`,
       );
-
-      const lines: string[] = [];
-
-      lines.push(`# Issue Report: ${issue.id}`);
-      lines.push('');
-
-      lines.push('## Objective + Status');
-      lines.push('');
-      lines.push(`**Objective:** ${issue.objective}`);
-      lines.push(`**Status:** ${issue.status}`);
-      lines.push(`**Created:** ${issue.created_at}`);
-      if (issue.closed_at) {
-        lines.push(`**Closed:** ${issue.closed_at}`);
-      }
-      lines.push('');
 
       lines.push('## Tasks');
       lines.push('');
@@ -188,7 +229,7 @@ export function reportTools(db: TrajectoryDB): {
         }
       }
 
-      return ok({ markdown: lines.join('\n') });
+      return ok({ markdown: lines.join('\n'), mode: 'detail' });
     }),
 
     issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'pr-reviewer'], wrapHandler(async (args) => {
