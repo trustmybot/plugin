@@ -2,11 +2,14 @@
 # L1 lint: no unguarded shell variable interpolations inside sqlite3 SQL strings.
 #
 # Heuristic: greps hook scripts for patterns of the form
-#   sqlite3 ... "... ${VAR} ..."  or  sqlite3 ... <<SQL ... ${VAR} ... SQL
-# and flags lines where neither of the two safe patterns appears within
-# N lines before the interpolation:
+#   sqlite3 ... "... ${VAR} ..."  or  sqlite3 ... "... $var ..."  or
+#   sqlite3 ... <<SQL ... ${VAR} ... SQL
+# (braced or bare, upper- or lowercase) and flags lines where neither of the
+# two safe patterns appears within N lines before the interpolation:
 #   (a) tmb_sql_int / tmb_sql_quote call (shared helper guard), or
 #   (b) a case-guard on the same variable (e.g. case "$VAR" in ''|*[!0-9]*)
+# The sqlite3 db-path argument ("$DB" right after sqlite3 + flags) sits outside
+# the SQL string — it is stripped before extraction, not exempted by name.
 #
 # Allowlist: tests/l1-lint/no-raw-sql-interpolation.allowlist
 # One relative-path pattern per line (grep -F match against the file:line output).
@@ -31,23 +34,28 @@ for script in $HOOK_FILES; do
   while IFS= read -r line; do
     line_num=$((line_num + 1))
 
-    # Only examine lines that contain a ${ interpolation inside what looks like a SQL string.
-    # Match: sqlite3 heredocs (previous lines) or inline sqlite3 "..." with ${VAR}.
+    # Only examine lines that contain a $ interpolation inside what looks like a SQL string.
+    # Match: sqlite3 heredocs (previous lines) or inline sqlite3 "..." with ${VAR}/$var.
     case "$line" in
-      *'${'*) ;;
+      *'$'*) ;;
       *) continue ;;
     esac
 
-    # Extract the variable name from ${VAR} or ${VAR:-...}
-    VAR=$(echo "$line" | grep -oE '\$\{[A-Z_][A-Z_0-9]*' | head -1 | sed 's/\${//')
-    [ -n "$VAR" ] || continue
+    # Strip the sqlite3 db-path argument (the first quoted var after sqlite3 +
+    # flags) — it is a shell argument, not part of the SQL string this lint guards.
+    SCAN_LINE=$(printf '%s' "$line" | sed -E 's/sqlite3[^"]*"\$\{?[A-Za-z_][A-Za-z_0-9]*\}?"//')
+
+    # Extract every variable name: ${VAR}, ${VAR:-...}, $VAR — bare and lowercase included.
+    VARS=$(printf '%s\n' "$SCAN_LINE" | grep -oE '\$\{?[A-Za-z_][A-Za-z_0-9]*' | sed 's/^\$//;s/^{//' | sort -u)
+    [ -n "$VARS" ] || continue
 
     # Only flag lines that are part of a sqlite3 SQL context.
     # Heuristic 1: line itself contains sqlite3 (inline string interpolation).
+    #   `command -v sqlite3` availability probes are not SQL contexts — drop them first.
     # Heuristic 2: a sqlite3 heredoc was opened in the preceding 20 lines
     #   (only counts if the heredoc opener is a sqlite3 command, not a plain cat/echo).
     IN_SQL_CONTEXT=0
-    case "$line" in
+    case "${line//command -v sqlite3/}" in
       *sqlite3*) IN_SQL_CONTEXT=1 ;;
     esac
     if [ "$IN_SQL_CONTEXT" -eq 0 ]; then
@@ -61,43 +69,47 @@ for script in $HOOK_FILES; do
     # Check for safe guard within N=10 preceding lines.
     GUARD_WINDOW=$((line_num > 10 ? line_num - 10 : 1))
     PRECEDING=$(sed -n "${GUARD_WINDOW},$((line_num - 1))p" "$script" 2>/dev/null || true)
-
-    GUARDED=0
-
-    # Guard type A: tmb_sql_int or tmb_sql_quote call referencing this variable.
-    if echo "$PRECEDING" | grep -qE "tmb_sql_int.*${VAR}|tmb_sql_quote.*${VAR}"; then
-      GUARDED=1
-    fi
-    # Guard type A (alt): if this variable name starts with SAFE_ it was
-    # already processed by tmb_sql_int/tmb_sql_quote.
-    case "$VAR" in SAFE_*) GUARDED=1 ;; esac
-    # Guard type B: case-guard on the same variable within preceding lines.
-    if echo "$PRECEDING" | grep -qE "case.*\\\$${VAR}|case.*\\\${${VAR}}|tmb_sql_int.*\\\$${VAR}"; then
-      GUARDED=1
-    fi
-    # Guard type B (alt): printf '%d' sanitization for numeric fields.
-    if echo "$PRECEDING" | grep -qE "printf '%d'.*\\\$${VAR}|printf '%d'.*\\\${${VAR}}"; then
-      GUARDED=1
-    fi
-
-    [ "$GUARDED" -eq 1 ] && continue
-
     LOCATION="${script}:${line_num}"
 
-    # Check allowlist.
-    ALLOWED=0
-    if [ -f "$ALLOWLIST" ]; then
-      while IFS= read -r allow_entry; do
-        case "$allow_entry" in '#'*|'') continue ;; esac
-        if echo "$LOCATION" | grep -qF "$allow_entry"; then
-          ALLOWED=1
-          break
-        fi
-      done < "$ALLOWLIST"
-    fi
-    [ "$ALLOWED" -eq 1 ] && continue
+    while IFS= read -r VAR; do
+      [ -n "$VAR" ] || continue
 
-    VIOLATIONS+=("$LOCATION: unguarded \${${VAR}} in SQL context — use tmb_sql_int/tmb_sql_quote or a case-guard")
+      GUARDED=0
+
+      # Guard type A: tmb_sql_int or tmb_sql_quote call referencing this variable,
+      # or this variable assigned from a tmb_sql_int/tmb_sql_quote substitution.
+      if echo "$PRECEDING" | grep -qE "tmb_sql_int.*${VAR}|tmb_sql_quote.*${VAR}|${VAR}=\\\$\\(tmb_sql_(int|quote)"; then
+        GUARDED=1
+      fi
+      # Guard type A (alt): if this variable name starts with SAFE_ it was
+      # already processed by tmb_sql_int/tmb_sql_quote.
+      case "$VAR" in SAFE_*) GUARDED=1 ;; esac
+      # Guard type B: case-guard on the same variable within preceding lines.
+      if echo "$PRECEDING" | grep -qE "case.*\\\$${VAR}|case.*\\\${${VAR}}|tmb_sql_int.*\\\$${VAR}"; then
+        GUARDED=1
+      fi
+      # Guard type B (alt): printf '%d' sanitization for numeric fields.
+      if echo "$PRECEDING" | grep -qE "printf '%d'.*\\\$${VAR}|printf '%d'.*\\\${${VAR}}"; then
+        GUARDED=1
+      fi
+
+      [ "$GUARDED" -eq 1 ] && continue
+
+      # Check allowlist.
+      ALLOWED=0
+      if [ -f "$ALLOWLIST" ]; then
+        while IFS= read -r allow_entry; do
+          case "$allow_entry" in '#'*|'') continue ;; esac
+          if echo "$LOCATION" | grep -qF "$allow_entry"; then
+            ALLOWED=1
+            break
+          fi
+        done < "$ALLOWLIST"
+      fi
+      [ "$ALLOWED" -eq 1 ] && continue
+
+      VIOLATIONS+=("$LOCATION: unguarded \$${VAR} in SQL context — use tmb_sql_int/tmb_sql_quote or a case-guard")
+    done <<< "$VARS"
   done < "$script"
 done
 

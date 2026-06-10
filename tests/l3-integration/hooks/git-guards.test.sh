@@ -184,6 +184,35 @@ out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/cli-todo && git commit -
 assert_not_contains "$out" '"permissionDecision":"block"' "no DB match must not block (fail-open)"
 cleanup_repo
 
+test_case "injection: worktree basename with a single quote neither errors nor blocks"
+# The slug feeds the Rule-2 DB lookup (branch_id LIKE '%/<slug>'). A quote in
+# the basename must be escaped via tmb_sql_quote — the lookup still resolves
+# feat/o'brien-cli (non-protected) and the hook stays silent.
+dir=$(mktemp -d -t tmb-guards-quote-XXXX)
+(
+  cd "$dir" || exit 1
+  git init -q -b main
+  git config user.email t@t.t
+  git config user.name T
+  echo init > README.md
+  git add . && git commit -qm init
+  git branch "feat/o'brien-cli" HEAD
+  git worktree add -q --detach ".claude/worktrees/o'brien-cli"
+  mkdir -p .claude/tmb
+  sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+  sqlite3 .claude/tmb/trajectory.db "
+    INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+      VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
+    INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+      VALUES (1, 1, 'feat/o''brien-cli', 'test task', 'd', 'pending', '', datetime('now'), datetime('now'));
+  " >/dev/null
+)
+REPO_PATH="$dir"
+out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/o'brien-cli && git commit -m 'feat: add x'")
+assert_not_contains "$out" '"permissionDecision":"block"' "quote-bearing slug must not block the feature-branch commit"
+assert_eq "" "$out" "quote-bearing slug must produce no output (no errors)"
+cleanup_repo
+
 # ---- #347: Rule 3 force-push token matching ---------------------------------
 # git push origin main --follow-tags must NOT block (--follow-tags is not a force flag).
 # git push origin main && rm -f /tmp/x must NOT block (-f is outside the push clause).

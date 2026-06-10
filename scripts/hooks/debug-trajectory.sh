@@ -46,15 +46,19 @@ ARGS_JSON=$(echo "$INPUT" | jq -c '.tool_input // {}' 2>/dev/null | head -c 4000
 # fall back to the day so all calls in one test run share an id.
 SESSION_ID="${CLAUDE_SESSION_ID:-$(date +%Y%m%d-%H)}"
 
+SAFE_SESSION_ID=$(tmb_sql_quote "$SESSION_ID")
+SAFE_TOOL_NAME=$(tmb_sql_quote "$TOOL_NAME")
+SAFE_ARGS_JSON=$(tmb_sql_quote "$ARGS_JSON")
+
 # Compute next step_n in this session — use COALESCE so first call gets 1.
 sqlite3 "$DB_PATH" <<SQL 2>/dev/null || true
 INSERT INTO debug_trajectory (session_id, step_n, kind, tool_or_mcp_name, args_json, created_at)
 VALUES (
-  '$SESSION_ID',
-  COALESCE((SELECT MAX(step_n) FROM debug_trajectory WHERE session_id='$SESSION_ID'), 0) + 1,
+  '$SAFE_SESSION_ID',
+  COALESCE((SELECT MAX(step_n) FROM debug_trajectory WHERE session_id='$SAFE_SESSION_ID'), 0) + 1,
   'tool_use',
-  '$TOOL_NAME',
-  json('$ARGS_JSON'),
+  '$SAFE_TOOL_NAME',
+  json('$SAFE_ARGS_JSON'),
   datetime('now')
 );
 SQL

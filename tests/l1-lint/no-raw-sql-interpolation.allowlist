@@ -8,3 +8,16 @@ scripts/hooks/roundtable-slash-detect.sh
 # swe-atomic-close.sh: TASK_ID is validated via tmb_sql_int ~97 lines earlier (line 167);
 # the guard window (10 lines) doesn't reach it, but the value is confirmed safe.
 scripts/hooks/swe-atomic-close.sh:264
+
+# query-task.sh tmb_sqlite_ro: $sql is the helper's whole-statement parameter;
+# sanitization is the CALLER's job and call sites are this lint's subjects.
+scripts/hooks/lib/query-task.sh:99
+
+# swe-atomic-close.sh: AR_INSERT is assembled one line above exclusively from
+# sanitized values — tmb_sql_int (TASK_ID line 166, SAFE_ISSUE_ID line 310),
+# printf '%d' ints (lines 300-305), and AGENT_TYPE pinned to literal 'swe' (line 85).
+scripts/hooks/swe-atomic-close.sh:318
+
+# swe-atomic-close.sh: $ts/$tid are jq program variables inside a single-quoted
+# jq filter (never shell-expanded); 'sqlite3' on the line is error-message text.
+scripts/hooks/swe-atomic-close.sh:320

@@ -82,12 +82,13 @@ cmd_effective_branch() {
     echo "$result"
     return
   fi
-  local wd slug db branch_id
+  local wd slug slug_sql db branch_id
   wd=$(cmd_cwd "$1")
   slug=$(basename "$wd")
+  slug_sql=$(tmb_sql_quote "$slug")
   db=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$db" ] && [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1; then
-    branch_id=$(sqlite3 "$db" "SELECT branch_id FROM tasks WHERE branch_id LIKE '%/$slug' LIMIT 1;" 2>/dev/null || true)
+    branch_id=$(sqlite3 "$db" "SELECT branch_id FROM tasks WHERE branch_id LIKE '%/${slug_sql}' LIMIT 1;" 2>/dev/null || true)
     echo "$branch_id"
   fi
 }
