@@ -1,7 +1,7 @@
 {
   "name": "tmb",
-  "version": "0.7.0",
-  "description": "TMB plugin — bro orchestrates SWE + pr-reviewer in two gates (task gate, push gate) backed by a SQLite trajectory MCP server.",
+  "version": "0.7.1-rc.1",
+  "description": "TMB plugin \u2014 bro orchestrates SWE + pr-reviewer in two gates (task gate, push gate) backed by a SQLite trajectory MCP server.",
   "author": {
     "name": "trustmybot",
     "url": "https://github.com/trustmybot"
