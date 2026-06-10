@@ -31,7 +31,7 @@ export function ruleTools(db) {
     const definitions = [
         {
             name: 'rule_register',
-            description: 'Register a new project-local rule. The plugin ships no built-in rules; rules live in `<project>/.claude/rules/*.md` and capture team-specific dos/donts. Severity drives downstream enforcement (advisory = inform; warning = surface; blocking = a hook will deny the operation).',
+            description: 'Register a project-local rule from .claude/rules/*.md. Severity: advisory = inform; warning = surface; blocking = hook denies the operation.',
             inputSchema: {
                 type: 'object',
                 properties: {

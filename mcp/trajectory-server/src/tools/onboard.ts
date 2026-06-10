@@ -321,13 +321,13 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'onboard_state_get',
       description:
-        'Read everything the /onboard slash command needs to render its question set: first-run flag (identity row absent), current plugin_config values, and the silent git/CLI probe (origin URL → provider, gh/glab installed+authed). Bro should call this once before opening AskUserQuestion.',
+        'Read onboard state: first-run flag, current plugin_config, and git/CLI probe (origin URL → provider, gh/glab auth). Call once before AskUserQuestion.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'onboard_get_questions',
       description:
-        'Build the AUQ-ready question objects for one round of /onboard. Server applies all the conditional logic (Keep options on re-onboard, disable unavailable CLI options, pre-select defaults from the probe). Bro feeds the returned options array straight into AskUserQuestion.',
+        'Build AUQ-ready question objects for one /onboard round. Applies conditional logic (Keep options, disabled CLI options, probe defaults). Feed the returned array straight into AskUserQuestion.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -349,7 +349,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'onboard_apply',
       description:
-        'Persist all /onboard answers in a single transaction. Server derives pr_target / protected_branches from branching_model when not explicitly set, sets remotes=[] + issue_sync="off" for local shape, and recomputes protected_branches whenever branching_model or pr_target changes. Also writes the identity row at id=1 as the "onboarded" marker so future cold restarts skip the auto-fire trigger.',
+        'Persist all /onboard answers in a single transaction. Derives pr_target + protected_branches from branching_model, writes identity row id=1 as the onboarded marker.',
       inputSchema: {
         type: 'object',
         properties: {

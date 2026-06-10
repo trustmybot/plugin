@@ -108,7 +108,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
     {
       name: 'world_model_get',
       description:
-        "Return the world model — bro's mental picture of the project — as an annotated directory tree. Each directory node carries the summary from <dir>/README.md (high-trust, author-curated, summary_source='readme') or a deterministic structural summary built from the dir's immediate file+subdir names (summary_source='structural'). Summaries at depth > 1 are truncated to the first line for payload size. When the tree exceeds 500 nodes the response includes truncated:true. This is the primary navigation surface for code-touching cold starts. See docs/architecture/WORLD_MODEL.md + ADR 0001.",
+        "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Primary navigation surface for code-touching cold starts.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -135,7 +135,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
     {
       name: 'world_model_search',
       description:
-        "Search the world model — bro's directory-level memory — by substring match over summary and path (kuzu FTS extension lands post-v0.7). Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable' (semantic requires kuzu's vector extension, also post-v0.7). Use for 'where in this codebase does X live' questions — cheaper than reading the full tree from world_model_get.",
+        "Search the world model by summary + path match. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions — cheaper than world_model_get.",
       inputSchema: {
         type: 'object',
         properties: {

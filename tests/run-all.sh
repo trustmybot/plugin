@@ -67,6 +67,7 @@ run_step "L1 lint: no bare role compare in hooks"     bash "$HERE/l1-lint/no-bar
 run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlink-targets.sh"
 run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
 run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"
+run_step "L1 lint: tool-description byte budget"      bash "$HERE/l1-lint/tool-description-budget.sh"
 
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 
@@ -93,6 +94,7 @@ run_step "L4 workflow-sim: flow-03 difficult-task"          bun test "$HERE/l4-w
 run_step "L4 workflow-sim: flow-06 push-gate"               bun test "$HERE/l4-workflow-sim/flow-06-push-gate.test.mjs"
 run_step "L4 workflow-sim: flow-08 swe-retry"               bun test "$HERE/l4-workflow-sim/flow-08-swe-retry.test.mjs"
 run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test "$HERE/l4-workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
+run_step "L4 workflow-sim: flow-10 roundtable-composite"    bun test "$HERE/l4-workflow-sim/flow-10-roundtable-composite.test.mjs"
 
 # ----- summary -----------------------------------------------------------
 
