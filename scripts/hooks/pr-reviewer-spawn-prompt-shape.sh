@@ -44,7 +44,7 @@ if [ -n "$MISSING" ]; then
     "BLOCKED: pr-reviewer spawn prompt missing required anchors:" + $missing + ".\n\nPer tmb_review §B, the prompt MUST contain task_id, commit_sha, branch_id, and repo so pr-reviewer can load context independently. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary."
   ')
   jq -nc --argjson r "$REASON" \
-    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0
 fi
 
@@ -67,7 +67,7 @@ if [ -n "$RUBBER_STAMP_FOUND" ]; then
     "BLOCKED: pr-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \"" + $phrase + "\").\n\nPer tmb_review §C, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself."
   ')
   jq -nc --argjson r "$REASON" \
-    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0
 fi
 

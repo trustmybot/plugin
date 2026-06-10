@@ -20,19 +20,19 @@ run_hook() {
 
 test_case "no config (fresh install) is non-blocking for commits"
 out=$(run_hook '{"tool_input":{"command":"git commit -m test"}}')
-assert_not_contains "$out" '"permissionDecision":"block"' "should NOT block on fresh install"
+assert_not_contains "$out" '"permissionDecision":"deny"' "should NOT block on fresh install"
 
 test_case "non-git command passes through"
 out=$(run_hook '{"tool_input":{"command":"ls -la"}}')
-assert_not_contains "$out" '"permissionDecision":"block"' "ls should not fire hook"
+assert_not_contains "$out" '"permissionDecision":"deny"' "ls should not fire hook"
 
 test_case "git status is not gated (read-only)"
 out=$(run_hook '{"tool_input":{"command":"git status"}}')
-assert_not_contains "$out" '"permissionDecision":"block"' "git status should pass"
+assert_not_contains "$out" '"permissionDecision":"deny"' "git status should pass"
 
 test_case "git log is not gated (read-only)"
 out=$(run_hook '{"tool_input":{"command":"git log --oneline -5"}}')
-assert_not_contains "$out" '"permissionDecision":"block"' "git log should pass"
+assert_not_contains "$out" '"permissionDecision":"deny"' "git log should pass"
 
 # ---- v0.3.2+ worktree-aware tests ----------------------------------------
 #
@@ -80,31 +80,31 @@ cleanup_repo() {
 test_case "v0.3.2: bare 'git commit' from project root on main IS blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "git commit -m 'broken'")
-assert_contains "$out" '"permissionDecision":"block"' "commit on protected main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "commit on protected main must block"
 cleanup_repo
 
 test_case "v0.3.2: 'cd .claude/worktrees/task-1 && git commit' is ALLOWED (worktree on feature branch)"
 setup_worktree_repo
 out=$(run_hook_in_repo "cd .claude/worktrees/task-1 && git commit -m 'feat: add x'")
-assert_not_contains "$out" '"permissionDecision":"block"' "commit from worktree on feat/cli-todo must pass"
+assert_not_contains "$out" '"permissionDecision":"deny"' "commit from worktree on feat/cli-todo must pass"
 cleanup_repo
 
 test_case "v0.3.2: 'cd /abs/path/worktree && git commit' (absolute path) is ALLOWED"
 setup_worktree_repo
 out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/task-1 && git commit -m 'feat: add x'")
-assert_not_contains "$out" '"permissionDecision":"block"' "absolute-path cd should also work"
+assert_not_contains "$out" '"permissionDecision":"deny"' "absolute-path cd should also work"
 cleanup_repo
 
 test_case "v0.3.2: 'cd <main-worktree> && git commit' STILL blocks (cd to root + commit on main)"
 setup_worktree_repo
 out=$(run_hook_in_repo "cd $REPO_PATH && git commit -m 'broken'")
-assert_contains "$out" '"permissionDecision":"block"' "cd to root then commit on main should still block"
+assert_contains "$out" '"permissionDecision":"deny"' "cd to root then commit on main should still block"
 cleanup_repo
 
 test_case "v0.3.2: 'git -C <worktree> commit' is ALLOWED (git -C path syntax)"
 setup_worktree_repo
 out=$(run_hook_in_repo "git -C .claude/worktrees/task-1 commit -m 'feat: add x'")
-assert_not_contains "$out" '"permissionDecision":"block"' "git -C <worktree> commit should pass"
+assert_not_contains "$out" '"permissionDecision":"deny"' "git -C <worktree> commit should pass"
 cleanup_repo
 
 test_case "v0.3.2: 'git checkout -b' from worktree on feature branch is ALLOWED"
@@ -113,7 +113,7 @@ out=$(run_hook_in_repo "cd .claude/worktrees/task-1 && git checkout -b feat/sub-
 # Note: rule 4 still requires being on PR_TARGET to create new branches.
 # From the worktree we're on feat/cli-todo, NOT on main — so this should block.
 # This test confirms the worktree-aware lookup correctly identifies feat/cli-todo.
-assert_contains "$out" '"permissionDecision":"block"' "rule 4 must see feat/cli-todo (not main) and block since not on PR_TARGET"
+assert_contains "$out" '"permissionDecision":"deny"' "rule 4 must see feat/cli-todo (not main) and block since not on PR_TARGET"
 assert_contains "$out" "feat/cli-todo"   "block message must reference the worktree branch"
 cleanup_repo
 
@@ -173,7 +173,7 @@ setup_detached_worktree_repo
 # cmd_branch returns empty (detached HEAD); cmd_effective_branch resolves via DB:
 # slug=cli-todo → branch_id=feat/cli-todo → not protected → allow.
 out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/cli-todo && git commit -m 'feat: add x'")
-assert_not_contains "$out" '"permissionDecision":"block"' "detached worktree on feature branch must not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "detached worktree on feature branch must not block"
 cleanup_repo
 
 test_case "v0.3.3: detached-HEAD worktree with no DB match: commit allowed (fail-open)"
@@ -181,7 +181,7 @@ setup_detached_worktree_repo
 # Remove the task row so DB lookup finds nothing — hook should fail-open (no block).
 sqlite3 "$REPO_PATH/.claude/tmb/trajectory.db" "DELETE FROM tasks WHERE id=1;" >/dev/null
 out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/cli-todo && git commit -m 'feat: add x'")
-assert_not_contains "$out" '"permissionDecision":"block"' "no DB match must not block (fail-open)"
+assert_not_contains "$out" '"permissionDecision":"deny"' "no DB match must not block (fail-open)"
 cleanup_repo
 
 test_case "injection: quote-bearing slug resolves a PROTECTED branch and BLOCKS the commit"
@@ -214,7 +214,7 @@ dir=$(mktemp -d -t tmb-guards-quote-XXXX)
 )
 REPO_PATH="$dir"
 out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/o'brien-cli && git commit -m 'feat: add x'")
-assert_contains "$out" '"permissionDecision":"block"' "quote-bearing protected slug must BLOCK — empty means the lookup SQL errored out"
+assert_contains "$out" '"permissionDecision":"deny"' "quote-bearing protected slug must BLOCK — empty means the lookup SQL errored out"
 assert_contains "$out" "feat/o'brien-cli" "block message must name the quoted branch resolved via DB lookup"
 cleanup_repo
 
@@ -226,31 +226,31 @@ cleanup_repo
 test_case "#347: git push --follow-tags is NOT a force push (must pass)"
 setup_worktree_repo
 out=$(run_hook_in_repo "git push origin main --follow-tags")
-assert_not_contains "$out" '"permissionDecision":"block"' "--follow-tags must not trigger force-push block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "--follow-tags must not trigger force-push block"
 cleanup_repo
 
 test_case "#347: compound command with -f AFTER push clause is NOT a force push"
 setup_worktree_repo
 out=$(run_hook_in_repo "git push origin main && rm -f /tmp/x")
-assert_not_contains "$out" '"permissionDecision":"block"' "rm -f after && must not trigger force-push block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "rm -f after && must not trigger force-push block"
 cleanup_repo
 
 test_case "#347: git push -f to protected branch IS blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "git push -f origin main")
-assert_contains "$out" '"permissionDecision":"block"' "git push -f to main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "git push -f to main must block"
 cleanup_repo
 
 test_case "#347: git push --force to protected branch IS blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "git push --force origin main")
-assert_contains "$out" '"permissionDecision":"block"' "git push --force to main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "git push --force to main must block"
 cleanup_repo
 
 test_case "#347: git push --force-with-lease to protected branch IS blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "git push --force-with-lease origin main")
-assert_contains "$out" '"permissionDecision":"block"' "git push --force-with-lease to main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "git push --force-with-lease to main must block"
 cleanup_repo
 
 # ---- #319: Rule 2 word-boundary subcommand matching -------------------------
@@ -262,31 +262,31 @@ cleanup_repo
 test_case "#319: git commit-tree plumbing is NOT blocked (word-boundary matching)"
 setup_worktree_repo
 out=$(run_hook_in_repo "git commit-tree abc123")
-assert_not_contains "$out" '"permissionDecision":"block"' "commit-tree plumbing must not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "commit-tree plumbing must not block"
 cleanup_repo
 
 test_case "#319: 'git commit' inside --body argument text is NOT blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "gh issue create --body 'run git commit to apply'")
-assert_not_contains "$out" '"permissionDecision":"block"' "git commit in arg text must not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "git commit in arg text must not block"
 cleanup_repo
 
 test_case "#319: git merge onto protected branch IS blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "git merge feat/cli")
-assert_contains "$out" '"permissionDecision":"block"' "git merge on main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "git merge on main must block"
 cleanup_repo
 
 test_case "#319: git rebase onto protected branch IS blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "git rebase feat/cli")
-assert_contains "$out" '"permissionDecision":"block"' "git rebase on main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "git rebase on main must block"
 cleanup_repo
 
 test_case "#319: git cherry-pick onto protected branch IS blocked"
 setup_worktree_repo
 out=$(run_hook_in_repo "git cherry-pick abc123")
-assert_contains "$out" '"permissionDecision":"block"' "git cherry-pick on main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "git cherry-pick on main must block"
 cleanup_repo
 
 # ---- early-exit word boundary: separators without spaces ---------------------
@@ -296,13 +296,13 @@ cleanup_repo
 test_case "early-exit: 'foo;git commit -m x' on protected branch IS blocked (; separator, no space)"
 setup_worktree_repo
 out=$(run_hook_in_repo "foo;git commit -m x")
-assert_contains "$out" '"permissionDecision":"block"' "semicolon-joined git commit on main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "semicolon-joined git commit on main must block"
 cleanup_repo
 
 test_case "early-exit: 'echo y&&git commit' on protected branch IS blocked (&& separator, no space)"
 setup_worktree_repo
 out=$(run_hook_in_repo "echo y&&git commit -m x")
-assert_contains "$out" '"permissionDecision":"block"' "&&-joined git commit on main must block"
+assert_contains "$out" '"permissionDecision":"deny"' "&&-joined git commit on main must block"
 cleanup_repo
 
 test_case "early-exit: 'legit foo' does NOT match the git/gh word boundary"
@@ -346,7 +346,7 @@ for sep in "${SEPARATORS[@]}"; do
     fi
     test_case "matrix deny: separator='${sep}' subcommand='${sub}'"
     out=$(run_hook_in_repo "$cmd")
-    assert_contains "$out" '"permissionDecision":"block"' "must block: $cmd"
+    assert_contains "$out" '"permissionDecision":"deny"' "must block: $cmd"
   done
 done
 
@@ -355,7 +355,7 @@ for sub in "${SUBCOMMANDS[@]}"; do
   cmd="$(printf 'echo prefix\ngit %s' "$sub")"
   test_case "matrix deny: separator=newline subcommand='${sub}'"
   out=$(run_hook_in_repo "$cmd")
-  assert_contains "$out" '"permissionDecision":"block"' "must block newline-joined: git $sub"
+  assert_contains "$out" '"permissionDecision":"deny"' "must block newline-joined: git $sub"
 done
 
 # Non-git lookalikes × separators MUST allow (word-boundary must not over-fire).
@@ -381,7 +381,7 @@ for sep in "${ALL_SEP[@]}"; do
     fi
     test_case "matrix allow: separator='${sep}' lookalike='${lookalike}'"
     out=$(run_hook_in_repo "$cmd")
-    assert_not_contains "$out" '"permissionDecision":"block"' "must allow: $cmd"
+    assert_not_contains "$out" '"permissionDecision":"deny"' "must allow: $cmd"
   done
 done
 
@@ -390,7 +390,7 @@ for lookalike in "${LOOKALIKES[@]}"; do
   cmd="$(printf 'echo prefix\n%s' "$lookalike")"
   test_case "matrix allow: separator=newline lookalike='${lookalike}'"
   out=$(run_hook_in_repo "$cmd")
-  assert_not_contains "$out" '"permissionDecision":"block"' "must allow newline-joined: $lookalike"
+  assert_not_contains "$out" '"permissionDecision":"deny"' "must allow newline-joined: $lookalike"
 done
 
 cleanup_repo
