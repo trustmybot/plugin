@@ -40,11 +40,11 @@ describe('schema — current table set, default values, constraints', () => {
         assert.deepEqual(actualNames, [...expectedTables].sort());
         db.close();
     });
-    it('fresh DB has schema_version = 9 in plugin_meta', () => {
+    it('fresh DB has schema_version = 10 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 9);
+        assert.equal(meta.schema_version, 10);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });
@@ -54,6 +54,16 @@ describe('schema — current table set, default values, constraints', () => {
         const specBody = cols.find((c) => c.name === 'spec_body');
         assert.ok(specBody !== undefined, 'spec_body column must exist in tasks');
         assert.equal(specBody.dflt_value, "''", "spec_body default must be empty string");
+        db.close();
+    });
+    it('tasks table has prompt_bearing column with default 0', () => {
+        const db = tempDB();
+        const cols = db.all('PRAGMA table_info(tasks)');
+        const col = cols.find((c) => c.name === 'prompt_bearing');
+        assert.ok(col !== undefined, 'prompt_bearing column must exist in tasks');
+        assert.equal(col.type.toUpperCase(), 'INTEGER', 'prompt_bearing must be INTEGER');
+        assert.equal(col.notnull, 1, 'prompt_bearing must be NOT NULL');
+        assert.equal(col.dflt_value, '0', 'prompt_bearing default must be 0');
         db.close();
     });
     it('validation_attempts.task_id is INTEGER with FK to tasks(id)', () => {

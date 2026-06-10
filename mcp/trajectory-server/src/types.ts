@@ -41,6 +41,13 @@ export interface Task {
   commit_sha: string | null;
   /** Relative path to the git repo for this task (e.g. "inner" or "repos/backend"). Null for single-repo CC. */
   repo: string | null;
+  /**
+   * 1 when this task intentionally modifies prompt-surface files (agents/,
+   * skills/NAME/SKILL.md, commands/, templates/, CLAUDE.md, etc.). The
+   * swe-boundary hook checks this flag before blocking prompt-surface writes.
+   * Default 0.
+   */
+  prompt_bearing: number;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -93,6 +100,13 @@ export interface TaskInput {
   spec_body?: string;
   /** Optional relative path to the git repo for this task. Must not contain ".." or start with "/". */
   repo?: string;
+  /**
+   * Set to 1 when this task intentionally modifies prompt-surface files.
+   * The swe-boundary hook will allow writes to agents/, skills/NAME/SKILL.md,
+   * commands/, templates/, and identity .md files when this flag is 1.
+   * Default 0.
+   */
+  prompt_bearing?: number;
 }
 
 export interface PluginConfigRow {

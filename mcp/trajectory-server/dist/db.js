@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 9;
+const TARGET_SCHEMA_VERSION = 10;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -338,6 +338,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 9 && toVersion >= 9) {
         migrateV8toV9(db);
     }
+    if (fromVersion < 10 && toVersion >= 10) {
+        migrateV9toV10(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -386,6 +389,26 @@ function migrateV8toV9(db) {
                 .get();
             if (!taskIdxExists) {
                 db.exec('CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id)');
+            }
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+function migrateV9toV10(db) {
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'tasks')) {
+            if (!hasColumn(db, 'tasks', 'prompt_bearing')) {
+                db.exec('ALTER TABLE tasks ADD COLUMN prompt_bearing INTEGER NOT NULL DEFAULT 0');
             }
         }
         db.exec('COMMIT');

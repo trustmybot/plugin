@@ -170,6 +170,13 @@ export function taskTools(db: TrajectoryDB): {
                     'Must not contain ".." or start with "/". Null/omitted for single-repo CC. ' +
                     'Used by the WorktreeCreate hook to route worktree creation to the right repo.',
                 },
+                prompt_bearing: {
+                  type: 'number',
+                  description:
+                    'Set to 1 when this task intentionally modifies prompt-surface files ' +
+                    '(agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, etc.). ' +
+                    'The swe-boundary hook checks this flag before blocking prompt-surface writes. Default 0.',
+                },
               },
               required: ['branch_id', 'description'],
             },
@@ -609,11 +616,12 @@ export function taskTools(db: TrajectoryDB): {
             if (parentBranchId == null) parentBranchId = 'main';
           }
 
+          const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
+                status, attempts, spec_body, repo, prompt_bearing, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
@@ -622,6 +630,7 @@ export function taskTools(db: TrajectoryDB): {
               t.description,
               t.spec_body ?? '',
               repoValue,
+              promptBearing,
               now,
               now,
             ],
