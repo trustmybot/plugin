@@ -150,7 +150,7 @@ export function worldModelTools(db, graph) {
             if (nodes.length === 0) {
                 return ok({ repo, root: null, warning: 'world-model-empty' });
             }
-            const rows = nodes.map((n, idx) => ({ ...n, id: idx }));
+            const rows = nodes;
             const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
             const tree = buildTree(rows, path, depth, { nodeCounter });
             if (!tree) {

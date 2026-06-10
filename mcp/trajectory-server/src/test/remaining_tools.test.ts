@@ -77,7 +77,7 @@ describe('auditTools', () => {
     db.close();
   });
 
-  it('audit_log truncates content_json > 1 MB', async () => {
+  it('audit_log rejects content_json > 1 MB with a named error', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = auditTools(db);
@@ -93,9 +93,12 @@ describe('auditTools', () => {
       content_json: bigContent,
     });
 
+    assert.ok(result.isError, 'Expected error for oversized content_json');
     const row = parseResult(result);
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-    assert.ok(row.content_json.length < bigContent.length, 'content_json should be truncated');
+    assert.ok(
+      typeof row['error'] === 'string' && (row['error'] as string).includes('1MB limit'),
+      `error should mention 1MB limit, got: ${JSON.stringify(row)}`,
+    );
 
     db.close();
   });

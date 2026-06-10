@@ -20,20 +20,26 @@ import { worldModelTools } from './world-model.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
 function decorateWithAgent(tools) {
-    return tools.map((t) => ({
-        ...t,
-        inputSchema: {
-            ...t.inputSchema,
-            properties: {
-                ...(t.inputSchema.properties ?? {}),
-                agent: {
-                    type: 'string',
-                    pattern: '^[a-z][a-z0-9_-]*$',
-                    description: "Calling agent identity. First-class roles: bro, swe, pr-reviewer. Any other valid name is treated as consultant.",
+    return tools.map((t) => {
+        const existing = t.inputSchema.properties ?? {};
+        const existingAgent = existing['agent'];
+        const mergedAgent = {
+            type: 'string',
+            pattern: '^[a-z][a-z0-9_-]*$',
+            description: "Calling agent identity. First-class roles: bro, swe, pr-reviewer. Any other valid name is treated as consultant.",
+            ...existingAgent,
+        };
+        return {
+            ...t,
+            inputSchema: {
+                ...t.inputSchema,
+                properties: {
+                    ...existing,
+                    agent: mergedAgent,
                 },
             },
-        },
-    }));
+        };
+    });
 }
 export function registerTools(server, db, dbPath = '', graph = null) {
     const discussions = discussionTools(db);

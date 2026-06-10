@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
+import type { ValidationAttempt } from '../types.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -33,17 +34,6 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
       return err((e as Error).message);
     }
   };
-}
-
-interface ValidationAttempt {
-  id: number;
-  task_id: number;
-  attempt_n: number;
-  agent: string;
-  verdict: string;
-  feedback: string;
-  subagent_session_id: string | null;
-  created_at: string;
 }
 
 function coerceTaskId(raw: unknown): number {

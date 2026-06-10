@@ -255,4 +255,34 @@ describe('configTools', () => {
 
     db.close();
   });
+
+  it('config_set without value returns a named validation error (#391)', async () => {
+    const db = tempDB();
+    const tools = configTools(db);
+
+    const result = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'some.key' });
+    assert.ok(result.isError, 'Expected error when value is missing');
+    const payload = parseResult(result);
+    assert.ok(
+      typeof payload.error === 'string' && payload.error.includes('value'),
+      `error should mention 'value', got: ${JSON.stringify(payload)}`,
+    );
+
+    db.close();
+  });
+
+  it('config_set with null value returns a named validation error', async () => {
+    const db = tempDB();
+    const tools = configTools(db);
+
+    const result = await call(tools.handlers, 'config_set', { agent: 'bro', key: 'some.key', value: null });
+    assert.ok(result.isError, 'Expected error when value is null');
+    const payload = parseResult(result);
+    assert.ok(
+      typeof payload.error === 'string' && payload.error.includes('value'),
+      `error should mention 'value', got: ${JSON.stringify(payload)}`,
+    );
+
+    db.close();
+  });
 });

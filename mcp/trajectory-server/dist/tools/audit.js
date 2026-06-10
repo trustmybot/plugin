@@ -247,10 +247,10 @@ export function auditTools(db) {
             requireArg(args, 'summary');
             const eventType = args['event_type'];
             const summary = args['summary'];
-            let contentJson = args['content_json'] ?? '{}';
+            const contentJson = args['content_json'] ?? '{}';
             const byteLength = Buffer.byteLength(contentJson, 'utf8');
             if (byteLength > MAX_CONTENT_BYTES) {
-                contentJson = Buffer.from(contentJson, 'utf8').slice(0, MAX_CONTENT_BYTES).toString('utf8');
+                return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_log`);
             }
             db.run(`INSERT INTO audit
            (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)

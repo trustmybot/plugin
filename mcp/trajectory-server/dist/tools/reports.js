@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { requireRoles } from '../middleware/agent-scope.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -149,8 +149,11 @@ export function reportTools(db) {
             }
             const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
             const relOutputPath = rawOutputPath ?? defaultOutputPath;
-            if (!relOutputPath.startsWith('docs/trustmybot/')) {
-                throw new Error(`output_path must start with "docs/trustmybot/". Got: "${relOutputPath}"`);
+            const cwd = process.cwd();
+            const allowedBase = resolve(cwd, 'docs/trustmybot') + sep;
+            const absPath = resolve(cwd, relOutputPath);
+            if (!absPath.startsWith(allowedBase)) {
+                throw new Error(`output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`);
             }
             const discussions = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`, [issueId]);
             const tasks = db.all(`SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`, [issueId]);
@@ -218,7 +221,6 @@ export function reportTools(db) {
                 }
             }
             const markdown = lines.join('\n');
-            const absPath = join(process.cwd(), relOutputPath);
             mkdirSync(dirname(absPath), { recursive: true });
             writeFileSync(absPath, markdown, 'utf8');
             return ok({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, 'utf8') });

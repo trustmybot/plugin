@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -20,6 +20,19 @@ if (dbPath !== ':memory:') {
 
 const db = new TrajectoryDB(dbPath);
 
+function readPackageVersion(): string {
+  try {
+    const here = path.dirname(new URL(import.meta.url).pathname);
+    const pkgPath = path.join(here, '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+    return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const packageVersion = readPackageVersion();
+
 // World-model graph DB (ADR 0002) — separate kuzu file beside trajectory.db.
 // If kuzu fails to load (missing native binary, sandbox), surface but don't
 // crash — world_model_* will return 'world-model-unavailable'; trajectory
@@ -37,7 +50,7 @@ try {
 }
 
 const server = new Server(
-  { name: 'trajectory-server', version: '0.3.2' },
+  { name: 'trajectory-server', version: packageVersion },
   { capabilities: { tools: {} } },
 );
 

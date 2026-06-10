@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import type { Discussion, Issue, Task, AuditEventEntry } from '../types.js';
@@ -204,9 +204,12 @@ export function reportTools(db: TrajectoryDB): {
       const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
       const relOutputPath = rawOutputPath ?? defaultOutputPath;
 
-      if (!relOutputPath.startsWith('docs/trustmybot/')) {
+      const cwd = process.cwd();
+      const allowedBase = resolve(cwd, 'docs/trustmybot') + sep;
+      const absPath = resolve(cwd, relOutputPath);
+      if (!absPath.startsWith(allowedBase)) {
         throw new Error(
-          `output_path must start with "docs/trustmybot/". Got: "${relOutputPath}"`,
+          `output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`,
         );
       }
 
@@ -286,7 +289,6 @@ export function reportTools(db: TrajectoryDB): {
       }
 
       const markdown = lines.join('\n');
-      const absPath = join(process.cwd(), relOutputPath);
       mkdirSync(dirname(absPath), { recursive: true });
       writeFileSync(absPath, markdown, 'utf8');
 

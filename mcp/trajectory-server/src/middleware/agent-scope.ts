@@ -1,4 +1,4 @@
-import type { Issue } from '../types.js';
+import type { Issue, ValidationAttempt } from '../types.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export type AgentRole =
@@ -18,15 +18,7 @@ export function normalizeAgent(name?: string): AgentRole {
   return 'unknown';
 }
 
-export interface ValidationAttempt {
-  id: number;
-  task_id: number;
-  attempt_n: number;
-  agent: string;
-  verdict: string;
-  feedback: string;
-  created_at: string;
-}
+export type { ValidationAttempt };
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 

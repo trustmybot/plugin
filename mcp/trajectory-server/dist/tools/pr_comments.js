@@ -39,9 +39,12 @@ function normalizePrState(raw) {
         return 'merged';
     return 'closed';
 }
-function fetchGithubComments(prNumber, since, botPatterns, spawnFn) {
+function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
     const opts = { timeout: 15000, encoding: 'utf8' };
-    const result = spawnFn('gh', ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews'], opts);
+    const ghArgs = ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews'];
+    if (repo)
+        ghArgs.splice(2, 0, '-R', repo);
+    const result = spawnFn('gh', ghArgs, opts);
     if (result.status !== 0)
         return null;
     let parsed;
@@ -92,9 +95,12 @@ function fetchGithubComments(prNumber, since, botPatterns, spawnFn) {
     }
     return { comments: rawComments, pr_state: prState, remote_kind: 'github' };
 }
-function fetchGitlabComments(prNumber, since, botPatterns, spawnFn) {
+function fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn) {
     const opts = { timeout: 15000, encoding: 'utf8' };
-    const result = spawnFn('glab', ['mr', 'view', String(prNumber), '--comments', '--output', 'json'], opts);
+    const glabArgs = ['mr', 'view', String(prNumber), '--comments', '--output', 'json'];
+    if (repo)
+        glabArgs.splice(2, 0, '-R', repo);
+    const result = spawnFn('glab', glabArgs, opts);
     if (result.status !== 0)
         return null;
     let parsed;
@@ -128,21 +134,19 @@ function fetchGitlabComments(prNumber, since, botPatterns, spawnFn) {
     }
     return { comments: rawComments, pr_state: prState, remote_kind: 'gitlab' };
 }
-function resolveComments(backend, prNumber, since, botPatterns, spawnFn) {
-    if (backend === 'off')
-        return 'off';
+function resolveComments(backend, prNumber, repo, since, botPatterns, spawnFn) {
     if (backend === 'gh') {
-        return fetchGithubComments(prNumber, since, botPatterns, spawnFn);
+        return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn);
     }
     if (backend === 'glab') {
-        return fetchGitlabComments(prNumber, since, botPatterns, spawnFn);
+        return fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn);
     }
     if (backend === 'both') {
-        return (fetchGithubComments(prNumber, since, botPatterns, spawnFn) ??
-            fetchGitlabComments(prNumber, since, botPatterns, spawnFn));
+        return (fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ??
+            fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn));
     }
-    return (fetchGithubComments(prNumber, since, botPatterns, spawnFn) ??
-        fetchGitlabComments(prNumber, since, botPatterns, spawnFn));
+    return (fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ??
+        fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn));
 }
 export function prCommentsTools(db, _spawnFn) {
     const spawn = _spawnFn ?? defaultSpawnFn;
@@ -234,10 +238,7 @@ export function prCommentsTools(db, _spawnFn) {
                 }
             }
             const botPatterns = buildBotPatterns(botsOverride);
-            const fetchResult = resolveComments(backend, prNumber, since, botPatterns, spawn);
-            if (fetchResult === 'off') {
-                return err('Failed to fetch PR comments — check gh/glab auth and PR number');
-            }
+            const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn);
             if (!fetchResult) {
                 return err('Failed to fetch PR comments — check gh/glab auth and PR number');
             }

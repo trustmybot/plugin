@@ -373,6 +373,20 @@ describe('discussions + snapshot integration', () => {
     assert.ok(data.error.includes('docs/trustmybot'), 'Error should mention scope restriction');
   });
 
+  it('step 8c: issue_snapshot_md rejects path-traversal via .. (#361)', async () => {
+    const reports = reportTools(db);
+    const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
+
+    const result = await call(reports.handlers, 'issue_snapshot_md', {
+      agent: 'pr-reviewer',
+      issue_id: issueId,
+      output_path: 'docs/trustmybot/../../../etc/passwd',
+    });
+    assert.ok(result.isError, 'Should reject .. traversal path');
+    const data = parseResult(result);
+    assert.ok(data.error.includes('docs/trustmybot'), 'Error should mention scope restriction');
+  });
+
   it('issue_get_with_discussions returns combined data in one call', async () => {
     const disc = discussionTools(db);
     const issueId = (globalThis as Record<string, unknown>)['testIssueId'] as string;
