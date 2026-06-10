@@ -215,4 +215,88 @@ assert_eq "" "$out" "injected task_brief should pass through silently"
 AUDIT_AFTER=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit;")
 assert_eq "$AUDIT_BEFORE" "$AUDIT_AFTER" "injected task_brief should not write a sentinel row"
 
+# ---- Edit denied pre-brief --------------------------------------------------
+test_case "SWE caller: Edit DENIED pre-brief with teaching message"
+sqlite3 "$DB" "INSERT INTO tasks VALUES (50, 1, 'feat/edit-deny', 'pending', 'spec');" 2>/dev/null || true
+TR=$(make_transcript 50)
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "swe",
+  tool_name: "Edit",
+  agent_transcript_path: $tr,
+  tool_input: {}
+}')
+out=$(run_hook "$INPUT")
+assert_contains "$out" '"permissionDecision":"deny"' "Edit should be denied pre-brief"
+assert_contains "$out" "task_brief" "deny reason must mention task_brief recovery"
+assert_contains "$out" "50" "deny reason must mention the task_id"
+
+# ---- Write denied pre-brief -------------------------------------------------
+test_case "SWE caller: Write DENIED pre-brief with teaching message"
+TR=$(make_transcript 50)
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "swe",
+  tool_name: "Write",
+  agent_transcript_path: $tr,
+  tool_input: {}
+}')
+out=$(run_hook "$INPUT")
+assert_contains "$out" '"permissionDecision":"deny"' "Write should be denied pre-brief"
+assert_contains "$out" "task_brief" "deny reason must mention task_brief recovery"
+
+# ---- Read allowed pre-brief -------------------------------------------------
+test_case "SWE caller: Read allowed pre-brief (read-only exploration is legitimate)"
+TR=$(make_transcript 50)
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "swe",
+  tool_name: "Read",
+  agent_transcript_path: $tr,
+  tool_input: {}
+}')
+out=$(run_hook "$INPUT")
+assert_not_contains "$out" '"permissionDecision":"deny"' "Read must be allowed pre-brief"
+
+# ---- Bash allowed pre-brief -------------------------------------------------
+test_case "SWE caller: Bash allowed pre-brief (exploration, no worktree mutation)"
+TR=$(make_transcript 50)
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "swe",
+  tool_name: "Bash",
+  agent_transcript_path: $tr,
+  tool_input: {}
+}')
+out=$(run_hook "$INPUT")
+assert_not_contains "$out" '"permissionDecision":"deny"' "Bash must be allowed pre-brief"
+
+# ---- Edit allowed post-brief ------------------------------------------------
+test_case "SWE caller: Edit allowed after brief sentinel exists"
+TR=$(make_transcript 50)
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "swe",
+  tool_name: "mcp__tmb__trajectory-server__task_brief",
+  agent_transcript_path: $tr,
+  tool_input: {}
+}')
+run_hook "$INPUT" >/dev/null
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "swe",
+  tool_name: "Edit",
+  agent_transcript_path: $tr,
+  tool_input: {}
+}')
+out=$(run_hook "$INPUT")
+assert_not_contains "$out" '"permissionDecision":"deny"' "Edit must be allowed after task_brief"
+
+# ---- bro Edit never denied --------------------------------------------------
+test_case "bro caller: Edit never denied (gate must not affect bro)"
+sqlite3 "$DB" "INSERT INTO tasks VALUES (60, 1, 'feat/bro-edit', 'pending', 'spec');" 2>/dev/null || true
+TR=$(make_transcript 60)
+INPUT=$(jq -n --arg tr "$TR" '{
+  agent_type: "bro",
+  tool_name: "Edit",
+  agent_transcript_path: $tr,
+  tool_input: {}
+}')
+out=$(run_hook "$INPUT")
+assert_eq "" "$out" "bro Edit must never be denied by brief gate"
+
 summarize

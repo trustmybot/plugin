@@ -3,17 +3,27 @@
 #
 # CC's PreToolUse hook contract does NOT support updatedInput (prompt mutation).
 # The deterministic fallback: block SWE from calling any trajectory-server MCP
-# tool other than task_brief until task_brief has been called for that task.
-# When task_brief fires, write an audit sentinel 'swe_brief_fetched' so
-# subsequent MCP calls are allowed.
+# tool other than task_brief — AND from calling Edit/Write/NotebookEdit — until
+# task_brief has been called for that task. When task_brief fires, write an
+# audit sentinel 'swe_brief_fetched' so subsequent calls are allowed.
 #
-# Fires on: PreToolUse — matcher: mcp__.*trajectory-server__.*
+# Fires on: PreToolUse — matchers:
+#   mcp__.*trajectory-server__.*   (original MCP gate)
+#   Edit|Write|NotebookEdit        (file-mutation gate, new)
 #
-# Decision logic:
-#   1. Non-SWE caller        → allow (pass-through)
-#   2. Tool is task_brief     → write sentinel if not yet set, then allow
-#   3. Sentinel exists        → allow (brief already fetched for this task)
-#   4. No sentinel + non-task_brief → DENY with instruction to call task_brief
+# Boundary choice — why Read/Bash are allowed pre-brief:
+#   Read-only exploration (Read, Glob, Grep) is legitimate pre-brief work;
+#   an SWE may need to orient itself before locating the spec. Bash is
+#   similarly allowed because build invocations and greps are pure exploration
+#   — they mutate nothing inside the worktree. Only irreversible mutations
+#   (Edit, Write, NotebookEdit) are blocked, because implementing blind is
+#   exactly the failure mode the gate must prevent.
+#
+# Decision logic (both matchers share the same sentinel check):
+#   1. Non-SWE caller             → allow (pass-through)
+#   2. Tool is task_brief          → write sentinel if not yet set, then allow
+#   3. Sentinel exists             → allow (brief already fetched for this task)
+#   4. No sentinel + blocked tool  → DENY with recovery instruction
 #
 # Skips:
 #   - Non-SWE callers (bro, pr-reviewer, etc.)
@@ -64,9 +74,19 @@ if [ -z "$TASK_ID" ]; then
 fi
 
 IS_TASK_BRIEF=""
+IS_BLOCKED_MUTATION=""
+IS_MCP_TRAJECTORY=""
 case "${TOOL_NAME:-}" in
-  *task_brief*) IS_TASK_BRIEF="yes" ;;
+  *task_brief*)                       IS_TASK_BRIEF="yes" ;;
+  Edit|Write|NotebookEdit)            IS_BLOCKED_MUTATION="yes" ;;
+  mcp__*trajectory-server__*)        IS_MCP_TRAJECTORY="yes" ;;
 esac
+
+# Only gate the two matched surfaces: trajectory-server MCP tools and file mutations.
+# Read, Bash, Glob, Grep etc. are exploration tools — pass through silently.
+if [ -z "$IS_TASK_BRIEF" ] && [ -z "$IS_BLOCKED_MUTATION" ] && [ -z "$IS_MCP_TRAJECTORY" ]; then
+  exit 0
+fi
 
 if [ "$IS_TASK_BRIEF" = "yes" ]; then
   # Write sentinel on first task_brief call for this task.
@@ -91,7 +111,7 @@ if [ "$IS_TASK_BRIEF" = "yes" ]; then
   exit 0
 fi
 
-# Not task_brief — check if sentinel exists.
+# Check if sentinel exists before denying.
 SENTINEL=$(tmb_sqlite_ro "$DB" "
   SELECT COUNT(*) FROM audit
    WHERE event_type = 'swe_brief_fetched'
@@ -103,7 +123,7 @@ if [ "${SENTINEL:-0}" -gt 0 ]; then
   exit 0
 fi
 
-DENY_REASON="BLOCKED: SWE must call task_brief(agent='swe', task_id=${TASK_ID}) before any other trajectory-server tool call. task_brief delivers the spec, worktree path, and decision thread in one deterministic call."
+DENY_REASON="BLOCKED: SWE must call task_brief(agent='swe', task_id=${TASK_ID}) before ${TOOL_NAME:-this tool}. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=${TASK_ID})"
 
 jq -nc --arg reason "$DENY_REASON" \
   '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$reason}}'
