@@ -95,28 +95,19 @@ export interface TaskInput {
   repo?: string;
 }
 
-export interface FileRegistryRow {
-  repo: string;
-  path: string;
-  type: string;
-  content_md5: string | null;
-  summary: string | null;
-  summary_updated_at: string | null;
-}
-
 export interface PluginConfigRow {
   key: string;
   value_json: string;
 }
 
-export interface ValidationAttemptsRow {
+export interface ValidationAttempt {
   id: number;
   task_id: number;
   attempt_n: number;
   agent: string;
   verdict: string;
   feedback: string;
-  subagent_session_id: string | null;
+  subagent_session_id?: string | null;
   created_at: string;
 }
 

@@ -25,21 +25,27 @@ export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
 
 function decorateWithAgent(tools: Tool[]): Tool[] {
-  return tools.map((t) => ({
-    ...t,
-    inputSchema: {
-      ...t.inputSchema,
-      properties: {
-        ...((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
-        agent: {
-          type: 'string',
-          pattern: '^[a-z][a-z0-9_-]*$',
-          description:
-            "Calling agent identity. First-class roles: bro, swe, pr-reviewer. Any other valid name is treated as consultant.",
+  return tools.map((t) => {
+    const existing = (t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+    const existingAgent = existing['agent'] as Record<string, unknown> | undefined;
+    const mergedAgent: Record<string, unknown> = {
+      type: 'string',
+      pattern: '^[a-z][a-z0-9_-]*$',
+      description:
+        "Calling agent identity. First-class roles: bro, swe, pr-reviewer. Any other valid name is treated as consultant.",
+      ...existingAgent,
+    };
+    return {
+      ...t,
+      inputSchema: {
+        ...t.inputSchema,
+        properties: {
+          ...existing,
+          agent: mergedAgent,
         },
       },
-    },
-  }));
+    };
+  });
 }
 
 export function registerTools(

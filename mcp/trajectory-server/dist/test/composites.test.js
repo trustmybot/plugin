@@ -223,6 +223,18 @@ describe('bro_atomic_close', () => {
         assert.equal(r.isError, true);
         assert.equal(parse(r)['error'], 'forbidden');
     });
+    it('rejects missing verification_summary with a named validation error (#396)', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'bro_atomic_close', {
+            agent: 'bro',
+            task_id: '1',
+            commit_sha: 'abcdef1234567',
+        });
+        assert.ok(r.isError, 'Expected error when verification_summary is missing');
+        const errMsg = parse(r)['error'];
+        assert.ok(errMsg.includes('verification_summary'), `error should mention verification_summary, got: ${errMsg}`);
+    });
     it('sets closed_at on parent issue when close_issue_if_last_task=true (regression: Bug 1)', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'bac-closed-at-'));
         const repoRoot = join(ws, 'app');

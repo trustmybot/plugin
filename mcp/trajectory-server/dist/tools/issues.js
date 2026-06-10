@@ -165,7 +165,7 @@ export function issueTools(db, dbPath = '') {
                     agent: { type: 'string' },
                     status: {
                         type: 'string',
-                        enum: ['open', 'in_progress', 'closed'],
+                        enum: ['open', 'closed'],
                         description: 'Optional status filter. Omit to return all issues.',
                     },
                     limit: { type: 'number', description: 'Max rows. Default 50, max 200.' },
@@ -471,7 +471,7 @@ export function issueTools(db, dbPath = '') {
             const rawOffset = args['offset'] ?? 0;
             const limit = Math.min(Math.max(1, rawLimit), 200);
             const offset = Math.max(0, rawOffset);
-            const VALID_ISSUE_STATUSES = new Set(['open', 'in_progress', 'closed']);
+            const VALID_ISSUE_STATUSES = new Set(['open', 'closed']);
             if (rawStatus !== undefined && !VALID_ISSUE_STATUSES.has(rawStatus)) {
                 return err(`Invalid status: "${rawStatus}". Allowed values: ${[...VALID_ISSUE_STATUSES].join(', ')}`);
             }

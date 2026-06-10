@@ -5,7 +5,7 @@ import type { WorldModelGraph, DirectoryNode } from '../graph-db.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-type DirRow = DirectoryNode & { id: number };
+type DirRow = DirectoryNode;
 
 const WORLD_MODEL_GET_MAX_NODES = 500;
 
@@ -198,7 +198,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
           return ok({ repo, root: null, warning: 'world-model-empty' });
         }
 
-        const rows: DirRow[] = nodes.map((n, idx) => ({ ...n, id: idx }));
+        const rows: DirRow[] = nodes;
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path, depth, { nodeCounter });
         if (!tree) {

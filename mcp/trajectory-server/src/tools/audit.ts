@@ -304,11 +304,11 @@ export function auditTools(db: TrajectoryDB): {
       const eventType = args['event_type'] as string;
       const summary = args['summary'] as string;
 
-      let contentJson = (args['content_json'] as string | undefined) ?? '{}';
+      const contentJson = (args['content_json'] as string | undefined) ?? '{}';
 
       const byteLength = Buffer.byteLength(contentJson, 'utf8');
       if (byteLength > MAX_CONTENT_BYTES) {
-        contentJson = Buffer.from(contentJson, 'utf8').slice(0, MAX_CONTENT_BYTES).toString('utf8');
+        return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_log`);
       }
 
       db.run(

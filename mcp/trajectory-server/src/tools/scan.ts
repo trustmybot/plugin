@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,32 +70,75 @@ function resolveScanScript(): string {
   throw new Error('scan.sh not found — expected at <plugin>/scripts/scan.sh');
 }
 
-function runScan(sessionDir: string): ScanOutput {
-  const script = resolveScanScript();
-  let stdout: string;
-  try {
-    stdout = execFileSync('bash', [script, sessionDir], {
-      encoding: 'utf8',
-      maxBuffer: 200 * 1024 * 1024, // 200MB headroom for large monorepos
+export function runScanWithScript(script: string, sessionDir: string, timeoutMs: number): Promise<ScanOutput> {
+  return new Promise<ScanOutput>((resolve, reject) => {
+    const child = spawn('bash', [script, sessionDir], {
+      detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-  } catch (e: unknown) {
-    // Surface scan.sh's real failure (exit code + stderr) rather than masking
-    // it as a JSON.parse error on partial stdout. (#285)
-    const se = e as { stderr?: string | Buffer; status?: number; message?: string };
-    const stderr = se.stderr ? se.stderr.toString().slice(0, 2000) : '';
-    throw new Error(`scan.sh failed (exit ${se.status ?? '?'}): ${stderr || se.message || 'unknown error'}`);
-  }
-  let parsed: ScanOutput;
-  try {
-    parsed = JSON.parse(stdout) as ScanOutput;
-  } catch {
-    throw new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`);
-  }
-  if (!parsed.repos || !parsed.files) {
-    throw new Error('scan.sh emitted unexpected shape (missing repos/files)');
-  }
-  return parsed;
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+
+    child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    let settled = false;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function killGroup(): void {
+      try {
+        process.kill(-child.pid!, 'SIGKILL');
+      } catch {
+        // Process may have already exited — ignore.
+      }
+    }
+
+    killTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      killGroup();
+      reject(new Error('scan.sh timed out after 10 minutes'));
+    }, timeoutMs);
+
+    child.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      if (killTimer) clearTimeout(killTimer);
+      reject(new Error(`scan.sh spawn error: ${e.message}`));
+    });
+
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      if (killTimer) clearTimeout(killTimer);
+
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+      const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
+
+      if (code !== 0) {
+        reject(new Error(`scan.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
+        return;
+      }
+
+      let parsed: ScanOutput;
+      try {
+        parsed = JSON.parse(stdout) as ScanOutput;
+      } catch {
+        reject(new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+        return;
+      }
+      if (!parsed.repos || !parsed.files) {
+        reject(new Error('scan.sh emitted unexpected shape (missing repos/files)'));
+        return;
+      }
+      resolve(parsed);
+    });
+  });
+}
+
+function runScan(sessionDir: string, timeoutMs: number): Promise<ScanOutput> {
+  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
 }
 
 // Valid `source` values for scan_run (#2881). The default — bro_auto_initial —
@@ -472,7 +515,7 @@ export function scanTools(db: TrajectoryDB, graph: WorldModelGraph | null, dbPat
     {
       name: 'scan_run',
       description:
-        "Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo's git-tracked files (.gitignore-aware — caches/build artifacts are excluded), and writes Directory nodes + CONTAINS edges to the kuzu world model. Each directory's summary comes from `<dir>/README.md` (author-curated, summary_source='readme') or, when absent, a deterministic structural summary of its immediate file + subdir names (summary_source='structural') — never NULL. Emits a deep_scan_completed audit event. The audit content_json carries `source` (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) and `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan). See docs/architecture/WORLD_MODEL.md.",
+        "Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo's git-tracked files (.gitignore-aware — caches/build artifacts are excluded), and writes Directory nodes + CONTAINS edges to the kuzu world model. Each directory's summary comes from `<dir>/README.md` (author-curated, summary_source='readme') or, when absent, a deterministic structural summary of its immediate file + subdir names (summary_source='structural') — never NULL. Emits a deep_scan_completed audit event. The audit content_json carries `source` (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) and `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan). The scan subprocess runs in a detached process group and is killed (SIGKILL on the group) on the 10-minute hard timeout. MCP protocol does not surface an abort/cancel signal to tool handlers, so mid-scan cancellation is not possible — only timeout-kill applies. See docs/architecture/WORLD_MODEL.md.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -534,23 +577,12 @@ export function scanTools(db: TrajectoryDB, graph: WorldModelGraph | null, dbPat
         }
 
         let out: ScanOutput;
-        const scanTimeout = setTimeout(() => {
-          if (lockPath) releaseLock(lockPath);
-        }, SCAN_TIMEOUT_MS);
-
         try {
-          out = await Promise.race([
-            Promise.resolve(runScan(sessionDir)),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('scan timed out after 10 minutes')), SCAN_TIMEOUT_MS),
-            ),
-          ]);
+          out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
         } catch (e) {
           if (lockPath) releaseLock(lockPath);
-          clearTimeout(scanTimeout);
           throw e;
         }
-        clearTimeout(scanTimeout);
 
         const stats = persistScan(db, graph, out, sessionDir);
         if (lockPath) releaseLock(lockPath);
