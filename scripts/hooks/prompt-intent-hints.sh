@@ -299,9 +299,9 @@ if [ "${TMB_DISABLE_REONBOARD_HINT:-0}" != "1" ]; then
 
 Policy/config mutations stay Human-gated. Route the Human to \`/onboard\` — do NOT call \`onboard_apply\` yourself.
 
-1. Call \`onboard_state_get\` to read the current config (branching_model, pr_target, remotes).
-2. Reply pointing the Human to \`/onboard\`.
-3. Do NOT spawn code work (no \`task_create_batch\`, no \`issue_create\`, no \`Agent\` for SWE)."
+REQUIRED FIRST ACTION — before any reply or git command: call \`onboard_state_get(agent='bro')\`. Your recommendation must cite the current config it returns (branching_model, pr_target, remotes); a reonboard answer composed without reading state is a workflow violation.
+
+Then reply pointing the Human to \`/onboard\`. Do NOT spawn code work (no \`task_create_batch\`, no \`issue_create\`, no \`Agent\` for SWE) and do NOT wire remotes with raw git."
             emit_context "$CTX"
           fi
         fi
