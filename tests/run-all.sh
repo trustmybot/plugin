@@ -68,6 +68,10 @@ run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlin
 run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
 run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"
 
+# ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
+
+run_step "L1 bench: measurement harness selftest"     bash "$HERE/benchmarks/selftest.sh"
+
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 
 printf "\n=== L2 unit: MCP handlers (node --test on built dist/) ===\n"
