@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { WorldModelGraph } from '../graph-db.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -277,9 +278,22 @@ function persistDirectoriesGraph(graph, out, now) {
 // File-level state lives entirely in the directories rows (file_count) and
 // the world model. Per-file md5/summary state was retired in schema v7
 // (ADR 0001) — leaf-zoom now happens via explicit Read on demand.
-function persistScan(db, graph, out) {
-    let repos_upserted = 0;
+// sessionDir is used to scope repo retirement: repos in the DB whose path
+// falls under sessionDir but are absent from this scan's result are retired.
+function persistScan(db, graph, out, sessionDir) {
     const now = nowISO();
+    const scannedNames = new Set(out.repos.map((r) => r.name));
+    const normSession = sessionDir.replace(/\/+$/, '');
+    // Find repos in DB that were discovered under sessionDir but are absent now.
+    const existing = db.all(`SELECT name, path FROM repos`);
+    const toRetire = existing.filter((r) => {
+        const normPath = r.path.replace(/\/+$/, '');
+        const underSession = normPath === normSession || normPath.startsWith(normSession + '/');
+        return underSession && !scannedNames.has(r.name);
+    });
+    let repos_upserted = 0;
+    let repos_retired = 0;
+    let dirs_retired = 0;
     db.transaction(() => {
         for (const r of out.repos) {
             db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at)
@@ -290,7 +304,18 @@ function persistScan(db, graph, out) {
            last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
             repos_upserted++;
         }
+        for (const r of toRetire) {
+            db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+            repos_retired++;
+        }
     });
+    // Retire kuzu nodes for vanished repos (prune all their dirs).
+    if (graph) {
+        for (const r of toRetire) {
+            const n = graph.pruneDirectories(r.name, new Set());
+            dirs_retired += n;
+        }
+    }
     let dirs_upserted = 0;
     let dirs_readme_summarized = 0;
     let dirs_structural_summarized = 0;
@@ -299,15 +324,65 @@ function persistScan(db, graph, out) {
         dirs_upserted = stats.dirs_upserted;
         dirs_readme_summarized = stats.dirs_readme_summarized;
         dirs_structural_summarized = stats.dirs_structural_summarized;
+        // Prune stale directory nodes for each scanned repo (handles renames).
+        const dirMap = deriveDirectoryEntries(out);
+        for (const r of out.repos) {
+            const keepKeys = new Set();
+            for (const [, entry] of dirMap) {
+                if (entry.repo === r.name) {
+                    keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
+                }
+            }
+            graph.pruneDirectories(r.name, keepKeys);
+        }
     }
     return {
+        repos_discovered: out.repos.length,
         repos_upserted,
+        repos_retired,
         dirs_upserted,
+        dirs_retired,
         dirs_readme_summarized,
         dirs_structural_summarized,
     };
 }
-export function scanTools(db, graph) {
+const SCAN_TIMEOUT_MS = 10 * 60 * 1000; // 10-minute hard timeout
+function readLock(lockPath) {
+    try {
+        return JSON.parse(readFileSync(lockPath, 'utf8'));
+    }
+    catch {
+        return null;
+    }
+}
+function pidAlive(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+function acquireLock(lockPath) {
+    const existing = readLock(lockPath);
+    if (existing) {
+        if (pidAlive(existing.pid))
+            return false;
+        unlinkSync(lockPath);
+    }
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: 'wx' });
+    return true;
+}
+function releaseLock(lockPath) {
+    try {
+        unlinkSync(lockPath);
+    }
+    catch {
+        // already removed — not an error
+    }
+}
+export function scanTools(db, graph, dbPath = '') {
     const definitions = [
         {
             name: 'scan_run',
@@ -346,8 +421,46 @@ export function scanTools(db, graph) {
             const sessionDir = args['session_dir'] ?? process.cwd();
             const rawSource = args['source'] ?? 'bro_auto_initial';
             const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
-            const out = runScan(sessionDir);
-            const stats = persistScan(db, graph, out);
+            // #339: lock file prevents concurrent scans. Lock lives beside the DB.
+            const lockPath = dbPath && dbPath !== ':memory:'
+                ? join(dirname(dbPath), 'scan.lock')
+                : '';
+            if (lockPath) {
+                const existing = readLock(lockPath);
+                if (existing && pidAlive(existing.pid)) {
+                    return err(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
+                }
+                try {
+                    acquireLock(lockPath);
+                }
+                catch {
+                    const recheck = readLock(lockPath);
+                    if (recheck && pidAlive(recheck.pid)) {
+                        return err(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
+                    }
+                }
+            }
+            let out;
+            const scanTimeout = setTimeout(() => {
+                if (lockPath)
+                    releaseLock(lockPath);
+            }, SCAN_TIMEOUT_MS);
+            try {
+                out = await Promise.race([
+                    Promise.resolve(runScan(sessionDir)),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('scan timed out after 10 minutes')), SCAN_TIMEOUT_MS)),
+                ]);
+            }
+            catch (e) {
+                if (lockPath)
+                    releaseLock(lockPath);
+                clearTimeout(scanTimeout);
+                throw e;
+            }
+            clearTimeout(scanTimeout);
+            const stats = persistScan(db, graph, out, sessionDir);
+            if (lockPath)
+                releaseLock(lockPath);
             // #2881: structural-change detection vs previous deep_scan_completed
             // audit. The flag rides in the audit content_json so downstream
             // tooling (the scan-side renderer pass, manual diagnostic queries)
@@ -358,7 +471,7 @@ export function scanTools(db, graph) {
             // (id=-1) — this is a session-level event, not work-issue scoped.
             db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
            VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`, [
-                `Scanned ${out.repos.length} repos, ${out.files.length} files, ${stats.dirs_upserted} dirs (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural) — source=${source}${structuralChange ? ', structural-change' : ''}`,
+                `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
                 JSON.stringify({
                     ...stats,
                     session_dir: out.session_dir,

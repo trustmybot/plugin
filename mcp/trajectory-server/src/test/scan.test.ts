@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
@@ -373,5 +373,133 @@ describe('preferredDefaultRepo — unit', () => {
 
   it('returns empty string for empty repos list', () => {
     assert.equal(preferredDefaultRepo([], '/any'), '');
+  });
+});
+
+describe('scan_run lock contention + release (#339)', () => {
+  function mkRepo(parent: string, name: string): string {
+    const root = join(parent, name);
+    mkdirSync(root, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    writeFileSync(join(root, 'README.md'), 'r\n');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
+    return root;
+  }
+
+  it('lock file is absent after a successful scan (released on completion)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-lock-release-'));
+    const dbDir = join(ws, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, 'trajectory.db');
+    try {
+      mkRepo(ws, 'r');
+      const db = tempDB();
+      const tools = scanTools(db, null, dbPath);
+      const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      const lockPath = join(dbDir, 'scan.lock');
+      assert.ok(!existsSync(lockPath), 'lock file must be absent after scan completes');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('second scan_run while lock held by live pid returns error', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-lock-contend-'));
+    const dbDir = join(ws, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, 'trajectory.db');
+    try {
+      mkRepo(ws, 'r');
+      const db = tempDB();
+      const lockPath = join(dbDir, 'scan.lock');
+      // Pre-write a lock with the current process pid (live pid).
+      writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
+      const tools = scanTools(db, null, dbPath);
+      const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(r.isError, 'scan_run should return error when lock is held');
+      const data = parse(r);
+      assert.ok(
+        typeof data['error'] === 'string' && (data['error'] as string).includes('scan already running'),
+        `error message should mention 'scan already running', got: ${data['error']}`,
+      );
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('stale lock (dead pid) is cleared and scan proceeds', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-lock-stale-'));
+    const dbDir = join(ws, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, 'trajectory.db');
+    try {
+      mkRepo(ws, 'r');
+      const db = tempDB();
+      const lockPath = join(dbDir, 'scan.lock');
+      // Write a stale lock with a dead pid (99999999 is almost certainly not alive).
+      writeFileSync(lockPath, JSON.stringify({ pid: 99999999, started_at: new Date().toISOString() }));
+      const tools = scanTools(db, null, dbPath);
+      const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan should succeed past stale lock: ${JSON.stringify(r)}`);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scan_run retired repos + dirs (#340)', () => {
+  function mkRepo(parent: string, name: string): string {
+    const root = join(parent, name);
+    mkdirSync(root, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.io'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    writeFileSync(join(root, 'f.txt'), 'x\n');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
+    return root;
+  }
+
+  it('scan summary reports discovered/upserted/retired counts', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-retire-'));
+    try {
+      mkRepo(ws, 'repo-a');
+      mkRepo(ws, 'repo-b');
+
+      const db = tempDB();
+      const tools = scanTools(db, null);
+
+      // First scan: both repos discovered.
+      const r1 = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r1.isError, `first scan failed: ${JSON.stringify(r1)}`);
+      const d1 = parse(r1);
+      assert.equal(d1['repos_discovered'], 2, 'discovered 2 repos on first scan');
+      assert.equal(d1['repos_retired'], 0, 'none retired on first scan');
+
+      // Remove repo-b from disk so it vanishes from the next scan.
+      rmSync(join(ws, 'repo-b'), { recursive: true, force: true });
+
+      // Second scan: repo-b is retired.
+      const r2 = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r2.isError, `second scan failed: ${JSON.stringify(r2)}`);
+      const d2 = parse(r2);
+      assert.equal(d2['repos_discovered'], 1, 'only 1 repo discovered after removal');
+      assert.equal(d2['repos_retired'], 1, 'repo-b retired on second scan');
+
+      // repo-b should be gone from the repos table.
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((r) => r.name);
+      assert.deepEqual(names, ['repo-a'], 'only repo-a remains in DB');
+
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
   });
 });

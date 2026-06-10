@@ -65,7 +65,7 @@ export function registerTools(
   const prComments = prCommentsTools(db);
   const composites = compositeTools(db, dbPath, graph);
   const onboard = onboardTools(db, dbPath);
-  const scan = scanTools(db, graph);
+  const scan = scanTools(db, graph, dbPath);
   const worldModel = worldModelTools(db, graph);
 
   toolDefinitions = decorateWithAgent([

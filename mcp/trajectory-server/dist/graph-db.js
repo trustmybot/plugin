@@ -78,6 +78,15 @@ export class WorldModelGraph {
        MERGE (p)-[:CONTAINS]->(c)`);
         this.conn.executeSync(stmt, { parentKey, childKey });
     }
+    pruneDirectories(repo, keepKeys) {
+        const all = this.allDirectoriesForRepo(repo);
+        const toDelete = all.filter((d) => !keepKeys.has(d.key));
+        for (const d of toDelete) {
+            const stmt = this.conn.prepareSync(`MATCH (d:Directory {key: $key}) DETACH DELETE d`);
+            this.conn.executeSync(stmt, { key: d.key });
+        }
+        return toDelete.length;
+    }
     allDirectoriesForRepo(repo) {
         const stmt = this.conn.prepareSync(`MATCH (d:Directory {repo: $repo})
        RETURN d.key, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count`);
@@ -162,6 +171,11 @@ export class WorldModelGraph {
         catch {
             // already closed
         }
+        // Null out native references after close so GC doesn't trigger the kuzu
+        // C++ destructor again at process exit (kuzu v0.11 can segfault on
+        // double-destruct on Node 24/macOS).
+        this['conn'] = null;
+        this['db'] = null;
     }
 }
 export function resolveGraphDbPath(trajectoryDbPath) {
