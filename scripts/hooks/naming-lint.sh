@@ -52,7 +52,7 @@ case "$TARGET" in
 esac
 
 is_snake() { echo "$1" | grep -qE '^[a-z][a-z0-9_]*$'; }
-is_kebab() { echo "$1" | grep -qE '^[a-z][a-z0-9-]*$'; }
+is_kebab() { echo "$1" | grep -qE '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$'; }
 is_pascal() { echo "$1" | grep -qE '^[A-Z][A-Za-z0-9]*$'; }
 
 VIOLATION=""
