@@ -15,6 +15,10 @@ async function call(handlers, name, args) {
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function createIssue(db) {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
@@ -43,8 +47,7 @@ async function createTask(db, issueId, branchId) {
             },
         ],
     });
-    const rows = parseResult(result);
-    return rows[0].id;
+    return parseBatch(result)[0].id;
 }
 /**
  * Insert a task row directly via SQL, bypassing tool-layer side effects

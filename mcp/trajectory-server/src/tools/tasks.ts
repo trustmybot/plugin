@@ -9,6 +9,28 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
+// Extract directories implied by a spec's `## Files` section. Mirrors
+// parseFilesDirs in composites.ts — kept here to avoid a circular import
+// (composites.ts imports BRANCH_ID_RE from tasks.ts).
+function specFileDirs(specBody: string): Set<string> {
+  const dirs = new Set<string>();
+  let inFiles = false;
+  for (const line of specBody.split('\n')) {
+    const h2 = line.match(/^##\s+(.+)/);
+    if (h2) {
+      inFiles = /^files\b/i.test(h2[1]!.trim());
+      continue;
+    }
+    if (!inFiles) continue;
+    const m = line.match(/^\s*[-*]\s+`?([^`\s—|]+)/);
+    if (!m) continue;
+    const path = m[1]!.replace(/[`,.;]+$/, '');
+    const slash = path.lastIndexOf('/');
+    dirs.add(slash >= 0 ? path.slice(0, slash) : '');
+  }
+  return dirs;
+}
+
 export const BRANCH_ID_RE =
   /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
 
@@ -237,6 +259,16 @@ export function taskTools(db: TrajectoryDB): {
             description:
               "Required when waive_decision_gate=true. Min 10 chars. Explain why an explicit decision-audit row is unnecessary.",
           },
+          waive_spec_shape: {
+            type: 'boolean',
+            description:
+              "Set true to bypass the spec-section shape gate. Acceptable for tasks without a full spec (e.g. placeholder tasks, non-SWE tasks). If false or omitted, each spec_body must contain ## Files, ## Success Criteria, ## Verification and be ≤200 lines.",
+          },
+          waive_spec_shape_reason: {
+            type: 'string',
+            description:
+              "Required when waive_spec_shape=true. Min 10 chars. Explain why the spec does not have the required sections.",
+          },
         },
         required: ['agent', 'issue_id', 'tasks'],
       },
@@ -309,6 +341,49 @@ export function taskTools(db: TrajectoryDB): {
       // auto-mode pressure.
       const waived = args['waive_scope_gate'] === true;
       const waiverReason = (args['waive_scope_gate_reason'] ?? '') as string;
+
+      // --- Spec-section shape gate (MCP-level enforcement) ---
+      // Each spec_body must contain the three required H2 sections and be ≤200 lines.
+      // Waivable with waive_spec_shape_reason (≥10 chars, audited).
+      const specShapeWaived = args['waive_spec_shape'] === true;
+      const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '') as string;
+
+      if (specShapeWaived) {
+        if (typeof specShapeWaiverReason !== 'string' || specShapeWaiverReason.trim().length < 10) {
+          return err('waive_spec_shape_reason must be a string ≥10 chars.');
+        }
+      } else {
+        const REQUIRED_H2 = ['## Files', '## Success Criteria', '## Verification'];
+        for (const t of (args['tasks'] as TaskInput[])) {
+          if (!t.spec_body) continue;
+          const missing = REQUIRED_H2.filter(
+            (h) => !t.spec_body!.split('\n').some((l) => l.trimEnd().toLowerCase() === h.toLowerCase()),
+          );
+          const lineCount = t.spec_body.split('\n').length;
+          if (missing.length > 0 || lineCount > 200) {
+            const parts: string[] = [];
+            if (missing.length > 0) parts.push(`missing sections: ${missing.join(', ')}`);
+            if (lineCount > 200) parts.push(`spec_body is ${lineCount} lines (max 200)`);
+            return {
+              isError: true,
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'spec_shape_violation',
+                  message:
+                    `Spec shape gate: task branch_id='${t.branch_id}' — ${parts.join('; ')}. ` +
+                    `Each spec_body must contain ## Files, ## Success Criteria, ## Verification (H2 headings) ` +
+                    `and be ≤200 lines. Add the missing sections or pass waive_spec_shape=true with ` +
+                    `waive_spec_shape_reason="<why>" (≥10 chars) for tasks without full specs.`,
+                  branch_id: t.branch_id,
+                  missing_sections: missing,
+                  line_count: lineCount,
+                }),
+              }],
+            };
+          }
+        }
+      }
 
       if (waived) {
         if (typeof waiverReason !== 'string' || waiverReason.trim().length < 10) {
@@ -759,11 +834,72 @@ export function taskTools(db: TrajectoryDB): {
             ],
           );
         }
+        if (specShapeWaived) {
+          db.run(
+            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'spec_shape_gate_waived', ?, ?, ?)`,
+            [
+              issueId,
+              firstBranch,
+              agentFromNode,
+              specShapeWaiverReason.slice(0, 200),
+              JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
+              now,
+            ],
+          );
+        }
 
         return results;
       });
 
-      return ok(inserted);
+      // --- Gate 6: Parallel-overlap field ---
+      // Compute pairwise ## Files-section overlap across the batch and return
+      // parallel_groups (safe to run concurrently) + overlapping_pairs.
+      // Pure response enrichment — no gating, no error on overlap.
+      const parallelGroups: number[][] = [];
+      const overlappingPairs: Array<{ a: number; b: number; shared_paths: string[] }> = [];
+      if (inserted.length > 1) {
+        const taskFilePaths = inserted.map((t) => ({
+          id: t.id,
+          paths: specFileDirs(t.spec_body ?? ''),
+        }));
+        const adjMatrix = new Map<number, Set<number>>();
+        for (const t of taskFilePaths) adjMatrix.set(t.id, new Set());
+
+        for (let i = 0; i < taskFilePaths.length; i++) {
+          for (let j = i + 1; j < taskFilePaths.length; j++) {
+            const a = taskFilePaths[i]!;
+            const b = taskFilePaths[j]!;
+            const shared = [...a.paths].filter((p) => b.paths.has(p));
+            if (shared.length > 0) {
+              overlappingPairs.push({ a: a.id, b: b.id, shared_paths: shared });
+              adjMatrix.get(a.id)!.add(b.id);
+              adjMatrix.get(b.id)!.add(a.id);
+            }
+          }
+        }
+
+        const visited = new Set<number>();
+        for (const t of taskFilePaths) {
+          if (visited.has(t.id)) continue;
+          if ((adjMatrix.get(t.id)?.size ?? 0) === 0) {
+            parallelGroups.push([t.id]);
+            visited.add(t.id);
+          } else {
+            const group = [t.id];
+            visited.add(t.id);
+            for (const neighbor of adjMatrix.get(t.id)!) {
+              if (!visited.has(neighbor)) {
+                group.push(neighbor);
+                visited.add(neighbor);
+              }
+            }
+            parallelGroups.push(group);
+          }
+        }
+      }
+
+      return ok({ tasks: inserted, parallel_groups: parallelGroups, overlapping_pairs: overlappingPairs });
     })),
 
     task_get: wrapHandler(async (args) => {

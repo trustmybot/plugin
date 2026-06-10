@@ -6,6 +6,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startClient, call } from './harness.mjs';
 
+const SPEC_BODY = [
+  '# Task: swe-test handler',
+  '',
+  '## Files',
+  '- src/handler.ts',
+  '',
+  '## Success Criteria',
+  '- handler returns 200 with body "ok"',
+  '',
+  '## Verification',
+  '- bun test src/handler.test.ts',
+].join('\n');
+
 async function seedIssueAndTask(client) {
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
@@ -22,7 +35,7 @@ async function seedIssueAndTask(client) {
       branch_id: 'feat/swe-test',
       title: 't',
       description: 'd',
-      spec_body: '# spec',
+      spec_body: SPEC_BODY,
     }],
   });
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
@@ -39,7 +52,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   // 1. SWE reads the spec
   const getSpec = await call(client, 'task_get', { agent: 'swe', task_id: taskId });
   assert.equal(getSpec.ok, true, `task_get: ${JSON.stringify(getSpec)}`);
-  assert.equal(getSpec.data.spec_body, '# spec');
+  assert.equal(getSpec.data.spec_body, SPEC_BODY);
 
   // 2. Transition to running
   const running = await call(client, 'task_update_status', {

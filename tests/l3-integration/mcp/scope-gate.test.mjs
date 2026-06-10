@@ -301,8 +301,10 @@ test('task_create_batch — registry_cold_gate clears after a deep_scan_complete
     tasks: [{ branch_id: 'fix/unlock', description: 'd' }],
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  assert.ok(Array.isArray(result.data));
-  assert.equal(result.data.length, 1);
+  assert.ok(Array.isArray(result.data.tasks), `expected tasks array: ${JSON.stringify(result.data)}`);
+  assert.equal(result.data.tasks.length, 1);
+  assert.ok(Array.isArray(result.data.parallel_groups));
+  assert.ok(Array.isArray(result.data.overlapping_pairs));
 });
 
 test('task_create_batch — waive_registry_gate accepts an explicit reason ≥10 chars', async (t) => {

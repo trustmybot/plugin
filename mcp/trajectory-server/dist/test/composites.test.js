@@ -12,6 +12,10 @@ import { auditTools } from '../tools/audit.js';
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }
+function parseBatch(r) {
+    const raw = JSON.parse(r.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function call(handlers, name, args) {
     const h = handlers[name];
     assert.ok(h, `handler not found: ${name}`);
@@ -94,13 +98,13 @@ describe('task_retry_batch', () => {
             branch_id: 'fix/initial',
             summary: 'branch proposed',
         });
-        const created = parse(await call(tasks.handlers, 'task_create_batch', {
+        const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
             agent: 'bro',
             issue_id: issueId,
             waive_intent_gate: true,
             waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
             waive_decision_gate: true,
-            waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
             tasks: [{
                     branch_id: 'fix/initial',
                     description: 'do thing',
@@ -147,10 +151,10 @@ describe('task_retry_batch', () => {
             agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
             from_node: 'bro', branch_id: 'fix/x', summary: 's',
         });
-        const created = parse(await call(tasks.handlers, 'task_create_batch', {
+        const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
             agent: 'bro', issue_id: issueId,
             waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
-            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
             tasks: [{ branch_id: 'fix/x', description: 'd', spec_body: 's' }],
         }));
         const id = String(created[0].id);
@@ -164,6 +168,61 @@ describe('task_retry_batch', () => {
         });
         assert.equal(r.isError, true);
         assert.match(parse(r)['error'], /status is "pending"/);
+    });
+    it('retry cap: rejects the 4th retry attempt (3 prior in lineage)', async () => {
+        const db = tempDB();
+        const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const tasks = taskTools(db);
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            agent: 'bro', objective: 'retry cap test', description: 'x',
+        }))['id']));
+        await call(discussions.handlers, 'discussion_append', {
+            agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+        });
+        const mkBranch = async (branch) => {
+            await call(audit.handlers, 'audit_log', {
+                agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+                from_node: 'bro', branch_id: branch, summary: 's',
+            });
+        };
+        const mkTask = async (branch) => {
+            await mkBranch(branch);
+            const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+                agent: 'bro', issue_id: issueId,
+                waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+                waive_spec_shape: true, waive_spec_shape_reason: 'not under test',
+                tasks: [{ branch_id: branch, description: 'd', spec_body: 's' }],
+            }));
+            return String(created[0].id);
+        };
+        const retryFrom = async (failedId, newBranch) => {
+            await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: failedId, status: 'failed' });
+            await mkBranch(newBranch);
+            const r = await call(composites.handlers, 'task_retry_batch', {
+                agent: 'bro', failed_task_id: failedId, new_branch_id: newBranch,
+                corrected_spec_body: 's', retry_rationale: 'new approach', description: 'd',
+            });
+            assert.ok(!r.isError, `Retry should succeed for attempt on ${newBranch}: ${JSON.stringify(parse(r))}`);
+            return String(parse(r).task_id);
+        };
+        const id0 = await mkTask('fix/cap-v1');
+        const id1 = await retryFrom(id0, 'fix/cap-v2');
+        const id2 = await retryFrom(id1, 'fix/cap-v3');
+        const id3 = await retryFrom(id2, 'fix/cap-v4');
+        await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: id3, status: 'failed' });
+        await mkBranch('fix/cap-v5');
+        const denied = await call(composites.handlers, 'task_retry_batch', {
+            agent: 'bro', failed_task_id: id3, new_branch_id: 'fix/cap-v5',
+            corrected_spec_body: 's', retry_rationale: 'fourth retry', description: 'd',
+        });
+        assert.ok(denied.isError, '4th retry must be rejected by the retry cap');
+        assert.match(parse(denied)['error'], /retry limit reached \(3\)/);
+        assert.match(parse(denied)['error'], /escalate to Human/);
+        db.close();
     });
 });
 describe('bro_atomic_close', () => {
@@ -184,10 +243,10 @@ describe('bro_atomic_close', () => {
             agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
             from_node: 'bro', branch_id: 'fix/x', summary: 's',
         });
-        const created = parse(await call(tasks.handlers, 'task_create_batch', {
+        const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
             agent: 'bro', issue_id: issueId,
             waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
-            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
             tasks: [{ branch_id: 'fix/x', description: 'd', spec_body: 's' }],
         }));
         const id = String(created[0].id);
@@ -260,10 +319,10 @@ describe('bro_atomic_close', () => {
                 agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
                 from_node: 'bro', branch_id: 'fix/closed-at', summary: 's',
             });
-            const created = parse(await call(tasks.handlers, 'task_create_batch', {
+            const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
                 agent: 'bro', issue_id: issueId,
                 waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
-                waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
                 tasks: [{ branch_id: 'fix/closed-at', description: 'd', spec_body: 's', repo: 'app' }],
             }));
             const taskId = String(created[0].id);
@@ -325,10 +384,10 @@ describe('bro_atomic_close', () => {
                 agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
                 from_node: 'bro', branch_id: 'fix/remote-close', summary: 's',
             });
-            const created = parse(await call(tasks.handlers, 'task_create_batch', {
+            const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
                 agent: 'bro', issue_id: issueId,
                 waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
-                waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
                 tasks: [{ branch_id: 'fix/remote-close', description: 'd', spec_body: 's', repo: 'app' }],
             }));
             const taskId = String(created[0].id);
@@ -412,10 +471,11 @@ describe('bro_verification_fail_record', () => {
             agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
             from_node: 'bro', branch_id: 'fix/fail-rec', summary: 's',
         });
-        const created = parse(await call(tasks.handlers, 'task_create_batch', {
+        const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
             agent: 'bro', issue_id: issueId,
             waive_intent_gate: true, waive_intent_gate_reason: 'unit-test; not under test',
             waive_decision_gate: true, waive_decision_gate_reason: 'unit-test; not under test',
+            waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
             tasks: [{ branch_id: 'fix/fail-rec', description: 'd', spec_body: 's' }],
         }));
         const taskId = String(created[0].id);

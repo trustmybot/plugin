@@ -20,7 +20,18 @@ async function seedCompletedTask(client) {
       branch_id: 'feat/pr-test',
       title: 't',
       description: 'd',
-      spec_body: '# spec',
+      spec_body: [
+        '# Task: pr-test handler',
+        '',
+        '## Files',
+        '- src/handler.ts',
+        '',
+        '## Success Criteria',
+        '- handler returns 200 with body "ok"',
+        '',
+        '## Verification',
+        '- bun test src/handler.test.ts',
+      ].join('\n'),
     }],
   });
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;

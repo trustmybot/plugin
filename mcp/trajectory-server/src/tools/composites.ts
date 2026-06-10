@@ -465,6 +465,43 @@ export function compositeTools(
           return err('new_branch_id must differ from the failed task\'s branch_id.');
         }
 
+        // --- Retry cap gate ---
+        // Walk the task_retry_attempted audit chain: each hop in the chain
+        // is one retry. The chain is stored in audit.content_json as
+        // {failed_task_id, new_task_id, ...}. Starting from failed_task_id,
+        // count how many times we can walk backwards via new_task_id to find
+        // a prior task_retry_attempted row that produced it. A depth of 3
+        // means we've already retried 3 times; a 4th is rejected.
+        //
+        // No new column needed: the linkage already exists in audit rows.
+        {
+          const RETRY_CAP = 3;
+          let depth = 0;
+          let currentTaskId = Number(failedTaskId);
+          while (depth < RETRY_CAP + 1) {
+            const row = db.get<{ failed_task_id: number; content_json: string }>(
+              `SELECT content_json FROM audit
+                WHERE event_type = 'task_retry_attempted'
+                  AND json_extract(content_json, '$.new_task_id') = ?
+                LIMIT 1`,
+              [currentTaskId],
+            );
+            if (!row) break;
+            const parsed = JSON.parse((row as unknown as { content_json: string }).content_json) as {
+              failed_task_id: number;
+            };
+            currentTaskId = parsed.failed_task_id;
+            depth++;
+          }
+          if (depth >= RETRY_CAP) {
+            return err(
+              `retry limit reached (3) — escalate to Human. ` +
+              `Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. ` +
+              `Use discussion_append(kind='question') to involve the Human before retrying further.`,
+            );
+          }
+        }
+
         const now = nowISO();
         const result = db.transaction(() => {
           db.run(

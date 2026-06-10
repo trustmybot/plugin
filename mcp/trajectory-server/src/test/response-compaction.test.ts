@@ -25,6 +25,11 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+function parseBatch(result: RawResult): Array<Record<string, unknown>> {
+  const raw = JSON.parse(result.content[0].text);
+  return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
+}
+
 async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
@@ -53,8 +58,7 @@ async function createTask(
     issue_id: String(issueId),
     tasks: [{ branch_id: branchId, description: 'Compaction test task' }],
   });
-  const rows = parseResult(result);
-  return rows[0].id as number;
+  return parseBatch(result)[0]!.id as number;
 }
 
 describe('issue_get_with_discussions compact default (#210)', () => {

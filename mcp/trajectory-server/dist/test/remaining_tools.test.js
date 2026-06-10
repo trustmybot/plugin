@@ -13,6 +13,10 @@ async function call(handlers, name, args) {
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function createIssue(db) {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
@@ -35,8 +39,7 @@ async function createTask(db, issueId, branchId = 'feat/test-task') {
             },
         ],
     });
-    const rows = parseResult(result);
-    return rows[0].id;
+    return parseBatch(result)[0].id;
 }
 describe('auditTools', () => {
     it('audit_log stores small content_json intact', async () => {
@@ -318,6 +321,64 @@ describe('skillTools', () => {
         const row = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
         assert.equal(row.trust_tier, 'curated');
+        db.close();
+    });
+});
+describe('skill_register name validation gate', () => {
+    it('rejects names not matching ^[a-z][a-z0-9-]{0,63}$', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        for (const badName of ['My-Skill', '1starts-digit', 'has_underscore']) {
+            const result = await call(tools.handlers, 'skill_register', {
+                agent: 'bro',
+                name: badName,
+                description: 'test',
+                file_path: `skills/bad.md`,
+                trust_tier: 'agent',
+            });
+            assert.ok(result.isError, `Expected error for invalid name '${badName}'`);
+            assert.match(parseResult(result).error, /invalid name/, `Error for '${badName}' must mention invalid name`);
+        }
+        db.close();
+    });
+    it("tmb_ prefix with underscore is blocked by the name regex (underscore not in ^[a-z][a-z0-9-]{0,63}$)", async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        // tmb- (hyphen after tmb) is a valid name and allowed at project-local scope
+        const hyphenResult = await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'tmb-myskill',
+            description: 'test',
+            file_path: 'skills/tmb-myskill.md',
+            trust_tier: 'agent',
+        });
+        assert.ok(!hyphenResult.isError, "tmb- (hyphen) prefix must be allowed — only tmb_ (underscore) is reserved");
+        // tmb_ (underscore) fails the name regex first (underscore not in [a-z0-9-]);
+        // the tmb_ prefix guard is defense-in-depth for future regex relaxations.
+        const underscoreResult = await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'tmb_myskill',
+            description: 'test',
+            file_path: 'skills/tmb_myskill.md',
+            trust_tier: 'agent',
+        });
+        assert.ok(underscoreResult.isError, "tmb_ prefix (underscore) must be rejected — underscore not in valid name chars");
+        assert.match(parseResult(underscoreResult).error, /invalid name/);
+        db.close();
+    });
+    it('accepts valid kebab-case names', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        for (const goodName of ['my-skill', 'data-export-v2', 'a', 'abc123-def']) {
+            const result = await call(tools.handlers, 'skill_register', {
+                agent: 'bro',
+                name: goodName,
+                description: 'test',
+                file_path: `skills/${goodName}.md`,
+                trust_tier: 'agent',
+            });
+            assert.ok(!result.isError, `Expected success for valid name '${goodName}': ${JSON.stringify(parseResult(result))}`);
+        }
         db.close();
     });
 });

@@ -11,6 +11,10 @@ import { reportTools } from '../tools/reports.js';
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function call(handlers, name, args) {
     const handler = handlers[name];
     assert.ok(handler, `Handler not found: ${name}`);
@@ -174,7 +178,7 @@ describe('discussions + snapshot integration', () => {
         const issueId = globalThis['testIssueId'];
         const batchResult = await call(tasks.handlers, 'task_create_batch', {
             waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test verbatim spec body; shape not under test',
             agent: 'bro',
             issue_id: issueId,
             tasks: [
@@ -186,7 +190,7 @@ describe('discussions + snapshot integration', () => {
                 },
             ],
         });
-        const created = parseResult(batchResult);
+        const created = parseBatch(batchResult);
         assert.ok(!batchResult.isError);
         assert.equal(created.length, 1);
         const task = created[0];
@@ -264,7 +268,7 @@ describe('discussions + snapshot integration', () => {
                 },
             ],
         });
-        const batchData = parseResult(batchResult);
+        const batchData = parseBatch(batchResult);
         const taskId2 = String(batchData[0].id);
         const result = await call(tasks.handlers, 'task_update_status', {
             agent: 'swe',
