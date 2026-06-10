@@ -184,4 +184,75 @@ out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/cli-todo && git commit -
 assert_not_contains "$out" '"decision":"block"' "no DB match must not block (fail-open)"
 cleanup_repo
 
+# ---- #347: Rule 3 force-push token matching ---------------------------------
+# git push origin main --follow-tags must NOT block (--follow-tags is not a force flag).
+# git push origin main && rm -f /tmp/x must NOT block (-f is outside the push clause).
+# git push -f origin main MUST block.
+
+test_case "#347: git push --follow-tags is NOT a force push (must pass)"
+setup_worktree_repo
+out=$(run_hook_in_repo "git push origin main --follow-tags")
+assert_not_contains "$out" '"decision":"block"' "--follow-tags must not trigger force-push block"
+cleanup_repo
+
+test_case "#347: compound command with -f AFTER push clause is NOT a force push"
+setup_worktree_repo
+out=$(run_hook_in_repo "git push origin main && rm -f /tmp/x")
+assert_not_contains "$out" '"decision":"block"' "rm -f after && must not trigger force-push block"
+cleanup_repo
+
+test_case "#347: git push -f to protected branch IS blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "git push -f origin main")
+assert_contains "$out" '"decision":"block"' "git push -f to main must block"
+cleanup_repo
+
+test_case "#347: git push --force to protected branch IS blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "git push --force origin main")
+assert_contains "$out" '"decision":"block"' "git push --force to main must block"
+cleanup_repo
+
+test_case "#347: git push --force-with-lease to protected branch IS blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "git push --force-with-lease origin main")
+assert_contains "$out" '"decision":"block"' "git push --force-with-lease to main must block"
+cleanup_repo
+
+# ---- #319: Rule 2 word-boundary subcommand matching -------------------------
+# git commit-tree and commit-graph are plumbing and must NOT be blocked.
+# "git commit" inside argument text (e.g. --body) must NOT be blocked.
+# git merge onto a protected branch MUST be blocked.
+# git rebase onto a protected branch MUST be blocked.
+
+test_case "#319: git commit-tree plumbing is NOT blocked (word-boundary matching)"
+setup_worktree_repo
+out=$(run_hook_in_repo "git commit-tree abc123")
+assert_not_contains "$out" '"decision":"block"' "commit-tree plumbing must not block"
+cleanup_repo
+
+test_case "#319: 'git commit' inside --body argument text is NOT blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "gh issue create --body 'run git commit to apply'")
+assert_not_contains "$out" '"decision":"block"' "git commit in arg text must not block"
+cleanup_repo
+
+test_case "#319: git merge onto protected branch IS blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "git merge feat/cli")
+assert_contains "$out" '"decision":"block"' "git merge on main must block"
+cleanup_repo
+
+test_case "#319: git rebase onto protected branch IS blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "git rebase feat/cli")
+assert_contains "$out" '"decision":"block"' "git rebase on main must block"
+cleanup_repo
+
+test_case "#319: git cherry-pick onto protected branch IS blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "git cherry-pick abc123")
+assert_contains "$out" '"decision":"block"' "git cherry-pick on main must block"
+cleanup_repo
+
 summarize

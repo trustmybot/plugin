@@ -37,7 +37,7 @@ ANALYSES=$(sqlite3 "$DB_PATH" \
 DECISIONS=$(sqlite3 "$DB_PATH" \
   "SELECT COUNT(*) FROM discussions WHERE issue_id=$ISSUE_ID AND kind='decision';" 2>/dev/null || echo 0)
 RT_STATE=$(sqlite3 "$DB_PATH" \
-  "SELECT status || '|' || COALESCE(outcome,'') FROM roundtables WHERE id=$RT_ID LIMIT 1;" 2>/dev/null || true)
+  "SELECT state || '|' || COALESCE(outcome,'') FROM roundtables WHERE id=$RT_ID LIMIT 1;" 2>/dev/null || true)
 VOTES=$(sqlite3 "$DB_PATH" \
   "SELECT COUNT(*) FROM roundtable_votes WHERE roundtable_id=$RT_ID;" 2>/dev/null || echo 0)
 SUMMARY_EVT=$(sqlite3 "$DB_PATH" \

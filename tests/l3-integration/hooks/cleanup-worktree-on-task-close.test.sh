@@ -137,4 +137,43 @@ echo "  TMB workspace-rooted worktree removed successfully"
 rm -rf "$WORKSPACE_TMP"
 cd "$REPO"
 
+# ---- #350: bro_atomic_close trigger -----------------------------------------
+# The hook must fire on bro_atomic_close (the canonical close path), treating it
+# as status=closed even though there is no .tool_input.status field.
+
+bro_atomic_close_input() {
+  local tool="$1" agent="$2" task_id="$3"
+  jq -n --arg tool "$tool" --arg agent "$agent" --argjson tid "$task_id" '{
+    tool_name: $tool,
+    tool_input: { agent: $agent, task_id: $tid }
+  }'
+}
+
+test_case "#350: bro_atomic_close fires cleanup (no status field in input)"
+git branch fix/atomic HEAD
+git worktree add -q .claude/worktrees/atomic fix/atomic
+sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status) VALUES (10, 'fix/atomic', 'completed');"
+[ -d "$REPO/.claude/worktrees/atomic" ] || { echo "FAIL: atomic worktree not created"; exit 1; }
+out=$(bro_atomic_close_input 'mcp__plugin_tmb_trajectory-server__bro_atomic_close' 'bro' 10 \
+  | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" 'cleaned up worktree' "bro_atomic_close must trigger cleanup"
+[ ! -d "$REPO/.claude/worktrees/atomic" ] || { echo "FAIL: atomic worktree still present"; exit 1; }
+echo "  bro_atomic_close worktree cleanup OK"
+
+test_case "#350: bro_atomic_close with TMB_KEEP_CLOSED_WORKTREES=1 bypass: worktree intact"
+git branch fix/atomic2 HEAD
+git worktree add -q .claude/worktrees/atomic2 fix/atomic2
+sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status) VALUES (11, 'fix/atomic2', 'completed');"
+out=$(bro_atomic_close_input 'mcp__plugin_tmb_trajectory-server__bro_atomic_close' 'bro' 11 \
+  | env TMB_KEEP_CLOSED_WORKTREES=1 bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "bypass env var must silence bro_atomic_close cleanup"
+[ -d "$REPO/.claude/worktrees/atomic2" ] || { echo "FAIL: atomic2 worktree was removed despite bypass"; exit 1; }
+echo "  bro_atomic_close bypass OK"
+
+test_case "#350: bro_atomic_close with agent!=bro: silent no-op"
+out=$(bro_atomic_close_input 'mcp__plugin_tmb_trajectory-server__bro_atomic_close' 'swe' 11 \
+  | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "non-bro agent must be silent no-op for bro_atomic_close"
+[ -d "$REPO/.claude/worktrees/atomic2" ] || { echo "FAIL: worktree removed for non-bro agent"; exit 1; }
+
 summarize

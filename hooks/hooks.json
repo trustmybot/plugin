@@ -223,6 +223,16 @@
         ]
       },
       {
+        "matcher": "mcp__.*trajectory-server__bro_atomic_close",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cleanup-worktree-on-task-close.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "mcp__.*trajectory-server__roundtable_close",
         "hooks": [
           {

@@ -41,7 +41,7 @@ done
 
 if [ -n "$MISSING" ]; then
   REASON=$(jq -Rn --arg missing "$MISSING" '
-    "BLOCKED: pr-reviewer spawn prompt missing required anchors:" + $missing + ".\n\nPer tmb_review §C, the prompt MUST contain task_id, commit_sha, branch_id, and repo so pr-reviewer can load context independently. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary."
+    "BLOCKED: pr-reviewer spawn prompt missing required anchors:" + $missing + ".\n\nPer tmb_review §B, the prompt MUST contain task_id, commit_sha, branch_id, and repo so pr-reviewer can load context independently. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary."
   ')
   printf '{"decision":"block","reason":%s}\n' "$REASON"
   exit 0

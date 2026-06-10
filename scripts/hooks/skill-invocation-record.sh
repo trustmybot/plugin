@@ -22,6 +22,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/normalize-role.sh
 . "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -45,25 +47,8 @@ SKILL_NAME=$(echo "$INPUT" | jq -r '.tool_input.skill // ""' 2>/dev/null)
 # The skills catalog stores bare names ("tmb_planning"). Strip the prefix.
 SKILL_NAME="${SKILL_NAME#*:}"
 
-# Resolve the trajectory DB path. Mirrors db.ts resolveDbPath:
-# explicit TRAJECTORY_DB_PATH wins, otherwise walk up to find the project's
-# .claude/<plugin>/trajectory.db.
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  dir="$PWD"
-  for _ in 1 2 3 4 5 6 7 8; do
-    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
-    if [ -f "$candidate" ]; then DB_PATH="$candidate"; break; fi
-    parent=$(dirname "$dir")
-    [ "$parent" = "$dir" ] && break
-    dir="$parent"
-  done
-  [ -z "$DB_PATH" ] && DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
-fi
+DB_PATH=$(tmb_db_path 2>/dev/null || true)
+[ -n "$DB_PATH" ] || exit 0
 [ -f "$DB_PATH" ] || exit 0
 
 # Confirm the skill exists in the catalog. If not, skip silently — this is
