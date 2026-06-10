@@ -1,16 +1,7 @@
 #!/usr/bin/env bash
-# Tests for scripts/hooks/session-start-prescan.sh
-# SessionStart hook — emits project inventory as additionalContext.
-# Per spec: smoke test — exit-0 + emits something.
-#
-# KNOWN HOOK BUG (bash 3.2 / macOS): The hook has a syntax error at line 102
-# caused by an unquoted single-quote in the heredoc body ("can't" on the em-dash
-# line). Bash 3.2 misparses the `'` inside the heredoc as opening a new
-# single-quoted context; the later `}'` closing the jq block is flagged as
-# "unexpected EOF". The hook exits 2 and emits the bash syntax error instead of
-# the inventory JSON. This is a pre-existing bug — see close summary for bro to
-# file. Tests below pin the current (broken) behaviour so regressions are caught
-# when the bug is fixed.
+# Tests for scripts/hooks/session-start-prescan.sh.
+# Covers: output is valid JSON, additionalContext is emitted, and cache-friendly
+# ordering — stable inventory markers appear before volatile count markers.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,59 +9,135 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh"
 
-TMPDIR_SP=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_SP"' EXIT
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+DB="$TMPDIR/trajectory.db"
 
-# ──────────────────────────────────────────────────────────────
-# Case 1: missing DB — exits 0, no output (early-exit guard)
-# ──────────────────────────────────────────────────────────────
-test_case "missing DB exits silently (exit 0)"
-exit_code=0
-out=$(echo "" | TRAJECTORY_DB_PATH="$TMPDIR_SP/nonexistent.db" bash "$HOOK" 2>&1) || exit_code=$?
-assert_exit_code "0" "$exit_code" "missing DB exits 0"
-assert_eq "" "$out" "missing DB produces no output"
+export TRAJECTORY_DB_PATH="$DB"
 
-# ──────────────────────────────────────────────────────────────
-# Case 2: bash -n also fails on macOS bash 3.2 (the misparse is at parse
-# time, not expansion time). Pin this so a fix is visible.
-# ──────────────────────────────────────────────────────────────
-test_case "bash -n fails on macOS bash 3.2 (known parse bug pinned)"
-bash_n_exit=0
-bash -n "$HOOK" 2>/dev/null || bash_n_exit=$?
-# On bash 3.2: exits 2. On bash 5+: exits 0. Accept both.
-if [ "$bash_n_exit" -eq 0 ] || [ "$bash_n_exit" -eq 2 ]; then
-  assert_exit_code "$bash_n_exit" "$bash_n_exit" "bash -n exit code is 0 or 2"
+sqlite3 "$DB" "
+  CREATE TABLE issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    objective TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    payload TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT INTO issues (objective, status) VALUES ('test issue', 'open');
+  INSERT INTO tasks (issue_id, status) VALUES (1, 'pending');
+"
+
+run_hook() {
+  bash "$HOOK" 2>/dev/null || true
+}
+
+OUT=$(run_hook)
+
+# ---- basic output shape ----
+
+test_case "hook emits non-empty output"
+assert_not_contains "${#OUT}" "0" "output should be non-empty"
+
+# Check non-empty differently
+if [ -z "$OUT" ]; then
+  _fail "hook produced empty output"
 else
-  assert_exit_code "0 or 2" "$bash_n_exit" "unexpected bash -n exit code"
+  _pass
 fi
 
-# ──────────────────────────────────────────────────────────────
-# Case 3: hook exits 2 when DB is present (known bash 3.2 misparse bug)
-# Pin current behaviour so a fix is detectable.
-# ──────────────────────────────────────────────────────────────
-test_case "hook exits 2 on macOS bash 3.2 due to single-quote in heredoc (known bug)"
-DB="$TMPDIR_SP/trajectory.db"
-sqlite3 "$DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
-
-REPO_DIR="$TMPDIR_SP/repo"
-mkdir -p "$REPO_DIR"
-git -C "$REPO_DIR" init -q 2>/dev/null || true
-
-exit_code=0
-out=$((cd "$REPO_DIR" && echo "" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK") 2>&1) || exit_code=$?
-
-# On macOS bash 3.2, hook exits 2 with a syntax error in stderr.
-# On bash 5+ (Linux CI), the hook may succeed. Accept both.
-if [ "$exit_code" -eq 2 ]; then
-  # Pinning the known-broken state: output must contain the bash syntax error.
-  assert_contains "$out" "syntax error" "bash 3.2 misparse produces syntax error"
-elif [ "$exit_code" -eq 0 ]; then
-  # Hook works correctly (bash 5+): output must be valid inventory JSON.
-  event=$(echo "$out" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null || echo "")
-  assert_eq "SessionStart" "$event" "bash 5+: hookEventName is SessionStart"
+test_case "output is valid JSON"
+if echo "$OUT" | jq . >/dev/null 2>&1; then
+  _pass
 else
-  # Unexpected exit code — fail with context.
-  assert_exit_code "0 or 2" "$exit_code" "unexpected exit code from hook"
+  _fail "output is not valid JSON: $OUT"
 fi
+
+test_case "output contains hookSpecificOutput"
+assert_contains "$OUT" "hookSpecificOutput" "JSON has hookSpecificOutput"
+
+test_case "output contains SessionStart event"
+assert_contains "$OUT" "SessionStart" "JSON has SessionStart"
+
+test_case "additionalContext is a string"
+ctx_type=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext | type' 2>/dev/null || echo "MISSING")
+assert_eq "string" "$ctx_type" "additionalContext type"
+
+CTX=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+
+# ---- stable markers present ----
+
+test_case "stable: Top-level dirs line present"
+assert_contains "$CTX" "Top-level dirs:" "Top-level dirs line present"
+
+test_case "stable: Stacks detected line present"
+assert_contains "$CTX" "Stacks detected:" "Stacks detected line present"
+
+test_case "stable: Architecture docs line present"
+assert_contains "$CTX" "Architecture docs:" "Architecture docs line present"
+
+test_case "stable: World model line present"
+assert_contains "$CTX" "World model:" "World model line present"
+
+# ---- volatile markers present ----
+
+test_case "volatile: Git branch line present"
+assert_contains "$CTX" "Git branch:" "Git branch line present"
+
+test_case "volatile: Open issues line present"
+assert_contains "$CTX" "Open issues:" "Open issues line present"
+
+test_case "volatile: Pending tasks line present"
+assert_contains "$CTX" "Pending tasks:" "Pending tasks line present"
+
+test_case "volatile: Last 5 commits present"
+assert_contains "$CTX" "Last 5 commits:" "Last 5 commits line present"
+
+# ---- cache-friendly ordering: stable before volatile ----
+# Strategy: find the byte-offset of a stable marker and a volatile marker;
+# assert stable_offset < volatile_offset.
+
+stable_marker="Top-level dirs:"
+volatile_marker="Git branch:"
+
+stable_pos=$(echo "$CTX" | grep -b -o "$stable_marker" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+volatile_pos=$(echo "$CTX" | grep -b -o "$volatile_marker" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+
+test_case "ordering: 'Top-level dirs' (stable) appears before 'Git branch' (volatile)"
+if [ -z "$stable_pos" ] || [ -z "$volatile_pos" ]; then
+  _fail "could not locate markers: stable_pos=<$stable_pos> volatile_pos=<$volatile_pos>"
+elif [ "$stable_pos" -lt "$volatile_pos" ]; then
+  _pass
+else
+  _fail "stable marker at byte $stable_pos should be before volatile marker at byte $volatile_pos"
+fi
+
+test_case "ordering: 'World model' (stable) appears before 'Open issues' (volatile)"
+wm_pos=$(echo "$CTX" | grep -b -o "World model:" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+oi_pos=$(echo "$CTX" | grep -b -o "Open issues:" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+if [ -z "$wm_pos" ] || [ -z "$oi_pos" ]; then
+  _fail "could not locate markers: wm_pos=<$wm_pos> oi_pos=<$oi_pos>"
+elif [ "$wm_pos" -lt "$oi_pos" ]; then
+  _pass
+else
+  _fail "world-model marker at byte $wm_pos should be before open-issues marker at byte $oi_pos"
+fi
+
+# ---- no-DB graceful exit ----
+
+test_case "missing DB: hook exits silently (no output)"
+rm -f "$DB"
+out_no_db=$(bash "$HOOK" 2>/dev/null || true)
+assert_eq "" "$out_no_db" "no output when DB missing"
 
 summarize

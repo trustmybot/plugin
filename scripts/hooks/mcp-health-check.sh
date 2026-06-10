@@ -142,6 +142,7 @@ MARKETPLACE_OWNER="${PLUGIN_NAME/tmb/trustmybot}"
 
 # --- Emit additionalContext per mode ----------------------------------------
 if [ "$mode_json" = '"A"' ]; then
+  # STABLE text first, VOLATILE paths (db_path, plugin_source) last — cache-friendly ordering.
   CONTEXT="🚨 MCP trajectory-server NEVER STARTED this Claude Code session.
 
 This is the CC plugin MCP-config cache bug (issue #2888):
@@ -149,11 +150,11 @@ This is the CC plugin MCP-config cache bug (issue #2888):
     MCP config out of CC's resolved-plugin list.
   - /reload-plugins does NOT fix this. Full quit + relaunch does NOT
     fix this either.
-  - The DB at ${db_path} is INTACT. Nothing has been lost.
+  - The DB (path on the last line) is INTACT. Nothing has been lost.
 
 To recover, try IN ORDER (stop at the first one that brings MCP back):
 
-  1. claude --plugin-dir ${plugin_source}      (cache-bust via inline)
+  1. claude --plugin-dir <plugin-source, last line>   (cache-bust via inline)
   2. /plugin uninstall ${PLUGIN_NAME}@${MARKETPLACE_OWNER}   (then relaunch, reinstall)
   3. rm -rf ~/.claude/plugins/cache/${MARKETPLACE_OWNER}     (then reinstall)
 
@@ -161,13 +162,15 @@ Full recovery doctrine: skills/tmb_recovery/SKILL.md § C.
 
 ⛔ Bro: HALT. Do not dispatch real work. State-writing tools are unreachable.
    Read-only sqlite3 fallback (bro-sqlite-readonly.sh) remains available
-   for emergency reads."
+   for emergency reads.
+DB: ${db_path}  plugin-source: ${plugin_source}"
 else
+  # STABLE text first, VOLATILE path (db_path) last — cache-friendly ordering.
   CONTEXT="⚠️ MCP trajectory-server is no longer reachable (was alive earlier this session).
 
 This is a mid-session disconnect — typically:
   - The MCP server process crashed or was killed
-  - The DB at ${db_path} may still be intact
+  - The DB (path on the last line) may still be intact
 
 Recovery:
   1. pkill -f 'node.*trajectory-server'   (clean zombies)
@@ -175,7 +178,8 @@ Recovery:
   3. If MCP doesn't come back after relaunch → it's now Mode A (CC cache bug);
      see skills/tmb_recovery/SKILL.md § C.
 
-⚠️ Bro: pause any task that requires durable state-writing tools until MCP returns."
+⚠️ Bro: pause any task that requires durable state-writing tools until MCP returns.
+DB: ${db_path}"
 fi
 
 # Per CC docs, both SessionStart and UserPromptSubmit accept additionalContext

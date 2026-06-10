@@ -9,3 +9,4 @@ paths:
 - Register every hook in `hooks/hooks.json` and add `tests/l3-integration/hooks/<name>.test.sh`.
 - Enforce by returning `permissionDecision: deny` (PreToolUse) or injecting `additionalContext`; keep hooks fast and side-effect-light.
 - Stay portable: guard for idempotency and macOS BSD tooling (no GNU-only `grep -P` / `\p{...}`).
+- Cache-friendly ordering: when a hook emits `additionalContext`, put stable text first and volatile fields (counts, timestamps, branch names, paths) at the tail. CC's prompt cache breaks at the first byte-difference; a volatile-first hook busts the cache for every surface below it.
