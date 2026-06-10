@@ -212,13 +212,7 @@ if [ "${TMB_DISABLE_CONCERNS_HINT:-0}" != "1" ]; then
   done
 
   if [ -n "$matched" ]; then
-    CTX="🚨 concerns-protocol hint: the user's prompt contains the phrase '${matched}'. This is a doubt-class request — apply tmb_concerns-protocol before complying:
-
-1. Read the relevant file(s) to verify the constraint the user is asking you to weaken is real.
-2. If the request fights an existing-and-correct constraint, write \`discussion_append(agent='bro', kind='note', body='Concern: <one-line statement>. Recommendation: <alternative>.')\` BEFORE any task_create_batch.
-3. Ask the Human a clarifying question; do NOT silently comply.
-
-If you've already verified the request is legitimate (e.g., the user is right about a refactor), proceed normally — but the concern record protects against future regressions."
+    CTX="🚨 concerns-protocol hint: the user's prompt contains '${matched}'. This is a doubt-class request — load \`tmb_concerns-protocol\` and follow the protocol before complying."
     emit_context "$CTX"
   fi
 fi
@@ -301,16 +295,13 @@ if [ "${TMB_DISABLE_REONBOARD_HINT:-0}" != "1" ]; then
         if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
           ONBOARDED=$(sqlite3 "$DB" "SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true' LIMIT 1;" 2>/dev/null || true)
           if [ "$ONBOARDED" = "1" ]; then
-            CTX="🔁 reonboard-intent hint: the user's prompt contains '${matched}'. This signals a *reonboard* (the project is already onboarded — switching shape, not initial onboard).
+            CTX="🔁 reonboard-intent hint: the user's prompt contains '${matched}'. This signals a *reonboard* (project already onboarded — switching shape, not initial setup).
 
-Required workflow (one turn, no questions):
+Policy/config mutations stay Human-gated. Route the Human to \`/onboard\` — do NOT call \`onboard_apply\` yourself.
+
 1. Call \`onboard_state_get\` to read the current config (branching_model, pr_target, remotes).
-2. Either path is acceptable — pick one:
-   - **Auto-apply** via \`onboard_apply(shape='remote', remote=[...], ...)\` with conservative defaults matching the user's intent (e.g. 'gitlab' / 'github').
-   - **Recommend** the user type \`/onboard\` verbatim in your text response, so they can drive the interactive ceremony themselves.
-3. Do NOT spawn code work (no \`task_create_batch\`, no \`issue_create\`, no \`Agent\` for SWE). Reonboard is config-only.
-
-The Human prefers either of those two paths. Don't get stuck chasing external CLIs (gh/glab repo create) before TMB's plugin_config is settled."
+2. Reply pointing the Human to \`/onboard\`.
+3. Do NOT spawn code work (no \`task_create_batch\`, no \`issue_create\`, no \`Agent\` for SWE)."
             emit_context "$CTX"
           fi
         fi
@@ -428,13 +419,7 @@ if [ "${TMB_DISABLE_ADR_HINT:-0}" != "1" ]; then
   fi
 
   if [ -n "$matched" ]; then
-    CTX="🏛️  architectural-change hint: the user's prompt contains '${matched}'. This change crosses TMB's architectural threshold (per skills/tmb_planning/SKILL.md §\"Architectural changes\"). In addition to the standard \`discussion_append(kind='decision', body=...)\` row required by the universal decision gate, you should also:
-
-1. Co-author an ADR at \`docs/trustmybot/architecture/manual/decisions/N-*.md\`. Template: \`templates/docs-trustmybot/architecture/manual/decisions/0001-example.md\`.
-2. Apply the blast-radius checklist if the feature has external side effects (network, real API mutations, billing, message-sending, writes outside the worktree) — default config opt-in / safe; tests use \`:memory:\` / no live services; spec requires pre-merge \`bash tests/run-all.sh\` with zero external mutations.
-3. Architecture-doc refresh is automatic — \`post-task-close-rescan.sh\` runs \`scan_run\` after \`bro_atomic_close\` (Step 6 of the planning skill).
-
-If the user wants to deliberate before bro commits, recommend they enter Claude Code plan mode (Shift+Tab) — bro doesn't run a bespoke Q+A loop."
+    CTX="🏛️  architectural-change hint: the user's prompt contains '${matched}'. This change crosses TMB's architectural threshold — load \`tmb_planning\` and follow §\"Architectural changes\" before speccing the work."
     emit_context "$CTX"
   fi
 fi
