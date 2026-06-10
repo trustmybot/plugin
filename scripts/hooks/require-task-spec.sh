@@ -16,7 +16,7 @@ PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty')
 
 [ "$AGENT_TYPE" != "swe" ] && exit 0
 
-TASK_ID=$(echo "$PROMPT" | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+TASK_ID=$(echo "$PROMPT" | grep -oE 'task_id[=:][[:space:]]*[0-9]+' | head -1 | grep -oE '[0-9]+' || true)
 
 if [ -z "$TASK_ID" ]; then
   jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",denyReason:"BLOCKED: SWE spawn requires task_id=<N> in the prompt pointing at a row in the tasks table. Route through bro (bro plans, then spawns SWE with task_id)."}}'
