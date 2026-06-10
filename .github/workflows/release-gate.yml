@@ -97,7 +97,7 @@ jobs:
         if: ${{ inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
         env:
           L6_FROM_STEP: ${{ inputs.l6_from_step || '1' }}
-        run: bash tests/dogfood/run-l6-chain.sh --from "$L6_FROM_STEP" --fresh
+        run: bash tests/l5-l6/run-l6-chain.sh --from "$L6_FROM_STEP" --fresh
 
       - name: Upload L6 chain artifacts (on success or failure)
         if: ${{ always() && inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
@@ -117,4 +117,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run install-smoke
-        run: bash tests/docker/run-install-smoke.sh
+        run: bash tests/l0-install/run-install-smoke.sh

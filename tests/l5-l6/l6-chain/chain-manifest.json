@@ -1,0 +1,140 @@
+{
+  "$schema": "./schema.json",
+  "description": "Single chained L6 integration test. 14 sequential rows fired via fresh `claude -p` each, against a cumulative trajectory DB. State carries across rows via the trajectory DB. See tests/EVALUATION.md for the journey spec.",
+  "initial_fixture": "empty",
+  "initial_setup": null,
+  "steps": [
+    {
+      "step": 1,
+      "id": 1,
+      "name": "01-cold-start",
+      "row_dir": "rows/01-cold-start",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": "seeds/after-01-cold-start.sql",
+      "halt_on_fail": true
+    },
+    {
+      "step": 2,
+      "id": 2,
+      "name": "02-reonboard-implicit-from-local",
+      "row_dir": "rows/02-reonboard-implicit-from-local",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "step": 3,
+      "id": 3,
+      "name": "03-reonboard-remote",
+      "row_dir": "rows/03-reonboard-remote",
+      "partial_test": true,
+      "seed_before": null,
+      "seed_after": "seeds/after-03-reonboard-remote.sql",
+      "halt_on_fail": true
+    },
+    {
+      "step": 4,
+      "id": 4,
+      "name": "04-first-task-hits-gate",
+      "row_dir": "rows/04-first-task-hits-gate",
+      "partial_test": false,
+      "seed_before": "seeds/before-04-first-task-hits-gate.sql",
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "step": 5,
+      "id": 5,
+      "name": "05-swe-atomic-close",
+      "row_dir": "rows/05-swe-atomic-close",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "step": 6,
+      "id": 6,
+      "name": "06-post-close-cleanup",
+      "row_dir": "rows/06-post-close-cleanup",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "step": 7,
+      "id": 7,
+      "name": "07-push-gate",
+      "row_dir": "rows/07-push-gate",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true,
+      "chain_post_command": "LATEST=$(git for-each-ref --sort=-committerdate --format=\"%(refname:short)\" refs/heads/ | grep -E \"^(feat|fix|chore|refactor)/\" | head -1); [ -n \"$LATEST\" ] && git checkout dev 2>/dev/null && git merge --ff-only \"$LATEST\" 2>/dev/null || true"
+    },
+    {
+      "step": 8,
+      "id": 8,
+      "name": "08-architectural-change",
+      "row_dir": "rows/08-architectural-change",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": "seeds/after-08-architectural-change.sql",
+      "halt_on_fail": true
+    },
+    {
+      "step": 9,
+      "id": 9,
+      "name": "09-concerns-protocol",
+      "row_dir": "rows/09-concerns-protocol",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "step": 10,
+      "id": 10,
+      "name": "10-consultant",
+      "row_dir": "rows/10-consultant",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "step": 11,
+      "id": 11,
+      "name": "11-roundtable",
+      "row_dir": "rows/11-roundtable",
+      "partial_test": true,
+      "seed_before": null,
+      "chain_setup_command": "bash \"$PLUGIN_ROOT/tests/l5-l6/rows/11-roundtable/seed-agents.sh\" \"$PWD\" \"$PLUGIN_ROOT\"",
+      "seed_after": "seeds/after-11-roundtable.sql",
+      "halt_on_fail": true
+    },
+    {
+      "step": 12,
+      "id": 12,
+      "name": "12-issue-resume",
+      "row_dir": "rows/12-issue-resume",
+      "partial_test": false,
+      "seed_before": "seeds/before-12-issue-resume.sql",
+      "seed_after": null,
+      "halt_on_fail": true
+    },
+    {
+      "step": 13,
+      "id": 13,
+      "name": "13-search-grounding",
+      "row_dir": "rows/13-search-grounding",
+      "partial_test": false,
+      "seed_before": null,
+      "seed_after": null,
+      "halt_on_fail": true
+    }
+  ]
+}

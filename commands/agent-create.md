@@ -57,7 +57,7 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
    - `name`: kebab-case (e.g. `legal-reviewer`).
    - `tools`: minimum viable. Default is read-only + MCP. Add `Bash` only if the consultant verifies by running commands. Add `Write`/`Edit` only if the consultant produces output files (rare).
    - `skills: []` — empty by default. Bro extends via `tmb_skill-creator` after creation.
-   - Body cap enforced by `tests/lint/agent-line-budget.sh` (Lego model: 15 body lines for role templates).
+   - Body cap enforced by `tests/l1-lint/agent-line-budget.sh` (Lego model: 15 body lines for role templates).
 
    In headless mode (`TMB_HEADLESS=1`): skip AUQ steps 1 and 5 when a role description is already known from the slash-command argument or prior context. Default to "Consultant. Analysis-only domain expert for `<name>`." with no role-specific body extension. Proceed directly to pre-write lint (step 4) and write.
 

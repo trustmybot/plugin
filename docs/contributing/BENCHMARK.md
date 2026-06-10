@@ -6,7 +6,7 @@
 > - **Efficiency (v0.7):** the world model's long-context management now makes TMB **cheaper and faster than a raw Claude Code baseline** — −56% tokens, −32% cost, −34% time, +2 resolved (8/8 vs raw 6/8) across the same 8-task corpus.
 
 Raw per-task data, environment metadata, run dates, and reproduction
-commands live in **[`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md)**.
+commands live in **[`tests/l7-benchmark/RESULTS.md`](../../tests/l7-benchmark/RESULTS.md)**.
 
 ---
 
@@ -30,7 +30,7 @@ out cheaper than a Sonnet-4 baseline.
 - **N=1** per task across all arms; ±1 task is plausible on a re-run.
 - Raw + v0.6 are the 2026-05-13 run; v0.7 is the 2026-06-07 re-run (same pinned model).
 - Resolve sets: raw 6/8 (failed sympy + sphinx-7686), v0.7 8/8, v0.6 8/8.
-- Per-task raw baseline data: [`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md#raw-baseline--pure-claude-code-2026-05-13).
+- Per-task raw baseline data: [`tests/l7-benchmark/RESULTS.md`](../../tests/l7-benchmark/RESULTS.md#raw-baseline--pure-claude-code-2026-05-13).
 
 ---
 
@@ -167,7 +167,7 @@ fully solve.
   Python 3.6, which `uv` cannot provision. Candidate selection for future
   rounds requires Python ≥ 3.7.
 
-Raw per-task data and env specs: [`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md#round-2--2026-06-07--blind-hard-slate-5-tasks).
+Raw per-task data and env specs: [`tests/l7-benchmark/RESULTS.md`](../../tests/l7-benchmark/RESULTS.md#round-2--2026-06-07--blind-hard-slate-5-tasks).
 
 ---
 
@@ -215,7 +215,7 @@ Re-running the original 8-task corpus (same config: Verified=enrich+`claude-opus
 | Tokens | 7.83M | 2.67M | **−66%** |
 | Resolved | 4 / 4 | 4 / 4 | same |
 
-Per-task data: [`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md).
+Per-task data: [`tests/l7-benchmark/RESULTS.md`](../../tests/l7-benchmark/RESULTS.md).
 
 ---
 
@@ -281,7 +281,7 @@ state accumulates across tasks. The next bench iteration:
   hallucination rate (should stay 0), and per-task duration. Compare
   against TMB-cold (fresh state per task) and raw Opus 4 cold-starting
   each task. Design captured in
-  [`tests/manual/bench/run-chained-bench.sh`](../../tests/manual/bench/run-chained-bench.sh).
+  [`tests/l7-benchmark/run-l7-chain.sh`](../../tests/l7-benchmark/run-l7-chain.sh).
 - Bump N to 3 per task for variance bars (~$25 per full pass).
 - Expand corpus from 4 to 10-15 tasks per corpus.
 - Tighten the hallucination scorer (LLM-as-judge on the final message).
@@ -290,7 +290,7 @@ state accumulates across tasks. The next bench iteration:
 
 ## Source
 
-- Bench harness: [`tests/manual/bench/`](../../tests/manual/bench/)
-- Technical per-task data, run metadata, reproduction commands: [`tests/manual/bench/RESULTS.md`](../../tests/manual/bench/RESULTS.md)
+- Bench harness: [`tests/l7-benchmark/`](../../tests/l7-benchmark/)
+- Technical per-task data, run metadata, reproduction commands: [`tests/l7-benchmark/RESULTS.md`](../../tests/l7-benchmark/RESULTS.md)
 - Published Opus 4 / Sonnet 4 comparators: [`SWE-bench/experiments`](https://github.com/SWE-bench/experiments)
 - SWE-bench leaderboards: [swebench.com](https://www.swebench.com/)

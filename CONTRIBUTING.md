@@ -1,6 +1,6 @@
 # Contributing to TMB Plugin
 
-Public MIT plugin for Claude Code. Issues, PRs, and dogfood reports all welcome — the bugs you hit *using* the plugin are the highest-value reports.
+Public MIT plugin for Claude Code. Issues, PRs, and real-use reports all welcome — the bugs you hit *using* the plugin are the highest-value reports.
 
 ## TL;DR
 
@@ -24,7 +24,7 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 
 `.github/workflows/release-gate.yml` runs on GitHub's runners:
 - **every push / PR to `dev`** → L1–L4 (`tests/run-all.sh`).
-- **version tags + manual dispatch** → L1–L4 **+ L6 chain** (`tests/dogfood/run-l6-chain.sh`) **+ L0 docker install-smoke**.
+- **version tags + manual dispatch** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**.
 
 L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 
@@ -42,7 +42,7 @@ rc validation is **required** for anything touching install, schema, or doctrine
 ## Writing code & tests
 
 - Self-documenting code; prefer deletion over addition; match the file's existing patterns. TypeScript for the MCP server, Bash for hooks. Emoji + Conventional Commit messages.
-- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → `tests/hooks/*.test.sh`; new enforcement → a lint in `tests/lint/`.
+- Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → `tests/l3-integration/hooks/*.test.sh`; new enforcement → a lint in `tests/l1-lint/`.
 - Prompt / skill / doc changes have no automated test — walk [`tests/manual/scenarios.md`](tests/manual/scenarios.md) before opening the PR.
 
 ## Pre-PR checklist

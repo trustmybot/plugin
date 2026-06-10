@@ -80,7 +80,7 @@ LLM-driven multi-step workflows have **compound failure**. Per-step adherence is
 | 5 | 77% | 59% |
 | 7 | 70% | 48% |
 
-This is why L5 dogfood reproduces "skipped step" failures. The skill says "do X, Y, Z" and at runtime the LLM does X, Y, drops Z. Not because it's broken — because that's the noise floor of long procedural prose.
+This is why L5 reproduces "skipped step" failures. The skill says "do X, Y, Z" and at runtime the LLM does X, Y, drops Z. Not because it's broken — because that's the noise floor of long procedural prose.
 
 Atomic composites collapse N → 1: one call decision, deterministic execution. Same pre-LLM 95% adherence applies, but only to one event. Empirically, migration of multi-step batches to composites raises L5 flow pass rate from ~60-77% to ~95% per flow.
 
@@ -118,7 +118,7 @@ When in doubt, refactor toward fewer, smaller skills with sharper descriptions r
 
 CC passes role names with or without a `<plugin>:` prefix depending on context (project-local override vs global plugin agent vs slash-command vs direct invocation). Hooks that compare raw `subagent_type` / `tool_input.skill` / similar against bare role names ("swe", "pr-reviewer", "tmb_planning") silently skip on prefixed input. **Hooks that silently skip are safety gates being silently disabled.**
 
-The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it and call `tmb_normalize_role` on any role-bearing string before comparison. The `tests/lint/no-bare-role-compare.sh` lint catches the bare-compare regression at L1.
+The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it and call `tmb_normalize_role` on any role-bearing string before comparison. The `tests/l1-lint/no-bare-role-compare.sh` lint catches the bare-compare regression at L1.
 
 ---
 

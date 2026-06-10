@@ -238,7 +238,7 @@ When a schema change is breaking (drops a `NOT NULL` column, removes a table, et
 
 ### Testing the migration end-to-end through Claude Code
 
-The L0 install-smoke (`tests/docker/install-smoke.Dockerfile`) seeds a synthetic v1-shape DB inside the docker image and asserts the migration applies cleanly. That's the automated gate. To exercise the **real CC user upgrade path** by hand — install old plugin, accumulate state, upgrade, watch the migration run — use one of these three recipes:
+The L0 install-smoke (`tests/l0-install/install-smoke.Dockerfile`) seeds a synthetic v1-shape DB inside the docker image and asserts the migration applies cleanly. That's the automated gate. To exercise the **real CC user upgrade path** by hand — install old plugin, accumulate state, upgrade, watch the migration run — use one of these three recipes:
 
 **Recipe A — git worktree + `--plugin-dir` (most deterministic, recommended for development).** Spin up an old plugin version as a worktree, then re-launch CC against the new source. Both sides resolve to the same trajectory DB in the test project, so the second launch triggers the migration.
 
