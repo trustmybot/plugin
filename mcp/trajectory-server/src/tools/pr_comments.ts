@@ -334,7 +334,7 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
           backend = 'glab';
         }
       } else {
-        backend = resolveBackend(configValue);
+        backend = resolveBackend(configValue, _spawnFn !== undefined);
       }
 
       const configBots = db.get<{ value_json: string }>(

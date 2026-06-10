@@ -9,6 +9,10 @@ export interface BackendAvailability {
 
 let _availabilityCache: BackendAvailability | null = null;
 
+export function resetAvailabilityCache(): void {
+  _availabilityCache = null;
+}
+
 export function detectAvailable(
   _spawnFn?: (cmd: string, args: string[]) => { status: number | null },
 ): BackendAvailability {

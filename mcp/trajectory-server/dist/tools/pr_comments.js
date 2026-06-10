@@ -228,7 +228,7 @@ export function prCommentsTools(db, _spawnFn) {
                 }
             }
             else {
-                backend = resolveBackend(configValue);
+                backend = resolveBackend(configValue, _spawnFn !== undefined);
             }
             const configBots = db.get(`SELECT value_json FROM plugin_config WHERE key = 'pr_review_bots'`);
             let botsOverride = '';
