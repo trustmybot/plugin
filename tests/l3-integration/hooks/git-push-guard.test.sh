@@ -109,7 +109,7 @@ cleanup() {
 test_case "non-push command passes through silently"
 setup_repo
 out=$(run_hook "git status")
-assert_not_contains "$out" '"decision":"block"' "git status should not be gated"
+assert_not_contains "$out" '"permissionDecision":"deny"' "git status should not be gated"
 cleanup
 
 test_case "git push --force is delegated to git-guards (this hook allows)"
@@ -117,7 +117,7 @@ setup_repo
 db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "$SHA1"  # unsigned task — would block normally
 out=$(run_hook "git push --force origin main" "$db")
-assert_not_contains "$out" '"decision":"block"' "force push should be deferred to git-guards"
+assert_not_contains "$out" '"permissionDecision":"deny"' "force push should be deferred to git-guards"
 cleanup
 
 test_case "git push -f is delegated to git-guards (this hook allows)"
@@ -125,13 +125,13 @@ setup_repo
 db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "$SHA1"
 out=$(run_hook "git push -f origin main" "$db")
-assert_not_contains "$out" '"decision":"block"' "force push (-f) should be deferred"
+assert_not_contains "$out" '"permissionDecision":"deny"' "force push (-f) should be deferred"
 cleanup
 
 test_case "no DB: TMB not tracking, push allowed"
 setup_repo
 out=$(run_hook "git push origin main" "/nonexistent.db")
-assert_not_contains "$out" '"decision":"block"' "missing DB should not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "missing DB should not block"
 cleanup
 
 test_case "no upstream new commits: nothing to gate, allowed"
@@ -140,7 +140,7 @@ db=$(setup_db "$REPO_PATH")
 # Reset HEAD to upstream so @{u}..HEAD is empty
 (cd "$REPO_PATH" && git reset -q --hard origin/main)
 out=$(run_hook "git push origin main" "$db")
-assert_not_contains "$out" '"decision":"block"' "no new commits should not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "no new commits should not block"
 cleanup
 
 test_case "push with untracked commits (no matching task row): allowed"
@@ -148,7 +148,7 @@ setup_repo
 db=$(setup_db "$REPO_PATH")
 # DB exists but no task row references SHA1 / SHA2 — these commits are pre-TMB
 out=$(run_hook "git push origin main" "$db")
-assert_not_contains "$out" '"decision":"block"' "untracked commits should not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "untracked commits should not block"
 cleanup
 
 test_case "push with all-signed tracked commits: allowed"
@@ -159,7 +159,7 @@ sign_task   "$db" 1
 insert_task "$db" 2 "$SHA2"
 sign_task   "$db" 2
 out=$(run_hook "git push origin main" "$db")
-assert_not_contains "$out" '"decision":"block"' "all-signed should not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "all-signed should not block"
 cleanup
 
 test_case "push with one unsigned tracked commit: BLOCKED with helpful reason"
@@ -170,7 +170,7 @@ sign_task   "$db" 1
 insert_task "$db" 2 "$SHA2"
 # task 2 NOT signed
 out=$(run_hook "git push origin main" "$db")
-assert_contains "$out" '"decision":"block"' "unsigned commit must block"
+assert_contains "$out" '"permissionDecision":"deny"' "unsigned commit must block"
 assert_contains "$out" "review before push"   "block message must mention bro review path"
 assert_contains "$out" "task_id=2"            "block message must list the unsigned task"
 cleanup
@@ -182,7 +182,7 @@ insert_task "$db" 1 "$SHA1"
 insert_task "$db" 2 "$SHA2"
 # neither signed
 out=$(run_hook "git push origin main" "$db")
-assert_contains "$out" '"decision":"block"' "unsigned commits must block"
+assert_contains "$out" '"permissionDecision":"deny"' "unsigned commits must block"
 assert_contains "$out" "task_id=1"           "should list task 1"
 assert_contains "$out" "task_id=2"           "should list task 2"
 cleanup
@@ -194,7 +194,7 @@ insert_task "$db" 1 "$SHA1"
 sign_task   "$db" 1
 insert_task "$db" 2 "$SHA2"
 out=$(run_hook "git push origin main" "$db")
-assert_contains "$out" '"decision":"block"'  "mixed should block on unsigned"
+assert_contains "$out" '"permissionDecision":"deny"'  "mixed should block on unsigned"
 assert_contains "$out" "task_id=2"           "should list ONLY the unsigned task 2"
 assert_not_contains "$out" "task_id=1 "      "signed task 1 should not appear in block list"
 cleanup
@@ -217,7 +217,7 @@ sign_task   "$db" 1
 insert_task "$db" 2 "$SHA2"
 sign_task   "$db" 2
 out=$(run_hook_as_swe "git push origin main" "$db" "tmb:swe")
-assert_contains "$out" '"decision":"block"' "SWE push must be blocked even with all-signed commits"
+assert_contains "$out" '"permissionDecision":"deny"' "SWE push must be blocked even with all-signed commits"
 assert_contains "$out" "SWE must never push"  "block message must reference swe.md rule"
 cleanup
 
@@ -225,14 +225,14 @@ test_case "SWE caller (swe): git push BLOCKED (bare agent_type variant)"
 setup_repo
 db=$(setup_db "$REPO_PATH")
 out=$(run_hook_as_swe "git push origin main" "/nonexistent.db" "swe")
-assert_contains "$out" '"decision":"block"' "bare swe agent_type must also be blocked"
+assert_contains "$out" '"permissionDecision":"deny"' "bare swe agent_type must also be blocked"
 cleanup
 
 test_case "SWE caller: git push --force still exits early (force delegated to git-guards before SWE check)"
 setup_repo
 db=$(setup_db "$REPO_PATH")
 out=$(run_hook_as_swe "git push --force origin main" "$db" "tmb:swe")
-assert_not_contains "$out" '"decision":"block"' "force push exits before SWE check (git-guards handles it)"
+assert_not_contains "$out" '"permissionDecision":"deny"' "force push exits before SWE check (git-guards handles it)"
 cleanup
 
 test_case "non-SWE caller: git push NOT blocked by SWE check (bro/regular-claude)"
@@ -243,7 +243,7 @@ sign_task   "$db" 1
 insert_task "$db" 2 "$SHA2"
 sign_task   "$db" 2
 out=$(run_hook "git push origin main" "$db")
-assert_not_contains "$out" '"decision":"block"' "non-SWE caller with all-signed should not be blocked"
+assert_not_contains "$out" '"permissionDecision":"deny"' "non-SWE caller with all-signed should not be blocked"
 cleanup
 
 # ----- worktree-path push detection tests (audit item 14) ----------------
@@ -267,7 +267,7 @@ sign_task   "$db" 1
 insert_task "$db" 2 "$SHA2"
 sign_task   "$db" 2
 out=$(run_hook_from_worktree_cmd "cd $REPO_PATH/.claude/worktrees/feat-x && git push origin feat/x" "$db")
-assert_contains "$out" '"decision":"block"' "push from worktree cd prefix must block even without agent_type"
+assert_contains "$out" '"permissionDecision":"deny"' "push from worktree cd prefix must block even without agent_type"
 assert_contains "$out" ".claude/worktrees/" "block message must reference worktree path"
 cleanup
 
@@ -277,7 +277,7 @@ db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "$SHA1"
 sign_task   "$db" 1
 out=$(run_hook_from_worktree_cmd "git -C $REPO_PATH/.claude/worktrees/feat-x push origin feat/x" "$db")
-assert_contains "$out" '"decision":"block"' "push via git -C worktree path must block"
+assert_contains "$out" '"permissionDecision":"deny"' "push via git -C worktree path must block"
 cleanup
 
 test_case "normal push from main checkout (no worktree in cmd): NOT blocked by worktree check"
@@ -288,7 +288,7 @@ sign_task   "$db" 1
 insert_task "$db" 2 "$SHA2"
 sign_task   "$db" 2
 out=$(run_hook_from_worktree_cmd "git push origin main" "$db")
-assert_not_contains "$out" '"decision":"block"' "normal push from main checkout must not be blocked by worktree check"
+assert_not_contains "$out" '"permissionDecision":"deny"' "normal push from main checkout must not be blocked by worktree check"
 cleanup
 
 # ----- $PWD vs `cd` override tests --------------------------------------
@@ -318,7 +318,7 @@ out=$(run_hook_with_pwd \
   "cd $REPO_PATH && git push origin main" \
   "$db" \
   "$REPO_PATH/.claude/worktrees/feat-x")
-assert_not_contains "$out" '"decision":"block"' \
+assert_not_contains "$out" '"permissionDecision":"deny"' \
   "cd to non-worktree path should override stale worktree PWD"
 cleanup
 
@@ -329,7 +329,7 @@ insert_task "$db" 1 "$SHA1"
 sign_task   "$db" 1
 mkdir -p "$REPO_PATH/.claude/worktrees/feat-x"
 out=$(run_hook_with_pwd "git push origin main" "$db" "$REPO_PATH/.claude/worktrees/feat-x")
-assert_contains "$out" '"decision":"block"' \
+assert_contains "$out" '"permissionDecision":"deny"' \
   "plain push with PWD-in-worktree must still block (legitimate worktree push)"
 cleanup
 
@@ -343,7 +343,7 @@ out=$(run_hook_with_pwd \
   "cd $REPO_PATH/.claude/worktrees/feat-x && git push origin feat/x" \
   "$db" \
   "$REPO_PATH")
-assert_contains "$out" '"decision":"block"' \
+assert_contains "$out" '"permissionDecision":"deny"' \
   "cd into worktree should block even when PWD is main"
 cleanup
 
@@ -356,31 +356,31 @@ cleanup
 test_case "false-positive: grep for 'git push' in a file — NOT blocked"
 setup_repo
 out=$(run_hook "grep \"git push\" tests/l1-lint/something.sh")
-assert_not_contains "$out" '"decision":"block"' "grep for 'git push' must not be detected as a push"
+assert_not_contains "$out" '"permissionDecision":"deny"' "grep for 'git push' must not be detected as a push"
 cleanup
 
 test_case "false-positive: echo mentioning 'git push' — NOT blocked"
 setup_repo
 out=$(run_hook "echo \"Don't forget to git push\"")
-assert_not_contains "$out" '"decision":"block"' "echo mentioning 'git push' must not be detected as a push"
+assert_not_contains "$out" '"permissionDecision":"deny"' "echo mentioning 'git push' must not be detected as a push"
 cleanup
 
 test_case "false-positive: cat pipe grep for 'git push' — NOT blocked"
 setup_repo
 out=$(run_hook "cat docs/git-conventions.md | grep \"git push\"")
-assert_not_contains "$out" '"decision":"block"' "cat|grep 'git push' must not be detected as a push"
+assert_not_contains "$out" '"permissionDecision":"deny"' "cat|grep 'git push' must not be detected as a push"
 cleanup
 
 test_case "false-positive: git log --grep='git push' — NOT blocked"
 setup_repo
 out=$(run_hook "git log --grep=\"git push\"")
-assert_not_contains "$out" '"decision":"block"' "git log --grep='git push' must not be detected as a push"
+assert_not_contains "$out" '"permissionDecision":"deny"' "git log --grep='git push' must not be detected as a push"
 cleanup
 
 test_case "false-positive: git commit -m mentioning 'git push' — NOT blocked"
 setup_repo
 out=$(run_hook "git commit -m \"fix: make git push idempotent\"")
-assert_not_contains "$out" '"decision":"block"' "commit message mentioning 'git push' must not be detected as a push"
+assert_not_contains "$out" '"permissionDecision":"deny"' "commit message mentioning 'git push' must not be detected as a push"
 cleanup
 
 # ----- positive regression tests (IS_PUSH MUST trigger) -----------------
@@ -396,31 +396,31 @@ cleanup
 test_case "positive: 'git push origin main' — IS_PUSH triggers (SWE blocked)"
 setup_repo
 out=$(run_hook_as_swe "git push origin main" "/nonexistent.db" "tmb:swe")
-assert_contains "$out" '"decision":"block"' "plain git push must be detected as a push and blocked for SWE"
+assert_contains "$out" '"permissionDecision":"deny"' "plain git push must be detected as a push and blocked for SWE"
 cleanup
 
 test_case "positive: 'git -C /some/path push origin feature' — IS_PUSH triggers (SWE blocked)"
 setup_repo
 out=$(run_hook_as_swe "git -C /some/path push origin feature" "/nonexistent.db" "tmb:swe")
-assert_contains "$out" '"decision":"block"' "git -C push must be detected as a push and blocked for SWE"
+assert_contains "$out" '"permissionDecision":"deny"' "git -C push must be detected as a push and blocked for SWE"
 cleanup
 
 test_case "positive: 'cd /repo && git push' — IS_PUSH triggers (SWE blocked)"
 setup_repo
 out=$(run_hook_as_swe "cd /repo && git push" "/nonexistent.db" "tmb:swe")
-assert_contains "$out" '"decision":"block"' "cd && git push must be detected as a push and blocked for SWE"
+assert_contains "$out" '"permissionDecision":"deny"' "cd && git push must be detected as a push and blocked for SWE"
 cleanup
 
 test_case "positive: 'git status; git push' — IS_PUSH triggers (SWE blocked)"
 setup_repo
 out=$(run_hook_as_swe "git status; git push" "/nonexistent.db" "tmb:swe")
-assert_contains "$out" '"decision":"block"' "semicolon-separated git push must be detected and blocked for SWE"
+assert_contains "$out" '"permissionDecision":"deny"' "semicolon-separated git push must be detected and blocked for SWE"
 cleanup
 
 test_case "positive: 'make build || git push' — IS_PUSH triggers (SWE blocked)"
 setup_repo
 out=$(run_hook_as_swe "make build || git push" "/nonexistent.db" "tmb:swe")
-assert_contains "$out" '"decision":"block"' "|| git push must be detected as a push and blocked for SWE"
+assert_contains "$out" '"permissionDecision":"deny"' "|| git push must be detected as a push and blocked for SWE"
 cleanup
 
 summarize

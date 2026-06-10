@@ -186,4 +186,73 @@ assert_contains "$out" '"continue":false' "second fire still returns a worktreeP
 assert_contains "$out" '789-single' "reused path contains slug"
 assert_not_contains "$out" 'failed' "no git worktree-add failure on the second fire"
 
+# --- multi-repo: session dir is parent of repo (#330) -----------------------
+# Layout: WORKSPACE_MR/ (not a git repo — session launch dir)
+#           .claude/tmb/trajectory.db
+#           plugin/                   (the inner git repo tasks point at)
+# tasks.repo = 'plugin' — the hook must git -C plugin/ worktree add
+# and create the worktree at WORKSPACE_MR/.claude/worktrees/<slug>,
+# NOT inside the inner repo.
+
+MR_WORKSPACE="$TMPDIR/mrsession"
+MR_REPO="$MR_WORKSPACE/plugin"
+mkdir -p "$MR_REPO"
+git init -q -b main "$MR_REPO"
+git -C "$MR_REPO" config user.email t@t.io && git -C "$MR_REPO" config user.name t
+echo init > "$MR_REPO/README.md"
+git -C "$MR_REPO" add . && git -C "$MR_REPO" commit -qm init
+
+MR_DB="$MR_WORKSPACE/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$MR_DB")"
+sqlite3 "$MR_DB" "
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    status TEXT,
+    repo TEXT
+  );
+  CREATE TABLE plugin_config (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL
+  );
+  INSERT INTO tasks (id, branch_id, status, repo)
+    VALUES (10, 'fix/330-subdir', 'pending', 'plugin');
+"
+git -C "$MR_REPO" branch fix/330-subdir HEAD
+
+run_hook_mr() {
+  echo "$1" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>&1
+}
+MR_WT="$MR_WORKSPACE/.claude/worktrees/330-subdir"
+
+test_case "#330: multi-repo (session dir is parent of repo subdir): worktree created"
+out=$(run_hook_mr "$(input_event 'fix/330-subdir')")
+assert_contains "$out" '"continue":false' "subdir-repo → hook creates worktree"
+assert_contains "$out" '330-subdir' "worktree path contains slug"
+if [ -d "$MR_WT" ]; then _pass; else _fail "worktree not created at $MR_WT"; fi
+
+test_case "#330: subdir-repo worktree HEAD is on the named branch"
+MR_HB=$(git -C "$MR_WT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ "$MR_HB" = "fix/330-subdir" ]; then _pass; else _fail "expected HEAD on fix/330-subdir, got '$MR_HB'"; fi
+
+test_case "#330: worktree is workspace-rooted (not inside inner repo)"
+MR_INNER_WT="$MR_REPO/.claude/worktrees/330-subdir"
+if [ -d "$MR_INNER_WT" ]; then
+  _fail "worktree must NOT be created inside inner repo at $MR_INNER_WT"
+else
+  _pass
+fi
+
+test_case "#330: SWE commit in multi-repo worktree advances inner repo branch ref"
+echo "swe-330" > "$MR_WT/swe-330.txt"
+git -C "$MR_WT" add swe-330.txt
+git -C "$MR_WT" -c user.email=swe@t.io -c user.name=swe commit -qm "swe: 330 fix"
+MR_SWE_HEAD=$(git -C "$MR_WT" rev-parse HEAD)
+MR_BRANCH_TIP=$(git -C "$MR_REPO" rev-parse fix/330-subdir)
+if [ "$MR_SWE_HEAD" = "$MR_BRANCH_TIP" ]; then
+  _pass
+else
+  _fail "expected fix/330-subdir to point at worktree HEAD ($MR_SWE_HEAD); got $MR_BRANCH_TIP"
+fi
+
 summarize

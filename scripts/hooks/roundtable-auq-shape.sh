@@ -30,8 +30,8 @@ RT_ID=$(sqlite3 "$DB" "
 
 [ -z "$RT_ID" ] && { exit 0; }
 
-QUESTIONS=$(echo "$INPUT" | jq -c '.tool_input.questions // []' 2>/dev/null)
-Q_COUNT=$(echo "$QUESTIONS" | jq 'length' 2>/dev/null)
+QUESTIONS=$(echo "$INPUT" | jq -c '.tool_input.questions // []' 2>/dev/null || true)
+Q_COUNT=$(echo "$QUESTIONS" | jq 'length' 2>/dev/null || true)
 
 if [ -z "$Q_COUNT" ] || [ "$Q_COUNT" -eq 0 ]; then
   exit 0

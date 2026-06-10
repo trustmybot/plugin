@@ -54,7 +54,15 @@ session_id=$(echo "$INPUT" | jq -r '.session_id // .sessionId // empty' 2>/dev/n
 [ -n "$session_id" ] || session_id="${CLAUDE_SESSION_ID:-unknown}"
 
 if command -v pgrep >/dev/null 2>&1; then
-  pgrep_count=$({ pgrep -f 'trajectory-server/dist/index.js' 2>/dev/null || true; } | wc -l | tr -d ' ')
+  # Scope pgrep to the plugin-root-specific path when CLAUDE_PLUGIN_ROOT is
+  # available (#370): prevents a trajectory-server from another CC project
+  # satisfying the check while this session's MCP is dead.
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+    _pgrep_pattern="${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
+  else
+    _pgrep_pattern="trajectory-server/dist/index.js"
+  fi
+  pgrep_count=$({ pgrep -f "$_pgrep_pattern" 2>/dev/null || true; } | wc -l | tr -d ' ')
   [ -z "$pgrep_count" ] && pgrep_count=0
 else
   pgrep_count=-1
@@ -113,9 +121,18 @@ fi
 
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-printf '{"ts":"%s","event":"%s","mcp_alive":%s,"pgrep_count":%s,"mode":%s,"session_id":"%s","db_path":"%s"}\n' \
-  "$ts" "$event" "$mcp_alive_json" "$pgrep_count" "$mode_json" "$session_id" "$db_path" \
-  >> "$LOG_FILE" || true
+# Rotate mcp-health.log at 1 MB (single .1 generation) to prevent unbounded growth (#389).
+if [ -f "$LOG_FILE" ] && [ "$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+  mv -f "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true
+fi
+
+jq -cn --arg ts "$ts" --arg ev "$event" \
+  --argjson alive "$mcp_alive_json" \
+  --argjson count "$pgrep_count" \
+  --argjson mode "$mode_json" \
+  --arg sid "$session_id" --arg db "$db_path" \
+  '{ts:$ts,event:$ev,mcp_alive:$alive,pgrep_count:$count,mode:$mode,session_id:$sid,db_path:$db}' \
+  >> "$LOG_FILE" 2>/dev/null || true
 
 if [ "$pgrep_count" -eq -1 ]; then
   exit 0

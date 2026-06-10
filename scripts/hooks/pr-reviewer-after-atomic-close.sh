@@ -47,17 +47,38 @@ TASK_ID=$(printf '%s' "$PROMPT" | grep -Eo 'task_id[[:space:]]*=[[:space:]]*[0-9
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] && [ -f "$DB" ] || exit 0
 
-STATUS=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id = $TASK_ID;" 2>/dev/null || true)
+STATUS=$(tmb_sqlite_ro "$DB" "SELECT status FROM tasks WHERE id = $TASK_ID;")
 
-# Task not found? Don't block — let pr-reviewer surface the error itself.
-[ -n "$STATUS" ] || exit 0
+if [ -z "$STATUS" ]; then
+  # Distinguish DB busy from row-missing: re-probe without -readonly.
+  PROBE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM tasks WHERE id=${TASK_ID};" 2>/dev/null || echo "query_failed")
+  if [ "$PROBE" = "query_failed" ]; then
+    jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: DB query failed for task_id="+$id+" (DB busy?). Retry the pr-reviewer spawn once the DB lock clears.")}}'
+    exit 0
+  fi
+  # Row missing — let pr-reviewer surface the error itself.
+  exit 0
+fi
 
 if [ "$STATUS" = "closed" ]; then
   exit 0
 fi
 
-REASON=$(jq -Rn --arg id "$TASK_ID" --arg st "$STATUS" '
-  "BLOCKED: pr-reviewer spawn requires task " + $id + " status=closed but actual status=" + $st + ".\n\nPer planning skill Step 5.5 + feedback_pr_reviewer_required_pre_push doctrine, the order is:\n  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).\n  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).\n  3. ONLY THEN: spawn pr-reviewer for the push gate.\n\nSWE returning completed does not close the trajectory task — that is bro_atomic_close.\n\nFix: call bro_atomic_close(agent='\''bro'\'', task_id=" + $id + ", commit_sha=<sha>, file_summaries=[...], verification_summary='\''...'\'') first, then retry this spawn."
-')
-printf '{"decision":"block","reason":%s}\n' "$REASON"
+_DENY_REASON="BLOCKED: pr-reviewer spawn requires task ${TASK_ID} status=closed but actual status=${STATUS}.
+
+Per planning skill Step 5.5 + feedback_pr_reviewer_required_pre_push doctrine, the order is:
+  1. SWE returns status=completed (lifecycle answer, NOT a DB closure).
+  2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).
+  3. ONLY THEN: spawn pr-reviewer for the push gate.
+
+SWE returning completed does not close the trajectory task — that is bro_atomic_close.
+
+Fix: call bro_atomic_close(agent='bro', task_id=${TASK_ID}, commit_sha=<sha>, file_summaries=[...], verification_summary='...') first, then retry this spawn."
+jq -nc --arg reason "$_DENY_REASON" '{
+  hookSpecificOutput: {
+    hookEventName: "PreToolUse",
+    permissionDecision: "deny",
+    denyReason: $reason
+  }
+}'
 exit 0

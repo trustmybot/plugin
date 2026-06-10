@@ -114,7 +114,7 @@ set_pr_target "$db" "dev"
 insert_task "$db" 1 "$FEATURE_SHA"
 # task NOT signed — hook must block
 out=$(run_hook "git push -u origin feat/my-feature" "$db")
-assert_contains "$out" '"decision":"block"' "first push of unsigned task must be blocked"
+assert_contains "$out" '"permissionDecision":"deny"' "first push of unsigned task must be blocked"
 assert_contains "$out" "task_id=1" "block message must list the unsigned task"
 cleanup
 
@@ -125,7 +125,7 @@ set_pr_target "$db" "dev"
 insert_task "$db" 1 "$FEATURE_SHA"
 sign_task   "$db" 1
 out=$(run_hook "git push -u origin feat/my-feature" "$db")
-assert_not_contains "$out" '"decision":"block"' "first push with pass verdict must be allowed"
+assert_not_contains "$out" '"permissionDecision":"deny"' "first push with pass verdict must be allowed"
 cleanup
 
 test_case "first-push with no task row: ALLOWED (untracked commit, TMB not managing it)"
@@ -134,13 +134,13 @@ db=$(setup_db "$REPO_PATH")
 set_pr_target "$db" "dev"
 # no task row at all
 out=$(run_hook "git push -u origin feat/my-feature" "$db")
-assert_not_contains "$out" '"decision":"block"' "untracked first push must be allowed"
+assert_not_contains "$out" '"permissionDecision":"deny"' "untracked first push must be allowed"
 cleanup
 
 test_case "first-push with no DB: ALLOWED (TMB not active)"
 setup_first_push_repo
 out=$(run_hook "git push -u origin feat/my-feature" "/nonexistent.db")
-assert_not_contains "$out" '"decision":"block"' "missing DB must not block first push"
+assert_not_contains "$out" '"permissionDecision":"deny"' "missing DB must not block first push"
 cleanup
 
 test_case "first-push: schema-default pr_target='main' is used when not overridden in plugin_config"
@@ -153,7 +153,7 @@ db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "$FEATURE_SHA"
 out=$(run_hook "git push -u origin feat/my-feature" "$db")
 # origin/main doesn't exist so git log fails gracefully, PUSH_SHAS empty, exits 0
-assert_not_contains "$out" '"decision":"block"' "when origin/pr_target doesn't exist, hook allows (no range to check)"
+assert_not_contains "$out" '"permissionDecision":"deny"' "when origin/pr_target doesn't exist, hook allows (no range to check)"
 cleanup
 
 summarize

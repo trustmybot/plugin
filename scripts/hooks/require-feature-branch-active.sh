@@ -50,9 +50,8 @@ if [ -n "$REPO" ]; then
     REPO_ABS="$WORKSPACE_ROOT/$REPO"
   fi
   if [ ! -d "$REPO_ABS/.git" ]; then
-    cat <<EOF
-{"decision":"block","reason":"BLOCKED: cannot resolve repo for task $TASK_ID. tasks.repo='$REPO' does not point to a git repo at '$REPO_ABS'. Verify the path is correct."}
-EOF
+    jq -nc --arg id "$TASK_ID" --arg repo "$REPO" --arg path "$REPO_ABS" \
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: cannot resolve repo for task "+$id+". tasks.repo="+$repo+" does not point to a git repo at "+$path+". Verify the path is correct.")}}'
     exit 0
   fi
 else
@@ -65,9 +64,8 @@ else
     REPO_ABS="$WORKSPACE_ROOT"
   fi
   if [ ! -d "$REPO_ABS/.git" ]; then
-    cat <<EOF
-{"decision":"block","reason":"BLOCKED: cannot resolve repo for task $TASK_ID. tasks.repo IS NULL and tmb_default_repo config is unset. Set via \`config_set tmb_default_repo <inner>\` for multi-repo workspaces."}
-EOF
+    jq -nc --arg id "$TASK_ID" \
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: cannot resolve repo for task "+$id+". tasks.repo IS NULL and tmb_default_repo config is unset. Set via `config_set tmb_default_repo <inner>` for multi-repo workspaces.")}}'
     exit 0
   fi
 fi
@@ -75,9 +73,8 @@ fi
 # Per GIT.md the prerequisite is that <feature> EXISTS (bro pre-created it),
 # not that the main checkout is on it — the main checkout stays on <base>.
 if ! git -C "$REPO_ABS" show-ref --verify --quiet "refs/heads/$EXPECTED"; then
-  cat <<EOF
-{"decision":"block","reason":"BLOCKED: SWE spawn for task $TASK_ID needs branch '$EXPECTED' to exist first — bro pre-creates it ('git -C $REPO_ABS branch $EXPECTED origin/<base>') and stays on <base>; SWE's worktree owns the branch. See docs/architecture/GIT.md."}
-EOF
+  jq -nc --arg id "$TASK_ID" --arg branch "$EXPECTED" --arg repo "$REPO_ABS" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: SWE spawn for task "+$id+" needs branch "+$branch+" to exist first — bro pre-creates it (\"git -C "+$repo+" branch "+$branch+" origin/<base>\") and stays on <base>; SWE'\''s worktree owns the branch. See docs/architecture/GIT.md.")}}'
   exit 0
 fi
 

@@ -52,10 +52,20 @@ esac
 #   3. Fall back to $PWD when neither (1) nor (2) match.
 WT_CWD=""
 CD_OVERRIDE=""
+CD_TARGET=""
 
-# Signal 1: explicit `git -C <worktree-path>`
+# Signal 1: explicit `git -C <path> ... push`.
+# Also extract the -C path for later use in git log calls (#368).
 case "$CMD" in
-  *"git -C "*"/.claude/worktrees/"*" push"*) WT_CWD="yes" ;;
+  *"git -C "*" push"*)
+    GIT_C_PATH=$(printf '%s' "$CMD" | sed -nE 's/.*git[[:space:]]+-C[[:space:]]+([^[:space:]]+).*/\1/p')
+    if [ -n "$GIT_C_PATH" ]; then
+      CD_TARGET="$GIT_C_PATH"
+      case "$GIT_C_PATH" in
+        *"/.claude/worktrees/"*) WT_CWD="yes" ;;
+      esac
+    fi
+    ;;
 esac
 
 # Signal 2: leading `cd <path> && ...` overrides $PWD.
@@ -84,8 +94,7 @@ if [ -z "$WT_CWD" ] && [ -z "$CD_OVERRIDE" ] && \
 fi
 
 if [ "$WT_CWD" = "yes" ]; then
-  REASON=$(jq -Rn '"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`."')
-  printf '{"decision":"block","reason":%s}\n' "$REASON"
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`."}}'
   exit 0
 fi
 
@@ -93,8 +102,7 @@ fi
 # Defense-in-depth fallback: catches non-worktree SWE pushes and cases where
 # CC #97 might strip the agent_type field from the payload.
 if [ "$AGENT_TYPE" = "swe" ]; then
-  REASON=$(jq -Rn '"BLOCKED: SWE must never push (swe.md). Bro handles the push gate at MR-open time. If this push was intended, the calling agent identity (.agent_type) is misconfigured."')
-  printf '{"decision":"block","reason":%s}\n' "$REASON"
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE must never push (swe.md). Bro handles the push gate at MR-open time. If this push was intended, the calling agent identity (.agent_type) is misconfigured."}}'
   exit 0
 fi
 
@@ -104,14 +112,26 @@ if [ -z "$DB" ] || ! tmb_have_sqlite; then
   exit 0
 fi
 
+# Determine the git directory to run log/config commands in.
+# Reuse the parsed cd/-C target dir already resolved above (#368): when the
+# command is `cd /other/repo && git push`, $PWD is stale (PreToolUse fires
+# before the cd runs). Running bare `git log` from $PWD would compute the
+# wrong SHA set — a false block or false allow of the pr-reviewer gate.
+GIT_DIR_ARGS=""
+if [ -n "$CD_TARGET" ]; then
+  GIT_DIR_ARGS="-C $CD_TARGET"
+fi
+
 # Determine commits about to be pushed. Use upstream tracking if available.
-PUSH_SHAS=$(git log '@{u}..HEAD' --pretty=%H 2>/dev/null || true)
+# shellcheck disable=SC2086
+PUSH_SHAS=$(git ${GIT_DIR_ARGS} log '@{u}..HEAD' --pretty=%H 2>/dev/null || true)
 if [ -z "$PUSH_SHAS" ]; then
   # No upstream — first push of new branch. Compute commits unique to this
   # branch vs the configured pr_target base.
   PR_TARGET=$(sqlite3 "$DB" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target'" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')
   PR_TARGET="${PR_TARGET:-dev}"
-  PUSH_SHAS=$(git log "origin/${PR_TARGET}..HEAD" --pretty=%H 2>/dev/null || true)
+  # shellcheck disable=SC2086
+  PUSH_SHAS=$(git ${GIT_DIR_ARGS} log "origin/${PR_TARGET}..HEAD" --pretty=%H 2>/dev/null || true)
 fi
 [ -z "$PUSH_SHAS" ] && exit 0
 
@@ -150,12 +170,13 @@ fi
 # Build the block message.
 COUNT=$(echo "$UNSIGNED" | wc -l | tr -d ' ')
 LIST=$(echo "$UNSIGNED" | awk -F'|' '{ printf "  - task_id=%s  %s  (%s)\n", $1, $2, $3 }')
+DENY_REASON="BLOCKED: pushing ${COUNT} unsigned commit(s). The following tasks lack a pr-reviewer pass verdict:
 
-# Single-line JSON for CC's hook decision protocol — but the reason needs
-# multi-line content. We embed \n explicitly via jq for safe escaping.
-REASON=$(jq -Rsn --arg count "$COUNT" --arg list "$LIST" '
-  "BLOCKED: pushing \($count) unsigned commit(s). The following tasks lack a pr-reviewer pass verdict:\n\n\($list)\nRun: @bro review before push\n\nbro will spawn pr-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing."
-')
+${LIST}
+Run: @bro review before push
 
-printf '{"decision":"block","reason":%s}\n' "$REASON"
+bro will spawn pr-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing."
+
+jq -nc --arg reason "$DENY_REASON" \
+  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$reason}}'
 exit 0
