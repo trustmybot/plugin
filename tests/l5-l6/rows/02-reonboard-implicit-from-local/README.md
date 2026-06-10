@@ -19,7 +19,7 @@ This is the **implicit** reonboard path. Compare step 03 (`03-reonboard-remote`)
 
 | # | Speaker | Message |
 |---|---|---|
-| 1 | user | `@bro this project needs to live on a remote — set it up.\n\nDon't ask questions.` |
+| 1 | user | `@bro this project needs to live on a remote — set it up.\n\nDon't invoke AskUserQuestion.` |
 | → | bro | calls `onboard_state_get`. Either path is acceptable: (a) auto-apply via `onboard_apply(shape='remote', …)` or (b) recommend `/onboard` in text and stop. No code work — no tasks, no issues, no SWE spawn. |
 
 ## Pass criteria
