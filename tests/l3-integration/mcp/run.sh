@@ -17,12 +17,11 @@ if [ ! -f "mcp/trajectory-server/dist/index.js" ]; then
   (cd mcp/trajectory-server && bun run build)
 fi
 
-WORKFLOW_SIM="$PLUGIN_ROOT/tests/l4-workflow-sim"
-
-# Run both L3 integration tests and L4 workflow-simulation flows in one Node
-# process. Both share the same harness + spawn the real MCP server.
+# Run L3 integration tests. L4 workflow-simulation flows are run separately by
+# run-all.sh via bun test (canonical). Both share the same harness + spawn the
+# real MCP server.
 # --experimental-sqlite needed on Node 22 (no-op on 24+); the harness imports
 # the MCP server, which uses node:sqlite via its own --experimental-sqlite flag
 # on the spawned subprocess. The flag here is for any direct node:sqlite use
 # the test files might add later.
-exec node --experimental-sqlite --test --test-reporter spec "$HERE"/*.test.mjs "$WORKFLOW_SIM"/*.test.mjs
+exec node --experimental-sqlite --test --test-reporter spec "$HERE"/*.test.mjs

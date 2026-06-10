@@ -37,11 +37,13 @@ Applies to:
 The escalation chain:
 
 ```
-PR opened → L0 + L1–L4 in CI (free, < 2 min)
+Local run before push → bash tests/run-all.sh (L1–L4, free, < 2 min)
    ↓ green
 PR labeled `L5` (optional) → L5 per-flow runner (~$0.20/flow, ~3 min/flow)
    ↓ green
 PR labeled `L6` (optional) → L6 multi-turn integration (~$0.30–1/scenario)
+   ↓ green
+workflow_dispatch on feature branch → full release-gate (L0 + L1–L4 + L6)
    ↓ green
 RC tag pushed → Release canary in CI (~$1–3, ~10 min)
    ↓ green

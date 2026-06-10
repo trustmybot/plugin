@@ -10,7 +10,7 @@ The prompt is a natural full-feature ask, so bro typically also dispatches SWE +
 
 ## Pre-state
 
-`onboarding-named` fixture, but `setup.sh` deletes the seeded `deep_scan_completed` audit row to simulate "user onboarded but never ran /scan". Scaffolds `src/__init__.py` + `tests/__init__.py` so `/scan` discovers source structure.
+`onboarding-named` fixture, but `setup-l5.sh` deletes the seeded `deep_scan_completed` audit row to simulate "user onboarded but never ran /scan". Scaffolds `src/__init__.py` + `tests/__init__.py` so `/scan` discovers source structure.
 
 ## Turns
 

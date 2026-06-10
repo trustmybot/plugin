@@ -2,11 +2,11 @@
 
 **Scenario under test:** the user types `/onboard` on an already-onboarded project to switch from local (GitHub-flow, no remote) to remote (gitflow, GitHub). Bro must call `onboard_state_get` (sees `first_run=false`), call `onboard_get_questions(shape='remote')`, and would render AUQ rounds for the new branching model + remote provider.
 
-**🟡 Partial-test:** AUQ rendering is suppressed in test mode. The L5 unit asserts the **re-initiation** signal (the two MCP calls). The post-AUQ state — flipping `branching_model` to `'gitflow'`, `pr_target` to `'dev'`, and adding a GitHub remote entry — is seeded by `setup.sh` so downstream rows see the new config.
+**🟡 Partial-test:** AUQ rendering is suppressed in test mode. The L5 unit asserts the **re-initiation** signal (the two MCP calls). The post-AUQ state — flipping `branching_model` to `'gitflow'`, `pr_target` to `'dev'`, and adding a GitHub remote entry — is seeded by `setup-l5.sh` so downstream rows see the new config.
 
 ## Pre-state
 
-`onboarding-named` fixture (local-shape state, identity row exists). `setup.sh` does NOT pre-apply the remote-shape values — that happens after the AUQ-intent signal so the test can observe `onboard_state_get` returning `first_run=false`.
+`onboarding-named` fixture (local-shape state, identity row exists). `setup-l5.sh` does NOT pre-apply the remote-shape values — that happens after the AUQ-intent signal so the test can observe `onboard_state_get` returning `first_run=false`.
 
 ## Turns
 

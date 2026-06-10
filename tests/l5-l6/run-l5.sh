@@ -7,7 +7,7 @@
 #
 # Usage:
 #   bash tests/l5-l6/run-l5.sh             # all rows
-#   bash tests/l5-l6/run-l5.sh 14          # filter by substring match on row name
+#   bash tests/l5-l6/run-l5.sh 07          # filter by substring match on row name
 #
 # Requirements:
 #   - CLAUDE_CODE_OAUTH_TOKEN env var (or active CC session in macOS keychain)
@@ -53,6 +53,7 @@ printf "\n"
 PASS=0
 FAIL=0
 FAILED_ROWS=()
+RUN_BASE="$(date +%s)-$$"
 
 for row_dir in "$HERE/rows"/*/; do
   [ -d "$row_dir" ] || continue
@@ -67,7 +68,7 @@ for row_dir in "$HERE/rows"/*/; do
   printf "\n=== L5 row: %s ===\n" "$row_name"
 
   FLOW_NAME="$row_name"
-  RUN_ID="${RUN_ID:-$(date +%s)-$$}-${row_name}"
+  RUN_ID="${RUN_BASE}-${row_name}"
   export FLOW_NAME RUN_ID
 
   PROJECT=$(l5_setup_scratch_project)

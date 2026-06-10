@@ -4,17 +4,17 @@
 # Today's bench (run-l7.sh) resets the scratch project between tasks:
 # fresh clone, fresh .claude/tmb/, fresh git. That measures single-shot
 # completion but invisibility-erases TMB's actual value prop — cumulative
-# state across tasks (file_registry warming, atomic-close history, decision
-# audit). Tier 2 confirmed: on small single-shot tasks, the TMB doctrine
-# ceremony doesn't even engage because bro correctly judges the task isn't
-# big enough.
+# world-model state across tasks (trajectory DB warming, atomic-close history,
+# decision audit). Tier 2 confirmed: on small single-shot tasks, the TMB
+# doctrine ceremony doesn't even engage because bro correctly judges the task
+# isn't big enough.
 #
 # This script preserves state across a sequence of tasks on the same repo.
 # Measures whether TMB's per-task token / duration / hallucination metrics
 # improve as the chain progresses (vs the cold-start baseline).
 #
-# Status: NOT IMPLEMENTED YET. See docs/BENCHMARK.md → "Multi-task chained
-# bench" for the design. This file is the agreed entry point.
+# Status: NOT IMPLEMENTED YET. See docs/contributing/BENCHMARK.md →
+# "Multi-task chained bench" for the design. This file is the agreed entry point.
 #
 # Intended usage (when implemented):
 #
@@ -31,8 +31,8 @@ cat >&2 <<'EOF'
   run-l7-chain.sh is a STUB. Not implemented yet.
 ================================================================
 
-Design captured in docs/BENCHMARK.md → "Multi-task chained bench
-— the real product measurement".
+Design captured in docs/contributing/BENCHMARK.md → "Multi-task chained
+bench — the real product measurement".
 
 To implement, the harness needs:
 
@@ -49,7 +49,7 @@ To implement, the harness needs:
 
 3. Cross-task analysis:
    - Per-task metrics over chain position
-   - Hypothesis: tokens DROP as chain progresses (registry warms)
+   - Hypothesis: tokens DROP as chain progresses (world model warms)
    - Hypothesis: hallucination rate stays 0 (atomic-close seeded)
 
 4. Three arms for fair comparison:

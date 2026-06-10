@@ -15,7 +15,7 @@ The bug class this catches: pr-reviewer paraphrasing the MCP-availability prefix
 
 ## Pre-state
 
-`onboarding-named` fixture + a pre-seeded `needs_validation` task on `feat/seed-todo` with a real commit (set up by `setup.sh`).
+`onboarding-named` fixture + a pre-seeded `needs_validation` task on `feat/seed-todo` with a real commit (set up by `setup-l5.sh`).
 
 ## Turns
 

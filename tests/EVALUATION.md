@@ -251,7 +251,7 @@ bash tests/l5-l6/run-l5.sh <SUBSTRING>
 ```
 
 Runs only rows whose directory name contains `<SUBSTRING>`. Examples:
-- `bash tests/l5-l6/run-l5.sh 14` → runs `14-skill-invocation-recorded`
+- `bash tests/l5-l6/run-l5.sh 07` → runs `07-push-gate`
 - `bash tests/l5-l6/run-l5.sh consultant` → runs `consultant-ad-hoc`
 - `bash tests/l5-l6/run-l5.sh misc` → runs all three `misc-*` rows
 
@@ -327,7 +327,7 @@ Every L6 run produces a per-step log so failures are debuggable without replayin
 ├── step-02-reonboard-implicit-from-local/
 │   └── …
 …
-└── step-14-skill-invocation-recorded/
+└── step-13-search-grounding/
     └── …
 ```
 

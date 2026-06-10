@@ -43,5 +43,3 @@ dist/
 .vscode/
 .env
 
-# TMB plugin runtime state — never commit
-.claude/

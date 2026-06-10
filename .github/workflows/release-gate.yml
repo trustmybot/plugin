@@ -97,7 +97,12 @@ jobs:
         if: ${{ inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
         env:
           L6_FROM_STEP: ${{ inputs.l6_from_step || '1' }}
-        run: bash tests/l5-l6/run-l6-chain.sh --from "$L6_FROM_STEP" --fresh
+        run: |
+          if [ "$L6_FROM_STEP" = "1" ]; then
+            bash tests/l5-l6/run-l6-chain.sh --fresh
+          else
+            bash tests/l5-l6/run-l6-chain.sh --from "$L6_FROM_STEP"
+          fi
 
       - name: Upload L6 chain artifacts (on success or failure)
         if: ${{ always() && inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
