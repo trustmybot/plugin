@@ -68,6 +68,7 @@ run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlin
 run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
 run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"
 run_step "L1 lint: tool-description byte budget"      bash "$HERE/l1-lint/tool-description-budget.sh"
+run_step "L1 lint: dir toolchain allowlist"           bash "$HERE/l1-lint/dir-toolchain.sh"
 
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 
@@ -82,6 +83,47 @@ else
   printf "→ FAIL\n"
   FAIL=1
 fi
+
+# ----- L2 adjacent: stubbed-PATH suite (no live gh/glab calls) ---------------
+# Runs the MCP unit suite with loud-fail gh/glab PATH stubs and
+# TMB_FORBID_LIVE_SYNC=1. Reuses the already-built dist/ — no second build.
+# Stubs append to a sentinel file on invocation; a 0-byte sentinel means the
+# suite completed without making any live CLI calls (B5 incident guard).
+printf "\n=== L2 stubbed-PATH: MCP unit suite with live-CLI stubs (reuses dist/) ===\n"
+_stub_dir=$(mktemp -d)
+_sentinel="$_stub_dir/live-cli-sentinel"
+touch "$_sentinel"
+for _cli in gh glab; do
+  cat > "$_stub_dir/$_cli" <<STUB
+#!/usr/bin/env bash
+echo "LIVE-CLI BLOCKED: $_cli \$*" >> "$_sentinel"
+echo "tmb test-stub: $_cli blocked (exit 97)" >&2
+exit 97
+STUB
+  chmod +x "$_stub_dir/$_cli"
+done
+_stub_pass=0
+if (
+  export PATH="$_stub_dir:$PATH"
+  export TMB_FORBID_LIVE_SYNC=1
+  cd "$PLUGIN_ROOT/mcp/trajectory-server"
+  node --experimental-sqlite --test dist/test/*.test.js
+); then
+  printf "→ PASS\n"
+else
+  printf "→ FAIL\n"
+  _stub_pass=1
+fi
+if [ -s "$_sentinel" ]; then
+  printf "→ FAIL: live CLI calls detected during stubbed-PATH run:\n"
+  cat "$_sentinel"
+  FAIL=1
+elif [ "$_stub_pass" -ne 0 ]; then
+  FAIL=1
+else
+  printf "→ sentinel 0-byte: no live CLI calls. PASS\n"
+fi
+rm -rf "$_stub_dir"
 
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/l3-integration/mcp/run.sh"
 run_step "L3 integration: hook script tests"                         bash "$HERE/l3-integration/hooks/run.sh"

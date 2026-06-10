@@ -1,0 +1,1 @@
+[tmb activation routine — pre-fetched by hook] onboarded=yes. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. pending=__VOLATILE__
