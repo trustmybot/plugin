@@ -25,11 +25,13 @@ PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // empty')
 
 TASK_ID=$(echo "$PROMPT" | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//')
 [ -n "$TASK_ID" ] || exit 0  # require-task-spec.sh handles the missing-task_id case
+SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+[ -n "$SAFE_TASK_ID" ] || exit 0
 
 DB=$(tmb_db_path 2>/dev/null || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then exit 0; fi
 
-ROW=$(sqlite3 "$DB" "SELECT branch_id, repo FROM tasks WHERE id=$TASK_ID;" 2>/dev/null || true)
+ROW=$(sqlite3 "$DB" "SELECT branch_id, repo FROM tasks WHERE id=${SAFE_TASK_ID};" 2>/dev/null || true)
 [ -n "$ROW" ] || exit 0
 
 EXPECTED=$(echo "$ROW" | cut -d'|' -f1)
@@ -45,7 +47,8 @@ if [ -n "$REPO" ]; then
   # Prefer the absolute path recorded in the `repos` table (authoritative
   # — set by /scan). Falls back to the legacy workspace-join only when
   # no matching repo row exists (e.g. pre-scan or non-workspace layout).
-  REPO_ABS=$(sqlite3 "$DB" "SELECT path FROM repos WHERE name='$REPO' LIMIT 1;" 2>/dev/null || true)
+  SAFE_REPO=$(tmb_sql_quote "$REPO")
+  REPO_ABS=$(sqlite3 "$DB" "SELECT path FROM repos WHERE name='${SAFE_REPO}' LIMIT 1;" 2>/dev/null || true)
   if [ -z "$REPO_ABS" ]; then
     REPO_ABS="$WORKSPACE_ROOT/$REPO"
   fi

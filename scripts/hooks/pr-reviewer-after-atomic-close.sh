@@ -43,6 +43,8 @@ TASK_ID=$(printf '%s' "$PROMPT" | grep -Eo 'task_id[[:space:]]*=[[:space:]]*[0-9
 
 # No task_id in prompt? prompt-shape hook will catch it; not our concern.
 [ -n "$TASK_ID" ] || exit 0
+TASK_ID=$(tmb_sql_int "$TASK_ID")
+[ -n "$TASK_ID" ] || exit 0
 
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] && [ -f "$DB" ] || exit 0

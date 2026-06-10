@@ -34,7 +34,8 @@ ROW=$(tmb_task_spec_status "$TASK_ID" "$DB")
 if [ -z "$ROW" ]; then
   # Empty row can mean DB busy (SQLITE_BUSY) or row genuinely missing.
   # Re-query without -readonly to check whether it's a locking issue.
-  PROBE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM tasks WHERE id=${TASK_ID};" 2>/dev/null || echo "query_failed")
+  SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+  PROBE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM tasks WHERE id=${SAFE_TASK_ID};" 2>/dev/null || echo "query_failed")
   if [ "$PROBE" = "query_failed" ]; then
     jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: DB query failed for task_id="+$id+" (DB busy?). Retry the spawn once the DB lock clears.")}}'
   else

@@ -216,6 +216,29 @@ tmb_swe_context() {
   echo "no"
 }
 
+# tmb_sql_int <value>
+# Echoes <value> only when it is a non-empty decimal integer (^[0-9]+$).
+# Prints nothing (empty) for blank, negative, float, or injection strings.
+# Use as the gatekeeper before interpolating a numeric id into SQL.
+# Never fails the caller.
+tmb_sql_int() {
+  local val="${1:-}"
+  case "$val" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  echo "$val"
+}
+
+# tmb_sql_quote <value>
+# Echoes <value> with every single-quote doubled (' → '').
+# The result is safe to interpolate inside a SQL single-quoted literal.
+# Callers must still wrap the result in single quotes in the query:
+#   "... WHERE col = '$(tmb_sql_quote "$VAR")'"
+# Never fails the caller.
+tmb_sql_quote() {
+  printf '%s' "${1:-}" | sed "s/'/''/g"
+}
+
 # tmb_task_spec_status <task_id> [<db>]
 # Prints two lines: <status>\n<body_len> for the given tasks row.
 # Prints nothing when the row does not exist, DB is absent, sqlite3 is unavailable,
@@ -226,6 +249,9 @@ tmb_swe_context() {
 tmb_task_spec_status() {
   local task_id="$1"
   local db="${2:-}"
+  local safe_id
+  safe_id=$(tmb_sql_int "$task_id")
+  [ -n "$safe_id" ] || return 0
   if [ -z "$db" ]; then
     db=$(tmb_db_path) || true
   fi
@@ -234,6 +260,6 @@ tmb_task_spec_status() {
   tmb_sqlite_ro "$db" "
     SELECT status, LENGTH(COALESCE(spec_body, ''))
       FROM tasks
-     WHERE id = ${task_id};
+     WHERE id = ${safe_id};
   " | tr '|' '\n'
 }

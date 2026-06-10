@@ -104,4 +104,40 @@ WALK_PAYLOAD=$(jq -cn '{
 COUNT3=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM discussions WHERE kind='note' AND body LIKE '%walk-up comment%';")
 assert_eq "1" "$COUNT3" "walk-up must find the DB and insert the comment row"
 
+# ── injection regression ──────────────────────────────────────────────────────
+# The discussions INSERT uses CURRENT_BRANCH (from git rev-parse), ISSUE_ID
+# (from DB SELECT), AUTHOR_ESC and NOTE_BODY_ESC (both escaped via sed).
+# We test: injection via comment body does NOT corrupt the DB.
+
+test_case "injection in comment body: treated as literal string, no SQL error"
+sqlite3 "$DB" "DELETE FROM discussions;"
+INJ_PAYLOAD=$(jq -cn '{
+  tool_name: "pr_comments_get",
+  tool_response: { output: {
+    pr_number: 99,
+    comments: [ { number: 9, author: "hax", body: "1; DROP TABLE discussions;-- end", pr_number: 99, is_resolved: false } ]
+  } }
+}')
+( cd "$REPO" && echo "$INJ_PAYLOAD" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null )
+TABLE_EXISTS=$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='discussions';")
+assert_eq "1" "$TABLE_EXISTS" "discussions table must survive injection attempt in body"
+COUNT_INJ=$(sqlite3 "$DB" "SELECT COUNT(*) FROM discussions WHERE kind='note';")
+assert_eq "1" "$COUNT_INJ" "injection-string comment inserted as a literal row"
+
+test_case "comment author with single quotes: row inserted intact"
+sqlite3 "$DB" "DELETE FROM discussions;"
+QUOTE_PAYLOAD=$(jq -cn '{
+  tool_name: "pr_comments_get",
+  tool_response: { output: {
+    pr_number: 77,
+    comments: [ { number: 5, author: "o'\''reilly", body: "it'\''s fine", pr_number: 77, is_resolved: false } ]
+  } }
+}')
+( cd "$REPO" && echo "$QUOTE_PAYLOAD" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null )
+STORED_BODY=$(sqlite3 "$DB" "SELECT body FROM discussions WHERE kind='note' LIMIT 1;")
+case "$STORED_BODY" in
+  *"it's fine"*) echo "  ✓ single-quoted body preserved" ;;
+  *) echo "FAIL: body mangled: $STORED_BODY"; exit 1 ;;
+esac
+
 summarize

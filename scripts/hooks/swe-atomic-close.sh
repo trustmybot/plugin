@@ -140,12 +140,15 @@ fi
 #   2. Most-recently-updated task in any SWE-relevant status (fallback only).
 ROW=""
 if [ -n "$TRANSCRIPT_TASK_ID" ]; then
-  ROW=$(sqlite3 "$DB" \
-    "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
-     WHERE id = ${TRANSCRIPT_TASK_ID}
-       AND status IN ('pending', 'needs_validation', 'completed')
-     LIMIT 1;" \
-    2>/dev/null || true)
+  SAFE_TRANSCRIPT_TASK_ID=$(tmb_sql_int "$TRANSCRIPT_TASK_ID")
+  if [ -n "$SAFE_TRANSCRIPT_TASK_ID" ]; then
+    ROW=$(sqlite3 "$DB" \
+      "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
+       WHERE id = ${SAFE_TRANSCRIPT_TASK_ID}
+         AND status IN ('pending', 'needs_validation', 'completed')
+       LIMIT 1;" \
+      2>/dev/null || true)
+  fi
 fi
 if [ -z "$ROW" ]; then
   ROW=$(sqlite3 "$DB" \
@@ -160,6 +163,8 @@ if [ -z "$ROW" ]; then
 fi
 
 TASK_ID=$(echo "$ROW" | cut -d'|' -f1)
+TASK_ID=$(tmb_sql_int "$TASK_ID")
+[ -n "$TASK_ID" ] || exit 0
 TASK_STATUS=$(echo "$ROW" | cut -d'|' -f2)
 BRANCH=$(echo "$ROW" | cut -d'|' -f3)
 PARENT_BRANCH=$(echo "$ROW" | cut -d'|' -f4)
@@ -238,8 +243,9 @@ if [ "$TASK_STATUS" = "pending" ]; then
   if [ "$HAS_COMMITS" = "true" ]; then
     # Auto-close: write status='completed' + commit_sha via sqlite3.
     DECISION="auto-completed"
+    SAFE_WT_HEAD=$(tmb_sql_quote "$WT_HEAD")
     sqlite3 "$DB" \
-      "UPDATE tasks SET status='completed', commit_sha='${WT_HEAD}', updated_at=datetime('now'), completed_at=datetime('now') WHERE id=${TASK_ID};" \
+      "UPDATE tasks SET status='completed', commit_sha='${SAFE_WT_HEAD}', updated_at=datetime('now'), completed_at=datetime('now') WHERE id=${TASK_ID};" \
       2>/dev/null || DECISION="auto-complete-failed"
   else
     # No commits in worktree beyond the local branch ref.
@@ -300,9 +306,10 @@ CACHE_CREATION_TOKENS=$(printf '%d' "${CACHE_CREATION_TOKENS}" 2>/dev/null || ec
 
 TOKENS_TOTAL=$((TOKENS_IN + TOKENS_OUT))
 
-# Resolve issue_id column (NULL-safe).
-if [ -n "$ISSUE_ID" ]; then
-  AR_ISSUE_FRAGMENT="${ISSUE_ID}"
+# Resolve issue_id column (NULL-safe, numeric-validated).
+SAFE_ISSUE_ID=$(tmb_sql_int "$ISSUE_ID")
+if [ -n "$SAFE_ISSUE_ID" ]; then
+  AR_ISSUE_FRAGMENT="${SAFE_ISSUE_ID}"
 else
   AR_ISSUE_FRAGMENT="NULL"
 fi
