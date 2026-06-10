@@ -33,16 +33,16 @@ jobs:
       # HF_HOME to '~/.cache/huggingface' in YAML produces a literal-tilde
       # string that Node's fs API can't resolve.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
 
       - uses: oven-sh/setup-bun@v2
 
       - name: Cache HuggingFace ONNX model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/huggingface
           key: hf-bge-small-${{ hashFiles('mcp/trajectory-server/src/embeddings/model.ts') }}
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload L6 chain artifacts (on success or failure)
         if: ${{ always() && inputs.skip_l6 != true && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: l6-chain-runs-${{ github.run_id }}
           path: ~/.claude/tmb/l6-chain-runs/
@@ -120,6 +120,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run install-smoke
         run: bash tests/l0-install/run-install-smoke.sh
