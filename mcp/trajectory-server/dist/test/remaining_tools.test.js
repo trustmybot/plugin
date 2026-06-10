@@ -338,6 +338,7 @@ describe('reportTools', () => {
         const result = await call(tools.handlers, 'issue_report_md', {
             agent: 'bro',
             issue_id: String(issueId),
+            mode: 'detail',
         });
         const data = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);

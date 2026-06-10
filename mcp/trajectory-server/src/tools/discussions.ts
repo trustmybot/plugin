@@ -103,7 +103,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_list',
       description:
-        'Return discussion entries for an issue ordered by created_at ASC. Used by bro at session resume and by snapshot generation.',
+        'Return discussion entries for an issue ordered by created_at ASC. Supports optional fields projection: pass fields=[\'id\',\'kind\',\'author\',\'body\'] to return only those columns (unknown fields return a named error). Used by bro at session resume and by snapshot generation.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -112,6 +112,11 @@ export function discussionTools(db: TrajectoryDB): {
           limit: { type: 'number', description: 'Max rows to return. Capped at 200. When omitted, returns up to 200 rows (legacy bare-array shape); when provided, response includes next_cursor.' },
           offset: { type: 'number', description: 'Row offset for pagination. Default 0.' },
           cursor: { type: 'string', description: 'Opaque cursor from a previous response. When provided, overrides offset.' },
+          fields: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional column projection. Allowed: id, issue_id, author, kind, body, created_at. Unknown fields return an error. Default: all columns.',
+          },
         },
         required: ['agent', 'issue_id'],
       },
@@ -119,14 +124,22 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'issue_get_with_discussions',
       description:
-        'Convenience call: returns the issue row + its full discussion list + its task list in one round-trip.',
+        'Convenience call: returns the issue row + its discussion list + its task list in one round-trip. Default compact mode returns counts + last 10 discussions (configurable via last_n). Pass include_full=true to return all discussions (current full behavior). Respects agent-scoped description redaction.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string' },
-          limit: { type: 'number', description: 'Optional — max discussion rows to return. When omitted, returns all. When provided, response includes next_cursor.' },
-          cursor: { type: 'string', description: 'Opaque cursor from a previous response.' },
+          include_full: {
+            type: 'boolean',
+            description: 'When true, return all discussions (no limit). Default false — compact mode returns last_n discussions + total_count.',
+          },
+          last_n: {
+            type: 'number',
+            description: 'In compact mode: number of most-recent discussions to return. Default 10. Max 200.',
+          },
+          limit: { type: 'number', description: 'Deprecated alias for last_n when include_full=false. When include_full=false and limit is provided, acts as last_n cap. Prefer last_n.' },
+          cursor: { type: 'string', description: 'Opaque cursor for paginating beyond last_n. When provided, returns next page of discussions.' },
         },
         required: ['agent', 'issue_id'],
       },
@@ -386,6 +399,23 @@ export function discussionTools(db: TrajectoryDB): {
       const limitArg = args['limit'] as number | undefined;
       const cursorArg = args['cursor'] as string | undefined;
       const rawOffset = (args['offset'] as number | undefined) ?? 0;
+      const fieldsArg = args['fields'] as string[] | undefined;
+
+      const ALLOWED_DISCUSSION_FIELDS = new Set(['id', 'issue_id', 'author', 'kind', 'body', 'created_at']);
+
+      if (fieldsArg !== undefined) {
+        const unknown = fieldsArg.filter((f) => !ALLOWED_DISCUSSION_FIELDS.has(f));
+        if (unknown.length > 0) {
+          return err(`Unknown fields: ${unknown.join(', ')}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(', ')}`);
+        }
+      }
+
+      function projectRow(row: Discussion): Record<string, unknown> {
+        if (!fieldsArg) return row as unknown as Record<string, unknown>;
+        const out: Record<string, unknown> = {};
+        for (const f of fieldsArg) out[f] = (row as unknown as Record<string, unknown>)[f];
+        return out;
+      }
 
       const issue = db.get<{ id: number }>('SELECT id FROM issues WHERE id = ?', [issueId]);
       if (!issue) {
@@ -398,7 +428,7 @@ export function discussionTools(db: TrajectoryDB): {
           `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200 OFFSET ?`,
           [issueId, offset],
         );
-        return ok(rows);
+        return ok(rows.map(projectRow));
       }
 
       const limit = Math.min(Math.max(1, limitArg), 200);
@@ -425,12 +455,15 @@ export function discussionTools(db: TrajectoryDB): {
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
 
-      return ok({ rows, next_cursor });
+      return ok({ rows: rows.map(projectRow), next_cursor });
     }),
 
     issue_get_with_discussions: wrapHandler(async (args) => {
       const agent = normalizeAgent(args['agent'] as string | undefined);
       const issueId = requireArg(args, 'issue_id') as string;
+      const includeFull = (args['include_full'] as boolean | undefined) ?? false;
+      const lastNArg = (args['last_n'] as number | undefined);
+      // legacy: `limit` acts as last_n when include_full=false
       const limitArg = args['limit'] as number | undefined;
       const cursorArg = args['cursor'] as string | undefined;
 
@@ -446,7 +479,7 @@ export function discussionTools(db: TrajectoryDB): {
 
       const redactedIssue = redactIssue(issue, agent);
 
-      if (limitArg === undefined || limitArg === null) {
+      if (includeFull) {
         const discussions = db.all<Discussion>(
           `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`,
           [issueId],
@@ -454,7 +487,17 @@ export function discussionTools(db: TrajectoryDB): {
         return ok({ issue: redactedIssue, discussions, tasks });
       }
 
-      const limit = Math.min(Math.max(1, limitArg), 200);
+      // Compact mode: return counts + last N discussions
+      const totalCount = (db.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?`,
+        [issueId],
+      ))?.n ?? 0;
+
+      const resolvedLastN = Math.min(
+        Math.max(1, lastNArg ?? limitArg ?? 10),
+        200,
+      );
+
       let cursorFilter = '';
       let cursorParams: unknown[] = [];
 
@@ -469,15 +512,24 @@ export function discussionTools(db: TrajectoryDB): {
       const sql =
         'SELECT * FROM discussions WHERE issue_id = ? ' +
         cursorFilter +
-        ' ORDER BY created_at ASC, id ASC LIMIT ?';
-      const fetchedDisc = db.all<Discussion>(sql, [issueId, ...cursorParams, limit + 1]);
+        ' ORDER BY created_at DESC, id DESC LIMIT ?';
+      const fetchedDisc = db.all<Discussion>(sql, [issueId, ...cursorParams, resolvedLastN + 1]);
 
-      const hasMore = fetchedDisc.length > limit;
-      const discussions = hasMore ? fetchedDisc.slice(0, limit) : fetchedDisc;
-      const last = discussions[discussions.length - 1];
+      const hasMore = fetchedDisc.length > resolvedLastN;
+      const sliced = hasMore ? fetchedDisc.slice(0, resolvedLastN) : fetchedDisc;
+      // Return in ascending order for readability
+      const discussions = sliced.reverse();
+      const last = sliced[sliced.length - 1];
       const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
 
-      return ok({ issue: redactedIssue, discussions, tasks, next_cursor });
+      return ok({
+        issue: redactedIssue,
+        discussions,
+        tasks,
+        total_discussion_count: totalCount,
+        returned_count: discussions.length,
+        ...(next_cursor !== undefined ? { next_cursor } : {}),
+      });
     }),
   };
 

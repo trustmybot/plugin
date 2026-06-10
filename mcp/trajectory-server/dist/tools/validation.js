@@ -53,7 +53,7 @@ export function validationTools(db) {
         },
         {
             name: 'validation_history',
-            description: 'Return all validation attempts for a task ordered by attempt_n ascending.',
+            description: 'Return all validation attempts for a task ordered by attempt_n ascending. Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -62,6 +62,11 @@ export function validationTools(db) {
                     own_task_id: { type: 'string', description: 'The calling agent\'s own task ID (used to gate feedback access for swe)' },
                     limit: { type: 'number', description: 'Optional — max rows to return. When provided, response includes next_cursor.' },
                     cursor: { type: 'string', description: 'Opaque cursor from a previous response.' },
+                    fields: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns.',
+                    },
                 },
                 required: ['agent', 'task_id'],
             },
@@ -113,9 +118,25 @@ export function validationTools(db) {
                 : undefined;
             const limitArg = args['limit'];
             const cursorArg = args['cursor'];
+            const fieldsArg = args['fields'];
+            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'subagent_session_id', 'created_at']);
+            if (fieldsArg !== undefined) {
+                const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
+                if (unknown.length > 0) {
+                    return err(`Unknown fields: ${unknown.join(', ')}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(', ')}`);
+                }
+            }
+            function projectRow(row) {
+                if (!fieldsArg)
+                    return row;
+                const out = {};
+                for (const f of fieldsArg)
+                    out[f] = row[f];
+                return out;
+            }
             if (limitArg === undefined || limitArg === null) {
                 const rows = db.all(`SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`, [taskId]);
-                return ok(rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })));
+                return ok(rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
             }
             const limit = Math.min(Math.max(1, limitArg), 500);
             let cursorFilter = '';
@@ -143,7 +164,7 @@ export function validationTools(db) {
                 ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString('base64')
                 : undefined;
             return ok({
-                rows: rows.map((row) => redactValidationRow(row, agent, { own_task_id: ownTaskId })),
+                rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
                 next_cursor,
             });
         }),

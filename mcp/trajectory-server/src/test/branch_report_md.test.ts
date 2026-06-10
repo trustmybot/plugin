@@ -112,6 +112,7 @@ describe('branchReportMdTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: branchId,
+      mode: 'detail',
     });
 
     const data = parseResult(result);
@@ -224,6 +225,7 @@ describe('branchReportMdTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: branchId,
+      mode: 'detail',
     });
 
     const data = parseResult(result);

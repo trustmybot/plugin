@@ -28,13 +28,18 @@ export function branchReportMdTools(db) {
     const definitions = [
         {
             name: 'branch_report_md',
-            description: 'Assemble a markdown summary scoped to a single (issue_id, branch_id) pair: tasks, audit events, and validation attempts on that branch.',
+            description: 'Assemble a markdown report scoped to a single (issue_id, branch_id) pair. mode="summary" (default) returns task status + counts + last 5 audit events (~500 tokens). mode="detail" returns full tasks, all audit events, and all validation attempts.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
                     issue_id: { type: 'string', description: 'Integer issue ID as a string.' },
                     branch_id: { type: 'string', description: 'Git branch name, e.g. feat/my-feature.' },
+                    mode: {
+                        type: 'string',
+                        enum: ['summary', 'detail'],
+                        description: 'Report depth. Default: summary (~500 tokens). Use detail for full narrative.',
+                    },
                 },
                 required: ['agent', 'issue_id', 'branch_id'],
             },
@@ -45,6 +50,10 @@ export function branchReportMdTools(db) {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             const branchId = requireArg(args, 'branch_id');
+            const mode = args['mode'] ?? 'summary';
+            if (mode !== 'summary' && mode !== 'detail') {
+                throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
+            }
             if (!/^\d+$/.test(issueId)) {
                 throw new Error(`issue_id must be a positive integer string. Got: "${issueId}"`);
             }
@@ -57,15 +66,45 @@ export function branchReportMdTools(db) {
                 throw new Error(`No tasks found for issue_id=${issueId} branch_id="${branchId}". ` +
                     'Verify the branch_id matches an existing task on that issue.');
             }
-            const taskIds = tasks.map((t) => String(t.id));
-            const placeholders = taskIds.map(() => '?').join(', ');
-            const validationAttempts = db.all(`SELECT * FROM validation_attempts WHERE task_id IN (${placeholders}) ORDER BY task_id ASC, attempt_n ASC`, taskIds);
-            const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? ORDER BY id ASC`, [issueId, branchId]);
             const lines = [];
             lines.push(`# Branch Report — ${branchId} (issue #${issueId})`);
             lines.push('');
             lines.push(`**Issue objective:** ${issue.objective}`);
             lines.push('');
+            if (mode === 'summary') {
+                lines.push('## Tasks on this branch');
+                lines.push('');
+                lines.push('| ID | Title | Status | Commit |');
+                lines.push('|---|---|---|---|');
+                for (const t of tasks) {
+                    const title = t.title || t.description.slice(0, 60);
+                    const commit = t.commit_sha || '—';
+                    lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} |`);
+                }
+                lines.push('');
+                const auditCount = (db.get('SELECT COUNT(*) AS n FROM audit WHERE issue_id = ? AND branch_id = ?', [issueId, branchId]))?.n ?? 0;
+                lines.push(`**Audit events:** ${auditCount}`);
+                lines.push('');
+                lines.push('## Last 5 Audit Events');
+                lines.push('');
+                const recentAudit = db.all('SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? ORDER BY id DESC LIMIT 5', [issueId, branchId]);
+                if (recentAudit.length === 0) {
+                    lines.push('_No audit events._');
+                }
+                else {
+                    lines.push('| Time | Event | From | Summary |');
+                    lines.push('|---|---|---|---|');
+                    for (const e of recentAudit.reverse()) {
+                        lines.push(`| ${e.created_at} | ${e.event_type} | ${e.from_node} | ${e.summary} |`);
+                    }
+                }
+                return ok({ markdown: lines.join('\n'), mode: 'summary' });
+            }
+            // detail mode
+            const taskIds = tasks.map((t) => String(t.id));
+            const placeholders = taskIds.map(() => '?').join(', ');
+            const validationAttempts = db.all('SELECT * FROM validation_attempts WHERE task_id IN (' + placeholders + ') ORDER BY task_id ASC, attempt_n ASC', taskIds);
+            const auditEntries = db.all('SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? ORDER BY id ASC', [issueId, branchId]);
             lines.push('## Tasks on this branch');
             lines.push('');
             lines.push('| ID | Title | Status | Commit | Created | Closed |');
@@ -102,7 +141,7 @@ export function branchReportMdTools(db) {
                     lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.agent} | ${v.verdict} | ${v.created_at} |`);
                 }
             }
-            return ok({ markdown: lines.join('\n') });
+            return ok({ markdown: lines.join('\n'), mode: 'detail' });
         })),
     };
     return { definitions, handlers };
