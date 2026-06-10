@@ -229,11 +229,8 @@ export function compositeTools(
     {
       name: 'reap_and_review_prep',
       description:
-        'Commit-reap composite — for each unsigned task, fetches the detached HEAD from ' +
-        'the per-task worktree into the main checkout under the task\'s branch_id. ' +
-        'Returns a list of { task_id, branch_id, commit_sha } ready for pr-reviewer spawn. ' +
-        'Collapses the per-task `git fetch ./.claude/worktrees/<slug> HEAD:<branch_id>` loop ' +
-        'from §C of tmb_review into one call.',
+        'Commit-reap composite — for each task, fetches detached HEAD from its worktree into the main checkout under branch_id. ' +
+        'Returns { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn. Collapses the per-task fetch loop from §C of tmb_review.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -254,11 +251,8 @@ export function compositeTools(
     {
       name: 'bro_atomic_close',
       description:
-        'Bro task-close composite — writes the bro_verification_pass audit row, ' +
-        'advances the task to closed, and optionally closes the parent issue, ' +
-        'all in one DB transaction. PostToolUse hooks on bro_atomic_close fire ' +
-        '(cleanup-worktree, post-task-close-rescan); hooks on task_update_status do NOT ' +
-        'fire because CC sees only the invoked tool name.',
+        'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
+        'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
       inputSchema: {
         type: 'object',
         properties: {
