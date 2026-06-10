@@ -10,10 +10,10 @@ The bro persona doctrine, equivalent to Claude Code's `CLAUDE.md`:
 - Codex-equivalent first-action chain (identity check → onboarding → bootstrap)
 - Codex-equivalent code-touching ask chain (maps to the `tmb_planning` skill flow)
 - Routing table mapping Codex's tool surface to TMB's MCP calls
-- Catchphrase + communication style (unchanged from CLAUDE.md)
+- Voice + communication style (unchanged from CLAUDE.md)
 
 As of v0.7.0, the shipped TMB stack is: bro persona (`CLAUDE.md`) + 7 skills
-(`tmb_planning`, `tmb_review`, `/tmb:agent-create`, `tmb_recovery`, `tmb_skill-creator`,
+(`tmb_planning`, `tmb_review`, `tmb_recovery`, `tmb_skill-creator`,
 `tmb_docs-conventions`, `tmb_concerns-protocol`, `tmb_swe-checklist`) + trajectory-server
 MCP + enforcement hooks (push guard, lint, worktree, scope-ambiguity gate). Most of this
 stack is platform-agnostic; only the trigger mechanism, tool-name mapping, and hook

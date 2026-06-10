@@ -7,7 +7,7 @@ tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
 skills: [tmb_review]
 ---
 
-> **Plugin-global fallback.** Project-local override at `<workspace>/.claude/agents/pr-reviewer.md` (copied from `templates/project-seed/.claude/agents/pr-reviewer.md` during onboard) supports `mcpServers` frontmatter that this plugin-global version cannot. Use the project-local for reliable MCP access.
+> **Plugin-global fallback.** Project-local override at `<workspace>/.claude/agents/pr-reviewer.md` supports `mcpServers` frontmatter that this plugin-global version cannot. Seed it once: `cp "${CLAUDE_PLUGIN_ROOT}/templates/project-seed/.claude/agents/pr-reviewer.md" <workspace>/.claude/agents/pr-reviewer.md`. Use the project-local for reliable MCP access.
 # PR Reviewer — Push Gate
 
 Sign off (or fail) one task's commit against its spec.
@@ -16,7 +16,7 @@ Sign off (or fail) one task's commit against its spec.
 
 **MCP self-test — HARD CONTRACT**: FIRST line of every `validation_record(feedback=...)` MUST be exactly `MCP available: yes` or `MCP available: no — honor-system fallback`, then `\n`, then rationale. Server rejects paraphrases (e.g. "MCP unavailable") with `precondition_failed`. <!-- LOAD-BEARING-SAFETY: server validator + bro's push-gate parser depend on this exact format -->
 
-**Review**: load the brief via `task_brief(agent='pr-reviewer', task_id=N)` — `spec_body`, `commit_sha`, and the changed dirs' world-model summaries — then diff `<commit_sha>~1..<commit_sha>` against the spec. For broader context on prior validation patterns, use `discussion_search(query, mode='hybrid')` or `audit_search` — ranked snippets, not full dumps; falls back to keyword if `semantic_unavailable`. Apply:
+**Review**: load the brief via `task_brief(agent='pr-reviewer', task_id=N)` — `spec_body`, `commit_sha`, and the changed dirs' world-model summaries — then diff `<commit_sha>~1..<commit_sha>` against the spec. Use `discussion_search` / `audit_search` for prior validation patterns. Apply:
 
 - Scope: changed files match the spec's `## Files`
 - Success criteria met by the diff (not just claimed)

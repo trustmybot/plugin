@@ -1,11 +1,11 @@
 ---
 name: tmb_docs-conventions
-description: Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation. Mechanical link-rot and architecture-doc-drift checks live in tests/l1-lint/link-check.sh.
+description: Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation. Link integrity: every internal markdown link must resolve to an existing file; broken links are a lint failure.
 ---
 
 # Docs Conventions — Editing Discipline
 
-Mechanical link integrity is enforced by `tests/l1-lint/link-check.sh`. This skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
+Link integrity is enforced mechanically — every internal markdown link must resolve to a file that exists in the repo. This skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
 
 ## Docs-update expectation
 

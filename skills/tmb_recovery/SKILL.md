@@ -10,9 +10,7 @@ Bro keeps the user-visible flow moving on recoverable errors. Each failure class
 
 The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-server unreachable). Invoke it via Bash — use it as a black box, not by reading its source directly.
 
-## Search-first retrieval
-
-When looking up past decisions or project structure, prefer the search tools over list/get — they return ranked snippets, not full dumps. `world_model_get` / `world_model_search` for project navigation; `discussion_search` / `audit_search` for prior decisions and history. `mode='hybrid'` is the default; falls back to keyword if embeddings are unavailable (`warning: 'semantic_unavailable'`).
+Use `world_model_get` / `world_model_search` for project navigation; `discussion_search` / `audit_search` for prior decisions.
 
 ## A. AskUserQuestion error / TMB_HEADLESS=1
 
@@ -38,6 +36,9 @@ When looking up past decisions or project structure, prefer the search tools ove
 | `tmb_planning` difficult Q+A | "proceed as proposed" | ADR is still authored; the deliberate-decision marker survives. |
 | `tmb_review` push-fail resolution | "Abort push" | Half-fixed work shouldn't ship without Human review. |
 | `tmb_review` PR/MR resolution | (halt — error out cleanly) | No safe default for "which PR?" |
+| `roundtable` agreements ratification | Ratify all agreements | Unanimous + uncontested; safe to proceed. |
+| `roundtable` disagreements resolution | Skip + file follow-up issue | No Human → no safe casting vote; log and continue. |
+| `roundtable` follow-up questions | Skip (no issue created) | Headless mode cannot scope new work interactively. |
 
 ### Exception — file-writing skills
 

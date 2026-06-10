@@ -52,13 +52,7 @@ allowed-tools: <optional, comma-separated — restricts tools the skill can invo
 
 ## Step 3 — Pre-write lint
 
-Run `${CLAUDE_PLUGIN_ROOT}/skills/tmb_skill-creator/scripts/prompt-author-lint.sh <draft-path>`. The script flags two pattern classes:
-
-**Pink-elephant negations**: start-of-line `Don't`, `Never`, `Do not`; mid-sentence `MUST NOT`, `do not`, `don't`, `never`. Rewrite each as positive (`Don't include emojis` → `Use plain text only`). For load-bearing safety, add `<!-- LOAD-BEARING-SAFETY: <reason> -->` inline.
-
-**Noise citations**: issue numbers (`#\d+`), memory file paths (`feedback_*.md`, `~/.claude/projects/...`), origin attributions (`caught in`, `prior incident`), decaying dates, PR/MR URLs, migration tombstones (phrases that frame a past state rather than the current one). Strip or rewrite each. Allowed: rule stated inline, cross-refs to other prompt surfaces (`see CLAUDE.md ## <Section>`), MCP-DB references via tool name.
-
-Surface findings via the approval AUQ; the user picks accept/decline per finding.
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`. Surface findings via AUQ; the user picks accept/decline per finding.
 
 ## Step 4 — Show and ask
 
