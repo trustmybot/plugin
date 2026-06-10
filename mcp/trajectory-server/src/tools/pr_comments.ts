@@ -360,16 +360,25 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
 
       // Upsert the cursor: a re-fetch of the same (pr_number, repo) should
       // overwrite last_fetched_at + last_comment_id rather than insert a
-      // duplicate row. Idempotency comes from idx_pr_review_runs_pr (UNIQUE).
-      db.run(
-        `INSERT INTO pr_review_runs
-          (pr_number, repo, last_fetched_at, last_comment_id)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(pr_number, repo) DO UPDATE SET
-           last_fetched_at = excluded.last_fetched_at,
-           last_comment_id = excluded.last_comment_id`,
-        [prNumber, repo, now, lastCommentId],
+      // duplicate row. Monitoring rows always have pr_number > 0 so they
+      // are covered by idx_pr_review_runs_pr (partial unique WHERE pr_number > 0).
+      // Use SELECT + INSERT/UPDATE to avoid relying on partial-index ON CONFLICT.
+      const existingCursor = db.get<{ id: number }>(
+        'SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?',
+        [prNumber, repo],
       );
+      if (existingCursor) {
+        db.run(
+          'UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ? WHERE id = ?',
+          [now, lastCommentId, existingCursor.id],
+        );
+      } else {
+        db.run(
+          `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id)
+           VALUES (?, ?, ?, ?)`,
+          [prNumber, repo, now, lastCommentId],
+        );
+      }
 
       return ok(fetchResult);
     })),
