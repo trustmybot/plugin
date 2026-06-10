@@ -127,12 +127,12 @@ PR_TARGET=$(_cfg_scalar "pr_target")
 PROTECTED_RAW=$(_cfg_raw "protected_branches")
 
 if [ -z "$PR_TARGET" ] || [ -z "$PROTECTED_RAW" ]; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run bro onboarding or fix your config."}}'
+  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run bro onboarding or fix your config."}}'
   exit 0
 fi
 
 if ! printf '%s' "$PROTECTED_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:"BLOCKED: TMB plugin_config key protected_branches is malformed JSON. Fix the config or re-run bro onboarding."}}'
+  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: TMB plugin_config key protected_branches is malformed JSON. Fix the config or re-run bro onboarding."}}'
   exit 0
 fi
 
@@ -172,12 +172,12 @@ case "$CMD" in
       fi
       if [ "$HEAD_BRANCH" != "dev" ]; then
         jq -nc --arg r "BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${PR_TARGET}: gh pr create --base ${PR_TARGET} --head <branch>. Got --head=${HEAD_BRANCH}." \
-          '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+          '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
         exit 0
       fi
     else
       jq -nc --arg r "BLOCKED: PRs must target ${PR_TARGET} branch. Use: gh pr create --base ${PR_TARGET} --head <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)" \
-        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
     ;;
@@ -199,7 +199,7 @@ if _rule2_match "$CMD"; then
     BRANCH=$(cmd_effective_branch "$CMD")
     if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
       jq -nc --arg r "BLOCKED: No direct commits to ${BRANCH}. Create a feature branch first." \
-        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
 fi
@@ -230,14 +230,14 @@ case "$CMD" in
         PUSH_TARGET=$(printf '%s' "$PUSH_CLAUSE" | grep -oE '\b(origin|upstream)\s+\S+' | awk '{print $2}')
         if branch_is_protected "$PUSH_TARGET"; then
           jq -nc --arg r "BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible." \
-            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
           exit 0
         fi
       else
         BRANCH=$(cmd_branch "$CMD")
         if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
           jq -nc --arg r "BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible." \
-            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
           exit 0
         fi
       fi
@@ -251,7 +251,7 @@ case "$CMD" in
     BRANCH=$(cmd_branch "$CMD")
     if [ "$BRANCH" != "$PR_TARGET" ]; then
       jq -nc --arg r "BLOCKED: New branches must be created from ${PR_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${PR_TARGET} && git pull origin ${PR_TARGET} first." \
-        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
     # fetch/check still operate from CC's CWD — pr_target is the project's root branch concern.
@@ -266,7 +266,7 @@ case "$CMD" in
     REMOTE=$(git rev-parse --verify "origin/${PR_TARGET}" 2>/dev/null || true)
     if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
       jq -nc --arg r "BLOCKED: Local ${PR_TARGET} is behind origin/${PR_TARGET}. Run: git pull origin ${PR_TARGET} first." \
-        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
     ;;
