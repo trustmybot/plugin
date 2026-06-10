@@ -180,6 +180,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-brief-gate.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-source-edit-from-main.sh",
             "timeout": 5
           },
