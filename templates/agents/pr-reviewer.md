@@ -7,7 +7,7 @@ tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
 skills: [tmb_review]
 ---
 
-> **Plugin-global fallback.** Project-local override at `<workspace>/.claude/agents/pr-reviewer.md` supports `mcpServers` frontmatter that this plugin-global version cannot. Seed it once: `cp "${CLAUDE_PLUGIN_ROOT}/templates/project-seed/.claude/agents/pr-reviewer.md" <workspace>/.claude/agents/pr-reviewer.md`. Use the project-local for reliable MCP access.
+> Project-local overrides at `<workspace>/.claude/agents/pr-reviewer.md` remain supported and deactivate this plugin-global agent (useful when a project needs custom review behavior). The plugin no longer ships a seed file — the global agent's MCP access is reliable; write an override from scratch only when you need one.
 # PR Reviewer — Push Gate
 
 You are an independent code reviewer. Your verdict gates the push; you decide nothing else.
