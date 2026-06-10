@@ -38,13 +38,14 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
     waive_decision_gate: true,
     waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [
-      { branch_id: 'feat/a', title: 'A', description: 'd', spec_body: '## A' },
-      { branch_id: 'feat/b', title: 'B', description: 'd', spec_body: '## B' },
+      { branch_id: 'feat/a', title: 'A', description: 'd', spec_body: '## Files\n- src/a.js\n## Success Criteria\n- A works\n## Verification\n```\nbun test tests/a\n```' },
+      { branch_id: 'feat/b', title: 'B', description: 'd', spec_body: '## Files\n- src/b.js\n## Success Criteria\n- B works\n## Verification\n```\nbun test tests/b\n```' },
     ],
   });
   assert.equal(batch.ok, true, JSON.stringify(batch));
-  const taskA = batch.data[0].id;
-  const taskB = batch.data[1].id;
+  const created = Array.isArray(batch.data) ? batch.data : batch.data.tasks;
+  const taskA = created[0].id;
+  const taskB = created[1].id;
 
   // SWE completes both, bro closes both
   for (const [id, sha] of [[taskA, 'aaa1111111111111111111111111111111111111'], [taskB, 'bbb2222222222222222222222222222222222222']]) {
@@ -117,9 +118,9 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
     waive_decision_gate: true,
     waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
-    tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', spec_body: '## body' }],
+    tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', spec_body: '## Files\n- src/x.js\n## Success Criteria\n- x fixed\n## Verification\n```\nbun test tests/x\n```' }],
   });
-  const taskId = batch.data[0].id;
+  const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
 
   await call(client, 'task_update_status', {
     agent: 'swe', task_id: taskId, status: 'completed',

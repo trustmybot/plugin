@@ -126,7 +126,7 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
     tasks: [{
       branch_id: 'refactor/x',
       title: 't', description: 'd',
-      spec_body: '## body',
+      spec_body: '## Files\n- src/x.py\n## Success Criteria\n- x refactored\n## Verification\n```\npytest tests/x\n```',
     }],
   });
   assert.equal(batch.ok, false,

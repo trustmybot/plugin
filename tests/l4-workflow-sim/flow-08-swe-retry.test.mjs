@@ -24,9 +24,9 @@ async function setupClosedTask(client, branch, sha) {
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
     waive_decision_gate: true,
     waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
-    tasks: [{ branch_id: branch, title: 't', description: 'd', spec_body: '## body' }],
+    tasks: [{ branch_id: branch, title: 't', description: 'd', spec_body: '## Files\n- src/x.js\n## Success Criteria\n- bug fixed\n## Verification\n```\nbun test tests/x\n```' }],
   });
-  const taskId = batch.data[0].id;
+  const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
   await call(client, 'task_update_status', {
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
   });

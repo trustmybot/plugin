@@ -61,7 +61,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
     }],
   });
   assert.equal(task.ok, true);
-  const taskId = task.data[0].id;
+  const taskId = Array.isArray(task.data) ? task.data[0]?.id : task.data.tasks?.[0]?.id;
 
   // The invariant: bro calling validation_record must be rejected
   const result = await call(client, 'validation_record', {
@@ -111,11 +111,12 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
       branch_id: 'feat/audit-event-test',
       title: 'audit event test',
       description: 'fixture',
-      spec_body: '## Description\nfixture',
+      spec_body: '## Description\nfixture\n## Files\n- none\n## Success Criteria\n- none\n## Verification\n```\necho ok\n```',
     }],
   });
-  const taskId = task.data[0].id;
-  const branchId = task.data[0].branch_id;
+  const createdTask = Array.isArray(task.data) ? task.data[0] : task.data.tasks?.[0];
+  const taskId = createdTask.id;
+  const branchId = createdTask.branch_id;
 
   // SWE finishes the work first — bro can only close verified ('completed')
   // work, never jump a pending task straight to closed (#278).
