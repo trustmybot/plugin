@@ -25,6 +25,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh
 . "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=scripts/lib/resolve-plugin-name.sh
+. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
 
 INPUT=$(cat)
 
@@ -135,7 +137,8 @@ WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
 
 # Fall back to the sentinel workspace path if the worktree doesn't exist.
 if [ ! -d "$WT_PATH" ]; then
-  SENTINEL="${HOME}/.claude/tmb-active-workspace"
+  _PLUGIN_NAME=$(tmb_resolve_plugin_name)
+  SENTINEL="${HOME}/.claude/${_PLUGIN_NAME}-active-workspace"
   if [ -f "$SENTINEL" ]; then
     WS=$(head -1 "$SENTINEL" 2>/dev/null || true)
     if [ -n "$WS" ] && [ -d "$WS/.claude/worktrees/${SLUG}" ]; then

@@ -69,13 +69,13 @@ else
     esac
     _hms_count=$(echo "$_rest" | tr -cd ':' | wc -c | tr -d ' ')
     if [ "$_hms_count" -eq 2 ]; then
-      # HH:MM:SS
+      # HH:MM:SS — strip leading zeros to avoid bash octal interpretation
       _h="${_rest%%:*}"; _rest2="${_rest#*:}"; _m="${_rest2%%:*}"; _s="${_rest2#*:}"
-      MCP_ETIMES_CALC=$(( _days * 86400 + _h * 3600 + _m * 60 + _s ))
+      MCP_ETIMES_CALC=$(( 10#${_days} * 86400 + 10#${_h} * 3600 + 10#${_m} * 60 + 10#${_s} ))
     else
-      # MM:SS
+      # MM:SS — strip leading zeros to avoid bash octal interpretation
       _m="${_rest%%:*}"; _s="${_rest#*:}"
-      MCP_ETIMES_CALC=$(( _days * 86400 + _m * 60 + _s ))
+      MCP_ETIMES_CALC=$(( 10#${_days} * 86400 + 10#${_m} * 60 + 10#${_s} ))
     fi
     [ "$MCP_ETIMES_CALC" -ge 0 ] 2>/dev/null || exit 0
     MCP_START=$(( NOW_EPOCH - MCP_ETIMES_CALC ))

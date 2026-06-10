@@ -2,6 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 let _availabilityCache = null;
+export function resetAvailabilityCache() {
+    _availabilityCache = null;
+}
 export function detectAvailable(_spawnFn) {
     if (_spawnFn === undefined && _availabilityCache !== null) {
         return _availabilityCache;
