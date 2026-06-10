@@ -11,7 +11,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 
 INPUT=$(cat)
-CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
+
+# Early-exit: skip all DB work when the command contains no git/gh word.
+# This avoids ~3 sqlite3 opens on every ls/cat/echo call.
+_cmd_needs_git_guard() {
+  # Match 'git' or 'gh' as standalone words anywhere in the command.
+  printf '%s' "$1" | grep -qE '(^|[[:space:]])(git|gh)([[:space:]]|$)'
+}
+_cmd_needs_git_guard "$CMD" || exit 0
 
 # Determine the actual working directory the command will run in.
 # SWE runs in isolated worktrees and prefixes commands with `cd <worktree> &&`.
@@ -82,27 +90,50 @@ cmd_effective_branch() {
   fi
 }
 
-BRANCHING_MODEL=$(tmb_config_get "branching_model")
+# Fetch all 3 config keys in ONE sqlite3 invocation to avoid repeated DB opens.
+_load_config() {
+  local db
+  db=$(tmb_db_path 2>/dev/null || true)
+  [ -n "$db" ] || return 0
+  tmb_have_sqlite || return 0
+  sqlite3 "$db" "
+    SELECT key, value_json
+      FROM plugin_config
+     WHERE key IN ('branching_model', 'pr_target', 'protected_branches');
+  " 2>/dev/null || true
+}
+_config_rows=$(_load_config)
+
+_cfg_scalar() {
+  # Extract unquoted scalar for key $1 from pipe-separated rows (key|value_json).
+  printf '%s\n' "$_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}' \
+    | sed 's/^"//;s/"$//'
+}
+_cfg_raw() {
+  printf '%s\n' "$_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}'
+}
+
+BRANCHING_MODEL=$(_cfg_scalar "branching_model")
 
 if [ -z "$BRANCHING_MODEL" ]; then
   echo "TMB: branching_model not configured — run bro onboarding" >&2
   exit 0
 fi
 
-PR_TARGET=$(tmb_config_get "pr_target")
-PROTECTED_RAW=$(tmb_config_raw "protected_branches")
+PR_TARGET=$(_cfg_scalar "pr_target")
+PROTECTED_RAW=$(_cfg_raw "protected_branches")
 
 if [ -z "$PR_TARGET" ] || [ -z "$PROTECTED_RAW" ]; then
-  echo '{"decision":"block","reason":"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run bro onboarding or fix your config."}'
+  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run bro onboarding or fix your config."}}'
   exit 0
 fi
 
-if ! echo "$PROTECTED_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
-  echo '{"decision":"block","reason":"BLOCKED: TMB plugin_config key protected_branches is malformed JSON. Fix the config or re-run bro onboarding."}'
+if ! printf '%s' "$PROTECTED_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:"BLOCKED: TMB plugin_config key protected_branches is malformed JSON. Fix the config or re-run bro onboarding."}}'
   exit 0
 fi
 
-PROTECTED_BRANCHES=$(tmb_config_array "protected_branches")
+PROTECTED_BRANCHES=$(printf '%s' "$PROTECTED_RAW" | jq -r '.[]' 2>/dev/null || true)
 
 branch_is_protected() {
   local branch="$1"
@@ -137,11 +168,13 @@ case "$CMD" in
         HEAD_BRANCH=$(git branch --show-current 2>/dev/null || true)
       fi
       if [ "$HEAD_BRANCH" != "dev" ]; then
-        echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${PR_TARGET}: gh pr create --base ${PR_TARGET} --head <branch>. Got --head=${HEAD_BRANCH}.\"}"
+        jq -nc --arg r "BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${PR_TARGET}: gh pr create --base ${PR_TARGET} --head <branch>. Got --head=${HEAD_BRANCH}." \
+          '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
         exit 0
       fi
     else
-      echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: PRs must target ${PR_TARGET} branch. Use: gh pr create --base ${PR_TARGET} --head <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)\"}"
+      jq -nc --arg r "BLOCKED: PRs must target ${PR_TARGET} branch. Use: gh pr create --base ${PR_TARGET} --head <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)" \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
       exit 0
     fi
     ;;
@@ -162,7 +195,8 @@ _rule2_match() {
 if _rule2_match "$CMD"; then
     BRANCH=$(cmd_effective_branch "$CMD")
     if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
-      echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: No direct commits to ${BRANCH}. Create a feature branch first.\"}"
+      jq -nc --arg r "BLOCKED: No direct commits to ${BRANCH}. Create a feature branch first." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
       exit 0
     fi
 fi
@@ -192,13 +226,15 @@ case "$CMD" in
       if printf '%s' "$PUSH_CLAUSE" | grep -qE '\b(origin|upstream)\s+\S+'; then
         PUSH_TARGET=$(printf '%s' "$PUSH_CLAUSE" | grep -oE '\b(origin|upstream)\s+\S+' | awk '{print $2}')
         if branch_is_protected "$PUSH_TARGET"; then
-          echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible.\"}"
+          jq -nc --arg r "BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible." \
+            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
           exit 0
         fi
       else
         BRANCH=$(cmd_branch "$CMD")
         if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
-          echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible.\"}"
+          jq -nc --arg r "BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible." \
+            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
           exit 0
         fi
       fi
@@ -211,11 +247,13 @@ case "$CMD" in
   *"git checkout -b"*|*"git switch -c"*)
     BRANCH=$(cmd_branch "$CMD")
     if [ "$BRANCH" != "$PR_TARGET" ]; then
-      echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: New branches must be created from ${PR_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${PR_TARGET} && git pull origin ${PR_TARGET} first.\"}"
+      jq -nc --arg r "BLOCKED: New branches must be created from ${PR_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${PR_TARGET} && git pull origin ${PR_TARGET} first." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
       exit 0
     fi
     # fetch/check still operate from CC's CWD — pr_target is the project's root branch concern.
-    git fetch origin "$PR_TARGET" --quiet 2>/dev/null || true
+    # timeout 5: portable guard against flaky networks stalling the hook.
+    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch origin "$PR_TARGET" --quiet 2>/dev/null || true
     # Use --verify: without it, `git rev-parse origin/main` prints the literal
     # string "origin/main" when the ref doesn't exist, then exits non-zero.
     # 2>/dev/null swallows the stderr so the literal-string stdout sneaks
@@ -224,7 +262,8 @@ case "$CMD" in
     LOCAL=$(git rev-parse --verify "${PR_TARGET}" 2>/dev/null || true)
     REMOTE=$(git rev-parse --verify "origin/${PR_TARGET}" 2>/dev/null || true)
     if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
-      echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Local ${PR_TARGET} is behind origin/${PR_TARGET}. Run: git pull origin ${PR_TARGET} first.\"}"
+      jq -nc --arg r "BLOCKED: Local ${PR_TARGET} is behind origin/${PR_TARGET}. Run: git pull origin ${PR_TARGET} first." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"block",permissionDecisionReason:$r}}'
       exit 0
     fi
     ;;

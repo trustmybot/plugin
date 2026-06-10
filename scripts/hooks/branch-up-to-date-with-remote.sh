@@ -70,7 +70,7 @@ if ! git -C "$REPO_ROOT" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
   exit 0
 fi
 
-git -C "$REPO_ROOT" fetch origin "$PR_TARGET" --quiet >/dev/null 2>&1 || true
+git -C "$REPO_ROOT" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch origin "$PR_TARGET" --quiet >/dev/null 2>&1 || true
 
 if ! git -C "$REPO_ROOT" rev-parse --verify "origin/$PR_TARGET" >/dev/null 2>&1; then
   exit 0
