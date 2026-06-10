@@ -255,4 +255,24 @@ out=$(run_hook_in_repo "git cherry-pick abc123")
 assert_contains "$out" '"permissionDecision":"block"' "git cherry-pick on main must block"
 cleanup_repo
 
+# ---- early-exit word boundary: separators without spaces ---------------------
+# 'foo;git commit' and 'echo y&&git commit' must reach Rule 2 (the early-exit
+# must not require whitespace before git/gh), while 'legit' must not match.
+
+test_case "early-exit: 'foo;git commit -m x' on protected branch IS blocked (; separator, no space)"
+setup_worktree_repo
+out=$(run_hook_in_repo "foo;git commit -m x")
+assert_contains "$out" '"permissionDecision":"block"' "semicolon-joined git commit on main must block"
+cleanup_repo
+
+test_case "early-exit: 'echo y&&git commit' on protected branch IS blocked (&& separator, no space)"
+setup_worktree_repo
+out=$(run_hook_in_repo "echo y&&git commit -m x")
+assert_contains "$out" '"permissionDecision":"block"' "&&-joined git commit on main must block"
+cleanup_repo
+
+test_case "early-exit: 'legit foo' does NOT match the git/gh word boundary"
+out=$(run_hook '{"tool_input":{"command":"legit foo"}}')
+assert_eq "" "$out" "legit must early-exit with no output"
+
 summarize

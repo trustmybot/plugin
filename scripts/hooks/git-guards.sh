@@ -17,7 +17,9 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
 # This avoids ~3 sqlite3 opens on every ls/cat/echo call.
 _cmd_needs_git_guard() {
   # Match 'git' or 'gh' as standalone words anywhere in the command.
-  printf '%s' "$1" | grep -qE '(^|[[:space:]])(git|gh)([[:space:]]|$)'
+  # Any non-word char may precede (handles `foo;git ...`, `echo y&&git ...`);
+  # word chars before (legit) or after (github) do not match.
+  printf '%s' "$1" | grep -qE '(^|[^[:alnum:]_./-])(git|gh)([[:space:]]|$)'
 }
 _cmd_needs_git_guard "$CMD" || exit 0
 

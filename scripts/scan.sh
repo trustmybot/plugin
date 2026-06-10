@@ -72,10 +72,12 @@ _batch_md5() {
     awk '{print $0 "\t"}' "$abs_list_file"
     return
   fi
-  # xargs: -P4 parallel workers, -n50 files per invocation.
+  # xargs: -0 NUL-delimited (paths may contain spaces), -P4 parallel workers,
+  # -n50 files per invocation.
   # BSD/GNU both produce "hash path" (md5 -r) or "hash  path" (md5sum).
   # awk flips to "path\thash".
-  cat "$abs_list_file" | xargs -P4 -n50 $MD5_CMD 2>/dev/null \
+  while IFS= read -r p; do printf '%s\0' "$p"; done < "$abs_list_file" \
+  | xargs -0 -P4 -n50 $MD5_CMD 2>/dev/null \
   | awk '{hash=$1; sub(/^[^ ]+ +/,""); print $0 "\t" hash}'
 }
 
@@ -85,10 +87,12 @@ _batch_stat() {
   local abs_list_file="$1"
   case "$STAT_MODE" in
     bsd)
-      cat "$abs_list_file" | xargs -P4 -n100 stat -f '%N	%z' 2>/dev/null
+      while IFS= read -r p; do printf '%s\0' "$p"; done < "$abs_list_file" \
+      | xargs -0 -P4 -n100 stat -f '%N	%z' 2>/dev/null
       ;;
     gnu)
-      cat "$abs_list_file" | xargs -P4 -n100 stat -c '%n	%s' 2>/dev/null
+      while IFS= read -r p; do printf '%s\0' "$p"; done < "$abs_list_file" \
+      | xargs -0 -P4 -n100 stat -c '%n	%s' 2>/dev/null
       ;;
     *)
       # Fallback: wc per file.

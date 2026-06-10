@@ -22,6 +22,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
@@ -44,21 +48,6 @@ emit_context() {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-# DB path (best-effort; exit silently when absent)
-db_path() {
-  local db="${TRAJECTORY_DB_PATH:-}"
-  if [ -n "$db" ]; then
-    [ -f "$db" ] && echo "$db"
-    return 0
-  fi
-  local plugin_name="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    plugin_name=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  local candidate="$PWD/.claude/$plugin_name/trajectory.db"
-  [ -f "$candidate" ] && echo "$candidate"
-}
 
 # Word-boundary check: is word $1 present in string $2 as a standalone word?
 has_word() {
@@ -84,7 +73,7 @@ if [ "${TMB_DISABLE_CONSULTANT_HINT:-0}" != "1" ]; then
   NAMED_ROLE=""
 
   # Named-role check requires DB (consultant registry). Only run if DB exists.
-  DB=$(db_path 2>/dev/null || true)
+  DB=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
     CONSULTANT_NAMES=$(sqlite3 "$DB" \
       "SELECT name FROM agents WHERE kind='consultant' AND status='active';" \
@@ -252,7 +241,7 @@ if [ "${TMB_DISABLE_PUSH_INTENT_HINT:-0}" != "1" ]; then
   done
 
   if [ -n "$matched" ]; then
-    DB=$(db_path 2>/dev/null || true)
+    DB=$(tmb_db_path 2>/dev/null || true)
     if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
       PENDING=$(sqlite3 "$DB" "
         SELECT t.id || '|' || t.branch_id || '|' || substr(COALESCE(t.title, ''), 1, 60)
@@ -308,7 +297,7 @@ if [ "${TMB_DISABLE_REONBOARD_HINT:-0}" != "1" ]; then
       done
 
       if [ -n "$matched" ]; then
-        DB=$(db_path 2>/dev/null || true)
+        DB=$(tmb_db_path 2>/dev/null || true)
         if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
           ONBOARDED=$(sqlite3 "$DB" "SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true' LIMIT 1;" 2>/dev/null || true)
           if [ "$ONBOARDED" = "1" ]; then
@@ -349,7 +338,7 @@ if [ "${TMB_DISABLE_RESUME_HINT:-0}" != "1" ]; then
   done
 
   if [ -n "$matched" ]; then
-    DB=$(db_path 2>/dev/null || true)
+    DB=$(tmb_db_path 2>/dev/null || true)
     if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
       RESUME=$(sqlite3 -separator $'\x1f' "$DB" "
         SELECT
