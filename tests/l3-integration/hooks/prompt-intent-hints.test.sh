@@ -108,9 +108,10 @@ assert_not_contains "$out" "search-grounding hint" "bare 'why are we' must not f
 # concerns-protocol: doubt-class phrases
 # ---------------------------------------------------------------------------
 
-test_case "concerns-protocol: 'delete the test' fires"
+test_case "concerns-protocol: 'delete the test' fires with pointer shape"
 out=$(run_hook "Can you delete the test that's failing?")
 assert_contains "$out" "concerns-protocol hint" "delete the test fires"
+assert_contains "$out" "tmb_concerns-protocol" "CTX must point to skill, not restate procedure"
 
 test_case "concerns-protocol: 'force push' fires"
 out=$(run_hook "Just force push the branch")
@@ -176,9 +177,10 @@ assert_not_contains "$out" "resume-intent hint" "still pending with no DB must b
 # adr-required: architectural intent
 # ---------------------------------------------------------------------------
 
-test_case "adr-required: 'migrate to postgres' fires"
+test_case "adr-required: 'migrate to postgres' fires with pointer shape"
 out=$(run_hook "We should migrate to postgres this sprint")
 assert_contains "$out" "architectural-change hint" "migrate to postgres fires"
+assert_contains "$out" "tmb_planning" "CTX must point to skill, not restate ADR procedure"
 
 test_case "adr-required: 'plugin architecture' fires"
 out=$(run_hook "Let's adopt a plugin architecture for extensibility")
