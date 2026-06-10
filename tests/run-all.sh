@@ -65,6 +65,7 @@ run_step "L1 lint: no hardcoded plugin name"          bash "$HERE/l1-lint/no-har
 run_step "L1 lint: CI workflow file refs exist"       bash "$HERE/l1-lint/ci-workflow-refs-exist.sh"
 run_step "L1 lint: no bare role compare in hooks"     bash "$HERE/l1-lint/no-bare-role-compare.sh"
 run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlink-targets.sh"
+run_step "L1 lint: hooks.json commands executable"     bash "$HERE/l1-lint/hooks-executable.sh"
 run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
 run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"
 run_step "L1 lint: tool-description byte budget"      bash "$HERE/l1-lint/tool-description-budget.sh"
