@@ -150,11 +150,13 @@ This is the CC plugin MCP-config cache bug (issue #2888):
     MCP config out of CC's resolved-plugin list.
   - /reload-plugins does NOT fix this. Full quit + relaunch does NOT
     fix this either.
+  - The DB (path on the last line) is INTACT. Nothing has been lost.
 
 To recover, try IN ORDER (stop at the first one that brings MCP back):
 
-  1. /plugin uninstall ${PLUGIN_NAME}@${MARKETPLACE_OWNER}   (then relaunch, reinstall)
-  2. rm -rf ~/.claude/plugins/cache/${MARKETPLACE_OWNER}     (then reinstall)
+  1. claude --plugin-dir <plugin-source, last line>   (cache-bust via inline)
+  2. /plugin uninstall ${PLUGIN_NAME}@${MARKETPLACE_OWNER}   (then relaunch, reinstall)
+  3. rm -rf ~/.claude/plugins/cache/${MARKETPLACE_OWNER}     (then reinstall)
 
 Full recovery doctrine: skills/tmb_recovery/SKILL.md § C.
 
@@ -168,6 +170,7 @@ else
 
 This is a mid-session disconnect — typically:
   - The MCP server process crashed or was killed
+  - The DB (path on the last line) may still be intact
 
 Recovery:
   1. pkill -f 'node.*trajectory-server'   (clean zombies)
