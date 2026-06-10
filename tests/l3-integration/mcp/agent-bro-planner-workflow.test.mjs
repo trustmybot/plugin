@@ -40,7 +40,20 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
       branch_id: 'feat/hello-endpoint',
       title: 'Add /hello endpoint',
       description: 'Wire up a 200 OK handler returning {msg:"hello"}.',
-      spec_body: '# Task: /hello endpoint\n\nAdd handler, test, commit.',
+      spec_body: [
+        '# Task: /hello endpoint',
+        '',
+        'Add handler, test, commit.',
+        '',
+        '## Files',
+        '- src/routes/hello.ts',
+        '',
+        '## Success Criteria',
+        '- GET /hello returns 200 with {msg:"hello"}',
+        '',
+        '## Verification',
+        '- bun test src/routes/hello.test.ts',
+      ].join('\n'),
     }],
   });
   assert.equal(batch.ok, true, `task_create_batch: ${JSON.stringify(batch)}`);
