@@ -8,7 +8,7 @@
 # Prints one line:
 #   avg=N p50=N p95=N (over M turns)
 #
-# Requires: jq, python3 (stdlib only)
+# Requires: python3 (stdlib only)
 
 set -euo pipefail
 

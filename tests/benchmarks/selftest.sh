@@ -4,6 +4,11 @@
 
 set -euo pipefail
 
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'WARNING: python3 not available — skipping benchmark selftest\n'
+  exit 0
+fi
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIXTURES="$HERE/fixtures/sessions"
 

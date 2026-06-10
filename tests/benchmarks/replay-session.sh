@@ -13,7 +13,7 @@
 #   --jsonl   one JSON object per assistant turn (default)
 #   --table   human-readable ASCII table
 #
-# Requires: jq, python3 (stdlib only)
+# Requires: python3 (stdlib only)
 
 set -euo pipefail
 
@@ -29,7 +29,6 @@ OUTPUT_MODE="${2:---jsonl}"
 
 [ -f "$SESSION_FILE" ] || { printf 'Error: file not found: %s\n' "$SESSION_FILE" >&2; exit 1; }
 
-command -v jq >/dev/null 2>&1 || { printf 'Error: jq required\n' >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { printf 'Error: python3 required\n' >&2; exit 1; }
 
 python3 - "$SESSION_FILE" "$OUTPUT_MODE" << 'PYEOF'

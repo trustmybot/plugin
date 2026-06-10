@@ -2,6 +2,8 @@
 
 Tools for measuring token burn, cache health, and subagent behaviour from Claude Code session transcripts.
 
+**Dependencies:** `bash` and `python3` (stdlib only) — all JSON parsing is done in python3, so `jq` is not required. When python3 is unavailable, `selftest.sh` skips with a warning and exits 0.
+
 ## Tools
 
 ### replay-session.sh
