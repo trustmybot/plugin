@@ -15,17 +15,16 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **Prompt-engineering guide (authoring agent prompts)** — [`PROMPT_ENGINEERING.md`](../prompt-engineering/PROMPT_ENGINEERING.md)
 - **Agent layer model + override rules** — [`architecture/RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md)
 - **Benchmark results vs Sonnet 4 + Opus 4** — [`BENCHMARK.md`](../contributing/BENCHMARK.md)
-- **Performance budgets** — `CONTRIBUTING.md` → Performance section
 - **plugin_config keys** — `mcp/trajectory-server/docs/CONFIG_KEYS.md`
 - **Full architecture** — `docs/architecture/FLOWS.md`
 
 ## MCP tools (full list)
 
-60 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
+63 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
 
-- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_report_md`, `issue_snapshot_md`
+- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`
 - **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`, `task_stats`
-- **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `issue_get_with_discussions`
+- **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `discussion_search`, `issue_get_with_discussions`
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
 - **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS), `pr_review_runs_list`
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
@@ -38,14 +37,16 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **rules**: `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list`
 - **commands**: `command_register`, `command_list`
 - **agents**: `agent_list`, `agent_register`
-- **composites**: `branch_id_propose`, `task_retry_batch`, `bro_atomic_close`
-- **audit**: `audit_log`, `audit_log_list`
+- **composites**: `branch_id_propose`, `task_retry_batch`, `task_brief`, `bro_atomic_close`, `bro_verification_fail_record`, `headless_intent_start`, `pr_review_worktree`, `reap_and_review_prep`
+- **audit**: `audit_log`, `audit_log_list`, `audit_search`
 
 ## Slash commands
 
 - `/roundtable <topic>` — multi-agent deliberation with checkbox/radio AUQ ratification (full procedure in `commands/roundtable.md`)
 - `/onboard` — interactive policy ceremony with two branches based on project shape (local-only vs remote-tracked). Auto-fired on first contact when `plugin_config('onboarded')` is unset; Human-typed for later changes (full procedure in `commands/onboard.md`)
 - `/monitor <PR_number>` — invokes `tmb_review` skill (PR comment triage section): fetches review comments, plans tasks, dispatches SWE per ratified comment
+- `/scan` — triggers `scan_run` to rebuild the world model graph (directory nodes + CONTAINS edges in kuzu) and refresh the repos registry
+- `/tmb:agent-create <role> <question>` — spawns a consultant subagent with the given domain role and seed question
 
 Runtime location: `plugin/commands/<name>.md`.
 
@@ -67,7 +68,7 @@ Runtime location: `plugin/commands/<name>.md`.
 
 ## Hooks (PreToolUse / PostToolUse / SessionStart / SubagentStop / UserPromptSubmit / WorktreeCreate)
 
-39 hooks under `scripts/hooks/`:
+41 hooks under `scripts/hooks/`:
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -108,5 +109,9 @@ Runtime location: `plugin/commands/<name>.md`.
 | `skill-invocation-record.sh` | PostToolUse Skill | Record skill invocation in trajectory DB |
 | `swe-atomic-close.sh` | SubagentStop | Auto-close pending SWE task; capture agent_runs metrics |
 | `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |
+| `post-pr-comments-persist.sh` | PostToolUse pr_comments_get | Auto-persist returned PR comments as discussion rows |
+| `pr-reviewer-after-atomic-close.sh` | PreToolUse Agent | Block pr-reviewer spawn unless referenced task is closed |
+| `pr-reviewer-spawn-prompt-shape.sh` | PreToolUse Agent | Enforce §C discipline: spawn prompt must contain bare anchors, no prior-verdict shortcuts |
+| `search-grounding-hint.sh` | UserPromptSubmit | Inject hint toward *_search tools on retrieval questions |
 
 ## Schema state — see ERD.md for full table list (schema v8)

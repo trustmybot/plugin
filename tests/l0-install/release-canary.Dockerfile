@@ -11,12 +11,12 @@
 # Build (requires CLAUDE_CODE_OAUTH_TOKEN secret):
 #   docker buildx build \
 #     --secret id=cc_token,env=CLAUDE_CODE_OAUTH_TOKEN \
-#     -f tests/docker/release-canary.Dockerfile \
+#     -f tests/l0-install/release-canary.Dockerfile \
 #     -t tmb-release-canary \
 #     .
 #
 # OR via wrapper:
-#   bash tests/docker/run-release-canary.sh
+#   bash tests/l0-install/run-release-canary.sh
 #
 # Build success = release shippable AND workflow doctrine intact.
 

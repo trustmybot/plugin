@@ -5,7 +5,7 @@ node_modules/
 # published artifact. Without it the MCP server can't spawn → bro can't
 # onboard → silent install failure. v0.3.1 fixed this.
 #
-# Stale dist/ is caught by `tests/lint/dist-fresh.sh` (CI). Contributors
+# Stale dist/ is caught by `tests/l1-lint/dist-fresh.sh` (CI). Contributors
 # rebuild before commit; the lint blocks PRs with out-of-sync dist/.
 *.db
 *.db-journal

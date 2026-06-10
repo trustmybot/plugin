@@ -4,7 +4,7 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 8`). Pe
 
 ## Overview
 
-19 tables in three groups (post-MR !166 #2886 catalog enrichment):
+21 tables in three groups (post-MR !166 #2886 catalog enrichment + schema v8 embedding cache):
 
 | Group | Tables | Keyed by |
 |---|---|---|
@@ -169,6 +169,20 @@ erDiagram
         TEXT arm
         TEXT scenario
     }
+
+    discussions_embeddings {
+        INT  discussion_id PK "FK → discussions.id CASCADE"
+        BLOB embedding
+        TEXT model_id
+        TEXT embedded_at
+    }
+
+    audit_embeddings {
+        INT  audit_id PK "FK → audit.id CASCADE"
+        BLOB embedding
+        TEXT model_id
+        TEXT embedded_at
+    }
 ```
 
 ## Relationships (foreign keys declared in schema)
@@ -206,6 +220,8 @@ erDiagram
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`). Used by `/monitor` flow — `pr_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments. UNIQUE index on `(pr_number, repo)`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
+| `discussions_embeddings` | Embedding cache for `discussions` rows — one BLOB per discussion, keyed by `discussion_id` + `model_id`. Populated on write + background backfill; used by `discussion_search` semantic path. |
+| `audit_embeddings` | Embedding cache for `audit` rows — one BLOB per audit event. Used by `audit_search` semantic path. |
 
 ## Indexes
 
