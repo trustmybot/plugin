@@ -47,9 +47,8 @@ OUT=$(run_hook)
 # ---- basic output shape ----
 
 test_case "hook emits non-empty output"
-assert_not_contains "${#OUT}" "0" "output should be non-empty"
 
-# Check non-empty differently
+# Check output is non-empty
 if [ -z "$OUT" ]; then
   _fail "hook produced empty output"
 else
