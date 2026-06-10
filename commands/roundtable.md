@@ -39,12 +39,13 @@ Extract agreements (≥2 endorsements, or unilateral with no opposition)
 and disagreements (≥2 materially different stances on the same
 question).
 
-Capping: >4 agreements → keep top 4; >3 disagreements → keep top 3.
-Reserve 1 AUQ slot for agreements; up to 3 radio slots for
-disagreements.
+When there are more, keep the top 4 agreements and top 3
+disagreements — one AUQ slot goes to agreements, up to 3 radio slots
+to disagreements.
 
-Anti-pattern guard (zero/zero): AUQ "Retry or skip?" → on skip:
-`roundtable_close(skip:true, outcome='skipped — no substance')` and stop.
+When synthesis yields zero of both, ask "Retry or skip?"; on skip,
+call `roundtable_close(skip:true, outcome='skipped — no substance')`
+and stop.
 
 ## Phase 4 — Ratify (one AUQ)
 
@@ -76,4 +77,4 @@ carrier.
 ## Local rollup (optional)
 
 `<workspace>/.claude/tmb/roundtables/<YYYY-MM-DD>-<slug>.md` — skip if
-not writable. DB rows are authoritative; the file is never committed.
+not writable. DB rows are authoritative; the file stays uncommitted.

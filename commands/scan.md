@@ -19,17 +19,11 @@ Bro runs `/scan` before any `task_create_batch` call when the world model is emp
 scan_run(agent='bro', source='user_manual')
 ```
 
-The server walks the session dir, discovers git repos, and for each unique directory writes a kuzu `Directory` node with a README-derived summary (falling back to a structural summary when no README exists). Returns `{session_dir, scanned_at, repos[], repos_upserted, dirs_upserted, dirs_readme_summarized}`.
+When a directory has no README, the summary falls back to a structural one. Returns `{session_dir, scanned_at, repos[], repos_upserted, dirs_upserted, dirs_readme_summarized}`.
 
 ## Scope
 
-Allowed:
-- `mcp__plugin_tmb_trajectory-server__scan_run`
-
-Forbidden during `/scan`:
-- `task_create_batch` (this is a maintenance op, not feature work)
-- `issue_create` (same)
-- `Bash` (server already forks scan.sh; bro doesn't need shell)
+`/scan` calls exactly one tool: `scan_run`. It's a maintenance op — task and issue creation stay out of it, and the server already forks `scan.sh`, so there's no shell work for bro.
 
 ## Idempotency
 

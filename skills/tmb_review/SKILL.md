@@ -20,7 +20,7 @@ The parent CC session's main checkout may be on ANY branch. Working-tree-depende
 
 For working-tree-dependent verification use `pr_review_worktree(agent='pr-reviewer', commit_sha=<sha>, repo_path=<workspace_root>, command='<verification command>')` — `workspace_root` is the directory holding `.claude/tmb/trajectory.db` (same definition as `tmb_planning`); creates the worktree, runs the command, removes it atomically. <!-- enforced by: pr_review_worktree composite (mech 2) -->
 
-Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch and don't need a worktree — use those for diff inspection.
+Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
 
 ### Phase 1 — Correctness reasoning
 
@@ -54,7 +54,7 @@ If `## Success Criteria` lists no performance bullet, skip.
 
 Public-API change reflected in user docs / type defs? Breaking change flagged in `CHANGELOG.md` if one exists? Examples still compile/run?
 
-### Writing the validation_attempts row — YOU write it, never delegate
+### Writing the validation_attempts row — YOU write it yourself
 
 After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly. Two paths depending on your tool list:
 
@@ -75,7 +75,7 @@ If you spot a recurring pattern at the push gate, append a bullet to **Living pa
 
 ## B. Spawning pr-reviewer (bro-side discipline)
 
-If your tool list omits `mcp__plugin_tmb_trajectory-server__validation_record`, write the row yourself via the fallback script (§A Path 2 above); the verdict row is always authored by pr-reviewer. <!-- LOAD-BEARING-SAFETY: pr-reviewer must write validation_attempts directly; delegating to bro is impersonation and is blocked by the auto-mode classifier -->
+The verdict row is always authored by pr-reviewer itself — via MCP when available, via the fallback script otherwise (§A). <!-- LOAD-BEARING-SAFETY: pr-reviewer must write validation_attempts directly; delegating to bro is impersonation and is blocked by the auto-mode classifier -->
 
 The spawn prompt shape is enforced by `pr-reviewer-spawn-prompt-shape.sh`. <!-- LOAD-BEARING-SAFETY: enforced by pr-reviewer-spawn-prompt-shape.sh PreToolUse hook (mech 3) -->
 
@@ -103,9 +103,8 @@ Triggers:
 Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local override). Tasks are independent; spawn in parallel where possible.
 
 Read pr-reviewer's first response line:
-- `MCP available: yes` → reviewer wrote `validation_record` itself.
-<!-- LOAD-BEARING-SAFETY: feedback must start with the exact literal string — schema CHECK rejects paraphrases like "MCP unavailable" or "[honor-system fallback]" -->
-- `MCP available: no — honor-system fallback` → record on its behalf via sqlite3 (insert into `validation_attempts` with `agent='pr-reviewer'`, `subagent_session_id` from its response, and `feedback` starting with the LITERAL string `MCP available: no — honor-system fallback\n` — paste verbatim).
+- `MCP available: yes` — the reviewer wrote `validation_record` itself.
+- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the fallback script (§A Path 2), which prepends the required feedback prefix itself. Either way the row must exist before you push; `git-push-guard.sh` blocks the push when it's missing.
 
 ### Outcomes
 
@@ -147,9 +146,9 @@ options: []  # free-text issue ID
 ### Triage (judgment)
 
 Skip as informational when:
-- Body matches `^(LGTM|👍|\+1|thanks|nice work|nit:)`.
-- Author is a bot (already classified by the MCP tool).
-- Comment is `is_resolved: true`.
+- The body is a bare acknowledgment — an LGTM, a +1, a thanks, a nit.
+- The author is a bot (already classified by the MCP tool).
+- The comment is already resolved.
 
 Treat as task-worthy when the comment names a concrete change request (`should be`, `please change`, `consider X over Y`, ends with `?`), or contains a code suggestion fence.
 

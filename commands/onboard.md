@@ -18,6 +18,7 @@ Allowed:
 - `mcp__plugin_tmb_trajectory-server__onboard_state_get`
 - `mcp__plugin_tmb_trajectory-server__onboard_get_questions`
 - `mcp__plugin_tmb_trajectory-server__onboard_apply`
+- `mcp__plugin_tmb_trajectory-server__audit_log` (headless block-record only — see Headless mode)
 
 Out of scope: every other MCP tool, Bash, Read, Edit, Write. The slash command persists state via `onboard_apply` only — no direct `config_set` / Bash probes from bro.
 
@@ -88,7 +89,7 @@ The server:
 - Persists `branching_model`, `pr_target`, `remotes`, `issue_sync`.
 - Recomputes `protected_branches` from the branching model + PR target.
 - Defaults missing fields on local shape (`branching_model`='github-flow', `pr_target`=derived, `remotes`=`[]`, `issue_sync`='off').
-- Wraps the whole thing in `db.transaction(...)` so partial onboards never land.
+- Wraps the whole thing in `db.transaction(...)` so an onboard lands all-or-nothing.
 
 Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync } }`.
 

@@ -30,7 +30,7 @@ AskUserQuestion: 3 questions in one batch
      options: [Always — load every spawn | Path-scoped (paths: in frontmatter)]
 ```
 
-Validate name against `^[a-z][a-z0-9-]{0,63}$`. The reserved `tmb_*` prefix is forbidden (plugin-protocol-only).
+The server rejects invalid or reserved skill names (the `tmb_` prefix is plugin-only).
 
 ## Step 2 — Draft
 
@@ -81,7 +81,6 @@ Tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
 
 <!-- LOAD-BEARING-SAFETY: agent body is identity — only skills: array edits are allowed; body edits are a hard violation -->
 - **Agent body is off-limits.** The only allowed edit is appending to its `skills:` array.
-- **`tmb_` prefix is reserved** for plugin-shipped protocol skills.
 <!-- LOAD-BEARING-SAFETY: existing project skills must not be silently overwritten — Human resolves name collisions -->
 - **Existing project skills require name collision resolution.** Name collision = Human resolves.
 - **Approval is non-negotiable.** Write nothing without an explicit Yes.

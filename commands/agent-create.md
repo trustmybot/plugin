@@ -1,6 +1,6 @@
 ---
 name: agent-create
-description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question. Self-contained — routing/enforcement comes from this command body + the consultant-spawn-required hook.
+description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question. Self-contained — routing/enforcement comes from this command body + the prompt-intent-hints routing hook.
 argument-hint: <kebab-case agent name> [optional consultant question]
 ---
 
@@ -70,11 +70,9 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
 
 7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`. See §"Post-create reminder" for the conditional reload hint.
 
-## Reserved names (refuse)
+## Reserved names
 
-- `bro` — plugin protocol persona.
-
-Other names — `architect`, `cto`, `ceo`, `pm`, `swe`, `pr-reviewer`, `legal-reviewer`, anything else — are allowed.
+The server rejects invalid or reserved names — `agent_register` refuses `bro` outright and rejects project-local re-registration of the global backbone roles (`swe`, `pr-reviewer`). Any other consultant name is fine.
 
 ## Collision dialog (existing target file)
 
@@ -103,7 +101,6 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 <!-- LOAD-BEARING-SAFETY: plugin/agents/ is a read-only install path — writes there corrupt the plugin package -->
 - **Plugin install is read-only.** Writes go to `<project>/.claude/agents/` only; `plugin/agents/` is off-limits.
 - **Approval is non-negotiable** in both modes.
-- **Reserved names refused** — `bro` is reserved.
 - **Existing files require collision dialog** — see Collision dialog above.
 
 ## Post-create reminder
