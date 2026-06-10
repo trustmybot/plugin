@@ -12,6 +12,11 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+function parseBatch(result: RawResult): Array<Record<string, unknown>> {
+  const raw = JSON.parse(result.content[0].text);
+  return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
+}
+
 async function call(
   handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
   name: string,
@@ -48,9 +53,8 @@ async function createTask(db: TrajectoryDB, issueId: number): Promise<number> {
     issue_id: String(issueId),
     tasks: [{ branch_id: 'fix/validation-test', description: 'Test task' }],
   });
-  const data = parseResult(result);
-  assert.ok(!result.isError, `task_create_batch failed: ${JSON.stringify(data)}`);
-  return (data as Array<{ id: number }>)[0].id;
+  assert.ok(!result.isError, `task_create_batch failed: ${JSON.stringify(parseResult(result))}`);
+  return parseBatch(result)[0]!.id as number;
 }
 
 describe('validation_record subagent_session_id gate', () => {

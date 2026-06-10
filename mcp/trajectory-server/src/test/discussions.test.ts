@@ -16,6 +16,11 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+function parseBatch(result: RawResult): Array<Record<string, unknown>> {
+  const raw = JSON.parse(result.content[0].text);
+  return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
+}
+
 async function call(
   handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
   name: string,
@@ -208,7 +213,7 @@ describe('discussions + snapshot integration', () => {
 
     const batchResult = await call(tasks.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test verbatim spec body; shape not under test',
       agent: 'bro',
       issue_id: issueId,
       tasks: [
@@ -220,11 +225,11 @@ describe('discussions + snapshot integration', () => {
         },
       ],
     });
-    const created = parseResult(batchResult);
+    const created = parseBatch(batchResult);
     assert.ok(!batchResult.isError);
     assert.equal(created.length, 1);
 
-    const task = created[0];
+    const task = created[0]!;
     (globalThis as Record<string, unknown>)['testTaskId'] = String(task.id);
     assert.equal(
       task.spec_body,
@@ -314,8 +319,8 @@ describe('discussions + snapshot integration', () => {
         },
       ],
     });
-    const batchData = parseResult(batchResult);
-    const taskId2 = String(batchData[0].id);
+    const batchData = parseBatch(batchResult);
+    const taskId2 = String(batchData[0]!.id);
 
     const result = await call(tasks.handlers, 'task_update_status', {
       agent: 'swe',

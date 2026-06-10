@@ -25,6 +25,13 @@ function wrapHandler(fn) {
 }
 const VALID_KINDS = new Set(['backbone', 'consultant']);
 const VALID_SCOPES = new Set(['global', 'template', 'project-local']);
+// 'bro' is permanently reserved — it is the orchestrator persona loaded at
+// bro-session start; registering it as an agent would shadow the persona.
+// 'swe' and 'pr-reviewer' are backbone roles whose scope is fixed at 'global';
+// a project-local registration with the same name would silently deactivate
+// the global backbone, so we reject exact-name + scope-mismatch combinations.
+const RESERVED_NAME = 'bro';
+const BACKBONE_GLOBAL_ONLY = new Set(['swe', 'pr-reviewer']);
 export function agentTools(db) {
     const definitions = [
         {
@@ -78,6 +85,15 @@ export function agentTools(db) {
             }
             if (!VALID_SCOPES.has(scope)) {
                 throw new Error(`Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES].join(', ')}`);
+            }
+            if (name === RESERVED_NAME) {
+                throw new Error(`agent_register rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. ` +
+                    `Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`);
+            }
+            if (BACKBONE_GLOBAL_ONLY.has(name) && scope !== 'global') {
+                throw new Error(`agent_register rejected: '${name}' is a backbone agent whose scope must be 'global'. ` +
+                    `A project-local '${name}' would shadow the backbone and disable it. ` +
+                    `To extend ${name}, create a differently-named consultant agent instead.`);
             }
             db.run(`INSERT OR IGNORE INTO agents (name, kind, scope, file_path)
          VALUES (?, ?, ?, ?)`, [name, kind, scope, filePath]);

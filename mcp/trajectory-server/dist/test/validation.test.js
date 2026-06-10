@@ -7,6 +7,10 @@ import { taskTools } from '../tools/tasks.js';
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function call(handlers, name, args) {
     const handler = handlers[name];
     assert.ok(handler, `Handler not found: ${name}`);
@@ -37,9 +41,8 @@ async function createTask(db, issueId) {
         issue_id: String(issueId),
         tasks: [{ branch_id: 'fix/validation-test', description: 'Test task' }],
     });
-    const data = parseResult(result);
-    assert.ok(!result.isError, `task_create_batch failed: ${JSON.stringify(data)}`);
-    return data[0].id;
+    assert.ok(!result.isError, `task_create_batch failed: ${JSON.stringify(parseResult(result))}`);
+    return parseBatch(result)[0].id;
 }
 describe('validation_record subagent_session_id gate', () => {
     let db;

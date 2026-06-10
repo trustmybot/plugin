@@ -146,6 +146,71 @@ describe('agentTools', () => {
   });
 });
 
+describe('agent_register reserved name gate', () => {
+  it("rejects 'bro' — permanently reserved orchestrator name", async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+
+    const result = await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'bro',
+      kind: 'consultant',
+      scope: 'project-local',
+      file_path: '.claude/agents/bro.md',
+    });
+    assert.ok(result.isError, 'Expected an error when registering bro');
+    assert.match(parseResult(result).error, /reserved orchestrator name/);
+    db.close();
+  });
+
+  it("rejects 'swe' at project-local scope — backbone scope mismatch", async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+
+    const result = await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'swe',
+      kind: 'backbone',
+      scope: 'project-local',
+      file_path: '.claude/agents/swe.md',
+    });
+    assert.ok(result.isError, "Expected an error for swe at project-local scope");
+    assert.match(parseResult(result).error, /backbone agent whose scope must be 'global'/);
+    db.close();
+  });
+
+  it("rejects 'pr-reviewer' at template scope — backbone scope mismatch", async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+
+    const result = await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'pr-reviewer',
+      kind: 'backbone',
+      scope: 'template',
+      file_path: '.claude/agents/pr-reviewer.md',
+    });
+    assert.ok(result.isError, "Expected an error for pr-reviewer at template scope");
+    assert.match(parseResult(result).error, /backbone agent whose scope must be 'global'/);
+    db.close();
+  });
+
+  it("allows 'swe' at global scope — backbone registration at correct scope", async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+
+    const result = await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'swe',
+      kind: 'backbone',
+      scope: 'global',
+      file_path: '.claude/agents/swe.md',
+    });
+    assert.ok(!result.isError, `Expected no error for swe at global scope: ${JSON.stringify(parseResult(result))}`);
+    db.close();
+  });
+});
+
 describe('audit_log requireRoles guard', () => {
   async function createIssueId(db: ReturnType<typeof tempDB>): Promise<number> {
     const issues = issueTools(db);

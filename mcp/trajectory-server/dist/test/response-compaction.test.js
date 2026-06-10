@@ -16,6 +16,10 @@ async function call(handlers, name, args) {
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function createIssue(db) {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
@@ -39,8 +43,7 @@ async function createTask(db, issueId, branchId = 'feat/compaction-test') {
         issue_id: String(issueId),
         tasks: [{ branch_id: branchId, description: 'Compaction test task' }],
     });
-    const rows = parseResult(result);
-    return rows[0].id;
+    return parseBatch(result)[0].id;
 }
 describe('issue_get_with_discussions compact default (#210)', () => {
     it('compact default: returns counts + last N discussions (no include_full)', async () => {

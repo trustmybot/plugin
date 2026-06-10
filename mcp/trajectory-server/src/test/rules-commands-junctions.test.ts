@@ -22,6 +22,11 @@ function parse(r: RawResult) {
   return JSON.parse(r.content[0]!.text);
 }
 
+function parseBatch(r: RawResult): Array<Record<string, unknown>> {
+  const raw = JSON.parse(r.content[0]!.text);
+  return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
+}
+
 describe('#2886 rules catalog', () => {
   it('rule_register inserts with defaults (scope=project-local, severity=advisory)', async () => {
     const db = tempDB();
@@ -324,7 +329,7 @@ describe('#2886 bro-as-agent_run composite', () => {
     const tasks = taskTools(db);
 
     const issue = parse(await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'O' }));
-    const batch = parse(await call(tasks.handlers, 'task_create_batch', {
+    const batch = parseBatch(await call(tasks.handlers, 'task_create_batch', {
       agent: 'bro',
       issue_id: String(issue.id),
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic; gate not under test',
@@ -356,7 +361,7 @@ describe('#2886 bro-as-agent_run composite', () => {
     const composites = compositeTools(db, '');
 
     const issue = parse(await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'O' }));
-    const batch = parse(await call(tasks.handlers, 'task_create_batch', {
+    const batch = parseBatch(await call(tasks.handlers, 'task_create_batch', {
       agent: 'bro',
       issue_id: String(issue.id),
       waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic; gate not under test',
