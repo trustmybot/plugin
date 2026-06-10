@@ -432,7 +432,7 @@ test('world_model_search — keyword: match by summary content', async (t) => {
   assert.ok(Array.isArray(res.data.results), 'results must be an array');
 });
 
-test('world_model_search — semantic on empty DB returns semantic_unavailable warning', async (t) => {
+test('world_model_search — semantic on empty DB returns unavailable warning', async (t) => {
   const { client, close } = await startClient();
   t.after(() => close());
 
@@ -440,7 +440,12 @@ test('world_model_search — semantic on empty DB returns semantic_unavailable w
     agent: 'bro', query: 'http handlers', mode: 'semantic',
   });
   assert.equal(res.ok, true);
-  assert.equal(res.data.warning, 'semantic_unavailable');
+  // kuzu absent → 'world-model-unavailable'; kuzu present but no embeddings → 'semantic_unavailable'
+  const VALID_WARNINGS = ['semantic_unavailable', 'world-model-unavailable'];
+  assert.ok(
+    VALID_WARNINGS.includes(res.data.warning),
+    `expected one of ${VALID_WARNINGS.join('/')} but got: ${res.data.warning}`,
+  );
   assert.equal(res.data.results.length, 0);
 });
 
@@ -492,7 +497,7 @@ test('cold-fallback — discussion_search semantic: response.warning === semanti
   }
 });
 
-test('cold-fallback — world_model_search semantic: response.warning === semantic_unavailable', async (t) => {
+test('cold-fallback — world_model_search semantic: response.warning is unavailable variant', async (t) => {
   const { client, close } = await startClient();
   t.after(() => close());
 
@@ -502,5 +507,10 @@ test('cold-fallback — world_model_search semantic: response.warning === semant
 
   assert.equal(res.ok, true, 'cold-fallback: world_model_search must not throw');
   assert.ok(Array.isArray(res.data.results));
-  assert.equal(res.data.warning, 'semantic_unavailable');
+  // kuzu absent → 'world-model-unavailable'; kuzu present, no embeddings → 'semantic_unavailable'
+  const VALID_WARNINGS = ['semantic_unavailable', 'world-model-unavailable'];
+  assert.ok(
+    VALID_WARNINGS.includes(res.data.warning),
+    `expected one of ${VALID_WARNINGS.join('/')} but got: ${res.data.warning}`,
+  );
 });
