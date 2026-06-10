@@ -212,7 +212,7 @@ if [ "${TMB_DISABLE_CONCERNS_HINT:-0}" != "1" ]; then
   done
 
   if [ -n "$matched" ]; then
-    CTX="🚨 concerns-protocol hint: the user's prompt contains '${matched}'. This is a doubt-class request — load \`tmb_concerns-protocol\` and follow the protocol before complying."
+    CTX="🚨 concerns-protocol hint: the user's prompt contains '${matched}'. This is a doubt-class request — load \`tmb_concerns-protocol\`. REQUIRED FIRST ACTION before any compliance, edit, or task creation: \`discussion_append(agent='bro', kind='note', body='Concern: …')\` recording what the request risks (or why it is pointless) and your recommendation. Then follow the protocol — hold for the Human's alignment; a documented decision is not a substitute for the Concern: record."
     emit_context "$CTX"
   fi
 fi
