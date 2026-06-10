@@ -275,4 +275,90 @@ test_case "early-exit: 'legit foo' does NOT match the git/gh word boundary"
 out=$(run_hook '{"tool_input":{"command":"legit foo"}}')
 assert_eq "" "$out" "legit must early-exit with no output"
 
+# ---- generated separator × subcommand boundary matrix ----------------------
+# Each separator joined to each dangerous subcommand on a protected branch
+# MUST be blocked. Hand-enumeration is error-prone (B3 incident: ';git' was
+# missed); loop generation ensures full coverage.
+#
+# Separators tested: bare (no prefix), ';', '&&', '||', '|', '$(' , newline.
+# Subcommands:       commit, merge, rebase, cherry-pick, push -f.
+# Additionally: non-git lookalikes (legit, github, .git paths) × same
+# separators MUST be allowed — word-boundary matching must not over-fire.
+
+setup_worktree_repo
+
+# Shell statement-start separators that Rule 2 currently enforces.
+# Single '|' (pipe) and '$(' (subshell) are NOT included here — the hook's
+# _rule2_match only recognises &&, ||, ; and ^ as statement-start signals;
+# pipe and subshell composition are known gaps documented in the issue tracker.
+SEPARATORS=("" ";" "&&" "||")
+
+SUBCOMMANDS=(
+  "commit -m x"
+  "merge feat/other"
+  "rebase main"
+  "cherry-pick abc123"
+  "push -f origin main"
+)
+
+# Newline is handled separately because shell arrays can't embed literal newlines cleanly.
+
+for sep in "${SEPARATORS[@]}"; do
+  for sub in "${SUBCOMMANDS[@]}"; do
+    if [ -z "$sep" ]; then
+      cmd="git $sub"
+    else
+      cmd="echo prefix${sep}git $sub"
+    fi
+    test_case "matrix deny: separator='${sep}' subcommand='${sub}'"
+    out=$(run_hook_in_repo "$cmd")
+    assert_contains "$out" '"permissionDecision":"block"' "must block: $cmd"
+  done
+done
+
+# Newline separator: 'echo x\ngit commit' — newline joins must also block.
+for sub in "${SUBCOMMANDS[@]}"; do
+  cmd="$(printf 'echo prefix\ngit %s' "$sub")"
+  test_case "matrix deny: separator=newline subcommand='${sub}'"
+  out=$(run_hook_in_repo "$cmd")
+  assert_contains "$out" '"permissionDecision":"block"' "must block newline-joined: git $sub"
+done
+
+# Non-git lookalikes × separators MUST allow (word-boundary must not over-fire).
+# 'legit' and 'github' are common false-positive candidates.
+# '.git/hooks/...' path references must not fire either.
+LOOKALIKES=(
+  "legit commit -m x"
+  "github.com/repo"
+  "ls .git/hooks"
+  "cat .git/config"
+)
+
+# Extend lookalike separators with | and $( — these are not in the deny matrix
+# but must still allow for non-git-lookalike commands.
+ALL_SEP=("" ";" "&&" "||" "|" "\$(")
+
+for sep in "${ALL_SEP[@]}"; do
+  for lookalike in "${LOOKALIKES[@]}"; do
+    if [ -z "$sep" ]; then
+      cmd="$lookalike"
+    else
+      cmd="echo prefix${sep}${lookalike}"
+    fi
+    test_case "matrix allow: separator='${sep}' lookalike='${lookalike}'"
+    out=$(run_hook_in_repo "$cmd")
+    assert_not_contains "$out" '"permissionDecision":"block"' "must allow: $cmd"
+  done
+done
+
+# Newline separator for lookalikes.
+for lookalike in "${LOOKALIKES[@]}"; do
+  cmd="$(printf 'echo prefix\n%s' "$lookalike")"
+  test_case "matrix allow: separator=newline lookalike='${lookalike}'"
+  out=$(run_hook_in_repo "$cmd")
+  assert_not_contains "$out" '"permissionDecision":"block"' "must allow newline-joined: $lookalike"
+done
+
+cleanup_repo
+
 summarize
