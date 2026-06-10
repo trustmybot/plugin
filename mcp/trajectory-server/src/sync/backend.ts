@@ -6,9 +6,21 @@ export interface BackendAvailability {
   glab: boolean;
 }
 
-export function detectAvailable(): BackendAvailability {
+let _availabilityCache: BackendAvailability | null = null;
+
+export function detectAvailable(
+  _spawnFn?: (cmd: string, args: string[]) => { status: number | null },
+): BackendAvailability {
+  if (_spawnFn === undefined && _availabilityCache !== null) {
+    return _availabilityCache;
+  }
+
   const check = (cmd: string, args: string[]): boolean => {
     try {
+      if (_spawnFn) {
+        const result = _spawnFn(cmd, args);
+        return result.status === 0;
+      }
       const result = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
       return result.status === 0;
     } catch {
@@ -16,10 +28,15 @@ export function detectAvailable(): BackendAvailability {
     }
   };
 
-  return {
+  const result = {
     gh: check('gh', ['auth', 'status']),
     glab: check('glab', ['auth', 'status']),
   };
+
+  if (_spawnFn === undefined) {
+    _availabilityCache = result;
+  }
+  return result;
 }
 
 export function detectPreferred(): 'gh' | 'glab' | null {

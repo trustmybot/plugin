@@ -8,6 +8,7 @@ import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
 import { TrajectoryDB, resolveDbPath } from './db.js';
 import { serverLog, serverLogSync } from './logger.js';
 import { startBackfill } from './embeddings/backfill.js';
+import { embed } from './embeddings/model.js';
 import { WorldModelGraph, resolveGraphDbPath } from './graph-db.js';
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
@@ -166,5 +167,6 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 serverLog({ kind: 'startup', pid: process.pid, version: '0.7.0', db_path: dbPath });
 process.stderr.write(`server started (db: ${dbPath})\n`);
+embed('warmup').catch(() => { });
 startBackfill(db).catch((e) => console.error('[embeddings] startBackfill error:', e));
 //# sourceMappingURL=index.js.map

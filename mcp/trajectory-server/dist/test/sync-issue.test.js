@@ -132,46 +132,59 @@ describe('syncIssueCreate', () => {
         assert.equal(result.reason, 'parse_failed');
         assert.equal(result.stdout, 'unexpected output\n');
     });
-    it('for both backend, uses gh result when gh succeeds', async () => {
+    it('parses gitlab subgroup URL (3-segment) from glab stdout (#345)', async () => {
         const spawnFn = makeSpawnFn([
             {
                 status: 0,
-                stdout: 'https://github.com/owner/repo/issues/10\n',
+                stdout: 'https://gitlab.com/group/sub/proj/-/issues/5\n',
                 stderr: '',
             },
-            { status: 0, stdout: '{"number":10,"url":"https://github.com/owner/repo/issues/10"}', stderr: '' },
+            { status: 0, stdout: 'issue 5 details', stderr: '' },
         ]);
         const result = await syncIssueCreate({
             issueId: 1,
             title: 'Test',
             body: 'Body',
-            _backend: 'both',
+            _backend: 'glab',
             _spawnFn: spawnFn,
         });
-        assert.ok(!isSyncFailure(result));
-        assert.equal(result.remote_iid, 10);
-        assert.equal(result.remote_kind, 'github');
-    });
-    it('for both backend, falls back to glab when gh fails', async () => {
-        const spawnFn = makeSpawnFn([
-            { status: 1, stdout: '', stderr: 'gh error' },
-            {
-                status: 0,
-                stdout: 'https://gitlab.com/owner/repo/-/issues/55\n',
-                stderr: '',
-            },
-            GLAB_VERIFY_OK,
-        ]);
-        const result = await syncIssueCreate({
-            issueId: 1,
-            title: 'Test',
-            body: 'Body',
-            _backend: 'both',
-            _spawnFn: spawnFn,
-        });
-        assert.ok(!isSyncFailure(result));
-        assert.equal(result.remote_iid, 55);
+        assert.ok(!isSyncFailure(result), `Expected success, got: ${JSON.stringify(result)}`);
+        assert.equal(result.remote_iid, 5);
         assert.equal(result.remote_kind, 'gitlab');
+    });
+    it('subgroup remote URL passes extractRemoteHostAndRepo verify (#345)', async () => {
+        const subgroupRemoteUrl = 'https://gitlab.com/group/sub/proj.git';
+        const spawnFn = makeSpawnFn([
+            {
+                status: 0,
+                stdout: 'https://gitlab.com/group/sub/proj/-/issues/5\n',
+                stderr: '',
+            },
+            { status: 0, stdout: 'issue 5 details', stderr: '' },
+        ]);
+        const result = await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            _backend: 'glab',
+            _spawnFn: spawnFn,
+            _remoteUrl: subgroupRemoteUrl,
+        });
+        assert.ok(!isSyncFailure(result), `Expected success for subgroup URL, got: ${JSON.stringify(result)}`);
+        assert.equal(result.remote_iid, 5);
+    });
+    it('both backend is rejected by syncIssueCreate — dual-create is issue_create only (#345)', async () => {
+        const spawnFn = makeSpawnFn([]);
+        const result = await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            _backend: 'both',
+            _spawnFn: spawnFn,
+        });
+        assert.ok(isSyncFailure(result));
+        assert.equal(result.reason, 'no_backend');
+        assert.ok((result.message ?? '').includes('issue_create'));
     });
     it('passes labels as separate arguments for gh', async () => {
         const calls = [];

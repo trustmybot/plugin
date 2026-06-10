@@ -1,5 +1,6 @@
 import type { TrajectoryDB } from '../db.js';
 import { embedAndStore } from './store.js';
+import { serverLog } from '../logger.js';
 
 export async function startBackfill(db: TrajectoryDB): Promise<void> {
   const counts = db.get<{
@@ -12,9 +13,10 @@ export async function startBackfill(db: TrajectoryDB): Promise<void> {
   );
   if (!counts) return;
   const total = counts.discussions + counts.audit;
-  if (total === 0) return;
 
-  console.log(`[embeddings] backfill starting: ${total} rows pending`);
+  serverLog({ event: 'embeddings_backfill_start', total });
+
+  if (total === 0) return;
 
   (async () => {
     let done = 0;
@@ -24,7 +26,7 @@ export async function startBackfill(db: TrajectoryDB): Promise<void> {
     for (const r of dRows) {
       await embedAndStore(db, 'discussions', r.id, r.body);
       done++;
-      if (done % 50 === 0) console.log(`[embeddings] backfill ${done}/${total}`);
+      if (done % 50 === 0) serverLog({ event: 'embeddings_backfill_progress', done, total });
     }
     const aRows = db.all<{ id: number; summary: string; content_json: string | null }>(
       'SELECT id, summary, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)',
@@ -33,8 +35,8 @@ export async function startBackfill(db: TrajectoryDB): Promise<void> {
       const text = r.content_json ? `${r.summary} ${r.content_json}` : r.summary;
       await embedAndStore(db, 'audit', r.id, text);
       done++;
-      if (done % 50 === 0) console.log(`[embeddings] backfill ${done}/${total}`);
+      if (done % 50 === 0) serverLog({ event: 'embeddings_backfill_progress', done, total });
     }
-    console.log(`[embeddings] backfill complete: ${done} rows`);
+    serverLog({ event: 'embeddings_backfill_complete', done });
   })().catch((e) => console.error('[embeddings] backfill error:', e));
 }
