@@ -61,4 +61,20 @@ echo '{"tool_name":"Skill","tool_input":{"skill":"tmb_planning"}}' \
 count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM skill_invocations;" 2>/dev/null)
 assert_eq "0" "$count" "bypass env must skip the write"
 
+# ── injection regression ──────────────────────────────────────────────────────
+
+test_case "injection in skill name: unknown skill skipped, no SQL error"
+sqlite3 "$DB" "DELETE FROM skill_invocations;"
+_invoke "tmb_planning'; DROP TABLE skills;--"
+TABLE_OK=$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='skills';" 2>/dev/null || echo 0)
+assert_eq "1" "$TABLE_OK" "skills table must survive injection in skill name"
+COUNT_INJ=$(sqlite3 "$DB" "SELECT COUNT(*) FROM skill_invocations;" 2>/dev/null || echo 0)
+assert_eq "0" "$COUNT_INJ" "injection-string skill not in catalog → no row written"
+
+test_case "skill name with single quote: treated as unknown, skipped silently"
+sqlite3 "$DB" "DELETE FROM skill_invocations;"
+_invoke "tmb_planning's-variant"
+COUNT_Q=$(sqlite3 "$DB" "SELECT COUNT(*) FROM skill_invocations;" 2>/dev/null || echo 0)
+assert_eq "0" "$COUNT_Q" "single-quoted skill name not in catalog → no row"
+
 summarize

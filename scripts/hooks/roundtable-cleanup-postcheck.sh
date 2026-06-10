@@ -6,6 +6,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 
@@ -16,32 +20,30 @@ esac
 
 RT_ID=$(echo "$INPUT" | jq -r '.tool_input.roundtable_id // ""' 2>/dev/null)
 [ -n "$RT_ID" ] || exit 0
+RT_ID=$(tmb_sql_int "$RT_ID")
+[ -n "$RT_ID" ] || exit 0
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
-fi
+DB_PATH=$(tmb_db_path 2>/dev/null || true)
+[ -n "$DB_PATH" ] || exit 0
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
 # Resolve the carrier issue_id for this roundtable.
-ISSUE_ID=$(sqlite3 "$DB_PATH" "SELECT issue_id FROM roundtables WHERE id=$RT_ID LIMIT 1;" 2>/dev/null || true)
+ISSUE_ID=$(sqlite3 "$DB_PATH" "SELECT issue_id FROM roundtables WHERE id=${RT_ID} LIMIT 1;" 2>/dev/null || true)
+[ -n "$ISSUE_ID" ] || exit 0
+ISSUE_ID=$(tmb_sql_int "$ISSUE_ID")
 [ -n "$ISSUE_ID" ] || exit 0
 
 ANALYSES=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM discussions WHERE issue_id=$ISSUE_ID AND kind='analysis';" 2>/dev/null || echo 0)
+  "SELECT COUNT(*) FROM discussions WHERE issue_id=${ISSUE_ID} AND kind='analysis';" 2>/dev/null || echo 0)
 DECISIONS=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM discussions WHERE issue_id=$ISSUE_ID AND kind='decision';" 2>/dev/null || echo 0)
+  "SELECT COUNT(*) FROM discussions WHERE issue_id=${ISSUE_ID} AND kind='decision';" 2>/dev/null || echo 0)
 RT_STATE=$(sqlite3 "$DB_PATH" \
-  "SELECT state || '|' || COALESCE(outcome,'') FROM roundtables WHERE id=$RT_ID LIMIT 1;" 2>/dev/null || true)
+  "SELECT state || '|' || COALESCE(outcome,'') FROM roundtables WHERE id=${RT_ID} LIMIT 1;" 2>/dev/null || true)
 VOTES=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM roundtable_votes WHERE roundtable_id=$RT_ID;" 2>/dev/null || echo 0)
+  "SELECT COUNT(*) FROM roundtable_votes WHERE roundtable_id=${RT_ID};" 2>/dev/null || echo 0)
 SUMMARY_EVT=$(sqlite3 "$DB_PATH" \
-  "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_summary' AND issue_id=$ISSUE_ID;" 2>/dev/null || echo 0)
+  "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_summary' AND issue_id=${ISSUE_ID};" 2>/dev/null || echo 0)
 
 RT_STATUS=$(printf '%s' "$RT_STATE" | cut -d'|' -f1)
 RT_OUTCOME=$(printf '%s' "$RT_STATE" | cut -d'|' -f2-)

@@ -74,4 +74,28 @@ COUNT_BEFORE=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='
 COUNT_AFTER=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 assert_eq "$((COUNT_BEFORE + 1))" "$COUNT_AFTER" "walk-up must find the DB and insert the row"
 
+# ── injection regression ──────────────────────────────────────────────────────
+
+test_case "injection attempt in prompt: treated as missing (no SQL error, no extra rows)"
+sqlite3 "$DB" "DELETE FROM audit;"
+run_hook "/roundtable 1; DROP TABLE audit;--"
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
+# The summary is stored as a literal string; the audit table must still exist
+# and have exactly one row (the summary may contain the injection string verbatim).
+assert_eq "1" "$COUNT" "one audit row written even with injection string in prompt"
+# Confirm the audit table was NOT dropped (verifies the quote-escaping worked).
+TABLE_EXISTS=$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='audit';")
+assert_eq "1" "$TABLE_EXISTS" "audit table must still exist after injection attempt"
+
+test_case "prompt with single quotes: stored intact, no SQL error"
+sqlite3 "$DB" "DELETE FROM audit;"
+run_hook "/roundtable it's a test with o'brien's quote"
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
+assert_eq "1" "$COUNT" "row inserted with single-quoted prompt"
+STORED=$(sqlite3 "$DB" "SELECT summary FROM audit WHERE event_type='roundtable_slash_invoked' LIMIT 1;")
+case "$STORED" in
+  *"it's"*|*"o'brien"*) echo "  ✓ single quotes preserved in summary" ;;
+  *) echo "FAIL: expected single quotes in stored summary, got: $STORED"; exit 1 ;;
+esac
+
 summarize

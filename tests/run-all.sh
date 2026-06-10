@@ -69,6 +69,7 @@ run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-dir
 run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"
 run_step "L1 lint: tool-description byte budget"      bash "$HERE/l1-lint/tool-description-budget.sh"
 run_step "L1 lint: dir toolchain allowlist"           bash "$HERE/l1-lint/dir-toolchain.sh"
+run_step "L1 lint: no raw SQL interpolation in hooks" bash "$HERE/l1-lint/no-raw-sql-interpolation.sh"
 
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 

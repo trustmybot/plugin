@@ -54,8 +54,9 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 # Confirm the skill exists in the catalog. If not, skip silently — this is
 # either an unrelated tool with the same name or a project-local skill
 # that hasn't been registered yet.
+SKILL_NAME_SQL=$(tmb_sql_quote "$SKILL_NAME")
 EXISTS=$(sqlite3 "$DB_PATH" \
-  "SELECT 1 FROM skills WHERE name = '$SKILL_NAME' LIMIT 1;" 2>/dev/null)
+  "SELECT 1 FROM skills WHERE name = '${SKILL_NAME_SQL}' LIMIT 1;" 2>/dev/null)
 [ "$EXISTS" = "1" ] || exit 0
 
 # Find the most recent open bro agent_run (if any) to attribute the

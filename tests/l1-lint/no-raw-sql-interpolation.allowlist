@@ -1,0 +1,10 @@
+# Allowlist for no-raw-sql-interpolation.sh lint.
+# Each non-comment line is a substring matched against "file:lineno" output.
+# Add entries here when a site is reviewed and confirmed safe.
+
+# roundtable-slash-detect.sh: SUMMARY is produced by sed "s/'/''/g" on the same line above.
+scripts/hooks/roundtable-slash-detect.sh
+
+# swe-atomic-close.sh: TASK_ID is validated via tmb_sql_int ~97 lines earlier (line 167);
+# the guard window (10 lines) doesn't reach it, but the value is confirmed safe.
+scripts/hooks/swe-atomic-close.sh:264

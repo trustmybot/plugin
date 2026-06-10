@@ -75,4 +75,26 @@ echo "{\"transcript_path\":\"${TRANSCRIPT}\"}" \
 tokens_bypass=$(sqlite3 "$DB" "SELECT tokens_in FROM agent_runs WHERE id=${RUN_ID};")
 assert_eq "0" "$tokens_bypass" "bypass env must skip the update"
 
+# ── injection regression ──────────────────────────────────────────────────────
+# bro-turn-usage.sh: only updates agent_runs WHERE id = ${RUN_ID}.
+# RUN_ID comes from SELECT id FROM agent_runs — a DB-sourced integer, safe.
+# The numeric token/duration fields go through printf '%d' sanitization.
+# We test that a corrupted transcript (non-numeric usage fields) doesn't
+# cause SQL errors or table corruption.
+
+test_case "corrupt transcript with non-numeric tokens: no SQL error, row unchanged"
+sqlite3 "$DB" "UPDATE agent_runs SET completed_at = NULL WHERE id=${RUN_ID};"
+sqlite3 "$DB" "UPDATE agent_runs SET tokens_in = 0 WHERE id=${RUN_ID};"
+CORRUPT_TRANSCRIPT="$TMPDIR_BTU/corrupt.jsonl"
+cat > "$CORRUPT_TRANSCRIPT" <<'EOF'
+{"timestamp":"2026-06-09T10:00:00.000Z","message":{"usage":{"input_tokens":"1; DROP TABLE agent_runs;--","output_tokens":0},"content":[]}}
+EOF
+echo "{\"transcript_path\":\"${CORRUPT_TRANSCRIPT}\"}" \
+  | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1 || true
+TABLE_OK=$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_runs';" 2>/dev/null || echo 0)
+assert_eq "1" "$TABLE_OK" "agent_runs table must survive corrupt transcript"
+# printf '%d' coerces non-numeric to 0; row must have tokens_in=0 (not the injection string)
+tokens_safe=$(sqlite3 "$DB" "SELECT tokens_in FROM agent_runs WHERE id=${RUN_ID};" 2>/dev/null || echo "-1")
+assert_eq "0" "$tokens_safe" "corrupt input must be coerced to 0 by printf '%d'"
+
 summarize
