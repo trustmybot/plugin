@@ -38,7 +38,8 @@ tmb_test_sandbox_init() {
 GITCFG
   mkdir -p "$HOME/.ssh"
 
-  export TMB_TEST_REMOTE="$scratch/_remote.git"
+  TMB_TEST_REMOTE="$(dirname "$scratch")/$(basename "$scratch")_remote.git"
+  export TMB_TEST_REMOTE
   git init --bare "$TMB_TEST_REMOTE" >/dev/null 2>&1
 
   # Cleaner failure for any git HTTPS push attempt: don't hang asking for a
@@ -56,5 +57,6 @@ GITCFG
 tmb_test_sandbox_teardown() {
   export PATH="${TMB_SANDBOX_ORIG_PATH:-$PATH}"
   export HOME="${TMB_SANDBOX_ORIG_HOME:-$HOME}"
+  [ -n "${TMB_TEST_REMOTE:-}" ] && rm -rf "$TMB_TEST_REMOTE" 2>/dev/null || true
   unset TMB_SANDBOX_ORIG_PATH TMB_SANDBOX_ORIG_HOME TMB_TEST_REMOTE GIT_TERMINAL_PROMPT TRAJECTORY_DB_PATH 2>/dev/null || true
 }
