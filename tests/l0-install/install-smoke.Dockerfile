@@ -6,7 +6,7 @@
 # silently failed. This Dockerfile catches that class of regression.
 #
 # Build:
-#   docker build -f tests/docker/install-smoke.Dockerfile -t tmb-install-smoke .
+#   docker build -f tests/l0-install/install-smoke.Dockerfile -t tmb-install-smoke .
 #
 # Each `RUN test` line is a fail-fast assertion. Build success = release shippable.
 

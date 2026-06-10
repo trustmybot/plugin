@@ -11,6 +11,6 @@ If something in `docs/` turns out to be load-bearing for bro's behavior, inline 
 | `reference/REFERENCE.md` | Where workflow state lives (trajectory DB, kuzu world model, CC config) |
 | `reference/MULTI_PLATFORM.md` | OS compatibility notes |
 | `reference/UPGRADE.md` | Plugin version migration notes |
-| `architecture/` | Design rationale (ERD, FILES, FLOWS, GIT, RESPONSIBILITIES, UI, WORLD_MODEL) |
+| `architecture/` | Design rationale (ERD, FLOWS, GIT, RESPONSIBILITIES, UI, WORLD_MODEL) |
 | `prompt-engineering/` | DETERMINISM, ENFORCEMENT, PROMPT_ENGINEERING |
-| `contributing/` | Code-quality criteria + review findings catalogue |
+| `contributing/` | Benchmark methodology (BENCHMARK) + enum/label registries (ENUMS, LABELS) |

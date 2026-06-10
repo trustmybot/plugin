@@ -28,7 +28,7 @@ When CC pulls a new version, the new files land on disk but the **running MCP se
 
 ### Trigger the new MCP server (required to apply the migration)
 
-After CC reports the plugin updated, **run `/reload-plugins`** in your session. This restarts the MCP server (and hooks + LSP); the fresh boot detects `plugin_meta.schema_version < TARGET`, backs the DB up, applies the v1→v2 migration, and bumps the version.
+After CC reports the plugin updated, **run `/reload-plugins`** in your session. This restarts the MCP server (and hooks + LSP); the fresh boot detects `plugin_meta.schema_version < TARGET`, backs the DB up, applies any pending migrations, and bumps the version.
 
 If you'd rather restart the whole session, that works too: `Cmd+R` in the desktop app, or close + reopen.
 

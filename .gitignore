@@ -30,7 +30,7 @@ dist/
 # — lifecycle scripts don't fire, so postinstall can't build dist/. Without
 # committed dist/, the MCP server can't spawn → bro can't onboard → silent
 # install failure (v0.2.0 and v0.3.0 both hit this class). v0.3.1 ships dist/
-# directly. Stale dist/ caught by tests/lint/dist-fresh.sh in CI.
+# directly. Stale dist/ caught by tests/l1-lint/dist-fresh.sh in CI.
 !mcp/trajectory-server/dist/
 !mcp/trajectory-server/dist/**
 
