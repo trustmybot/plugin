@@ -184,10 +184,12 @@ out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/cli-todo && git commit -
 assert_not_contains "$out" '"permissionDecision":"block"' "no DB match must not block (fail-open)"
 cleanup_repo
 
-test_case "injection: worktree basename with a single quote neither errors nor blocks"
-# The slug feeds the Rule-2 DB lookup (branch_id LIKE '%/<slug>'). A quote in
-# the basename must be escaped via tmb_sql_quote — the lookup still resolves
-# feat/o'brien-cli (non-protected) and the hook stays silent.
+test_case "injection: quote-bearing slug resolves a PROTECTED branch and BLOCKS the commit"
+# Discriminating case for the Rule-2 DB lookup (branch_id LIKE '%/<slug>').
+# The quoted slug resolves to feat/o'brien-cli, which IS protected — so
+# correct tmb_sql_quote escaping makes the lookup succeed and Rule 2 block.
+# Broken escaping breaks the SQL instead (error → empty branch → fail-open,
+# NO block), so the block assertion below fails the moment escaping regresses.
 dir=$(mktemp -d -t tmb-guards-quote-XXXX)
 (
   cd "$dir" || exit 1
@@ -205,12 +207,15 @@ dir=$(mktemp -d -t tmb-guards-quote-XXXX)
       VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
     INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
       VALUES (1, 1, 'feat/o''brien-cli', 'test task', 'd', 'pending', '', datetime('now'), datetime('now'));
+    UPDATE plugin_config
+       SET value_json = '[\"main\", \"feat/o''brien-cli\"]'
+     WHERE key = 'protected_branches';
   " >/dev/null
 )
 REPO_PATH="$dir"
 out=$(run_hook_in_repo "cd $REPO_PATH/.claude/worktrees/o'brien-cli && git commit -m 'feat: add x'")
-assert_not_contains "$out" '"permissionDecision":"block"' "quote-bearing slug must not block the feature-branch commit"
-assert_eq "" "$out" "quote-bearing slug must produce no output (no errors)"
+assert_contains "$out" '"permissionDecision":"block"' "quote-bearing protected slug must BLOCK — empty means the lookup SQL errored out"
+assert_contains "$out" "feat/o'brien-cli" "block message must name the quoted branch resolved via DB lookup"
 cleanup_repo
 
 # ---- #347: Rule 3 force-push token matching ---------------------------------
