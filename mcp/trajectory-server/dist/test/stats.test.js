@@ -29,8 +29,11 @@ describe('statsTools — task_stats', () => {
             tokens_in: 0,
             tokens_out: 0,
             tokens_total: 0,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
             tool_uses: 0,
             duration_ms: 0,
+            estimated_cost_usd: 0,
         });
         assert.deepEqual(payload.spawns, []);
         db.close();
@@ -43,24 +46,26 @@ describe('statsTools — task_stats', () => {
         const issueId = db.get('SELECT last_insert_rowid() AS id').id;
         db.run("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/test', 'title', 'desc', 'pending', ?, ?)", [issueId, now, now]);
         const taskId = db.get('SELECT last_insert_rowid() AS id').id;
-        db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 100, 200, 300, 5, 1000, datetime('now'))", [taskId, issueId]);
-        db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 150, 250, 400, 8, 2000, datetime('now'))", [taskId, issueId]);
+        db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 100, 200, 300, 1000, 50, 5, 1000, datetime('now'))", [taskId, issueId]);
+        db.run("INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 150, 250, 400, 2000, 75, 8, 2000, datetime('now'))", [taskId, issueId]);
         const result = await call(tools.handlers, 'task_stats', { agent: 'bro', task_id: taskId });
         assert.ok(!result.isError);
         const payload = parseResult(result);
         assert.equal(payload.task_id, taskId);
-        assert.deepEqual(payload.aggregate, {
-            spawn_count: 2,
-            tokens_in: 250,
-            tokens_out: 450,
-            tokens_total: 700,
-            tool_uses: 13,
-            duration_ms: 3000,
-        });
+        assert.equal(payload.aggregate.spawn_count, 2);
+        assert.equal(payload.aggregate.tokens_in, 250);
+        assert.equal(payload.aggregate.tokens_out, 450);
+        assert.equal(payload.aggregate.tokens_total, 700);
+        assert.equal(payload.aggregate.cache_read_tokens, 3000);
+        assert.equal(payload.aggregate.cache_creation_tokens, 125);
+        assert.equal(payload.aggregate.tool_uses, 13);
+        assert.equal(payload.aggregate.duration_ms, 3000);
+        assert.ok(payload.aggregate.estimated_cost_usd > 0, 'estimated_cost_usd must be positive');
         assert.equal(payload.spawns.length, 2);
         assert.ok(payload.spawns[0].id < payload.spawns[1].id, 'spawns must be ordered by id ASC');
         assert.equal(payload.spawns[0].agent_type, 'swe');
         assert.equal(payload.spawns[0].tokens_in, 100);
+        assert.equal(payload.spawns[0].cache_read_tokens, 1000);
         assert.equal(payload.spawns[1].tokens_in, 150);
         db.close();
     });

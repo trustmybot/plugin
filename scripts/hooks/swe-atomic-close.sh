@@ -32,18 +32,20 @@ PLUGIN_NAME=$(tmb_resolve_plugin_name)
 mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
 # Parse a JSONL transcript file and return pipe-separated stats:
-#   tokens_in|tokens_out|tool_uses|duration_ms
-# On any error or missing file, prints 0|0|0|0.
+#   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens
+# On any error or missing file, prints 0|0|0|0|0|0.
 tmb_parse_transcript_stats() {
   local transcript_path="$1"
   if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
-    echo "0|0|0|0"
+    echo "0|0|0|0|0|0"
     return 0
   fi
   local result
   result=$(jq -rsc '
     (map(select(.message.usage != null) | .message.usage.input_tokens // 0) | add // 0) as $ti |
     (map(select(.message.usage != null) | .message.usage.output_tokens // 0) | add // 0) as $to |
+    (map(select(.message.usage != null) | .message.usage.cache_read_input_tokens // 0) | add // 0) as $cr |
+    (map(select(.message.usage != null) | .message.usage.cache_creation_input_tokens // 0) | add // 0) as $cc |
     (map(.message.content // [] | arrays | .[]) | map(select(.type == "tool_use")) | length) as $tu |
     ( map(select(.timestamp != null) |
         .timestamp |
@@ -52,10 +54,10 @@ tmb_parse_transcript_stats() {
       ) |
       if length < 2 then 0 else (max - min) end
     ) as $dm |
-    [$ti, $to, $tu, $dm] | join("|")
+    [$ti, $to, $tu, $dm, $cr, $cc] | join("|")
   ' "$transcript_path" 2>/dev/null) || true
   if [ -z "$result" ]; then
-    echo "0|0|0|0"
+    echo "0|0|0|0|0|0"
   else
     echo "$result"
   fi
@@ -231,10 +233,12 @@ TOKENS_IN=0
 TOKENS_OUT=0
 TOOL_USES=0
 DURATION_MS=0
+CACHE_READ_TOKENS=0
+CACHE_CREATION_TOKENS=0
 
 if [ -n "$TRANSCRIPT_PATH" ]; then
   STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
-  if [ "$STATS" = "0|0|0|0" ] && [ ! -f "$TRANSCRIPT_PATH" ]; then
+  if [ "$STATS" = "0|0|0|0|0|0" ] && [ ! -f "$TRANSCRIPT_PATH" ]; then
     printf '{"ts":"%s","kind":"agent-runs-stats-parse-failed","reason":"transcript file not found","transcript":"%s"}\n' \
       "$ts" "$TRANSCRIPT_PATH" >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
   else
@@ -242,8 +246,10 @@ if [ -n "$TRANSCRIPT_PATH" ]; then
     TOKENS_OUT=$(echo "$STATS" | cut -d'|' -f2)
     TOOL_USES=$(echo "$STATS" | cut -d'|' -f3)
     DURATION_MS=$(echo "$STATS" | cut -d'|' -f4)
-    printf '{"ts":"%s","kind":"agent-runs-stats-parsed","task_id":%s,"tokens_total":%s,"tool_uses":%s,"duration_ms":%s,"transcript":"%s"}\n' \
-      "$ts" "$TASK_ID" "$((TOKENS_IN + TOKENS_OUT))" "$TOOL_USES" "$DURATION_MS" "$TRANSCRIPT_PATH" \
+    CACHE_READ_TOKENS=$(echo "$STATS" | cut -d'|' -f5)
+    CACHE_CREATION_TOKENS=$(echo "$STATS" | cut -d'|' -f6)
+    printf '{"ts":"%s","kind":"agent-runs-stats-parsed","task_id":%s,"tokens_total":%s,"cache_read":%s,"cache_creation":%s,"tool_uses":%s,"duration_ms":%s,"transcript":"%s"}\n' \
+      "$ts" "$TASK_ID" "$((TOKENS_IN + TOKENS_OUT))" "$CACHE_READ_TOKENS" "$CACHE_CREATION_TOKENS" "$TOOL_USES" "$DURATION_MS" "$TRANSCRIPT_PATH" \
       >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
   fi
 fi
@@ -253,6 +259,8 @@ TOKENS_IN=$(printf '%d' "${TOKENS_IN}" 2>/dev/null || echo "0")
 TOKENS_OUT=$(printf '%d' "${TOKENS_OUT}" 2>/dev/null || echo "0")
 TOOL_USES=$(printf '%d' "${TOOL_USES}" 2>/dev/null || echo "0")
 DURATION_MS=$(printf '%d' "${DURATION_MS}" 2>/dev/null || echo "0")
+CACHE_READ_TOKENS=$(printf '%d' "${CACHE_READ_TOKENS}" 2>/dev/null || echo "0")
+CACHE_CREATION_TOKENS=$(printf '%d' "${CACHE_CREATION_TOKENS}" 2>/dev/null || echo "0")
 
 TOKENS_TOTAL=$((TOKENS_IN + TOKENS_OUT))
 
@@ -263,7 +271,7 @@ else
   AR_ISSUE_FRAGMENT="NULL"
 fi
 
-AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, completed_at) VALUES (${TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
+AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
 sqlite3 "$DB" "$AR_INSERT" 2>/dev/null || \
   printf '{"ts":"%s","kind":"agent-runs-capture-skipped","reason":"sqlite3 insert failed","task_id":%s}\n' \
     "$ts" "$TASK_ID" >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
