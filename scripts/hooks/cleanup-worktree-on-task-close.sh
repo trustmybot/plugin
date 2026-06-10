@@ -30,6 +30,7 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 
 case "$TOOL_NAME" in
   mcp__*trajectory-server__task_update_status) ;;
+  mcp__*trajectory-server__bro_atomic_close)   ;;
   *) exit 0 ;;
 esac
 
@@ -38,8 +39,13 @@ if [ "${TMB_KEEP_CLOSED_WORKTREES:-0}" = "1" ]; then
 fi
 
 AGENT=$(echo "$INPUT" | jq -r '.tool_input.agent // ""' 2>/dev/null)
-STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // ""' 2>/dev/null)
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // ""' 2>/dev/null)
+
+# bro_atomic_close always closes; task_update_status requires explicit status=closed.
+case "$TOOL_NAME" in
+  *bro_atomic_close) STATUS="closed" ;;
+  *)                 STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // ""' 2>/dev/null) ;;
+esac
 
 [ "$AGENT" = "bro" ] || exit 0
 [ "$STATUS" = "closed" ] || exit 0

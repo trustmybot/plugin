@@ -61,3 +61,47 @@ case "$BODY" in
   *"o'brien"*) echo "  ✓ author preserved" ;;
   *) echo "FAIL: author mangled: $BODY"; exit 1 ;;
 esac
+
+# ── #349: content[0].text shape (production CC delivery) ─────────────────────
+test_case "#349: .tool_response.content[0].text shape is parsed correctly"
+sqlite3 "$DB" "DELETE FROM discussions;"
+PAYLOAD_CONTENT=$(jq -cn '{
+  tool_name: "pr_comments_get",
+  tool_response: { content: [ { type: "text", text: "{\"pr_number\":99,\"comments\":[{\"number\":2,\"author\":\"reviewer\",\"body\":\"looks good\",\"pr_number\":99,\"is_resolved\":false}]}" } ] }
+}')
+( cd "$REPO" && echo "$PAYLOAD_CONTENT" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null )
+COUNT2=$(sqlite3 "$DB" "SELECT COUNT(*) FROM discussions WHERE kind='note' AND body LIKE '%reviewer%';")
+assert_eq "1" "$COUNT2" "content[0].text shape must be parsed and row inserted"
+
+# ── #349: walk-up DB resolution (no TRAJECTORY_DB_PATH) ──────────────────────
+test_case "#349: DB resolved via walk-up when TRAJECTORY_DB_PATH is unset"
+WALK_ROOT=$(mktemp -d -t tmb-pr-walk-XXXX)
+trap 'rm -rf "$WALK_ROOT"' EXIT
+WALK_DB="$WALK_ROOT/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$WALK_DB")"
+sqlite3 "$WALK_DB" < "$SCHEMA" >/dev/null
+(
+  cd "$WALK_ROOT" || exit 1
+  git init -q -b fix/walk-pr
+  git config user.email t@t.io
+  git config user.name t
+  echo init > README.md && git add README.md && git commit -qm init
+)
+sqlite3 "$WALK_DB" "
+  INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+    VALUES (2,'t','t','open',datetime('now'),datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+    VALUES (2,2,'fix/walk-pr','t','d','open','s',datetime('now'),datetime('now'));
+" >/dev/null
+WALK_PAYLOAD=$(jq -cn '{
+  tool_name: "pr_comments_get",
+  tool_response: { output: {
+    pr_number: 55,
+    comments: [ { number: 3, author: "walk", body: "walk-up comment", pr_number: 55, is_resolved: false } ]
+  } }
+}')
+( cd "$WALK_ROOT" && echo "$WALK_PAYLOAD" | bash "$HOOK" 2>/dev/null )
+COUNT3=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM discussions WHERE kind='note' AND body LIKE '%walk-up comment%';")
+assert_eq "1" "$COUNT3" "walk-up must find the DB and insert the comment row"
+
+summarize

@@ -147,32 +147,60 @@ case "$CMD" in
     ;;
 esac
 
-# --- Rule 2: No direct commits to protected_branches (worktree-aware) ---
+# --- Rule 2: No direct commits/merges/rebases to protected_branches (worktree-aware) ---
 # Uses cmd_effective_branch so detached-HEAD worktrees resolve via DB lookup.
-case "$CMD" in
-  *"git commit"*)
+# Match the git subcommand by word boundary to avoid false-positives on plumbing
+# (commit-tree, commit-graph) or "git commit" appearing inside argument text.
+# Only fire when 'git' is at the start of a shell statement (after ^, &&, ||, ;, or \n).
+_rule2_match() {
+  local cmd="$1"
+  # Match 'git <sub>' only when git is at a shell statement start:
+  # after ^, or after a shell statement separator (&&, ||, ;, |).
+  # Spaces around the separator are consumed to handle `cd /x && git commit`.
+  printf '%s' "$cmd" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(commit|merge|rebase|cherry-pick)([[:space:]]|$)'
+}
+if _rule2_match "$CMD"; then
     BRANCH=$(cmd_effective_branch "$CMD")
     if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
       echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: No direct commits to ${BRANCH}. Create a feature branch first.\"}"
       exit 0
     fi
-    ;;
-esac
+fi
 
 # --- Rule 3: No force push to protected_branches ---
+# Extract the push clause only (the part starting with 'git push' up to the end
+# of the statement), then token-match force flags so '-f' inside a later
+# compound command (e.g. `git push origin dev && rm -f x`) doesn't trigger.
+_push_clause() {
+  # Strip everything before 'git push'; stop at shell statement separators.
+  # Use awk to split on '&&' / '||' / ';' then keep only the token containing 'git push'.
+  printf '%s' "$1" | awk '
+    BEGIN { RS="&&|\\|\\||;" }
+    /git[[:space:]]+push/ { print; exit }
+  ' | sed -nE 's/.*git[[:space:]]+push(.*)/\1/p' | head -1 || true
+}
+_is_force_push() {
+  local clause
+  clause=$(_push_clause "$1")
+  # --follow-tags contains no force token; --force-with-lease is a force flag.
+  printf '%s' "$clause" | grep -qE '(^|[[:space:]])(--force(-with-lease)?|-f)([[:space:]]|$)'
+}
 case "$CMD" in
-  *"git push"*"--force"*|*"git push"*"-f"*)
-    if echo "$CMD" | grep -qE '\b(origin|upstream)\s+\S+'; then
-      PUSH_TARGET=$(echo "$CMD" | grep -oE '\b(origin|upstream)\s+\S+' | awk '{print $2}')
-      if branch_is_protected "$PUSH_TARGET"; then
-        echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible.\"}"
-        exit 0
-      fi
-    else
-      BRANCH=$(cmd_branch "$CMD")
-      if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
-        echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible.\"}"
-        exit 0
+  *"git push"*)
+    if _is_force_push "$CMD"; then
+      PUSH_CLAUSE=$(_push_clause "$CMD")
+      if printf '%s' "$PUSH_CLAUSE" | grep -qE '\b(origin|upstream)\s+\S+'; then
+        PUSH_TARGET=$(printf '%s' "$PUSH_CLAUSE" | grep -oE '\b(origin|upstream)\s+\S+' | awk '{print $2}')
+        if branch_is_protected "$PUSH_TARGET"; then
+          echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible.\"}"
+          exit 0
+        fi
+      else
+        BRANCH=$(cmd_branch "$CMD")
+        if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
+          echo "{\"decision\":\"block\",\"reason\":\"BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible.\"}"
+          exit 0
+        fi
       fi
     fi
     ;;

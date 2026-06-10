@@ -251,10 +251,11 @@ export function compositeTools(
     {
       name: 'bro_atomic_close',
       description:
-        'Bro task-close composite — writes the bro_verification_pass audit row, advances ' +
+        'Bro task-close composite — writes the bro_verification_pass audit row, ' +
         'flips the task to closed, and optionally closes the parent issue, ' +
-        'all in one DB transaction. Hooks downstream of `task_update_status` still fire ' +
-        '(cleanup-worktree, post-task-close-rescan, audit log).',
+        'all in one DB transaction. PostToolUse hooks on bro_atomic_close fire ' +
+        '(cleanup-worktree, post-task-close-rescan); hooks on task_update_status do NOT ' +
+        'fire because CC sees only the invoked tool name.',
       inputSchema: {
         type: 'object',
         properties: {
