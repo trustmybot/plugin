@@ -75,22 +75,24 @@ fi
 
 LAST_5=$(printf '%s' "$LAST_5_RAW" | head -5 | sed 's/^/  /')
 
-# Assemble the inventory block. Keep it compact — it loads on every
-# session start.
+# Assemble the inventory block.
+# STABLE fields first (same across sessions): dirs, stacks, arch docs, world model state.
+# VOLATILE fields last (change per session/turn): branch, counts, commits.
+# This order maximises CC prompt-cache reuse — cache breaks at the first byte-difference.
 INVENTORY=$(cat <<EOF
 === Project Inventory (auto, deterministic) ===
-Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty paths)
 Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
 Architecture docs: ${HAS_ARCH_DOCS}
 World model:       ${WORLD_MODEL_STATE} (kuzu graph; ${SOURCE_FILE_COUNT} source files)
+Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty paths)
 Open issues:       ${OPEN_ISSUES}
 Pending tasks:     ${PENDING_TASKS}
 Last 5 commits:
 ${LAST_5}
 ================================================
 If World model is cold on the first code-touching ask, tell the Human to run /scan
-— world_model_get can't navigate an empty project map.
+— world_model_get cannot navigate an empty project map.
 EOF
 )
 

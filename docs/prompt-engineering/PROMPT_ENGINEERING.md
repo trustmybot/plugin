@@ -85,6 +85,23 @@ Two architecture docs formalize the principles above for TMB — required readin
 
 Together they explain *why* we keep personas lean and fix recurring failures structurally rather than with more prose.
 
-## Further reading
+## Cache zones
 
-The techniques here are standard practice — see the prompt-engineering guides published by Anthropic and OpenAI, and the source ideas behind them: few-shot prompting, chain-of-thought, and ReAct (reasoning + acting) for tool-using agents.
+CC's prompt cache anchors from the start of the assembled prompt and breaks at the first byte-difference. TMB structures its context surface into three zones to maximise stable-prefix length:
+
+| Zone | Content | Stability |
+|------|---------|-----------|
+| **A — stable identity** | Plugin persona (`CLAUDE.md`), MCP tool descriptions — fixed across all sessions and users | Stable |
+| **B — semi-stable bodies** | Skill bodies, rule files — change only on plugin upgrades | Semi-stable |
+| **C — volatile hook tails** | Hook-injected context (counts, banners, branch, last commits) — changes every session or turn | Volatile |
+
+**Contract for hook authors:** every hook that injects `additionalContext` must put stable descriptive text first and volatile fields (counts, timestamps, paths, branch names) at the tail of its own output. A hook that opens with a volatile line busts the cache for everything below it in the assembled prompt.
+
+Examples of volatile fields that belong at the tail:
+- Current branch name, commit count, dirty-path count
+- Open issue count, pending task count
+- Last-N commit messages
+- DB path, plugin source path
+- Any timestamp or PID
+
+This rule is encoded in `.claude/rules/hooks.md` and enforced by the L3 ordering tests.

@@ -111,9 +111,11 @@ else
 fi
 
 if [ "$FIRST_RUN" = "1" ]; then
-  CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}; ${PENDING_LINE}. ACTION: this is the user's first contact in this project — call \`onboard_state_get(agent='bro')\` and run the \`/onboard\` slash command flow IMMEDIATELY before any reply (auto-fire doctrine, no permission gate). Do not greet, do not answer the user's prompt, do not call issue_resume separately — onboard_state_get returns everything you need."
+  # STABLE preamble first, VOLATILE pending line last — cache-friendly ordering.
+  CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}. ACTION: this is the user's first contact in this project — call \`onboard_state_get(agent='bro')\` and run the \`/onboard\` slash command flow IMMEDIATELY before any reply (auto-fire doctrine, no permission gate). Do not greet, do not answer the user's prompt, do not call issue_resume separately — onboard_state_get returns everything you need. ${PENDING_LINE}"
 else
-  CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}; ${PENDING_LINE}. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads."
+  # STABLE preamble first, VOLATILE pending line last — cache-friendly ordering.
+  CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. ${PENDING_LINE}"
 fi
 
 jq -nc --arg ctx "$CONTEXT" '{

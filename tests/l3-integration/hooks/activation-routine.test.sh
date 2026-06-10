@@ -117,6 +117,38 @@ echo '{"role":"assistant","content":"On it. What scope?"}' >> "$TRANSCRIPT_NO_AN
 out=$(run_hook "$(input 'small, single-file' "$TRANSCRIPT_NO_ANNOUNCE")")
 assert_contains "$out" '"hookEventName":"UserPromptSubmit"' "sticky fires without announce marker"
 
+# ---- cache-friendly ordering tests ----
+# Stable marker (onboarded) must appear before volatile marker (pending) in the
+# emitted additionalContext — per cache-zone contract in PROMPT_ENGINEERING.md.
+
+test_case "ordering: onboarded= (stable) appears before pending= (volatile) — post-onboard case"
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='onboarded'; INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');"
+out_order=$(run_hook "$(input '@bro status')")
+CTX_ORDER=$(echo "$out_order" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+onboarded_pos=$(echo "$CTX_ORDER" | grep -b -o "onboarded=" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+pending_pos=$(echo "$CTX_ORDER" | grep -b -o "pending=" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+if [ -z "$onboarded_pos" ] || [ -z "$pending_pos" ]; then
+  _fail "could not locate markers: onboarded_pos=<$onboarded_pos> pending_pos=<$pending_pos> ctx=<$CTX_ORDER>"
+elif [ "$onboarded_pos" -lt "$pending_pos" ]; then
+  _pass
+else
+  _fail "stable onboarded= at byte $onboarded_pos should be before volatile pending= at byte $pending_pos"
+fi
+
+test_case "ordering: onboarded= (stable) appears before pending= (volatile) — first-contact case"
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='onboarded';"
+out_order_fc=$(run_hook "$(input '@bro hi')")
+CTX_ORDER_FC=$(echo "$out_order_fc" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+onboarded_pos_fc=$(echo "$CTX_ORDER_FC" | grep -b -o "onboarded=" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+pending_pos_fc=$(echo "$CTX_ORDER_FC" | grep -b -o "pending=" 2>/dev/null | head -1 | cut -d: -f1 || echo "")
+if [ -z "$onboarded_pos_fc" ] || [ -z "$pending_pos_fc" ]; then
+  _fail "could not locate markers: onboarded_pos=<$onboarded_pos_fc> pending_pos=<$pending_pos_fc>"
+elif [ "$onboarded_pos_fc" -lt "$pending_pos_fc" ]; then
+  _pass
+else
+  _fail "stable onboarded= at byte $onboarded_pos_fc should be before volatile pending= at byte $pending_pos_fc"
+fi
+
 # ---- DB-missing graceful path ----
 
 test_case "bro trigger but DB doesn't exist: silent no-op (graceful first-activation)"
