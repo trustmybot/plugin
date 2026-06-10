@@ -54,29 +54,20 @@ Q2–Q4 (radio): one per disagreement, `header` ≤12 chars.
 Headless guard: see `tmb_recovery` §A — apply the documented fallback
 default for each question and continue.
 
-## Phase 5 — Finalize (atomic)
+## Phase 5 — Close (one composite call)
 
 ```
-roundtable_finalize_decisions(agent='bro', roundtable_id=<id>,
-  ratified=[<checked>], unratified=[<unchecked>],
-  resolutions=[{topic_slug, winning_stance, dissenter, rationale?}])
+roundtable_close_with_decisions(agent='bro', roundtable_id=<id>,
+  outcome=<one-sentence>,
+  decisions={
+    ratified=[<checked>], unratified=[<unchecked>],
+    resolutions=[{topic_slug, winning_stance, dissenter, rationale?}]
+  })
 ```
 
-## Phase 6 — Close
+Collapses finalize_decisions + close + summarize into one transactional call. The `roundtable-cleanup-postcheck.sh` PostToolUse hook verifies the five capture surfaces and warns on any missing.
 
-```
-roundtable_close(agent='bro', roundtable_id=<id>, outcome=<one-sentence>)
-roundtable_summarize(agent='bro', roundtable_id=<id>)
-audit_log(agent='bro', from_node='bro', issue_id=<carrier>,
-          event_type='roundtable_summary',
-          summary=<topic + outcome>, content_json=<summarize result>)
-```
-
-The `roundtable-cleanup-postcheck.sh` PostToolUse hook verifies the
-five capture surfaces (analyses, decisions, status+outcome, votes,
-audit summary) on `roundtable_close` and warns on any missing.
-
-## Phase 7 — Follow-ups
+## Phase 6 — Follow-ups
 
 Second AUQ (`multiSelect`, one per ratified agreement) → `issue_create`
 per checked. Close the carrier issue if it was a one-shot roundtable

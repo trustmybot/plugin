@@ -63,7 +63,7 @@ After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_
 validation_record(agent='pr-reviewer', task_id=N, attempt_n=1, verdict='pass'|'fail', feedback='MCP available: yes\n<your verdict text>', subagent_session_id='<your-session-id>')
 ```
 
-**Path 2 — MCP unavailable** (only Read + Bash in your tool list): `sqlite3 "${TRAJECTORY_DB_PATH}" "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at) VALUES (<N>, 1, 'pr-reviewer', '<pass|fail>', 'MCP available: no — honor-system fallback\n<verdict text>', '<session-id>', '$(date -u +%Y-%m-%dT%H:%M:%SZ)')"`
+**Path 2 — MCP unavailable** (only Read + Bash in your tool list): `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh <task_id> <attempt_n> <pass|fail> '<verdict text>' '<session-id>'`
 
 The `feedback` column CHECK constraint: must start with `'MCP available: yes'` OR `'MCP available: no — honor-system fallback'`. <!-- enforced by: requireRoles (mech 6) — server rejects bro identity; schema CHECK rejects wrong prefix -->
 
@@ -75,9 +75,9 @@ If you spot a recurring pattern at the push gate, append a bullet to **Living pa
 
 ## B. Spawning pr-reviewer (bro-side discipline)
 
-If your tool list omits `mcp__plugin_tmb_trajectory-server__validation_record`, write the row yourself via Bash sqlite3 (template in §A Path 2 above); the verdict row is always authored by pr-reviewer. <!-- LOAD-BEARING-SAFETY: pr-reviewer must write validation_attempts directly; delegating to bro is impersonation and is blocked by the auto-mode classifier -->
+If your tool list omits `mcp__plugin_tmb_trajectory-server__validation_record`, write the row yourself via the fallback script (§A Path 2 above); the verdict row is always authored by pr-reviewer. <!-- LOAD-BEARING-SAFETY: pr-reviewer must write validation_attempts directly; delegating to bro is impersonation and is blocked by the auto-mode classifier -->
 
-When bro spawns pr-reviewer, the prompt MUST contain task_id, commit_sha, branch_id, repo, and a one-line context summary. The prompt MUST NOT contain prior verdict text or rubber-stamp shortcuts. <!-- LOAD-BEARING-SAFETY: enforced by pr-reviewer-spawn-prompt-shape.sh PreToolUse hook (mech 3) -->
+The spawn prompt shape is enforced by `pr-reviewer-spawn-prompt-shape.sh`. <!-- LOAD-BEARING-SAFETY: enforced by pr-reviewer-spawn-prompt-shape.sh PreToolUse hook (mech 3) -->
 
 **Clean spawn prompt example:**
 ```
@@ -189,7 +189,7 @@ Format: `- <Pattern name> / Symptom: ... / Root cause: ... / Rule: ... / Check: 
 - **AskUserQuestion-default ignored**
   Symptom: Bro renders a 2–5 mutually-exclusive choice as markdown bullets and waits for prose, instead of calling AskUserQuestion.
   Root cause: Without an explicit doctrine entry, the LLM falls back to general-Claude prose-asking habits.
-  Rule: For any 2–5 mutually-exclusive discrete options, use AskUserQuestion (prose-explain in chat first). Skip AUQ for open-ended questions or when options number >5 — use prose. Labels ≤5 words; descriptions ≤15 words.
+  Rule: See **Asking the Human** in `CLAUDE.md`.
   Check: Bro offering a numbered list of choices and waiting for "1" / "2" / etc. — flag as a regression.
 
 ### Prompt authoring

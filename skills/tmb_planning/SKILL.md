@@ -89,7 +89,7 @@ task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, spec_body, ...}]
 
 `waive_scope_gate` is valid for truly trivial work (`'trivial: <what>'`) or headless mode (`'headless mode, defaults applied; <one-line scope summary>'`).
 
-Then spawn SWE with `isolation='worktree'` — the worktree is created for you on `<branch_id>` at `<workspace_root>/.claude/worktrees/<slug>` (slug = `<branch_id>` minus its `<type>/` prefix), where `<workspace_root>` is the directory holding `.claude/tmb/trajectory.db`. The worktree is git-attached to `task.repo` (or `tmb_default_repo`) via `git -C <repo>`, not to `<cwd>`. Pass that same absolute path so SWE lands in it:
+Then spawn SWE with `isolation='worktree'` — the server creates the worktree at `<workspace_root>/.claude/worktrees/<slug>` (where `workspace_root` is the directory holding `.claude/tmb/trajectory.db` and `slug` is `branch_id` minus its `<type>/` prefix). Pass that path so SWE lands in it:
 
 ```
 Task(subagent_type='swe', isolation='worktree',
@@ -117,12 +117,4 @@ Then spawn pr-reviewer for the push gate (see `tmb_review` §B). On PASS: `git p
 
 ## Headless overrides (TMB_HEADLESS=1)
 
-No Human in the loop — skip AUQs, apply the documented defaults, and record the fallback. After `branch_id_propose`, run step 2's "On Yes" block (issue_create + intent/note `discussion_append` + branch create) without the AUQs to get `<I>` and `<branch_id>`, then call `headless_intent_start(agent='bro', issue_id=<I>, branch_id=<branch_id>, intent_verbatim=<verbatim>, fallback_summary='<defaults applied>')`, then proceed to step 3.
-
-| AUQ | Default |
-|---|---|
-| Base-branch | `${pr_target}` |
-| Branch-id confirm | "Yes, proceed" |
-| Difficult Q+A | "proceed as proposed" |
-
-`tmb_skill-creator` and `/tmb:agent-create` from-scratch mode HALT in headless mode — silent skill/agent generation in CI is the foot-gun this guards.
+No Human in the loop — skip AUQs, apply the documented defaults (see `tmb_recovery` §A per-skill defaults table), and record the fallback. After `branch_id_propose`, run step 2's "On Yes" block (issue_create + intent/note `discussion_append` + branch create) without the AUQs to get `<I>` and `<branch_id>`, then call `headless_intent_start(agent='bro', issue_id=<I>, branch_id=<branch_id>, intent_verbatim=<verbatim>, fallback_summary='<defaults applied>')`, then proceed to step 3.

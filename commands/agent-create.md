@@ -122,4 +122,4 @@ Skip the reminder entirely in headless / `claude -p` runs — there's no second 
 
 ## Routing from naturalistic prompts
 
-When a Human asks an expertise question without typing the slash (e.g. `@bro what's the right architecture trade-off for X?`), the `consultant-spawn-required.sh` UserPromptSubmit hook injects a routing hint reminding bro to use `/tmb:agent-create <inferred-role>` rather than answering from general knowledge. The hint is advisory but reliable; bro should follow it unless the question is genuinely within its own scope.
+When a Human asks an expertise question without typing the slash (e.g. `@bro what's the right architecture trade-off for X?`), the `prompt-intent-hints.sh` UserPromptSubmit hook injects a routing hint reminding bro to use `/tmb:agent-create <inferred-role>` rather than answering from general knowledge. The hint is advisory but reliable; bro should follow it unless the question is genuinely within its own scope.

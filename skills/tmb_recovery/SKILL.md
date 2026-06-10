@@ -77,55 +77,25 @@ Two distinct failure modes — `mcp-health-check.sh` writes `"mode":"A"` or `"mo
 
 ### C.1 — MCP absent this session (Mode A)
 
-CC's plugin MCP-config cache wasn't invalidated after `/plugin disable` → re-enable or auto-update. The plugin's hooks/skills/agents load fine, but the MCP server is missing from CC's resolved-plugin list entirely — `/reload-plugins` does not fix it, and full quit + relaunch does not fix it either. CC persists the cached config to disk somewhere that survives process restart.
+The plugin's MCP server is missing from CC's resolved-plugin list — `/reload-plugins` and full quit + relaunch won't fix it because CC persists the cached config to disk. The `additionalContext` warning injected by `mcp-health-check.sh` at session start tells you if you're in Mode A.
 
-**Detection signal:** `mcp-health-check.sh` log line has `"event":"SessionStart","mcp_alive":false,"mode":"A"`, or any subsequent UserPromptSubmit in the same session keeps reporting `"mode":"A"`.
+<!-- LOAD-BEARING-SAFETY: halt-on-Mode-A is mandatory — state-writing tools are unreachable and silent degradation corrupts the audit trail -->
+**During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`bro-sqlite-readonly.sh`) is still available for emergency reads.
 
-**Recovery escalation — try IN ORDER, stop at the first that brings MCP back:**
+Recovery escalation — try IN ORDER, stop at the first that brings MCP back:
 
 1. `claude --plugin-dir <plugin-source>` — re-resolves the MCP config from disk with the plugin cache cleared.
 2. `/plugin uninstall tmb@trustmybot-rc`, quit CC fully, reinstall via `/plugin install tmb@trustmybot-rc`.
-3. Manual cache nuke: `rm -rf ~/.claude/plugins/cache/trustmybot-rc/` + remove the `tmb@trustmybot-rc` entry from `~/.claude/plugins/installed_plugins.json`, relaunch, reinstall. The `scripts/maintenance/heal-mcp-cache.sh` helper does this interactively with a dry-run preview.
-
-<!-- LOAD-BEARING-SAFETY: halt-on-Mode-A is mandatory — state-writing tools are unreachable and silent degradation corrupts the audit trail -->
-**During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`bro-sqlite-readonly.sh`) is still available for emergency reads; write attempts will silently fail in this mode.
+3. `scripts/maintenance/heal-mcp-cache.sh` — interactive cache nuke with dry-run preview.
 
 ### C.2 — MCP died mid-session (Mode B)
 
-The MCP child process was alive at SessionStart but is now gone — crashed, OOM-killed, or `pkill`ed. Distinct from Mode A in that CC's resolved-plugin list is correct; the process just needs to be re-spawned.
+The MCP child process was alive at session start but is now gone. Distinct from Mode A: CC's plugin list is correct; the process just needs to be re-spawned. The `additionalContext` from `mcp-health-check.sh` distinguishes Mode B from Mode A and from §B errors (forbidden/validation/constraint — those mean the server IS running and rejected bad input).
 
-**Detection signal:** an `mcp__plugin_tmb_*` tool returns `is_error: true` with content matching `"no matching deferred tools"`, OR `mcp-health-check.sh` log shows `"event":"UserPromptSubmit","mcp_alive":false,"mode":"B"`. This is distinct from `forbidden` / `validation` / constraint errors — those mean the server IS running and rejected bad input (use §B).
-
-**Degraded-mode notice (mandatory, once per session):**
-
-> **MCP trajectory-server is unreachable.** Falling back to direct sqlite3 reads. Writes are blocked. To restore: kill any zombie node process (`pkill -f 'trajectory-server/dist/index.js'`) then restart Claude Code. If a fresh restart doesn't recover MCP, you've crossed into Mode A — see C.1.
-
-**Read fallback:** `${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh`. Parse stdout as JSON — same shape as the corresponding MCP tool.
-
-| MCP tool | Bash invocation |
-|---|---|
-| `issue_resume` | `bro-sqlite-readonly.sh issue_resume '{"issue_id":"<N>"}'` |
-| `issue_get` | `bro-sqlite-readonly.sh issue_get '{"issue_id":"<N>"}'` |
-| `issue_get_phase` | `bro-sqlite-readonly.sh issue_get_phase '{"issue_id":"<N>"}'` |
-| `task_get` | `bro-sqlite-readonly.sh task_get '{"task_id":"<N>"}'` |
-| `task_first_actionable` | `bro-sqlite-readonly.sh task_first_actionable '{"issue_id":"<N>"}'` |
-| `config_get` | `bro-sqlite-readonly.sh config_get '{"key":"<key>"}'` |
-| `config_list` | `bro-sqlite-readonly.sh config_list '{}'` |
-
-**Write tools — refused in degraded mode.** Any tool not in the read list returns:
-
-```json
-{
-  "error": "degraded-mode-readonly",
-  "requested": "<tool_name>",
-  "recovery": "MCP is dead. Kill zombie: pkill -f 'trajectory-server/dist/index.js' then restart Claude Code."
-}
-```
-
-Writes need MCP transaction guarantees + role enforcement. Surface the refusal to the Human.
+**Read fallback:** `${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh <tool_name> [json_args]`. Run `--list` to see supported tools. Parse stdout as JSON — same shape as the corresponding MCP tool. Write tools are refused with a structured error; surface the refusal to the Human.
 
 **Recovery:**
 
 1. `pkill -f 'trajectory-server/dist/index.js'` — kill zombie node.
 2. Restart Claude Code — server re-spawns on fresh session.
-3. Verify: first `mcp__plugin_tmb_*` call should succeed. If it doesn't, the failure has escalated into Mode A — follow C.1.
+3. If the first `mcp__plugin_tmb_*` call still fails, the failure has escalated into Mode A — follow C.1.
