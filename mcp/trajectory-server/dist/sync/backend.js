@@ -1,8 +1,19 @@
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-export function detectAvailable() {
+import { liveCliBlockReason } from '../utils/live-cli-guard.js';
+let _availabilityCache = null;
+export function detectAvailable(_spawnFn) {
+    if (_spawnFn === undefined && _availabilityCache !== null) {
+        return _availabilityCache;
+    }
     const check = (cmd, args) => {
         try {
+            if (_spawnFn) {
+                const result = _spawnFn(cmd, args);
+                return result.status === 0;
+            }
+            if (liveCliBlockReason())
+                return false;
             const result = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' });
             return result.status === 0;
         }
@@ -10,10 +21,14 @@ export function detectAvailable() {
             return false;
         }
     };
-    return {
+    const result = {
         gh: check('gh', ['auth', 'status']),
         glab: check('glab', ['auth', 'status']),
     };
+    if (_spawnFn === undefined) {
+        _availabilityCache = result;
+    }
+    return result;
 }
 export function detectPreferred() {
     try {

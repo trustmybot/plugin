@@ -11,6 +11,10 @@ export async function embed(text: string): Promise<Float32Array | null> {
       const { pipeline, env } = await import('@huggingface/transformers');
       env.cacheDir = process.env.HF_HOME ?? join(homedir(), '.cache', 'huggingface');
       pipelinePromise = pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5');
+      pipelinePromise.catch(() => {
+        loadFailed = true;
+        pipelinePromise = null;
+      });
     } catch (e) {
       console.error('[embeddings] model load failed:', e);
       loadFailed = true;
@@ -23,6 +27,8 @@ export async function embed(text: string): Promise<Float32Array | null> {
     return new Float32Array(result.data);
   } catch (e) {
     console.error('[embeddings] embed failed:', e);
+    loadFailed = true;
+    pipelinePromise = null;
     return null;
   }
 }

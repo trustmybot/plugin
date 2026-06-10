@@ -204,6 +204,21 @@ export function issueTools(db, dbPath = '') {
                 required: ['agent', 'issue_id'],
             },
         },
+        {
+            name: 'issue_link',
+            description: 'Record a remote issue linkage (gh_iid/gl_iid) for a manually-mirrored issue. Bro only. Rejects if the backend iid is already set unless force=true.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
+                    issue_id: { type: 'string', description: 'Local issue ID' },
+                    backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Remote backend' },
+                    iid: { type: 'number', description: 'Remote issue number' },
+                    force: { type: 'boolean', description: 'Overwrite existing iid if already set (default false)' },
+                },
+                required: ['agent', 'issue_id', 'backend', 'iid'],
+            },
+        },
     ];
     const handlers = {
         issue_create: requireRoles('issue_create', ['bro'], wrapHandler(async (args) => {
@@ -375,10 +390,17 @@ export function issueTools(db, dbPath = '') {
                 }
             }
             else {
-                // #2871 Bug 1 — work env had `issue_sync='off'` while origin pointed at
-                // GitLab; issues silently never reached the remote. Surface a warning
-                // when the project clearly looks remote-tracked (git origin is gh/glab)
-                // but sync is disabled, so bro can mention it instead of hiding the drift.
+                // issue_sync='off' — leave a retryable audit marker so issue_sync_retry
+                // can later create remotes once sync is re-enabled (#336).
+                db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (?, 'executor', 'sync_skipped', ?, ?, ?)`, [
+                    issueId,
+                    `issue ${issueId} sync skipped: issue_sync is off`,
+                    JSON.stringify({ issue_id: issueId, reason: 'issue_sync_off' }),
+                    nowISO(),
+                ]);
+                // Surface a warning when the project clearly looks remote-tracked (git
+                // origin is gh/glab) but sync is disabled, so bro can mention the drift.
                 const preferred = detectPreferred();
                 if (preferred !== null) {
                     syncDiagnostic = {
@@ -523,6 +545,8 @@ export function issueTools(db, dbPath = '') {
         })),
         issue_sync_retry: requireRoles('issue_sync_retry', ['bro'], wrapHandler(async (args) => {
             const issueId = requireArg(args, 'issue_id');
+            // _spawnFn: test-only injection point; not in inputSchema
+            const spawnFn = args['_spawnFn'] ?? undefined;
             const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             if (!row) {
                 return err(`not_found: issue ${issueId}`);
@@ -534,7 +558,7 @@ export function issueTools(db, dbPath = '') {
             if (syncConfig === 'off') {
                 return ok({ skipped: true, reason: 'issue_sync is off' });
             }
-            const backend = resolveBackend(syncConfig);
+            const backend = resolveBackend(syncConfig, !!spawnFn);
             if (backend === null || backend === 'off') {
                 return ok({ skipped: true, reason: 'no remote backend configured' });
             }
@@ -562,6 +586,7 @@ export function issueTools(db, dbPath = '') {
                     const closeResult = await syncIssueClose({
                         remote_iid: target.remote_iid,
                         remote_kind: target.remote_kind,
+                        _spawnFn: spawnFn,
                         _cwd: retryCwd,
                     });
                     if (!closeResult.ok) {
@@ -580,37 +605,98 @@ export function issueTools(db, dbPath = '') {
                 }
                 return ok({ action: 'close', success: false, errors: closeErrors });
             }
-            const syncResult = await syncIssueCreate({
-                issueId: row.id,
-                title: issue.objective,
-                body: row.description,
-                // Labels are not persisted locally (always-empty in production).
-                // Remote retry can't restore lost labels; pass empty.
-                labels: [],
-                _backend: backend,
-                // Workspace-pattern projects need glab/gh shellouts to run inside
-                // one of the discovered repos, not the workspace root which isn't
-                // a git repo. resolveSpawnCwd reads tmb_default_repo.
-                _cwd: resolveSpawnCwd(db, dbPath),
-            });
-            if (!isSyncFailure(syncResult)) {
-                const retryGhIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
-                const retryGlIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
-                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]);
-                return ok({ action: 'create', success: true, remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind });
+            // Only retry backends whose iid column is NULL — mirrors the close path's
+            // resolution (issues.ts:616-626). Prevents duplicate remote creates when
+            // one backend already succeeded in a prior attempt.
+            const retryCwd = resolveSpawnCwd(db, dbPath);
+            const createTargets = [];
+            if (backend === 'gh' || backend === 'both') {
+                if (row.gh_iid == null && !(row.remote_kind === 'github' && row.remote_iid != null)) {
+                    createTargets.push('gh');
+                }
+            }
+            if (backend === 'glab' || backend === 'both') {
+                if (row.gl_iid == null && !(row.remote_kind === 'gitlab' && row.remote_iid != null)) {
+                    createTargets.push('glab');
+                }
+            }
+            if (createTargets.length === 0) {
+                return ok({ action: 'create', success: true, skipped: true, reason: 'already_synced' });
+            }
+            const createErrors = [];
+            let lastSuccess = null;
+            for (const target of createTargets) {
+                const syncResult = await syncIssueCreate({
+                    issueId: row.id,
+                    title: issue.objective,
+                    body: row.description,
+                    labels: [],
+                    _backend: target,
+                    _spawnFn: spawnFn,
+                    _cwd: retryCwd,
+                });
+                if (!isSyncFailure(syncResult)) {
+                    lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };
+                    const retryGhIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
+                    const retryGlIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
+                    db.run(`UPDATE issues SET remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]);
+                }
+                else {
+                    createErrors.push({
+                        backend: syncResult.backend,
+                        reason: syncResult.reason,
+                        exit_code: syncResult.exit_code,
+                        stderr: syncResult.stderr?.slice(0, 4096),
+                        stdout: syncResult.stdout?.slice(0, 4096),
+                        message: syncResult.message,
+                    });
+                }
+            }
+            if (createErrors.length === 0 && lastSuccess !== null) {
+                return ok({ action: 'create', success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+            }
+            if (lastSuccess !== null) {
+                return ok({ action: 'create', success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
             }
             return ok({
                 action: 'create',
                 success: false,
-                error: {
-                    reason: syncResult.reason,
-                    backend: syncResult.backend,
-                    exit_code: syncResult.exit_code,
-                    stderr: syncResult.stderr?.slice(0, 4096),
-                    stdout: syncResult.stdout?.slice(0, 4096),
-                    message: syncResult.message,
-                },
+                errors: createErrors,
             });
+        })),
+        issue_link: requireRoles('issue_link', ['bro'], wrapHandler(async (args) => {
+            const issueId = requireArg(args, 'issue_id');
+            const backend = requireArg(args, 'backend');
+            const iid = requireArg(args, 'iid');
+            const force = args['force'] ?? false;
+            if (!Number.isInteger(iid) || iid <= 0) {
+                return err(`invalid iid: must be a positive integer`);
+            }
+            const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            if (!row) {
+                return err(`not_found: issue ${issueId}`);
+            }
+            const iidColumn = backend === 'github' ? 'gh_iid' : 'gl_iid';
+            const existingIid = backend === 'github' ? row.gh_iid : row.gl_iid;
+            if (existingIid != null && !force) {
+                return err(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} — pass force=true to overwrite`);
+            }
+            const now = nowISO();
+            if (backend === 'github') {
+                db.run(`UPDATE issues SET gh_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`, [iid, iid, now, issueId]);
+            }
+            else {
+                db.run(`UPDATE issues SET gl_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`, [iid, iid, now, issueId]);
+            }
+            db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`, [
+                parseInt(issueId, 10),
+                `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ''}`,
+                JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
+                now,
+            ]);
+            const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+            return ok({ linked: true, backend, iid, issue: decodeIssue(updated) });
         })),
     };
     return { definitions, handlers };

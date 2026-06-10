@@ -276,6 +276,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const closeResult = await call(tools.handlers, 'issue_close', {
       agent: 'bro',
       issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([{ status: 0, stdout: '', stderr: '' }]),
     });
     const closed = parseResult(closeResult);
     assert.ok(!closeResult.isError, 'issue_close should succeed with gh_iid set');
@@ -302,6 +303,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const closeResult = await call(tools.handlers, 'issue_close', {
       agent: 'bro',
       issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([{ status: 0, stdout: '', stderr: '' }]),
     });
     const closed = parseResult(closeResult);
     assert.ok(!closeResult.isError, 'issue_close should succeed with gl_iid set');
@@ -444,6 +446,7 @@ describe('issueTools — remote sync', () => {
     const closeResult = await call(tools.handlers, 'issue_close', {
       agent: 'bro',
       issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated remote close failure' }]),
     });
     const closed = parseResult(closeResult);
     assert.ok(!closeResult.isError, 'issue_close should be non-fatal even if remote close fails');
@@ -724,6 +727,197 @@ describe('issueTools — issue-sync hardening (#314)', () => {
     assert.ok(issue._sync, 'sync diagnostic must be present');
     assert.equal(issue._sync.sync_failed, true);
     assert.equal(issue._sync.reason, 'verify_failed');
+
+    db.close();
+  });
+});
+
+describe('issue_link (#336)', () => {
+  it('records gh_iid for a manually-mirrored issue', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'manual mirror' });
+    const issue = parseResult(createResult);
+
+    const linkResult = await call(tools.handlers, 'issue_link', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+      backend: 'github',
+      iid: 99,
+    });
+    const linked = parseResult(linkResult);
+    assert.ok(!linkResult.isError, `Expected no error: ${JSON.stringify(linked)}`);
+    assert.equal(linked.linked, true);
+    assert.equal(linked.backend, 'github');
+    assert.equal(linked.iid, 99);
+
+    const row = db.get<{ gh_iid: number | null; remote_iid: number | null; remote_kind: string | null }>(
+      'SELECT gh_iid, remote_iid, remote_kind FROM issues WHERE id = ?', [issue.id],
+    );
+    assert.equal(row?.gh_iid, 99);
+    assert.equal(row?.remote_iid, 99);
+    assert.equal(row?.remote_kind, 'github');
+
+    db.close();
+  });
+
+  it('rejects double-link without force=true', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'double link test' });
+    const issue = parseResult(createResult);
+
+    await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 42 });
+
+    const second = await call(tools.handlers, 'issue_link', {
+      agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 99,
+    });
+    assert.ok(second.isError, 'second link without force must be rejected');
+    const msg = parseResult(second as RawResult);
+    assert.ok((msg.error as string).includes('already_linked'));
+
+    db.close();
+  });
+
+  it('allows overwrite with force=true', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'force link test' });
+    const issue = parseResult(createResult);
+
+    await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 42 });
+
+    const overwrite = await call(tools.handlers, 'issue_link', {
+      agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 99, force: true,
+    });
+    assert.ok(!overwrite.isError);
+    const row = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issue.id]);
+    assert.equal(row?.gh_iid, 99);
+
+    db.close();
+  });
+
+  it('emits issue_linked audit row on success', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'audit test' });
+    const issue = parseResult(createResult);
+
+    await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'gitlab', iid: 77 });
+
+    const auditRow = db.get<{ event_type: string; summary: string }>(
+      `SELECT event_type, summary FROM audit WHERE issue_id = ? AND event_type = 'issue_linked'`,
+      [issue.id],
+    );
+    assert.ok(auditRow, 'audit row must exist');
+    assert.equal(auditRow.event_type, 'issue_linked');
+    assert.ok(auditRow.summary.includes('77'));
+
+    db.close();
+  });
+
+  it('rejects swe caller', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'role guard test' });
+    const issue = parseResult(createResult);
+
+    const result = await call(tools.handlers, 'issue_link', {
+      agent: 'swe', issue_id: String(issue.id), backend: 'github', iid: 10,
+    });
+    assert.ok(result.isError, 'swe must be forbidden from issue_link');
+
+    db.close();
+  });
+});
+
+describe('issue_sync_retry — partial create only missing backend (#345)', () => {
+  it('returns already_synced when all backends have iids set', async () => {
+    const db = tempDB();
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'already synced test',
+      _spawnFn: makeSpawnFn([
+        { status: 1, stdout: '', stderr: 'simulated gh create failure' },
+        { status: 1, stdout: '', stderr: 'simulated glab create failure' },
+      ]),
+    });
+    const issue = parseResult(createResult);
+
+    db.run('UPDATE issues SET gh_iid = 10, gl_iid = 20, remote_iid = 10, remote_kind = ? WHERE id = ?', ['github', issue.id]);
+
+    const retryResult = await call(tools.handlers, 'issue_sync_retry', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([]),
+    });
+    const data = parseResult(retryResult);
+    assert.ok(!retryResult.isError);
+    assert.equal(data.skipped, true);
+    assert.equal(data.reason, 'already_synced');
+
+    db.close();
+  });
+
+  it('gh_iid preserved after retry when gh already synced', async () => {
+    const db = tempDB();
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'partial sync gh done',
+      _spawnFn: makeSpawnFn([
+        { status: 1, stdout: '', stderr: 'simulated gh create failure' },
+        { status: 1, stdout: '', stderr: 'simulated glab create failure' },
+      ]),
+    });
+    const issue = parseResult(createResult);
+
+    db.run('UPDATE issues SET gh_iid = 55, remote_iid = 55, remote_kind = ? WHERE id = ?', ['github', issue.id]);
+
+    const retryResult = await call(tools.handlers, 'issue_sync_retry', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+      _spawnFn: makeSpawnFn([
+        { status: 0, stdout: 'https://gitlab.com/owner/repo/-/issues/20\n', stderr: '' },
+        { status: 0, stdout: 'issue 20 details', stderr: '' },
+      ]),
+    });
+    assert.ok(!retryResult.isError, 'retry must not error');
+
+    const rowAfter = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issue.id]);
+    assert.equal(rowAfter?.gh_iid, 55, 'gh_iid must not be overwritten by retry');
+
+    db.close();
+  });
+});
+
+describe('issue_create sync_skipped audit marker (#336)', () => {
+  it('writes sync_skipped audit row when issue_sync=off', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'off sync test' });
+    const issue = parseResult(createResult);
+    assert.ok(!createResult.isError);
+
+    const auditRow = db.get<{ event_type: string }>(
+      `SELECT event_type FROM audit WHERE issue_id = ? AND event_type = 'sync_skipped'`,
+      [issue.id],
+    );
+    assert.ok(auditRow, 'sync_skipped audit row must exist when issue_sync=off');
+    assert.equal(auditRow.event_type, 'sync_skipped');
 
     db.close();
   });

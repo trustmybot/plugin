@@ -28,8 +28,8 @@ const INSERT_SQL: Record<string, string> = {
 };
 
 const SELECT_SQL: Record<string, string> = {
-  discussions: 'SELECT discussion_id AS rowid, embedding FROM discussions_embeddings',
-  audit:       'SELECT audit_id AS rowid, embedding FROM audit_embeddings',
+  discussions: 'SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?',
+  audit:       'SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?',
 };
 
 export type EmbeddableTable = 'discussions' | 'audit';
@@ -55,11 +55,14 @@ export async function topKByCosine(
   const qv = await embed(query);
   if (qv === null) return [];
   const sql = SELECT_SQL[table]!;
-  const rows = db.all<{ rowid: number; embedding: Buffer }>(sql);
-  const scored = rows.map((r) => ({
-    rowid: r.rowid,
-    score: cosine(qv, unpackEmbedding(r.embedding)),
-  }));
+  const rows = db.all<{ rowid: number; embedding: Buffer }>(sql, [MODEL_ID]);
+  const scored = rows
+    .map((r) => {
+      const v = unpackEmbedding(r.embedding);
+      if (v.length !== qv.length) return null;
+      return { rowid: r.rowid, score: cosine(qv, v) };
+    })
+    .filter((r): r is { rowid: number; score: number } => r !== null);
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, k);
 }

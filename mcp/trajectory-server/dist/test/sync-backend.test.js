@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveBackend } from '../sync/backend.js';
+import { resolveBackend, detectAvailable } from '../sync/backend.js';
 describe('resolveBackend', () => {
     let savedEnv;
     before(() => {
@@ -57,6 +57,30 @@ describe('resolveBackend — hasSpawnFn bypasses TMB_DISABLE_REMOTE_SYNC', () =>
     it('still returns null when hasSpawnFn=false and TMB_DISABLE_REMOTE_SYNC=1', () => {
         const result = resolveBackend('gh', false);
         assert.equal(result, null);
+    });
+});
+describe('detectAvailable — caching (#365)', () => {
+    it('injected spawnFn bypasses module-level cache and returns correct availability', () => {
+        const spawnFn = (cmd, args) => {
+            if (cmd === 'gh' && args[0] === 'auth')
+                return { status: 0 };
+            if (cmd === 'glab' && args[0] === 'auth')
+                return { status: 1 };
+            return { status: 1 };
+        };
+        const first = detectAvailable(spawnFn);
+        const second = detectAvailable(spawnFn);
+        assert.equal(first.gh, true);
+        assert.equal(first.glab, false);
+        assert.equal(second.gh, true);
+        assert.equal(second.glab, false);
+    });
+    it('two calls with no spawnFn use the module-level cache — results are consistent', () => {
+        const r1 = detectAvailable();
+        const r2 = detectAvailable();
+        assert.equal(typeof r1.gh, 'boolean');
+        assert.equal(r1.gh, r2.gh);
+        assert.equal(r1.glab, r2.glab);
     });
 });
 //# sourceMappingURL=sync-backend.test.js.map

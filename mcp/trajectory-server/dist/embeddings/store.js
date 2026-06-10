@@ -24,8 +24,8 @@ const INSERT_SQL = {
     audit: 'INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)',
 };
 const SELECT_SQL = {
-    discussions: 'SELECT discussion_id AS rowid, embedding FROM discussions_embeddings',
-    audit: 'SELECT audit_id AS rowid, embedding FROM audit_embeddings',
+    discussions: 'SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?',
+    audit: 'SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?',
 };
 export async function embedAndStore(db, table, rowid, text) {
     const v = await embed(text);
@@ -39,11 +39,15 @@ export async function topKByCosine(db, table, query, k) {
     if (qv === null)
         return [];
     const sql = SELECT_SQL[table];
-    const rows = db.all(sql);
-    const scored = rows.map((r) => ({
-        rowid: r.rowid,
-        score: cosine(qv, unpackEmbedding(r.embedding)),
-    }));
+    const rows = db.all(sql, [MODEL_ID]);
+    const scored = rows
+        .map((r) => {
+        const v = unpackEmbedding(r.embedding);
+        if (v.length !== qv.length)
+            return null;
+        return { rowid: r.rowid, score: cosine(qv, v) };
+    })
+        .filter((r) => r !== null);
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, k);
 }
