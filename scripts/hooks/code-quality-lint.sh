@@ -93,7 +93,7 @@ case "$EXT" in
       push "catch (e: any) — use 'unknown' and narrow with instanceof"
     fi
     # template-string SQL with interpolation
-    if echo "$CONTENT" | grep -qE '\`(SELECT|INSERT|UPDATE|DELETE|MERGE)[^`]*[$][{]'; then
+    if echo "$CONTENT" | grep -qE '`(SELECT|INSERT|UPDATE|DELETE|MERGE)[^`]*[$][{]'; then
       push "template-string SQL with \${...} — use parameterized queries"
     fi
     # setTimeout with string
