@@ -130,7 +130,7 @@ Re-render Round 1 once. Trust the user's second answer.
 
 ## Headless mode
 
-`/onboard` is interactive by definition. If `TMB_HEADLESS=1` or AskUserQuestion errors:
+`/onboard` is interactive by definition. If `TMB_HEADLESS=1` or AskUserQuestion errors, Step 1 (`onboard_state_get`) still runs — the halt-reply must cite the current shape. Then:
 
 ```
 audit_log(agent='bro', from_node='bro', issue_id='-1',
