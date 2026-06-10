@@ -52,27 +52,27 @@ assert_eq "" "$out" "hook output for non-SWE"
 
 test_case "SWE without task_id token in prompt is blocked"
 out=$(run_hook "$(swe_input 'please do the thing')")
-assert_contains "$out" '"decision":"block"' "block decision"
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 assert_contains "$out" "SWE spawn requires task_id" "reason cites missing task_id"
 
 test_case "SWE with task_id for nonexistent row is blocked"
 out=$(run_hook "$(swe_input 'task_id=9999 please do the thing')")
-assert_contains "$out" '"decision":"block"' "block decision"
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 assert_contains "$out" "does not exist in the tasks table" "reason cites missing row"
 
 test_case "SWE with task_id referencing a completed task is blocked"
 out=$(run_hook "$(swe_input 'task_id=4 please do the thing')")
-assert_contains "$out" '"decision":"block"' "block decision"
-assert_contains "$out" "has status='completed'" "reason cites wrong status"
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "status=completed" "reason cites wrong status"
 
 test_case "SWE with task_id referencing an in_progress task is blocked"
 out=$(run_hook "$(swe_input 'task_id=5 please do the thing')")
-assert_contains "$out" '"decision":"block"' "block decision"
-assert_contains "$out" "has status='in_progress'" "reason cites wrong status"
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "status=in_progress" "reason cites wrong status"
 
 test_case "SWE with pending task that has empty spec_body is blocked"
 out=$(run_hook "$(swe_input 'task_id=2 please do the thing')")
-assert_contains "$out" '"decision":"block"' "block decision"
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 assert_contains "$out" "has empty spec_body" "reason cites missing body"
 
 test_case "SWE with pending task and non-empty body passes silently"
@@ -89,7 +89,7 @@ assert_eq "" "$out" "first token is valid -> passes"
 
 test_case "missing trajectory.db is blocked with clear reason"
 out=$(run_hook_env "$(swe_input 'task_id=1')" "TRAJECTORY_DB_PATH" "$TMPDIR/nonexistent.db")
-assert_contains "$out" '"decision":"block"' "block decision"
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 assert_contains "$out" "trajectory.db not found" "reason cites missing DB"
 
 summarize

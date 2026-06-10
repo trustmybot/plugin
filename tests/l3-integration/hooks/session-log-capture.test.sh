@@ -27,13 +27,11 @@ run_hook() {
 
 # ---- happy path ----
 
-test_case "creates log file and appends JSONL event line"
+test_case "creates log file and appends JSONL event line (stdin session_id)"
 WS="$TMPDIR/ws1"
 setup_workspace "$WS"
-SENTINEL="$WS/.claude/tmb/.current-session-id"
-printf 'test-session-001' > "$SENTINEL"
 
-INPUT='{"prompt":"hello world","additionalContext":"some ctx"}'
+INPUT='{"prompt":"hello world","additionalContext":"some ctx","session_id":"test-session-001"}'
 out=$(run_hook "$INPUT")
 assert_contains "$out" '"continue": true' "emits continue"
 
@@ -50,33 +48,42 @@ assert_contains "$LINE" '"ts"' "timestamp field present"
 test_case "appends multiple lines on repeated invocation"
 WS="$TMPDIR/ws2"
 setup_workspace "$WS"
-SENTINEL="$WS/.claude/tmb/.current-session-id"
-printf 'test-session-002' > "$SENTINEL"
 
-run_hook '{"prompt":"first"}' >/dev/null
-run_hook '{"prompt":"second"}' >/dev/null
+run_hook '{"prompt":"first","session_id":"test-session-002"}' >/dev/null
+run_hook '{"prompt":"second","session_id":"test-session-002"}' >/dev/null
 
 TODAY=$(date -u +%Y-%m-%d)
 LOG="$WS/.claude/tmb/logs/${TODAY}-test-session-002.jsonl"
 LINE_COUNT=$(wc -l < "$LOG" | tr -d ' ')
 assert_eq "2" "$LINE_COUNT" "two lines in log"
 
-test_case "auto-creates session sentinel if missing"
+test_case "falls back to sentinel file when no session_id on stdin"
 WS="$TMPDIR/ws3"
+setup_workspace "$WS"
+SENTINEL="$WS/.claude/tmb/.current-session-id"
+printf 'sentinel-session-003' > "$SENTINEL"
+
+run_hook '{"prompt":"sentinel fallback"}' >/dev/null
+
+TODAY=$(date -u +%Y-%m-%d)
+LOG="$WS/.claude/tmb/logs/${TODAY}-sentinel-session-003.jsonl"
+if [ -f "$LOG" ]; then _pass; else _fail "log file not found at $LOG using sentinel session_id"; fi
+
+test_case "generates fallback session_id when neither stdin nor sentinel available"
+WS="$TMPDIR/ws4"
 setup_workspace "$WS"
 SENTINEL="$WS/.claude/tmb/.current-session-id"
 [ ! -f "$SENTINEL" ] || rm "$SENTINEL"
 
 run_hook '{"prompt":"auto session"}' >/dev/null
 
-[ -f "$SENTINEL" ] || { echo "FAIL: sentinel not created"; exit 1; }
-SESSION_ID=$(cat "$SENTINEL")
-[ -n "$SESSION_ID" ] || { echo "FAIL: sentinel is empty"; exit 1; }
-
 TODAY=$(date -u +%Y-%m-%d)
-LOG="$WS/.claude/tmb/logs/${TODAY}-${SESSION_ID}.jsonl"
-[ -f "$LOG" ] || { echo "FAIL: log file not found at $LOG"; exit 1; }
-echo "  sentinel=$SESSION_ID"
+LOG_COUNT=$(ls "$WS/.claude/tmb/logs/${TODAY}-"*.jsonl 2>/dev/null | wc -l | tr -d ' ')
+if [ "$LOG_COUNT" -ge 1 ]; then
+  _pass
+else
+  _fail "no log file created for auto-generated session_id"
+fi
 
 # ---- no-op path ----
 

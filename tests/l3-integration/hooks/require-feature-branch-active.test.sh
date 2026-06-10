@@ -87,7 +87,7 @@ db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "fix/1-foo"
 payload=$(make_payload "swe" "task_id=1 You are SWE.")
 out=$(run_hook "$payload" "$db")
-assert_not_contains "$out" '"decision":"block"' "branch exists (main stays on base) must not be blocked"
+assert_not_contains "$out" '"permissionDecision":"deny"' "branch exists (main stays on base) must not be blocked"
 cleanup
 
 test_case "branch missing blocks: task expects fix/1-foo but it was never created"
@@ -96,7 +96,7 @@ db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "fix/1-foo"
 payload=$(make_payload "swe" "task_id=1 You are SWE.")
 out=$(run_hook "$payload" "$db")
-assert_contains "$out" '"decision":"block"' "missing branch must produce block decision"
+assert_contains "$out" '"permissionDecision":"deny"' "missing branch must produce deny decision"
 assert_contains "$out" "fix/1-foo" "block message must name the expected branch"
 assert_contains "$out" "exist" "block message must say the branch must exist"
 cleanup
@@ -107,7 +107,7 @@ db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "fix/1-foo"
 payload=$(make_payload "architect" "task_id=1 You are architect.")
 out=$(run_hook "$payload" "$db")
-assert_not_contains "$out" '"decision":"block"' "non-swe agent must not be blocked"
+assert_not_contains "$out" '"permissionDecision":"deny"' "non-swe agent must not be blocked"
 cleanup
 
 test_case "no task_id in prompt passes: require-task-spec.sh handles it"
@@ -116,14 +116,14 @@ db=$(setup_db "$REPO_PATH")
 insert_task "$db" 1 "fix/1-foo"
 payload=$(make_payload "swe" "You are SWE but no task_id here.")
 out=$(run_hook "$payload" "$db")
-assert_not_contains "$out" '"decision":"block"' "missing task_id must not be blocked by this hook"
+assert_not_contains "$out" '"permissionDecision":"deny"' "missing task_id must not be blocked by this hook"
 cleanup
 
 test_case "missing DB passes: not a TMB project"
 setup_repo "dev"
 payload=$(make_payload "swe" "task_id=1 You are SWE.")
 out=$(run_hook "$payload" "/nonexistent/trajectory.db")
-assert_not_contains "$out" '"decision":"block"' "missing DB must not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "missing DB must not block"
 cleanup
 
 test_case "bypass env var passes: TMB_ALLOW_BRANCH_MISMATCH=1 overrides block"
@@ -135,7 +135,7 @@ out=$(
   cd "$REPO_PATH" || exit 1
   echo "$payload" | TRAJECTORY_DB_PATH="$db" TMB_ALLOW_BRANCH_MISMATCH=1 bash "$HOOK" 2>&1 || true
 )
-assert_not_contains "$out" '"decision":"block"' "bypass env var must suppress block even on mismatch"
+assert_not_contains "$out" '"permissionDecision":"deny"' "bypass env var must suppress block even on mismatch"
 cleanup
 
 test_case "TMB workspace shape: tasks.repo=null + tmb_default_repo='plugin' + branch exists → passes"
@@ -165,7 +165,7 @@ sqlite3 "$WS_DB" "
 REPO_PATH="$INNER_REPO"
 payload=$(make_payload "swe" "task_id=10 You are SWE.")
 out=$(run_hook "$payload" "$WS_DB")
-assert_not_contains "$out" '"decision":"block"' "TMB workspace shape with default_repo set + branch exists must not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "TMB workspace shape with default_repo set + branch exists must not block"
 rm -rf "$WORKSPACE"
 REPO_PATH=""
 
@@ -194,7 +194,7 @@ sqlite3 "$WS_DB" "
 REPO_PATH="$WORKSPACE"
 payload=$(make_payload "swe" "task_id=11 You are SWE.")
 out=$(run_hook "$payload" "$WS_DB")
-assert_contains "$out" '"decision":"block"' "TMB workspace with no default_repo and no .git at workspace root must block"
+assert_contains "$out" '"permissionDecision":"deny"' "TMB workspace with no default_repo and no .git at workspace root must block"
 assert_contains "$out" "tmb_default_repo" "block message must mention tmb_default_repo config key"
 assert_contains "$out" "config_set" "block message must suggest config_set remedy"
 rm -rf "$WORKSPACE"

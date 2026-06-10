@@ -26,7 +26,7 @@ sqlite3 "$DB_RTS" "
 test_case "require-task-spec: tmb:swe prefix is treated as swe (blocked without task_id)"
 out=$(echo '{"tool_input":{"subagent_type":"tmb:swe","prompt":"do the thing"}}' \
   | TRAJECTORY_DB_PATH="$DB_RTS" bash "$HOOK_RTS" 2>&1 || true)
-assert_contains "$out" '"decision":"block"' "tmb:swe without task_id must be blocked"
+assert_contains "$out" '"permissionDecision":"deny"' "tmb:swe without task_id must be blocked"
 assert_contains "$out" "SWE spawn requires task_id" "block reason cites missing task_id"
 
 test_case "require-task-spec: tmb:swe prefix with valid task passes silently"

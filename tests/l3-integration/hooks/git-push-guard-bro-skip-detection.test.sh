@@ -106,7 +106,7 @@ set_pr_target "$db" "dev"
 insert_closed_task "$db" "$COMMIT_SHA"
 # No validation_attempts row — simulates bro skipping pr-reviewer
 out=$(run_hook "git push -u origin chore/audit-fix-42" "$db")
-assert_contains "$out" '"decision":"block"' "push without pr-reviewer verdict must be blocked"
+assert_contains "$out" '"permissionDecision":"deny"' "push without pr-reviewer verdict must be blocked"
 assert_contains "$out" "task_id=42" "block message must name the unsigned task"
 assert_contains "$out" "review before push" "block message must direct to review path"
 cleanup
@@ -118,7 +118,7 @@ set_pr_target "$db" "dev"
 insert_closed_task "$db" "$COMMIT_SHA"
 sign_task "$db" 42
 out=$(run_hook "git push -u origin chore/audit-fix-42" "$db")
-assert_not_contains "$out" '"decision":"block"' "push with pr-reviewer pass verdict must be allowed"
+assert_not_contains "$out" '"permissionDecision":"deny"' "push with pr-reviewer pass verdict must be allowed"
 cleanup
 
 test_case "!2899 regression: multiple unsigned tasks on new branch — all blocked"
@@ -141,7 +141,7 @@ sqlite3 "$db" "
 " >/dev/null
 # Neither signed
 out=$(run_hook "git push -u origin chore/audit-fix-42" "$db")
-assert_contains "$out" '"decision":"block"' "multiple unsigned tasks must block"
+assert_contains "$out" '"permissionDecision":"deny"' "multiple unsigned tasks must block"
 assert_contains "$out" "task_id=42" "must list task 42"
 assert_contains "$out" "task_id=43" "must list task 43"
 cleanup

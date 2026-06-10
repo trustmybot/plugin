@@ -65,14 +65,20 @@ tmb_parse_transcript_stats() {
 
 INPUT=$(cat)
 
+# Rotate mcp-health.log at 1 MB (single .1 generation) to prevent unbounded growth (#389).
+_LOG_FILE="${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log"
+if [ -f "$_LOG_FILE" ] && [ "$(wc -c < "$_LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+  mv -f "$_LOG_FILE" "${_LOG_FILE}.1" 2>/dev/null || true
+fi
+
 # Diagnostic entry-log (#94): record every invocation regardless of subagent_type
 # so we can separate "hook ran at all" from "hook decided X".
 ENTRY_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ENTRY_KEYS=$(echo "$INPUT" | jq -rc '[paths(scalars) | join(".")] | unique // []' 2>/dev/null || echo '[]')
 ENTRY_AGENT=$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)
-printf '{"ts":"%s","kind":"swe-atomic-close-entry","keys":%s,"agent_type_resolved":"%s"}\n' \
-  "$ENTRY_TS" "$ENTRY_KEYS" "$ENTRY_AGENT" \
-  >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
+jq -cn --arg ts "$ENTRY_TS" --argjson keys "$ENTRY_KEYS" --arg agent "$ENTRY_AGENT" \
+  '{ts:$ts,kind:"swe-atomic-close-entry",keys:$keys,agent_type_resolved:$agent}' \
+  >> "$_LOG_FILE" 2>/dev/null || true
 
 # Only act on SWE subagent stops.
 AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
@@ -112,16 +118,42 @@ fi
 PR_TARGET=$(tmb_config_get "pr_target" 2>/dev/null || true)
 PR_TARGET="${PR_TARGET:-main}"
 
-# Find the most-recent task in any SWE-relevant status. parent_branch_id is
-# needed to detect commits in the attached-worktree model (branch ref and
-# worktree HEAD advance together; we compare HEAD against the parent branch).
-# tasks.repo (added in MR !122) tells us which inner repo this task belongs
-# to in workspace-pattern projects; resolve via repos.path.
-ROW=$(sqlite3 "$DB" \
-  "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
-   WHERE status IN ('pending', 'needs_validation', 'completed')
-   ORDER BY updated_at DESC, id DESC LIMIT 1;" \
-  2>/dev/null || true)
+# Extract task_id from the subagent transcript (#369).
+# When two SWEs run in parallel, the most-recently-updated task heuristic
+# can auto-complete the WRONG task. The transcript contains the spawn prompt
+# (first human turn) which includes `task_id=N`; prefer that over the
+# updated_at sort.
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
+TRANSCRIPT_PATH="${TRANSCRIPT_PATH:-}"
+
+TRANSCRIPT_TASK_ID=""
+if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+  TRANSCRIPT_TASK_ID=$(jq -r '
+    .message.content // [] |
+    .[] | select(.type == "text") | .text // ""
+  ' "$TRANSCRIPT_PATH" 2>/dev/null \
+    | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+fi
+
+# Find the task to operate on:
+#   1. task_id extracted from the transcript (authoritative — bound to this SWE).
+#   2. Most-recently-updated task in any SWE-relevant status (fallback only).
+ROW=""
+if [ -n "$TRANSCRIPT_TASK_ID" ]; then
+  ROW=$(sqlite3 "$DB" \
+    "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
+     WHERE id = ${TRANSCRIPT_TASK_ID}
+       AND status IN ('pending', 'needs_validation', 'completed')
+     LIMIT 1;" \
+    2>/dev/null || true)
+fi
+if [ -z "$ROW" ]; then
+  ROW=$(sqlite3 "$DB" \
+    "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
+     WHERE status IN ('pending', 'needs_validation', 'completed')
+     ORDER BY updated_at DESC, id DESC LIMIT 1;" \
+    2>/dev/null || true)
+fi
 
 if [ -z "$ROW" ]; then
   exit 0
@@ -226,8 +258,7 @@ fi
 ISSUE_ID=$(sqlite3 "$DB" "SELECT issue_id FROM tasks WHERE id=${TASK_ID} LIMIT 1;" 2>/dev/null || true)
 ISSUE_ID="${ISSUE_ID:-}"
 
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-TRANSCRIPT_PATH="${TRANSCRIPT_PATH:-}"
+# TRANSCRIPT_PATH already resolved above for task_id extraction.
 
 TOKENS_IN=0
 TOKENS_OUT=0
@@ -239,8 +270,9 @@ CACHE_CREATION_TOKENS=0
 if [ -n "$TRANSCRIPT_PATH" ]; then
   STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
   if [ "$STATS" = "0|0|0|0|0|0" ] && [ ! -f "$TRANSCRIPT_PATH" ]; then
-    printf '{"ts":"%s","kind":"agent-runs-stats-parse-failed","reason":"transcript file not found","transcript":"%s"}\n' \
-      "$ts" "$TRANSCRIPT_PATH" >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
+    jq -cn --arg ts "$ts" --arg tr "$TRANSCRIPT_PATH" \
+      '{ts:$ts,kind:"agent-runs-stats-parse-failed",reason:"transcript file not found",transcript:$tr}' \
+      >> "$_LOG_FILE" 2>/dev/null || true
   else
     TOKENS_IN=$(echo "$STATS" | cut -d'|' -f1)
     TOKENS_OUT=$(echo "$STATS" | cut -d'|' -f2)
@@ -248,9 +280,13 @@ if [ -n "$TRANSCRIPT_PATH" ]; then
     DURATION_MS=$(echo "$STATS" | cut -d'|' -f4)
     CACHE_READ_TOKENS=$(echo "$STATS" | cut -d'|' -f5)
     CACHE_CREATION_TOKENS=$(echo "$STATS" | cut -d'|' -f6)
-    printf '{"ts":"%s","kind":"agent-runs-stats-parsed","task_id":%s,"tokens_total":%s,"cache_read":%s,"cache_creation":%s,"tool_uses":%s,"duration_ms":%s,"transcript":"%s"}\n' \
-      "$ts" "$TASK_ID" "$((TOKENS_IN + TOKENS_OUT))" "$CACHE_READ_TOKENS" "$CACHE_CREATION_TOKENS" "$TOOL_USES" "$DURATION_MS" "$TRANSCRIPT_PATH" \
-      >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
+    jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
+      --argjson tt "$((TOKENS_IN + TOKENS_OUT))" \
+      --argjson cr "$CACHE_READ_TOKENS" --argjson cc "$CACHE_CREATION_TOKENS" \
+      --argjson tu "$TOOL_USES" --argjson dm "$DURATION_MS" \
+      --arg tr "$TRANSCRIPT_PATH" \
+      '{ts:$ts,kind:"agent-runs-stats-parsed",task_id:$tid,tokens_total:$tt,cache_read:$cr,cache_creation:$cc,tool_uses:$tu,duration_ms:$dm,transcript:$tr}' \
+      >> "$_LOG_FILE" 2>/dev/null || true
   fi
 fi
 
@@ -273,18 +309,21 @@ fi
 
 AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
 sqlite3 "$DB" "$AR_INSERT" 2>/dev/null || \
-  printf '{"ts":"%s","kind":"agent-runs-capture-skipped","reason":"sqlite3 insert failed","task_id":%s}\n' \
-    "$ts" "$TASK_ID" >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
+  jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
+    '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"sqlite3 insert failed",task_id:$tid}' \
+    >> "$_LOG_FILE" 2>/dev/null || true
 
 # Log the decision.
 if [ "$DECISION" = "auto-completed" ] || [ "$DECISION" = "auto-complete-failed" ]; then
-  printf '{"ts":"%s","kind":"swe-atomic-close","task_id":%s,"branch":"%s","decision":"%s","commit_sha":"%s"}\n' \
-    "$ts" "$TASK_ID" "$BRANCH" "$DECISION" "$WT_HEAD" \
-    >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
+  jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg br "$BRANCH" \
+    --arg dec "$DECISION" --arg sha "$WT_HEAD" \
+    '{ts:$ts,kind:"swe-atomic-close",task_id:$tid,branch:$br,decision:$dec,commit_sha:$sha}' \
+    >> "$_LOG_FILE" 2>/dev/null || true
 else
-  printf '{"ts":"%s","kind":"swe-atomic-close","task_id":%s,"branch":"%s","decision":"%s","worktree":"%s"}\n' \
-    "$ts" "$TASK_ID" "$BRANCH" "$DECISION" "$WT_PATH" \
-    >> "${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log" || true
+  jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg br "$BRANCH" \
+    --arg dec "$DECISION" --arg wt "$WT_PATH" \
+    '{ts:$ts,kind:"swe-atomic-close",task_id:$tid,branch:$br,decision:$dec,worktree:$wt}' \
+    >> "$_LOG_FILE" 2>/dev/null || true
 fi
 
 if [ -n "$CONTEXT" ]; then

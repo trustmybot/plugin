@@ -563,4 +563,76 @@ assert_contains "$out" "stopped without committing" "warn body present"
 nw3_status=$(sqlite3 "$NW3_DB" "SELECT status FROM tasks WHERE id=102;")
 assert_eq "pending" "$nw3_status" "task stays pending"
 
+# ========================================================
+# #202 / #369: transcript-based task_id extraction prevents
+# wrong-task auto-close when two SWEs run in parallel.
+# SWE-A commits but never calls task_update_status. On SubagentStop,
+# the hook extracts task_id from the transcript and auto-completes
+# the correct task (not the most-recently-updated OTHER task).
+# ========================================================
+
+echo '--- Test: #202/#369: transcript task_id extraction targets the correct task ---'
+
+PARALLEL_REPO="$TMPDIR/parallel-repo"
+git init -q -b dev "$PARALLEL_REPO"
+git -C "$PARALLEL_REPO" config user.email t@t.io
+git -C "$PARALLEL_REPO" config user.name t
+echo base > "$PARALLEL_REPO/base.txt"
+git -C "$PARALLEL_REPO" add .
+git -C "$PARALLEL_REPO" commit -qm "base"
+
+PAR_DB="$PARALLEL_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$PAR_DB")"
+sqlite3 "$PAR_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
+    VALUES (200, 'fix/swe-a-task', 'dev', 'pending', datetime('now', '+1 second'));
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
+    VALUES (201, 'fix/swe-b-task', 'dev', 'pending', datetime('now', '+99 seconds'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# SWE-A worktree for task 200.
+git -C "$PARALLEL_REPO" branch fix/swe-a-task HEAD
+git -C "$PARALLEL_REPO" branch fix/swe-b-task HEAD
+PAR_WTA="$PARALLEL_REPO/.claude/worktrees/swe-a-task"
+PAR_WTB="$PARALLEL_REPO/.claude/worktrees/swe-b-task"
+git -C "$PARALLEL_REPO" worktree add -q "$PAR_WTA" fix/swe-a-task
+git -C "$PARALLEL_REPO" worktree add -q "$PAR_WTB" fix/swe-b-task
+
+# SWE-A commits in its worktree but forgets to call task_update_status.
+echo "swe-a work" > "$PAR_WTA/swe-a.txt"
+git -C "$PAR_WTA" add swe-a.txt
+git -C "$PAR_WTA" commit -qm "feat: swe-a work"
+PAR_WTA_HEAD=$(git -C "$PAR_WTA" rev-parse HEAD)
+
+# SWE-B is more recently updated (simulates parallel SWE-B working).
+# Without transcript-based extraction, the hook would pick task 201 (SWE-B).
+# With transcript-based extraction, it targets task 200 (SWE-A's task).
+PAR_TRANSCRIPT="$TMPDIR/par-transcript.jsonl"
+cat > "$PAR_TRANSCRIPT" <<JSONL
+{"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"task_id=200 worktree=/tmp/swe-a You are SWE. Implement fix for task 200."}]}}
+{"timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"assistant","usage":{"input_tokens":100,"output_tokens":50},"content":[]}}
+JSONL
+
+par_swe_input() {
+  local tp="$1"
+  jq -n --arg tp "$tp" '{agent_type:"tmb:swe",hook_event_name:"SubagentStop",agent_transcript_path:$tp}'
+}
+
+test_case "#202/#369: transcript task_id extraction: auto-completes SWE-A task (200), not most-recent (201)"
+out=$(run_hook_in_dir "$PARALLEL_REPO" "$(par_swe_input "$PAR_TRANSCRIPT")" "$PAR_DB")
+assert_eq "" "$out" "no additionalContext on auto-close"
+par_status_200=$(sqlite3 "$PAR_DB" "SELECT status FROM tasks WHERE id=200;")
+assert_eq "completed" "$par_status_200" "task 200 (SWE-A) auto-closed via transcript extraction"
+par_sha_200=$(sqlite3 "$PAR_DB" "SELECT commit_sha FROM tasks WHERE id=200;")
+assert_eq "$PAR_WTA_HEAD" "$par_sha_200" "commit_sha from SWE-A worktree written to task 200"
+
+test_case "#202/#369: task 201 (SWE-B) NOT touched by SWE-A's SubagentStop"
+par_status_201=$(sqlite3 "$PAR_DB" "SELECT status FROM tasks WHERE id=201;")
+assert_eq "pending" "$par_status_201" "task 201 (SWE-B) stays pending — not auto-closed"
+
 summarize

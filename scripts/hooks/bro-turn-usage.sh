@@ -32,10 +32,9 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 
 # Find the open bro agent_run row for the current task.
 RUN_ROW=$(sqlite3 -separator '|' "$DB_PATH" \
-  "SELECT id, task_id FROM agent_runs WHERE agent_type = 'bro' AND completed_at IS NULL ORDER BY id DESC LIMIT 1;" 2>/dev/null)
+  "SELECT id FROM agent_runs WHERE agent_type = 'bro' AND completed_at IS NULL ORDER BY id DESC LIMIT 1;" 2>/dev/null)
 [ -n "$RUN_ROW" ] || exit 0
 RUN_ID="${RUN_ROW%%|*}"
-TASK_ID="${RUN_ROW##*|}"
 [ -n "$RUN_ID" ] || exit 0
 
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null || true)
