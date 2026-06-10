@@ -16,7 +16,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
 BACKBONE_LIMIT=30
-BASE_TEMPLATE_LIMIT=25
+BASE_TEMPLATE_LIMIT=26  # raised from 25: persona opening added (#426 prompt rewrite)
 ROLE_BODY_LIMIT=15
 FAIL=0
 

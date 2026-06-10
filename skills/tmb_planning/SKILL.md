@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_tr
 
 ## 1. Verify the world model
 
-Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` yourself to build it — it's deterministic and needs no Human — then re-read. This also satisfies the registry-cold gate on `task_create_batch`; reserve `waive_registry_gate` for when scan genuinely cannot run (never as a headless shortcut). Without the world model bro is planning blind.
+Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` yourself to build it — it's deterministic and needs no Human — then re-read. This also satisfies the registry-cold gate on `task_create_batch`; reserve `waive_registry_gate` for the rare case scan genuinely cannot run. Without the world model bro is planning blind.
 
 Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
 
@@ -43,8 +43,6 @@ discussion_append(issue_id, author='bro', kind='note',   body='Beginning plannin
 git branch "${branch_id}"
 ```
 
-Create the branch but **stay on the base** — don't switch the main checkout to it. SWE's worktree owns `${branch_id}` while the task runs; the main checkout sits on the base branch for the duration.
-
 ## 3. Author the spec
 
 Pick conservative defaults; name them in `## Description` Assumptions bullets. If the project already uses a different tool, match the project — convention wins over default.
@@ -57,7 +55,7 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. I
 | File layout | single file until ~200 LOC |
 | Python / concurrency | `python3`; single-user, single-process |
 
-Spec body sections (≤200 lines; split into multiple tasks linked by `parent_branch_id` if longer):
+Spec body sections — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
 
 - `## Description` — ≤3 sentences, file paths with line refs, Assumptions bullets
 - `## Files` — path — action
@@ -89,14 +87,14 @@ task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, spec_body, ...}]
 
 `waive_scope_gate` is valid for truly trivial work (`'trivial: <what>'`) or headless mode (`'headless mode, defaults applied; <one-line scope summary>'`).
 
-Then spawn SWE with `isolation='worktree'` — the worktree is created for you on `<branch_id>` at `<workspace_root>/.claude/worktrees/<slug>` (slug = `<branch_id>` minus its `<type>/` prefix), where `<workspace_root>` is the directory holding `.claude/tmb/trajectory.db`. The worktree is git-attached to `task.repo` (or `tmb_default_repo`) via `git -C <repo>`, not to `<cwd>`. Pass that same absolute path so SWE lands in it:
+Then spawn SWE with `isolation='worktree'` — the server creates the worktree at `<workspace_root>/.claude/worktrees/<slug>` (where `workspace_root` is the directory holding `.claude/tmb/trajectory.db` and `slug` is `branch_id` minus its `<type>/` prefix). Pass that path so SWE lands in it:
 
 ```
 Task(subagent_type='swe', isolation='worktree',
      prompt='task_id=<N> worktree=<workspace_root>/.claude/worktrees/<slug>')
 ```
 
-`isolation='worktree'` is the single creation path — the worktree is made for you on spawn. Parallel spawns when tasks have no overlapping `## Files`; sequential when they share files.
+`isolation='worktree'` is the single creation path — the worktree is made for you on spawn. The batch response includes `parallel_groups` — tasks in the same group are safe to spawn in parallel.
 
 ## 5. Verify on SWE return + atomic close
 
@@ -111,18 +109,10 @@ After SWE returns `status=completed`:
 
 **V3** — all pass → `bro_atomic_close(agent='bro', task_id=<N>, commit_sha=<sha>, verification_summary='...', close_issue_if_last_task=true)`. The post-close hook re-scans automatically — the world model refreshes.
 
-Then spawn pr-reviewer for the push gate (see `tmb_review` §B). On PASS: `git push -u origin <branch>`. On FAIL: surface, file the fix as a follow-up issue, do not push.
+Then spawn pr-reviewer for the push gate (see `tmb_review` §B). On PASS: `git push -u origin <branch>`. On FAIL: surface it, file the fix as a follow-up issue, and hold the push.
 
-**V3 — any check fails**: `bro_verification_fail_record(agent='bro', task_id=<N>, which_check='<V1|V2|V3>', details='<≤500 chars>')`. Leave the task open. Retry via `task_retry_batch` (max 3) or escalate.
+**V3 — any check fails**: `bro_verification_fail_record(agent='bro', task_id=<N>, which_check='<V1|V2|V3>', details='<≤500 chars>')`. Leave the task open. Retry via `task_retry_batch` or escalate.
 
 ## Headless overrides (TMB_HEADLESS=1)
 
-No Human in the loop — skip AUQs, apply the documented defaults, and record the fallback. After `branch_id_propose`, run step 2's "On Yes" block (issue_create + intent/note `discussion_append` + branch create) without the AUQs to get `<I>` and `<branch_id>`, then call `headless_intent_start(agent='bro', issue_id=<I>, branch_id=<branch_id>, intent_verbatim=<verbatim>, fallback_summary='<defaults applied>')`, then proceed to step 3.
-
-| AUQ | Default |
-|---|---|
-| Base-branch | `${pr_target}` |
-| Branch-id confirm | "Yes, proceed" |
-| Difficult Q+A | "proceed as proposed" |
-
-`tmb_skill-creator` and `/tmb:agent-create` from-scratch mode HALT in headless mode — silent skill/agent generation in CI is the foot-gun this guards.
+No Human in the loop — skip AUQs, apply the documented defaults (see `tmb_recovery` §A per-skill defaults table), and record the fallback. After `branch_id_propose`, run step 2's "On Yes" block (issue_create + intent/note `discussion_append` + branch create) without the AUQs to get `<I>` and `<branch_id>`, then call `headless_intent_start(agent='bro', issue_id=<I>, branch_id=<branch_id>, intent_verbatim=<verbatim>, fallback_summary='<defaults applied>')`, then proceed to step 3.

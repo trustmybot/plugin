@@ -173,23 +173,9 @@ Any work done since the upgrade is lost — the rollback restores the DB to the 
 
 ---
 
-## Enabling project-local pr-reviewer (recommended)
+## Project-local pr-reviewer override (optional)
 
-The plugin-global `agents/pr-reviewer.md` cannot declare `mcpServers` in its frontmatter — plugin-subagent agents don't support that field. Without MCP tools, pr-reviewer falls back to the honor-system sqlite3 path (§B path 2 in `tmb_review`). The project-local override adds `mcpServers: [trajectory-server]`, giving pr-reviewer reliable MCP access and path-1 verdicts.
-
-### Copy the template (one-time setup per project)
-
-```bash
-mkdir -p <workspace>/.claude/agents
-cp <plugin-source>/templates/project-seed/.claude/agents/pr-reviewer.md \
-   <workspace>/.claude/agents/pr-reviewer.md
-```
-
-Where `<workspace>` is the directory from which you launch Claude Code (the directory containing `.claude/tmb/trajectory.db`).
-
-### Why this works
-
-Claude Code resolves agents by name; a project-local agent at `.claude/agents/pr-reviewer.md` shadows the plugin-global one. The project-local version declares `mcpServers: [trajectory-server]`, which CC wires up when spawning the subagent. The `trajectory-server` entry must match a key in your project's `.mcp.json` (the TMB plugin adds this during onboard).
+The plugin ships one global pr-reviewer; it is the recommended reviewer. Claude Code resolves agents by name, so a project-local agent at `.claude/agents/pr-reviewer.md` shadows the plugin-global one when a project needs custom review behavior. A project-local agent may declare `mcpServers: [trajectory-server]` in its frontmatter (plugin-global agents cannot) — the entry must match a key in your project's `.mcp.json` (added during onboard). Without MCP tools the reviewer falls back to the honor-system sqlite3 path (§B path 2 in `tmb_review`); both paths produce valid verdicts.
 
 ### Verifying MCP is wired up
 
