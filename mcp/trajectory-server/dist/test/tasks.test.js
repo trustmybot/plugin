@@ -890,23 +890,55 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch defaults repo to tmb_default_repo config when task.repo omitted', async () => {
-        const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"plugin"')`);
-        const issueId = await createIssue(db);
-        const tools = taskTools(db);
-        const result = await call(tools.handlers, 'task_create_batch', {
-            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
-            agent: 'bro',
-            issue_id: String(issueId),
-            tasks: [
-                { branch_id: 'feat/default-repo-test', description: 'No repo arg' },
-            ],
-        });
-        const inserted = parseResult(result);
-        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-        assert.equal(inserted[0].repo, 'plugin', 'repo should default to tmb_default_repo config value');
-        db.close();
+        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-gate');
+        try {
+            spawnSync('git', ['-C', repoName, 'branch', 'feat/default-repo-test'], { stdio: 'pipe' });
+            const db = tempDB();
+            db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`, [JSON.stringify(repoName)]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [
+                    { branch_id: 'feat/default-repo-test', description: 'No repo arg' },
+                ],
+            });
+            const inserted = parseResult(result);
+            assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+            assert.equal(inserted[0].repo, repoName, 'repo should default to tmb_default_repo config value');
+            db.close();
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('task_create_batch rejects via default-repo gate when branch missing from tmb_default_repo (#360)', async () => {
+        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-reject');
+        try {
+            const db = tempDB();
+            db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`, [JSON.stringify(repoName)]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+                waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [{ branch_id: 'feat/nonexistent-branch', description: 'Branch missing from default repo' }],
+            });
+            assert.ok(result.isError, 'Expected rejection when branch missing from default repo');
+            const data = parseResult(result);
+            assert.match(data.error, /does not exist/, `Expected branch-existence error: ${data.error}`);
+            db.close();
+        }
+        finally {
+            cleanup();
+        }
     });
     it('task_create_batch defaults repo to null when task.repo omitted and tmb_default_repo not set', async () => {
         const db = tempDB();
@@ -1034,6 +1066,85 @@ describe('taskTools', () => {
         });
         const updated = db.get(`SELECT commit_sha FROM tasks WHERE id = ?`, [taskId]);
         assert.equal(updated?.commit_sha, 'abcdef1234567', 'commit_sha must be stored lowercase');
+        db.close();
+    });
+    it('task_update_status normalizes mixed-case agent — Swe passes role gate and obeys SWE matrix (#343)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const batchResult = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/mixed-case-swe', description: 'mixed-case swe test' }],
+        });
+        const taskId = String(parseResult(batchResult)[0].id);
+        const result = await call(tools.handlers, 'task_update_status', {
+            agent: 'Swe',
+            task_id: taskId,
+            status: 'running',
+        });
+        assert.ok(!result.isError, `'Swe' must normalize to swe and allow running: ${JSON.stringify(parseResult(result))}`);
+        assert.equal(parseResult(result).status, 'running');
+        const forbidden = await call(tools.handlers, 'task_update_status', {
+            agent: 'Swe',
+            task_id: taskId,
+            status: 'closed',
+        });
+        assert.ok(forbidden.isError, 'Mixed-case Swe must be blocked from setting closed');
+        db.close();
+    });
+    it('task_update_status swe cannot move a closed task to any status (#343)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const batchResult = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/swe-closed', description: 'swe closed resurrection test' }],
+        });
+        const taskId = String(parseResult(batchResult)[0].id);
+        await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed' });
+        await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
+        for (const status of ['completed', 'running', 'failed']) {
+            const result = await call(tools.handlers, 'task_update_status', {
+                agent: 'swe',
+                task_id: taskId,
+                status,
+            });
+            assert.ok(result.isError, `SWE must not resurrect a closed task to '${status}'`);
+            assert.match(parseResult(result).error, /#114/);
+        }
+        db.close();
+    });
+    it('task_create_batch emits audit rows for all waived gates (#358)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'scope waiver test reason here',
+            waive_branch_gate: true, waive_branch_gate_reason: 'branch waiver test reason here',
+            waive_registry_gate: true, waive_registry_gate_reason: 'registry waiver test reason',
+            waive_intent_gate: true, waive_intent_gate_reason: 'intent waiver test reason here',
+            waive_decision_gate: true, waive_decision_gate_reason: 'decision waiver test reason',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/audit-waiver-test', description: 'all gates waived' }],
+        });
+        const auditRows = db.all(`SELECT event_type FROM audit WHERE issue_id = ? ORDER BY event_type`, [issueId]);
+        const types = auditRows.map((r) => r.event_type);
+        assert.ok(types.includes('scope_gate_waived'), 'scope_gate_waived audit row must exist');
+        assert.ok(types.includes('branch_gate_waived'), 'branch_gate_waived audit row must exist');
+        assert.ok(types.includes('registry_gate_waived'), 'registry_gate_waived audit row must exist');
+        assert.ok(types.includes('intent_gate_waived'), 'intent_gate_waived audit row must exist');
+        assert.ok(types.includes('decision_gate_waived'), 'decision_gate_waived audit row must exist');
         db.close();
     });
 });

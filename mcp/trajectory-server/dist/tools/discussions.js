@@ -1,5 +1,5 @@
 import { nowISO } from '../db.js';
-import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { embedAndStore, topKByCosine } from '../embeddings/store.js';
 const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 function ok(data) {
@@ -323,7 +323,7 @@ export function discussionTools(db) {
             return ok({ rows, next_cursor });
         }),
         issue_get_with_discussions: wrapHandler(async (args) => {
-            normalizeAgent(args['agent']);
+            const agent = normalizeAgent(args['agent']);
             const issueId = requireArg(args, 'issue_id');
             const limitArg = args['limit'];
             const cursorArg = args['cursor'];
@@ -332,9 +332,10 @@ export function discussionTools(db) {
                 throw new Error(`Not found: issue ${issueId}`);
             }
             const tasks = db.all(`SELECT id, branch_id, status, title FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`, [issueId]);
+            const redactedIssue = redactIssue(issue, agent);
             if (limitArg === undefined || limitArg === null) {
                 const discussions = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`, [issueId]);
-                return ok({ issue, discussions, tasks });
+                return ok({ issue: redactedIssue, discussions, tasks });
             }
             const limit = Math.min(Math.max(1, limitArg), 200);
             let cursorFilter = '';
@@ -354,7 +355,7 @@ export function discussionTools(db) {
             const discussions = hasMore ? fetchedDisc.slice(0, limit) : fetchedDisc;
             const last = discussions[discussions.length - 1];
             const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
-            return ok({ issue, discussions, tasks, next_cursor });
+            return ok({ issue: redactedIssue, discussions, tasks, next_cursor });
         }),
     };
     return { definitions, handlers };

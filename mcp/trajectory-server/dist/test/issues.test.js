@@ -475,6 +475,48 @@ describe('issueTools — remote sync', () => {
         assert.equal(phaseData.phase, 'tasks', `Expected tasks, got ${phaseData.phase}`);
         db.close();
     });
+    it('issue_get_phase counts closed tasks as done — ready_to_close after bro_atomic_close (#357)', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const createResult = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Closed-task phase regression test',
+        });
+        const issue = parseResult(createResult);
+        assert.ok(!createResult.isError);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', 0, '', '', datetime('now'), datetime('now'))`, [issue.id]);
+        const phaseResult = await call(tools.handlers, 'issue_get_phase', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const phaseData = parseResult(phaseResult);
+        assert.ok(!phaseResult.isError, `Expected no error: ${JSON.stringify(phaseData)}`);
+        assert.equal(phaseData.phase, 'ready_to_close', `Expected ready_to_close for closed task, got ${phaseData.phase}`);
+        assert.equal(phaseData.counts.tasks_total, 1);
+        assert.equal(phaseData.counts.tasks_completed, 1, 'Closed task must count as completed');
+        db.close();
+    });
+    it('issue_get_phase returns 0 not null for zero-task issues (#357)', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const createResult = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Zero-task phase null-check test',
+        });
+        const issue = parseResult(createResult);
+        assert.ok(!createResult.isError);
+        const phaseResult = await call(tools.handlers, 'issue_get_phase', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const phaseData = parseResult(phaseResult);
+        assert.ok(!phaseResult.isError, `Expected no error: ${JSON.stringify(phaseData)}`);
+        assert.equal(phaseData.counts.tasks_total, 0);
+        assert.equal(phaseData.counts.tasks_completed, 0, 'tasks_completed must be 0 not null for zero-task issues');
+        assert.equal(phaseData.counts.tasks_failed, 0, 'tasks_failed must be 0 not null for zero-task issues');
+        db.close();
+    });
 });
 describe('issueTools — issue-sync hardening (#314)', () => {
     it('blank remote URL in remotes config → sync skipped with diagnostic', async () => {

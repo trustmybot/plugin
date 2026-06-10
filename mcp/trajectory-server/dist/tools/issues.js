@@ -439,11 +439,16 @@ export function issueTools(db, dbPath = '') {
                 throw new Error(`Not found: ${issueId}`);
             }
             const issue = decodeIssue(issueRow);
-            const counts = db.get(`SELECT
+            const rawCounts = db.get(`SELECT
            COUNT(*) as tasks_total,
-           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
-         FROM tasks WHERE issue_id = ?`, [issueId]) ?? { tasks_total: 0, tasks_completed: 0, tasks_failed: 0 };
+         FROM tasks WHERE issue_id = ?`, [issueId]);
+            const counts = {
+                tasks_total: rawCounts?.tasks_total ?? 0,
+                tasks_completed: rawCounts?.tasks_completed ?? 0,
+                tasks_failed: rawCounts?.tasks_failed ?? 0,
+            };
             let phase;
             if (issue.status === 'closed') {
                 phase = 'done';

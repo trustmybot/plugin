@@ -1,7 +1,8 @@
 import { nowISO } from '../db.js';
-import { requireRoles } from '../middleware/agent-scope.js';
+import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
 import { spawnSync } from 'node:child_process';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 export const BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
 const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
 // Hard cap on tasks.spec_body. Architect should cite existing code/conventions
@@ -31,8 +32,19 @@ function validateParentBranchId(branchId) {
         `format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
         `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`);
 }
+// Allowed target statuses for swe. SWE may only set running, completed, or
+// failed — pre-execution states (pending, escalated) are bro-managed; 'closed'
+// is bro's atomic-close transition; 'needs_validation' is not a valid SWE
+// terminal state. Additionally, closed and escalated are terminal for SWE —
+// a closed task cannot be touched by SWE. See #114, #343.
+const SWE_ALLOWED_TARGET_STATUSES = new Set(['running', 'completed', 'failed']);
+// States that SWE may not transition OUT OF (terminal for SWE).
+const SWE_LOCKED_SOURCE_STATES = new Set(['closed', 'escalated']);
 function validateBranchExistsInRepo(branchId, repo) {
-    const result = spawnSync('git', ['-C', repo, 'rev-parse', '--verify', branchId], { encoding: 'utf8' });
+    const result = spawnSync('git', ['-C', repo, 'rev-parse', '--verify', branchId], {
+        encoding: 'utf8',
+        timeout: SUBPROCESS_TIMEOUT_MS,
+    });
     if (result.status === 0)
         return;
     const stderr = (result.stderr ?? '');
@@ -421,12 +433,44 @@ export function taskTools(db) {
                     };
                 }
             }
+            // Resolve the default repo once for all tasks so the branch-existence
+            // check can fire even when task.repo is omitted. (#360)
+            const defaultRepoRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
+            let defaultRepoValue = null;
+            if (defaultRepoRow?.value_json) {
+                try {
+                    const parsed = JSON.parse(defaultRepoRow.value_json);
+                    if (typeof parsed === 'string' && parsed.length > 0) {
+                        defaultRepoValue = parsed;
+                    }
+                }
+                catch {
+                    // malformed config row — leave null
+                }
+            }
+            // Pre-transaction: format-validate then branch-existence check against
+            // the resolved repo (explicit > default). Order matters: bad format
+            // should produce the format error, not a git error. (#360)
             for (const t of taskInputs) {
+                if (!t.branch_id)
+                    throw new Error('Missing required arg: branch_id');
+                validateBranchId(t.branch_id);
+                let effectiveRepo = null;
                 if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
                     const repo = t.repo;
-                    if (!repo.includes('..') && !repo.startsWith('/')) {
-                        validateBranchExistsInRepo(t.branch_id, repo);
+                    if (repo.includes('..')) {
+                        throw new Error(`Invalid repo "${repo}": must not contain "..". Use a relative path like "inner" or "repos/backend".`);
                     }
+                    if (repo.startsWith('/')) {
+                        throw new Error(`Invalid repo "${repo}": must not start with "/". Use a relative path like "inner" or "repos/backend".`);
+                    }
+                    effectiveRepo = repo;
+                }
+                else {
+                    effectiveRepo = defaultRepoValue;
+                }
+                if (effectiveRepo) {
+                    validateBranchExistsInRepo(t.branch_id, effectiveRepo);
                 }
             }
             const inserted = db.transaction(() => {
@@ -435,7 +479,6 @@ export function taskTools(db) {
                 for (const t of taskInputs) {
                     if (!t.branch_id)
                         throw new Error('Missing required arg: branch_id');
-                    validateBranchId(t.branch_id);
                     if (t.parent_branch_id != null)
                         validateParentBranchId(t.parent_branch_id);
                     if (!t.description)
@@ -456,23 +499,10 @@ export function taskTools(db) {
                     }
                     let repoValue = null;
                     if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
-                        const repo = t.repo;
-                        if (repo.includes('..')) {
-                            throw new Error(`Invalid repo "${repo}": must not contain "..". Use a relative path like "inner" or "repos/backend".`);
-                        }
-                        if (repo.startsWith('/')) {
-                            throw new Error(`Invalid repo "${repo}": must not start with "/". Use a relative path like "inner" or "repos/backend".`);
-                        }
-                        repoValue = repo;
+                        repoValue = t.repo;
                     }
                     else {
-                        const defaultRepoRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
-                        if (defaultRepoRow?.value_json) {
-                            const defaultRepo = JSON.parse(defaultRepoRow.value_json);
-                            if (typeof defaultRepo === 'string' && defaultRepo.length > 0) {
-                                repoValue = defaultRepo;
-                            }
-                        }
+                        repoValue = defaultRepoValue;
                     }
                     // Server-side parent_branch_id default: when omitted/null, read pr_target
                     // from plugin_config (default 'main'). Fixes L5 92-base-branch where bro
@@ -545,18 +575,64 @@ export function taskTools(db) {
                 // Audit log for gate waivers so pr-reviewer / human-review can flag
                 // tasks that skipped the alignment loop. Runs inside the same txn as
                 // task INSERTs so a crash between commit and audit cannot lose the record.
+                // One row per waived gate (#358).
+                const firstBranch = results[0]?.branch_id ?? '';
+                const agentFromNode = args['agent'];
                 if (waived) {
-                    const firstBranch = results[0]?.branch_id ?? '';
                     db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
              VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`, [
                         issueId,
                         firstBranch,
-                        args['agent'],
+                        agentFromNode,
                         waiverReason.slice(0, 200),
                         JSON.stringify({
                             waive_scope_gate_reason: waiverReason,
                             tasks_created: results.length,
                         }),
+                        now,
+                    ]);
+                }
+                if (branchGateWaived) {
+                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'branch_gate_waived', ?, ?, ?)`, [
+                        issueId,
+                        firstBranch,
+                        agentFromNode,
+                        branchGateWaiverReason.slice(0, 200),
+                        JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
+                        now,
+                    ]);
+                }
+                if (registryGateWaived) {
+                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`, [
+                        issueId,
+                        firstBranch,
+                        agentFromNode,
+                        registryGateWaiverReason.slice(0, 200),
+                        JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
+                        now,
+                    ]);
+                }
+                if (intentGateWaived) {
+                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'intent_gate_waived', ?, ?, ?)`, [
+                        issueId,
+                        firstBranch,
+                        agentFromNode,
+                        intentGateWaiverReason.slice(0, 200),
+                        JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
+                        now,
+                    ]);
+                }
+                if (decisionGateWaived) {
+                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'decision_gate_waived', ?, ?, ?)`, [
+                        issueId,
+                        firstBranch,
+                        agentFromNode,
+                        decisionGateWaiverReason.slice(0, 200),
+                        JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
                         now,
                     ]);
                 }
@@ -575,6 +651,7 @@ export function taskTools(db) {
         }),
         task_update_status: requireRoles('task_update_status', ['bro', 'swe'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
+            const agent = normalizeAgent(args['agent']);
             const taskId = requireArg(args, 'task_id');
             const status = requireArg(args, 'status');
             const rawCommitSha = args['commit_sha'] !== undefined
@@ -582,12 +659,6 @@ export function taskTools(db) {
                 : undefined;
             if (!VALID_STATUSES.has(status)) {
                 throw new Error(`Invalid status: ${status}. Valid values: ${[...VALID_STATUSES].join(', ')}`);
-            }
-            const SWE_ALLOWED_STATUSES = new Set(['running', 'completed', 'failed']);
-            if (args['agent'] === 'swe' && !SWE_ALLOWED_STATUSES.has(status)) {
-                throw new Error(`task_update_status rejected: SWE may only set status to 'running', 'completed', or 'failed' (got '${status}'). ` +
-                    `Pre-execution states (pending, escalated) are bro-managed; 'closed' is bro's atomic-close transition; ` +
-                    `'needs_validation' is not a valid SWE terminal state — use 'failed' instead if the work blocked. See #114.`);
             }
             if (rawCommitSha !== undefined) {
                 if (rawCommitSha.length < 7 || !/^[0-9a-f]+$/.test(rawCommitSha)) {
@@ -598,7 +669,18 @@ export function taskTools(db) {
             if (!task) {
                 throw new Error(`Not found: ${taskId}`);
             }
-            if (args['agent'] === 'bro' && status !== task.status) {
+            if (agent === 'swe') {
+                if (SWE_LOCKED_SOURCE_STATES.has(task.status)) {
+                    throw new Error(`task_update_status rejected: SWE may not move task ${taskId} out of '${task.status}'. ` +
+                        `'${task.status}' is terminal for SWE. See #114.`);
+                }
+                if (!SWE_ALLOWED_TARGET_STATUSES.has(status)) {
+                    throw new Error(`task_update_status rejected: SWE may only set status to 'running', 'completed', or 'failed' (got '${status}'). ` +
+                        `Pre-execution states (pending, escalated) are bro-managed; 'closed' is bro's atomic-close transition; ` +
+                        `'needs_validation' is not a valid SWE terminal state — use 'failed' instead if the work blocked. See #114.`);
+                }
+            }
+            if (agent === 'bro' && status !== task.status) {
                 const allowed = BRO_TRANSITIONS[task.status] ?? new Set();
                 if (!allowed.has(status)) {
                     const valid = [...allowed].join(', ') || '(none — terminal)';

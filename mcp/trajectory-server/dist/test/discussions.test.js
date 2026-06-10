@@ -415,4 +415,49 @@ describe('discussion_append verified_human gate (#145)', () => {
         }
     });
 });
+describe('issue_get_with_discussions swe redaction (#344)', () => {
+    it('swe sees redacted description in the issue field', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        const createResult = await call(issues.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Redaction test issue',
+            description: 'TOP SECRET: this description must be hidden from swe.',
+        });
+        const issue = parseResult(createResult);
+        assert.ok(!createResult.isError, `issue_create failed: ${JSON.stringify(issue)}`);
+        const result = await call(disc.handlers, 'issue_get_with_discussions', {
+            agent: 'swe',
+            issue_id: String(issue.id),
+        });
+        const data = parseResult(result);
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
+        assert.ok(data.issue, 'issue field must be present');
+        assert.equal(data.issue.description, undefined, 'swe must not see the description field');
+        assert.ok(!('description' in data.issue), 'description must be absent from swe response');
+        assert.ok(typeof data.issue.objective === 'string', 'objective must be present');
+        localDb.close();
+    });
+    it('bro sees the full issue (not redacted) in issue_get_with_discussions', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        const createResult = await call(issues.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Redaction test for bro',
+            description: 'Full description visible to bro.',
+        });
+        const issue = parseResult(createResult);
+        assert.ok(!createResult.isError);
+        const result = await call(disc.handlers, 'issue_get_with_discussions', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const data = parseResult(result);
+        assert.ok(!result.isError);
+        assert.ok(data.issue, 'issue field must be present');
+        localDb.close();
+    });
+});
 //# sourceMappingURL=discussions.test.js.map

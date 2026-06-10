@@ -2,7 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import type { Discussion, Issue, Task } from '../types.js';
-import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { embedAndStore, topKByCosine } from '../embeddings/store.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -429,7 +429,7 @@ export function discussionTools(db: TrajectoryDB): {
     }),
 
     issue_get_with_discussions: wrapHandler(async (args) => {
-      normalizeAgent(args['agent'] as string | undefined);
+      const agent = normalizeAgent(args['agent'] as string | undefined);
       const issueId = requireArg(args, 'issue_id') as string;
       const limitArg = args['limit'] as number | undefined;
       const cursorArg = args['cursor'] as string | undefined;
@@ -444,12 +444,14 @@ export function discussionTools(db: TrajectoryDB): {
         [issueId],
       );
 
+      const redactedIssue = redactIssue(issue, agent);
+
       if (limitArg === undefined || limitArg === null) {
         const discussions = db.all<Discussion>(
           `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`,
           [issueId],
         );
-        return ok({ issue, discussions, tasks });
+        return ok({ issue: redactedIssue, discussions, tasks });
       }
 
       const limit = Math.min(Math.max(1, limitArg), 200);
@@ -475,7 +477,7 @@ export function discussionTools(db: TrajectoryDB): {
       const last = discussions[discussions.length - 1];
       const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
 
-      return ok({ issue, discussions, tasks, next_cursor });
+      return ok({ issue: redactedIssue, discussions, tasks, next_cursor });
     }),
   };
 

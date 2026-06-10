@@ -223,10 +223,15 @@ export function roundtableTools(db: TrajectoryDB): {
             };
           }
         } else {
-          const slashRow = db.get<{ c: number }>(
-            `SELECT COUNT(*) as c FROM audit WHERE event_type = 'roundtable_slash_invoked'`,
+          const slashRow = db.get<{ id: number }>(
+            `SELECT id FROM audit
+             WHERE event_type = 'roundtable_slash_invoked'
+               AND created_at >= datetime('now', '-10 minutes')
+               AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
+             ORDER BY created_at DESC
+             LIMIT 1`,
           );
-          if ((slashRow?.c ?? 0) === 0) {
+          if (!slashRow) {
             return {
               isError: true,
               content: [
@@ -236,8 +241,8 @@ export function roundtableTools(db: TrajectoryDB): {
                     error: 'roundtable_slash_gate_violation',
                     message:
                       `Roundtable slash gate: /roundtable is Human-triggered only. ` +
-                      `No audit row with event_type='roundtable_slash_invoked' exists, meaning ` +
-                      `the user did not type /roundtable. Tell the Human to type /roundtable <topic> ` +
+                      `No unconsumed audit row with event_type='roundtable_slash_invoked' exists within the last 10 minutes, ` +
+                      `meaning the user did not type /roundtable recently. Tell the Human to type /roundtable <topic> ` +
                       `instead of auto-firing roundtable_create. For exceptional cases, pass ` +
                       `waive_slash_gate=true with waive_slash_gate_reason="<why>".`,
                   }),
@@ -248,6 +253,20 @@ export function roundtableTools(db: TrajectoryDB): {
         }
 
         const now = nowISO();
+
+        // Find the slash-invoke audit row to consume BEFORE inserting the roundtable,
+        // so we have its id for the stamp (#356).
+        const slashAuditId = slashGateWaived
+          ? null
+          : db.get<{ id: number }>(
+              `SELECT id FROM audit
+               WHERE event_type = 'roundtable_slash_invoked'
+                 AND created_at >= datetime('now', '-10 minutes')
+                 AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
+               ORDER BY created_at DESC
+               LIMIT 1`,
+            )?.id ?? null;
+
         db.run(
           `INSERT INTO roundtables (issue_id, topic, outcome, created_at, state, expected_participants)
            VALUES (?, ?, '', ?, 'collecting', ?)`,
@@ -257,6 +276,19 @@ export function roundtableTools(db: TrajectoryDB): {
         const row = db.get<RoundtableRow>(
           'SELECT * FROM roundtables WHERE rowid = last_insert_rowid()',
         );
+
+        // Consume the slash-invoke audit row by stamping the new roundtable_id
+        // into its content_json (#356). Uses the audit row id to avoid ORDER BY
+        // in UPDATE (not supported in all SQLite builds).
+        if (slashAuditId !== null) {
+          db.run(
+            `UPDATE audit
+             SET content_json = json_set(COALESCE(content_json, '{}'), '$.consumed_by_roundtable_id', ?)
+             WHERE id = ?`,
+            [row!.id, slashAuditId],
+          );
+        }
+
         return ok({ roundtable_id: row!.id, state: row!.state });
       }),
     ),

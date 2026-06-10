@@ -257,6 +257,69 @@ describe('skillTools', () => {
         assert.equal(row.status, 'pending_review');
         db.close();
     });
+    it('skill_promote rejects when skill is not in from_status (#364)', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'my-promote-guard-skill',
+            description: 'Promote guard test',
+            file_path: 'skills/promote-guard.md',
+            trust_tier: 'agent',
+        });
+        const result = await call(tools.handlers, 'skill_promote', {
+            agent: 'bro',
+            name: 'my-promote-guard-skill',
+            from_status: 'pending_review',
+            to_status: 'active',
+        });
+        assert.ok(result.isError, 'Expected error when from_status does not match actual status');
+        const data = parseResult(result);
+        assert.match(data.error, /from_status must match/, `Error must mention from_status mismatch: ${data.error}`);
+        db.close();
+    });
+    it('skill_promote rejects tier transition when trust_tier does not match from (#364)', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'my-tier-guard-skill',
+            description: 'Tier guard test',
+            file_path: 'skills/tier-guard.md',
+            trust_tier: 'agent',
+        });
+        const result = await call(tools.handlers, 'skill_promote', {
+            agent: 'bro',
+            name: 'my-tier-guard-skill',
+            from_status: 'curated',
+            to_status: 'agent',
+        });
+        assert.ok(result.isError, 'Expected error when from_status does not match actual trust_tier');
+        const data = parseResult(result);
+        assert.match(data.error, /Invalid transition/, `Error must be invalid transition (curated→agent not in table): ${data.error}`);
+        db.close();
+    });
+    it('skill_promote accepts agent→curated tier transition when trust_tier matches (#364)', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'my-tier-upgrade-skill',
+            description: 'Tier upgrade test',
+            file_path: 'skills/tier-upgrade.md',
+            trust_tier: 'agent',
+        });
+        const result = await call(tools.handlers, 'skill_promote', {
+            agent: 'bro',
+            name: 'my-tier-upgrade-skill',
+            from_status: 'agent',
+            to_status: 'curated',
+        });
+        const row = parseResult(result);
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
+        assert.equal(row.trust_tier, 'curated');
+        db.close();
+    });
 });
 describe('reportTools', () => {
     it('issue_report_md renders sections when an issue has tasks and audit events', async () => {

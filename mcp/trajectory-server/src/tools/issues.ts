@@ -504,18 +504,23 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       }
       const issue = decodeIssue(issueRow);
 
-      const counts = db.get<{
+      const rawCounts = db.get<{
         tasks_total: number;
-        tasks_completed: number;
-        tasks_failed: number;
+        tasks_completed: number | null;
+        tasks_failed: number | null;
       }>(
         `SELECT
            COUNT(*) as tasks_total,
-           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
          FROM tasks WHERE issue_id = ?`,
         [issueId],
-      ) ?? { tasks_total: 0, tasks_completed: 0, tasks_failed: 0 };
+      );
+      const counts = {
+        tasks_total: rawCounts?.tasks_total ?? 0,
+        tasks_completed: rawCounts?.tasks_completed ?? 0,
+        tasks_failed: rawCounts?.tasks_failed ?? 0,
+      };
 
       let phase: 'discussion' | 'blueprint' | 'tasks' | 'done' | 'ready_to_close';
       if (issue.status === 'closed') {
