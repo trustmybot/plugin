@@ -7,6 +7,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
+. "$HERE/../../l5-l6/lib/timeout-shim.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 INVOKER="$PLUGIN_ROOT/scripts/maintenance/run-scan.mjs"
 
@@ -55,7 +56,9 @@ test_case "rescan from worktree cwd finds ≥1 repo (session_dir walk-up)"
 # Run the invoker with cwd set to the worktree path (inner path).
 # The invoker should walk up from the worktree, find the DB at WS, derive
 # session_dir=$WS, and discover repo-a.
-OUT=$( (cd "$WT" && node --experimental-sqlite "$INVOKER" 2>&1) || true )
+# Hard timeout of 60s: if scan hangs (kuzu init, lock, git-log) the test
+# fails loudly instead of stalling the entire runner.
+OUT=$( (cd "$WT" && _l5_timeout 60 node --experimental-sqlite "$INVOKER" 2>&1) || true )
 
 # The invoker emits a summary line on stderr on success. Check for it.
 if echo "$OUT" | grep -q "\[post-close-rescan\] OK"; then

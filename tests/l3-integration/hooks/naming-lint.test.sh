@@ -165,4 +165,25 @@ out=$(run_hook "$input")
 event=$(echo "$out" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null || echo "")
 assert_eq "PreToolUse" "$event" "hookEventName is PreToolUse"
 
+# ──────────────────────────────────────────────────────────────
+# Case 17: double-extension .test.sh passes silently (#416)
+# ──────────────────────────────────────────────────────────────
+test_case "kebab-base .test.sh passes silently (double-extension)"
+input=$(make_write "$TMPDIR_NL/commit-msg-lint.test.sh")
+out=$(run_hook "$input")
+assert_eq "" "$out" "commit-msg-lint.test.sh produces no output"
+
+test_case "another .test.sh (naming-lint.test.sh) passes silently"
+input=$(make_write "$TMPDIR_NL/naming-lint.test.sh")
+out=$(run_hook "$input")
+assert_eq "" "$out" "naming-lint.test.sh produces no output"
+
+# ──────────────────────────────────────────────────────────────
+# Case 18: bad base before .test.sh still triggers advisory (#416)
+# ──────────────────────────────────────────────────────────────
+test_case "snake_case before .test.sh emits advisory"
+input=$(make_write "$TMPDIR_NL/my_script.test.sh")
+out=$(run_hook "$input")
+assert_contains "$out" "additionalContext" "my_script.test.sh triggers advisory"
+
 summarize
