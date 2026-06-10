@@ -4,7 +4,7 @@
 # Catches: broken symlinks left behind after file moves/deletes
 # (e.g. skills/*/scripts/ pointing at deleted skill dirs).
 #
-# Skips: node_modules, .git, dist/.
+# Only checks git-tracked symlinks (mode 120000); untracked + gitignored paths are out of scope.
 
 set -euo pipefail
 
@@ -21,12 +21,7 @@ while IFS= read -r link; do
     printf "BROKEN symlink: %s -> %s\n" "$link" "$target" >&2
     BROKEN=$((BROKEN + 1))
   fi
-done < <(find . -type l \
-  -not -path './node_modules/*' \
-  -not -path './*/node_modules/*' \
-  -not -path './.git/*' \
-  -not -path './*/dist/*' \
-  | sort)
+done < <(git ls-files -s | awk '$1=="120000"{print $4}' | sort)
 
 if [ "$BROKEN" -gt 0 ]; then
   printf "\n%d broken symlink(s) found (checked %d total).\n" "$BROKEN" "$TOTAL" >&2
