@@ -58,42 +58,12 @@
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/consultant-spawn-required.sh",
-            "timeout": 3
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/prompt-intent-hints.sh",
+            "timeout": 5
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-slash-detect.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/concerns-protocol-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/push-intent-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/reonboard-intent-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/resume-intent-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/adr-required-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/search-grounding-hint.sh",
             "timeout": 3
           }
         ]
@@ -201,7 +171,7 @@
         ]
       },
       {
-        "matcher": "*",
+        "matcher": "Bash|Read|Write|Edit|MultiEdit|Agent|Skill",
         "hooks": [
           {
             "type": "command",
