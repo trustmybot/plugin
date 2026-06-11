@@ -7,8 +7,7 @@
 # can't assert this — swe/pr-reviewer run as Agent subagents whose calls never
 # appear in bro's scored trajectory — so it's locked here at L1 instead.
 #
-# Checks templates/agents/{swe,pr-reviewer}.md (agents/ is byte-identical via
-# agent-template-byte-identity.sh):
+# Checks agents/{swe,pr-reviewer}.md:
 #   - both bodies call task_brief(
 #   - swe's `tools:` line is narrowed: no task_get / world_model_get /
 #     discussion_search (swe gets context ONLY via task_brief). pr-reviewer
@@ -22,7 +21,7 @@ cd "$PLUGIN_ROOT" || exit 1
 FAIL=0
 
 for agent in swe pr-reviewer; do
-  f="templates/agents/${agent}.md"
+  f="agents/${agent}.md"
   if [ ! -f "$f" ]; then
     printf 'agent-task-brief-contract: %s missing\n' "$f" >&2
     FAIL=1
@@ -36,7 +35,7 @@ done
 
 # swe must be narrowed to task_brief for context — the retired per-call read
 # tools must not reappear in its tools: line.
-swe_tools=$(grep -m1 '^tools:' templates/agents/swe.md || true)
+swe_tools=$(grep -m1 '^tools:' agents/swe.md || true)
 for retired in task_get world_model_get discussion_search; do
   if printf '%s' "$swe_tools" | grep -q "$retired"; then
     printf 'agent-task-brief-contract: swe tools: line lists retired read tool "%s" — context goes through task_brief only (#300)\n' "$retired" >&2
