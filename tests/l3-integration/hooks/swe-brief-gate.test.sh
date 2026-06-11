@@ -286,6 +286,40 @@ INPUT=$(jq -n --arg tr "$TR" '{
 out=$(run_hook "$INPUT")
 assert_not_contains "$out" '"permissionDecision":"deny"' "Edit must be allowed after task_brief"
 
+# ---- Slug fallback: no transcript, PWD inside worktree resolves task_id -----
+test_case "Slug fallback: no transcript, PWD inside worktree → gate evaluates (denies)"
+sqlite3 "$DB" "INSERT OR IGNORE INTO tasks VALUES (70, 1, 'fix/slug-task', 'pending', 'spec');" 2>/dev/null || true
+# PWD must look like a worktree root whose slug matches the branch_id suffix.
+FAKE_WT="$TMPDIR/.claude/worktrees/slug-task"
+INPUT=$(jq -n '{
+  agent_type: "swe",
+  tool_name: "mcp__tmb__trajectory-server__task_update_status",
+  tool_input: {}
+}')
+out=$(cd "$FAKE_WT" 2>/dev/null || mkdir -p "$FAKE_WT" && cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "slug fallback should resolve task and deny"
+assert_contains "$out" "task_brief" "deny reason must mention task_brief"
+
+test_case "Slug fallback: task_brief via slug writes sentinel"
+INPUT=$(jq -n '{
+  agent_type: "swe",
+  tool_name: "mcp__tmb__trajectory-server__task_brief",
+  tool_input: {}
+}')
+out=$(cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "task_brief via slug should be allowed"
+SENTINEL70=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='swe_brief_fetched' AND content_json LIKE '%\"task_id\":70%';" 2>/dev/null)
+assert_eq "1" "$SENTINEL70" "sentinel written for slug-resolved task"
+
+test_case "Slug fallback: after sentinel exists, tool allowed"
+INPUT=$(jq -n '{
+  agent_type: "swe",
+  tool_name: "mcp__tmb__trajectory-server__task_update_status",
+  tool_input: {}
+}')
+out=$(cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "tool allowed after slug-resolved sentinel"
+
 # ---- bro Edit never denied --------------------------------------------------
 test_case "bro caller: Edit never denied (gate must not affect bro)"
 sqlite3 "$DB" "INSERT INTO tasks VALUES (60, 1, 'feat/bro-edit', 'pending', 'spec');" 2>/dev/null || true

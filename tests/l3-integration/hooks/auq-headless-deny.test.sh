@@ -37,6 +37,9 @@ input=$(make_input "AskUserQuestion")
 out=$(echo "$input" | TMB_HEADLESS=1 bash "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "output has deny decision"
 assert_contains "$out" "tmb_recovery" "output references the recovery skill"
+assert_contains "$out" "headless_fallback_record" "output names headless_fallback_record as the recovery"
+assert_not_contains "$out" "audit_log" "output must not teach the old two-call recipe"
+assert_not_contains "$out" "discussion_append" "output must not teach the old two-call recipe"
 assert_contains "$out" "Skip retrying" "output includes no-retry instruction"
 
 # Test 4 — AUQ + TMB_HEADLESS=0 (set but falsy): exit 0, no stdout

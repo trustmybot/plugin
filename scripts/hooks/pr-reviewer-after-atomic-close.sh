@@ -76,7 +76,7 @@ Per tmb_planning Step 5 (verify + close, then pr-reviewer per tmb_review §B) + 
 
 SWE returning completed does not close the trajectory task — that is bro_atomic_close.
 
-Fix: call bro_atomic_close(agent='bro', task_id=${TASK_ID}, commit_sha=<sha>, file_summaries=[...], verification_summary='...') first, then retry this spawn."
+Fix: call bro_atomic_close(agent='bro', task_id=${TASK_ID}, commit_sha=<sha>, verification_summary='...') first, then retry this spawn."
 jq -nc --arg reason "$_DENY_REASON" '{
   hookSpecificOutput: {
     hookEventName: "PreToolUse",

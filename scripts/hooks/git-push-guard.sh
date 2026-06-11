@@ -98,11 +98,11 @@ if [ "$WT_CWD" = "yes" ]; then
   exit 0
 fi
 
-# Block any git push from SWE context (swe.md "Never push" rule enforced structurally).
+# Block any git push from SWE context (enforced structurally by this gate).
 # Defense-in-depth fallback: catches non-worktree SWE pushes and cases where
 # CC #97 might strip the agent_type field from the payload.
 if [ "$AGENT_TYPE" = "swe" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE must never push (swe.md). Bro handles the push gate at MR-open time. If this push was intended, the calling agent identity (.agent_type) is misconfigured."}}'
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
   exit 0
 fi
 
