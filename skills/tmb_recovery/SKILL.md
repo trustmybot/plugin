@@ -17,7 +17,7 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
 ### Protocol
 
 1. **Look up the documented default** for that question (table below). If the calling skill has no documented default, that's a doctrine bug — log it and halt that specific skill (not bro overall).
-2. **Record the fallback** — call `headless_fallback_record(agent='bro', skill=<skill_name>, question=<question_short>, default=<chosen_default>)`. Its dedup guard and shared helper write both the audit event and the discussion note atomically; the deny hook names it on failure. For `issue_id`: use the parent issue when one exists; use `'-1'` for system-level events with no parent issue.
+2. **Record the fallback** — call `headless_fallback_record(agent='bro', skill=<skill_name>, question=<question_short>, chosen_default=<chosen_default>)`. Writes both the audit event and the discussion note atomically; the deny hook names it on failure. For `issue_id`: use the parent issue when one exists; use `'-1'` for system-level events with no parent issue.
 3. **Continue the skill's flow** with the default as if the Human typed it.
 
 ### Per-skill defaults

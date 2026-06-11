@@ -18,7 +18,7 @@ When a remote is configured:
 
 Ask the Human which branch to create the new feature branch from — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. On `pr_target`: `git fetch origin ${pr_target} && git checkout ${pr_target} && git pull --ff-only`. On a non-pr_target: switch; leave the branch as-is.
 
-Then call `branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)` and confirm: "Proceed with branch_id X?" (yes / suggest different). On Yes: call `intent_start(agent='bro', intent_verbatim=<verbatim>, branch_id=<branch_id>)` to create the issue, log the intent, and record the planning note in one step, then create the git branch locally.
+Then call `branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)` and confirm: "Proceed with branch_id X?" (yes / suggest different). On Yes: call `intent_start(agent='bro', objective=<short>, intent_verbatim=<verbatim>, branch_id=<branch_id>)` to create the issue, log the intent, and record the planning note in one step, then create the git branch locally.
 
 ## 3. Author the spec
 
