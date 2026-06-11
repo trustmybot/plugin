@@ -8,7 +8,8 @@
 # appear in bro's scored trajectory — so it's locked here at L1 instead.
 #
 # Checks agents/{swe,pr-reviewer}.md:
-#   - both bodies call task_brief(
+#   - both bodies reference task_brief (the contract is the mention + tool grant;
+#     the call shape lives in the tool schema and the brief gate's deny message)
 #   - swe's `tools:` line is narrowed: no task_get / world_model_get /
 #     discussion_search (swe gets context ONLY via task_brief). pr-reviewer
 #     keeps the full MCP namespace by design (needs discussion/audit search).
@@ -27,8 +28,8 @@ for agent in swe pr-reviewer; do
     FAIL=1
     continue
   fi
-  if ! grep -q 'task_brief(' "$f"; then
-    printf 'agent-task-brief-contract: %s does not call task_brief( — #300 handoff contract broken\n' "$f" >&2
+  if ! grep -qw 'task_brief' "$f"; then
+    printf 'agent-task-brief-contract: %s does not reference task_brief — #300 handoff contract broken\n' "$f" >&2
     FAIL=1
   fi
 done
