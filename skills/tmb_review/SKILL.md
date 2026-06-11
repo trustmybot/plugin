@@ -18,7 +18,7 @@ Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, and the ch
 
 The parent CC session's main checkout may be on ANY branch. Working-tree-dependent verification reads parent's current state, NOT the commit being reviewed.
 
-For working-tree-dependent verification use `pr_review_worktree(agent='pr-reviewer', commit_sha=<sha>, repo_path=<workspace_root>, command='<verification command>')` — `workspace_root` is the directory holding `.claude/tmb/trajectory.db` (same definition as `tmb_planning`); creates the worktree, runs the command, removes it atomically.
+For working-tree-dependent verification use `pr_review_worktree` with the workspace root — the directory holding `.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
 
 Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
 
@@ -76,7 +76,7 @@ The verdict row is always authored by pr-reviewer itself — via MCP when availa
 ```
 task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin attempt_n=<attempt #>
 
-Push-gate review. Per §A worktree discipline if running linters/build/tests against the working tree. Load context via task_brief(agent='pr-reviewer', task_id=42). Verify each Success Criterion against the diff. Write validation_attempts row per §A (path 1 if you have MCP, path 2 if you have only Bash). Verdict='fail' if any check fails.
+Push-gate review. Load the brief, verify each Success Criterion against the diff, and record your verdict — fail if any check fails.
 ```
 
 No-MCP fallback (Bash-only spawn, no `mcp__...` tools in tool list): use the documented fallback script pattern — `bro-sqlite-readonly.sh` in `tmb_recovery` §C.2 for read-only DB access.
@@ -89,7 +89,7 @@ Triggers:
 
 ### Reap commits → local feature branch
 
-`reap_and_review_prep(agent='bro', task_ids=[<N>, ...], repo_path=<workspace_root>)` — fetches each unsigned task's detached HEAD from its worktree into the main checkout, returns `{ reaped: [{task_id, branch_id, commit_sha, reaped, error?}] }`.
+`reap_and_review_prep` fetches each unsigned task's detached HEAD from its worktree into the main checkout and reports, per task, whether the reap landed or what failed.
 
 ### Spawn pr-reviewer per unsigned task (parallel)
 
@@ -114,27 +114,17 @@ Read pr-reviewer's first response line:
 
 ### Resolve the PR
 
-If `$ARGUMENTS` has a PR number, use it. Otherwise:
+If the Human named a PR number, use it. Otherwise:
 - GitHub: `gh pr view --json number`
 - GitLab: `glab mr list --source-branch <branch> --json`
 
-Empty result → render AUQ:
-```
-AskUserQuestion: "Which PR/MR number to monitor?"
-options: []  # Other free-text only
-```
+Empty result → ask the Human which PR/MR number to monitor (free-text answer).
 
 ### Fetch
 
-```
-pr_comments_get(agent='bro', pr_number=N)
-```
+Call `pr_comments_get` with the PR number.
 
-Carrier: look up the issue via `tasks.branch_id` for the current branch. If unresolved, render AUQ:
-```
-AskUserQuestion: "Which issue is this PR linked to?"
-options: []  # free-text issue ID
-```
+Carrier: look up the issue via `tasks.branch_id` for the current branch. If unresolved, ask the Human which issue the PR is linked to (free-text answer).
 
 ### Triage (judgment)
 
@@ -149,12 +139,7 @@ Group task-worthy comments by file or shared concept; one task per group. Flag t
 
 ### Dispatch
 
-Render AUQ:
-```
-AskUserQuestion: "Which review comments to address now? (subset OK)"
-multiSelect: true
-options: [<task title (with optional (arch-impact) suffix)> per ratified group]
-```
+Offer the ratified groups as a multi-select — one option per group, titled by the task it would become (suffix arch-impact ones) — and let the Human pick a subset.
 
 For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the world model.
 
@@ -185,7 +170,7 @@ Format: `- <Pattern name> / Symptom: ... / Root cause: ... / Rule: ... / Check: 
 ### Prompt authoring
 
 - **Negative directive in prompt**
-  Trigger: PR introduces a negation clause (start-of-line `Don't` / `Never` / `Do not`, or mid-sentence `MUST NOT` / `do not`) to a prompt or skill body. <!-- LOAD-BEARING-SAFETY: pattern description must name the negation forms for the lint check to be enforceable -->
+  Trigger: a PR adds a negation-phrased rule to a prompt or skill body — the prompt-author lint flags the exact forms.
   Action: Propose the positive alternative inline ("Use X" instead of "Don't use Y"). Or recommend promotion to a deterministic layer (hook / `requireRoles`) for structural enforcement. If load-bearing safety: require `<!-- LOAD-BEARING-SAFETY: <reason> -->` justification.
 
 (Add new findings here as they're caught.)
