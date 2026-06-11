@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/session-start-prescan.sh.
-# Covers: output is valid JSON, additionalContext is emitted, and cache-friendly
-# ordering — stable inventory markers appear before volatile count markers.
+# Covers: output is valid JSON, additionalContext is emitted, cache-friendly
+# ordering, cold-session auto-scan launch, bypass env, and warm-session path.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,34 +13,51 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
 
-export TRAJECTORY_DB_PATH="$DB"
+# ---- fixture workspace --------------------------------------------------
+# A hermetic git repo with benign commits.  Every hook invocation must run
+# from $FIXTURE_WS so that git, glob, and stack-detect all read fixture data
+# only — never the real workspace, home dir, or test runner's cwd.
+FIXTURE_WS="$TMPDIR/fixture-workspace"
+mkdir -p "$FIXTURE_WS/src"
+touch "$FIXTURE_WS/README.txt"
+touch "$FIXTURE_WS/src/main.sh"
+git -C "$FIXTURE_WS" init -q
+git -C "$FIXTURE_WS" config user.email "test@example.com"
+git -C "$FIXTURE_WS" config user.name "Test"
+git -C "$FIXTURE_WS" add .
+git -C "$FIXTURE_WS" commit -q -m "initial commit"
 
-sqlite3 "$DB" "
-  CREATE TABLE issues (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    objective TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'open',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE audit (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_type TEXT NOT NULL,
-    payload TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  INSERT INTO issues (objective, status) VALUES ('test issue', 'open');
-  INSERT INTO tasks (issue_id, status) VALUES (1, 'pending');
-"
-
+# Helper: run the real hook from the fixture workspace with explicit DB.
 run_hook() {
-  bash "$HOOK" 2>/dev/null || true
+  (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true
 }
+
+make_db() {
+  sqlite3 "$1" "
+    CREATE TABLE issues (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      objective TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      issue_id INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      payload TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    INSERT INTO issues (objective, status) VALUES ('test issue', 'open');
+    INSERT INTO tasks (issue_id, status) VALUES (1, 'pending');
+  "
+}
+
+make_db "$DB"
 
 OUT=$(run_hook)
 
@@ -136,7 +153,84 @@ fi
 
 test_case "missing DB: hook exits silently (no output)"
 rm -f "$DB"
-out_no_db=$(bash "$HOOK" 2>/dev/null || true)
+out_no_db=$((cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 assert_eq "" "$out_no_db" "no output when DB missing"
+
+# Re-create DB for the remaining cold/warm tests.
+make_db "$DB"
+
+# ---- cold session: auto-scan fires ----
+# Build a fake invoker that records its invocation without actually running a scan.
+FAKE_INVOKER_DIR="$TMPDIR/fake-maintenance"
+mkdir -p "$FAKE_INVOKER_DIR"
+INVOCATION_FLAG="$TMPDIR/invoked"
+cat > "$FAKE_INVOKER_DIR/run-scan-initial.mjs" <<'FAKE'
+#!/usr/bin/env node
+import { writeFileSync } from 'node:fs';
+// Record invocation and exit cleanly.
+writeFileSync(process.env.INVOCATION_FLAG, '1');
+FAKE
+
+# Build a fake scripts tree: hooks/, maintenance/, and scan.sh (availability sentinel).
+FAKE_SCRIPTS="$TMPDIR/fake-scripts"
+mkdir -p "$FAKE_SCRIPTS/hooks"
+mkdir -p "$FAKE_SCRIPTS/maintenance"
+cp "$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh" "$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
+cp "$FAKE_INVOKER_DIR/run-scan-initial.mjs" "$FAKE_SCRIPTS/maintenance/run-scan-initial.mjs"
+# Provide a stub scan.sh so the hook's availability check passes.
+echo '#!/usr/bin/env bash' > "$FAKE_SCRIPTS/scan.sh"
+chmod +x "$FAKE_SCRIPTS/scan.sh"
+FAKE_HOOK="$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
+
+test_case "cold + invoker present: context says scan started"
+rm -f "$INVOCATION_FLAG"
+COLD_OUT=$((cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
+COLD_CTX=$(echo "$COLD_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+assert_contains "$COLD_CTX" "scan is running in the background" "cold context mentions background scan"
+
+test_case "cold + invoker present: scan process was invoked"
+# Give the background node process a moment to write the flag.
+sleep 0.5
+if [ -f "$INVOCATION_FLAG" ]; then
+  _pass
+else
+  _fail "fake invoker was not called (flag missing at $INVOCATION_FLAG)"
+fi
+
+test_case "cold + invoker present: no Human-directed /scan instruction"
+assert_not_contains "$COLD_CTX" "tell the Human to run /scan" "no manual scan instruction"
+
+# ---- cold + TMB_SKIP_AUTO_PRESCAN=1: warn only, no invocation ----
+
+test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: context says world model is cold"
+rm -f "$INVOCATION_FLAG"
+SKIP_OUT=$((cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$FAKE_HOOK" 2>/dev/null) || true)
+SKIP_CTX=$(echo "$SKIP_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+assert_contains "$SKIP_CTX" "cold" "skip context mentions cold"
+
+test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: invoker not called"
+sleep 0.2
+if [ -f "$INVOCATION_FLAG" ]; then
+  _fail "invoker was called despite TMB_SKIP_AUTO_PRESCAN=1"
+else
+  _pass
+fi
+
+test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: no background scan message"
+assert_not_contains "$SKIP_CTX" "scan is running in the background" "no background scan message when bypassed"
+
+# ---- warm session: no scan, no cold note ----
+
+test_case "warm: context shows warm world model"
+sqlite3 "$DB" "INSERT INTO audit (event_type) VALUES ('deep_scan_completed');"
+WARM_OUT=$((cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+WARM_CTX=$(echo "$WARM_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+assert_contains "$WARM_CTX" "warm" "warm context shows warm"
+
+test_case "warm: no background scan note in context"
+assert_not_contains "$WARM_CTX" "scan is running in the background" "no scan note in warm session"
+
+test_case "warm: no cold-world-model note in context"
+assert_not_contains "$WARM_CTX" "world model is cold" "no cold message in warm session"
 
 summarize
