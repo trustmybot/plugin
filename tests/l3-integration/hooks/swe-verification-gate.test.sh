@@ -14,12 +14,23 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
-DB="$TMPDIR/trajectory.db"
+
+# Workspace-above-repo layout (mirrors the real TMB workspace):
+#   <ws>/.claude/tmb/trajectory.db   — DB lives here
+#   <ws>/.claude/worktrees/<slug>/   — worktrees here
+#   <ws>/plugin/                     — repo here (separate from ws root)
+WS="$TMPDIR/ws"
+mkdir -p "$WS/.claude/tmb"
+DB="$WS/.claude/tmb/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"
 
-# Create a fake worktree directory for tests.
-WT_ROOT="$TMPDIR/repo/.claude/worktrees"
+# Worktrees hang off the workspace .claude dir (not the repo).
+WT_ROOT="$WS/.claude/worktrees"
 mkdir -p "$WT_ROOT/my-feature"
+
+# Fake repo dir — hook runs with cwd here in workspace-above-repo tests.
+REPO_DIR="$WS/plugin"
+mkdir -p "$REPO_DIR"
 
 sqlite3 "$DB" "
   CREATE TABLE issues (
@@ -99,18 +110,18 @@ assert_contains "$out" "no ## Verification block" "advisory should mention missi
 
 # ---- Passing verification: allowed ------------------------------------------
 test_case "SWE completing task with passing verification: allowed"
-out=$(cd "$TMPDIR/repo" && run_hook "$(make_input swe completed 1)")
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 1)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "passing verification should allow"
 
 # ---- Failing verification: DENIED ------------------------------------------
 test_case "SWE completing task with failing verification command: DENIED"
-out=$(cd "$TMPDIR/repo" && run_hook "$(make_input swe completed 3)")
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 3)")
 assert_contains "$out" '"permissionDecision":"deny"' "failing verification should deny"
 assert_contains "$out" "verification failed" "deny reason should say verification failed"
 
 # ---- Multi-command verification that passes: allowed ------------------------
 test_case "SWE completing task with multi-command verification (all pass): allowed"
-out=$(cd "$TMPDIR/repo" && run_hook "$(make_input swe completed 4)")
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 4)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "multi-command all-pass should allow"
 
 # ---- Waiver with >=10 chars: allowed + audit row ----------------------------
@@ -131,7 +142,7 @@ INPUT=$(jq -n '{
   tool_name: "mcp__tmb__trajectory-server__task_update_status",
   tool_input: {agent: "swe", status: "completed", task_id: "3", waive_verification_gate_reason: "short"}
 }')
-out=$(cd "$TMPDIR/repo" && run_hook "$INPUT")
+out=$(cd "$REPO_DIR" && run_hook "$INPUT")
 assert_contains "$out" '"permissionDecision":"deny"' "short waiver should not bypass verification"
 
 # ---- No DB: allowed ---------------------------------------------------------
@@ -147,7 +158,7 @@ sqlite3 "$DB" "
     '## Verification' || char(10) || 'sleep 5' || char(10) || 'echo done' || char(10));
 "
 mkdir -p "$WT_ROOT/slow-test"
-out=$(cd "$TMPDIR/repo" && \
+out=$(cd "$REPO_DIR" && \
   TMB_VERIFICATION_TIMEOUT_S=0 run_hook "$(make_input swe completed 99)")
 assert_contains "$out" '"permissionDecision":"deny"' "timeout should deny"
 assert_contains "$out" "timed out" "deny reason should mention timeout"
@@ -180,5 +191,59 @@ ROW=$(sqlite3 "$DB" "SELECT content_json FROM audit WHERE event_type='verificati
 assert_contains "$ROW" "it's a doc-only change" "stored content_json should retain single quotes"
 EXTRACTED=$(sqlite3 "$DB" "SELECT json_extract(content_json, '\$.waiver_reason') FROM audit WHERE event_type='verification_gate_waived' ORDER BY id DESC LIMIT 1;")
 assert_contains "$EXTRACTED" "can't run here" "content_json should be valid JSON (json_extract works)"
+
+# ---- Bullet+backtick verification: passing -----------------------------------
+# Spec writes:  ## Verification\n- `echo ok`\n- `exit 0`
+test_case "bullet+backtick ## Verification block: all pass → allowed"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (10, 1, 'feat/bullet-pass', 'pending',
+    '## Verification' || char(10) ||
+    '- \`echo bullet-ok\`' || char(10) ||
+    '- \`exit 0\`' || char(10));
+"
+mkdir -p "$WT_ROOT/bullet-pass"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bullet+backtick all-pass should allow"
+
+# ---- Bullet+backtick verification: failing -----------------------------------
+# Spec writes:  ## Verification\n- `exit 1`
+test_case "bullet+backtick ## Verification block: failing cmd → DENIED"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (11, 1, 'feat/bullet-fail', 'pending',
+    '## Verification' || char(10) ||
+    '- \`exit 1\`' || char(10));
+"
+mkdir -p "$WT_ROOT/bullet-fail"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 11)")
+assert_contains "$out" '"permissionDecision":"deny"' "bullet+backtick failing cmd should deny"
+assert_contains "$out" "verification failed" "deny reason should say verification failed"
+
+# ---- Bullet-only (no backticks) verification: passing ------------------------
+test_case "bullet-only (no backticks) ## Verification block: all pass → allowed"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (12, 1, 'feat/bullet-bare-pass', 'pending',
+    '## Verification' || char(10) ||
+    '- echo bare-ok' || char(10) ||
+    '- exit 0' || char(10));
+"
+mkdir -p "$WT_ROOT/bullet-bare-pass"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 12)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bare-bullet all-pass should allow"
+
+# ---- Workspace-above-repo layout: gate runs (no skip warning) ----------------
+# Layout: ws/.claude/tmb/trajectory.db  +  ws/.claude/worktrees/<slug>/
+# Hook runs from ws/plugin (the repo), not the workspace root.
+# With the old PWD walk-up the gate would skip (worktrees not under ws/plugin).
+# With the new DB-derived resolution the gate finds ws/.claude/worktrees/.
+test_case "workspace-above-repo layout: gate resolves worktree and runs (no skip)"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (20, 1, 'feat/ws-above-repo', 'pending',
+    '## Verification' || char(10) ||
+    'echo ws-above-repo-ok' || char(10));
+"
+mkdir -p "$WT_ROOT/ws-above-repo"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 20)")
+assert_not_contains "$out" "verification gate skipped" "workspace-above-repo gate must not skip"
+assert_not_contains "$out" '"permissionDecision":"deny"' "workspace-above-repo passing cmd should allow"
 
 summarize
