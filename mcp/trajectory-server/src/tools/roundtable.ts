@@ -89,7 +89,7 @@ export function roundtableTools(db: TrajectoryDB): {
     {
       name: 'roundtable_vote',
       description:
-        'Record a participant vote/position for a roundtable. Bro-only. One row per participant per call; participant is an agent name or "human" for ratification rows.',
+        'Record a participant vote/position for a roundtable. Bro-only. One row per participant per call; participant is an agent name or "human" for ratification rows. vote is capped at 60 chars; rationale at 120 chars — over-cap values return named validation errors.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -99,8 +99,8 @@ export function roundtableTools(db: TrajectoryDB): {
             type: 'string',
             description: 'Agent name (ceo, cto, pm, architect) or "human" for ratification rows',
           },
-          vote: { type: 'string', description: 'Stance summary or vote value' },
-          rationale: { type: 'string', description: 'Key reasoning or rationale (optional)' },
+          vote: { type: 'string', description: 'Stance summary or vote value. Max 60 chars.' },
+          rationale: { type: 'string', description: 'Key reasoning or rationale (optional). Max 120 chars.' },
         },
         required: ['agent', 'roundtable_id', 'participant', 'vote'],
       },
@@ -349,6 +349,12 @@ export function roundtableTools(db: TrajectoryDB): {
         }
         if (!vote.trim()) {
           throw new Error('vote must be a non-empty string');
+        }
+        if (vote.length > 60) {
+          return err(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
+        }
+        if (rationale.length > 120) {
+          return err(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
         }
 
         const roundtable = db.get<RoundtableRow>(

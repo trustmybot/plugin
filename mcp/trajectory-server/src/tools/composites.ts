@@ -8,6 +8,7 @@ import { syncIssueCloseRemotes } from './issues.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import type { WorldModelGraph } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { resolveDefaultIssueId } from './discussions.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
 
@@ -775,10 +776,7 @@ export function compositeTools(
 
         let issueId = (args['issue_id'] as number | undefined) ?? null;
         if (issueId === null) {
-          const latest = db.get<{ id: number }>(
-            `SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`,
-          );
-          issueId = latest?.id ?? -1;
+          issueId = resolveDefaultIssueId(db);
         }
 
         const now = nowISO();

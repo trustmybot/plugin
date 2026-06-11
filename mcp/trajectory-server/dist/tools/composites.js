@@ -3,6 +3,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { syncIssueCloseRemotes } from './issues.js';
+import { resolveDefaultIssueId } from './discussions.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a spec's `## Files` section. Each
 // bullet's first token is the path; its dirname is the directory ('' = repo
@@ -598,8 +599,7 @@ export function compositeTools(db, dbPath, graph = null) {
             }
             let issueId = args['issue_id'] ?? null;
             if (issueId === null) {
-                const latest = db.get(`SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`);
-                issueId = latest?.id ?? -1;
+                issueId = resolveDefaultIssueId(db);
             }
             const now = nowISO();
             const noteBody = `Headless fallback (${skill}): question skipped — applied default "${chosenDefault}".`;

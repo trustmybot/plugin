@@ -28,6 +28,10 @@ function wrapHandler(fn) {
         }
     };
 }
+export function resolveDefaultIssueId(db) {
+    const latest = db.get(`SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`);
+    return latest?.id ?? -1;
+}
 export function discussionTools(db) {
     const definitions = [
         {
@@ -63,12 +67,12 @@ export function discussionTools(db) {
         },
         {
             name: 'discussion_append',
-            description: 'Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log. body is capped at 64 KB; larger payloads return a named validation error.',
+            description: 'Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log. issue_id is optional — defaults to the newest open issue (excluding -1), or -1 if no open issues exist. body is capped at 64 KB; larger payloads return a named validation error.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string', description: 'Caller agent name' },
-                    issue_id: { type: 'string', description: 'The issue ID (integer as string)' },
+                    issue_id: { type: 'string', description: 'The issue ID (integer as string). Optional — defaults to the newest open issue, else -1.' },
                     author: { type: 'string', description: 'Author of this entry (agent name or human)' },
                     kind: {
                         type: 'string',
@@ -81,7 +85,7 @@ export function discussionTools(db) {
                         description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only — not persisted.',
                     },
                 },
-                required: ['agent', 'issue_id', 'author', 'body'],
+                required: ['agent', 'author', 'body'],
             },
         },
         {
@@ -273,7 +277,8 @@ export function discussionTools(db) {
         }),
         discussion_append: requireRoles('discussion_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             normalizeAgent(args['agent']);
-            const issueId = requireArg(args, 'issue_id');
+            const rawIssueId = args['issue_id'];
+            const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db));
             const author = requireArg(args, 'author');
             const body = requireArg(args, 'body');
             const kind = args['kind'] ?? 'note';
