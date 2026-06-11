@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
-# No-source-edit-from-main hook (#108).
+# No-source-edit-from-main hook (#108, updated #467).
 #
-# Blocks Edit/Write tool calls when bro mode is active and the target is a
-# source-code file outside an SWE worktree. Enforces the "bro never edits
-# source code directly" doctrine — every code change goes through SWE.
+# Blocks Edit/Write tool calls when the target is a source-code file outside
+# an SWE worktree in a TMB project. Policy is LOCATION-based: any agent
+# context (bro, general-purpose subagent, consultant, etc.) is denied — the
+# worktree location is the only credential.
 #
 # Block conditions (all must be true):
 #   1. Trajectory DB exists (this is a TMB project)
-#   2. Bro mode is active (transcript shows prior "Entering bro mode." with
-#      no later "exit bro mode" / "stop being bro")
-#   3. CWD is NOT inside .claude/worktrees/ (so this is bro, not SWE)
-#   4. Target file is NOT in the bro-allowlist (markdown, license, gitignore,
-#      git templates, plugin/agent/skill manifests, etc.)
+#   2. Target file is NOT inside .claude/worktrees/ (so this is not SWE)
+#   3. Target file is NOT in the docs/templates/config allowlist
 #
 # Allow conditions (any one allows):
 #   - DB missing (not a TMB project)
-#   - No bro mode (regular Claude Code session)
-#   - In worktree (SWE legitimately edits source there)
-#   - Target is in allowlist (docs / configs that are bro's job)
+#   - Target is inside .claude/worktrees/<slug>/... (SWE legitimately edits source there)
+#   - Target is in allowlist (docs / configs that are fine to edit from main)
 #
 # Bypass: TMB_ALLOW_SOURCE_EDIT=1 (emergency override for hotfixes).
 
@@ -46,32 +43,12 @@ fi
 
 [ -f "$DB_PATH" ] || exit 0
 
-TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
-if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
-  exit 0
-fi
-# Bro mode active when:
-#   - Assistant announced "Entering bro mode." (explicit), OR
-#   - The user addressed `@bro` (the explicit sigil) in the transcript.
-# The sigil is required, not a bare `bro` word: a bare-keyword scan over the
-# whole transcript matches this hook's own block message and every assistant
-# mention of bro, false-blocking plain sessions forever (#276). `@bro` still
-# catches headless `claude -p "@bro ..."` runs where the announcement is skipped.
-# Sticky-exit: a later "exit bro mode" / "stop being bro" deactivates.
-if grep -qiE 'exit bro mode|stop being bro' "$TRANSCRIPT" 2>/dev/null; then
-  exit 0
-fi
-if ! grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null \
-   && ! grep -qiE '@bro\b' "$TRANSCRIPT" 2>/dev/null; then
-  exit 0
-fi
-
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)
 [ -n "$TARGET" ] || exit 0
 
 # Worktree exemption: any write whose target path lives inside
 # `.claude/worktrees/<slug>/...` is a legitimate SWE edit in its task
-# worktree — allow regardless of bro/SWE distinction. This MUST be a
+# worktree — allow regardless of agent identity. This MUST be a
 # target-path check, not a $PWD check: CC subagents inherit the parent's
 # CWD, so $PWD is always the project root for every hook invocation
 # (the previous $PWD-based check never matched and silently blocked SWE).
@@ -116,7 +93,7 @@ case "$TARGET" in
   *.github/*) exit 0 ;;
 esac
 
-REASON="BLOCKED: bro is a pure planner — every code change goes through SWE. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning skill → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
+REASON="BLOCKED: source edits from the main checkout are denied for all agent contexts in a TMB project. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning skill → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
 
 jq -nc --arg reason "$REASON" '{
   hookSpecificOutput: {
