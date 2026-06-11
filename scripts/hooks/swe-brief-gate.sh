@@ -69,6 +69,31 @@ if [ -z "$TASK_ID" ]; then
   case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
 fi
 
+# Slug fallback: when transcript and tool_input provide no task_id, derive it
+# from the worktree root slug (same pattern as swe-boundary.sh).
+if [ -z "$TASK_ID" ]; then
+  WORKTREE_ROOT=""
+  case "$PWD" in
+    */.claude/worktrees/*)
+      WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
+      ;;
+  esac
+  if [ -n "$WORKTREE_ROOT" ] && [ -n "$DB" ] && tmb_have_sqlite; then
+    WORKTREE_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
+    if [ -n "$WORKTREE_SLUG" ]; then
+      SAFE_SLUG=$(tmb_sql_quote "$WORKTREE_SLUG")
+      TASK_ID=$(tmb_sqlite_ro "$DB" "
+        SELECT id FROM tasks
+         WHERE branch_id LIKE '%/${SAFE_SLUG}'
+           AND status IN ('pending','running','completed')
+         ORDER BY id DESC
+         LIMIT 1;
+      " 2>/dev/null || true)
+      case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
+    fi
+  fi
+fi
+
 if [ -z "$TASK_ID" ]; then
   exit 0
 fi
