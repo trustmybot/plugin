@@ -13,6 +13,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
@@ -40,12 +44,34 @@ RESPONSE_TEXT=$(echo "$INPUT" | jq -r '.tool_response.content[0].text // ""' 2>/
 TASK_LIST=$(echo "$RESPONSE_TEXT" | jq -r 'if type == "array" then map("  - task_id=\(.id) branch_id=\(.branch_id)") | join("\n") else "" end' 2>/dev/null)
 [ -n "$TASK_LIST" ] || exit 0
 
-REASON="🚀 SWE-spawn hint: ${TOOL_NAME##*__} created the following tasks. Per tmb_planning Step 5, the next step is to spawn SWE via the Agent tool for each task — production sessions where this step was skipped left tasks stuck at status='pending' forever.
+# Resolve workspace_root from the trajectory DB path: DB lives at
+# <workspace_root>/.claude/<plugin>/trajectory.db, so dirname 3 times.
+WORKSPACE_ROOT=""
+_DB=$(tmb_db_path 2>/dev/null || true)
+if [ -n "$_DB" ]; then
+  WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$_DB")")")"
+fi
+
+# Build per-task worktree path entries. For each task, slug = branch_id
+# minus its type/ prefix (e.g. feat/my-feature → my-feature).
+TASK_LIST_WITH_PATHS=$(echo "$RESPONSE_TEXT" | jq -r --arg ws "$WORKSPACE_ROOT" '
+  if type == "array" then
+    map(
+      . as $t |
+      ($t.branch_id | ltrimstr("feat/") | ltrimstr("fix/") | ltrimstr("chore/") | ltrimstr("docs/") | ltrimstr("test/") | ltrimstr("refactor/")) as $slug |
+      (if $ws != "" then $ws + "/.claude/worktrees/" + $slug else ".claude/worktrees/" + $slug end) as $wt |
+      "  - task_id=\($t.id) branch_id=\($t.branch_id) worktree=\($wt)"
+    ) | join("\n")
+  else "" end
+' 2>/dev/null)
+[ -n "$TASK_LIST_WITH_PATHS" ] || TASK_LIST_WITH_PATHS="$TASK_LIST"
+
+REASON="🚀 SWE-spawn hint: ${TOOL_NAME##*__} created the following tasks. Per tmb_planning Step 4, the next step is to spawn SWE via the Agent tool for each task — production sessions where this step was skipped left tasks stuck at status='pending' forever.
 
 Tasks created:
-${TASK_LIST}
+${TASK_LIST_WITH_PATHS}
 
-For each: \`Agent(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=.claude/worktrees/<slug>')\`. The branch is already pre-created (branch_id_proposed audit + git switch); SWE attaches to it.
+For each: \`Agent(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=<absolute-worktree-path>')\`. The branch is already pre-created (branch_id_proposed audit + git switch); SWE attaches to it.
 
 If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug."
 
