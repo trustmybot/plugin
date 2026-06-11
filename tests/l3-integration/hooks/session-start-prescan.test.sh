@@ -224,15 +224,19 @@ test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: no background scan message"
 assert_not_contains "$SKIP_CTX" "scan is running in the background" "no background scan message when bypassed"
 
 # ---- warm session: no scan, no cold note ----
+# Run in $TMPDIR (not the live repo) so git output is empty and cannot
+# contain commit messages with "world model is cold" text.
 
 test_case "warm: context shows warm world model"
 sqlite3 "$DB" "INSERT INTO audit (event_type) VALUES ('deep_scan_completed');"
-WARM_OUT=$(TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null || true)
+WARM_OUT=$(cd "$TMPDIR" && TRAJECTORY_DB_PATH="$DB" bash "$FAKE_HOOK" 2>/dev/null || true)
 WARM_CTX=$(echo "$WARM_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$WARM_CTX" "warm" "warm context shows warm"
 
-test_case "warm: no cold note in context"
+test_case "warm: no background scan note in context"
 assert_not_contains "$WARM_CTX" "scan is running in the background" "no scan note in warm session"
+
+test_case "warm: no cold message in context"
 assert_not_contains "$WARM_CTX" "world model is cold" "no cold message in warm session"
 
 summarize
