@@ -1,5 +1,9 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -53,7 +57,37 @@ const VALID_SCOPES = new Set(['global', 'template', 'project-local']);
 const RESERVED_NAME = 'bro';
 const BACKBONE_GLOBAL_ONLY = new Set(['swe', 'pr-reviewer']);
 
-export function agentTools(db: TrajectoryDB): {
+// plugin root = 5 levels up from dist/tools/agents.js
+// dist/tools/agents.js → dist/tools → dist → mcp/trajectory-server → mcp → plugin root
+const PLUGIN_ROOT = dirname(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url))))));
+
+function resolveWorkspaceRoot(dbPath: string): string {
+  if (!dbPath || dbPath === ':memory:') return '';
+  return dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '');
+}
+
+function validateAgentName(name: string): void {
+  if (name === RESERVED_NAME) {
+    throw new Error(
+      `agent_resolve rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. ` +
+      `Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`,
+    );
+  }
+  if (BACKBONE_GLOBAL_ONLY.has(name)) {
+    throw new Error(
+      `agent_resolve rejected: '${name}' is a backbone agent whose scope must be 'global'. ` +
+      `A project-local '${name}' would shadow the backbone and disable it. ` +
+      `To extend ${name}, create a differently-named consultant agent instead.`,
+    );
+  }
+  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+    throw new Error(
+      `agent_resolve rejected: '${name}' is not a valid agent name. Names must be kebab-case (lowercase letters, digits, hyphens; must start with a letter).`,
+    );
+  }
+}
+
+export function agentTools(db: TrajectoryDB, dbPath = ''): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -83,6 +117,24 @@ export function agentTools(db: TrajectoryDB): {
           file_path: { type: 'string' },
         },
         required: ['agent', 'name', 'kind', 'scope', 'file_path'],
+      },
+    },
+    {
+      name: 'agent_resolve',
+      description:
+        'Read-only: resolves creation mode for /tmb:agent-create. ' +
+        'Validates the name, then returns one of three modes: ' +
+        '"collision" (<workspace>/.claude/agents/<name>.md already exists — bro runs the collision dialog); ' +
+        '"template-copy" (plugin template available — bro Writes the file then calls agent_register); ' +
+        '"from-scratch" (no template — bro scaffolds from templates/agents/template.md then calls agent_register). ' +
+        'Paths returned are absolute. bro owns the file Write and the agent_register call.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          name: { type: 'string', description: 'Kebab-case agent name to resolve.' },
+        },
+        required: ['agent', 'name'],
       },
     },
   ];
@@ -162,6 +214,42 @@ export function agentTools(db: TrajectoryDB): {
 
       return ok(row);
     }),
+
+    agent_resolve: requireRoles(
+      'agent_resolve',
+      ['bro'],
+      wrapHandler(async (args) => {
+        requireArg(args, 'agent');
+        const name = requireArg(args, 'name') as string;
+
+        validateAgentName(name);
+
+        const workspaceRoot = resolveWorkspaceRoot(dbPath);
+        const targetPath = workspaceRoot
+          ? join(workspaceRoot, '.claude', 'agents', `${name}.md`)
+          : join('.claude', 'agents', `${name}.md`);
+
+        if (workspaceRoot && existsSync(targetPath)) {
+          return ok({ mode: 'collision', existing_path: targetPath });
+        }
+
+        const templatePath = join(PLUGIN_ROOT, 'templates', 'agents', `${name}.md`);
+        if (existsSync(templatePath)) {
+          return ok({
+            mode: 'template-copy',
+            source_path: templatePath,
+            target_path: targetPath,
+          });
+        }
+
+        const scaffoldPath = join(PLUGIN_ROOT, 'templates', 'agents', 'template.md');
+        return ok({
+          mode: 'from-scratch',
+          scaffold_path: scaffoldPath,
+          target_path: targetPath,
+        });
+      }),
+    ),
   };
 
   return { definitions, handlers };
