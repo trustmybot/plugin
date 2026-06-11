@@ -46,6 +46,10 @@ sqlite3 "$DB" "
   INSERT INTO tasks VALUES (11, 1, 'feat/prompt-task', 'pending', '', 1);
 "
 
+# Worktree for the prompt-bearing task (slug matches feat/prompt-task).
+WT_PROMPT="$WT_ROOT/prompt-task"
+mkdir -p "$WT_PROMPT"
+
 run_hook_swe() {
   local input="$1"
   (cd "$WORKTREE" && echo "$input" | bash "$HOOK" 2>&1 || true)
@@ -259,5 +263,32 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "bro edit prompt-surfac
 test_case "(d) SWE edit templates/agents/architect.md: DENIED"
 out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'templates/agents/architect.md' 10)" | bash "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "edit templates/ should be denied"
+
+# ===========================================================================
+# Rule (d) — slug fallback: task_id resolved from worktree slug, no transcript
+# ===========================================================================
+
+make_edit_no_transcript() {
+  local agent_type="$1" path="$2"
+  jq -n --arg a "$agent_type" --arg p "$path" '{
+    tool_name: "Edit",
+    agent_type: $a,
+    tool_input: {file_path: $p}
+  }'
+}
+
+test_case "(d/slug) prompt_bearing=1 task + worktree context + NO transcript: ALLOWED"
+out=$(cd "$WT_PROMPT" && echo "$(make_edit_no_transcript swe "$WT_PROMPT/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 via slug fallback should allow prompt-surface edit"
+
+test_case "(d/slug) prompt_bearing=0 task + worktree context + NO transcript: DENIED"
+out=$(cd "$WORKTREE" && echo "$(make_edit_no_transcript swe "$WORKTREE/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=0 via slug fallback should deny prompt-surface edit"
+
+test_case "(d/slug) no matching task for slug + NO transcript: DENIED"
+WT_UNKNOWN="$WT_ROOT/unknown-task"
+mkdir -p "$WT_UNKNOWN"
+out=$(cd "$WT_UNKNOWN" && echo "$(make_edit_no_transcript swe "$WT_UNKNOWN/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "no matching task slug should deny prompt-surface edit"
 
 summarize
