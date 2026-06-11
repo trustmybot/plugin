@@ -9,8 +9,7 @@ Before `task_update_status(completed)`, confirm these by reading the diff. Mecha
 
 - **Spec fidelity.** Every bullet under `## Files`, `## Success Criteria`, and every error/edge case named in `## Description` has a concrete change in the diff. Quote the bullet, point to the diff line.
 - **Scope discipline.** Nothing changed outside `## Files` except trivial imports. No "while I was there" cleanups. No new TODOs.
-- **Verification verbatim.** Ran the `## Verification` commands literally, not paraphrased. Pasted output proves they passed.
-- **Worktree isolation.** Edits and commits all live inside the assigned worktree path; the main checkout is untouched.
+- **Verification output.** Paste the verification output in your close report.
 
 Escalate (not guess) when:
 
