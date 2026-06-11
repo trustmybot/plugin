@@ -84,12 +84,23 @@ run_self_test() {
 
   local fail=0
 
-  # Seed one file per pattern class
-  printf 'AWS_KEY=AKIAIOSFODNN7EXAMPLE\n'                    > "$tmpdir/aws.sh"
-  printf 'token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg123\n' > "$tmpdir/ghp.sh"
-  printf 'pat=github_pat_ABCDEFGHIJKLMNOPQRSTUVWXYZ1\n'      > "$tmpdir/pat.sh"
-  printf '%s\n' '-----BEGIN RSA PRIVATE KEY-----'             > "$tmpdir/privkey.pem"
-  printf 'api_key = "abcdefghijklmnopqrstuvwxyz12345"\n'     > "$tmpdir/generic.sh"
+  # Seed one file per pattern class.
+  # Seeds are built via string concatenation so no raw secret-shaped literal
+  # exists in this file (which is excluded from the live-tree scan).
+  local A1="AKIA" A2="IOSFODNN7EXAMPLE"
+  printf 'AWS_KEY=%s\n' "${A1}${A2}"                                          > "$tmpdir/aws.sh"
+
+  local G1="ghp_" G2="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg123"
+  printf 'token=%s\n' "${G1}${G2}"                                             > "$tmpdir/ghp.sh"
+
+  local P1="github_pat_" P2="ABCDEFGHIJKLMNOPQRSTUVWXYZ1"
+  printf 'pat=%s\n' "${P1}${P2}"                                               > "$tmpdir/pat.sh"
+
+  local PK1="-----BEGIN RSA " PK2="PRIVATE KEY-----"
+  printf '%s\n' "${PK1}${PK2}"                                                 > "$tmpdir/privkey.pem"
+
+  local AK1="api_key" AK2=' = "abcdefghijklmnopqrstuvwxyz12345"'
+  printf '%s%s\n' "${AK1}" "${AK2}"                                            > "$tmpdir/generic.sh"
 
   # A placeholder that must NOT be caught (too short + placeholder word)
   printf 'secret = "example"\n' > "$tmpdir/placeholder.sh"
@@ -147,9 +158,16 @@ run_live_check() {
   cd "$PLUGIN_ROOT" || exit 1
 
   local findings=()
+  local SELF_REL="tests/l1-lint/no-secrets-in-source.sh"
+  local ALLOW_REL="tests/l1-lint/.no-secrets-allow"
 
   while IFS= read -r tracked_file; do
     [ -f "$tracked_file" ] || continue
+
+    # Exclude this script and the allowlist file (contain pattern seeds/exceptions)
+    case "$tracked_file" in
+      "$SELF_REL"|"$ALLOW_REL") continue ;;
+    esac
 
     # Exclude tests/fixtures/** and docs/**
     case "$tracked_file" in
