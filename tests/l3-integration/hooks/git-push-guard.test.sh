@@ -246,6 +246,56 @@ out=$(run_hook "git push origin main" "$db")
 assert_not_contains "$out" '"permissionDecision":"deny"' "non-SWE caller with all-signed should not be blocked"
 cleanup
 
+# ----- pr-reviewer role deny tests -------------------------------------
+
+# pr-reviewer run_hook helper: injects agent_type into the top-level payload.
+run_hook_as_pr_reviewer() {
+  local cmd="$1"
+  local db="${2:-/nonexistent.db}"
+  local agent_type="${3:-tmb:pr-reviewer}"
+  local payload
+  payload=$(jq -cn --arg c "$cmd" --arg a "$agent_type" '{agent_type:$a,tool_input:{command:$c}}')
+  (cd "$REPO_PATH" && echo "$payload" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true)
+}
+
+test_case "pr-reviewer caller (tmb:pr-reviewer): git push BLOCKED with bro-owns-push message"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook_as_pr_reviewer "git push origin main" "$db" "tmb:pr-reviewer")
+assert_contains "$out" '"permissionDecision":"deny"' "pr-reviewer push must be blocked even with all-signed commits"
+assert_contains "$out" "verdict row"  "block message must reference the verdict row"
+assert_contains "$out" "bro"          "block message must state push decision belongs to bro"
+cleanup
+
+test_case "pr-reviewer caller (pr-reviewer): git push BLOCKED (bare agent_type variant)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+out=$(run_hook_as_pr_reviewer "git push origin main" "/nonexistent.db" "pr-reviewer")
+assert_contains "$out" '"permissionDecision":"deny"' "bare pr-reviewer agent_type must also be blocked"
+cleanup
+
+test_case "pr-reviewer caller: git push --force still exits early (force delegated to git-guards before role check)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+out=$(run_hook_as_pr_reviewer "git push --force origin main" "$db" "tmb:pr-reviewer")
+assert_not_contains "$out" '"permissionDecision":"deny"' "force push exits before role check (git-guards handles it)"
+cleanup
+
+test_case "bro caller (no agent_type): git push with all-signed NOT blocked by role check"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook "git push origin main" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bro/Human with all-signed commits must not be blocked by role check"
+cleanup
+
 # ----- worktree-path push detection tests (audit item 14) ----------------
 #
 # Any push whose command or PWD involves .claude/worktrees/ must be blocked

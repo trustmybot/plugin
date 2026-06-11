@@ -106,6 +106,14 @@ if [ "$AGENT_TYPE" = "swe" ]; then
   exit 0
 fi
 
+# Block any git push from pr-reviewer context.
+# pr-reviewer renders a verdict row; the push decision belongs to bro
+# after that verdict — pr-reviewer itself must never initiate a push.
+if [ "$AGENT_TYPE" = "pr-reviewer" ]; then
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: pr-reviewer must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed."}}'
+  exit 0
+fi
+
 DB=$(tmb_db_path || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then
   # No DB or no sqlite3 — TMB isn't tracking anything in this project; let push through.
