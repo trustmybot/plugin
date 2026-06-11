@@ -6,6 +6,7 @@ import { resolveBackend } from '../sync/backend.js';
 import { buildBotPatterns, isBot } from '../sync/bot_patterns.js';
 import { spawnSync, SpawnSyncOptions } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -60,6 +61,10 @@ function defaultSpawnFn(
   args: string[],
   opts: SpawnSyncOptions,
 ): { status: number | null; stdout: string; stderr: string } {
+  const blockReason = liveCliBlockReason();
+  if (blockReason) {
+    return { status: null, stdout: '', stderr: liveCliBlockedMessage(blockReason, cmd, args) };
+  }
   const result = spawnSync(cmd, args, opts);
   return {
     status: result.status,
@@ -77,16 +82,15 @@ function normalizePrState(raw: string): 'open' | 'merged' | 'closed' {
 
 function fetchGithubComments(
   prNumber: number,
+  repo: string,
   since: string | undefined,
   botPatterns: RegExp[],
   spawnFn: SpawnFn,
 ): PrCommentsResult | null {
   const opts: SpawnSyncOptions = { timeout: 15000, encoding: 'utf8' };
-  const result = spawnFn(
-    'gh',
-    ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews'],
-    opts,
-  );
+  const ghArgs = ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews'];
+  if (repo) ghArgs.splice(2, 0, '-R', repo);
+  const result = spawnFn('gh', ghArgs, opts);
 
   if (result.status !== 0) return null;
 
@@ -162,16 +166,15 @@ function fetchGithubComments(
 
 function fetchGitlabComments(
   prNumber: number,
+  repo: string,
   since: string | undefined,
   botPatterns: RegExp[],
   spawnFn: SpawnFn,
 ): PrCommentsResult | null {
   const opts: SpawnSyncOptions = { timeout: 15000, encoding: 'utf8' };
-  const result = spawnFn(
-    'glab',
-    ['mr', 'view', String(prNumber), '--comments', '--output', 'json'],
-    opts,
-  );
+  const glabArgs = ['mr', 'view', String(prNumber), '--comments', '--output', 'json'];
+  if (repo) glabArgs.splice(2, 0, '-R', repo);
+  const result = spawnFn('glab', glabArgs, opts);
 
   if (result.status !== 0) return null;
 
@@ -220,26 +223,26 @@ function fetchGitlabComments(
 function resolveComments(
   backend: 'gh' | 'glab' | 'both' | 'off' | null,
   prNumber: number,
+  repo: string,
   since: string | undefined,
   botPatterns: RegExp[],
   spawnFn: SpawnFn,
-): PrCommentsResult | null | 'off' {
-  if (backend === 'off') return 'off';
+): PrCommentsResult | null {
   if (backend === 'gh') {
-    return fetchGithubComments(prNumber, since, botPatterns, spawnFn);
+    return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn);
   }
   if (backend === 'glab') {
-    return fetchGitlabComments(prNumber, since, botPatterns, spawnFn);
+    return fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn);
   }
   if (backend === 'both') {
     return (
-      fetchGithubComments(prNumber, since, botPatterns, spawnFn) ??
-      fetchGitlabComments(prNumber, since, botPatterns, spawnFn)
+      fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ??
+      fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn)
     );
   }
   return (
-    fetchGithubComments(prNumber, since, botPatterns, spawnFn) ??
-    fetchGitlabComments(prNumber, since, botPatterns, spawnFn)
+    fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ??
+    fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn)
   );
 }
 
@@ -331,7 +334,7 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
           backend = 'glab';
         }
       } else {
-        backend = resolveBackend(configValue);
+        backend = resolveBackend(configValue, _spawnFn !== undefined);
       }
 
       const configBots = db.get<{ value_json: string }>(
@@ -348,11 +351,8 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
       }
       const botPatterns = buildBotPatterns(botsOverride);
 
-      const fetchResult = resolveComments(backend, prNumber, since, botPatterns, spawn);
+      const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn);
 
-      if (fetchResult === 'off') {
-        return err('Failed to fetch PR comments — check gh/glab auth and PR number');
-      }
       if (!fetchResult) {
         return err('Failed to fetch PR comments — check gh/glab auth and PR number');
       }
@@ -365,16 +365,25 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
 
       // Upsert the cursor: a re-fetch of the same (pr_number, repo) should
       // overwrite last_fetched_at + last_comment_id rather than insert a
-      // duplicate row. Idempotency comes from idx_pr_review_runs_pr (UNIQUE).
-      db.run(
-        `INSERT INTO pr_review_runs
-          (pr_number, repo, last_fetched_at, last_comment_id)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(pr_number, repo) DO UPDATE SET
-           last_fetched_at = excluded.last_fetched_at,
-           last_comment_id = excluded.last_comment_id`,
-        [prNumber, repo, now, lastCommentId],
+      // duplicate row. Monitoring rows always have pr_number > 0 so they
+      // are covered by idx_pr_review_runs_pr (partial unique WHERE pr_number > 0).
+      // Use SELECT + INSERT/UPDATE to avoid relying on partial-index ON CONFLICT.
+      const existingCursor = db.get<{ id: number }>(
+        'SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?',
+        [prNumber, repo],
       );
+      if (existingCursor) {
+        db.run(
+          'UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ? WHERE id = ?',
+          [now, lastCommentId, existingCursor.id],
+        );
+      } else {
+        db.run(
+          `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id)
+           VALUES (?, ?, ?, ?)`,
+          [prNumber, repo, now, lastCommentId],
+        );
+      }
 
       return ok(fetchResult);
     })),

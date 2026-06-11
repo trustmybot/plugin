@@ -40,10 +40,46 @@ TOOL_DIR="${TMB_TOOL_DIR_OVERRIDE:-$PLUGIN_ROOT/mcp/trajectory-server/dist/tools
 if [ -n "${TMB_MCP_START_OVERRIDE:-}" ]; then
   MCP_START="$TMB_MCP_START_OVERRIDE"
 else
-  MCP_START_RAW=$(ps -o lstart= -p "$MCP_PID" 2>/dev/null | xargs || true)
-  [ -n "$MCP_START_RAW" ] || exit 0
-  MCP_START=$(date -j -f '%a %b %d %H:%M:%S %Y' "$MCP_START_RAW" '+%s' 2>/dev/null || echo "")
-  [ -n "$MCP_START" ] || exit 0
+  # Compute MCP_START (epoch seconds) portably (#371):
+  #   Linux: ps -o etimes= gives elapsed seconds directly.
+  #   macOS: etimes unsupported — use ps -o etime= (DD-HH:MM:SS / HH:MM:SS / MM:SS)
+  #   and convert to seconds, then compute start = now - elapsed.
+  NOW_EPOCH=$(date +%s 2>/dev/null || true)
+  [ -n "$NOW_EPOCH" ] || exit 0
+
+  MCP_ETIMES=$(ps -o etimes= -p "$MCP_PID" 2>/dev/null | tr -d ' ' || true)
+  if [ -n "$MCP_ETIMES" ] && echo "$MCP_ETIMES" | grep -qE '^[0-9]+$'; then
+    MCP_START=$(( NOW_EPOCH - MCP_ETIMES ))
+  else
+    # macOS fallback: parse ps -o etime= output (DD-HH:MM:SS, HH:MM:SS, or MM:SS)
+    MCP_ETIME_RAW=$(ps -o etime= -p "$MCP_PID" 2>/dev/null | tr -d ' ' || true)
+    [ -n "$MCP_ETIME_RAW" ] || exit 0
+    # Convert to elapsed seconds
+    MCP_ETIMES_CALC=0
+    case "$MCP_ETIME_RAW" in
+      *-*)
+        # DD-HH:MM:SS
+        _days="${MCP_ETIME_RAW%%-*}"
+        _rest="${MCP_ETIME_RAW#*-}"
+        ;;
+      *)
+        _days=0
+        _rest="$MCP_ETIME_RAW"
+        ;;
+    esac
+    _hms_count=$(echo "$_rest" | tr -cd ':' | wc -c | tr -d ' ')
+    if [ "$_hms_count" -eq 2 ]; then
+      # HH:MM:SS — strip leading zeros to avoid bash octal interpretation
+      _h="${_rest%%:*}"; _rest2="${_rest#*:}"; _m="${_rest2%%:*}"; _s="${_rest2#*:}"
+      MCP_ETIMES_CALC=$(( 10#${_days} * 86400 + 10#${_h} * 3600 + 10#${_m} * 60 + 10#${_s} ))
+    else
+      # MM:SS — strip leading zeros to avoid bash octal interpretation
+      _m="${_rest%%:*}"; _s="${_rest#*:}"
+      MCP_ETIMES_CALC=$(( 10#${_days} * 86400 + 10#${_m} * 60 + 10#${_s} ))
+    fi
+    [ "$MCP_ETIMES_CALC" -ge 0 ] 2>/dev/null || exit 0
+    MCP_START=$(( NOW_EPOCH - MCP_ETIMES_CALC ))
+  fi
   [ "$MCP_START" -gt 0 ] 2>/dev/null || exit 0
 fi
 

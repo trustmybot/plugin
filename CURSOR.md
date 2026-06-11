@@ -1,23 +1,5 @@
 # TMB on Cursor — placeholder
 
-> **Status: not implemented.** TMB ships Claude Code only as of v0.7.0. This file is a placeholder for the day a Cursor adapter ships under `.cursor-plugin/`.
+> **Status: not implemented.** TMB ships Claude Code only. When a Cursor adapter ships under `.cursor-plugin/`, this file becomes its bro-persona doctrine (the Cursor equivalent of `CLAUDE.md`).
 
-## What goes here when ready
-
-The bro persona doctrine, equivalent to Claude Code's `CLAUDE.md`:
-
-- The trigger word that activates bro on Cursor
-- Cursor-equivalent first-action chain (maps to the `tmb_planning` skill flow)
-- Cursor-equivalent push gate (Cursor's hook system is event-driven; the equivalent of
-  `git-push-guard.sh` lives under `../hooks/cursor/`)
-- Tool-name mapping (Cursor's Read/Edit/Bash equivalents)
-
-As of v0.7.0, the shipped TMB stack is: bro persona + 7 skills + trajectory-server MCP +
-enforcement hooks. Cursor's adapter would need to wire the MCP server and map the 8 hook
-integration points (PreToolUse, PostToolUse, UserPromptSubmit) to Cursor's event model.
-
-## See also
-
-- [`./CLAUDE.md`](./CLAUDE.md) — the canonical bro persona for Claude Code
-- [`./docs/reference/MULTI_PLATFORM.md`](./docs/reference/MULTI_PLATFORM.md)
-- [`./.cursor-plugin/`](./.cursor-plugin/)
+Strategy and build-out plan: [`docs/reference/MULTI_PLATFORM.md`](./docs/reference/MULTI_PLATFORM.md) · adapter notes: [`.cursor-plugin/README.md`](./.cursor-plugin/README.md)

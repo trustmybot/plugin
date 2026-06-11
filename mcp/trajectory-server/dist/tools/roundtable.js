@@ -29,7 +29,7 @@ export function roundtableTools(db) {
     const definitions = [
         {
             name: 'roundtable_create',
-            description: 'Create a new roundtable meeting record. Bro-only. Returns the roundtable_id to use for subsequent vote and close calls. Server-gated: requires a prior audit row with event_type=\'roundtable_slash_invoked\' (written by the roundtable-slash-detect.sh UserPromptSubmit hook when the user types /roundtable). The /roundtable ceremony is Human-triggered only.',
+            description: 'Create a new roundtable. Bro-only. Returns roundtable_id. Server-gated: requires an unconsumed audit row with event_type=\'roundtable_slash_invoked\' (written when the user types /roundtable). Human-triggered only.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -135,6 +135,46 @@ export function roundtableTools(db) {
                 required: ['agent', 'roundtable_id'],
             },
         },
+        {
+            name: 'roundtable_close_with_decisions',
+            description: 'Composite: collapses roundtable_finalize_decisions + roundtable_close + roundtable_summarize into one transactional call. Bro-only. Requires state=awaiting_human. Writes decision rows, closes the roundtable, returns the canonical summary.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string', description: 'Must be bro' },
+                    roundtable_id: { type: 'number', description: 'ID of the roundtable' },
+                    outcome: { type: 'string', description: 'One-sentence summary of the meeting outcome' },
+                    decisions: {
+                        type: 'object',
+                        description: 'Decision payload forwarded to roundtable_finalize_decisions.',
+                        properties: {
+                            ratified: { type: 'array', items: { type: 'string' }, description: 'Agreements ratified by the human' },
+                            unratified: { type: 'array', items: { type: 'string' }, description: 'Agreements not ratified' },
+                            resolutions: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        topic_slug: { type: 'string' },
+                                        winning_stance: { type: 'string' },
+                                        dissenter: { type: 'string' },
+                                        rationale: { type: 'string' },
+                                    },
+                                    required: ['topic_slug', 'winning_stance', 'dissenter'],
+                                },
+                                description: 'Disagreements resolved by human choice',
+                            },
+                        },
+                        required: ['ratified', 'unratified', 'resolutions'],
+                    },
+                    summary: {
+                        type: 'string',
+                        description: 'Optional — passed through as outcome if provided; otherwise outcome is used.',
+                    },
+                },
+                required: ['agent', 'roundtable_id', 'outcome', 'decisions'],
+            },
+        },
     ];
     const handlers = {
         roundtable_create: requireRoles('roundtable_create', ['bro'], wrapHandler(async (args) => {
@@ -176,8 +216,13 @@ export function roundtableTools(db) {
                 }
             }
             else {
-                const slashRow = db.get(`SELECT COUNT(*) as c FROM audit WHERE event_type = 'roundtable_slash_invoked'`);
-                if ((slashRow?.c ?? 0) === 0) {
+                const slashRow = db.get(`SELECT id FROM audit
+             WHERE event_type = 'roundtable_slash_invoked'
+               AND created_at >= datetime('now', '-10 minutes')
+               AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
+             ORDER BY created_at DESC
+             LIMIT 1`);
+                if (!slashRow) {
                     return {
                         isError: true,
                         content: [
@@ -186,8 +231,8 @@ export function roundtableTools(db) {
                                 text: JSON.stringify({
                                     error: 'roundtable_slash_gate_violation',
                                     message: `Roundtable slash gate: /roundtable is Human-triggered only. ` +
-                                        `No audit row with event_type='roundtable_slash_invoked' exists, meaning ` +
-                                        `the user did not type /roundtable. Tell the Human to type /roundtable <topic> ` +
+                                        `No unconsumed audit row with event_type='roundtable_slash_invoked' exists within the last 10 minutes, ` +
+                                        `meaning the user did not type /roundtable recently. Tell the Human to type /roundtable <topic> ` +
                                         `instead of auto-firing roundtable_create. For exceptional cases, pass ` +
                                         `waive_slash_gate=true with waive_slash_gate_reason="<why>".`,
                                 }),
@@ -197,9 +242,27 @@ export function roundtableTools(db) {
                 }
             }
             const now = nowISO();
+            // Find the slash-invoke audit row to consume BEFORE inserting the roundtable,
+            // so we have its id for the stamp (#356).
+            const slashAuditId = slashGateWaived
+                ? null
+                : db.get(`SELECT id FROM audit
+               WHERE event_type = 'roundtable_slash_invoked'
+                 AND created_at >= datetime('now', '-10 minutes')
+                 AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
+               ORDER BY created_at DESC
+               LIMIT 1`)?.id ?? null;
             db.run(`INSERT INTO roundtables (issue_id, topic, outcome, created_at, state, expected_participants)
            VALUES (?, ?, '', ?, 'collecting', ?)`, [issueId, topic, now, expectedParticipants]);
             const row = db.get('SELECT * FROM roundtables WHERE rowid = last_insert_rowid()');
+            // Consume the slash-invoke audit row by stamping the new roundtable_id
+            // into its content_json (#356). Uses the audit row id to avoid ORDER BY
+            // in UPDATE (not supported in all SQLite builds).
+            if (slashAuditId !== null) {
+                db.run(`UPDATE audit
+             SET content_json = json_set(COALESCE(content_json, '{}'), '$.consumed_by_roundtable_id', ?)
+             WHERE id = ?`, [row.id, slashAuditId]);
+            }
             return ok({ roundtable_id: row.id, state: row.state });
         })),
         roundtable_vote: requireRoles('roundtable_vote', ['bro'], wrapHandler(async (args) => {
@@ -357,6 +420,82 @@ export function roundtableTools(db) {
                 disagreements_resolved: disagreementsResolved,
                 outcome: roundtable.outcome || null,
                 state: roundtable.state ?? 'collecting',
+            });
+        })),
+        roundtable_close_with_decisions: requireRoles('roundtable_close_with_decisions', ['bro'], wrapHandler(async (args) => {
+            normalizeAgent(args['agent']);
+            const roundtableId = requireArg(args, 'roundtable_id');
+            const outcome = requireArg(args, 'outcome');
+            const decisions = requireArg(args, 'decisions');
+            const roundtable = db.get('SELECT * FROM roundtables WHERE id = ?', [roundtableId]);
+            if (!roundtable) {
+                throw new Error(`Not found: roundtable ${roundtableId}`);
+            }
+            const currentState = roundtable.state ?? 'collecting';
+            if (currentState !== 'awaiting_human') {
+                throw new Error(`invalid_state: roundtable ${roundtableId} is in state '${currentState}'; roundtable_close_with_decisions requires awaiting_human`);
+            }
+            if (decisions.ratified.length === 0 &&
+                decisions.unratified.length === 0 &&
+                decisions.resolutions.length === 0) {
+                throw new Error('invalid_argument: at least one of ratified, unratified, or resolutions must be non-empty');
+            }
+            for (const r of decisions.resolutions) {
+                if (r.topic_slug.length > 12) {
+                    throw new Error(`invalid_argument: topic_slug '${r.topic_slug}' exceeds 12 characters`);
+                }
+            }
+            const issueId = roundtable.issue_id;
+            const now = nowISO();
+            let discussionRowsWritten = 0;
+            let voteRowsWritten = 0;
+            db.transaction(() => {
+                for (const agreement of decisions.ratified) {
+                    db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'answer', ?, ?)`, [issueId, agreement, now]);
+                    discussionRowsWritten++;
+                    db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`, [issueId, `Ratified: ${agreement}`, now]);
+                    discussionRowsWritten++;
+                    db.run(`INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`, [roundtableId, `Ratified: ${agreement}`, now]);
+                    voteRowsWritten++;
+                }
+                for (const agreement of decisions.unratified) {
+                    db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'note', ?, ?)`, [issueId, `not ratified: ${agreement}`, now]);
+                    discussionRowsWritten++;
+                }
+                for (const r of decisions.resolutions) {
+                    db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`, [issueId, `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, now]);
+                    discussionRowsWritten++;
+                    db.run(`INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`, [roundtableId, r.winning_stance, r.rationale ?? '', now]);
+                    voteRowsWritten++;
+                }
+                db.run(`UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`, [outcome, now, roundtableId]);
+            });
+            const updated = db.get('SELECT * FROM roundtables WHERE id = ?', [roundtableId]);
+            const participants = db.all(`SELECT DISTINCT participant FROM roundtable_votes
+           WHERE roundtable_id = ? AND participant != 'human' AND participant IS NOT NULL`, [roundtableId]).map((r) => r.participant);
+            const answerRows = db.all(`SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
+           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`, [issueId, roundtable.created_at, updated.closed_at]).map((r) => r.body);
+            const noteRows = db.all(`SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
+           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`, [issueId, roundtable.created_at, updated.closed_at]).map((r) => r.body.replace(/^not ratified: /, ''));
+            const decisionRows = db.all(`SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
+           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`, [issueId, roundtable.created_at, updated.closed_at]);
+            const disagreementsResolved = decisionRows.map((r) => ({
+                decision_body: r.body,
+            }));
+            return ok({
+                roundtable_id: updated.id,
+                state: updated.state,
+                closed_at: updated.closed_at,
+                discussion_rows_written: discussionRowsWritten,
+                vote_rows_written: voteRowsWritten,
+                summary: {
+                    topic: roundtable.topic,
+                    participants,
+                    agreements_ratified: answerRows,
+                    unratified: noteRows,
+                    disagreements_resolved: disagreementsResolved,
+                    outcome: updated.outcome || null,
+                },
             });
         })),
     };

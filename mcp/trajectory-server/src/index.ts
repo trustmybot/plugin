@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -11,6 +11,7 @@ import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
 import { TrajectoryDB, resolveDbPath } from './db.js';
 import { serverLog, serverLogSync } from './logger.js';
 import { startBackfill } from './embeddings/backfill.js';
+import { embed } from './embeddings/model.js';
 import { WorldModelGraph, resolveGraphDbPath } from './graph-db.js';
 
 const dbPath = resolveDbPath();
@@ -19,6 +20,19 @@ if (dbPath !== ':memory:') {
 }
 
 const db = new TrajectoryDB(dbPath);
+
+function readPackageVersion(): string {
+  try {
+    const here = path.dirname(new URL(import.meta.url).pathname);
+    const pkgPath = path.join(here, '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+    return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const packageVersion = readPackageVersion();
 
 // World-model graph DB (ADR 0002) — separate kuzu file beside trajectory.db.
 // If kuzu fails to load (missing native binary, sandbox), surface but don't
@@ -37,7 +51,7 @@ try {
 }
 
 const server = new Server(
-  { name: 'trajectory-server', version: '0.3.2' },
+  { name: 'trajectory-server', version: packageVersion },
   { capabilities: { tools: {} } },
 );
 
@@ -183,4 +197,5 @@ serverLog({ kind: 'startup', pid: process.pid, version: '0.7.0', db_path: dbPath
 
 process.stderr.write(`server started (db: ${dbPath})\n`);
 
+embed('warmup').catch(() => {});
 startBackfill(db).catch((e) => console.error('[embeddings] startBackfill error:', e));

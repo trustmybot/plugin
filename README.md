@@ -88,7 +88,7 @@ Details: [`docs/architecture/ERD.md`](docs/architecture/ERD.md), [`docs/architec
 
 Verdicts persist in the DB next to the code they judged — six months later "why did we ship this commit?" is still queryable.
 
-Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate-pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
+Details: [`docs/architecture/FLOWS.md` § Push gate](docs/architecture/FLOWS.md#6-push-gate--pr-review), [`agents/pr-reviewer.md`](agents/pr-reviewer.md).
 
 ### 4. Agentic Orchestration — composable, not monolithic
 

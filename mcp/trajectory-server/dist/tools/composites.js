@@ -3,6 +3,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { syncIssueCloseRemotes } from './issues.js';
+const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a spec's `## Files` section. Each
 // bullet's first token is the path; its dirname is the directory ('' = repo
 // root). task_brief resolves these against the world model. (#300)
@@ -207,11 +208,8 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'reap_and_review_prep',
-            description: 'Commit-reap composite — for each unsigned task, fetches the detached HEAD from ' +
-                'the per-task worktree into the main checkout under the task\'s branch_id. ' +
-                'Returns a list of { task_id, branch_id, commit_sha } ready for pr-reviewer spawn. ' +
-                'Collapses the per-task `git fetch ./.claude/worktrees/<slug> HEAD:<branch_id>` loop ' +
-                'from §B of tmb_review into one call.',
+            description: 'Commit-reap composite — for each task, fetches detached HEAD from its worktree into the main checkout under branch_id. ' +
+                'Returns { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn. Collapses the per-task fetch loop from §C of tmb_review.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -231,10 +229,8 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'bro_atomic_close',
-            description: 'Bro task-close composite — writes the bro_verification_pass audit row, advances ' +
-                'flips the task to closed, and optionally closes the parent issue, ' +
-                'all in one DB transaction. Hooks downstream of `task_update_status` still fire ' +
-                '(cleanup-worktree, post-task-close-rescan, audit log).',
+            description: 'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
+                'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -386,6 +382,36 @@ export function compositeTools(db, dbPath, graph = null) {
             if (failed.branch_id === newBranchId) {
                 return err('new_branch_id must differ from the failed task\'s branch_id.');
             }
+            // --- Retry cap gate ---
+            // Walk the task_retry_attempted audit chain: each hop in the chain
+            // is one retry. The chain is stored in audit.content_json as
+            // {failed_task_id, new_task_id, ...}. Starting from failed_task_id,
+            // count how many times we can walk backwards via new_task_id to find
+            // a prior task_retry_attempted row that produced it. A depth of 3
+            // means we've already retried 3 times; a 4th is rejected.
+            //
+            // No new column needed: the linkage already exists in audit rows.
+            {
+                const RETRY_CAP = 3;
+                let depth = 0;
+                let currentTaskId = Number(failedTaskId);
+                while (depth < RETRY_CAP + 1) {
+                    const row = db.get(`SELECT content_json FROM audit
+                WHERE event_type = 'task_retry_attempted'
+                  AND json_extract(content_json, '$.new_task_id') = ?
+                LIMIT 1`, [currentTaskId]);
+                    if (!row)
+                        break;
+                    const parsed = JSON.parse(row.content_json);
+                    currentTaskId = parsed.failed_task_id;
+                    depth++;
+                }
+                if (depth >= RETRY_CAP) {
+                    return err(`retry limit reached (3) — escalate to Human. ` +
+                        `Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. ` +
+                        `Use discussion_append(kind='question') to involve the Human before retrying further.`);
+                }
+            }
             const now = nowISO();
             const result = db.transaction(() => {
                 db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
@@ -513,6 +539,7 @@ export function compositeTools(db, dbPath, graph = null) {
             try {
                 execFileSync('git', ['-C', repoPath, 'worktree', 'add', wtPath, commitSha], {
                     stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: WORKTREE_TIMEOUT_MS,
                 });
             }
             catch (e) {
@@ -536,6 +563,7 @@ export function compositeTools(db, dbPath, graph = null) {
                 try {
                     execFileSync('git', ['-C', repoPath, 'worktree', 'remove', '--force', wtPath], {
                         stdio: 'ignore',
+                        timeout: WORKTREE_TIMEOUT_MS,
                     });
                 }
                 catch {
@@ -594,12 +622,20 @@ export function compositeTools(db, dbPath, graph = null) {
         })),
         bro_atomic_close: requireRoles('bro_atomic_close', ['bro'], wrap(async (args) => {
             const taskId = args['task_id'];
+            if (!taskId)
+                return err('Missing required arg: task_id');
             const commitSha = (args['commit_sha'] ?? '').toLowerCase();
-            const verificationSummary = args['verification_summary'];
-            const closeIssueIfLast = args['close_issue_if_last_task'] === true;
             if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
                 return err('commit_sha must be a 7..40-char hex SHA.');
             }
+            const verificationSummary = args['verification_summary'];
+            if (verificationSummary === undefined || verificationSummary === null) {
+                return err('Missing required arg: verification_summary');
+            }
+            if (typeof verificationSummary !== 'string') {
+                return err('verification_summary must be a string');
+            }
+            const closeIssueIfLast = args['close_issue_if_last_task'] === true;
             const task = db.get('SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ? LIMIT 1', [taskId]);
             if (!task)
                 return err(`No task with id=${taskId}`);
@@ -608,7 +644,6 @@ export function compositeTools(db, dbPath, graph = null) {
                     `bro_atomic_close runs after SWE flips status to completed.`);
             }
             const now = nowISO();
-            const summarized = 0;
             const result = db.transaction(() => {
                 // 1. bro_verification_pass audit row.
                 db.run(`INSERT INTO audit
@@ -620,11 +655,11 @@ export function compositeTools(db, dbPath, graph = null) {
                     JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
                     now,
                 ]);
-                // 3. flip task to closed.
+                // 2. flip task to closed.
                 db.run(`UPDATE tasks
                 SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
               WHERE id=?`, [commitSha, now, now, task.id]);
-                // 3b. Bro-as-agent_run (#2886): finalize the bro row opened by
+                // 3. Bro-as-agent_run (#2886): finalize the bro row opened by
                 // task_create_batch. duration_ms is the wall-clock between started_at
                 // and now; tokens stay at 0 here — a follow-up hook will accumulate
                 // them from the transcript_path. Only update the row that hasn't
@@ -649,7 +684,7 @@ export function compositeTools(db, dbPath, graph = null) {
                         issueClosed = true;
                     }
                 }
-                return { task_id: task.id, summarized, issue_closed: issueClosed };
+                return { task_id: task.id, issue_closed: issueClosed };
             });
             // Mirror the close to the linked remote(s) — same path issue_close
             // uses — so closing the last task via the composite doesn't leave the

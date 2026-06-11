@@ -54,7 +54,15 @@ session_id=$(echo "$INPUT" | jq -r '.session_id // .sessionId // empty' 2>/dev/n
 [ -n "$session_id" ] || session_id="${CLAUDE_SESSION_ID:-unknown}"
 
 if command -v pgrep >/dev/null 2>&1; then
-  pgrep_count=$({ pgrep -f 'trajectory-server/dist/index.js' 2>/dev/null || true; } | wc -l | tr -d ' ')
+  # Scope pgrep to the plugin-root-specific path when CLAUDE_PLUGIN_ROOT is
+  # available (#370): prevents a trajectory-server from another CC project
+  # satisfying the check while this session's MCP is dead.
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+    _pgrep_pattern="${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
+  else
+    _pgrep_pattern="trajectory-server/dist/index.js"
+  fi
+  pgrep_count=$({ pgrep -f "$_pgrep_pattern" 2>/dev/null || true; } | wc -l | tr -d ' ')
   [ -z "$pgrep_count" ] && pgrep_count=0
 else
   pgrep_count=-1
@@ -113,9 +121,18 @@ fi
 
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-printf '{"ts":"%s","event":"%s","mcp_alive":%s,"pgrep_count":%s,"mode":%s,"session_id":"%s","db_path":"%s"}\n' \
-  "$ts" "$event" "$mcp_alive_json" "$pgrep_count" "$mode_json" "$session_id" "$db_path" \
-  >> "$LOG_FILE" || true
+# Rotate mcp-health.log at 1 MB (single .1 generation) to prevent unbounded growth (#389).
+if [ -f "$LOG_FILE" ] && [ "$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+  mv -f "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true
+fi
+
+jq -cn --arg ts "$ts" --arg ev "$event" \
+  --argjson alive "$mcp_alive_json" \
+  --argjson count "$pgrep_count" \
+  --argjson mode "$mode_json" \
+  --arg sid "$session_id" --arg db "$db_path" \
+  '{ts:$ts,event:$ev,mcp_alive:$alive,pgrep_count:$count,mode:$mode,session_id:$sid,db_path:$db}' \
+  >> "$LOG_FILE" 2>/dev/null || true
 
 if [ "$pgrep_count" -eq -1 ]; then
   exit 0
@@ -142,6 +159,7 @@ MARKETPLACE_OWNER="${PLUGIN_NAME/tmb/trustmybot}"
 
 # --- Emit additionalContext per mode ----------------------------------------
 if [ "$mode_json" = '"A"' ]; then
+  # STABLE text first, VOLATILE paths (db_path, plugin_source) last — cache-friendly ordering.
   CONTEXT="🚨 MCP trajectory-server NEVER STARTED this Claude Code session.
 
 This is the CC plugin MCP-config cache bug (issue #2888):
@@ -149,11 +167,11 @@ This is the CC plugin MCP-config cache bug (issue #2888):
     MCP config out of CC's resolved-plugin list.
   - /reload-plugins does NOT fix this. Full quit + relaunch does NOT
     fix this either.
-  - The DB at ${db_path} is INTACT. Nothing has been lost.
+  - The DB (path on the last line) is INTACT. Nothing has been lost.
 
 To recover, try IN ORDER (stop at the first one that brings MCP back):
 
-  1. claude --plugin-dir ${plugin_source}      (cache-bust via inline)
+  1. claude --plugin-dir <plugin-source, last line>   (cache-bust via inline)
   2. /plugin uninstall ${PLUGIN_NAME}@${MARKETPLACE_OWNER}   (then relaunch, reinstall)
   3. rm -rf ~/.claude/plugins/cache/${MARKETPLACE_OWNER}     (then reinstall)
 
@@ -161,13 +179,15 @@ Full recovery doctrine: skills/tmb_recovery/SKILL.md § C.
 
 ⛔ Bro: HALT. Do not dispatch real work. State-writing tools are unreachable.
    Read-only sqlite3 fallback (bro-sqlite-readonly.sh) remains available
-   for emergency reads."
+   for emergency reads.
+DB: ${db_path}  plugin-source: ${plugin_source}"
 else
+  # STABLE text first, VOLATILE path (db_path) last — cache-friendly ordering.
   CONTEXT="⚠️ MCP trajectory-server is no longer reachable (was alive earlier this session).
 
 This is a mid-session disconnect — typically:
   - The MCP server process crashed or was killed
-  - The DB at ${db_path} may still be intact
+  - The DB (path on the last line) may still be intact
 
 Recovery:
   1. pkill -f 'node.*trajectory-server'   (clean zombies)
@@ -175,7 +195,8 @@ Recovery:
   3. If MCP doesn't come back after relaunch → it's now Mode A (CC cache bug);
      see skills/tmb_recovery/SKILL.md § C.
 
-⚠️ Bro: pause any task that requires durable state-writing tools until MCP returns."
+⚠️ Bro: pause any task that requires durable state-writing tools until MCP returns.
+DB: ${db_path}"
 fi
 
 # Per CC docs, both SessionStart and UserPromptSubmit accept additionalContext

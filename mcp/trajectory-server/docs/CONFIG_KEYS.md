@@ -10,6 +10,8 @@
 | `remotes` | object[] (JSON) | array of `{name, provider, url}` (`provider` ∈ `github` \| `gitlab` \| `bitbucket` \| `codeberg` \| `azuredev` \| `other`) | `[]` (schema-seeded at DB init) | `/onboard`, `tmb_review` push-gate section | bro onboarding (auto-detect or AUQ) |
 | `issue_sync` | string | `auto` \| `gh` \| `glab` \| `both` \| `off` | `"off"` (schema-seeded; safe default — no remote sync without opt-in) | `issue_create`, `issue_close`, `issue_sync_retry` | bro; overridden by `TMB_DISABLE_REMOTE_SYNC=1` env var |
 | `tmb_default_repo` | string | any relative path (no `..`, no leading `/`) — e.g. `"plugin"`, `"repos/backend"` | unset | `task_create_batch` (MCP), `require-feature-branch-active.sh`, `cleanup-worktree-on-task-close.sh` | bro via `config_set tmb_default_repo <inner>` |
+| `onboarded` | boolean (JSON) | `true` | unset until `/onboard` completes | `activation-routine.sh` (banner), `onboard.ts:onboard_state_get` | `onboard_apply` (writes `true` on first successful run); `db.ts:migrateV1toV2` (forward-migrates legacy `identity` marker) |
+| `pr_review_bots` | string[] (JSON) | array of bot login patterns | unset (falls back to `DEFAULT_BOT_PATTERNS` in `pr_comments.ts`) | `pr_comments_get` — merged with `DEFAULT_BOT_PATTERNS` for bot-comment filtering | bro via `config_set pr_review_bots '[\"bot-login\"]'` |
 
 ## 2. Default Derivation
 
@@ -27,7 +29,7 @@ Additional keys can be added to `plugin_config` without schema migration; the ta
 
 ## 4. Reading-the-Config Policy
 
-All 5 keys above are seeded at DB creation via `INSERT OR IGNORE`, so they are always present in a properly-initialised DB. Readers MUST treat a missing key as "DB corruption or pre-seed install — trigger `/onboard`" — NOT as "silently default". Silent defaults hide configuration drift. Any key added after DB init may legitimately be absent until the triggering operation runs; readers of such dynamic keys must handle `NULL`/absent gracefully.
+The five schema-seeded keys (`branching_model`, `pr_target`, `protected_branches`, `remotes`, `issue_sync`) are present in every properly-initialised DB via `INSERT OR IGNORE`. Readers MUST treat a missing seeded key as "DB corruption or pre-seed install — trigger `/onboard`" — NOT as "silently default". Silent defaults hide configuration drift. Dynamic keys (`onboarded`, `pr_review_bots`, `tmb_default_repo`) may legitimately be absent until the triggering operation runs; readers of such keys must handle `NULL`/absent gracefully.
 
 ## 5. `tmb_default_repo` — Multi-repo workspace support
 

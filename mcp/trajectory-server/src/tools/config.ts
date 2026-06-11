@@ -74,6 +74,10 @@ export function configTools(db: TrajectoryDB): {
         );
       }
 
+      if (args['value'] === undefined || args['value'] === null) {
+        return err('Missing required arg: value');
+      }
+
       const rawValue = args['value'];
       if (typeof rawValue === 'string') {
         const trimmed = rawValue.trim();

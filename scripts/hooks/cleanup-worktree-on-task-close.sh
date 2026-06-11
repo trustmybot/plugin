@@ -30,6 +30,7 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 
 case "$TOOL_NAME" in
   mcp__*trajectory-server__task_update_status) ;;
+  mcp__*trajectory-server__bro_atomic_close)   ;;
   *) exit 0 ;;
 esac
 
@@ -38,12 +39,20 @@ if [ "${TMB_KEEP_CLOSED_WORKTREES:-0}" = "1" ]; then
 fi
 
 AGENT=$(echo "$INPUT" | jq -r '.tool_input.agent // ""' 2>/dev/null)
-STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // ""' 2>/dev/null)
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // ""' 2>/dev/null)
+
+# bro_atomic_close always closes; task_update_status requires explicit status=closed.
+case "$TOOL_NAME" in
+  *bro_atomic_close) STATUS="closed" ;;
+  *)                 STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // ""' 2>/dev/null) ;;
+esac
 
 [ "$AGENT" = "bro" ] || exit 0
 [ "$STATUS" = "closed" ] || exit 0
 [ -n "$TASK_ID" ] || exit 0
+
+SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+[ -n "$SAFE_TASK_ID" ] || exit 0
 
 DB_PATH=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB_PATH" ] || exit 0
@@ -51,10 +60,10 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 
-BRANCH_ID=$(sqlite3 "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=$TASK_ID LIMIT 1;" 2>/dev/null)
+BRANCH_ID=$(sqlite3 "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null)
 [ -n "$BRANCH_ID" ] || exit 0
 
-TASK_REPO=$(sqlite3 "$DB_PATH" "SELECT repo FROM tasks WHERE id=$TASK_ID LIMIT 1;" 2>/dev/null || true)
+TASK_REPO=$(sqlite3 "$DB_PATH" "SELECT repo FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null || true)
 if [ -z "$TASK_REPO" ]; then
   TASK_REPO=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='tmb_default_repo';" 2>/dev/null || true)
 fi
@@ -64,7 +73,8 @@ if [ -n "$TASK_REPO" ]; then
   # Prefer the absolute path recorded in the `repos` table (authoritative
   # — set by /scan). Falls back to legacy workspace-join only when no
   # matching repo row exists.
-  REPO_ROOT=$(sqlite3 "$DB_PATH" "SELECT path FROM repos WHERE name='$TASK_REPO' LIMIT 1;" 2>/dev/null || true)
+  SAFE_TASK_REPO=$(tmb_sql_quote "$TASK_REPO")
+  REPO_ROOT=$(sqlite3 "$DB_PATH" "SELECT path FROM repos WHERE name='${SAFE_TASK_REPO}' LIMIT 1;" 2>/dev/null || true)
   [ -z "$REPO_ROOT" ] && REPO_ROOT="$WORKSPACE_ROOT/$TASK_REPO"
 else
   # Single-repo fallback when no default config.

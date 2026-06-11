@@ -101,7 +101,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 2. Pick the strongest layer that fits (table at top).
 3. Implement:
    - **Layer 1**: `requireRoles` wrapper / handler validation / schema CHECK; add MCP-integration test.
-   - **Layer 2**: write the hook under `scripts/hooks/`, register in `hooks/hooks.json`, add `tests/hooks/<name>.test.sh`.
+   - **Layer 2**: write the hook under `scripts/hooks/`, register in `hooks/hooks.json`, add `tests/l3-integration/hooks/<name>.test.sh`.
    - **Layer 3**: edit agent's `.md` frontmatter; verify with subagent spawn.
    - **Layer 4**: schema CHECK in `mcp/.../schema.sql` (and migration in `db.ts` if existing DBs need rebuild).
    - **Layer 5**: add `paths:` to skill frontmatter.

@@ -22,6 +22,10 @@ async function call(handlers, name, args) {
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function createIssue(db) {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
@@ -47,8 +51,8 @@ describe('taskTools', () => {
                 { branch_id: 'feat/task-three', description: 'Task three' },
             ],
         });
-        const inserted = parseResult(result);
-        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+        const inserted = parseBatch(result);
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         assert.ok(Array.isArray(inserted));
         assert.equal(inserted.length, 3);
         assert.equal(inserted[0].branch_id, 'feat/task-one');
@@ -68,7 +72,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'feat/a-task', description: 'A task' }],
         });
-        const tasks = parseResult(batchResult);
+        const tasks = parseBatch(batchResult);
         const result = await call(tools.handlers, 'task_update_status', {
             agent: 'bro',
             task_id: String(tasks[0].id),
@@ -128,7 +132,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'feat/lifecycle', description: 'lifecycle walk' }],
         });
-        const taskId = String(parseResult(batchResult)[0].id);
+        const taskId = String(parseBatch(batchResult)[0].id);
         const step = async (status) => {
             const result = await call(tools.handlers, 'task_update_status', {
                 agent: 'bro', task_id: taskId, status,
@@ -160,7 +164,7 @@ describe('taskTools', () => {
                 ...waivers, agent: 'bro', issue_id: String(issueId),
                 tasks: [{ branch_id: branch, description: 'x' }],
             });
-            return String(parseResult(r)[0].id);
+            return String(parseBatch(r)[0].id);
         };
         // pending → closed is rejected: bro can't skip verification.
         const t1 = await mk('feat/illegal-close');
@@ -194,7 +198,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'feat/user-login', description: 'login feature' }],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].branch_id, 'feat/user-login');
         db.close();
@@ -210,7 +214,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'refactor/extract-helper', description: 'extract helper' }],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].branch_id, 'refactor/extract-helper');
         db.close();
@@ -328,7 +332,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'feat/from-dev', parent_branch_id: 'dev', description: 'branches off dev' }],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].parent_branch_id, 'dev');
         db.close();
@@ -344,7 +348,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'feat/from-main', parent_branch_id: 'main', description: 'branches off main' }],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].parent_branch_id, 'main');
         db.close();
@@ -360,7 +364,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'feat/from-master', parent_branch_id: 'master', description: 'branches off master' }],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].parent_branch_id, 'master');
         db.close();
@@ -376,7 +380,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'feat/child-task', parent_branch_id: 'feat/foo', description: 'child of feat/foo' }],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].parent_branch_id, 'feat/foo');
         db.close();
@@ -420,7 +424,7 @@ describe('taskTools', () => {
         const specBody = '# Description\nThis is a test spec body.';
         const batchResult = await call(tools.handlers, 'task_create_batch', {
             waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test verbatim spec body; shape not under test',
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
@@ -431,7 +435,7 @@ describe('taskTools', () => {
                 },
             ],
         });
-        const inserted = parseResult(batchResult);
+        const inserted = parseBatch(batchResult);
         assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         const getResult = await call(tools.handlers, 'task_get', {
             agent: 'bro',
@@ -458,7 +462,7 @@ describe('taskTools', () => {
                 },
             ],
         });
-        const inserted = parseResult(batchResult);
+        const inserted = parseBatch(batchResult);
         assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].spec_body, '');
         db.close();
@@ -470,7 +474,7 @@ describe('taskTools', () => {
         const oversizeBody = 'x'.repeat(8001);
         const result = await call(tools.handlers, 'task_create_batch', {
             waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test oversized body; spec shape not under test',
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
@@ -500,7 +504,7 @@ describe('taskTools', () => {
                 { branch_id: 'feat/swe-guard-test', description: 'SWE guard test' },
             ],
         });
-        const tasks = parseResult(batchResult);
+        const tasks = parseBatch(batchResult);
         const taskId = String(tasks[0].id);
         const forbiddenStatuses = ['needs_validation', 'pending', 'closed', 'escalated'];
         for (const status of forbiddenStatuses) {
@@ -531,7 +535,7 @@ describe('taskTools', () => {
                 { branch_id: 'feat/swe-failed-test', description: 'SWE failed test' },
             ],
         });
-        const tasks = parseResult(batchResult);
+        const tasks = parseBatch(batchResult);
         const runningResult = await call(tools.handlers, 'task_update_status', {
             agent: 'swe',
             task_id: String(tasks[0].id),
@@ -569,7 +573,7 @@ describe('taskTools', () => {
                 { branch_id: 'feat/bro-needs-validation-test', description: 'Bro needs_validation test' },
             ],
         });
-        const tasks = parseResult(batchResult);
+        const tasks = parseBatch(batchResult);
         // SWE completes task 0, then bro closes it (completed → closed).
         await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[0].id), status: 'completed', commit_sha: 'abc1234' });
         const closedResult = await call(tools.handlers, 'task_update_status', {
@@ -597,7 +601,7 @@ describe('taskTools', () => {
         const body = 'x'.repeat(8000);
         const result = await call(tools.handlers, 'task_create_batch', {
             waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test boundary body; spec shape not under test',
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
@@ -628,7 +632,7 @@ describe('taskTools', () => {
                 },
             ],
         });
-        const inserted = parseResult(batchResult);
+        const inserted = parseBatch(batchResult);
         assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].repo, 'inner');
         const getResult = await call(tools.handlers, 'task_get', {
@@ -657,7 +661,7 @@ describe('taskTools', () => {
                 },
             ],
         });
-        const inserted = parseResult(batchResult);
+        const inserted = parseBatch(batchResult);
         assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].repo, 'repos/backend');
         db.close();
@@ -678,7 +682,7 @@ describe('taskTools', () => {
                 },
             ],
         });
-        const inserted = parseResult(batchResult);
+        const inserted = parseBatch(batchResult);
         assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].repo, null);
         db.close();
@@ -700,7 +704,7 @@ describe('taskTools', () => {
                 },
             ],
         });
-        const inserted = parseResult(batchResult);
+        const inserted = parseBatch(batchResult);
         assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].repo, null);
         db.close();
@@ -771,7 +775,7 @@ describe('taskTools', () => {
                     },
                 ],
             });
-            const inserted = parseResult(result);
+            const inserted = parseBatch(result);
             assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
             assert.equal(inserted[0].branch_id, 'feat/my-feature');
             assert.equal(inserted[0].repo, name);
@@ -860,7 +864,7 @@ describe('taskTools', () => {
                 },
             ],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error when repo is unset: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].branch_id, 'feat/no-repo-set');
         db.close();
@@ -890,23 +894,55 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch defaults repo to tmb_default_repo config when task.repo omitted', async () => {
-        const db = tempDB();
-        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"plugin"')`);
-        const issueId = await createIssue(db);
-        const tools = taskTools(db);
-        const result = await call(tools.handlers, 'task_create_batch', {
-            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
-            agent: 'bro',
-            issue_id: String(issueId),
-            tasks: [
-                { branch_id: 'feat/default-repo-test', description: 'No repo arg' },
-            ],
-        });
-        const inserted = parseResult(result);
-        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-        assert.equal(inserted[0].repo, 'plugin', 'repo should default to tmb_default_repo config value');
-        db.close();
+        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-gate');
+        try {
+            spawnSync('git', ['-C', repoName, 'branch', 'feat/default-repo-test'], { stdio: 'pipe' });
+            const db = tempDB();
+            db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`, [JSON.stringify(repoName)]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [
+                    { branch_id: 'feat/default-repo-test', description: 'No repo arg' },
+                ],
+            });
+            const inserted = parseBatch(result);
+            assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+            assert.equal(inserted[0].repo, repoName, 'repo should default to tmb_default_repo config value');
+            db.close();
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('task_create_batch rejects via default-repo gate when branch missing from tmb_default_repo (#360)', async () => {
+        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-reject');
+        try {
+            const db = tempDB();
+            db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`, [JSON.stringify(repoName)]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+                waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [{ branch_id: 'feat/nonexistent-branch', description: 'Branch missing from default repo' }],
+            });
+            assert.ok(result.isError, 'Expected rejection when branch missing from default repo');
+            const data = parseResult(result);
+            assert.match(data.error, /does not exist/, `Expected branch-existence error: ${data.error}`);
+            db.close();
+        }
+        finally {
+            cleanup();
+        }
     });
     it('task_create_batch defaults repo to null when task.repo omitted and tmb_default_repo not set', async () => {
         const db = tempDB();
@@ -921,7 +957,7 @@ describe('taskTools', () => {
                 { branch_id: 'feat/null-repo-back-compat', description: 'No repo, no config' },
             ],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].repo, null, 'repo should be null when no config and no task.repo');
         db.close();
@@ -968,7 +1004,7 @@ describe('taskTools', () => {
             tasks: [{ branch_id: 'feat/slim', description: 'minimal' }],
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
-        const tasks = parseResult(result);
+        const tasks = parseBatch(result);
         assert.equal(tasks.length, 1);
         assert.equal(tasks[0].branch_id, 'feat/slim');
         assert.equal(tasks[0].description, 'minimal');
@@ -998,7 +1034,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'feat/txn-test', description: 'txn test task' }],
         });
-        const inserted = parseResult(result);
+        const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         const auditResult = await call(aTools.handlers, 'audit_log_list', {
             agent: 'bro',
@@ -1024,7 +1060,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             tasks: [{ branch_id: 'fix/sha-case', description: 'sha case test' }],
         });
-        const tasks = parseResult(batchResult);
+        const tasks = parseBatch(batchResult);
         const taskId = tasks[0].id;
         await call(tools.handlers, 'task_update_status', {
             agent: 'swe',
@@ -1034,6 +1070,250 @@ describe('taskTools', () => {
         });
         const updated = db.get(`SELECT commit_sha FROM tasks WHERE id = ?`, [taskId]);
         assert.equal(updated?.commit_sha, 'abcdef1234567', 'commit_sha must be stored lowercase');
+        db.close();
+    });
+    it('task_update_status normalizes mixed-case agent — Swe passes role gate and obeys SWE matrix (#343)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const batchResult = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/mixed-case-swe', description: 'mixed-case swe test' }],
+        });
+        const taskId = String(parseBatch(batchResult)[0].id);
+        const result = await call(tools.handlers, 'task_update_status', {
+            agent: 'Swe',
+            task_id: taskId,
+            status: 'running',
+        });
+        assert.ok(!result.isError, `'Swe' must normalize to swe and allow running: ${JSON.stringify(parseResult(result))}`);
+        assert.equal(parseResult(result).status, 'running');
+        const forbidden = await call(tools.handlers, 'task_update_status', {
+            agent: 'Swe',
+            task_id: taskId,
+            status: 'closed',
+        });
+        assert.ok(forbidden.isError, 'Mixed-case Swe must be blocked from setting closed');
+        db.close();
+    });
+    it('task_update_status swe cannot move a closed task to any status (#343)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const batchResult = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/swe-closed', description: 'swe closed resurrection test' }],
+        });
+        const taskId = String(parseBatch(batchResult)[0].id);
+        await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed' });
+        await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
+        for (const status of ['completed', 'running', 'failed']) {
+            const result = await call(tools.handlers, 'task_update_status', {
+                agent: 'swe',
+                task_id: taskId,
+                status,
+            });
+            assert.ok(result.isError, `SWE must not resurrect a closed task to '${status}'`);
+            assert.match(parseResult(result).error, /#114/);
+        }
+        db.close();
+    });
+    it('task_create_batch emits audit rows for all waived gates (#358)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'scope waiver test reason here',
+            waive_branch_gate: true, waive_branch_gate_reason: 'branch waiver test reason here',
+            waive_registry_gate: true, waive_registry_gate_reason: 'registry waiver test reason',
+            waive_intent_gate: true, waive_intent_gate_reason: 'intent waiver test reason here',
+            waive_decision_gate: true, waive_decision_gate_reason: 'decision waiver test reason',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/audit-waiver-test', description: 'all gates waived' }],
+        });
+        const auditRows = db.all(`SELECT event_type FROM audit WHERE issue_id = ? ORDER BY event_type`, [issueId]);
+        const types = auditRows.map((r) => r.event_type);
+        assert.ok(types.includes('scope_gate_waived'), 'scope_gate_waived audit row must exist');
+        assert.ok(types.includes('branch_gate_waived'), 'branch_gate_waived audit row must exist');
+        assert.ok(types.includes('registry_gate_waived'), 'registry_gate_waived audit row must exist');
+        assert.ok(types.includes('intent_gate_waived'), 'intent_gate_waived audit row must exist');
+        assert.ok(types.includes('decision_gate_waived'), 'decision_gate_waived audit row must exist');
+        db.close();
+    });
+    it('task_create_batch spec-shape gate: rejects spec_body missing required H2 sections', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{
+                    branch_id: 'feat/shape-test',
+                    description: 'spec without required sections',
+                    spec_body: '## Files\nsome files here\n\n## Description\nno success criteria or verification',
+                }],
+        });
+        assert.ok(result.isError, 'Expected spec-shape gate to reject spec missing sections');
+        const data = parseResult(result);
+        assert.equal(data.error, 'spec_shape_violation');
+        assert.ok(data.missing_sections.includes('## Success Criteria'), 'Must list missing Success Criteria');
+        assert.ok(data.missing_sections.includes('## Verification'), 'Must list missing Verification');
+        assert.ok(data.message.includes('waive_spec_shape=true'), 'Error must teach waiver path');
+        db.close();
+    });
+    it('task_create_batch spec-shape gate: rejects spec_body exceeding 200 lines', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const longBody = '## Files\n- file.ts\n\n## Success Criteria\n- done\n\n## Verification\n- run tests\n' +
+            Array.from({ length: 195 }, (_, i) => `line ${i + 1}`).join('\n');
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{
+                    branch_id: 'feat/long-spec',
+                    description: 'long spec',
+                    spec_body: longBody,
+                }],
+        });
+        assert.ok(result.isError, 'Expected spec-shape gate to reject spec over 200 lines');
+        const data = parseResult(result);
+        assert.equal(data.error, 'spec_shape_violation');
+        assert.ok(data.message.includes('max 200'), 'Error must mention 200-line limit');
+        db.close();
+    });
+    it('task_create_batch spec-shape gate: passes with waive_spec_shape=true', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            waive_spec_shape: true, waive_spec_shape_reason: 'placeholder task — no full spec needed',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/waived-shape', description: 'placeholder', spec_body: 'placeholder' }],
+        });
+        assert.ok(!result.isError, `Expected no error with spec-shape waived: ${JSON.stringify(parseResult(result))}`);
+        const auditRow = db.get("SELECT event_type FROM audit WHERE event_type = 'spec_shape_gate_waived' LIMIT 1");
+        assert.ok(auditRow !== undefined, 'spec_shape_gate_waived audit row must be written when waived');
+        db.close();
+    });
+    it('task_create_batch spec-shape gate: accepts spec with all three required H2 sections and ≤200 lines', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const validSpec = [
+            '## Files',
+            '- mcp/trajectory-server/src/tools/tasks.ts',
+            '',
+            '## Success Criteria',
+            '- Gate rejects invalid specs',
+            '',
+            '## Verification',
+            '- bun test',
+        ].join('\n');
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/valid-spec', description: 'valid spec', spec_body: validSpec }],
+        });
+        assert.ok(!result.isError, `Expected no error for valid spec: ${JSON.stringify(parseResult(result))}`);
+        db.close();
+    });
+    it('task_create_batch parallel_groups: single task produces one group', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const validSpec = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/parallel-single', description: 'single task', spec_body: validSpec }],
+        });
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const raw = JSON.parse(result.content[0].text);
+        assert.ok('parallel_groups' in raw, 'Response must include parallel_groups');
+        assert.ok('overlapping_pairs' in raw, 'Response must include overlapping_pairs');
+        assert.equal(raw.overlapping_pairs.length, 0, 'Single task has no overlapping pairs');
+        db.close();
+    });
+    it('task_create_batch parallel_groups: two tasks with no file overlap are in separate groups', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const specA = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+        const specB = '## Files\n- src/db/schema.sql\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                { branch_id: 'feat/parallel-a', description: 'task a', spec_body: specA },
+                { branch_id: 'feat/parallel-b', description: 'task b', spec_body: specB },
+            ],
+        });
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const raw = JSON.parse(result.content[0].text);
+        assert.equal(raw.overlapping_pairs.length, 0, 'Non-overlapping tasks must have no overlapping pairs');
+        assert.equal(raw.parallel_groups.length, 2, 'Each non-overlapping task gets its own group');
+        db.close();
+    });
+    it('task_create_batch parallel_groups: two tasks sharing a file dir form one group with an overlapping pair', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const specA = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+        const specB = '## Files\n- src/tools/agents.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                { branch_id: 'feat/overlap-a', description: 'task a', spec_body: specA },
+                { branch_id: 'feat/overlap-b', description: 'task b', spec_body: specB },
+            ],
+        });
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const raw = JSON.parse(result.content[0].text);
+        assert.equal(raw.overlapping_pairs.length, 1, 'Tasks sharing src/tools dir must produce one overlapping pair');
+        assert.equal(raw.parallel_groups.length, 1, 'Overlapping tasks belong to the same group');
+        assert.ok(raw.overlapping_pairs[0].shared_paths.includes('src/tools'), 'Shared path must be src/tools');
         db.close();
     });
 });

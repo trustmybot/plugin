@@ -237,7 +237,7 @@ When the Human's prompt names what to delete (branches, temp files, etc.), bro e
 
 When a workspace has multiple inner git repos (siblings or submodules), `tmb_default_repo` config or per-task `tasks.repo` names the active inner repo. Directory node `path` properties are stored repo-relative — `scan_run` does NOT prepend the inner repo directory when writing nodes.
 
-The L5 row `tests/dogfood/rows/33-multirepo-commit/` catches regressions at the storage layer: a Cypher `MATCH (d:Directory) WHERE d.path STARTS WITH 'api/' OR d.path STARTS WITH 'app/'` returns ≥1 node only on a workspace-rooted path leak.
+The L5 row `tests/l5-l6/rows/33-multirepo-commit/` catches regressions at the storage layer: a Cypher `MATCH (d:Directory) WHERE d.path STARTS WITH 'api/' OR d.path STARTS WITH 'app/'` returns ≥1 node only on a workspace-rooted path leak.
 
 ---
 

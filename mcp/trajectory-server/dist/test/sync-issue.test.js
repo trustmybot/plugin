@@ -132,46 +132,59 @@ describe('syncIssueCreate', () => {
         assert.equal(result.reason, 'parse_failed');
         assert.equal(result.stdout, 'unexpected output\n');
     });
-    it('for both backend, uses gh result when gh succeeds', async () => {
+    it('parses gitlab subgroup URL (3-segment) from glab stdout (#345)', async () => {
         const spawnFn = makeSpawnFn([
             {
                 status: 0,
-                stdout: 'https://github.com/owner/repo/issues/10\n',
+                stdout: 'https://gitlab.com/group/sub/proj/-/issues/5\n',
                 stderr: '',
             },
-            { status: 0, stdout: '{"number":10,"url":"https://github.com/owner/repo/issues/10"}', stderr: '' },
+            { status: 0, stdout: 'issue 5 details', stderr: '' },
         ]);
         const result = await syncIssueCreate({
             issueId: 1,
             title: 'Test',
             body: 'Body',
-            _backend: 'both',
+            _backend: 'glab',
             _spawnFn: spawnFn,
         });
-        assert.ok(!isSyncFailure(result));
-        assert.equal(result.remote_iid, 10);
-        assert.equal(result.remote_kind, 'github');
-    });
-    it('for both backend, falls back to glab when gh fails', async () => {
-        const spawnFn = makeSpawnFn([
-            { status: 1, stdout: '', stderr: 'gh error' },
-            {
-                status: 0,
-                stdout: 'https://gitlab.com/owner/repo/-/issues/55\n',
-                stderr: '',
-            },
-            GLAB_VERIFY_OK,
-        ]);
-        const result = await syncIssueCreate({
-            issueId: 1,
-            title: 'Test',
-            body: 'Body',
-            _backend: 'both',
-            _spawnFn: spawnFn,
-        });
-        assert.ok(!isSyncFailure(result));
-        assert.equal(result.remote_iid, 55);
+        assert.ok(!isSyncFailure(result), `Expected success, got: ${JSON.stringify(result)}`);
+        assert.equal(result.remote_iid, 5);
         assert.equal(result.remote_kind, 'gitlab');
+    });
+    it('subgroup remote URL passes extractRemoteHostAndRepo verify (#345)', async () => {
+        const subgroupRemoteUrl = 'https://gitlab.com/group/sub/proj.git';
+        const spawnFn = makeSpawnFn([
+            {
+                status: 0,
+                stdout: 'https://gitlab.com/group/sub/proj/-/issues/5\n',
+                stderr: '',
+            },
+            { status: 0, stdout: 'issue 5 details', stderr: '' },
+        ]);
+        const result = await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            _backend: 'glab',
+            _spawnFn: spawnFn,
+            _remoteUrl: subgroupRemoteUrl,
+        });
+        assert.ok(!isSyncFailure(result), `Expected success for subgroup URL, got: ${JSON.stringify(result)}`);
+        assert.equal(result.remote_iid, 5);
+    });
+    it('both backend is rejected by syncIssueCreate — dual-create is issue_create only (#345)', async () => {
+        const spawnFn = makeSpawnFn([]);
+        const result = await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            _backend: 'both',
+            _spawnFn: spawnFn,
+        });
+        assert.ok(isSyncFailure(result));
+        assert.equal(result.reason, 'no_backend');
+        assert.ok((result.message ?? '').includes('issue_create'));
     });
     it('passes labels as separate arguments for gh', async () => {
         const calls = [];
@@ -368,6 +381,51 @@ describe('syncIssueClose', () => {
         assert.equal(result.reason, 'non_zero_exit');
         assert.equal(result.exit_code, 1);
         assert.equal(result.stderr, 'not found');
+    });
+});
+describe('defaultSpawnFn live-CLI guard', () => {
+    it('refuses to spawn under TMB_FORBID_LIVE_SYNC=1 and surfaces a SyncFailure', async () => {
+        const savedForbid = process.env.TMB_FORBID_LIVE_SYNC;
+        const savedTestCtx = process.env.NODE_TEST_CONTEXT;
+        process.env.TMB_FORBID_LIVE_SYNC = '1';
+        delete process.env.NODE_TEST_CONTEXT;
+        try {
+            const result = await syncIssueCreate({
+                issueId: 1,
+                title: 'guard test',
+                body: 'must never reach a real gh binary',
+                _backend: 'gh',
+            });
+            assert.ok(isSyncFailure(result), 'guarded create must fail');
+            assert.match(result.stderr ?? '', /live CLI blocked in test context/);
+            assert.match(result.stderr ?? '', /TMB_FORBID_LIVE_SYNC=1/);
+        }
+        finally {
+            if (savedForbid !== undefined)
+                process.env.TMB_FORBID_LIVE_SYNC = savedForbid;
+            else
+                delete process.env.TMB_FORBID_LIVE_SYNC;
+            if (savedTestCtx !== undefined)
+                process.env.NODE_TEST_CONTEXT = savedTestCtx;
+        }
+    });
+    it('refuses to spawn under the node test runner (NODE_TEST_CONTEXT)', async () => {
+        assert.ok(process.env.NODE_TEST_CONTEXT, 'suite must run under node --test');
+        const savedForbid = process.env.TMB_FORBID_LIVE_SYNC;
+        delete process.env.TMB_FORBID_LIVE_SYNC;
+        try {
+            const result = await syncIssueClose({
+                remote_iid: 999999,
+                remote_kind: 'github',
+            });
+            assert.equal(result.ok, false);
+            assert.match(result.stderr ?? '', /live CLI blocked in test context/);
+            assert.match(result.stderr ?? '', /NODE_TEST_CONTEXT/);
+        }
+        finally {
+            if (savedForbid !== undefined)
+                process.env.TMB_FORBID_LIVE_SYNC = savedForbid;
+        }
     });
 });
 //# sourceMappingURL=sync-issue.test.js.map

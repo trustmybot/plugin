@@ -13,6 +13,10 @@ async function call(handlers, name, args) {
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function createIssue(db) {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
@@ -35,8 +39,7 @@ async function createTask(db, issueId, branchId = 'feat/test-task') {
             },
         ],
     });
-    const rows = parseResult(result);
-    return rows[0].id;
+    return parseBatch(result)[0].id;
 }
 describe('auditTools', () => {
     it('audit_log stores small content_json intact', async () => {
@@ -58,7 +61,7 @@ describe('auditTools', () => {
         assert.equal(row.content_json, JSON.stringify({ cmd: 'echo hi' }));
         db.close();
     });
-    it('audit_log truncates content_json > 1 MB', async () => {
+    it('audit_log rejects content_json > 1 MB with a named error', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
@@ -71,9 +74,9 @@ describe('auditTools', () => {
             summary: 'Plan done',
             content_json: bigContent,
         });
+        assert.ok(result.isError, 'Expected error for oversized content_json');
         const row = parseResult(result);
-        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-        assert.ok(row.content_json.length < bigContent.length, 'content_json should be truncated');
+        assert.ok(typeof row['error'] === 'string' && row['error'].includes('1MB limit'), `error should mention 1MB limit, got: ${JSON.stringify(row)}`);
         db.close();
     });
     // Slim contract — audit is event-only. `kind` and `is_truncated` are gone
@@ -257,6 +260,127 @@ describe('skillTools', () => {
         assert.equal(row.status, 'pending_review');
         db.close();
     });
+    it('skill_promote rejects when skill is not in from_status (#364)', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'my-promote-guard-skill',
+            description: 'Promote guard test',
+            file_path: 'skills/promote-guard.md',
+            trust_tier: 'agent',
+        });
+        const result = await call(tools.handlers, 'skill_promote', {
+            agent: 'bro',
+            name: 'my-promote-guard-skill',
+            from_status: 'pending_review',
+            to_status: 'active',
+        });
+        assert.ok(result.isError, 'Expected error when from_status does not match actual status');
+        const data = parseResult(result);
+        assert.match(data.error, /from_status must match/, `Error must mention from_status mismatch: ${data.error}`);
+        db.close();
+    });
+    it('skill_promote rejects tier transition when trust_tier does not match from (#364)', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'my-tier-guard-skill',
+            description: 'Tier guard test',
+            file_path: 'skills/tier-guard.md',
+            trust_tier: 'agent',
+        });
+        const result = await call(tools.handlers, 'skill_promote', {
+            agent: 'bro',
+            name: 'my-tier-guard-skill',
+            from_status: 'curated',
+            to_status: 'agent',
+        });
+        assert.ok(result.isError, 'Expected error when from_status does not match actual trust_tier');
+        const data = parseResult(result);
+        assert.match(data.error, /Invalid transition/, `Error must be invalid transition (curated→agent not in table): ${data.error}`);
+        db.close();
+    });
+    it('skill_promote accepts agent→curated tier transition when trust_tier matches (#364)', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'my-tier-upgrade-skill',
+            description: 'Tier upgrade test',
+            file_path: 'skills/tier-upgrade.md',
+            trust_tier: 'agent',
+        });
+        const result = await call(tools.handlers, 'skill_promote', {
+            agent: 'bro',
+            name: 'my-tier-upgrade-skill',
+            from_status: 'agent',
+            to_status: 'curated',
+        });
+        const row = parseResult(result);
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
+        assert.equal(row.trust_tier, 'curated');
+        db.close();
+    });
+});
+describe('skill_register name validation gate', () => {
+    it('rejects names not matching ^[a-z][a-z0-9-]{0,63}$', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        for (const badName of ['My-Skill', '1starts-digit', 'has_underscore']) {
+            const result = await call(tools.handlers, 'skill_register', {
+                agent: 'bro',
+                name: badName,
+                description: 'test',
+                file_path: `skills/bad.md`,
+                trust_tier: 'agent',
+            });
+            assert.ok(result.isError, `Expected error for invalid name '${badName}'`);
+            assert.match(parseResult(result).error, /invalid name/, `Error for '${badName}' must mention invalid name`);
+        }
+        db.close();
+    });
+    it("tmb_ prefix with underscore is blocked by the name regex (underscore not in ^[a-z][a-z0-9-]{0,63}$)", async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        // tmb- (hyphen after tmb) is a valid name and allowed at project-local scope
+        const hyphenResult = await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'tmb-myskill',
+            description: 'test',
+            file_path: 'skills/tmb-myskill.md',
+            trust_tier: 'agent',
+        });
+        assert.ok(!hyphenResult.isError, "tmb- (hyphen) prefix must be allowed — only tmb_ (underscore) is reserved");
+        // tmb_ (underscore) fails the name regex first (underscore not in [a-z0-9-]);
+        // the tmb_ prefix guard is defense-in-depth for future regex relaxations.
+        const underscoreResult = await call(tools.handlers, 'skill_register', {
+            agent: 'bro',
+            name: 'tmb_myskill',
+            description: 'test',
+            file_path: 'skills/tmb_myskill.md',
+            trust_tier: 'agent',
+        });
+        assert.ok(underscoreResult.isError, "tmb_ prefix (underscore) must be rejected — underscore not in valid name chars");
+        assert.match(parseResult(underscoreResult).error, /invalid name/);
+        db.close();
+    });
+    it('accepts valid kebab-case names', async () => {
+        const db = tempDB();
+        const tools = skillTools(db);
+        for (const goodName of ['my-skill', 'data-export-v2', 'a', 'abc123-def']) {
+            const result = await call(tools.handlers, 'skill_register', {
+                agent: 'bro',
+                name: goodName,
+                description: 'test',
+                file_path: `skills/${goodName}.md`,
+                trust_tier: 'agent',
+            });
+            assert.ok(!result.isError, `Expected success for valid name '${goodName}': ${JSON.stringify(parseResult(result))}`);
+        }
+        db.close();
+    });
 });
 describe('reportTools', () => {
     it('issue_report_md renders sections when an issue has tasks and audit events', async () => {
@@ -275,6 +399,7 @@ describe('reportTools', () => {
         const result = await call(tools.handlers, 'issue_report_md', {
             agent: 'bro',
             issue_id: String(issueId),
+            mode: 'detail',
         });
         const data = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);

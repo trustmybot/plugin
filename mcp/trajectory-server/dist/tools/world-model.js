@@ -1,4 +1,5 @@
 import { requireRoles } from '../middleware/agent-scope.js';
+const WORLD_MODEL_GET_MAX_NODES = 500;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -20,7 +21,9 @@ function wrap(fn) {
 }
 // Build the tree by indexing rows by parent_path, then descending from the
 // requested root. Sorting children alphabetically gives stable output.
-export function buildTree(rows, rootPath, depth) {
+// depthForSummary is the root's logical depth (0 = root itself). Summaries
+// at depth > 1 are truncated to the first line to keep the payload compact.
+export function buildTree(rows, rootPath, depth, opts) {
     const byParent = new Map();
     for (const r of rows) {
         const key = r.parent_path ?? '__ROOT__';
@@ -36,32 +39,44 @@ export function buildTree(rows, rootPath, depth) {
     // node from its own child list, and a visited set guards against any cycle in
     // the stored graph so traversal can't recurse forever. (#269, #272)
     const visited = new Set();
-    function descend(node, remainingDepth) {
+    const counter = opts?.nodeCounter;
+    const depthOffset = opts?.depthOffset ?? 0;
+    function descend(node, remainingDepth, currentDepth) {
         visited.add(node.path);
+        if (counter)
+            counter.count++;
         const children = [];
         if (remainingDepth === null || remainingDepth > 0) {
             const kids = (byParent.get(node.path) ?? []).filter((k) => k.path !== node.path && !visited.has(k.path));
             kids.sort((a, b) => a.path.localeCompare(b.path));
             for (const k of kids) {
-                children.push(descend(k, remainingDepth === null ? null : remainingDepth - 1));
+                if (counter && counter.count >= counter.limit)
+                    break;
+                children.push(descend(k, remainingDepth === null ? null : remainingDepth - 1, currentDepth + 1));
             }
         }
+        // Summaries beyond the first level (depth > depthOffset) are trimmed to
+        // the first non-empty line to keep the payload manageable.
+        const absoluteDepth = currentDepth + depthOffset;
+        const summary = absoluteDepth > 1 && node.summary
+            ? (node.summary.split('\n').find((l) => l.trim().length > 0) ?? node.summary)
+            : node.summary;
         return {
             path: node.path,
-            summary: node.summary,
+            summary,
             summary_source: node.summary_source,
             summary_updated_at: node.summary_updated_at,
             file_count: node.file_count,
             children,
         };
     }
-    return descend(root, depth);
+    return descend(root, depth, 0);
 }
 export function worldModelTools(db, graph) {
     const definitions = [
         {
             name: 'world_model_get',
-            description: "Return the world model — bro's mental picture of the project — as an annotated directory tree. Summaries come from <dir>/README.md where present (high-trust, author-curated) and lazy LLM fill otherwise. This is the primary navigation surface for code-touching cold starts: one call returns the project map without reading every file. See docs/architecture/WORLD_MODEL.md + ADR 0001.",
+            description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Primary navigation surface for code-touching cold starts.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -84,7 +99,7 @@ export function worldModelTools(db, graph) {
         },
         {
             name: 'world_model_search',
-            description: "Search the world model — bro's directory-level memory — via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword if embeddings are unavailable (warning: 'semantic_unavailable'). Use for 'where in this codebase does X live' questions — cheaper than reading the full tree from world_model_get.",
+            description: "Search the world model by summary + path match. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions — cheaper than world_model_get.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -135,12 +150,14 @@ export function worldModelTools(db, graph) {
             if (nodes.length === 0) {
                 return ok({ repo, root: null, warning: 'world-model-empty' });
             }
-            const rows = nodes.map((n, idx) => ({ ...n, id: idx }));
-            const tree = buildTree(rows, path, depth);
+            const rows = nodes;
+            const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
+            const tree = buildTree(rows, path, depth, { nodeCounter });
             if (!tree) {
                 return ok({ repo, root: null, warning: 'path-not-found', path });
             }
-            return ok({ repo, root: tree });
+            const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
+            return ok({ repo, root: tree, ...(truncated ? { truncated: true } : {}) });
         })),
         world_model_search: requireRoles('world_model_search', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
             const query = args['query'];

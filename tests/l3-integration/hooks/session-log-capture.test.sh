@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Tests for scripts/hooks/session-log-capture.sh.
+# Hook contract: on UserPromptSubmit, append a JSONL event line to
+# <workspace>/.claude/tmb/logs/<date>-<session-id>.jsonl.
+# Silent no-op when workspace not detected.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/../../lib/assert.sh"
+PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
+HOOK="$PLUGIN_ROOT/scripts/hooks/session-log-capture.sh"
+
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+setup_workspace() {
+  local ws="$1"
+  mkdir -p "$ws/.claude/tmb/logs"
+  touch "$ws/.claude/tmb/trajectory.db"
+  export TRAJECTORY_DB_PATH="$ws/.claude/tmb/trajectory.db"
+}
+
+run_hook() {
+  local input="$1"
+  echo "$input" | bash "$HOOK" 2>&1 || true
+}
+
+# ---- happy path ----
+
+test_case "creates log file and appends JSONL event line (stdin session_id)"
+WS="$TMPDIR/ws1"
+setup_workspace "$WS"
+
+INPUT='{"prompt":"hello world","additionalContext":"some ctx","session_id":"test-session-001"}'
+out=$(run_hook "$INPUT")
+assert_contains "$out" '"continue": true' "emits continue"
+
+TODAY=$(date -u +%Y-%m-%d)
+LOG="$WS/.claude/tmb/logs/${TODAY}-test-session-001.jsonl"
+[ -f "$LOG" ] || { echo "FAIL: log file not created at $LOG"; exit 1; }
+
+LINE=$(head -1 "$LOG")
+assert_contains "$LINE" '"event":"user_prompt"' "event field present"
+assert_contains "$LINE" '"prompt":"hello world"' "prompt captured"
+assert_contains "$LINE" '"additional_context":"some ctx"' "additional_context captured"
+assert_contains "$LINE" '"ts"' "timestamp field present"
+
+test_case "appends multiple lines on repeated invocation"
+WS="$TMPDIR/ws2"
+setup_workspace "$WS"
+
+run_hook '{"prompt":"first","session_id":"test-session-002"}' >/dev/null
+run_hook '{"prompt":"second","session_id":"test-session-002"}' >/dev/null
+
+TODAY=$(date -u +%Y-%m-%d)
+LOG="$WS/.claude/tmb/logs/${TODAY}-test-session-002.jsonl"
+LINE_COUNT=$(wc -l < "$LOG" | tr -d ' ')
+assert_eq "2" "$LINE_COUNT" "two lines in log"
+
+test_case "falls back to sentinel file when no session_id on stdin"
+WS="$TMPDIR/ws3"
+setup_workspace "$WS"
+SENTINEL="$WS/.claude/tmb/.current-session-id"
+printf 'sentinel-session-003' > "$SENTINEL"
+
+run_hook '{"prompt":"sentinel fallback"}' >/dev/null
+
+TODAY=$(date -u +%Y-%m-%d)
+LOG="$WS/.claude/tmb/logs/${TODAY}-sentinel-session-003.jsonl"
+if [ -f "$LOG" ]; then _pass; else _fail "log file not found at $LOG using sentinel session_id"; fi
+
+test_case "generates fallback session_id when neither stdin nor sentinel available"
+WS="$TMPDIR/ws4"
+setup_workspace "$WS"
+SENTINEL="$WS/.claude/tmb/.current-session-id"
+[ ! -f "$SENTINEL" ] || rm "$SENTINEL"
+
+run_hook '{"prompt":"auto session"}' >/dev/null
+
+TODAY=$(date -u +%Y-%m-%d)
+LOG_COUNT=$(ls "$WS/.claude/tmb/logs/${TODAY}-"*.jsonl 2>/dev/null | wc -l | tr -d ' ')
+if [ "$LOG_COUNT" -ge 1 ]; then
+  _pass
+else
+  _fail "no log file created for auto-generated session_id"
+fi
+
+# ---- no-op path ----
+
+test_case "silent no-op when workspace not detected (no DB)"
+unset TRAJECTORY_DB_PATH
+isolated_home=$(mktemp -d)
+isolated_cwd=$(mktemp -d)
+trap 'rm -rf "$isolated_home" "$isolated_cwd"' RETURN
+
+out=$(HOME="$isolated_home" bash -c "cd '$isolated_cwd' && echo '{\"prompt\":\"lost\"}' | bash '$HOOK' 2>&1 || true")
+assert_eq "" "$out" "no output when no workspace detected"
+
+unset isolated_home isolated_cwd
+
+summarize

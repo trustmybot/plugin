@@ -24,7 +24,7 @@ node --test dist/test/*.test.js
 |---|---|---|
 | `TRAJECTORY_DB_PATH` | walk-up from `<cwd>` to find an existing `.claude/<plugin-name>/trajectory.db`; fall back to `<cwd>/.claude/<plugin-name>/trajectory.db` | Absolute path to the SQLite database, or `:memory:` for ephemeral runs |
 
-Default is project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). The `<plugin-name>` segment is read from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` so the stable channel writes to `.claude/tmb/` and the RC channel writes to `.claude/tmb-rc/` — both can be installed simultaneously without colliding (#87). The walk-up handles workspace-pattern projects where the live DB lives at the workspace root above multiple inner repos (#2872). Set the env var to override for CI, isolated tests, or shared testbeds.
+Default is project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). The `<plugin-name>` segment is read from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field. Both stable and RC channels currently ship `name=tmb`, so both resolve to `.claude/tmb/` — install only one channel at a time to avoid DB collision. The walk-up handles workspace-pattern projects where the live DB lives at the workspace root above multiple inner repos (#2872). Set the env var to override for CI, isolated tests, or shared testbeds.
 
 ## Tool families
 

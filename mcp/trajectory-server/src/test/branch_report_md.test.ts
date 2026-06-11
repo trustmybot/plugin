@@ -24,6 +24,11 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+function parseBatch(result: RawResult): Array<Record<string, unknown>> {
+  const raw = JSON.parse(result.content[0].text);
+  return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
+}
+
 async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
@@ -57,8 +62,7 @@ async function createTask(
       },
     ],
   });
-  const rows = parseResult(result);
-  return rows[0].id as number;
+  return parseBatch(result)[0]!.id as number;
 }
 
 /**
@@ -112,6 +116,7 @@ describe('branchReportMdTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: branchId,
+      mode: 'detail',
     });
 
     const data = parseResult(result);
@@ -224,6 +229,7 @@ describe('branchReportMdTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: branchId,
+      mode: 'detail',
     });
 
     const data = parseResult(result);

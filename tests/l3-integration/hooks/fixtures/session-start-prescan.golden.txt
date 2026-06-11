@@ -1,0 +1,12 @@
+=== Project Inventory (auto, deterministic) ===
+Top-level dirs: __VOLATILE__
+Stacks detected: __VOLATILE__
+Architecture docs: __VOLATILE__
+World model: __VOLATILE__
+Git branch: __VOLATILE__
+Open issues: __VOLATILE__
+Pending tasks: __VOLATILE__
+Last 5 commits: __VOLATILE__
+================================================
+If World model is cold on the first code-touching ask, tell the Human to run /scan
+— world_model_get cannot navigate an empty project map.

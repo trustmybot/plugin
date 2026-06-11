@@ -1,9 +1,10 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { WorldModelGraph } from '../graph-db.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -45,34 +46,71 @@ function resolveScanScript() {
     }
     throw new Error('scan.sh not found — expected at <plugin>/scripts/scan.sh');
 }
-function runScan(sessionDir) {
-    const script = resolveScanScript();
-    let stdout;
-    try {
-        stdout = execFileSync('bash', [script, sessionDir], {
-            encoding: 'utf8',
-            maxBuffer: 200 * 1024 * 1024, // 200MB headroom for large monorepos
+export function runScanWithScript(script, sessionDir, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        const child = spawn('bash', [script, sessionDir], {
+            detached: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
-    }
-    catch (e) {
-        // Surface scan.sh's real failure (exit code + stderr) rather than masking
-        // it as a JSON.parse error on partial stdout. (#285)
-        const se = e;
-        const stderr = se.stderr ? se.stderr.toString().slice(0, 2000) : '';
-        throw new Error(`scan.sh failed (exit ${se.status ?? '?'}): ${stderr || se.message || 'unknown error'}`);
-    }
-    let parsed;
-    try {
-        parsed = JSON.parse(stdout);
-    }
-    catch {
-        throw new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`);
-    }
-    if (!parsed.repos || !parsed.files) {
-        throw new Error('scan.sh emitted unexpected shape (missing repos/files)');
-    }
-    return parsed;
+        const stdoutChunks = [];
+        const stderrChunks = [];
+        child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
+        child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+        let settled = false;
+        let killTimer = null;
+        function killGroup() {
+            try {
+                process.kill(-child.pid, 'SIGKILL');
+            }
+            catch {
+                // Process may have already exited — ignore.
+            }
+        }
+        killTimer = setTimeout(() => {
+            if (settled)
+                return;
+            settled = true;
+            killGroup();
+            reject(new Error('scan.sh timed out after 10 minutes'));
+        }, timeoutMs);
+        child.on('error', (e) => {
+            if (settled)
+                return;
+            settled = true;
+            if (killTimer)
+                clearTimeout(killTimer);
+            reject(new Error(`scan.sh spawn error: ${e.message}`));
+        });
+        child.on('close', (code) => {
+            if (settled)
+                return;
+            settled = true;
+            if (killTimer)
+                clearTimeout(killTimer);
+            const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+            const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
+            if (code !== 0) {
+                reject(new Error(`scan.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
+                return;
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(stdout);
+            }
+            catch {
+                reject(new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+                return;
+            }
+            if (!parsed.repos || !parsed.files) {
+                reject(new Error('scan.sh emitted unexpected shape (missing repos/files)'));
+                return;
+            }
+            resolve(parsed);
+        });
+    });
+}
+function runScan(sessionDir, timeoutMs) {
+    return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
 }
 // Valid `source` values for scan_run (#2881). The default — bro_auto_initial —
 // matches the historical un-tagged behavior (bro hit the registry-cold gate
@@ -277,9 +315,22 @@ function persistDirectoriesGraph(graph, out, now) {
 // File-level state lives entirely in the directories rows (file_count) and
 // the world model. Per-file md5/summary state was retired in schema v7
 // (ADR 0001) — leaf-zoom now happens via explicit Read on demand.
-function persistScan(db, graph, out) {
-    let repos_upserted = 0;
+// sessionDir is used to scope repo retirement: repos in the DB whose path
+// falls under sessionDir but are absent from this scan's result are retired.
+function persistScan(db, graph, out, sessionDir) {
     const now = nowISO();
+    const scannedNames = new Set(out.repos.map((r) => r.name));
+    const normSession = sessionDir.replace(/\/+$/, '');
+    // Find repos in DB that were discovered under sessionDir but are absent now.
+    const existing = db.all(`SELECT name, path FROM repos`);
+    const toRetire = existing.filter((r) => {
+        const normPath = r.path.replace(/\/+$/, '');
+        const underSession = normPath === normSession || normPath.startsWith(normSession + '/');
+        return underSession && !scannedNames.has(r.name);
+    });
+    let repos_upserted = 0;
+    let repos_retired = 0;
+    let dirs_retired = 0;
     db.transaction(() => {
         for (const r of out.repos) {
             db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at)
@@ -290,7 +341,18 @@ function persistScan(db, graph, out) {
            last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
             repos_upserted++;
         }
+        for (const r of toRetire) {
+            db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+            repos_retired++;
+        }
     });
+    // Retire kuzu nodes for vanished repos (prune all their dirs).
+    if (graph) {
+        for (const r of toRetire) {
+            const n = graph.pruneDirectories(r.name, new Set());
+            dirs_retired += n;
+        }
+    }
     let dirs_upserted = 0;
     let dirs_readme_summarized = 0;
     let dirs_structural_summarized = 0;
@@ -299,19 +361,69 @@ function persistScan(db, graph, out) {
         dirs_upserted = stats.dirs_upserted;
         dirs_readme_summarized = stats.dirs_readme_summarized;
         dirs_structural_summarized = stats.dirs_structural_summarized;
+        // Prune stale directory nodes for each scanned repo (handles renames).
+        const dirMap = deriveDirectoryEntries(out);
+        for (const r of out.repos) {
+            const keepKeys = new Set();
+            for (const [, entry] of dirMap) {
+                if (entry.repo === r.name) {
+                    keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
+                }
+            }
+            graph.pruneDirectories(r.name, keepKeys);
+        }
     }
     return {
+        repos_discovered: out.repos.length,
         repos_upserted,
+        repos_retired,
         dirs_upserted,
+        dirs_retired,
         dirs_readme_summarized,
         dirs_structural_summarized,
     };
 }
-export function scanTools(db, graph) {
+const SCAN_TIMEOUT_MS = 10 * 60 * 1000; // 10-minute hard timeout
+function readLock(lockPath) {
+    try {
+        return JSON.parse(readFileSync(lockPath, 'utf8'));
+    }
+    catch {
+        return null;
+    }
+}
+function pidAlive(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+function acquireLock(lockPath) {
+    const existing = readLock(lockPath);
+    if (existing) {
+        if (pidAlive(existing.pid))
+            return false;
+        unlinkSync(lockPath);
+    }
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: 'wx' });
+    return true;
+}
+function releaseLock(lockPath) {
+    try {
+        unlinkSync(lockPath);
+    }
+    catch {
+        // already removed — not an error
+    }
+}
+export function scanTools(db, graph, dbPath = '') {
     const definitions = [
         {
             name: 'scan_run',
-            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates each repo's git-tracked files (.gitignore-aware — caches/build artifacts are excluded), and writes Directory nodes + CONTAINS edges to the kuzu world model. Each directory's summary comes from `<dir>/README.md` (author-curated, summary_source='readme') or, when absent, a deterministic structural summary of its immediate file + subdir names (summary_source='structural') — never NULL. Emits a deep_scan_completed audit event. The audit content_json carries `source` (user_manual / bro_auto_post_close / bro_auto_post_change / bro_auto_initial) and `structural_change` (whether the repos or top-level-dirs set changed vs the previous scan). See docs/architecture/WORLD_MODEL.md.",
+            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. The scan subprocess runs in a detached process group, SIGKILLed on the 10-minute hard timeout; MCP surfaces no abort signal, so mid-scan cancel is not possible — only timeout-kill.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -346,8 +458,37 @@ export function scanTools(db, graph) {
             const sessionDir = args['session_dir'] ?? process.cwd();
             const rawSource = args['source'] ?? 'bro_auto_initial';
             const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
-            const out = runScan(sessionDir);
-            const stats = persistScan(db, graph, out);
+            // #339: lock file prevents concurrent scans. Lock lives beside the DB.
+            const lockPath = dbPath && dbPath !== ':memory:'
+                ? join(dirname(dbPath), 'scan.lock')
+                : '';
+            if (lockPath) {
+                const existing = readLock(lockPath);
+                if (existing && pidAlive(existing.pid)) {
+                    return err(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
+                }
+                try {
+                    acquireLock(lockPath);
+                }
+                catch {
+                    const recheck = readLock(lockPath);
+                    if (recheck && pidAlive(recheck.pid)) {
+                        return err(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
+                    }
+                }
+            }
+            let out;
+            try {
+                out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+            }
+            catch (e) {
+                if (lockPath)
+                    releaseLock(lockPath);
+                throw e;
+            }
+            const stats = persistScan(db, graph, out, sessionDir);
+            if (lockPath)
+                releaseLock(lockPath);
             // #2881: structural-change detection vs previous deep_scan_completed
             // audit. The flag rides in the audit content_json so downstream
             // tooling (the scan-side renderer pass, manual diagnostic queries)
@@ -358,7 +499,7 @@ export function scanTools(db, graph) {
             // (id=-1) — this is a session-level event, not work-issue scoped.
             db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
            VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`, [
-                `Scanned ${out.repos.length} repos, ${out.files.length} files, ${stats.dirs_upserted} dirs (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural) — source=${source}${structuralChange ? ', structural-change' : ''}`,
+                `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
                 JSON.stringify({
                     ...stats,
                     session_dir: out.session_dir,

@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { requireRoles } from '../middleware/agent-scope.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -30,12 +30,17 @@ export function reportTools(db) {
     const definitions = [
         {
             name: 'issue_report_md',
-            description: 'Assemble a markdown narrative for an issue including tasks, validation, and audit event timeline.',
+            description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, all audit events, and skill usage.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
                     issue_id: { type: 'string' },
+                    mode: {
+                        type: 'string',
+                        enum: ['summary', 'detail'],
+                        description: 'Report depth. Default: summary (~500 tokens). Use detail for full narrative.',
+                    },
                 },
                 required: ['agent', 'issue_id'],
             },
@@ -61,19 +66,14 @@ export function reportTools(db) {
         issue_report_md: wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
+            const mode = args['mode'] ?? 'summary';
+            if (mode !== 'summary' && mode !== 'detail') {
+                throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
+            }
             const issue = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             if (!issue) {
                 throw new Error(`Not found: ${issueId}`);
             }
-            const tasks = db.all(`SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`, [issueId]);
-            const taskIds = tasks.map((t) => String(t.id));
-            let validationAttempts = [];
-            if (taskIds.length > 0) {
-                const placeholders = taskIds.map(() => '?').join(', ');
-                validationAttempts = db.all(`SELECT * FROM validation_attempts WHERE task_id IN (${placeholders}) ORDER BY task_id ASC, attempt_n ASC`, taskIds);
-            }
-            const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? ORDER BY id ASC`, [issueId]);
-            const skillsUsed = db.all(`SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`);
             const lines = [];
             lines.push(`# Issue Report: ${issue.id}`);
             lines.push('');
@@ -86,6 +86,39 @@ export function reportTools(db) {
                 lines.push(`**Closed:** ${issue.closed_at}`);
             }
             lines.push('');
+            if (mode === 'summary') {
+                const taskCounts = db.get(`SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN status IN ('completed','closed') THEN 1 ELSE 0 END) AS completed,
+                  SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+           FROM tasks WHERE issue_id = ?`, [issueId]);
+                lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.completed ?? 0} completed, ${taskCounts?.failed ?? 0} failed`);
+                lines.push('');
+                const auditCount = (db.get(`SELECT COUNT(*) AS n FROM audit WHERE issue_id = ?`, [issueId]))?.n ?? 0;
+                lines.push(`**Audit events:** ${auditCount}`);
+                lines.push('');
+                lines.push('## Last 5 Audit Events');
+                lines.push('');
+                const recentAudit = db.all(`SELECT * FROM audit WHERE issue_id = ? ORDER BY id DESC LIMIT 5`, [issueId]);
+                if (recentAudit.length === 0) {
+                    lines.push('_No audit events._');
+                }
+                else {
+                    for (const e of recentAudit.reverse()) {
+                        lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
+                    }
+                }
+                return ok({ markdown: lines.join('\n'), mode: 'summary' });
+            }
+            // detail mode: full report
+            const tasks = db.all(`SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`, [issueId]);
+            const taskIds = tasks.map((t) => String(t.id));
+            let validationAttempts = [];
+            if (taskIds.length > 0) {
+                const placeholders = taskIds.map(() => '?').join(', ');
+                validationAttempts = db.all('SELECT * FROM validation_attempts WHERE task_id IN (' + placeholders + ') ORDER BY task_id ASC, attempt_n ASC', taskIds);
+            }
+            const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? ORDER BY id ASC`, [issueId]);
+            const skillsUsed = db.all(`SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`);
             lines.push('## Tasks');
             lines.push('');
             if (tasks.length === 0) {
@@ -137,7 +170,7 @@ export function reportTools(db) {
                     lines.push(`| ${s.skill_name} | ${s.uses} | ${s.successes} | ${eff} |`);
                 }
             }
-            return ok({ markdown: lines.join('\n') });
+            return ok({ markdown: lines.join('\n'), mode: 'detail' });
         }),
         issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'pr-reviewer'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
@@ -149,8 +182,11 @@ export function reportTools(db) {
             }
             const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
             const relOutputPath = rawOutputPath ?? defaultOutputPath;
-            if (!relOutputPath.startsWith('docs/trustmybot/')) {
-                throw new Error(`output_path must start with "docs/trustmybot/". Got: "${relOutputPath}"`);
+            const cwd = process.cwd();
+            const allowedBase = resolve(cwd, 'docs/trustmybot') + sep;
+            const absPath = resolve(cwd, relOutputPath);
+            if (!absPath.startsWith(allowedBase)) {
+                throw new Error(`output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`);
             }
             const discussions = db.all(`SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`, [issueId]);
             const tasks = db.all(`SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`, [issueId]);
@@ -218,7 +254,6 @@ export function reportTools(db) {
                 }
             }
             const markdown = lines.join('\n');
-            const absPath = join(process.cwd(), relOutputPath);
             mkdirSync(dirname(absPath), { recursive: true });
             writeFileSync(absPath, markdown, 'utf8');
             return ok({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, 'utf8') });

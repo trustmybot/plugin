@@ -1,6 +1,6 @@
 # Evaluation System (L5 + L6)
 
-Two automated dogfood layers drive **real Claude Code through pre-seeded TMB workflows** and assert the result matches doctrine.
+Two automated layers drive **real Claude Code through pre-seeded TMB workflows** and assert the result matches doctrine.
 
 | Layer | Purpose | Scope per run | When to run |
 |---|---|---|---|
@@ -156,11 +156,11 @@ For all other steps, bro's turn alone produces the row's expected Output organic
 
 ## Single canonical row tree
 
-All rows live in **`tests/dogfood/rows/`**. Every row is usable in both L5 (isolated) and L6 (chained) mode via the same prompt + scorer set. The difference between modes:
+All rows live in **`tests/l5-l6/rows/`**. Every row is usable in both L5 (isolated) and L6 (chained) mode via the same prompt + scorer set. The difference between modes:
 
 | Aspect | L5 mode | L6 chain mode |
 |---|---|---|
-| Runner | `tests/dogfood/run-l5.sh` | `tests/dogfood/run-l6-chain.sh` |
+| Runner | `tests/l5-l6/run-l5.sh` | `tests/l5-l6/run-l6-chain.sh` |
 | Pre-seed | `fixture.txt` seeds DB; `setup-l5.sh` (if present) adds env state | `fixture.txt` applied ONLY at chain step 1; subsequent steps inherit cumulative DB |
 | `setup-l5.sh` | Runs (simulates prior-step state for isolation) | NOT run (chain state carries from prior step) |
 | Per-turn session | Fresh `claude -p` per turn (no `--resume`). Continuity within a row is DB-driven. | Same. |
@@ -169,7 +169,7 @@ All rows live in **`tests/dogfood/rows/`**. Every row is usable in both L5 (isol
 ### Row layout
 
 ```
-tests/dogfood/rows/<row-name>/
+tests/l5-l6/rows/<row-name>/
   prompt.txt              # shared by L5 + L6 — the user prompt fed to claude -p
   README.md               # scenario description for both L5 and L6 modes
   script.json             # max_turns, user_after_bro[], terminal_pattern
@@ -228,8 +228,8 @@ These don't appear in the chain manifest. They test isolated behaviours that don
 ## L5 — per-row runner
 
 ```bash
-bash tests/dogfood/run-l5.sh 07-push-gate           # one row by substring, ~30-60s
-bash tests/dogfood/run-l5.sh                        # all rows
+bash tests/l5-l6/run-l5.sh 07-push-gate           # one row by substring, ~30-60s
+bash tests/l5-l6/run-l5.sh                        # all rows
 ```
 
 When to use L5: debugging one row, regression-tracing after a fix, pre-flight before re-running L6.
@@ -247,23 +247,23 @@ The trajectory is preserved at `~/.claude/tmb/l5-trajectories/<row>/<run_id>/` r
 ### FILTER argument
 
 ```bash
-bash tests/dogfood/run-l5.sh <SUBSTRING>
+bash tests/l5-l6/run-l5.sh <SUBSTRING>
 ```
 
 Runs only rows whose directory name contains `<SUBSTRING>`. Examples:
-- `bash tests/dogfood/run-l5.sh 14` → runs `14-skill-invocation-recorded`
-- `bash tests/dogfood/run-l5.sh consultant` → runs `consultant-ad-hoc`
-- `bash tests/dogfood/run-l5.sh misc` → runs all three `misc-*` rows
+- `bash tests/l5-l6/run-l5.sh 07` → runs `07-push-gate`
+- `bash tests/l5-l6/run-l5.sh consultant` → runs `consultant-ad-hoc`
+- `bash tests/l5-l6/run-l5.sh misc` → runs all three `misc-*` rows
 
 ---
 
 ## L6 — chained integration runner
 
 ```bash
-bash tests/dogfood/run-l6-chain.sh                  # auto-resume from last halt, or fresh
-bash tests/dogfood/run-l6-chain.sh --from 7         # resume from a specific row
-bash tests/dogfood/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
-bash tests/dogfood/run-l6-chain.sh --fresh          # force fresh from row 1
+bash tests/l5-l6/run-l6-chain.sh                  # auto-resume from last halt, or fresh
+bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from a specific row
+bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
+bash tests/l5-l6/run-l6-chain.sh --fresh          # force fresh from row 1
 ```
 
 When to use L6: integration smoke before any release; verifying cross-row continuity after fixes that span multiple rows.
@@ -290,7 +290,7 @@ Example: step 06 reads `src/cli.py`, but the work step 04/05 produced lives on a
 ### File layout
 
 ```
-tests/dogfood/
+tests/l5-l6/
 ├── run-l5.sh                 # orchestrator — iterates rows/ tree
 ├── run-l6-chain.sh           # chain runner — manifest-driven
 ├── lib/
@@ -327,7 +327,7 @@ Every L6 run produces a per-step log so failures are debuggable without replayin
 ├── step-02-reonboard-implicit-from-local/
 │   └── …
 …
-└── step-14-skill-invocation-recorded/
+└── step-13-search-grounding/
     └── …
 ```
 
@@ -379,9 +379,9 @@ A row passes when every scorer it ships passes. Missing optional scorers are ski
 
 | Goal | Where | Pattern |
 |---|---|---|
-| New standalone L5 row | `tests/dogfood/rows/<name>/` | scaffold per canonical layout; chain manifest unchanged |
-| New L6 chain step | `tests/dogfood/rows/<NN>-<name>/` + `l6-chain/chain-manifest.json` | add row dir; append entry to manifest with `step`, `id`, `row_dir`, `seed_before`/`seed_after` |
-| New scorer type | `tests/dogfood/lib/scorers.sh` | add `score_<name>`; register in `l5_score_flow` / `l6c_score_step` |
+| New standalone L5 row | `tests/l5-l6/rows/<name>/` | scaffold per canonical layout; chain manifest unchanged |
+| New L6 chain step | `tests/l5-l6/rows/<NN>-<name>/` + `l6-chain/chain-manifest.json` | add row dir; append entry to manifest with `step`, `id`, `row_dir`, `seed_before`/`seed_after` |
+| New scorer type | `tests/l5-l6/lib/scorers.sh` | add `score_<name>`; register in `l5_score_flow` / `l6c_score_step` |
 
 When you add or modify a chain step, update the **Per-step I/O table** above so the Input/Output/Carried-from columns stay accurate — those columns are the contract the next-row author reads to know what their step inherits.
 

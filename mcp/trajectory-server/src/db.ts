@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 8;
+const TARGET_SCHEMA_VERSION = 10;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -374,6 +374,12 @@ function runMigrations(
   if (fromVersion < 8 && toVersion >= 8) {
     migrateV7toV8(db);
   }
+  if (fromVersion < 9 && toVersion >= 9) {
+    migrateV8toV9(db);
+  }
+  if (fromVersion < 10 && toVersion >= 10) {
+    migrateV9toV10(db);
+  }
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -388,6 +394,81 @@ function tableExists(db: DatabaseSync, table: string): boolean {
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
     .get(table) as { name: string } | undefined;
   return row !== undefined;
+}
+
+function migrateV8toV9(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    if (tableExists(db, 'agent_runs')) {
+      if (!hasColumn(db, 'agent_runs', 'cache_read_tokens')) {
+        db.exec('ALTER TABLE agent_runs ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!hasColumn(db, 'agent_runs', 'cache_creation_tokens')) {
+        db.exec('ALTER TABLE agent_runs ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0');
+      }
+    }
+    if (tableExists(db, 'pr_review_runs')) {
+      if (!hasColumn(db, 'pr_review_runs', 'task_id')) {
+        db.exec('ALTER TABLE pr_review_runs ADD COLUMN task_id INTEGER REFERENCES tasks(id)');
+      }
+      if (!hasColumn(db, 'pr_review_runs', 'verdict')) {
+        db.exec('ALTER TABLE pr_review_runs ADD COLUMN verdict TEXT');
+      }
+      if (!hasColumn(db, 'pr_review_runs', 'attempt_n')) {
+        db.exec('ALTER TABLE pr_review_runs ADD COLUMN attempt_n INTEGER');
+      }
+      // Recreate the (pr_number, repo) unique index as a partial index so
+      // that audit rows (pr_number = 0) can coexist for multiple attempts.
+      // Drop the old unconditional index first, then create the new one.
+      db.exec('DROP INDEX IF EXISTS idx_pr_review_runs_pr');
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0',
+      );
+      const auditIdxExists = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_audit'")
+        .get() as { name: string } | undefined;
+      if (!auditIdxExists) {
+        db.exec(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL',
+        );
+      }
+      const taskIdxExists = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_task'")
+        .get() as { name: string } | undefined;
+      if (!taskIdxExists) {
+        db.exec(
+          'CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id)',
+        );
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+function migrateV9toV10(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    if (tableExists(db, 'tasks')) {
+      if (!hasColumn(db, 'tasks', 'prompt_bearing')) {
+        db.exec('ALTER TABLE tasks ADD COLUMN prompt_bearing INTEGER NOT NULL DEFAULT 0');
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
 }
 
 function migrateV7toV8(db: DatabaseSync): void {

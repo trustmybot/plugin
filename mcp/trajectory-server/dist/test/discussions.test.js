@@ -11,6 +11,10 @@ import { reportTools } from '../tools/reports.js';
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function call(handlers, name, args) {
     const handler = handlers[name];
     assert.ok(handler, `Handler not found: ${name}`);
@@ -174,7 +178,7 @@ describe('discussions + snapshot integration', () => {
         const issueId = globalThis['testIssueId'];
         const batchResult = await call(tasks.handlers, 'task_create_batch', {
             waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
-            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test verbatim spec body; shape not under test',
             agent: 'bro',
             issue_id: issueId,
             tasks: [
@@ -186,7 +190,7 @@ describe('discussions + snapshot integration', () => {
                 },
             ],
         });
-        const created = parseResult(batchResult);
+        const created = parseBatch(batchResult);
         assert.ok(!batchResult.isError);
         assert.equal(created.length, 1);
         const task = created[0];
@@ -264,7 +268,7 @@ describe('discussions + snapshot integration', () => {
                 },
             ],
         });
-        const batchData = parseResult(batchResult);
+        const batchData = parseBatch(batchResult);
         const taskId2 = String(batchData[0].id);
         const result = await call(tasks.handlers, 'task_update_status', {
             agent: 'swe',
@@ -309,6 +313,18 @@ describe('discussions + snapshot integration', () => {
             output_path: '/tmp/dangerous-path.md',
         });
         assert.ok(result.isError, 'Should reject path outside docs/trustmybot/');
+        const data = parseResult(result);
+        assert.ok(data.error.includes('docs/trustmybot'), 'Error should mention scope restriction');
+    });
+    it('step 8c: issue_snapshot_md rejects path-traversal via .. (#361)', async () => {
+        const reports = reportTools(db);
+        const issueId = globalThis['testIssueId'];
+        const result = await call(reports.handlers, 'issue_snapshot_md', {
+            agent: 'pr-reviewer',
+            issue_id: issueId,
+            output_path: 'docs/trustmybot/../../../etc/passwd',
+        });
+        assert.ok(result.isError, 'Should reject .. traversal path');
         const data = parseResult(result);
         assert.ok(data.error.includes('docs/trustmybot'), 'Error should mention scope restriction');
     });
@@ -413,6 +429,51 @@ describe('discussion_append verified_human gate (#145)', () => {
             });
             assert.ok(!result.isError, `author="${consultantAuthor}" must be accepted: ${JSON.stringify(parseResult(result))}`);
         }
+    });
+});
+describe('issue_get_with_discussions swe redaction (#344)', () => {
+    it('swe sees redacted description in the issue field', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        const createResult = await call(issues.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Redaction test issue',
+            description: 'TOP SECRET: this description must be hidden from swe.',
+        });
+        const issue = parseResult(createResult);
+        assert.ok(!createResult.isError, `issue_create failed: ${JSON.stringify(issue)}`);
+        const result = await call(disc.handlers, 'issue_get_with_discussions', {
+            agent: 'swe',
+            issue_id: String(issue.id),
+        });
+        const data = parseResult(result);
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
+        assert.ok(data.issue, 'issue field must be present');
+        assert.equal(data.issue.description, undefined, 'swe must not see the description field');
+        assert.ok(!('description' in data.issue), 'description must be absent from swe response');
+        assert.ok(typeof data.issue.objective === 'string', 'objective must be present');
+        localDb.close();
+    });
+    it('bro sees the full issue (not redacted) in issue_get_with_discussions', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        const createResult = await call(issues.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'Redaction test for bro',
+            description: 'Full description visible to bro.',
+        });
+        const issue = parseResult(createResult);
+        assert.ok(!createResult.isError);
+        const result = await call(disc.handlers, 'issue_get_with_discussions', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+        });
+        const data = parseResult(result);
+        assert.ok(!result.isError);
+        assert.ok(data.issue, 'issue field must be present');
+        localDb.close();
     });
 });
 //# sourceMappingURL=discussions.test.js.map

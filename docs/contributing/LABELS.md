@@ -98,4 +98,4 @@ When pr-reviewer reviews a PR:
 - [`ENUMS.md`](./ENUMS.md) — same governance rule applied to DB column ENUMs
 - Issue #38 — `issue_labels` table proposal (uses these names verbatim)
 - Issue #103 — Linear migration (mirrors these names into Linear's workspace)
-- `tests/lint/labels-stable.sh` — verifies GH label set matches this doc
+- `tests/l1-lint/labels-stable.sh` — verifies GH label set matches this doc

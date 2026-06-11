@@ -7,6 +7,10 @@ import { taskTools } from '../tools/tasks.js';
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
+function parseBatch(result) {
+    const raw = JSON.parse(result.content[0].text);
+    return (raw.tasks ?? raw);
+}
 async function call(handlers, name, args) {
     const handler = handlers[name];
     assert.ok(handler, `Handler not found: ${name}`);
@@ -37,9 +41,8 @@ async function createTask(db, issueId) {
         issue_id: String(issueId),
         tasks: [{ branch_id: 'fix/validation-test', description: 'Test task' }],
     });
-    const data = parseResult(result);
-    assert.ok(!result.isError, `task_create_batch failed: ${JSON.stringify(data)}`);
-    return data[0].id;
+    assert.ok(!result.isError, `task_create_batch failed: ${JSON.stringify(parseResult(result))}`);
+    return parseBatch(result)[0].id;
 }
 describe('validation_record subagent_session_id gate', () => {
     let db;
@@ -111,6 +114,45 @@ describe('validation_record subagent_session_id gate', () => {
         const data = parseResult(result);
         assert.equal(data.error, 'forbidden', `Expected forbidden, got: ${data.error}`);
         assert.ok(!String(data.error).includes('precondition_failed'), 'swe must not hit the subagent_session_id gate; it should be blocked by requireRoles');
+    });
+    it('validation_record writes a pr_review_runs row transactionally with the verdict', async () => {
+        const tools = validationTools(db);
+        const result = await call(tools.handlers, 'validation_record', {
+            agent: 'pr-reviewer',
+            task_id: taskId,
+            attempt_n: 2,
+            verdict: 'pass',
+            feedback: 'MCP available: yes\n# LGTM',
+            subagent_session_id: 'sess-pr-runs-test',
+        });
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const prRow = db.get(`SELECT task_id, verdict, attempt_n FROM pr_review_runs WHERE task_id = ? AND attempt_n = 2`, [taskId]);
+        assert.ok(prRow, 'pr_review_runs row must exist after validation_record');
+        assert.equal(prRow.task_id, taskId, 'pr_review_runs.task_id must match');
+        assert.equal(prRow.verdict, 'pass', 'pr_review_runs.verdict must match');
+        assert.equal(prRow.attempt_n, 2, 'pr_review_runs.attempt_n must match');
+    });
+    it('validation_record pr_review_runs row is idempotent on (task_id, attempt_n)', async () => {
+        const tools = validationTools(db);
+        await call(tools.handlers, 'validation_record', {
+            agent: 'pr-reviewer',
+            task_id: taskId,
+            attempt_n: 3,
+            verdict: 'fail',
+            feedback: 'MCP available: yes\n# Needs work',
+            subagent_session_id: 'sess-idem-1',
+        });
+        await call(tools.handlers, 'validation_record', {
+            agent: 'pr-reviewer',
+            task_id: taskId,
+            attempt_n: 3,
+            verdict: 'pass',
+            feedback: 'MCP available: yes\n# Now LGTM',
+            subagent_session_id: 'sess-idem-2',
+        });
+        const rows = db.all(`SELECT verdict FROM pr_review_runs WHERE task_id = ? AND attempt_n = 3`, [taskId]);
+        assert.equal(rows.length, 1, 'idempotent: only one pr_review_runs row per (task_id, attempt_n)');
+        assert.equal(rows[0].verdict, 'pass', 'second upsert must update verdict to pass');
     });
     it('backward compat: pre-migration rows with NULL subagent_session_id are readable via validation_history', async () => {
         const altDb = tempDB();

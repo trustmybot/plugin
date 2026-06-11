@@ -80,7 +80,7 @@ LLM-driven multi-step workflows have **compound failure**. Per-step adherence is
 | 5 | 77% | 59% |
 | 7 | 70% | 48% |
 
-This is why L5 dogfood reproduces "skipped step" failures. The skill says "do X, Y, Z" and at runtime the LLM does X, Y, drops Z. Not because it's broken — because that's the noise floor of long procedural prose.
+This is why L5 reproduces "skipped step" failures. The skill says "do X, Y, Z" and at runtime the LLM does X, Y, drops Z. Not because it's broken — because that's the noise floor of long procedural prose.
 
 Atomic composites collapse N → 1: one call decision, deterministic execution. Same pre-LLM 95% adherence applies, but only to one event. Empirically, migration of multi-step batches to composites raises L5 flow pass rate from ~60-77% to ~95% per flow.
 
@@ -118,7 +118,52 @@ When in doubt, refactor toward fewer, smaller skills with sharper descriptions r
 
 CC passes role names with or without a `<plugin>:` prefix depending on context (project-local override vs global plugin agent vs slash-command vs direct invocation). Hooks that compare raw `subagent_type` / `tool_input.skill` / similar against bare role names ("swe", "pr-reviewer", "tmb_planning") silently skip on prefixed input. **Hooks that silently skip are safety gates being silently disabled.**
 
-The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it and call `tmb_normalize_role` on any role-bearing string before comparison. The `tests/lint/no-bare-role-compare.sh` lint catches the bare-compare regression at L1.
+The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it and call `tmb_normalize_role` on any role-bearing string before comparison. The `tests/l1-lint/no-bare-role-compare.sh` lint catches the bare-compare regression at L1.
+
+---
+
+## Grading doctrine — scoring a prompt surface
+
+Use these five tests to grade every line in an agent file, skill, or CLAUDE.md.
+
+### The five tests
+
+| Test | Pass condition |
+|---|---|
+| **(A) Mechanism test** | Sequencing, defaulting, constraining, or measuring migrates to mechanisms 1–6. Only judgment stays. |
+| **(B) If/else test** | Anything you can write as an if/else statement must live in hooks/MCP, never in prompt prose. |
+| **(C) Natural-language test** | LLMs are built on natural language: if the Human cannot read a prompt line as natural language, it is machine-spec in disguise — migrate it or rewrite it. |
+| **(D) Placement test** | 100%-required judgment belongs in the always-loaded body; optional judgment in trigger-loaded skills; deterministic logic in code. CLAUDE.md is the reference implementation. |
+| **(E) Persona test** | Every agent opens with a plain-language identity sentence ("You are a senior software engineer. You execute tasks assigned by bro."). |
+
+### Four-way line disposition
+
+| What the line does | Action |
+|---|---|
+| Encodeable as if/else AND enforced by a gate | **DELETE** — the gate already guarantees the behavior. |
+| Encodeable as if/else, NOT yet enforced | **KEEP** as readable prose, rewrite naturally, file a migration issue. |
+| Required judgment (100% of runs) | **BODY** — move to the always-loaded agent file. |
+| Optional/situational judgment | **SKILL** — trigger-loaded, not burned on every turn. |
+
+### A–F rubric
+
+| Grade | What it means |
+|---|---|
+| **A** | Every line passes all five tests. No machine-spec, no redundant enforcement prose. |
+| **B** | Compliant architecture with residual machine-spec or minor duplication. |
+| **C** | Procedures wearing a prompt costume — readable but enforceable. |
+| **D** | Prompt is doing enforcement's job for at least one workflow step. |
+| **F** | Agent can act against policy before any gate fires. |
+
+### The gate-strength principle
+
+**A prompt line is only deletable when its gate actually guarantees the behavior — grade the system, not the prose.**
+
+If deleting a line would let an agent act before any gate catches it, the gate is too weak. Strengthen the gate first, then delete the line. Prompts must never be the load-bearing patch for a weak gate, and gates must teach their recovery in the deny message.
+
+### Worked example
+
+The swe.md file once carried a "load task_brief before proceeding" instruction. The gate at the time blocked only trajectory-server MCP calls, so an SWE could Read and Edit files before calling task_brief — implementing blind. The prompt line was load-bearing because the gate was weak. Fix: extend the gate to also deny Edit/Write pre-brief (with recovery instruction in the deny message). Once the gate guarantees the behavior, the prompt line becomes redundant and is deletable.
 
 ---
 

@@ -111,7 +111,7 @@ export function auditTools(db: TrajectoryDB): {
     },
     {
       name: 'audit_log_list',
-      description: 'Paginated fetch of audit records for an issue.',
+      description: 'Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'id\',\'event_type\',\'summary\'] to return only requested columns (unknown fields return a named error).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -121,6 +121,11 @@ export function auditTools(db: TrajectoryDB): {
           limit: { type: 'number', description: 'Max rows to return. Capped at 500. When omitted, returns up to 500 rows (legacy bare-array shape); when provided, response includes next_cursor.' },
           offset: { type: 'number', description: 'Row offset for pagination (default 0)' },
           cursor: { type: 'string', description: 'Opaque cursor from a previous response. When provided, overrides offset.' },
+          fields: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional column projection. Allowed: id, issue_id, branch_id, from_node, event_type, summary, content_json, created_at. Unknown fields return an error. Default: all columns.',
+          },
         },
         required: ['agent', 'issue_id'],
       },
@@ -304,11 +309,11 @@ export function auditTools(db: TrajectoryDB): {
       const eventType = args['event_type'] as string;
       const summary = args['summary'] as string;
 
-      let contentJson = (args['content_json'] as string | undefined) ?? '{}';
+      const contentJson = (args['content_json'] as string | undefined) ?? '{}';
 
       const byteLength = Buffer.byteLength(contentJson, 'utf8');
       if (byteLength > MAX_CONTENT_BYTES) {
-        contentJson = Buffer.from(contentJson, 'utf8').slice(0, MAX_CONTENT_BYTES).toString('utf8');
+        return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_log`);
       }
 
       db.run(
@@ -340,6 +345,23 @@ export function auditTools(db: TrajectoryDB): {
       const limitArg = args['limit'] as number | undefined;
       const cursorArg = args['cursor'] as string | undefined;
       const offset = Math.max(0, (args['offset'] as number | undefined) ?? 0);
+      const fieldsArg = args['fields'] as string[] | undefined;
+
+      const ALLOWED_AUDIT_FIELDS = new Set(['id', 'issue_id', 'branch_id', 'from_node', 'event_type', 'summary', 'content_json', 'created_at']);
+
+      if (fieldsArg !== undefined) {
+        const unknown = fieldsArg.filter((f) => !ALLOWED_AUDIT_FIELDS.has(f));
+        if (unknown.length > 0) {
+          return err(`Unknown fields: ${unknown.join(', ')}. Allowed: ${[...ALLOWED_AUDIT_FIELDS].join(', ')}`);
+        }
+      }
+
+      function projectRow(row: Record<string, unknown>): Record<string, unknown> {
+        if (!fieldsArg) return row;
+        const out: Record<string, unknown> = {};
+        for (const f of fieldsArg) out[f] = row[f];
+        return out;
+      }
 
       const conditions: string[] = ['issue_id = ?'];
       const baseParams: unknown[] = [issueId];
@@ -356,7 +378,7 @@ export function auditTools(db: TrajectoryDB): {
           'SELECT * FROM audit ' + whereClause + ' ORDER BY id ASC LIMIT 500 OFFSET ?',
           [...baseParams, offset],
         );
-        return ok(rows);
+        return ok(rows.map(projectRow));
       }
 
       const limit = Math.min(Math.max(1, limitArg), 500);
@@ -388,7 +410,7 @@ export function auditTools(db: TrajectoryDB): {
       const last = rows[rows.length - 1] as { created_at: string; id: number } | undefined;
       const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
 
-      return ok({ rows, next_cursor });
+      return ok({ rows: rows.map(projectRow), next_cursor });
     }),
   };
 

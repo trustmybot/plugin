@@ -18,9 +18,9 @@ Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, and the ch
 
 The parent CC session's main checkout may be on ANY branch. Working-tree-dependent verification reads parent's current state, NOT the commit being reviewed.
 
-For working-tree-dependent verification use `pr_review_worktree(agent='pr-reviewer', commit_sha=<sha>, repo_path=<CLAUDE_PLUGIN_ROOT>, command='<verification command>')` — creates the worktree, runs the command, removes it atomically. <!-- enforced by: pr_review_worktree composite (mech 2) -->
+For working-tree-dependent verification use `pr_review_worktree(agent='pr-reviewer', commit_sha=<sha>, repo_path=<workspace_root>, command='<verification command>')` — `workspace_root` is the directory holding `.claude/tmb/trajectory.db` (same definition as `tmb_planning`); creates the worktree, runs the command, removes it atomically. <!-- enforced by: pr_review_worktree composite (mech 2) -->
 
-Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch and don't need a worktree — use those for diff inspection.
+Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
 
 ### Phase 1 — Correctness reasoning
 
@@ -54,7 +54,7 @@ If `## Success Criteria` lists no performance bullet, skip.
 
 Public-API change reflected in user docs / type defs? Breaking change flagged in `CHANGELOG.md` if one exists? Examples still compile/run?
 
-### Writing the validation_attempts row — YOU write it, never delegate
+### Writing the validation_attempts row — YOU write it yourself
 
 After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly. Two paths depending on your tool list:
 
@@ -63,7 +63,7 @@ After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_
 validation_record(agent='pr-reviewer', task_id=N, attempt_n=1, verdict='pass'|'fail', feedback='MCP available: yes\n<your verdict text>', subagent_session_id='<your-session-id>')
 ```
 
-**Path 2 — MCP unavailable** (only Read + Bash in your tool list): `sqlite3 "${TRAJECTORY_DB_PATH}" "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at) VALUES (<N>, 1, 'pr-reviewer', '<pass|fail>', 'MCP available: no — honor-system fallback\n<verdict text>', '<session-id>', '$(date -u +%Y-%m-%dT%H:%M:%SZ)')"`
+**Path 2 — MCP unavailable** (only Read + Bash in your tool list): `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh <task_id> <attempt_n> <pass|fail> '<verdict text>' '<session-id>'`
 
 The `feedback` column CHECK constraint: must start with `'MCP available: yes'` OR `'MCP available: no — honor-system fallback'`. <!-- enforced by: requireRoles (mech 6) — server rejects bro identity; schema CHECK rejects wrong prefix -->
 
@@ -75,14 +75,18 @@ If you spot a recurring pattern at the push gate, append a bullet to **Living pa
 
 ## B. Spawning pr-reviewer (bro-side discipline)
 
-When bro spawns pr-reviewer, the prompt MUST contain task_id, commit_sha, branch_id, repo, and a one-line context summary. The prompt MUST NOT contain prior verdict text or rubber-stamp shortcuts. <!-- enforced by: pr-reviewer-spawn-prompt-shape.sh PreToolUse hook (mech 3) -->
+The verdict row is always authored by pr-reviewer itself — via MCP when available, via the fallback script otherwise (§A). <!-- LOAD-BEARING-SAFETY: pr-reviewer must write validation_attempts directly; delegating to bro is impersonation and is blocked by the auto-mode classifier -->
+
+The spawn prompt shape is enforced by `pr-reviewer-spawn-prompt-shape.sh`. <!-- LOAD-BEARING-SAFETY: enforced by pr-reviewer-spawn-prompt-shape.sh PreToolUse hook (mech 3) -->
 
 **Clean spawn prompt example:**
 ```
-task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin
+task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin attempt_n=<attempt #>
 
-Push-gate review. Per §A worktree discipline if running linters/build/tests against the working tree. Load spec via sqlite3 from tasks.spec_body; load diff via sha-based git ops. Verify each Success Criterion. Write validation_attempts row per §A (path 1 if you have MCP, path 2 if you have only Bash). Verdict='fail' if any check fails — do not fabricate.
+Push-gate review. Per §A worktree discipline if running linters/build/tests against the working tree. Load context via task_brief(agent='pr-reviewer', task_id=42). Verify each Success Criterion against the diff. Write validation_attempts row per §A (path 1 if you have MCP, path 2 if you have only Bash). Verdict='fail' if any check fails.
 ```
+
+No-MCP fallback (Bash-only spawn, no `mcp__...` tools in tool list): load spec via `sqlite3 "${TRAJECTORY_DB_PATH}" "SELECT spec_body FROM tasks WHERE id=42"` — keep this as the documented fallback only.
 
 ## C. Push-gate orchestration (bro, loaded reactively)
 
@@ -92,16 +96,15 @@ Triggers:
 
 ### Reap commits → local feature branch
 
-`reap_and_review_prep(agent='bro', task_ids=[<N>, ...], repo_path=<CLAUDE_PLUGIN_ROOT>)` — fetches each unsigned task's detached HEAD from its worktree into the main checkout, returns `{ reaped: [{task_id, branch_id, commit_sha, reaped, error?}] }`. <!-- enforced by: reap_and_review_prep composite (mech 2) -->
+`reap_and_review_prep(agent='bro', task_ids=[<N>, ...], repo_path=<workspace_root>)` — fetches each unsigned task's detached HEAD from its worktree into the main checkout, returns `{ reaped: [{task_id, branch_id, commit_sha, reaped, error?}] }`. <!-- enforced by: reap_and_review_prep composite (mech 2) -->
 
 ### Spawn pr-reviewer per unsigned task (parallel)
 
 Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local override). Tasks are independent; spawn in parallel where possible.
 
 Read pr-reviewer's first response line:
-- `MCP available: yes` → reviewer wrote `validation_record` itself.
-<!-- LOAD-BEARING-SAFETY: feedback must start with the exact literal string — schema CHECK rejects paraphrases like "MCP unavailable" or "[honor-system fallback]" -->
-- `MCP available: no — honor-system fallback` → record on its behalf via sqlite3 (insert into `validation_attempts` with `agent='pr-reviewer'`, `subagent_session_id` from its response, and `feedback` starting with the LITERAL string `MCP available: no — honor-system fallback\n` — paste verbatim).
+- `MCP available: yes` — the reviewer wrote `validation_record` itself.
+- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the fallback script (§A Path 2), which prepends the required feedback prefix itself. Either way the row must exist before you push; `git-push-guard.sh` blocks the push when it's missing.
 
 ### Outcomes
 
@@ -143,13 +146,13 @@ options: []  # free-text issue ID
 ### Triage (judgment)
 
 Skip as informational when:
-- Body matches `^(LGTM|👍|\+1|thanks|nice work|nit:)`.
-- Author is a bot (already classified by the MCP tool).
-- Comment is `is_resolved: true`.
+- The body is a bare acknowledgment — an LGTM, a +1, a thanks, a nit.
+- The author is a bot (already classified by the MCP tool).
+- The comment is already resolved.
 
 Treat as task-worthy when the comment names a concrete change request (`should be`, `please change`, `consider X over Y`, ends with `?`), or contains a code suggestion fence.
 
-Group task-worthy comments by file or shared concept; one task per group. Flag tasks that touch `docs/trustmybot/architecture/`, `mcp/.../schema.sql`, `.claude-plugin/plugin.json`, or `agents/` as `(arch-impact)`.
+Group task-worthy comments by file or shared concept; one task per group. Flag tasks that touch any seeded ADR directory (e.g. `docs/architecture/`), DB schema files (e.g. `*.sql`), agent/plugin config directories (e.g. `agents/`, `skills/`, plugin manifest files), or public API surfaces as `(arch-impact)`.
 
 ### Dispatch
 
@@ -162,9 +165,7 @@ options: [<task title (with optional (arch-impact) suffix)> per ratified group]
 
 For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the world model.
 
-## Search-first retrieval
-
-When looking up past decisions or project structure, prefer the search tools over list/get — they return ranked snippets, not full dumps. `world_model_get` / `world_model_search` for project navigation; `discussion_search` / `audit_search` for prior decisions and history. `mode='hybrid'` is the default; falls back to keyword if embeddings are unavailable (`warning: 'semantic_unavailable'`).
+Use `world_model_get` / `world_model_search` for project navigation; `discussion_search` / `audit_search` for prior decisions.
 
 ## Code-quality criteria (qualitative reference)
 
@@ -187,7 +188,7 @@ Format: `- <Pattern name> / Symptom: ... / Root cause: ... / Rule: ... / Check: 
 - **AskUserQuestion-default ignored**
   Symptom: Bro renders a 2–5 mutually-exclusive choice as markdown bullets and waits for prose, instead of calling AskUserQuestion.
   Root cause: Without an explicit doctrine entry, the LLM falls back to general-Claude prose-asking habits.
-  Rule: For any 2–5 mutually-exclusive choice, use AskUserQuestion. Constraints + skip-cases live inline at `CLAUDE.md ## Asking the Human`.
+  Rule: See **Asking the Human** in `CLAUDE.md`.
   Check: Bro offering a numbered list of choices and waiting for "1" / "2" / etc. — flag as a regression.
 
 ### Prompt authoring

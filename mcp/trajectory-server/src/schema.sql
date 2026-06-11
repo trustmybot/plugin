@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
     repo              TEXT,
+    -- prompt_bearing: 1 when this task intentionally modifies agent/skill/command
+    -- prompt-surface files. When 0 (default), the swe-boundary hook denies writes
+    -- to agents/, skills/*/SKILL.md, commands/, templates/, and *.md identity files.
+    prompt_bearing    INTEGER NOT NULL DEFAULT 0,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     completed_at      TEXT
@@ -169,7 +173,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 8, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 10, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -208,17 +212,24 @@ INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
 -- are inserted at task_create_batch (completed_at NULL until close) and
 -- finalized at bro_atomic_close — hence completed_at is nullable.
 CREATE TABLE IF NOT EXISTS agent_runs (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id      INTEGER REFERENCES tasks(id),
-    issue_id     INTEGER REFERENCES issues(id),
-    agent_type   TEXT    NOT NULL,
-    tokens_in    INTEGER NOT NULL DEFAULT 0,
-    tokens_out   INTEGER NOT NULL DEFAULT 0,
-    tokens_total INTEGER NOT NULL DEFAULT 0,
-    tool_uses    INTEGER NOT NULL DEFAULT 0,
-    duration_ms  INTEGER NOT NULL DEFAULT 0,
-    started_at   TEXT,
-    completed_at TEXT
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id              INTEGER REFERENCES tasks(id),
+    issue_id             INTEGER REFERENCES issues(id),
+    agent_type           TEXT    NOT NULL,
+    tokens_in            INTEGER NOT NULL DEFAULT 0,
+    tokens_out           INTEGER NOT NULL DEFAULT 0,
+    tokens_total         INTEGER NOT NULL DEFAULT 0,
+    -- cache_read_tokens: tokens served from Anthropic's prompt cache (billed at ~0.1x input rate).
+    -- cache_creation_tokens: tokens written into the prompt cache (billed at ~1.25x input rate).
+    -- Both classes are excluded from tokens_in in CC's modelUsage; we track them separately
+    -- because the cost difference is ~100x (cache_read is cheapest, cache_creation is most expensive
+    -- per-token relative to plain input).
+    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    tool_uses            INTEGER NOT NULL DEFAULT 0,
+    duration_ms          INTEGER NOT NULL DEFAULT 0,
+    started_at           TEXT,
+    completed_at         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
@@ -231,15 +242,26 @@ CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
 -- per (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the
 -- next `since` query; `last_comment_id` is the comment-id cursor when the
 -- backend supports id-based deltas (gh REST does; glab uses created_at).
+-- task_id + verdict + attempt_n are populated server-side by validation_record
+-- to record pr-reviewer invocations (#334) — rows written for the reviewer
+-- audit path have pr_number=0 and repo='' (sentinel) while task_id is non-null.
 CREATE TABLE IF NOT EXISTS pr_review_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  pr_number INTEGER NOT NULL,
-  repo TEXT NOT NULL,
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  pr_number       INTEGER NOT NULL DEFAULT 0,
+  repo            TEXT    NOT NULL DEFAULT '',
   last_fetched_at DATETIME NOT NULL,
-  last_comment_id TEXT
+  last_comment_id TEXT,
+  task_id         INTEGER REFERENCES tasks(id),
+  verdict         TEXT,
+  attempt_n       INTEGER
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo);
+-- Monitoring rows (pr_number > 0) remain one per (pr_number, repo); audit rows
+-- (pr_number = 0) are exempt from this constraint via the WHERE clause so that
+-- multiple validation attempts for the same task each get their own row.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
 
 -- Rules catalog (#2886). First-class registry for `.claude/rules/*.md`
 -- documents. Severity captures enforcement weight — some rules are

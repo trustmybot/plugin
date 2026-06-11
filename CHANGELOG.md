@@ -4,6 +4,41 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.1 — 2026-06-11
+
+Promotes `v0.7.1-rc.1` to stable, plus the fixes the first Linux release-gate runs surfaced after the rc tag: bro-turn-usage digit-guard token sanitization and code-quality-lint bracket-class ERE literals + unescaped-backtick repair (#463–#465), and CI actions bumped to Node-24-ready majors (#466). See `v0.7.1-rc.1` below for the full milestone rollup (~80 issues, PRs #392–#459). Release gate green on the rc tag: L6 chain 13/13.
+
+## v0.7.1-rc.1 — 2026-06-10
+
+The full-repo audit release: the entire v0.7.1 milestone (~80 issues — a 50-issue audit, 18 pre-existing, plus everything the burn-down itself surfaced) resolved across PRs #392–#459. L6 chain 13/13.
+
+### Fixed — headless enforcement repairs (the big ones)
+
+- **`git-guards` was fail-open in every headless session.** All its rules emitted the legacy `permissionDecision: "block"`, which CC's hook schema rejects — the guard fired, emitted its deny, and was discarded (interactively the same error fails closed, masking this for months). Observed live: bro fast-forwarded a feature branch into protected `dev`. Now `deny` everywhere + a `valid-permission-decisions` lint so the value class can't regress.
+- **All intent hints were dead in plugin-loaded sessions.** The hint dispatcher shipped mode 644; CC execs hook commands directly, so every hint class (consultant, push, concerns, reonboard, resume…) silently never fired under `--plugin-dir`. Now executable + a `hooks-executable` lint over every hooks.json command.
+- **SWE spawn gate rejected `task_id: N`.** The parser accepted only the equals form; a semantically-correct spawn was denied and the task stranded. Separator-agnostic now, with a regression case.
+- **`/onboard` headless path keeps Step 1** — the halt-reply cites the current shape instead of halting blind.
+- **swe-verification-gate read the wrong sentinel off the default plugin name** (broke on renamed channels); **deferred-tools-drift-warn died on leading-zero clock components** (octal arithmetic); both fixed with tests.
+
+### Added — enforcement tier
+
+- SWE structural gates: deny-until-briefed (`swe-brief-gate`), spec-verification on completion (`swe-verification-gate`), push/remote/prompt-surface fences (`swe-boundary`), stay-on-base branch-creation guard, retry cap, spec-shape validation with waivers, reserved agent names, and six debt gates (test-layer placement, SQL interpolation, tool-description budget, dist freshness, symlink targets, hook executability).
+- SQL hardening sweep: `tmb_sql_int` / `tmb_sql_quote` helpers across all hooks + a no-raw-interpolation lint; the quoted-slug injection case is now discriminating (protected-branch variant).
+
+### Changed — prompts & doctrine
+
+- Every agent/skill/command prompt rewritten to the grading doctrine (now codified in `docs/prompt-engineering/DETERMINISM.md`): personas up front, judgment in prose, deterministic behavior moved behind gates, pointer-style hints. All surfaces independently graded A/A−.
+- Intent hints teach their required first action (reonboard: read state; concerns: record the `Concern:` note) instead of restating skill procedure.
+
+### Performance
+
+- `git-guards` per-Bash-call overhead 103ms → 17ms; `scan.sh` 24s → 0.5s; 7 intent-hint hooks merged into 1 dispatcher (11 → 5 processes per prompt); MCP tool descriptions −22%; world model self-prunes deleted paths.
+
+### Test infrastructure
+
+- L4 flows migrated to the `task_create_batch` object shape + spec-shape gate; aggregate-suite green-up (cross-test state pollution, tautological assertions); L6 chain fixtures expose unmerged task-branch files where rows need them (`chain_setup_command`); the bare test remote lives outside bro's project tree; conflict rows say "Don't invoke AskUserQuestion" (Human-authorized); L5/L6 harness header sanctions documented holds.
+
+
 ## v0.7.0 — 2026-06-07
 
 Promotes `v0.7.0-rc.3` to stable. See `v0.7.0-rc.1`–`rc.3` + `v0.7.0-dev` for the cumulative changes from v0.6.0 — the **kuzu graph-DB world model** (ADR 0002, schema v8), the pre-release doc-accuracy sweep, and the #314 / #315 / #316 fixes. **Benchmarks:** 8/8 on the curated SWE-bench slate at ~6.97M tokens / $6.98 — cheaper than a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31), 0 hallucinations. L6 13/13 in CI.
@@ -1089,7 +1124,7 @@ Bumped all three manifest versions to `0.1.4`. No schema migration.
 
 ### Added — Layer 0 distribution test (so this can't ship again)
 
-Added a Docker-based **install-smoke test** at [`tests/docker/install-smoke.Dockerfile`](tests/docker/install-smoke.Dockerfile) and a local wrapper [`tests/docker/run-install-smoke.sh`](tests/docker/run-install-smoke.sh). The Dockerfile:
+Added a Docker-based **install-smoke test** at [`tests/l0-install/install-smoke.Dockerfile`](tests/l0-install/install-smoke.Dockerfile) and a local wrapper [`tests/l0-install/run-install-smoke.sh`](tests/l0-install/run-install-smoke.sh). The Dockerfile:
 
 1. Starts from a clean `node:20-slim` (no preexisting `dist/`, no `node_modules/`).
 2. Installs bun + sqlite, copies the plugin tree.

@@ -1,5 +1,6 @@
 import { spawnSync, SpawnSyncOptions } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -42,6 +43,12 @@ function defaultSpawnFn(
   args: string[],
   opts: SpawnSyncOptions,
 ): { status: number | null; stdout: string; stderr: string } {
+  const blockReason = liveCliBlockReason();
+  if (blockReason) {
+    const message = liveCliBlockedMessage(blockReason, cmd, args);
+    syncLog({ event: 'live_cli_blocked', cmd, args, reason: blockReason });
+    return { status: null, stdout: '', stderr: message };
+  }
   const result = spawnSync(cmd, args, opts);
   return {
     status: result.status,
@@ -60,7 +67,7 @@ function parseRemoteIid(stdout: string, _kind: 'github' | 'gitlab'): ParsedIid |
   for (const line of stdout.split('\n')) {
     const trimmed = line.trim();
     const urlMatch = trimmed.match(
-      /https?:\/\/([^/]+)\/([^/]+\/[^/]+)\/-?\/?(?:issues|work_items)\/(\d+)/,
+      /https?:\/\/([^/]+)\/([^/]+(?:\/[^/]+)+?)\/-?\/?(?:issues|work_items)\/(\d+)/,
     );
     if (urlMatch) {
       const host = urlMatch[1]!;
@@ -81,9 +88,9 @@ function parseRemoteIid(stdout: string, _kind: 'github' | 'gitlab'): ParsedIid |
 
 function extractRemoteHostAndRepo(remoteUrl: string): { host: string; repoPath: string } | null {
   if (!remoteUrl) return null;
-  const httpMatch = remoteUrl.match(/https?:\/\/([^/]+)\/([^/]+\/[^/]+?)(?:\.git)?$/);
+  const httpMatch = remoteUrl.match(/https?:\/\/([^/]+)\/([^/]+(?:\/[^/]+)+?)(?:\.git)?$/);
   if (httpMatch) return { host: httpMatch[1]!, repoPath: httpMatch[2]! };
-  const sshMatch = remoteUrl.match(/git@([^:]+):([^/]+\/[^/]+?)(?:\.git)?$/);
+  const sshMatch = remoteUrl.match(/git@([^:]+):(.+?)(?:\.git)?$/);
   if (sshMatch) return { host: sshMatch[1]!, repoPath: sshMatch[2]! };
   return null;
 }
@@ -315,16 +322,11 @@ export async function syncIssueCreate(
   if (backend === 'glab') {
     return createOnBackend('glab', opts, spawnFn);
   }
-  if (backend === 'both') {
-    const ghResult = await createOnBackend('gh', opts, spawnFn);
-    if (!isFailure(ghResult)) return ghResult;
-    return createOnBackend('glab', opts, spawnFn);
-  }
   return {
     ok: false,
     reason: 'no_backend',
     backend: null,
-    message: `unrecognised backend "${backend}"`,
+    message: `unrecognised backend "${backend}" — use issue_create for dual-backend creates`,
   };
 }
 

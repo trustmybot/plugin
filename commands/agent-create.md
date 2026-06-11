@@ -1,6 +1,6 @@
 ---
 name: agent-create
-description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question. Self-contained — routing/enforcement comes from this command body + the consultant-spawn-required hook.
+description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question. Self-contained — routing/enforcement comes from this command body + the prompt-intent-hints routing hook.
 argument-hint: <kebab-case agent name> [optional consultant question]
 ---
 
@@ -57,17 +57,11 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
    - `name`: kebab-case (e.g. `legal-reviewer`).
    - `tools`: minimum viable. Default is read-only + MCP. Add `Bash` only if the consultant verifies by running commands. Add `Write`/`Edit` only if the consultant produces output files (rare).
    - `skills: []` — empty by default. Bro extends via `tmb_skill-creator` after creation.
-   - Body cap enforced by `tests/lint/agent-line-budget.sh` (Lego model: 15 body lines for role templates).
+   - Body cap enforced by `tests/l1-lint/agent-line-budget.sh` (Lego model: 15 body lines for role templates).
 
    In headless mode (`TMB_HEADLESS=1`): skip AUQ steps 1 and 5 when a role description is already known from the slash-command argument or prior context. Default to "Consultant. Analysis-only domain expert for `<name>`." with no role-specific body extension. Proceed directly to pre-write lint (step 4) and write.
 
-4. **Pre-write lint.** Run `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`. The script flags two pattern classes:
-
-   **Pink-elephant negations**: start-of-line `Don't`, `Never`, `Do not`; mid-sentence `MUST NOT`, `do not`, `don't`, `never`. Rewrite each as positive (`Don't include emojis` → `Use plain text only`). For load-bearing safety, add `<!-- LOAD-BEARING-SAFETY: <reason> -->` inline.
-
-   **Noise citations**: issue numbers (`#\d+`), memory file paths (`feedback_*.md`, `~/.claude/projects/...`), origin attributions (`caught in`, `prior incident`), decaying dates, PR/MR URLs, migration tombstones (phrases that frame a past state rather than the current one). Strip or rewrite each. Allowed: rule stated inline, cross-refs to other prompt surfaces (`see CLAUDE.md ## <Section>`), MCP-DB references via tool name.
-
-   Surface findings via the approval AUQ; the user picks accept/decline per finding.
+4. **Pre-write lint.** Run `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`. Surface findings via AUQ; the user picks accept/decline per finding.
 
 5. **Show + ask.** Present the full drafted file in a fenced code block. Ask:
    > Do you want me to create this agent? It will be written to `.claude/agents/<name>.md` and available in future sessions. (yes/no)
@@ -76,11 +70,9 @@ In headless mode (`TMB_HEADLESS=1`): **skip the AUQ and write the file directly*
 
 7. **Register + log.** Call `agent_register(name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`. Same issue-scoping rule as Branch B step 3 — `issue_create` first if no active issue. Then `audit_log(agent='bro', from_node='bro', issue_id=<I>, event_type='tmb_agent_created', content_json='{"name":"<name>","mode":"from-scratch"}')`. See §"Post-create reminder" for the conditional reload hint.
 
-## Reserved names (refuse)
+## Reserved names
 
-- `bro` — plugin protocol persona.
-
-Other names — `architect`, `cto`, `ceo`, `pm`, `swe`, `pr-reviewer`, `legal-reviewer`, anything else — are allowed.
+The server rejects invalid or reserved names — `agent_register` refuses `bro` outright and rejects project-local re-registration of the global backbone roles (`swe`, `pr-reviewer`). Any other consultant name is fine.
 
 ## Collision dialog (existing target file)
 
@@ -109,14 +101,13 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 <!-- LOAD-BEARING-SAFETY: plugin/agents/ is a read-only install path — writes there corrupt the plugin package -->
 - **Plugin install is read-only.** Writes go to `<project>/.claude/agents/` only; `plugin/agents/` is off-limits.
 - **Approval is non-negotiable** in both modes.
-- **Reserved names refused** — `bro` is reserved.
 - **Existing files require collision dialog** — see Collision dialog above.
 
 ## Post-create reminder
 
 After Branch B or C completes successfully, emit the reload hint **only if** running interactively (REPL — i.e. not `claude -p`). MCP `agent_list` reads from the `agents` DB table (no reload needed) and the new file is on disk for `Agent` to read at spawn time, so the reminder is a contingency, not a required step:
 
-> *Agent landed at `.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, run `/plugin-reload`.*
+> *Agent landed at `.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, run `/reload-plugins`.*
 
 Skip the reminder entirely in headless / `claude -p` runs — there's no second turn to act on it.
 
@@ -128,4 +119,4 @@ Skip the reminder entirely in headless / `claude -p` runs — there's no second 
 
 ## Routing from naturalistic prompts
 
-When a Human asks an expertise question without typing the slash (e.g. `@bro what's the right architecture trade-off for X?`), the `consultant-spawn-required.sh` UserPromptSubmit hook injects a routing hint reminding bro to use `/tmb:agent-create <inferred-role>` rather than answering from general knowledge. The hint is advisory but reliable; bro should follow it unless the question is genuinely within its own scope.
+When a Human asks an expertise question without typing the slash (e.g. `@bro what's the right architecture trade-off for X?`), the `prompt-intent-hints.sh` UserPromptSubmit hook injects a routing hint reminding bro to use `/tmb:agent-create <inferred-role>` rather than answering from general knowledge. The hint is advisory but reliable; bro should follow it unless the question is genuinely within its own scope.

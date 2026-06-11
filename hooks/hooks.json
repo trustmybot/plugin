@@ -58,42 +58,12 @@
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/consultant-spawn-required.sh",
-            "timeout": 3
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/prompt-intent-hints.sh",
+            "timeout": 5
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-slash-detect.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/concerns-protocol-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/push-intent-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/reonboard-intent-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/resume-intent-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/adr-required-hint.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/search-grounding-hint.sh",
             "timeout": 3
           }
         ]
@@ -115,7 +85,17 @@
           },
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-boundary.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-worktree-branch-create.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/stay-on-base-guard.sh",
             "timeout": 5
           },
           {
@@ -161,6 +141,26 @@
         ]
       },
       {
+        "matcher": "mcp__.*trajectory-server__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-brief-gate.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__task_update_status",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-verification-gate.sh",
+            "timeout": 260
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion",
         "hooks": [
           {
@@ -185,7 +185,17 @@
         "hooks": [
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-brief-gate.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-source-edit-from-main.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-boundary.sh",
             "timeout": 5
           },
           {
@@ -201,7 +211,7 @@
         ]
       },
       {
-        "matcher": "*",
+        "matcher": "Bash|Read|Write|Edit|MultiEdit|Agent|Skill",
         "hooks": [
           {
             "type": "command",
@@ -214,6 +224,16 @@
     "PostToolUse": [
       {
         "matcher": "mcp__.*trajectory-server__task_update_status",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cleanup-worktree-on-task-close.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*trajectory-server__bro_atomic_close",
         "hooks": [
           {
             "type": "command",
@@ -268,6 +288,18 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-pr-comments-persist.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/bro-turn-usage.sh",
             "timeout": 5
           }
         ]

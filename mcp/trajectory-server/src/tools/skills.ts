@@ -6,6 +6,13 @@ type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 const VALID_TRUST_TIERS = new Set(['curated', 'agent']);
 
+// Skill name must be kebab-case: starts with a lowercase letter, followed by
+// lowercase letters, digits, or hyphens, max 64 chars total. The tmb_ prefix
+// (with underscore, not hyphen) is reserved for plugin-shipped skills registered
+// at scope='global'; user-created skills at scope='project-local' or 'template'
+// must not use it to avoid confusion with the canonical plugin catalog.
+const SKILL_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
+
 const VALID_STATUS_TRANSITIONS = new Map<string, Set<string>>([
   ['draft', new Set(['pending_review'])],
   ['pending_review', new Set(['active'])],
@@ -172,6 +179,22 @@ export function skillTools(db: TrajectoryDB): {
         );
       }
 
+      if (!SKILL_NAME_RE.test(name)) {
+        throw new Error(
+          `skill_register rejected: invalid name "${name}". ` +
+          `Skill names must match ^[a-z][a-z0-9-]{0,63}$ — ` +
+          `lowercase letters, digits, and hyphens only, starting with a letter, max 64 chars. ` +
+          `Examples: my-skill, data-export-v2.`,
+        );
+      }
+      if (name.startsWith('tmb_') && scope !== 'global') {
+        throw new Error(
+          `skill_register rejected: the 'tmb_' prefix is reserved for plugin-shipped global skills. ` +
+          `Rename your skill (e.g. replace 'tmb_' with your project prefix) or set scope='global' ` +
+          `if you are contributing an official plugin skill.`,
+        );
+      }
+
       const now = nowISO();
 
       db.run(
@@ -305,6 +328,20 @@ export function skillTools(db: TrajectoryDB): {
 
       if (!isStatusTransition && !isTierTransition) {
         throw new Error(`Invalid transition: ${fromStatus}→${toStatus}`);
+      }
+
+      if (isStatusTransition && skill.status !== fromStatus) {
+        throw new Error(
+          `skill_promote rejected: skill '${name}' is in status '${skill.status}', not '${fromStatus}'. ` +
+          `from_status must match the skill's current status.`
+        );
+      }
+
+      if (isTierTransition && skill.trust_tier !== fromStatus) {
+        throw new Error(
+          `skill_promote rejected: skill '${name}' has trust_tier '${skill.trust_tier}', not '${fromStatus}'. ` +
+          `from_status must match the skill's current trust_tier for tier transitions.`
+        );
       }
 
       const now = nowISO();

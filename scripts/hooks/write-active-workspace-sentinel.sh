@@ -7,7 +7,7 @@
 # the sentinel itself. Reading the sentinel here would be circular: a
 # stale sentinel from a prior session would re-write itself, and a fresh
 # session in a different workspace would never get its sentinel updated
-# (which was the L5 dogfood failure mode where flows in scratch dirs
+# (which was the L5 failure mode where flows in scratch dirs
 # kept seeing the developer's main-workspace DB).
 
 set -uo pipefail

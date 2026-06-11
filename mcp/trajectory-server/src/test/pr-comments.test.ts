@@ -508,3 +508,70 @@ describe('pr_review_runs_list', () => {
     db.close();
   });
 });
+
+describe('pr_comments_get — repo threading (#362)', () => {
+  function makeCapturingSpawnFn(responses: Array<{ status: number; stdout: string; stderr: string }>): {
+    spawnFn: SpawnFn;
+    calls: Array<{ cmd: string; args: string[] }>;
+  } {
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    let index = 0;
+    const spawnFn: SpawnFn = (cmd, args, _opts) => {
+      calls.push({ cmd, args });
+      const response = responses[index] ?? { status: 1, stdout: '', stderr: 'no more responses' };
+      index++;
+      return response;
+    };
+    return { spawnFn, calls };
+  }
+
+  it('threads -R <repo> into gh pr view args when repo is provided', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
+    const tools = prCommentsTools(db, spawnFn);
+    await tools.handlers['pr_comments_get']!({ agent: 'bro', pr_number: 5, repo: 'owner/my-repo' });
+
+    const ghCall = calls.find((c) => c.cmd === 'gh');
+    assert.ok(ghCall, 'gh should be called');
+    assert.ok(ghCall.args.includes('-R'), 'args should include -R flag');
+    assert.ok(ghCall.args.includes('owner/my-repo'), 'args should include the repo slug');
+    const rIdx = ghCall.args.indexOf('-R');
+    assert.equal(ghCall.args[rIdx + 1], 'owner/my-repo', '-R must immediately precede the repo slug');
+
+    db.close();
+  });
+
+  it('does not add -R flag when repo is omitted', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
+    const tools = prCommentsTools(db, spawnFn);
+    await tools.handlers['pr_comments_get']!({ agent: 'bro', pr_number: 5 });
+
+    const ghCall = calls.find((c) => c.cmd === 'gh');
+    assert.ok(ghCall, 'gh should be called');
+    assert.ok(!ghCall.args.includes('-R'), 'args should NOT include -R flag when repo is omitted');
+
+    db.close();
+  });
+
+  it('threads -R <repo> into glab mr view args when repo is provided', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
+    const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GLAB_SAMPLE, stderr: '' }]);
+    const tools = prCommentsTools(db, spawnFn);
+    await tools.handlers['pr_comments_get']!({ agent: 'bro', pr_number: 3, repo: 'group/project' });
+
+    const glabCall = calls.find((c) => c.cmd === 'glab');
+    assert.ok(glabCall, 'glab should be called');
+    assert.ok(glabCall.args.includes('-R'), 'args should include -R flag');
+    assert.equal(
+      glabCall.args[glabCall.args.indexOf('-R') + 1],
+      'group/project',
+      '-R must immediately precede the repo slug',
+    );
+
+    db.close();
+  });
+});

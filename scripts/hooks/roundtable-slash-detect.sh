@@ -11,6 +11,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
@@ -24,30 +28,15 @@ case "$PROMPT" in
   *) exit 0 ;;
 esac
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  # Walk up to find existing DB (#2872 same-pattern as activation hook).
-  dir="$PWD"
-  for _ in 1 2 3 4 5 6 7 8; do
-    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
-    if [ -f "$candidate" ]; then DB_PATH="$candidate"; break; fi
-    parent=$(dirname "$dir")
-    [ "$parent" = "$dir" ] && break
-    dir="$parent"
-  done
-  [ -z "$DB_PATH" ] && DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
-fi
+DB_PATH=$(tmb_db_path 2>/dev/null || true)
+[ -n "$DB_PATH" ] || exit 0
 [ -f "$DB_PATH" ] || exit 0
 
 SUMMARY=$(printf '%s' "$PROMPT" | head -c 200 | sed "s/'/''/g")
 
-sqlite3 "$DB_PATH" <<SQL >/dev/null 2>&1 || true
-INSERT INTO audit (issue_id, branch_id, from_node, kind, event_type, summary, content_json, created_at)
-VALUES (-1, NULL, 'system', 'event', 'roundtable_slash_invoked',
+sqlite3 "$DB_PATH" <<SQL 2>&1 >/dev/null || true
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'system', 'roundtable_slash_invoked',
         'User typed /roundtable: $SUMMARY', '{}', datetime('now'));
 SQL
 
