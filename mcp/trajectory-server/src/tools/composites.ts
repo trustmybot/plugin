@@ -353,8 +353,8 @@ export function compositeTools(
         "Full context bundle for one task in a single call — swe's only context read. " +
         'Joins the trajectory DB (task row, spec_body, the task issue\'s discussion thread) ' +
         'with the kuzu world model (each directory the spec\'s `## Files` touch, plus its ' +
-        'children\'s summaries). Lets swe receive scope instead of orchestrating task_get + ' +
-        'world_model_get + discussion_search itself. See docs/architecture/WORLD_MODEL.md.',
+        "children's summaries). Lets swe receive scope instead of orchestrating task_get + " +
+        'world_model_get + discussion_search itself.',
       inputSchema: {
         type: 'object',
         properties: {
