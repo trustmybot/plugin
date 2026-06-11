@@ -62,7 +62,7 @@ export function registerTools(
   const skills = skillTools(db);
   const rules = ruleTools(db);
   const commands = commandTools(db);
-  const agents = agentTools(db);
+  const agents = agentTools(db, dbPath);
   const reports = reportTools(db);
   const config = configTools(db);
   const branchReport = branchReportMdTools(db);
