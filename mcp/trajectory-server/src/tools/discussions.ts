@@ -9,6 +9,8 @@ type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 
+const MAX_BODY_BYTES = 65_536;
+
 function ok(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -78,7 +80,7 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_append',
       description:
-        'Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log.',
+        'Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log. body is capped at 64 KB; larger payloads return a named validation error.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -348,6 +350,11 @@ export function discussionTools(db: TrajectoryDB): {
         const author = requireArg(args, 'author') as string;
         const body = requireArg(args, 'body') as string;
         const kind = (args['kind'] as string | undefined) ?? 'note';
+
+        const bodyBytes = Buffer.byteLength(body, 'utf8');
+        if (bodyBytes > MAX_BODY_BYTES) {
+          return err(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
+        }
 
         if (!ALLOWED_KINDS.has(kind)) {
           return err(

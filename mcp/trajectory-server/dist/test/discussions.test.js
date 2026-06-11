@@ -431,6 +431,54 @@ describe('discussion_append verified_human gate (#145)', () => {
         }
     });
 });
+describe('discussion_append body size cap (#219)', () => {
+    let db;
+    let issueId;
+    before(async () => {
+        db = tempDB();
+        const issues = issueTools(db);
+        const result = await call(issues.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'body size cap test issue',
+            description: 'Isolated issue for body cap tests.',
+        });
+        const created = parseResult(result);
+        issueId = String(created.id);
+    });
+    after(() => {
+        db.close();
+    });
+    it('accepts body exactly at the 64KB cap', async () => {
+        const disc = discussionTools(db);
+        const body = 'a'.repeat(65_536);
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: issueId,
+            author: 'bro',
+            kind: 'note',
+            body,
+        });
+        assert.ok(!result.isError, `Expected no error at cap: ${JSON.stringify(parseResult(result))}`);
+        const data = parseResult(result);
+        assert.equal(data.author, 'bro');
+    });
+    it('rejects body over 64KB with a named validation error (not a SQLite error)', async () => {
+        const disc = discussionTools(db);
+        const body = 'a'.repeat(65_537);
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: issueId,
+            author: 'bro',
+            kind: 'note',
+            body,
+        });
+        assert.ok(result.isError, 'Should be error for oversized body');
+        const data = parseResult(result);
+        assert.ok(data.error.includes('64KB'), `Error must mention 64KB limit: ${data.error}`);
+        assert.ok(data.error.includes('65537'), `Error must include byte count: ${data.error}`);
+        assert.ok(!data.error.includes('SQLITE'), `Error must not be a SQLite error: ${data.error}`);
+    });
+});
 describe('issue_get_with_discussions swe redaction (#344)', () => {
     it('swe sees redacted description in the issue field', async () => {
         const localDb = tempDB();
