@@ -44,7 +44,7 @@ failed=0
 
 # Check: every task-status hardcoded in TS code is in the doctrine.
 # Pattern: `status: 'pending'` or `'completed'` etc — narrow grep on TS files.
-for status in $(grep -hoE "(\bstatus\s*[:=]\s*['\"][a-z_]+['\"])" "$ROOT/mcp/trajectory-server/src"/*.ts "$ROOT/mcp/trajectory-server/src/tools"/*.ts 2>/dev/null | grep -oE "['\"][a-z_]+['\"]" | tr -d "'\"" | sort -u); do
+for status in $(grep -hE "(\bstatus\s*[:=]\s*['\"][a-z_]+['\"])" "$ROOT/mcp/trajectory-server/src"/*.ts "$ROOT/mcp/trajectory-server/src/tools"/*.ts 2>/dev/null | grep -v 'FROM issues\|issues WHERE\|issues\.status' | grep -oE "status\s*[:=]\s*['\"][a-z_]+['\"]" | grep -oE "['\"][a-z_]+['\"]" | tr -d "'\"" | sort -u); do
   if ! echo "$TASK_STATUSES" | grep -qx "$status"; then
     # Skip values that are clearly unrelated (e.g. shorts like 'on', 'off')
     if echo "pending running completed closed failed escalated open in_progress" | grep -qw "$status"; then

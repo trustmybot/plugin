@@ -368,7 +368,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'onboard_get_questions',
       description:
-        'Build AUQ-ready question objects for one /onboard round. Applies conditional logic (Keep options, disabled CLI options, probe defaults). Each option carries a wire field — pass option.wire to onboard_apply (or the human-readable label; both are accepted). Feed the returned array straight into AskUserQuestion.',
+        'Build AUQ-ready question objects for one /onboard round. Applies Keep options, disabled CLI options, probe defaults. Each option carries wire — pass option.wire (or label) to onboard_apply.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -390,7 +390,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'onboard_apply',
       description:
-        'Persist all /onboard answers in a single transaction. Derives pr_target + protected_branches from branching_model, writes identity row id=1 as the onboarded marker. Each field accepts either the wire value (from onboard_get_questions option.wire) or the human-readable label (resolved case-insensitively). Keep options resolve to omission of that key.',
+        'Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key.',
       inputSchema: {
         type: 'object',
         properties: {
