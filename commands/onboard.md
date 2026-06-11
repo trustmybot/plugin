@@ -32,7 +32,7 @@ If `shape == 'remote'`, call `onboard_get_questions(agent='bro', shape='remote',
 
 ## Step 4 — Apply (one MCP call, transactional)
 
-Call `onboard_apply(agent='bro', shape=<shape>, ...)` passing each answer. The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". The server writes the identity row (existence = onboarded marker), persists all config fields, recomputes protected branches, and wraps everything in a transaction.
+Call `onboard_apply` passing each answer. The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". The server writes the `plugin_config.onboarded` marker, persists all config fields, recomputes protected branches, and wraps everything in a transaction.
 
 Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync } }`.
 
