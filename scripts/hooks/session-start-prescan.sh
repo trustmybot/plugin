@@ -9,6 +9,9 @@
 
 set -uo pipefail
 
+# Bypass for tests: TMB_SKIP_AUTO_PRESCAN=1 suppresses the auto-fire.
+SKIP_AUTO_PRESCAN="${TMB_SKIP_AUTO_PRESCAN:-0}"
+
 DB_PATH="${TRAJECTORY_DB_PATH:-}"
 if [ -z "$DB_PATH" ]; then
   PLUGIN_NAME="tmb"
@@ -69,8 +72,21 @@ WORLD_MODEL_SCANNED=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM audit WHERE event
 SOURCE_FILE_COUNT=$(git ls-files 2>/dev/null | grep -cvE '^(\.claude/|node_modules/|dist/|build/|\.git/)' || echo 0)
 
 WORLD_MODEL_STATE="warm"
+COLD_NOTE=""
 if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   WORLD_MODEL_STATE="cold"
+
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  SCAN_SH="$SCRIPT_DIR/../scan.sh"
+  INVOKER="$SCRIPT_DIR/../maintenance/run-scan-initial.mjs"
+
+  if [ "$SKIP_AUTO_PRESCAN" != "1" ] && [ -f "$SCAN_SH" ] && [ -f "$INVOKER" ] && command -v node >/dev/null 2>&1; then
+    node --experimental-sqlite "$INVOKER" >/dev/null 2>&1 &
+    disown
+    COLD_NOTE="world model was cold — a deterministic scan is running in the background; re-read world_model_get before planning"
+  else
+    COLD_NOTE="world model is cold — run /scan before planning so world_model_get has a project map"
+  fi
 fi
 
 LAST_5=$(printf '%s' "$LAST_5_RAW" | head -5 | sed 's/^/  /')
@@ -79,6 +95,10 @@ LAST_5=$(printf '%s' "$LAST_5_RAW" | head -5 | sed 's/^/  /')
 # STABLE fields first (same across sessions): dirs, stacks, arch docs, world model state.
 # VOLATILE fields last (change per session/turn): branch, counts, commits.
 # This order maximises CC prompt-cache reuse — cache breaks at the first byte-difference.
+COLD_SUFFIX=""
+[ -n "$COLD_NOTE" ] && COLD_SUFFIX="
+$COLD_NOTE"
+
 INVENTORY=$(cat <<EOF
 === Project Inventory (auto, deterministic) ===
 Top-level dirs:    ${TOPLEVEL}
@@ -90,9 +110,7 @@ Open issues:       ${OPEN_ISSUES}
 Pending tasks:     ${PENDING_TASKS}
 Last 5 commits:
 ${LAST_5}
-================================================
-If World model is cold on the first code-touching ask, tell the Human to run /scan
-— world_model_get cannot navigate an empty project map.
+================================================${COLD_SUFFIX}
 EOF
 )
 

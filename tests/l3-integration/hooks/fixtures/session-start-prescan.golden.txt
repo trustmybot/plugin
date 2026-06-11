@@ -8,5 +8,3 @@ Open issues: __VOLATILE__
 Pending tasks: __VOLATILE__
 Last 5 commits: __VOLATILE__
 ================================================
-If World model is cold on the first code-touching ask, tell the Human to run /scan
-— world_model_get cannot navigate an empty project map.
