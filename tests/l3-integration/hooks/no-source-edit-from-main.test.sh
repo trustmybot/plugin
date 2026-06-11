@@ -104,9 +104,10 @@ test_case "bro mode + skills/tmb_foo/SKILL.md: pass"
 out=$(run_hook "$(input 'Edit' 'skills/tmb_foo/SKILL.md' "$TRANSCRIPT_BRO")")
 assert_eq "" "$out" "skill prompts allowed"
 
-test_case "bro mode + hooks.json: pass"
+test_case "bro mode + hooks.json: BLOCK (enforcement surface)"
 out=$(run_hook "$(input 'Edit' 'hooks/hooks.json' "$TRANSCRIPT_BRO")")
-assert_eq "" "$out" "hooks manifest allowed"
+assert_contains "$out" '"permissionDecision":"deny"' "hooks.json denied from main checkout"
+assert_contains "$out" 'enforcement surfaces' "deny message cites enforcement-surface doctrine"
 
 test_case "bro mode + .claude-plugin/plugin.json: pass"
 out=$(run_hook "$(input 'Edit' '.claude-plugin/plugin.json' "$TRANSCRIPT_BRO")")
@@ -127,9 +128,26 @@ test_case "bro mode + Write to mcp/server.ts: BLOCK"
 out=$(run_hook "$(input 'Write' 'mcp/trajectory-server/src/index.ts' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 
-test_case "bro mode + scripts/hooks/foo.sh: BLOCK (shell hook source)"
+test_case "bro mode + scripts/hooks/foo.sh: BLOCK (enforcement surface)"
 out=$(run_hook "$(input 'Edit' 'scripts/hooks/foo.sh' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
+assert_contains "$out" 'enforcement surfaces' "deny message cites enforcement-surface doctrine"
+
+test_case "bro mode + scripts/hooks/readme.md: BLOCK (enforcement surface beats .md allowlist)"
+out=$(run_hook "$(input 'Edit' 'scripts/hooks/readme.md' "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "hooks-path .md still denied — deny fires before allowlist"
+
+test_case "bro mode + nested hooks/hooks.json: BLOCK"
+out=$(run_hook "$(input 'Edit' 'some/path/hooks/hooks.json' "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "nested hooks.json denied from main checkout"
+
+test_case "worktree + scripts/hooks/foo.sh: PASS (SWE in worktree edits hooks)"
+out=$(run_hook "$(input 'Edit' '.claude/worktrees/task-14/scripts/hooks/foo.sh' "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "SWE in worktree may edit hook files"
+
+test_case "worktree + hooks/hooks.json: PASS (SWE in worktree edits manifest)"
+out=$(run_hook "$(input 'Edit' '.claude/worktrees/task-14/hooks/hooks.json' "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "SWE in worktree may edit hooks.json"
 
 test_case "bro mode + tests/lib/assert.sh: BLOCK"
 out=$(run_hook "$(input 'Edit' 'tests/lib/assert.sh' "$TRANSCRIPT_BRO")")
