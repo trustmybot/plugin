@@ -91,8 +91,8 @@ export function agentTools(db, dbPath = '') {
             name: 'agent_resolve',
             description: 'Read-only: resolves creation mode for /tmb:agent-create. ' +
                 'Validates the name, then returns one of three modes: ' +
-                '"collision" (<workspace>/.claude/agents/<name>.md already exists — bro runs the collision dialog); ' +
-                '"template-copy" (plugin template available — bro Writes the file then calls agent_register); ' +
+                '"collision" (target path exists — bro runs collision dialog); ' +
+                '"template-copy" (plugin template found — bro Writes the file then calls agent_register); ' +
                 '"from-scratch" (no template — bro scaffolds from templates/agents/template.md then calls agent_register). ' +
                 'Paths returned are absolute. bro owns the file Write and the agent_register call.',
             inputSchema: {

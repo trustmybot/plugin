@@ -528,7 +528,7 @@ export function scanTools(db: TrajectoryDB, graph: WorldModelGraph | null, dbPat
     {
       name: 'scan_run',
       description:
-        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. The scan subprocess runs in a detached process group, SIGKILLed on the 10-minute hard timeout; MCP surfaces no abort signal, so mid-scan cancel is not possible — only timeout-kill.",
+        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
       inputSchema: {
         type: 'object',
         properties: {
