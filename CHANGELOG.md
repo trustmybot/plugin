@@ -4,6 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.7.1 — 2026-06-11
+
+Promotes `v0.7.1-rc.1` to stable, plus the fixes the first Linux release-gate runs surfaced after the rc tag: bro-turn-usage digit-guard token sanitization and code-quality-lint bracket-class ERE literals + unescaped-backtick repair (#463–#465), and CI actions bumped to Node-24-ready majors (#466). See `v0.7.1-rc.1` below for the full milestone rollup (~80 issues, PRs #392–#459). Release gate green on the rc tag: L6 chain 13/13.
+
 ## v0.7.1-rc.1 — 2026-06-10
 
 The full-repo audit release: the entire v0.7.1 milestone (~80 issues — a 50-issue audit, 18 pre-existing, plus everything the burn-down itself surfaced) resolved across PRs #392–#459. L6 chain 13/13.
