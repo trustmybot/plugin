@@ -15,7 +15,6 @@
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
-import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -130,6 +129,8 @@ function derivePrTargetDefault(branchingModel) {
     // branch name across the active GitLab/GitHub ecosystem.
     return branchingModel === 'gitflow' ? 'dev' : 'main';
 }
+// ---- Question builders ---------------------------------------------------
+const KEEP_SENTINEL = '__keep__';
 const BRANCHING_DESCRIPTIONS = {
     'github-flow': 'One long-lived branch (main). Each task gets its own short-lived branch off main; you open a PR back to main when it\'s ready. No release branches. Suitable for continuous deploys.',
     gitflow: 'Two long-lived branches (main + dev). Daily work merges into the integration branch (commonly named "dev" — older repos may name it "develop"); release branches are cut from there and merged into main when shipping. Hotfixes go straight to main. Suitable for versioned releases.',
@@ -142,15 +143,17 @@ const BRANCHING_DESCRIPTIONS = {
 function branchingQuestion(currentModel, isReonboard) {
     const options = [];
     if (isReonboard && currentModel !== null) {
-        options.push({ label: `Keep "${currentModel}"`, description: 'No change.' });
+        options.push({ label: `Keep "${currentModel}"`, description: 'No change.', wire: KEEP_SENTINEL });
     }
     options.push({
         label: 'GitHub Flow',
         description: BRANCHING_DESCRIPTIONS['github-flow'],
+        wire: 'github-flow',
     });
     options.push({
         label: 'Git Flow',
         description: BRANCHING_DESCRIPTIONS.gitflow,
+        wire: 'gitflow',
     });
     return {
         question: 'How does your team branch?',
@@ -163,9 +166,9 @@ function branchingQuestion(currentModel, isReonboard) {
 function prTargetQuestion(currentTarget, branchingModel, isReonboard) {
     const options = [];
     if (isReonboard && currentTarget !== null) {
-        options.push({ label: `Keep "${currentTarget}"`, description: 'No change.' });
+        options.push({ label: `Keep "${currentTarget}"`, description: 'No change.', wire: KEEP_SENTINEL });
     }
-    options.push({ label: 'main', description: 'Most common default.' }, { label: 'dev', description: 'Common for GitLab Flow + modern Git Flow variants.' }, { label: 'develop', description: 'Classic Git Flow convention.' });
+    options.push({ label: 'main', description: 'Most common default.', wire: 'main' }, { label: 'dev', description: 'Common for GitLab Flow + modern Git Flow variants.', wire: 'dev' }, { label: 'develop', description: 'Classic Git Flow convention.', wire: 'develop' });
     // First-run pre-select by branching_model: github-flow → main, gitflow → dev.
     // 'develop' is offered as a secondary option for classic Git Flow repos.
     // master / older targets aren't offered as labeled options (rare in modern
@@ -194,11 +197,13 @@ function remoteQuestion(origin_kind, gh_installed, glab_installed, _isReonboard,
         {
             label: gh_installed ? 'GitHub' : 'GitHub (CLI not installed)',
             description: 'github.com or GitHub Enterprise.',
+            wire: 'github',
             disabled: !gh_installed,
         },
         {
             label: glab_installed ? 'GitLab' : 'GitLab (CLI not installed)',
             description: 'gitlab.com or self-hosted GitLab.',
+            wire: 'gitlab',
             disabled: !glab_installed,
         },
     ];
@@ -221,17 +226,19 @@ function remoteQuestion(origin_kind, gh_installed, glab_installed, _isReonboard,
 function issueSyncQuestion(currentSync, isReonboard, authedAtLeastOne) {
     const options = [];
     if (isReonboard && currentSync !== null) {
-        options.push({ label: `Keep "${currentSync}"`, description: 'No change.' });
+        options.push({ label: `Keep "${currentSync}"`, description: 'No change.', wire: KEEP_SENTINEL });
     }
     options.push({
         label: 'Auto — sync to the remote you picked',
         description: authedAtLeastOne
             ? '`issue_create` mirrors to GitHub/GitLab as well as the local DB.'
             : 'WARNING: no gh/glab auth detected. Sync will retry until you authenticate.',
+        wire: 'auto',
     });
     options.push({
         label: 'Off — local DB only',
         description: 'Issues stay in the trajectory DB; no remote mirror.',
+        wire: 'off',
     });
     return {
         question: 'Mirror new MCP issues to your remote?',
@@ -241,6 +248,44 @@ function issueSyncQuestion(currentSync, isReonboard, authedAtLeastOne) {
         default_index: 0,
     };
 }
+// ---- Label → wire resolution -----------------------------------------------
+// Resolve a caller-supplied value against a set of options.
+// Accepts exact wire values unchanged; falls back to case-insensitive label match.
+// KEEP_SENTINEL passed directly is always returned as-is (caller signals omission).
+// Returns the wire value, or null if nothing matched.
+function resolveOption(value, options) {
+    if (value === KEEP_SENTINEL)
+        return KEEP_SENTINEL;
+    const wire = options.find((o) => o.wire === value);
+    if (wire)
+        return wire.wire;
+    const byLabel = options.find((o) => o.label.toLowerCase() === value.toLowerCase());
+    if (byLabel)
+        return byLabel.wire;
+    return null;
+}
+// Canonical option sets used for label resolution in onboard_apply.
+// These mirror the question builders but are static (no per-call logic needed
+// for label resolution — the full label set is always the superset).
+const BRANCHING_OPTIONS = [
+    { label: 'GitHub Flow', description: '', wire: 'github-flow' },
+    { label: 'Git Flow', description: '', wire: 'gitflow' },
+];
+const PR_TARGET_OPTIONS = [
+    { label: 'main', description: '', wire: 'main' },
+    { label: 'dev', description: '', wire: 'dev' },
+    { label: 'develop', description: '', wire: 'develop' },
+];
+const REMOTE_OPTIONS = [
+    { label: 'GitHub', description: '', wire: 'github' },
+    { label: 'GitHub (CLI not installed)', description: '', wire: 'github' },
+    { label: 'GitLab', description: '', wire: 'gitlab' },
+    { label: 'GitLab (CLI not installed)', description: '', wire: 'gitlab' },
+];
+const ISSUE_SYNC_OPTIONS = [
+    { label: 'Auto — sync to the remote you picked', description: '', wire: 'auto' },
+    { label: 'Off — local DB only', description: '', wire: 'off' },
+];
 // ---- Tool definitions ----------------------------------------------------
 export function onboardTools(db, dbPath = '') {
     const definitions = [
@@ -251,7 +296,7 @@ export function onboardTools(db, dbPath = '') {
         },
         {
             name: 'onboard_get_questions',
-            description: 'Build AUQ-ready question objects for one /onboard round. Applies conditional logic (Keep options, disabled CLI options, probe defaults). Feed the returned array straight into AskUserQuestion.',
+            description: 'Build AUQ-ready question objects for one /onboard round. Applies conditional logic (Keep options, disabled CLI options, probe defaults). Each option carries a wire field — pass option.wire to onboard_apply (or the human-readable label; both are accepted). Feed the returned array straight into AskUserQuestion.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -271,7 +316,7 @@ export function onboardTools(db, dbPath = '') {
         },
         {
             name: 'onboard_apply',
-            description: 'Persist all /onboard answers in a single transaction. Derives pr_target + protected_branches from branching_model, writes identity row id=1 as the onboarded marker.',
+            description: 'Persist all /onboard answers in a single transaction. Derives pr_target + protected_branches from branching_model, writes identity row id=1 as the onboarded marker. Each field accepts either the wire value (from onboard_get_questions option.wire) or the human-readable label (resolved case-insensitively). Keep options resolve to omission of that key.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -374,15 +419,44 @@ export function onboardTools(db, dbPath = '') {
             if (shape !== 'local' && shape !== 'remote') {
                 throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
             }
-            const branching_model = args['branching_model'] ??
-                (shape === 'local' ? 'github-flow' : undefined);
+            // Resolve branching_model — accept wire value or human-readable label.
+            // Keep sentinel → omit (use existing value or local default).
+            const rawBranching = args['branching_model'];
+            let branching_model;
+            if (rawBranching !== undefined) {
+                const resolved = resolveOption(rawBranching, BRANCHING_OPTIONS);
+                if (resolved === KEEP_SENTINEL) {
+                    branching_model = readConfig(db, 'branching_model') ?? undefined;
+                }
+                else if (resolved !== null) {
+                    branching_model = resolved;
+                }
+                else {
+                    branching_model = rawBranching;
+                }
+            }
+            branching_model = branching_model ?? (shape === 'local' ? 'github-flow' : undefined);
             if (!branching_model) {
                 throw new Error('branching_model is required for shape=remote');
             }
             if (branching_model !== 'github-flow' && branching_model !== 'gitflow') {
                 throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
             }
-            const pr_target = args['pr_target'] ?? derivePrTargetDefault(branching_model);
+            // Resolve pr_target — accept wire value or label; Keep → use existing.
+            const rawPrTarget = args['pr_target'];
+            let pr_target;
+            if (rawPrTarget !== undefined) {
+                const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
+                if (resolved === KEEP_SENTINEL) {
+                    pr_target = readConfig(db, 'pr_target') ?? derivePrTargetDefault(branching_model);
+                }
+                else {
+                    pr_target = resolved ?? rawPrTarget;
+                }
+            }
+            else {
+                pr_target = derivePrTargetDefault(branching_model);
+            }
             let remotes = [];
             let issue_sync = 'off';
             if (shape === 'remote') {
@@ -401,12 +475,32 @@ export function onboardTools(db, dbPath = '') {
                 if (remoteList.length === 0) {
                     throw new Error("'remote' must include at least one of 'github' / 'gitlab' when shape='remote'");
                 }
+                // Resolve each entry — accept wire value or label.
+                remoteList = remoteList.map((r) => {
+                    const resolved = resolveOption(r, REMOTE_OPTIONS);
+                    if (resolved !== null)
+                        return resolved;
+                    return r;
+                });
                 for (const r of remoteList) {
                     if (r !== 'github' && r !== 'gitlab') {
                         throw new Error(`remote entries must be 'github' or 'gitlab' (got '${r}')`);
                     }
                 }
-                issue_sync = args['issue_sync'] ?? 'off';
+                // Resolve issue_sync — accept wire value or label; Keep → use existing.
+                const rawSync = args['issue_sync'];
+                if (rawSync !== undefined) {
+                    const resolved = resolveOption(rawSync, ISSUE_SYNC_OPTIONS);
+                    if (resolved === KEEP_SENTINEL) {
+                        issue_sync = (readConfig(db, 'issue_sync') ?? 'off');
+                    }
+                    else if (resolved === 'auto' || resolved === 'off') {
+                        issue_sync = resolved;
+                    }
+                    else {
+                        issue_sync = rawSync ?? 'off';
+                    }
+                }
                 if (issue_sync !== 'auto' && issue_sync !== 'off') {
                     throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
                 }
@@ -428,7 +522,6 @@ export function onboardTools(db, dbPath = '') {
                 }
             }
             const protected_branches = deriveProtectedBranches(branching_model, pr_target);
-            const now = nowISO();
             db.transaction(() => {
                 // Mark project as onboarded via plugin_config (#2876).
                 // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.
