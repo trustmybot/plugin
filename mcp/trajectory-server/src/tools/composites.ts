@@ -93,6 +93,40 @@ function intentToType(text: string): { prefix: string; confidence: number } {
   return { prefix: 'chore', confidence: 0.3 };
 }
 
+// Shared write helper: inserts kind='note' + kind='intent' for a given issue.
+// No-dup guard: if an intent row with the same verbatim already exists for this
+// issue_id, the intent insert is skipped (second call is a no-op). The note is
+// always written so the trajectory stays readable. Returns what was written.
+function insertIntentAndNote(
+  db: TrajectoryDB,
+  issueId: number,
+  intentVerbatim: string,
+  noteLine: string,
+  now: string,
+): string[] {
+  const existing = db.get<{ id: number }>(
+    `SELECT id FROM discussions
+      WHERE issue_id = ? AND kind = 'intent' AND body = ?
+      LIMIT 1`,
+    [issueId, `Human intent verbatim: "${intentVerbatim}"`],
+  );
+  db.run(
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+     VALUES (?, 'bro', 'note', ?, ?)`,
+    [issueId, noteLine, now],
+  );
+  const written: string[] = ['note'];
+  if (!existing) {
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (?, 'bro', 'intent', ?, ?)`,
+      [issueId, `Human intent verbatim: "${intentVerbatim}"`, now],
+    );
+    written.push('intent');
+  }
+  return written;
+}
+
 export function compositeTools(
   db: TrajectoryDB,
   dbPath: string,
@@ -183,6 +217,48 @@ export function compositeTools(
           },
         },
         required: ['agent', 'issue_id', 'branch_id', 'intent_verbatim'],
+      },
+    },
+    {
+      name: 'intent_start',
+      description:
+        'Interactive planning composite — collapses the 4-call sequence that bro performs ' +
+        'after the Human confirms a new issue in interactive mode: issue_create(objective) + ' +
+        'discussion_append(kind=\'intent\', body=intent_verbatim) + ' +
+        'discussion_append(kind=\'note\', body=\'Beginning planning on <branch_id>.\') + ' +
+        'audit_log(event_type=\'branch_id_proposed\', branch_id). All four writes are atomic. ' +
+        'Git branch creation stays caller-side — server does not shell out. Returns {issue_id, branch_id}.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          objective: { type: 'string', description: 'Short one-liner issue objective.' },
+          intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
+          branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
+        },
+        required: ['agent', 'objective', 'intent_verbatim', 'branch_id'],
+      },
+    },
+    {
+      name: 'headless_fallback_record',
+      description:
+        'Headless fallback composite — collapses the 2-call sequence from tmb_recovery §A ' +
+        '(audit_log(event_type=\'headless_fallback\', question, chosen_default, skill) + ' +
+        'discussion_append(kind=\'note\')) into one atomic DB write. ' +
+        'issue_id defaults server-side to the most recent open issue; falls back to the ' +
+        'system issue (-1) if no open issue exists. ' +
+        'Args: agent, question (the AUQ that was skipped), chosen_default (the value applied), ' +
+        'skill (which tmb_* skill triggered the fallback).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          question: { type: 'string', description: 'The AskUserQuestion prompt that was skipped in headless mode.' },
+          chosen_default: { type: 'string', description: 'The default value that was applied.' },
+          skill: { type: 'string', description: 'Which tmb_* skill triggered this fallback.' },
+          issue_id: { type: 'number', description: 'Optional override. Defaults to most recent open issue or -1.' },
+        },
+        required: ['agent', 'question', 'chosen_default', 'skill'],
       },
     },
     {
@@ -600,6 +676,7 @@ export function compositeTools(
         }
 
         const now = nowISO();
+        let written: string[] = [];
         db.transaction(() => {
           db.run(
             `INSERT INTO audit
@@ -613,19 +690,129 @@ export function compositeTools(
               now,
             ],
           );
-          db.run(
-            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'note', ?, ?)`,
-            [issueId, 'Headless fallback: no Human in loop; defaults applied.', now],
-          );
-          db.run(
-            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'intent', ?, ?)`,
-            [issueId, `Human intent verbatim: "${intentVerbatim}"`, now],
+          written = insertIntentAndNote(
+            db,
+            issueId,
+            intentVerbatim,
+            'Headless fallback: no Human in loop; defaults applied.',
+            now,
           );
         });
 
-        return ok({ issue_id: issueId, branch_id: branchId, written: ['audit', 'note', 'intent'] });
+        return ok({ issue_id: issueId, branch_id: branchId, written: ['audit', ...written] });
+      }),
+    ),
+
+    intent_start: requireRoles(
+      'intent_start',
+      ['bro'],
+      wrap(async (args) => {
+        const objective = args['objective'] as string;
+        const intentVerbatim = args['intent_verbatim'] as string;
+        const branchId = args['branch_id'] as string;
+
+        if (!objective || objective.trim().length === 0) {
+          return err('objective must be a non-empty string');
+        }
+        if (!intentVerbatim || intentVerbatim.trim().length === 0) {
+          return err('intent_verbatim must be a non-empty string');
+        }
+        if (!branchId || branchId.trim().length === 0) {
+          return err('branch_id must be a non-empty string');
+        }
+        if (!BRANCH_ID_RE.test(branchId)) {
+          return err(`branch_id "${branchId}" does not match the conventional format.`);
+        }
+
+        const now = nowISO();
+        const result = db.transaction(() => {
+          db.run(
+            `INSERT INTO issues (objective, description, status, created_at, updated_at)
+             VALUES (?, '', 'open', ?, ?)`,
+            [objective, now, now],
+          );
+          const row = db.get<{ id: number }>(
+            `SELECT id FROM issues WHERE rowid = last_insert_rowid()`,
+          );
+          if (!row) throw new Error('intent_start: failed to retrieve inserted issue');
+          const issueId = row.id;
+
+          insertIntentAndNote(
+            db,
+            issueId,
+            intentVerbatim,
+            `Beginning planning on ${branchId}.`,
+            now,
+          );
+
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'branch_id_proposed', ?, ?, ?)`,
+            [
+              issueId,
+              branchId,
+              `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
+              JSON.stringify({ branch_id: branchId, objective }),
+              now,
+            ],
+          );
+
+          return { issue_id: issueId, branch_id: branchId };
+        });
+
+        return ok(result);
+      }),
+    ),
+
+    headless_fallback_record: requireRoles(
+      'headless_fallback_record',
+      ['bro'],
+      wrap(async (args) => {
+        const question = args['question'] as string;
+        const chosenDefault = args['chosen_default'] as string;
+        const skill = args['skill'] as string;
+
+        if (!question || question.trim().length === 0) {
+          return err('question must be a non-empty string');
+        }
+        if (!chosenDefault || chosenDefault.trim().length === 0) {
+          return err('chosen_default must be a non-empty string');
+        }
+        if (!skill || skill.trim().length === 0) {
+          return err('skill must be a non-empty string');
+        }
+
+        let issueId = (args['issue_id'] as number | undefined) ?? null;
+        if (issueId === null) {
+          const latest = db.get<{ id: number }>(
+            `SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`,
+          );
+          issueId = latest?.id ?? -1;
+        }
+
+        const now = nowISO();
+        const noteBody = `Headless fallback (${skill}): question skipped — applied default "${chosenDefault}".`;
+        db.transaction(() => {
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, NULL, 'bro', 'headless_fallback', ?, ?, ?)`,
+            [
+              issueId,
+              `${skill}: "${question.slice(0, 120)}" → default: "${chosenDefault.slice(0, 80)}"`,
+              JSON.stringify({ skill, question, chosen_default: chosenDefault }),
+              now,
+            ],
+          );
+          db.run(
+            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+             VALUES (?, 'bro', 'note', ?, ?)`,
+            [issueId, noteBody, now],
+          );
+        });
+
+        return ok({ issue_id: issueId, written: ['audit', 'note'] });
       }),
     ),
 
