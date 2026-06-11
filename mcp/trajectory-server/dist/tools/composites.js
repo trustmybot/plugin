@@ -110,8 +110,9 @@ export function compositeTools(db, dbPath, graph = null) {
             name: 'task_retry_batch',
             description: "Retry composite — collapses the prior 5-call retry recipe (read failure, append " +
                 "rationale, create new task, log audit) into one transaction. Caller passes the " +
-                "failed task_id, the corrected spec_body, and the rationale. Server inherits issue_id, " +
-                "parent_branch_id, and repo from the failed task. Returns the new task row.",
+                "failed task_id, the corrected spec_body, and the rationale. Server inherits issue_id " +
+                "and parent_branch_id from the failed task; repo is inherited unless overridden. " +
+                "Returns the new task row.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -125,6 +126,11 @@ export function compositeTools(db, dbPath, graph = null) {
                     retry_rationale: {
                         type: 'string',
                         description: "≤200 chars — the root cause and corrected approach. Persisted as discussion(kind='decision').",
+                    },
+                    repo: {
+                        type: 'string',
+                        description: 'Optional repo override — replaces the repo inherited from the failed task. ' +
+                            'Must not contain ".." or start with "/". Omit to inherit.',
                     },
                     title: { type: 'string' },
                     description: { type: 'string' },
@@ -362,6 +368,7 @@ export function compositeTools(db, dbPath, graph = null) {
             const rationale = args['retry_rationale'];
             const description = args['description'];
             const title = args['title'] ?? '';
+            const repoOverride = args['repo'] ?? null;
             if (!BRANCH_ID_RE.test(newBranchId)) {
                 return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
             }
@@ -370,6 +377,14 @@ export function compositeTools(db, dbPath, graph = null) {
             }
             if (!rationale || rationale.length > 200) {
                 return err('retry_rationale must be 1..200 chars.');
+            }
+            if (repoOverride !== null) {
+                if (repoOverride.includes('..')) {
+                    return err(`Invalid repo "${repoOverride}": must not contain "..".`);
+                }
+                if (repoOverride.startsWith('/')) {
+                    return err(`Invalid repo "${repoOverride}": must not start with "/".`);
+                }
             }
             const failed = db.get(`SELECT id, issue_id, branch_id, parent_branch_id, repo, status
              FROM tasks WHERE id = ? LIMIT 1`, [failedTaskId]);
@@ -426,7 +441,7 @@ export function compositeTools(db, dbPath, graph = null) {
                     title,
                     description,
                     spec,
-                    failed.repo,
+                    repoOverride ?? failed.repo,
                     now,
                     now,
                 ]);

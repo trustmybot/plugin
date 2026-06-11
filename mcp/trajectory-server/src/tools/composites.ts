@@ -126,8 +126,9 @@ export function compositeTools(
       description:
         "Retry composite — collapses the prior 5-call retry recipe (read failure, append " +
         "rationale, create new task, log audit) into one transaction. Caller passes the " +
-        "failed task_id, the corrected spec_body, and the rationale. Server inherits issue_id, " +
-        "parent_branch_id, and repo from the failed task. Returns the new task row.",
+        "failed task_id, the corrected spec_body, and the rationale. Server inherits issue_id " +
+        "and parent_branch_id from the failed task; repo is inherited unless overridden. " +
+        "Returns the new task row.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -142,6 +143,12 @@ export function compositeTools(
           retry_rationale: {
             type: 'string',
             description: "≤200 chars — the root cause and corrected approach. Persisted as discussion(kind='decision').",
+          },
+          repo: {
+            type: 'string',
+            description:
+              'Optional repo override — replaces the repo inherited from the failed task. ' +
+              'Must not contain ".." or start with "/". Omit to inherit.',
           },
           title: { type: 'string' },
           description: { type: 'string' },
@@ -431,6 +438,7 @@ export function compositeTools(
         const rationale = args['retry_rationale'] as string;
         const description = args['description'] as string;
         const title = (args['title'] as string | undefined) ?? '';
+        const repoOverride = (args['repo'] as string | undefined) ?? null;
 
         if (!BRANCH_ID_RE.test(newBranchId)) {
           return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
@@ -440,6 +448,14 @@ export function compositeTools(
         }
         if (!rationale || rationale.length > 200) {
           return err('retry_rationale must be 1..200 chars.');
+        }
+        if (repoOverride !== null) {
+          if (repoOverride.includes('..')) {
+            return err(`Invalid repo "${repoOverride}": must not contain "..".`);
+          }
+          if (repoOverride.startsWith('/')) {
+            return err(`Invalid repo "${repoOverride}": must not start with "/".`);
+          }
         }
 
         const failed = db.get<{
@@ -522,7 +538,7 @@ export function compositeTools(
               title,
               description,
               spec,
-              failed.repo,
+              repoOverride ?? failed.repo,
               now,
               now,
             ],

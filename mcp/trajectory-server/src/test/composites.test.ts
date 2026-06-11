@@ -204,6 +204,84 @@ describe('task_retry_batch', () => {
     assert.match(parse(r)['error'] as string, /status is "pending"/);
   });
 
+  it('#474: repo override lands on the new task; omitted repo inherits from failed task', async () => {
+    const db = tempDB();
+    const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const tasks = taskTools(db);
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const discussions = discussionTools(db);
+    const audit = auditTools(db);
+
+    const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      agent: 'bro', objective: 'repo override test', description: 'x',
+    }))['id']));
+    await call(discussions.handlers, 'discussion_append', {
+      agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+    });
+    await call(audit.handlers, 'audit_log', {
+      agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+      from_node: 'bro', branch_id: 'fix/base', summary: 's',
+    });
+    // Create the initial task with no repo (null) — simulates single-repo workflow.
+    const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+      agent: 'bro', issue_id: issueId,
+      waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+      tasks: [{ branch_id: 'fix/base', description: 'd', spec_body: 's' }],
+    }));
+    const failedId = String(created[0]!.id);
+    await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: failedId, status: 'failed' });
+
+    // With repo override: new task carries the override ('plugin').
+    const retryWithOverride = await call(composites.handlers, 'task_retry_batch', {
+      agent: 'bro', failed_task_id: failedId, new_branch_id: 'fix/base-v2',
+      corrected_spec_body: 'fixed', retry_rationale: 'wrong repo; switch to plugin', description: 'd',
+      repo: 'plugin',
+    });
+    assert.ok(!retryWithOverride.isError, `expected ok: ${JSON.stringify(parse(retryWithOverride))}`);
+    const newId = (parse(retryWithOverride) as { task_id: number }).task_id;
+    const newTask = db.get<{ repo: string | null }>('SELECT repo FROM tasks WHERE id = ?', [newId]);
+    assert.equal(newTask!.repo, 'plugin', 'repo override lands on new task');
+
+    // Without repo override: new task inherits 'plugin' from the previous task.
+    await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: String(newId), status: 'failed' });
+    const retryInherited = await call(composites.handlers, 'task_retry_batch', {
+      agent: 'bro', failed_task_id: String(newId), new_branch_id: 'fix/base-v3',
+      corrected_spec_body: 'fixed again', retry_rationale: 'another attempt', description: 'd',
+    });
+    assert.ok(!retryInherited.isError);
+    const inheritedId = (parse(retryInherited) as { task_id: number }).task_id;
+    const inheritedTask = db.get<{ repo: string | null }>('SELECT repo FROM tasks WHERE id = ?', [inheritedId]);
+    assert.equal(inheritedTask!.repo, 'plugin', 'repo inherited from previous task when omitted');
+
+    db.close();
+  });
+
+  it('#474: repo override rejects ".." in path', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'task_retry_batch', {
+      agent: 'bro', failed_task_id: '1', new_branch_id: 'fix/x-v2',
+      corrected_spec_body: 's', retry_rationale: 'r', description: 'd',
+      repo: '../etc/passwd',
+    });
+    assert.ok(r.isError);
+    assert.match(parse(r)['error'] as string, /must not contain/);
+  });
+
+  it('#474: repo override rejects leading "/"', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'task_retry_batch', {
+      agent: 'bro', failed_task_id: '1', new_branch_id: 'fix/x-v2',
+      corrected_spec_body: 's', retry_rationale: 'r', description: 'd',
+      repo: '/absolute/path',
+    });
+    assert.ok(r.isError);
+    assert.match(parse(r)['error'] as string, /must not start with/);
+  });
+
   it('retry cap: rejects the 4th retry attempt (3 prior in lineage)', async () => {
     const db = tempDB();
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
