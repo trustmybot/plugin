@@ -79,6 +79,9 @@ assert_contains "$out" "task_id=42" "hint lists task id 42"
 assert_contains "$out" "task_id=43" "hint lists task id 43"
 assert_contains "$out" "branch_id=feat/my-feature" "hint lists branch_id"
 assert_contains "$out" "Step 4" "hint cites tmb_planning Step 4"
+assert_contains "$out" "worktree-create.sh" "hint includes worktree-create pre-create step"
+assert_contains "$out" "CLAUDE_PLUGIN_ROOT" "hint uses CLAUDE_PLUGIN_ROOT variable"
+assert_not_contains "$out" "isolation='worktree'" "hint must not use isolation='worktree' in recipe"
 
 # ──────────────────────────────────────────────────────────────
 # Case 4b: absolute worktree path derived from trajectory DB location

@@ -71,7 +71,9 @@ REASON="🚀 SWE-spawn hint: ${TOOL_NAME##*__} created the following tasks. Per 
 Tasks created:
 ${TASK_LIST_WITH_PATHS}
 
-For each: \`Agent(subagent_type='swe', isolation='worktree', prompt='task_id=<N> worktree=<absolute-worktree-path>')\`. The branch is already pre-created (branch_id_proposed audit + git switch); SWE attaches to it.
+For each task, run the two-step proven flow:
+1. Pre-create the worktree: \`printf '{\"branch\":\"<branch_id>\"}' | bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh\` — capture the printed path.
+2. Spawn SWE: \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` — no isolation= parameter.
 
 If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug."
 
