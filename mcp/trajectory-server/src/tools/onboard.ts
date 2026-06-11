@@ -16,6 +16,8 @@
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
+import { classifyUrl } from '../utils/classify-url.js';
+import type { Provider } from '../utils/classify-url.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
@@ -42,22 +44,10 @@ function wrapHandler(fn: Fn): Fn {
 
 // ---- Probe helpers -------------------------------------------------------
 
-type Provider = 'github' | 'gitlab' | 'bitbucket' | 'codeberg' | 'azuredev' | 'other';
-
 interface DetectedRemote {
   name: string;
   provider: Provider;
   url: string;
-}
-
-function classifyUrl(url: string): Provider {
-  if (url.includes('github.com')) return 'github';
-  // gitlab.com OR self-hosted gitlab.<corp>.<tld>
-  if (/(^|\W)gitlab(\.com|\.[a-z0-9-]+\.[a-z]{2,})/i.test(url)) return 'gitlab';
-  if (url.includes('bitbucket.org')) return 'bitbucket';
-  if (url.includes('codeberg.org')) return 'codeberg';
-  if (url.includes('dev.azure.com')) return 'azuredev';
-  return 'other';
 }
 
 function probeGit(cwd: string): {

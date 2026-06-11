@@ -17,6 +17,9 @@ on:
         default: '1'
         description: 'L6 chain --from step (1 = fresh)'
 
+permissions:
+  contents: read
+
 concurrency:
   group: release-gate-${{ github.ref }}
   cancel-in-progress: false
