@@ -68,6 +68,14 @@ sqlite3 "$DB" "UPDATE roundtables SET state='closed', outcome='proceed' WHERE id
 out=$(run_hook 1)
 assert_not_contains "$out" "roundtable.status=closed" "closed state must not appear in MISSING list"
 
+# ── roundtable_close_with_decisions: hook fires ──────────────────────────────
+
+test_case "roundtable_close_with_decisions tool name fires the postcheck"
+sqlite3 "$DB" "UPDATE roundtables SET state='collecting', outcome='' WHERE id=1;" >/dev/null
+out=$(echo '{"tool_name":"mcp__plugin_tmb_trajectory-server__roundtable_close_with_decisions","tool_input":{"roundtable_id":1}}' \
+  | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1 || true)
+assert_contains "$out" "additionalContext" "advisory fires for roundtable_close_with_decisions"
+
 # ── wrong tool name: silent no-op ────────────────────────────────────────────
 
 test_case "wrong tool name is silent no-op"

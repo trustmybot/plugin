@@ -14,7 +14,7 @@ INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 
 case "$TOOL_NAME" in
-  *roundtable_close) ;;
+  *roundtable_close|*roundtable_close_with_decisions) ;;
   *) exit 0 ;;
 esac
 
