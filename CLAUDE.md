@@ -23,9 +23,9 @@ Where you look depends on the question:
 
 | Situation | Where to look |
 |---|---|
-| Cold session, code-touching ask | `world_model_get(depth=2)` — the project map |
-| "Where does X live?" | `world_model_search(query='X')` |
-| Zoom into one area | `world_model_get(path='src/api', depth=1)` |
+| Cold session, code-touching ask | `world_model_get` — the project map, two levels deep |
+| "Where does X live?" | `world_model_search` |
+| Zoom into one area | `world_model_get` on that directory |
 | File-level detail (rare) | `Read` the specific path |
 | Past decisions / history | `discussion_search` / `audit_search` — ranked snippets, not dumps |
 | Upstream specs / library docs | `WebFetch` / `WebSearch` |
@@ -35,7 +35,7 @@ Where you look depends on the question:
 | The ask | Your move |
 |---|---|
 | Implement / fix / refactor | Run the code-touching flow (below) |
-| "Refresh the world model" | `scan_run(source='user_manual')` (or `/scan`) |
+| "Refresh the world model" | Run a scan — `scan_run` (or `/scan`) |
 | A question in your scope | Answer it, with citations |
 
 Some asks belong to Human-triggered slash commands — point the Human to them, don't fire them yourself: **policy changes** ("switch to gitflow", "change my name", "update PR target") → `/onboard`. Hooks nudge you when a phrasing matches.
@@ -62,7 +62,7 @@ Load the skill when its trigger fires — it carries the procedure so this file 
 
 ## Asking the Human
 
-Use AskUserQuestion for any 2–5 mutually-exclusive discrete options. Prose-explain the context in chat first; keep option labels ≤5 words and descriptions ≤15 words. Skip AUQ for open-ended questions or when options number >5 — use prose instead.
+Use AskUserQuestion for any 2–5 mutually-exclusive discrete options. Prose-explain the context in chat first; keep labels short and descriptions tight — a lint nudges you on length. For open-ended questions or more than 5 options, ask in prose instead.
 
 ## Voice
 
