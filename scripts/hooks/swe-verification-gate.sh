@@ -115,28 +115,24 @@ fi
 # Extract the SLUG from branch_id (last path component) to locate worktree.
 SLUG="${BRANCH_ID##*/}"
 
-# Resolve worktree path: look for .claude/worktrees/<slug> relative to repo root.
-# Walk up from PWD to find the repo root (has a .git dir or .claude/ dir).
-REPO_ROOT=""
-dir="$PWD"
-for _ in 1 2 3 4 5 6 7 8; do
-  if [ -d "$dir/.claude/worktrees" ] || [ -d "$dir/.git" ]; then
-    REPO_ROOT="$dir"
-    break
-  fi
-  parent=$(dirname "$dir")
-  [ "$parent" = "$dir" ] && break
-  dir="$parent"
-done
-
-if [ -z "$REPO_ROOT" ]; then
-  REPO_ROOT="$PWD"
+# Resolve workspace root the same way post-task-create-spawn-hint.sh does:
+# DB lives at <workspace_root>/.claude/<plugin>/trajectory.db, so dirname 3×.
+# This handles workspace-above-repo layouts (repo at <ws>/plugin,
+# worktrees at <ws>/.claude/worktrees/<slug>) where a PWD walk-up from
+# inside the repo would land on the repo root instead of the workspace root.
+WS_ROOT=""
+if [ -n "$DB" ]; then
+  WS_ROOT="$(dirname "$(dirname "$(dirname "$DB")")")"
 fi
 
-WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
+WT_PATH=""
+if [ -n "$WS_ROOT" ] && [ -d "${WS_ROOT}/.claude/worktrees/${SLUG}" ]; then
+  WT_PATH="${WS_ROOT}/.claude/worktrees/${SLUG}"
+fi
 
-# Fall back to the sentinel workspace path if the worktree doesn't exist.
-if [ ! -d "$WT_PATH" ]; then
+# Sentinel fallback: subagents that inherit cwd=~ and lack env vars use the
+# active-workspace sentinel written by the plugin at launch time.
+if [ -z "$WT_PATH" ]; then
   _PLUGIN_NAME=$(tmb_resolve_plugin_name)
   SENTINEL="${HOME}/.claude/${_PLUGIN_NAME}-active-workspace"
   if [ -f "$SENTINEL" ]; then
@@ -147,8 +143,9 @@ if [ ! -d "$WT_PATH" ]; then
   fi
 fi
 
-if [ ! -d "$WT_PATH" ]; then
-  jq -nc --arg wt "$WT_PATH" \
+if [ -z "$WT_PATH" ] || [ ! -d "$WT_PATH" ]; then
+  MISSING_AT="${WT_PATH:-${WS_ROOT:-?}/.claude/worktrees/${SLUG}}"
+  jq -nc --arg wt "$MISSING_AT" \
     '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":("TMB: verification gate skipped — worktree not found at " + $wt)}}'
   exit 0
 fi
@@ -159,8 +156,14 @@ START_TS=$(date +%s 2>/dev/null || echo 0)
 FAILED_CMD=""
 FAILED_OUTPUT=""
 
-# Parse verification commands: lines starting with 'bash ', lines of the form
-# `$ cmd`, or plain command lines. Skip blank lines and markdown heading lines.
+# Parse verification commands. Accepted line forms (per spec convention):
+#   - `cmd`          bullet + backtick-wrapped command
+#   - cmd            bullet + bare command
+#   - cmd            bare command (no bullet)
+#   - $ cmd          shell-prompt style
+#   - > cmd          blockquote style
+# Skip blank lines, markdown heading lines, and fenced-code-block markers.
+# Parenthetical suffixes separated by ' (' are stripped (e.g. '(substitute ...)').
 while IFS= read -r line; do
   [ -z "$line" ] && continue
   case "$line" in
@@ -168,11 +171,30 @@ while IFS= read -r line; do
     "\`\`\`"*) continue ;;
   esac
 
-  # Strip leading '$ ' marker if present.
-  CMD="${line#\$ }"
-  CMD="${CMD#\`}"
-  CMD="${CMD%\`}"
-  CMD="${CMD#> }"
+  CMD="$line"
+
+  # Strip leading bullet prefix: '- ' or '* '
+  case "$CMD" in
+    "- "*) CMD="${CMD#- }" ;;
+    "* "*) CMD="${CMD#* }" ;;
+  esac
+
+  # Strip leading '$ ' or '> ' prompt/blockquote markers.
+  case "$CMD" in
+    "\$ "*) CMD="${CMD#\$ }" ;;
+    "> "*) CMD="${CMD#> }" ;;
+  esac
+
+  # Strip surrounding backticks (full wrapping: `cmd`).
+  case "$CMD" in
+    "\`"*"\`") CMD="${CMD#\`}"; CMD="${CMD%\`}" ;;
+  esac
+
+  # Strip trailing parenthetical suffix ' (...)' — trivially separable annotation.
+  # e.g. '- `bash run.sh` (substitute <env> with your value)'
+  case "$CMD" in
+    *" ("*")") CMD="${CMD%% (*}" ;;
+  esac
 
   [ -z "$CMD" ] && continue
 
