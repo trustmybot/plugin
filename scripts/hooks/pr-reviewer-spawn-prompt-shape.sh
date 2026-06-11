@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook on Agent. Blocks pr-reviewer spawns whose prompt violates
-# the §C discipline from tmb_review: MUST contain the four bare anchors
+# the §B discipline from tmb_review: MUST contain the four bare anchors
 # (task_id, commit_sha, branch_id, repo) and MUST NOT contain prior-verdict
 # shortcuts that allow rubber-stamping.
 #
@@ -64,7 +64,7 @@ PHRASES
 
 if [ -n "$RUBBER_STAMP_FOUND" ]; then
   REASON=$(jq -Rn --arg phrase "$RUBBER_STAMP_FOUND" '
-    "BLOCKED: pr-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \"" + $phrase + "\").\n\nPer tmb_review §C, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself."
+    "BLOCKED: pr-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \"" + $phrase + "\").\n\nPer tmb_review §B, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself."
   ')
   jq -nc --argjson r "$REASON" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
