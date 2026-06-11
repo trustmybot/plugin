@@ -79,6 +79,23 @@ case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
 esac
 
+# Enforcement surfaces: deny before any allowlist entry is evaluated.
+# No pattern — including *.md or docs/ — can re-open these paths from
+# the main checkout. Route all edits through a worktree (spawn SWE).
+case "$TARGET" in
+  */scripts/hooks/*|scripts/hooks/*|*/hooks/hooks.json|hooks/hooks.json)
+    REASON="BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type."
+    jq -nc --arg reason "$REASON" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $reason
+      }
+    }'
+    exit 0
+    ;;
+esac
+
 BASENAME=$(basename "$TARGET")
 
 case "$TARGET" in
@@ -94,7 +111,6 @@ esac
 
 case "$TARGET" in
   *.claude-plugin/plugin.json|*.claude-plugin/marketplace.json) exit 0 ;;
-  */hooks/hooks.json|hooks/hooks.json) exit 0 ;;
   */agents/*.md|agents/*.md) exit 0 ;;
   */skills/*/SKILL.md|skills/*/SKILL.md) exit 0 ;;
   *.github/*) exit 0 ;;
