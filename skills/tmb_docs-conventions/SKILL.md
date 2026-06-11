@@ -5,11 +5,11 @@ description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workfl
 
 # Docs Conventions — Editing Discipline
 
-Link integrity is enforced mechanically — every internal markdown link must resolve to a file that exists in the repo. This skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
+Link integrity is gated at L1; this skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
 
 ## Docs-update expectation
 
-When functionality changes, the same PR updates the user-visible docs that describe it. The PR-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?) — not a regex check.
+When functionality changes, the same PR updates the user-visible docs that describe it. The PR-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?).
 
 ## When docs and code disagree
 

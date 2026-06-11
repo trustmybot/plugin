@@ -8,8 +8,6 @@ allowed-tools: Read, Write, Edit, Glob, Bash, AskUserQuestion, mcp__plugin_tmb_t
 
 Add a new capability to a project's agents without editing their body. **Lego rule**: agent files are immutable identity; skills are additive capabilities. This skill is the only mechanism that extends a project agent — it appends to the agent's `skills:` array and leaves the body intact.
 
-Step 3 runs `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh` (regex scan for negations + noise citations) as a Bash step — bro doesn't read it directly. A bundled duplicate lives in `scripts/` for a future dedupe; the plugin-root script is canonical.
-
 ## When to invoke
 
 - Bro detects a project needs a new skill (e.g. Python-stack swe needs a Python-specific verification checklist that the default `tmb_swe-checklist` doesn't cover).
@@ -20,7 +18,7 @@ If the original ask depended on the new skill being in place, bro holds it until
 
 ## Step 1 — Discover the gap
 
-Ask three questions in one AskUserQuestion batch: (1) what to call the skill — propose 1–3 names from context, lowercase with hyphens; (2) which agents to attach it to — list from `.claude/agents/`; (3) when it activates — always or path-scoped. The server rejects invalid or reserved skill names (`tmb_` prefix is plugin-only).
+Ask three questions in one AskUserQuestion batch: (1) what to call the skill — propose 1–3 names from context, lowercase with hyphens; (2) which agents to attach it to — list from `.claude/agents/`; (3) when it activates — always or path-scoped.
 
 ## Step 2 — Draft
 
@@ -51,14 +49,14 @@ Present the full drafted file in a fenced code block. Ask:
 
 ## Step 5 — Write on approval
 
-1. Call `skill_register(agent='bro', name=<name>)` — the server validates and reserves the name (see **Hard rules** on collisions).
+1. Call `skill_register` — the server validates and reserves the name (see **Hard rules** on collisions).
 2. Write the skill file at `<project>/.claude/skills/<name>/SKILL.md`.
-3. For each agent in the attach list, **edit only the `skills:` array** to append the new name. Use `Edit` with a precise `old_string` that includes the existing `skills:` block + the closing `---` so the diff is unambiguous. **Scope the edit to the `skills:` line only — leave every other agent file line unchanged.**
+3. For each agent in the attach list, **edit only the `skills:` array** to append the new name.
 4. Verify by re-reading both the skill file and each agent's frontmatter.
 
 ## Step 6 — Log + report
 
-If there's no open issue (free-floating skill creation — common), create one with `issue_create` scoping the creation. Then log the event with `audit_log(event_type='tmb_skill_created', summary='Authored skill <name>; attached to <agents>.')` and tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
+If there's no open issue (free-floating skill creation — common), create one with `issue_create` scoping the creation. Then record an audit event noting the skill was created and which agents carry it, and tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
 
 ## Hard rules
 

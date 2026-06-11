@@ -17,7 +17,7 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
 ### Protocol
 
 1. **Look up the documented default** for that question (table below). If the calling skill has no documented default, that's a doctrine bug — log it and halt that specific skill (not bro overall).
-2. **Record the fallback** — call `headless_fallback_record(agent='bro', skill=<skill_name>, question=<question_short>, chosen_default=<chosen_default>)`. Writes both the audit event and the discussion note atomically; the deny hook names it on failure. For `issue_id`: use the parent issue when one exists; use `'-1'` for system-level events with no parent issue.
+2. **Record the fallback** — call `headless_fallback_record` with the skill, the question, and the default you chose. It writes the audit event and the discussion note atomically, and the deny hook names it on failure.
 3. **Continue the skill's flow** with the default as if the Human typed it.
 
 ### Per-skill defaults
@@ -37,7 +37,7 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
 
 `tmb_skill-creator` and `/tmb:agent-create` (from-scratch mode) HALT in headless mode rather than apply a default. Silent skill/agent generation in CI is the foot-gun this rule guards against:
 
-Call `audit_log` with `event_type='headless_creator_blocked'` and a summary naming the creator and the proposed name, then surface: "Cannot create skill/agent in headless mode — re-run interactively."
+Record an audit event noting which creator was blocked and the proposed name, then surface: "Cannot create skill/agent in headless mode — re-run interactively."
 
 ## B. MCP tool returns is_error=true
 
@@ -48,7 +48,7 @@ When any MCP call result has `is_error: true` or content includes `{"error": ...
 1. **Halt the current flow immediately.** Treat the failed call as the chain's last.
 2. **Pick one path** based on the error class:
    - **Surface verbatim** to the Human and ask how to proceed, OR
-   - **If recoverable AND you know the corrected call**, write `discussion_append(kind='note', body='Recovered from MCP error: <error_text>. Retrying with <corrected_call>.')` and retry.
+   - **If recoverable AND you know the corrected call**, append a note recording the error and the corrected retry, then retry.
 
 ### Error classification
 

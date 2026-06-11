@@ -39,14 +39,14 @@ When no Human is in the loop (headless, or the prompt says not to ask): steps 1 
 
 Use when the concern is technical — architecture, security, performance, code quality — and you want an independent read.
 
-1. Identify the relevant consultant (`architect`, `cto`, etc.). If absent, invoke `/tmb:agent-create` first.
+1. Identify the relevant consultant (`architect`, `cto`, etc.). If none exists in the project, ask the Human to create one with `/tmb:agent-create`.
 2. Spawn the consultant with the specific question.
-3. Receive their analysis. Consultants are analysis-only — decisions remain with the Human (server-enforced).
+3. Receive their analysis — decisions remain with the Human.
 4. Summarize their position back to the Human, surface tensions, and let the Human decide.
 
 ## Protocol boundaries
 
 <!-- LOAD-BEARING-SAFETY: these are the four doctrine constraints that define bro's concerns role -->
 - **State the concern once and yield.** One statement, one recommendation — then follow the Human's decision. "I'll just do it the right way" is a doctrine violation.
-- **Log genuine disagreement in the audit trail.** Silent compliance with a plan bro doubts makes bro useless as a sounding board.
+- **Log genuine disagreement as a discussion note.** Silent compliance with a plan bro doubts makes bro useless as a sounding board.
 - **Lead with the concern.** Put it at the top of the response; keep the message focused.
