@@ -158,11 +158,8 @@ export function compositeTools(
     {
       name: 'task_retry_batch',
       description:
-        "Retry composite — collapses the prior 5-call retry recipe (read failure, append " +
-        "rationale, create new task, log audit) into one transaction. Caller passes the " +
-        "failed task_id, the corrected spec_body, and the rationale. Server inherits issue_id " +
-        "and parent_branch_id from the failed task; repo is inherited unless overridden. " +
-        "Returns the new task row.",
+        "Retry composite — one transaction: reads the failed task, appends rationale, creates a " +
+        "new task inheriting issue_id/parent_branch_id/repo (overridable). Returns the new task row.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -222,12 +219,9 @@ export function compositeTools(
     {
       name: 'intent_start',
       description:
-        'Interactive planning composite — collapses the 4-call sequence that bro performs ' +
-        'after the Human confirms a new issue in interactive mode: issue_create(objective) + ' +
-        'discussion_append(kind=\'intent\', body=intent_verbatim) + ' +
-        'discussion_append(kind=\'note\', body=\'Beginning planning on <branch_id>.\') + ' +
-        'audit_log(event_type=\'branch_id_proposed\', branch_id). All four writes are atomic. ' +
-        'Git branch creation stays caller-side — server does not shell out. Returns {issue_id, branch_id}.',
+        'Interactive planning composite — atomically runs issue_create + discussion_append(intent) + ' +
+        'discussion_append(note) + audit_log(branch_id_proposed). Git branch creation stays caller-side. ' +
+        'Returns {issue_id, branch_id}.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -242,13 +236,9 @@ export function compositeTools(
     {
       name: 'headless_fallback_record',
       description:
-        'Headless fallback composite — collapses the 2-call sequence from tmb_recovery §A ' +
-        '(audit_log(event_type=\'headless_fallback\', question, chosen_default, skill) + ' +
-        'discussion_append(kind=\'note\')) into one atomic DB write. ' +
-        'issue_id defaults server-side to the most recent open issue; falls back to the ' +
-        'system issue (-1) if no open issue exists. ' +
-        'Args: agent, question (the AUQ that was skipped), chosen_default (the value applied), ' +
-        'skill (which tmb_* skill triggered the fallback).',
+        'Headless fallback composite — atomically writes audit_log(headless_fallback) + ' +
+        'discussion_append(note) in one DB write. issue_id defaults to the most recent open issue ' +
+        'or -1. Args: question (skipped AUQ), chosen_default (applied value), skill (caller).',
       inputSchema: {
         type: 'object',
         properties: {

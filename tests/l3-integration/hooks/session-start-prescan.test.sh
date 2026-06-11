@@ -153,7 +153,7 @@ fi
 
 test_case "missing DB: hook exits silently (no output)"
 rm -f "$DB"
-out_no_db=$((cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+out_no_db=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 assert_eq "" "$out_no_db" "no output when DB missing"
 
 # Re-create DB for the remaining cold/warm tests.
@@ -184,7 +184,7 @@ FAKE_HOOK="$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
 
 test_case "cold + invoker present: context says scan started"
 rm -f "$INVOCATION_FLAG"
-COLD_OUT=$((cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
+COLD_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
 COLD_CTX=$(echo "$COLD_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$COLD_CTX" "scan is running in the background" "cold context mentions background scan"
 
@@ -204,7 +204,7 @@ assert_not_contains "$COLD_CTX" "tell the Human to run /scan" "no manual scan in
 
 test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: context says world model is cold"
 rm -f "$INVOCATION_FLAG"
-SKIP_OUT=$((cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$FAKE_HOOK" 2>/dev/null) || true)
+SKIP_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$FAKE_HOOK" 2>/dev/null) || true)
 SKIP_CTX=$(echo "$SKIP_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$SKIP_CTX" "cold" "skip context mentions cold"
 
@@ -223,7 +223,7 @@ assert_not_contains "$SKIP_CTX" "scan is running in the background" "no backgrou
 
 test_case "warm: context shows warm world model"
 sqlite3 "$DB" "INSERT INTO audit (event_type) VALUES ('deep_scan_completed');"
-WARM_OUT=$((cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+WARM_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 WARM_CTX=$(echo "$WARM_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$WARM_CTX" "warm" "warm context shows warm"
 

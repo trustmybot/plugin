@@ -63,7 +63,7 @@ run_hook_stdout() {
 
 # run_hook_stderr: stderr only, stdout suppressed; always exits 0 for capture
 run_hook_stderr() {
-  echo "$1" | bash "$HOOK" 2>&1 >/dev/null || true
+  echo "$1" | { bash "$HOOK" >/dev/null; } 2>&1 || true
 }
 
 # --- tests -------------------------------------------------------------------

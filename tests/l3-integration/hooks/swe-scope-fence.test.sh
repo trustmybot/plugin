@@ -251,7 +251,7 @@ NON_WT_DIR="$TMPDIR/non-worktree"
 mkdir -p "$NON_WT_DIR"
 
 test_case "non-worktree: hook passes through when PWD is not a worktree"
-out=$((cd "$NON_WT_DIR" && echo "$(make_edit_input "anything/file.ts")" | bash "$HOOK" 2>&1) || true)
+out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "anything/file.ts")" | bash "$HOOK" 2>&1) || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "non-worktree PWD should not be blocked"
 
 # ===========================================================================
