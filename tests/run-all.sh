@@ -72,6 +72,7 @@ run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-sc
 run_step "L1 lint: tool-description byte budget"      bash "$HERE/l1-lint/tool-description-budget.sh"
 run_step "L1 lint: dir toolchain allowlist"           bash "$HERE/l1-lint/dir-toolchain.sh"
 run_step "L1 lint: no raw SQL interpolation in hooks" bash "$HERE/l1-lint/no-raw-sql-interpolation.sh"
+run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
 
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
