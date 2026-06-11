@@ -39,6 +39,13 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
+export function resolveDefaultIssueId(db: TrajectoryDB): number {
+  const latest = db.get<{ id: number }>(
+    `SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`,
+  );
+  return latest?.id ?? -1;
+}
+
 export function discussionTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -80,12 +87,12 @@ export function discussionTools(db: TrajectoryDB): {
     {
       name: 'discussion_append',
       description:
-        'Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log. body is capped at 64 KB; larger payloads return a named validation error.',
+        'Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log. issue_id is optional — defaults to the newest open issue (excluding -1), or -1 if no open issues exist. body is capped at 64 KB; larger payloads return a named validation error.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string', description: 'Caller agent name' },
-          issue_id: { type: 'string', description: 'The issue ID (integer as string)' },
+          issue_id: { type: 'string', description: 'The issue ID (integer as string). Optional — defaults to the newest open issue, else -1.' },
           author: { type: 'string', description: 'Author of this entry (agent name or human)' },
           kind: {
             type: 'string',
@@ -99,7 +106,7 @@ export function discussionTools(db: TrajectoryDB): {
               'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only — not persisted.',
           },
         },
-        required: ['agent', 'issue_id', 'author', 'body'],
+        required: ['agent', 'author', 'body'],
       },
     },
     {
@@ -346,7 +353,8 @@ export function discussionTools(db: TrajectoryDB): {
       ['bro', 'swe', 'pr-reviewer', 'consultant'],
       wrapHandler(async (args) => {
         normalizeAgent(args['agent'] as string | undefined);
-        const issueId = requireArg(args, 'issue_id') as string;
+        const rawIssueId = args['issue_id'] as string | undefined;
+        const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db));
         const author = requireArg(args, 'author') as string;
         const body = requireArg(args, 'body') as string;
         const kind = (args['kind'] as string | undefined) ?? 'note';

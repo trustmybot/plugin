@@ -708,6 +708,63 @@ describe('roundtable tools', () => {
             localDb.close();
         });
     });
+    describe('roundtable_vote length caps (#506)', () => {
+        it('accepts vote exactly at 60 chars', async () => {
+            const rt = roundtableTools(db);
+            const roundtableId = globalThis['rt1Id'];
+            const result = await call(rt.handlers, 'roundtable_vote', {
+                agent: 'bro',
+                roundtable_id: roundtableId,
+                participant: 'pm',
+                vote: 'a'.repeat(60),
+                rationale: 'Within cap',
+            });
+            assert.ok(!result.isError, `Vote at 60-char cap should be accepted: ${JSON.stringify(parseResult(result))}`);
+        });
+        it('rejects vote at 61 chars with named error', async () => {
+            const rt = roundtableTools(db);
+            const roundtableId = globalThis['rt1Id'];
+            const result = await call(rt.handlers, 'roundtable_vote', {
+                agent: 'bro',
+                roundtable_id: roundtableId,
+                participant: 'pm',
+                vote: 'a'.repeat(61),
+            });
+            assert.ok(result.isError, 'Vote over 60 chars should be rejected');
+            const data = parseResult(result);
+            assert.ok(data.error.includes('invalid_argument'), `Error must cite invalid_argument: ${data.error}`);
+            assert.ok(data.error.includes('60'), `Error must mention the cap: ${data.error}`);
+            assert.ok(data.error.includes('61'), `Error must include the actual length: ${data.error}`);
+        });
+        it('accepts rationale exactly at 120 chars', async () => {
+            const rt = roundtableTools(db);
+            const roundtableId = globalThis['rt1Id'];
+            const result = await call(rt.handlers, 'roundtable_vote', {
+                agent: 'bro',
+                roundtable_id: roundtableId,
+                participant: 'pm',
+                vote: 'at cap',
+                rationale: 'b'.repeat(120),
+            });
+            assert.ok(!result.isError, `Rationale at 120-char cap should be accepted: ${JSON.stringify(parseResult(result))}`);
+        });
+        it('rejects rationale at 121 chars with named error', async () => {
+            const rt = roundtableTools(db);
+            const roundtableId = globalThis['rt1Id'];
+            const result = await call(rt.handlers, 'roundtable_vote', {
+                agent: 'bro',
+                roundtable_id: roundtableId,
+                participant: 'pm',
+                vote: 'valid vote',
+                rationale: 'b'.repeat(121),
+            });
+            assert.ok(result.isError, 'Rationale over 120 chars should be rejected');
+            const data = parseResult(result);
+            assert.ok(data.error.includes('invalid_argument'), `Error must cite invalid_argument: ${data.error}`);
+            assert.ok(data.error.includes('120'), `Error must mention the cap: ${data.error}`);
+            assert.ok(data.error.includes('121'), `Error must include the actual length: ${data.error}`);
+        });
+    });
     describe('roundtable_create slash gate (#356)', () => {
         it('rejects when no slash-invoke audit row exists within 10 minutes', async () => {
             const localDb = tempDB();

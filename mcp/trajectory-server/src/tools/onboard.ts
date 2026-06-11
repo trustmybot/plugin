@@ -180,6 +180,29 @@ const BRANCHING_DESCRIPTIONS = {
 // "Anonymous" or "type your name"). The skill body asks Name in plain prose
 // and feeds the parsed answer straight to `onboard_apply`. See commands/onboard.md.
 
+function shapeQuestion(origin_kind: Provider | null): BuiltQuestion {
+  const options: QuestionOption[] = [
+    {
+      label: 'Remote-tracked',
+      description: 'Pushes to GitHub or GitLab. Issues can mirror to the remote.',
+      wire: 'remote',
+    },
+    {
+      label: 'Local-only',
+      description: 'No GitHub/GitLab. Issues stay in the local trajectory DB; no PR/MR pushes.',
+      wire: 'local',
+    },
+  ];
+  const default_index = origin_kind === 'github' || origin_kind === 'gitlab' ? 0 : 1;
+  return {
+    question: 'Is this project local-only or remote-tracked?',
+    header: 'Shape',
+    multiSelect: false,
+    options,
+    default_index,
+  };
+}
+
 function branchingQuestion(currentModel: string | null, isReonboard: boolean): BuiltQuestion {
   const options: QuestionOption[] = [];
   if (isReonboard && currentModel !== null) {
@@ -375,16 +398,16 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           shape: {
             type: 'string',
             enum: ['local', 'remote'],
-            description: 'Project shape from Round 1.',
+            description: "Project shape from Round 1. Not required when round='shape'.",
           },
           round: {
             type: 'string',
-            enum: ['main', 'sync'],
+            enum: ['shape', 'main', 'sync'],
             description:
-              "'main' = Round 2 questions (name + branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync).",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync).",
           },
         },
-        required: ['shape', 'round'],
+        required: ['round'],
       },
     },
     {
@@ -460,8 +483,15 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
       'onboard_get_questions',
       ['bro'],
       wrapHandler(async (args) => {
-        const shape = args['shape'] as 'local' | 'remote';
-        const round = args['round'] as 'main' | 'sync';
+        const shape = args['shape'] as 'local' | 'remote' | undefined;
+        const round = args['round'] as 'shape' | 'main' | 'sync';
+
+        const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
+        const git = probeGit(cwd || process.cwd());
+
+        if (round === 'shape') {
+          return ok({ questions: [shapeQuestion(git.origin_kind)] });
+        }
 
         // Re-onboard means /onboard already ran in this project — identity row exists.
         const isReonboard = readOnboardedFlag(db);
@@ -470,14 +500,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         const currentRemotes = readConfig(db, 'remotes');
         const currentSync = readConfig(db, 'issue_sync') as string | null;
 
-        const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
-        const git = probeGit(cwd || process.cwd());
         const gh = probeCli('gh');
         const glab = probeCli('glab');
 
-        // Name is asked separately as a prose prompt (not AUQ — see comment
-        // on the deleted nameQuestion). onboard_get_questions only returns
-        // multiple-choice questions where AUQ's radio model is the right fit.
         const questions: BuiltQuestion[] = [];
 
         if (round === 'main') {
@@ -495,11 +520,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           // shape=local + first-run yields questions=[] — skill skips AUQ Round 2.
         } else if (round === 'sync') {
           if (shape !== 'remote') {
-            throw new Error(`round='sync' only valid for shape='remote' (got '${shape}')`);
+            throw new Error(`round='sync' only valid for shape='remote' (got '${String(shape)}')`);
           }
           questions.push(issueSyncQuestion(currentSync, isReonboard, gh.authed || glab.authed));
         } else {
-          throw new Error(`unknown round '${round}'`);
+          throw new Error(`unknown round '${String(round)}'`);
         }
 
         return ok({ questions });
