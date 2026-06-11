@@ -374,6 +374,104 @@ describe('preferredDefaultRepo — unit', () => {
   it('returns empty string for empty repos list', () => {
     assert.equal(preferredDefaultRepo([], '/any'), '');
   });
+
+  it('#474: version-named repo loses to a smaller ordinary working repo', () => {
+    const repos = [
+      { name: 'v0.7.1-rc.1', path: '/ws/cache/v0.7.1-rc.1', file_count: 973 },
+      { name: 'plugin', path: '/ws/plugin', file_count: 969 },
+    ];
+    const guesses: Array<string> = [];
+    const result = preferredDefaultRepo(repos, '/ws', (chosen) => guesses.push(chosen));
+    assert.equal(result, 'plugin', 'ordinary repo wins even with fewer files than the version-named copy');
+    assert.equal(guesses.length, 1, 'onGuessed fires (heuristic path)');
+  });
+
+  it('#474: bench-worktrees path is deprioritized below ordinary repos', () => {
+    const repos = [
+      { name: 'bench-run', path: '/ws/bench-worktrees/bench-run', file_count: 500 },
+      { name: 'plugin', path: '/ws/plugin', file_count: 10 },
+    ];
+    const result = preferredDefaultRepo(repos, '/ws');
+    assert.equal(result, 'plugin', 'bench-worktrees repo deprioritized');
+  });
+
+  it('#474: /marketplace path is deprioritized below ordinary repos', () => {
+    const repos = [
+      { name: 'tmb-marketplace', path: '/ws/marketplace/tmb-marketplace', file_count: 800 },
+      { name: 'plugin', path: '/ws/plugin', file_count: 5 },
+    ];
+    const result = preferredDefaultRepo(repos, '/ws');
+    assert.equal(result, 'plugin', 'marketplace repo deprioritized');
+  });
+
+  it('#474: falls back to deprioritized repo when no ordinary candidates exist, emitting onGuessed', () => {
+    const repos = [
+      { name: 'v0.7.1', path: '/ws/cache/v0.7.1', file_count: 200 },
+    ];
+    const guesses: Array<string> = [];
+    const result = preferredDefaultRepo(repos, '/ws', (chosen) => guesses.push(chosen));
+    assert.equal(result, 'v0.7.1', 'only candidate wins even if deprioritized');
+    assert.equal(guesses.length, 1, 'onGuessed still fires when falling back to deprioritized');
+  });
+});
+
+describe('scan_run default-repo ranking (#474)', () => {
+  it('version-named largest repo loses to a smaller ordinary working repo', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-rank-ver-'));
+    try {
+      // Simulate a plugins cache with a version-named release copy next to the working repo.
+      const cacheDir = join(ws, 'cache');
+      mkdirSync(cacheDir, { recursive: true });
+      // v0.7.1-rc.1 has more files (973 vs 969) but should lose due to version name.
+      mkRepo(cacheDir, 'v0.7.1-rc.1', Object.fromEntries(
+        Array.from({ length: 4 }, (_, i) => [`f${i}.ts`, `// ${i}\n`]),
+      ));
+      mkRepo(ws, 'plugin', { 'src/a.ts': 'x\n', 'src/b.ts': 'y\n', 'src/c.ts': 'z\n' });
+
+      const db = tempDB();
+      const tools = scanTools(db, null);
+      await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+
+      const cfg = db.get<{ value_json: string }>(
+        `SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`,
+      );
+      assert.ok(cfg, 'tmb_default_repo should be set');
+      assert.equal(cfg!.value_json, '"plugin"', 'ordinary repo wins over version-named copy');
+
+      const audit = db.get<{ event_type: string }>(
+        `SELECT event_type FROM audit WHERE event_type='default_repo_guessed' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(audit, 'default_repo_guessed audit row emitted when heuristic fires');
+
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('bench-worktrees path deprioritized below ordinary repos', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-rank-bench-'));
+    try {
+      const benchDir = join(ws, 'bench-worktrees');
+      mkdirSync(benchDir, { recursive: true });
+      mkRepo(benchDir, 'run-1', { 'a.ts': 'x\n', 'b.ts': 'y\n', 'c.ts': 'z\n' });
+      mkRepo(ws, 'plugin', { 'README.md': 'p\n' });
+
+      const db = tempDB();
+      const tools = scanTools(db, null);
+      await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+
+      const cfg = db.get<{ value_json: string }>(
+        `SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`,
+      );
+      assert.ok(cfg);
+      assert.equal(cfg!.value_json, '"plugin"', 'bench-worktrees repo deprioritized');
+
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('scan_run lock contention + release (#339)', () => {
