@@ -135,9 +135,21 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
     | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
 fi
 
+# Derive worktree slug from input cwd (CC payload) or PWD structural fallback.
+# Used by the slug-based task resolution when the transcript yields no task_id.
+HOOK_CWD=$(echo "$INPUT" | jq -r '.cwd // ""' 2>/dev/null || true)
+HOOK_CWD="${HOOK_CWD:-$PWD}"
+WORKTREE_ROOT=""
+case "$HOOK_CWD" in
+  */.claude/worktrees/*)
+    WORKTREE_ROOT=$(echo "$HOOK_CWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
+    ;;
+esac
+
 # Find the task to operate on:
 #   1. task_id extracted from the transcript (authoritative — bound to this SWE).
-#   2. Most-recently-updated task in any SWE-relevant status (fallback only).
+#   2. Worktree slug match via branch_id LIKE '%/<slug>' (no transcript in this harness).
+#   3. Most-recently-updated task in any SWE-relevant status (last-resort fallback).
 ROW=""
 if [ -n "$TRANSCRIPT_TASK_ID" ]; then
   SAFE_TRANSCRIPT_TASK_ID=$(tmb_sql_int "$TRANSCRIPT_TASK_ID")
@@ -148,6 +160,27 @@ if [ -n "$TRANSCRIPT_TASK_ID" ]; then
          AND status IN ('pending', 'needs_validation', 'completed')
        LIMIT 1;" \
       2>/dev/null || true)
+  fi
+fi
+if [ -z "$ROW" ] && [ -n "$WORKTREE_ROOT" ]; then
+  WORKTREE_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
+  if [ -n "$WORKTREE_SLUG" ]; then
+    SAFE_SLUG=$(tmb_sql_quote "$WORKTREE_SLUG")
+    SLUG_ID=$(tmb_sqlite_ro "$DB" "
+      SELECT id FROM tasks
+       WHERE branch_id LIKE '%/${SAFE_SLUG}'
+         AND status IN ('pending','running','completed')
+       ORDER BY id DESC
+       LIMIT 1;
+    " 2>/dev/null || true)
+    SLUG_ID=$(tmb_sql_int "$SLUG_ID")
+    if [ -n "$SLUG_ID" ]; then
+      ROW=$(sqlite3 "$DB" \
+        "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
+         WHERE id = ${SLUG_ID}
+         LIMIT 1;" \
+        2>/dev/null || true)
+    fi
   fi
 fi
 if [ -z "$ROW" ]; then
