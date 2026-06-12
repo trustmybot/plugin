@@ -4,6 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.0 — 2026-06-12
+
+Promotes `v0.8.0-rc.1` to stable. See the rc section below for the full milestone rollup. Release gate green on the rc tag: L0 + L1–L4 + L6 chain 13/13 in a single run. First release under the merge-commit promotion policy.
+
 ## v0.8.0-rc.1 — 2026-06-11
 
 The A- campaign release: every prompt surface (agents, skills, commands, CLAUDE.md) re-authored to the DETERMINISM grading bar, backed by composites, server features, and structural hardening across the full v0.8.0 milestone.
