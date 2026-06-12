@@ -39,7 +39,7 @@ When no Human is in the loop (headless, or the prompt says not to ask): steps 1 
 
 Use when the concern is technical — architecture, security, performance, code quality — and you want an independent read.
 
-1. Identify the relevant consultant (`architect`, `cto`, etc.). If none exists in the project, ask the Human to create one with `/tmb:agent-create`.
+1. Identify the relevant consultant (`architect`, `cto`, etc.). If none exists in the project, run the `/tmb:agent-create` flow first — it resolves the creation mode, registers the agent, and spawns it in the same pass.
 2. Spawn the consultant with the specific question.
 3. Receive their analysis — decisions remain with the Human.
 4. Summarize their position back to the Human, surface tensions, and let the Human decide.
