@@ -134,6 +134,57 @@ describe('auditTools', () => {
 
     db.close();
   });
+
+  it('audit_log returns ok and audit row exists even when embed returns null (no model in CI)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = auditTools(db);
+
+    const result = await call(tools.handlers, 'audit_log', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      from_node: 'bro',
+      event_type: 'embed_await_test',
+      summary: 'embedding await test',
+    });
+
+    assert.ok(!result.isError, `audit_log must succeed: ${JSON.stringify(parseResult(result))}`);
+    const row = parseResult(result);
+    assert.equal(row.event_type, 'embed_await_test');
+
+    const auditRow = db.get<{ id: number }>('SELECT id FROM audit WHERE id = ?', [row.id]);
+    assert.ok(auditRow, 'audit row must be persisted before tool returns');
+
+    db.close();
+  });
+
+  it('audit_log returns ok when embedAndStore rejects (embed error does not propagate)', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = auditTools(db);
+
+    const r1 = await call(tools.handlers, 'audit_log', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      from_node: 'bro',
+      event_type: 'embed_prime',
+      summary: 'first call primes loadFailed state',
+    });
+    assert.ok(!r1.isError, 'first call must succeed');
+
+    const r2 = await call(tools.handlers, 'audit_log', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      from_node: 'bro',
+      event_type: 'embed_degraded',
+      summary: 'second call with loadFailed=true must succeed (graceful degradation)',
+    });
+    assert.ok(!r2.isError, 'subsequent call with failed embed must still succeed');
+    const d2 = parseResult(r2);
+    assert.equal(d2.event_type, 'embed_degraded');
+
+    db.close();
+  });
 });
 
 describe('validationTools', () => {

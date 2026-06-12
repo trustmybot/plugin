@@ -305,7 +305,7 @@ export function discussionTools(db) {
            VALUES (?, ?, ?, ?, ?)`, [issueId, author, kind, body, now]);
             const row = db.get('SELECT * FROM discussions WHERE rowid = last_insert_rowid()');
             if (row) {
-                embedAndStore(db, 'discussions', row.id, body).catch((e) => console.error('[embeddings] discussion_append embed failed:', e));
+                await embedAndStore(db, 'discussions', row.id, body).catch((e) => console.error('[embeddings] discussion_append embed failed:', e));
             }
             return ok(row);
         })),

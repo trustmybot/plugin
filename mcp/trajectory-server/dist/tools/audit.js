@@ -263,7 +263,7 @@ export function auditTools(db) {
             const row = db.get('SELECT * FROM audit WHERE rowid = last_insert_rowid()');
             if (row) {
                 const embedText = contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
-                embedAndStore(db, 'audit', row.id, embedText).catch((e) => console.error('[embeddings] audit_log embed failed:', e));
+                await embedAndStore(db, 'audit', row.id, embedText).catch((e) => console.error('[embeddings] audit_log embed failed:', e));
             }
             return ok(row);
         })),
