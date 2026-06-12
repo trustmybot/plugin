@@ -291,4 +291,113 @@ mkdir -p "$WT_UNKNOWN"
 out=$(cd "$WT_UNKNOWN" && echo "$(make_edit_no_transcript swe "$WT_UNKNOWN/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "no matching task slug should deny prompt-surface edit"
 
+# ===========================================================================
+# Rule (e): Bash write-forms targeting prompt surfaces
+# ===========================================================================
+
+make_bash_with_transcript() {
+  local agent_type="$1" cmd="$2" task_id="$3"
+  local tr
+  tr=$(make_transcript "$task_id")
+  jq -n --arg a "$agent_type" --arg c "$cmd" --arg tr "$tr" '{
+    tool_name: "Bash",
+    agent_type: $a,
+    agent_transcript_path: $tr,
+    tool_input: {command: $c}
+  }'
+}
+
+test_case "(e) SWE redirect > to agents/swe.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "content" > agents/swe.md' 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "redirect > to agents/*.md should be denied"
+assert_contains "$out" "prompt-surface" "deny reason should mention prompt-surface"
+
+test_case "(e) SWE redirect >> to CLAUDE.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "extra" >> CLAUDE.md' 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "redirect >> to CLAUDE.md should be denied"
+
+test_case "(e) SWE tee to commands/scan.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'cat template | tee commands/scan.md' 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "tee to commands/*.md should be denied"
+
+test_case "(e) SWE sed -i on skills/tmb_planning/SKILL.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe "sed -i 's/old/new/' skills/tmb_planning/SKILL.md" 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "sed -i on SKILL.md should be denied"
+
+test_case "(e) SWE perl -i on agents/bro.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe "perl -i -pe 's/old/new/' agents/bro.md" 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "perl -i on agents/*.md should be denied"
+
+test_case "(e) SWE python3 open w to agents/swe.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe "python3 -c \"open('agents/swe.md','w').write('x')\"" 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "python3 open w to agents/*.md should be denied"
+
+test_case "(e) SWE python open a to GEMINI.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe "python -c \"open('GEMINI.md','a').write('x')\"" 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "python open a to GEMINI.md should be denied"
+
+test_case "(e) SWE cp src to templates/agents/foo.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'cp /tmp/foo.md templates/agents/foo.md' 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "cp to templates/*.md should be denied"
+
+test_case "(e) SWE mv src to commands/foo.md: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'mv /tmp/foo.md commands/foo.md' 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "mv to commands/*.md should be denied"
+
+test_case "(e) SWE rsync src to agents/: DENIED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'rsync -av /tmp/agent.md agents/agent.md' 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "rsync to agents/*.md should be denied"
+
+test_case "(e) SWE cat agents/swe.md: NOT denied (read-only)"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'cat agents/swe.md' 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "cat is read-only, should not be denied"
+
+test_case "(e) SWE grep in agents/swe.md: NOT denied (read-only)"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'grep "pattern" agents/swe.md' 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "grep is read-only, should not be denied"
+
+test_case "(e) SWE sed -n on agents/swe.md: NOT denied (read-only)"
+out=$(run_hook_swe "$(make_bash_with_transcript swe "sed -n '1,5p' agents/swe.md" 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "sed -n is read-only, should not be denied"
+
+test_case "(e) SWE redirect > to non-prompt file: NOT denied"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "content" > src/index.ts' 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "redirect to non-prompt file should not be denied by rule (e)"
+
+test_case "(e) SWE redirect > to agents/swe.md with prompt_bearing=1: ALLOWED"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "content" > agents/swe.md' 11)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 task should allow Bash write to prompt surface"
+
+test_case "(e) SWE sed -i on CLAUDE.md via slug fallback (prompt_bearing=1): ALLOWED"
+out=$(cd "$WT_PROMPT" && echo "$(make_bash_input swe "sed -i 's/old/new/' CLAUDE.md")" | bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "slug fallback prompt_bearing=1 should allow sed -i on CLAUDE.md"
+
+test_case "(e) SWE redirect > to agents/swe.md via slug fallback (prompt_bearing=0): DENIED"
+out=$(cd "$WORKTREE" && echo "$(make_bash_input swe 'echo x > agents/swe.md')" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "slug fallback prompt_bearing=0 should deny Bash write to prompt surface"
+
+test_case "(e) bro redirect > to agents/swe.md: NOT denied (bro is not SWE)"
+out=$(run_hook_bro "$(make_bash_input bro 'echo "content" > agents/swe.md')")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bro Bash write to prompt surface not denied by swe-boundary"
+
+# ===========================================================================
+# Rule (e) — false-positive regressions (destination-coupling)
+# ===========================================================================
+
+test_case "(e/fp) grep containing > char: NOT denied (not a redirect)"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'grep ">" agents/swe.md' 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "grep with > in pattern should not be denied"
+
+test_case "(e/fp) awk comparison > on .md file: NOT denied (comparison, not redirect)"
+out=$(run_hook_swe "$(make_bash_with_transcript swe "awk '\$1 > 5' agents/swe.md" 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "awk comparison operator should not be denied"
+
+test_case "(e/fp) echo with prompt path in string redirected to /tmp: NOT denied"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "see agents/swe.md for details" > /tmp/notes.txt' 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "redirect to /tmp mentioning a prompt path should not be denied"
+
+test_case "(e/fp) git commit -m message mentioning agents/swe.md: NOT denied"
+out=$(run_hook_swe "$(make_bash_with_transcript swe 'git commit -m "touch agents/swe.md"' 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "commit message mentioning prompt path should not be denied"
+
 summarize
