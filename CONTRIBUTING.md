@@ -20,6 +20,17 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 | `rc` | fast-forwarded to the `vX.Y.Z-rc.N` tag under validation | `tmb@trustmybot-rc` (catalog `trustmybot/marketplace-rc`) |
 | `dev` | integration trunk; all PRs land here first | — (not published) |
 
+### Branching & merging
+
+1. **Feature branches come from `dev`** and are named by git convention (`feat/`, `fix/`, `docs/`, `chore/`, `test/` + slug). One concern per branch.
+2. **Nothing merges to `main` except `dev`** — and only when `dev` carries an rc tag whose release-gate CI passed (Phases B–C of Release). Promotion is a **merge commit** (Phase D). *Exception:* docs-only changes that need no functionality test may merge to `main` directly — and must be mirrored back to `dev` in the same sitting so the branches never drift.
+3. **Typical feature workflow:** branch from `dev` → implement → local L0–L4 green → PR → `dev`. If your branch is the **last one planned before a release**, also run the local L6 chain — at that point you're in the Release workflow (Phase B); follow it.
+4. **All integration goes through GitHub PRs** — `gh pr create` / `gh pr merge`. Never `git merge` locally, never push directly to `dev` or `main`.
+5. **Merge policy by surface:** code / docs / tests PRs auto-merge once checks are green. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) never auto-merge — a maintainer reviews the PR itself.
+6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) must pass a full release-gate `workflow_dispatch` on the feature branch *before* merge — `dev` stays green at all times; a tag-triggered gate is never the first time CI sees your change.
+7. **Delete branches on merge** (`--delete-branch`); a stale branch is a future wrong-base.
+8. **Prompt engineering follows [`docs/prompt-engineering/DETERMINISM.md`](docs/prompt-engineering/DETERMINISM.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
+
 ## CI (GitHub Actions)
 
 `.github/workflows/release-gate.yml` runs on GitHub's runners:
