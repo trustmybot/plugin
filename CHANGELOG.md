@@ -4,6 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.1 — 2026-06-12
+
+Promotes `v0.8.1-rc.1` to stable. See the rc section below for the change list. Local L6 chain 13/13 on the tagged tree (the licensing gate per the new phased release workflow); release-gate CI green on the rc tag as re-confirmation.
+
 ## v0.8.1-rc.1 — 2026-06-12
 
 Patch release carrying the #529 ensure-branch fix, the #537 embedding-await fix, and the upload-artifact v7 upgrade.
