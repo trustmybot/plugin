@@ -1,6 +1,6 @@
 # 10-consultant
 
-**Scenario under test:** Human asks an architecture-trade-off question about the todo CLI's storage choice. The `consultant-spawn-required.sh` UserPromptSubmit hook (which is the deterministic enforcement surface after #198 part 2 retired the CLAUDE.md routing row) detects the architecture-trade-off pattern and injects a hint telling bro to invoke `/tmb:agent-create <role> <one-line restatement>`. Bro follows the hint, the slash command runs `agent_list` + Branch B (cto is template-scope), and spawns cto via `Agent`.
+**Scenario under test:** Human asks an architecture-trade-off question about the todo CLI's storage choice. The `consultant-spawn-required.sh` UserPromptSubmit hook (which is the deterministic enforcement surface after #198 part 2 retired the CLAUDE.md routing row) detects the architecture-trade-off pattern and injects a hint telling bro to invoke `/tmb:agent-create <role> <one-line restatement>`. Bro follows the hint, the slash command resolves the creation mode with `agent_resolve`, writes the agent file, registers it via `agent_register` (the server auto-audits `tmb_agent_created`), and spawns cto via `Agent`.
 
 The row deliberately uses a naturalistic prompt with no role name — bro must classify from context, the same way a real user phrases it. Naming `cto` in the prompt would short-circuit the hook + bro's classification and test the literal string match rather than the description-driven path.
 
@@ -13,7 +13,7 @@ The row deliberately uses a naturalistic prompt with no role name — bro must c
 | # | Speaker | Message |
 |---|---|---|
 | 1 | user | `@bro should we keep src/cli.py's storage in JSON or move to SQLite as the CLI scales?\n\nDon't ask questions.` |
-| → | bro | (consultant-spawn hook injects routing hint) → bro invokes `/tmb:agent-create cto` → command runs `agent_list`, sees cto is template-scope, runs Branch B (template-copy → `agent_register(scope='project-local')` → `audit_log(event_type='tmb_agent_created')` → spawn cto via `Agent`). Single turn. |
+| → | bro | (consultant-spawn hook injects routing hint) → bro invokes `/tmb:agent-create cto` → command calls `agent_resolve` (server returns creation mode), writes the agent file, calls `agent_register(scope='project-local')` (server auto-audits `tmb_agent_created`), spawns cto via `Agent`. Single turn. |
 
 ## Pass criteria
 
@@ -22,7 +22,7 @@ The row deliberately uses a naturalistic prompt with no role name — bro must c
 | `outcome.sql` | an `audit` row with `event_type='tmb_agent_created'` exists (load-bearing signal that the agent-creator ceremony ran). |
 | `outcome-coherence.json` | `audit WHERE event_type = 'tmb_agent_created'`: `>=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` (read-only consult — no commits) |
-| `tools-required.json` | `agent_list`, `agent_register`, `Agent` |
+| `tools-required.json` | `agent_resolve`, `agent_register`, `Agent` |
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` (consultants don't drive workflow state) |
 | `cost-budget.json` | Soft 200K / 600s |
 

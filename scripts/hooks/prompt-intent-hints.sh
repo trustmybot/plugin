@@ -147,10 +147,10 @@ EOF
   fi
 
   if [ -n "$NAMED_ROLE" ]; then
-    CTX="[tmb consultant-spawn enforcement] The user's prompt names the \`${NAMED_ROLE}\` role. Invoke \`/tmb:agent-create ${NAMED_ROLE} <one-line restatement of the user question>\` — the command runs the full agent_list + Branch A/B/C ceremony AND spawns the consultant in the same call. Bare \`Agent(subagent_type='${NAMED_ROLE}')\` without the command bypasses the registry; do NOT take that shortcut."
+    CTX="[tmb consultant-spawn enforcement] The user's prompt names the \`${NAMED_ROLE}\` role. Invoke \`/tmb:agent-create ${NAMED_ROLE} <one-line restatement of the user question>\` — the command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant in the same call. Bare \`Agent(subagent_type='${NAMED_ROLE}')\` without the command bypasses the registry; do NOT take that shortcut."
     emit_context "$CTX"
   elif [ -n "$DOMAIN" ]; then
-    CTX="[tmb consultant-spawn enforcement] The user's prompt looks like a \`${DOMAIN}\` judgment call. Invoke \`/tmb:agent-create <role> <one-line restatement>\` with the role that fits this domain (architect / cto / pm / legal-reviewer / a custom from-scratch role). The slash command handles the full ceremony — agent_list lookup, Branch A/B/C routing, audit, spawn — deterministically. Answering directly from general knowledge bypasses the consultant gate."
+    CTX="[tmb consultant-spawn enforcement] The user's prompt looks like a \`${DOMAIN}\` judgment call. Invoke \`/tmb:agent-create <role> <one-line restatement>\` with the role that fits this domain (architect / cto / pm / legal-reviewer / a custom from-scratch role). The slash command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant. Answering directly from general knowledge bypasses the consultant gate."
     emit_context "$CTX"
   fi
 fi
