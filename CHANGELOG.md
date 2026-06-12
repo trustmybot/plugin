@@ -4,6 +4,18 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.1-rc.1 — 2026-06-12
+
+Patch release carrying the #529 ensure-branch fix and the upload-artifact v7 upgrade.
+
+### Fixed
+
+- **`task_create_batch` ensures branch exists** — resolves repos via `repos.path`, creates the task's branch from `parent_branch_id` (fallback HEAD) if absent, and fires a `tmb_branch_autocreated` audit event; closes the headless one-way trap behind gate run #94's L6 step-5 failure (GH #529, PR #530).
+
+### Changed
+
+- **`actions/upload-artifact` v5→v7** — last Node 20 action off the release gate; all CI actions now Node 24-compatible (#528).
+
 ## v0.8.0 — 2026-06-12
 
 Promotes `v0.8.0-rc.1` to stable. See the rc section below for the full milestone rollup. Release gate green on the rc tag: L0 + L1–L4 + L6 chain 13/13 in a single run. First release under the merge-commit promotion policy.
