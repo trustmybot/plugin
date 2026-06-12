@@ -33,9 +33,10 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 `scripts/maintenance/bump-version.sh <version>` keeps the version in sync across all four manifests.
 
 1. On a branch off `dev`: `bump-version.sh X.Y.Z-rc.N`, add a `## vX.Y.Z-rc.N` CHANGELOG section, PR → `dev`.
-2. Tag the rc on `dev` and push → release-gate CI runs the full gate (L1–L4 + L6 + L0). Fast-forward `rc` to the tag.
-3. Validate via `tmb@trustmybot-rc` against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — marketplace install, **not** `--plugin-dir`.
-4. Green → PR `dev → main`, merge, then `bash scripts/release.sh` tags the stable `vX.Y.Z` on `main` and cuts the GitHub release. (`release.sh` checks that the manifests and the `## vX.Y.Z` CHANGELOG section agree, and is safe to re-run.)
+2. **Local L6 licenses the tag.** Run `bash tests/l5-l6/run-l6-chain.sh` locally on the exact `dev` tree you intend to tag. Only 13/13 green licenses an rc tag. A green CI release-gate on a feature branch does not substitute. If any step fails: debug via the matching L5 row (`bash tests/l5-l6/run-l5.sh <row>`), fix on `dev`, re-run the chain — an rc is never tagged through a known-red step.
+3. Tag the rc on `dev` and push. Fast-forward `rc` to the tag. Release-gate CI runs the full gate (L1–L4 + L6 + L0) as re-confirmation of the local pass.
+4. Validate via `tmb@trustmybot-rc` against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — marketplace install, **not** `--plugin-dir`.
+5. Green → PR `dev → main`, merge, then `bash scripts/release.sh` tags the stable `vX.Y.Z` on `main` and cuts the GitHub release. (`release.sh` checks that the manifests and the `## vX.Y.Z` CHANGELOG section agree, and is safe to re-run.)
 
 rc validation is **required** for anything touching install, schema, or doctrine — those are the breakage classes (v0.2.0 / v0.3.0) the rc channel exists to catch. Doc-only changes can skip the rc lap.
 
