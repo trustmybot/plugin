@@ -32,13 +32,29 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 `scripts/maintenance/bump-version.sh <version>` keeps the version in sync across all four manifests.
 
-1. On a branch off `dev`: `bump-version.sh X.Y.Z-rc.N`, add a `## vX.Y.Z-rc.N` CHANGELOG section, PR → `dev`.
-2. **Local L6 licenses the tag.** Run `bash tests/l5-l6/run-l6-chain.sh` locally on the exact `dev` tree you intend to tag. Only 13/13 green licenses an rc tag. A green CI release-gate on a feature branch does not substitute. If any step fails: debug via the matching L5 row (`bash tests/l5-l6/run-l5.sh <row>`), fix on `dev`, re-run the chain — an rc is never tagged through a known-red step.
-3. Tag the rc on `dev` and push. Fast-forward `rc` to the tag. Release-gate CI runs the full gate (L1–L4 + L6 + L0) as re-confirmation of the local pass.
-4. Validate via `tmb@trustmybot-rc` against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — marketplace install, **not** `--plugin-dir`.
-5. Green → PR `dev → main`, merge, then `bash scripts/release.sh` tags the stable `vX.Y.Z` on `main` and cuts the GitHub release. (`release.sh` checks that the manifests and the `## vX.Y.Z` CHANGELOG section agree, and is safe to re-run.)
+**Phase A — candidate**
+1. Land everything intended for the release on `dev` via the normal PR flow (auto-merge policy applies).
+2. Bump PR on a branch off `dev`: `bump-version.sh X.Y.Z-rc.N` + a `## vX.Y.Z-rc.N` CHANGELOG section → PR → `dev`.
 
-rc validation is **required** for anything touching install, schema, or doctrine — those are the breakage classes (v0.2.0 / v0.3.0) the rc channel exists to catch. Doc-only changes can skip the rc lap.
+**Phase B — local license (the gate)**
+3. Run the full local L6 chain (`bash tests/l5-l6/run-l6-chain.sh`) on the exact `dev` tree you intend to tag. **13/13 green licenses the rc tag.** A green CI gate on a feature branch never substitutes.
+4. On any step failure: reproduce and debug with the matching L5 row (`bash tests/l5-l6/run-l5.sh <row>`), fix on `dev` through the normal flow, then **resume the chain from the failed step** (`run-l6-chain.sh --from <step>`). Iterate until the chain completes.
+5. Whether the resumed 13/13 counts as the license depends on what the fix touched:
+   - Fix confined to **test fixtures, scorers, or docs** → the resumed pass stands; tag.
+   - Fix touched **runtime** (`mcp/`, `scripts/hooks/`, schema, `agents/`, `skills/`, `commands/`, `CLAUDE.md`) → finish with **one full fresh chain**, because steps before the failure ran on pre-fix code and their green doesn't transfer.
+
+**Phase C — rc**
+6. Tag `vX.Y.Z-rc.N` on `dev`, push. The tag-triggered CI release-gate (L1–L4 + L6 + L0) is **re-confirmation**, not the gate. Fast-forward the `rc` branch to the tag.
+7. **Publish to the rc channel**: in `trustmybot/marketplace-rc`, edit `.claude-plugin/marketplace.json` → `plugins[].source.ref` to the new rc tag and push. Installs of `tmb@trustmybot-rc` now serve the rc.
+8. Validate via `tmb@trustmybot-rc` marketplace install against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — required for anything touching install, schema, or doctrine; doc-only changes may skip.
+
+**Phase D — stable**
+9. Final bump PR (`X.Y.Z`) → `dev`.
+10. **Functional-identity rule**: the stable tag must be functionally identical to the latest green rc. Permitted deltas after the rc: version manifests, CHANGELOG, `docs/`, README-class files. Anything else — plugin code, prompts, hooks, MCP server, schema, CI workflows — invalidates the rc: cut `rc.N+1` and repeat Phases B–C.
+11. Promotion PR `dev → main` as a **merge commit**; merge.
+12. `git checkout main && git pull`, then `bash scripts/release.sh` — it tags `v<plugin.json version>` on `main` HEAD, pushes the tag, cuts the GitHub release from the matching CHANGELOG section, and runs the Docker install canary. Each step asks y/N and skips if already done (safe to re-run); it refuses off-`main`, on a dirty tree, or on a version/CHANGELOG mismatch.
+13. The stable catalog (`trustmybot/marketplace`) pins `ref: "main"` — promotion updates it automatically; no catalog edit.
+14. **Canary red = fix-forward immediately** — the release is already public. Diagnose before announcing; never delete the tag.
 
 ## Writing code & tests
 
