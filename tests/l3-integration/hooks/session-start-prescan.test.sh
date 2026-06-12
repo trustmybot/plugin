@@ -12,17 +12,16 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh"
 TMPDIR=$(mktemp -d)
 
 # Post-run sentinel: verify no WAL sidecars or stray node processes linger.
-trap '
-  # Kill any stray node processes referencing our fixture dir before cleanup.
+cleanup_sidecar_check() {
   pkill -f "$TMPDIR" 2>/dev/null || true
   wait 2>/dev/null || true
-  # Assert no WAL/SHM sidecars remain.
   leftover=$(find "$TMPDIR" \( -name "*.db-wal" -o -name "*.db-shm" \) 2>/dev/null || true)
   if [ -n "$leftover" ]; then
     printf "FAIL cleanup: WAL/SHM sidecars left behind:\n%s\n" "$leftover" >&2
   fi
   rm -rf "$TMPDIR"
-' EXIT
+}
+trap cleanup_sidecar_check EXIT
 
 DB="$TMPDIR/trajectory.db"
 
