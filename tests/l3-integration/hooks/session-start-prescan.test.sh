@@ -10,7 +10,20 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh"
 
 TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+
+# Post-run sentinel: verify no WAL sidecars or stray node processes linger.
+trap '
+  # Kill any stray node processes referencing our fixture dir before cleanup.
+  pkill -f "$TMPDIR" 2>/dev/null || true
+  wait 2>/dev/null || true
+  # Assert no WAL/SHM sidecars remain.
+  leftover=$(find "$TMPDIR" \( -name "*.db-wal" -o -name "*.db-shm" \) 2>/dev/null || true)
+  if [ -n "$leftover" ]; then
+    printf "FAIL cleanup: WAL/SHM sidecars left behind:\n%s\n" "$leftover" >&2
+  fi
+  rm -rf "$TMPDIR"
+' EXIT
+
 DB="$TMPDIR/trajectory.db"
 
 # ---- fixture workspace --------------------------------------------------
@@ -32,8 +45,13 @@ run_hook() {
   (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true
 }
 
-make_db() {
-  sqlite3 "$1" "
+# reset_db: remove the DB and any WAL/SHM sidecars atomically, then recreate.
+# Use journal_mode=DELETE so no sidecars are ever written during fixture seeding.
+reset_db() {
+  local db="$1"
+  rm -f "$db" "${db}-wal" "${db}-shm"
+  sqlite3 "$db" "
+    PRAGMA journal_mode=DELETE;
     CREATE TABLE issues (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       objective TEXT NOT NULL,
@@ -57,7 +75,14 @@ make_db() {
   "
 }
 
-make_db "$DB"
+# kill_fixture_node: kill any background node processes scoped to our TMPDIR.
+kill_fixture_node() {
+  pkill -f "$TMPDIR" 2>/dev/null || true
+  # Brief wait so the OS reclaims file handles before the next DB reset.
+  sleep 0.1
+}
+
+reset_db "$DB"
 
 OUT=$(run_hook)
 
@@ -152,12 +177,12 @@ fi
 # ---- no-DB graceful exit ----
 
 test_case "missing DB: hook exits silently (no output)"
-rm -f "$DB"
+rm -f "$DB" "${DB}-wal" "${DB}-shm"
 out_no_db=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 assert_eq "" "$out_no_db" "no output when DB missing"
 
 # Re-create DB for the remaining cold/warm tests.
-make_db "$DB"
+reset_db "$DB"
 
 # ---- cold session: auto-scan fires ----
 # Build a fake invoker that records its invocation without actually running a scan.
@@ -183,6 +208,7 @@ chmod +x "$FAKE_SCRIPTS/scan.sh"
 FAKE_HOOK="$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
 
 test_case "cold + invoker present: context says scan started"
+kill_fixture_node
 rm -f "$INVOCATION_FLAG"
 COLD_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
 COLD_CTX=$(echo "$COLD_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
@@ -203,6 +229,7 @@ assert_not_contains "$COLD_CTX" "tell the Human to run /scan" "no manual scan in
 # ---- cold + TMB_SKIP_AUTO_PRESCAN=1: warn only, no invocation ----
 
 test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: context says world model is cold"
+kill_fixture_node
 rm -f "$INVOCATION_FLAG"
 SKIP_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$FAKE_HOOK" 2>/dev/null) || true)
 SKIP_CTX=$(echo "$SKIP_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
@@ -222,6 +249,7 @@ assert_not_contains "$SKIP_CTX" "scan is running in the background" "no backgrou
 # ---- warm session: no scan, no cold note ----
 
 test_case "warm: context shows warm world model"
+kill_fixture_node
 sqlite3 "$DB" "INSERT INTO audit (event_type) VALUES ('deep_scan_completed');"
 WARM_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 WARM_CTX=$(echo "$WARM_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
