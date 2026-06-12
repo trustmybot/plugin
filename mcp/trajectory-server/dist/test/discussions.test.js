@@ -579,4 +579,59 @@ describe('issue_get_with_discussions swe redaction (#344)', () => {
         localDb.close();
     });
 });
+describe('discussion_append awaits embedAndStore (#537)', () => {
+    it('tool returns ok and discussion row exists even when embed returns null (no model in CI)', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        const issueResult = await call(issues.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'embed-await test issue',
+        });
+        const issue = parseResult(issueResult);
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+            author: 'bro',
+            kind: 'note',
+            body: 'embedding await test body',
+        });
+        assert.ok(!result.isError, `discussion_append must succeed: ${JSON.stringify(parseResult(result))}`);
+        const row = parseResult(result);
+        assert.equal(row.author, 'bro');
+        assert.equal(row.kind, 'note');
+        const discussionRow = localDb.get('SELECT id FROM discussions WHERE id = ?', [row.id]);
+        assert.ok(discussionRow, 'discussion row must be persisted before tool returns');
+        localDb.close();
+    });
+    it('tool returns ok when embedAndStore rejects (embed error does not propagate)', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        const issueResult = await call(issues.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'embed-failure test issue',
+        });
+        const issue = parseResult(issueResult);
+        const r1 = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+            author: 'bro',
+            kind: 'note',
+            body: 'first call primes the loadFailed state',
+        });
+        assert.ok(!r1.isError, 'first call must succeed');
+        const r2 = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+            author: 'bro',
+            kind: 'decision',
+            body: 'second call with loadFailed=true must also succeed',
+        });
+        assert.ok(!r2.isError, 'subsequent call with failed embed must still succeed (graceful degradation)');
+        const d2 = parseResult(r2);
+        assert.equal(d2.kind, 'decision');
+        localDb.close();
+    });
+});
 //# sourceMappingURL=discussions.test.js.map
