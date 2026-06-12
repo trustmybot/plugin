@@ -16,9 +16,10 @@
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
+import { classifyUrl } from '../utils/classify-url.js';
+import type { Provider } from '../utils/classify-url.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -42,22 +43,10 @@ function wrapHandler(fn: Fn): Fn {
 
 // ---- Probe helpers -------------------------------------------------------
 
-type Provider = 'github' | 'gitlab' | 'bitbucket' | 'codeberg' | 'azuredev' | 'other';
-
 interface DetectedRemote {
   name: string;
   provider: Provider;
   url: string;
-}
-
-function classifyUrl(url: string): Provider {
-  if (url.includes('github.com')) return 'github';
-  // gitlab.com OR self-hosted gitlab.<corp>.<tld>
-  if (/(^|\W)gitlab(\.com|\.[a-z0-9-]+\.[a-z]{2,})/i.test(url)) return 'gitlab';
-  if (url.includes('bitbucket.org')) return 'bitbucket';
-  if (url.includes('codeberg.org')) return 'codeberg';
-  if (url.includes('dev.azure.com')) return 'azuredev';
-  return 'other';
 }
 
 function probeGit(cwd: string): {
@@ -160,9 +149,12 @@ function derivePrTargetDefault(branchingModel: string): string {
 
 // ---- Question builders ---------------------------------------------------
 
+const KEEP_SENTINEL = '__keep__';
+
 interface QuestionOption {
   label: string;
   description: string;
+  wire: string;
   disabled?: boolean;
 }
 
@@ -188,18 +180,43 @@ const BRANCHING_DESCRIPTIONS = {
 // "Anonymous" or "type your name"). The skill body asks Name in plain prose
 // and feeds the parsed answer straight to `onboard_apply`. See commands/onboard.md.
 
+function shapeQuestion(origin_kind: Provider | null): BuiltQuestion {
+  const options: QuestionOption[] = [
+    {
+      label: 'Remote-tracked',
+      description: 'Pushes to GitHub or GitLab. Issues can mirror to the remote.',
+      wire: 'remote',
+    },
+    {
+      label: 'Local-only',
+      description: 'No GitHub/GitLab. Issues stay in the local trajectory DB; no PR/MR pushes.',
+      wire: 'local',
+    },
+  ];
+  const default_index = origin_kind === 'github' || origin_kind === 'gitlab' ? 0 : 1;
+  return {
+    question: 'Is this project local-only or remote-tracked?',
+    header: 'Shape',
+    multiSelect: false,
+    options,
+    default_index,
+  };
+}
+
 function branchingQuestion(currentModel: string | null, isReonboard: boolean): BuiltQuestion {
   const options: QuestionOption[] = [];
   if (isReonboard && currentModel !== null) {
-    options.push({ label: `Keep "${currentModel}"`, description: 'No change.' });
+    options.push({ label: `Keep "${currentModel}"`, description: 'No change.', wire: KEEP_SENTINEL });
   }
   options.push({
     label: 'GitHub Flow',
     description: BRANCHING_DESCRIPTIONS['github-flow'],
+    wire: 'github-flow',
   });
   options.push({
     label: 'Git Flow',
     description: BRANCHING_DESCRIPTIONS.gitflow,
+    wire: 'gitflow',
   });
   return {
     question: 'How does your team branch?',
@@ -217,12 +234,12 @@ function prTargetQuestion(
 ): BuiltQuestion {
   const options: QuestionOption[] = [];
   if (isReonboard && currentTarget !== null) {
-    options.push({ label: `Keep "${currentTarget}"`, description: 'No change.' });
+    options.push({ label: `Keep "${currentTarget}"`, description: 'No change.', wire: KEEP_SENTINEL });
   }
   options.push(
-    { label: 'main', description: 'Most common default.' },
-    { label: 'dev', description: 'Common for GitLab Flow + modern Git Flow variants.' },
-    { label: 'develop', description: 'Classic Git Flow convention.' },
+    { label: 'main', description: 'Most common default.', wire: 'main' },
+    { label: 'dev', description: 'Common for GitLab Flow + modern Git Flow variants.', wire: 'dev' },
+    { label: 'develop', description: 'Classic Git Flow convention.', wire: 'develop' },
   );
 
   // First-run pre-select by branching_model: github-flow → main, gitflow → dev.
@@ -259,11 +276,13 @@ function remoteQuestion(
     {
       label: gh_installed ? 'GitHub' : 'GitHub (CLI not installed)',
       description: 'github.com or GitHub Enterprise.',
+      wire: 'github',
       disabled: !gh_installed,
     },
     {
       label: glab_installed ? 'GitLab' : 'GitLab (CLI not installed)',
       description: 'gitlab.com or self-hosted GitLab.',
+      wire: 'gitlab',
       disabled: !glab_installed,
     },
   ];
@@ -292,17 +311,19 @@ function issueSyncQuestion(
 ): BuiltQuestion {
   const options: QuestionOption[] = [];
   if (isReonboard && currentSync !== null) {
-    options.push({ label: `Keep "${currentSync}"`, description: 'No change.' });
+    options.push({ label: `Keep "${currentSync}"`, description: 'No change.', wire: KEEP_SENTINEL });
   }
   options.push({
     label: 'Auto — sync to the remote you picked',
     description: authedAtLeastOne
       ? '`issue_create` mirrors to GitHub/GitLab as well as the local DB.'
       : 'WARNING: no gh/glab auth detected. Sync will retry until you authenticate.',
+    wire: 'auto',
   });
   options.push({
     label: 'Off — local DB only',
     description: 'Issues stay in the trajectory DB; no remote mirror.',
+    wire: 'off',
   });
   return {
     question: 'Mirror new MCP issues to your remote?',
@@ -312,6 +333,47 @@ function issueSyncQuestion(
     default_index: 0,
   };
 }
+
+// ---- Label → wire resolution -----------------------------------------------
+
+// Resolve a caller-supplied value against a set of options.
+// Accepts exact wire values unchanged; falls back to case-insensitive label match.
+// KEEP_SENTINEL passed directly is always returned as-is (caller signals omission).
+// Returns the wire value, or null if nothing matched.
+function resolveOption(value: string, options: QuestionOption[]): string | null {
+  if (value === KEEP_SENTINEL) return KEEP_SENTINEL;
+  const wire = options.find((o) => o.wire === value);
+  if (wire) return wire.wire;
+  const byLabel = options.find((o) => o.label.toLowerCase() === value.toLowerCase());
+  if (byLabel) return byLabel.wire;
+  return null;
+}
+
+// Canonical option sets used for label resolution in onboard_apply.
+// These mirror the question builders but are static (no per-call logic needed
+// for label resolution — the full label set is always the superset).
+const BRANCHING_OPTIONS: QuestionOption[] = [
+  { label: 'GitHub Flow', description: '', wire: 'github-flow' },
+  { label: 'Git Flow', description: '', wire: 'gitflow' },
+];
+
+const PR_TARGET_OPTIONS: QuestionOption[] = [
+  { label: 'main', description: '', wire: 'main' },
+  { label: 'dev', description: '', wire: 'dev' },
+  { label: 'develop', description: '', wire: 'develop' },
+];
+
+const REMOTE_OPTIONS: QuestionOption[] = [
+  { label: 'GitHub', description: '', wire: 'github' },
+  { label: 'GitHub (CLI not installed)', description: '', wire: 'github' },
+  { label: 'GitLab', description: '', wire: 'gitlab' },
+  { label: 'GitLab (CLI not installed)', description: '', wire: 'gitlab' },
+];
+
+const ISSUE_SYNC_OPTIONS: QuestionOption[] = [
+  { label: 'Auto — sync to the remote you picked', description: '', wire: 'auto' },
+  { label: 'Off — local DB only', description: '', wire: 'off' },
+];
 
 // ---- Tool definitions ----------------------------------------------------
 
@@ -329,29 +391,29 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
     {
       name: 'onboard_get_questions',
       description:
-        'Build AUQ-ready question objects for one /onboard round. Applies conditional logic (Keep options, disabled CLI options, probe defaults). Feed the returned array straight into AskUserQuestion.',
+        'Build AUQ-ready question objects for one /onboard round. Applies Keep options, disabled CLI options, probe defaults. Each option carries wire — pass option.wire (or label) to onboard_apply.',
       inputSchema: {
         type: 'object',
         properties: {
           shape: {
             type: 'string',
             enum: ['local', 'remote'],
-            description: 'Project shape from Round 1.',
+            description: "Project shape from Round 1. Not required when round='shape'.",
           },
           round: {
             type: 'string',
-            enum: ['main', 'sync'],
+            enum: ['shape', 'main', 'sync'],
             description:
-              "'main' = Round 2 questions (name + branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync).",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync).",
           },
         },
-        required: ['shape', 'round'],
+        required: ['round'],
       },
     },
     {
       name: 'onboard_apply',
       description:
-        'Persist all /onboard answers in a single transaction. Derives pr_target + protected_branches from branching_model, writes identity row id=1 as the onboarded marker.',
+        'Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -421,8 +483,15 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
       'onboard_get_questions',
       ['bro'],
       wrapHandler(async (args) => {
-        const shape = args['shape'] as 'local' | 'remote';
-        const round = args['round'] as 'main' | 'sync';
+        const shape = args['shape'] as 'local' | 'remote' | undefined;
+        const round = args['round'] as 'shape' | 'main' | 'sync';
+
+        const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
+        const git = probeGit(cwd || process.cwd());
+
+        if (round === 'shape') {
+          return ok({ questions: [shapeQuestion(git.origin_kind)] });
+        }
 
         // Re-onboard means /onboard already ran in this project — identity row exists.
         const isReonboard = readOnboardedFlag(db);
@@ -431,14 +500,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         const currentRemotes = readConfig(db, 'remotes');
         const currentSync = readConfig(db, 'issue_sync') as string | null;
 
-        const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
-        const git = probeGit(cwd || process.cwd());
         const gh = probeCli('gh');
         const glab = probeCli('glab');
 
-        // Name is asked separately as a prose prompt (not AUQ — see comment
-        // on the deleted nameQuestion). onboard_get_questions only returns
-        // multiple-choice questions where AUQ's radio model is the right fit.
         const questions: BuiltQuestion[] = [];
 
         if (round === 'main') {
@@ -456,11 +520,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           // shape=local + first-run yields questions=[] — skill skips AUQ Round 2.
         } else if (round === 'sync') {
           if (shape !== 'remote') {
-            throw new Error(`round='sync' only valid for shape='remote' (got '${shape}')`);
+            throw new Error(`round='sync' only valid for shape='remote' (got '${String(shape)}')`);
           }
           questions.push(issueSyncQuestion(currentSync, isReonboard, gh.authed || glab.authed));
         } else {
-          throw new Error(`unknown round '${round}'`);
+          throw new Error(`unknown round '${String(round)}'`);
         }
 
         return ok({ questions });
@@ -476,9 +540,21 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
         }
 
-        const branching_model =
-          (args['branching_model'] as string | undefined) ??
-          (shape === 'local' ? 'github-flow' : undefined);
+        // Resolve branching_model — accept wire value or human-readable label.
+        // Keep sentinel → omit (use existing value or local default).
+        const rawBranching = args['branching_model'] as string | undefined;
+        let branching_model: string | undefined;
+        if (rawBranching !== undefined) {
+          const resolved = resolveOption(rawBranching, BRANCHING_OPTIONS);
+          if (resolved === KEEP_SENTINEL) {
+            branching_model = (readConfig(db, 'branching_model') as string | null) ?? undefined;
+          } else if (resolved !== null) {
+            branching_model = resolved;
+          } else {
+            branching_model = rawBranching;
+          }
+        }
+        branching_model = branching_model ?? (shape === 'local' ? 'github-flow' : undefined);
         if (!branching_model) {
           throw new Error('branching_model is required for shape=remote');
         }
@@ -486,8 +562,19 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
         }
 
-        const pr_target =
-          (args['pr_target'] as string | undefined) ?? derivePrTargetDefault(branching_model);
+        // Resolve pr_target — accept wire value or label; Keep → use existing.
+        const rawPrTarget = args['pr_target'] as string | undefined;
+        let pr_target: string;
+        if (rawPrTarget !== undefined) {
+          const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
+          if (resolved === KEEP_SENTINEL) {
+            pr_target = (readConfig(db, 'pr_target') as string | null) ?? derivePrTargetDefault(branching_model);
+          } else {
+            pr_target = resolved ?? rawPrTarget;
+          }
+        } else {
+          pr_target = derivePrTargetDefault(branching_model);
+        }
 
         let remotes: Array<{ name: string; provider: Provider; url: string }> = [];
         let issue_sync: 'auto' | 'off' = 'off';
@@ -505,12 +592,30 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           if (remoteList.length === 0) {
             throw new Error("'remote' must include at least one of 'github' / 'gitlab' when shape='remote'");
           }
+          // Resolve each entry — accept wire value or label.
+          remoteList = remoteList.map((r) => {
+            const resolved = resolveOption(r, REMOTE_OPTIONS);
+            if (resolved !== null) return resolved;
+            return r;
+          });
           for (const r of remoteList) {
             if (r !== 'github' && r !== 'gitlab') {
               throw new Error(`remote entries must be 'github' or 'gitlab' (got '${r}')`);
             }
           }
-          issue_sync = (args['issue_sync'] as 'auto' | 'off' | undefined) ?? 'off';
+
+          // Resolve issue_sync — accept wire value or label; Keep → use existing.
+          const rawSync = args['issue_sync'] as string | undefined;
+          if (rawSync !== undefined) {
+            const resolved = resolveOption(rawSync, ISSUE_SYNC_OPTIONS);
+            if (resolved === KEEP_SENTINEL) {
+              issue_sync = ((readConfig(db, 'issue_sync') as string | null) ?? 'off') as 'auto' | 'off';
+            } else if (resolved === 'auto' || resolved === 'off') {
+              issue_sync = resolved;
+            } else {
+              issue_sync = (rawSync as 'auto' | 'off') ?? 'off';
+            }
+          }
           if (issue_sync !== 'auto' && issue_sync !== 'off') {
             throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
           }
@@ -535,7 +640,6 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
 
         const protected_branches = deriveProtectedBranches(branching_model, pr_target);
 
-        const now = nowISO();
         db.transaction(() => {
           // Mark project as onboarded via plugin_config (#2876).
           // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.

@@ -183,11 +183,21 @@ export function detectStructuralChange(
   return false;
 }
 
+// Returns true when a repo should be deprioritized as a default: version-tag-like
+// names (e.g. v0.7.1-rc.1) and paths containing bench/release copies.
+function isDeprioritizedRepo(name: string, path: string): boolean {
+  if (/^v[0-9]+\.[0-9]+/.test(name)) return true;
+  if (path.includes('/bench-worktrees/') || path.includes('/marketplace')) return true;
+  return false;
+}
+
 // Pick the repo whose path encloses (or equals) the scan session_dir. This is
 // the cwd-aware default for `tmb_default_repo`. Resolution order:
 //   1. cwd-enclosing repo (session_dir is inside the repo root)
-//   2. largest repo by file_count (deterministic tiebreak: first in input order)
-//   3. repos[0] as a last resort when file counts are all zero or unavailable
+//   2. largest ordinary working repo by file_count (deprioritized: version-named
+//      or bench/marketplace-pathed repos lose to any ordinary candidate)
+//   3. largest deprioritized repo when no ordinary candidate exists
+//   4. repos[0] as a last resort when file counts are all zero or unavailable
 // Returns '' for an empty list.
 // onGuessed is called with the chosen name + all candidates when resolution
 // falls through to heuristic (no enclosing repo).
@@ -205,11 +215,14 @@ export function preferredDefaultRepo(
   });
   if (enclosing) return enclosing.name;
 
-  // No enclosing repo — pick the largest by file_count.
-  const withCounts = repos.map((r) => ({ name: r.name, file_count: r.file_count ?? 0 }));
-  const largest = withCounts.reduce((best, cur) => (cur.file_count > best.file_count ? cur : best));
+  // No enclosing repo — pick the largest by file_count, ordinary repos first.
+  const withCounts = repos.map((r) => ({ name: r.name, path: r.path, file_count: r.file_count ?? 0 }));
+  const ordinary = withCounts.filter((r) => !isDeprioritizedRepo(r.name, r.path));
+  const pool = ordinary.length > 0 ? ordinary : withCounts;
+  const largest = pool.reduce((best, cur) => (cur.file_count > best.file_count ? cur : best));
   const chosen = largest.file_count > 0 ? largest.name : repos[0].name;
-  onGuessed?.(chosen, withCounts);
+  const candidatesForAudit = withCounts.map(({ name, file_count }) => ({ name, file_count }));
+  onGuessed?.(chosen, candidatesForAudit);
   return chosen;
 }
 
@@ -515,7 +528,7 @@ export function scanTools(db: TrajectoryDB, graph: WorldModelGraph | null, dbPat
     {
       name: 'scan_run',
       description:
-        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. The scan subprocess runs in a detached process group, SIGKILLed on the 10-minute hard timeout; MCP surfaces no abort signal, so mid-scan cancel is not possible — only timeout-kill.",
+        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
       inputSchema: {
         type: 'object',
         properties: {

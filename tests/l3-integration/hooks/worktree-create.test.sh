@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/worktree-create.sh.
-# Hook contract: WorktreeCreate event. It is the SOLE worktree-creation path
-# (#306 — bro no longer pre-creates one manually). When task.repo is set,
-# creates the worktree inside that repo; when repo is NULL/empty it falls back
-# to the workspace root as the repo (single-repo CC). Returns {"continue":true}
-# only when there's no matching task or the resolved repo isn't a git work tree.
+# Hook contract: WorktreeCreate event. stdout = bare absolute worktree path on
+# success; exit 0 = success, non-zero = fail. No JSON dialect. Informational
+# output is stderr-only.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -58,46 +56,110 @@ input_event() {
   jq -n --arg branch "$branch" '{branch: $branch}'
 }
 
-run_hook() {
-  echo "$1" | bash "$HOOK" 2>&1
+# run_hook_stdout: stdout only, stderr suppressed; returns exit code via $?
+run_hook_stdout() {
+  echo "$1" | bash "$HOOK" 2>/dev/null || return $?
+}
+
+# run_hook_stderr: stderr only, stdout suppressed; always exits 0 for capture
+run_hook_stderr() {
+  echo "$1" | { bash "$HOOK" >/dev/null; } 2>&1 || true
 }
 
 # --- tests -------------------------------------------------------------------
 
-test_case "no branch in input: continue=true"
-out=$(run_hook '{}')
-assert_contains "$out" '"continue":true' "no branch → no-op"
+test_case "no branch in input: exits non-zero, empty stdout"
+no_branch_stdout=$(echo '{}' | bash "$HOOK" 2>/dev/null || true)
+assert_eq "" "$no_branch_stdout" "no branch → empty stdout"
+no_branch_exit=0
+echo '{}' | bash "$HOOK" 2>/dev/null || no_branch_exit=$?
+if [ "$no_branch_exit" -ne 0 ]; then _pass; else _fail "expected non-zero exit for no-branch input"; fi
 
-test_case "branch with no matching task: continue=true"
-out=$(run_hook "$(input_event 'feat/999-unknown')")
-assert_contains "$out" '"continue":true' "unknown branch → no-op"
+test_case "informational output is stderr-only on success path"
+git -C "$INNER_REPO" branch feat/999-for-stderr-test HEAD 2>/dev/null || true
+sqlite3 "$DB" "INSERT OR IGNORE INTO tasks (id, branch_id, status, repo) VALUES (99, 'feat/999-for-stderr-test', 'pending', 'inner');"
+stdout_only=$(echo "$(input_event 'feat/999-for-stderr-test')" | bash "$HOOK" 2>/dev/null)
+case "$stdout_only" in
+  /*)  _pass ;;
+  *)   _fail "stdout is not an absolute path: '$stdout_only'" ;;
+esac
+assert_not_contains "$stdout_only" '"continue"' "stdout must not contain JSON"
+assert_not_contains "$stdout_only" 'tmb worktree-create' "informational text must be on stderr"
 
-test_case "repo=NULL, no tmb_default_repo, workspace root is not a git repo: exit 1 with clear error"
-# repo=NULL + no default + workspace root is not a git repo → fail loudly
-# rather than silently continue into a harness "not a directory" error.
-out=$(run_hook "$(input_event 'feat/456-no-repo')" || true)
-assert_contains "$out" 'not a git work tree' "unroutable null repo → loud error"
+test_case "no-match + no default repo + workspace not git: exit non-zero with stderr reason"
+# feat/888-unknown not in tasks; workspace root is not a git repo; no tmb_default_repo
+no_match_exit=0
+echo "$(input_event 'feat/888-unknown')" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null || no_match_exit=$?
+if [ "$no_match_exit" -ne 0 ]; then _pass; else _fail "expected non-zero when workspace root is not a git repo"; fi
+no_match_stderr=$(run_hook_stderr "$(input_event 'feat/888-unknown')")
+assert_contains "$no_match_stderr" 'not a git work tree' "stderr explains why creation failed"
 
-test_case "repo=NULL, tmb_default_repo set, workspace root is not a git repo: worktree created in default repo"
-# Inject tmb_default_repo = 'inner' into the DB so the hook can resolve the repo.
+test_case "no-match with tmb_default_repo set: worktree created, bare path on stdout"
 sqlite3 "$DB" "
   INSERT OR REPLACE INTO plugin_config (key, value_json)
     VALUES ('tmb_default_repo', '\"inner\"');
 "
-git -C "$INNER_REPO" branch feat/456-no-repo HEAD
-out=$(run_hook "$(input_event 'feat/456-no-repo')")
-assert_contains "$out" '"continue":false' "default_repo set → hook creates worktree"
-assert_contains "$out" '456-no-repo' "worktree path contains slug"
-DEFAULT_WT="$WORKSPACE/.claude/worktrees/456-no-repo"
-if [ -d "$DEFAULT_WT" ]; then _pass; else _fail "worktree not created at $DEFAULT_WT"; fi
-# Clean up so downstream tests are not affected
+git -C "$INNER_REPO" branch feat/777-nomatch HEAD 2>/dev/null || true
+no_match_path=$(echo "$(input_event 'feat/777-nomatch')" | bash "$HOOK" 2>/dev/null)
+case "$no_match_path" in
+  /*)  _pass "stdout is absolute path" ;;
+  *)   _fail "stdout is not an absolute path: '$no_match_path'" ;;
+esac
+assert_contains "$no_match_path" '777-nomatch' "path contains slug"
+NOMATCH_WT="$WORKSPACE/.claude/worktrees/777-nomatch"
+if [ -d "$NOMATCH_WT" ]; then _pass; else _fail "worktree not created at $NOMATCH_WT"; fi
 sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='tmb_default_repo';"
 
-test_case "branch matching task with repo set: worktree created at workspace-rooted path"
-out=$(run_hook "$(input_event 'fix/123-with-repo')")
-assert_not_contains "$out" '"continue":true' "repo set → not a no-op"
-assert_contains "$out" '"continue":false' "repo set → continue=false"
-assert_contains "$out" '123-with-repo' "worktree path contains slug"
+test_case "no-match with tmb_default_repo set: branch auto-created when missing"
+sqlite3 "$DB" "
+  INSERT OR REPLACE INTO plugin_config (key, value_json)
+    VALUES ('tmb_default_repo', '\"inner\"');
+"
+# feat/666-autocreate does not exist as a branch in inner repo
+autocreate_path=$(echo "$(input_event 'feat/666-autocreate')" | bash "$HOOK" 2>/dev/null)
+case "$autocreate_path" in
+  /*)  _pass "stdout is absolute path" ;;
+  *)   _fail "stdout is not an absolute path: '$autocreate_path'" ;;
+esac
+AUTOCREATE_WT="$WORKSPACE/.claude/worktrees/666-autocreate"
+if [ -d "$AUTOCREATE_WT" ]; then _pass; else _fail "worktree not created at $AUTOCREATE_WT"; fi
+if git -C "$INNER_REPO" show-ref --verify --quiet "refs/heads/feat/666-autocreate" 2>/dev/null; then
+  _pass "branch auto-created in inner repo"
+else
+  _fail "branch feat/666-autocreate not auto-created"
+fi
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='tmb_default_repo';"
+
+test_case "repo=NULL, no tmb_default_repo, workspace root is not a git repo: exit 1 with clear error"
+null_repo_exit=0
+echo "$(input_event 'feat/456-no-repo')" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null || null_repo_exit=$?
+if [ "$null_repo_exit" -ne 0 ]; then _pass; else _fail "expected non-zero exit"; fi
+null_repo_stderr=$(run_hook_stderr "$(input_event 'feat/456-no-repo')")
+assert_contains "$null_repo_stderr" 'not a git work tree' "unroutable null repo → loud error"
+
+test_case "repo=NULL, tmb_default_repo set: worktree created in default repo, bare path on stdout"
+sqlite3 "$DB" "
+  INSERT OR REPLACE INTO plugin_config (key, value_json)
+    VALUES ('tmb_default_repo', '\"inner\"');
+"
+git -C "$INNER_REPO" branch feat/456-no-repo HEAD 2>/dev/null || true
+no_repo_path=$(echo "$(input_event 'feat/456-no-repo')" | bash "$HOOK" 2>/dev/null)
+case "$no_repo_path" in
+  /*)  _pass "stdout is absolute path" ;;
+  *)   _fail "stdout is not an absolute path: '$no_repo_path'" ;;
+esac
+assert_contains "$no_repo_path" '456-no-repo' "path contains slug"
+if [ -d "$WORKSPACE/.claude/worktrees/456-no-repo" ]; then _pass; else _fail "worktree not created"; fi
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='tmb_default_repo';"
+
+test_case "branch matching task with repo set: stdout is bare absolute path"
+task_path=$(echo "$(input_event 'fix/123-with-repo')" | bash "$HOOK" 2>/dev/null)
+case "$task_path" in
+  /*)  _pass "stdout is absolute path" ;;
+  *)   _fail "stdout is not an absolute path: '$task_path'" ;;
+esac
+assert_not_contains "$task_path" '"continue"' "stdout must not contain JSON"
+assert_contains "$task_path" '123-with-repo' "path contains slug"
 
 WORKTREE_PATH="$WORKSPACE/.claude/worktrees/123-with-repo"
 if [ -d "$WORKTREE_PATH" ]; then
@@ -107,9 +169,6 @@ else
 fi
 
 test_case "worktree path is workspace-rooted, not repo-rooted, when workspace != repo"
-# Workspace at $WORKSPACE, inner repo at $WORKSPACE/inner.
-# tasks.repo='inner' → worktree must land at $WORKSPACE/.claude/worktrees/<slug>,
-# NOT at $WORKSPACE/inner/.claude/worktrees/<slug>.
 REPO_ROOTED_PATH="$INNER_REPO/.claude/worktrees/123-with-repo"
 if [ -d "$REPO_ROOTED_PATH" ]; then
   _fail "worktree must NOT be created inside inner repo at $REPO_ROOTED_PATH"
@@ -125,9 +184,6 @@ else
 fi
 
 test_case "REGRESSION (#2879): worktree HEAD is on the named branch"
-# The hook must produce a worktree where `git rev-parse --abbrev-ref HEAD`
-# returns the branch name. Branch ownership lives in the worktree so SWE's
-# commits advance the branch ref directly and pushes carry the work.
 HEAD_BRANCH=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null)
 if [ "$HEAD_BRANCH" = "fix/123-with-repo" ]; then
   _pass
@@ -148,9 +204,6 @@ else
 fi
 
 # --- single-repo fixture (#306) ---------------------------------------------
-# Layout where the workspace root IS the git repo and the task has repo=NULL.
-# This is the common single-repo case: the hook must still create the canonical
-# .claude/worktrees/<slug> checkout (bro no longer does it manually).
 SINGLE="$TMPDIR/single"
 mkdir -p "$SINGLE"
 git init -q -b main "$SINGLE"
@@ -165,35 +218,32 @@ sqlite3 "$SDB" "
 "
 git -C "$SINGLE" branch fix/789-single HEAD
 
-run_hook_single() {
-  echo "$1" | TRAJECTORY_DB_PATH="$SDB" bash "$HOOK" 2>&1
-}
 SINGLE_WT="$SINGLE/.claude/worktrees/789-single"
 
-test_case "#306: single-repo (workspace root is the repo), repo=NULL: worktree created"
-out=$(run_hook_single "$(input_event 'fix/789-single')")
-assert_contains "$out" '"continue":false' "single-repo repo=NULL → hook creates worktree"
-assert_contains "$out" '789-single' "worktree path contains slug"
+test_case "#306: single-repo (workspace root is the repo), repo=NULL: worktree created, bare path on stdout"
+single_path=$(echo "$(input_event 'fix/789-single')" | TRAJECTORY_DB_PATH="$SDB" bash "$HOOK" 2>/dev/null)
+case "$single_path" in
+  /*)  _pass "stdout is absolute path" ;;
+  *)   _fail "stdout is not an absolute path: '$single_path'" ;;
+esac
+assert_not_contains "$single_path" '"continue"' "stdout must not contain JSON"
+assert_contains "$single_path" '789-single' "path contains slug"
 if [ -d "$SINGLE_WT" ]; then _pass; else _fail "worktree not created at $SINGLE_WT"; fi
 
 test_case "#306: single-repo worktree HEAD is on the named branch"
 HB=$(git -C "$SINGLE_WT" rev-parse --abbrev-ref HEAD 2>/dev/null)
 if [ "$HB" = "fix/789-single" ]; then _pass; else _fail "expected HEAD on fix/789-single, got '$HB'"; fi
 
-test_case "#306: idempotent — second fire reuses the existing worktree, no error"
-out=$(run_hook_single "$(input_event 'fix/789-single')")
-assert_contains "$out" '"continue":false' "second fire still returns a worktreePath"
-assert_contains "$out" '789-single' "reused path contains slug"
-assert_not_contains "$out" 'failed' "no git worktree-add failure on the second fire"
+test_case "#306: idempotent — second fire reuses the existing worktree, bare path on stdout"
+single_path2=$(echo "$(input_event 'fix/789-single')" | TRAJECTORY_DB_PATH="$SDB" bash "$HOOK" 2>/dev/null)
+case "$single_path2" in
+  /*)  _pass "stdout is absolute path on second call" ;;
+  *)   _fail "stdout is not an absolute path on second call: '$single_path2'" ;;
+esac
+assert_contains "$single_path2" '789-single' "reused path contains slug"
+assert_not_contains "$single_path2" 'failed' "no error message in stdout"
 
 # --- multi-repo: session dir is parent of repo (#330) -----------------------
-# Layout: WORKSPACE_MR/ (not a git repo — session launch dir)
-#           .claude/tmb/trajectory.db
-#           plugin/                   (the inner git repo tasks point at)
-# tasks.repo = 'plugin' — the hook must git -C plugin/ worktree add
-# and create the worktree at WORKSPACE_MR/.claude/worktrees/<slug>,
-# NOT inside the inner repo.
-
 MR_WORKSPACE="$TMPDIR/mrsession"
 MR_REPO="$MR_WORKSPACE/plugin"
 mkdir -p "$MR_REPO"
@@ -220,15 +270,16 @@ sqlite3 "$MR_DB" "
 "
 git -C "$MR_REPO" branch fix/330-subdir HEAD
 
-run_hook_mr() {
-  echo "$1" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>&1
-}
 MR_WT="$MR_WORKSPACE/.claude/worktrees/330-subdir"
 
-test_case "#330: multi-repo (session dir is parent of repo subdir): worktree created"
-out=$(run_hook_mr "$(input_event 'fix/330-subdir')")
-assert_contains "$out" '"continue":false' "subdir-repo → hook creates worktree"
-assert_contains "$out" '330-subdir' "worktree path contains slug"
+test_case "#330: multi-repo (session dir is parent of repo subdir): bare path on stdout"
+mr_path=$(echo "$(input_event 'fix/330-subdir')" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null)
+case "$mr_path" in
+  /*)  _pass "stdout is absolute path" ;;
+  *)   _fail "stdout is not an absolute path: '$mr_path'" ;;
+esac
+assert_not_contains "$mr_path" '"continue"' "stdout must not contain JSON"
+assert_contains "$mr_path" '330-subdir' "path contains slug"
 if [ -d "$MR_WT" ]; then _pass; else _fail "worktree not created at $MR_WT"; fi
 
 test_case "#330: subdir-repo worktree HEAD is on the named branch"

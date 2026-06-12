@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_tr
 
 ## 1. Verify the world model
 
-Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` yourself to build it — it's deterministic and needs no Human — then re-read. This also satisfies the registry-cold gate on `task_create_batch`; reserve `waive_registry_gate` for the rare case scan genuinely cannot run. Without the world model bro is planning blind.
+Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` yourself to build it — it's deterministic and needs no Human — then re-read. Without the world model bro is planning blind.
 
 Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
 
@@ -16,32 +16,9 @@ Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world
 
 When a remote is configured:
 
-```
-AskUserQuestion: "Which branch should I create the new feature branch from?"
-options: [pr_target (pull origin/<pr_target> first) | <current_branch> | 1–3 prominent local branches]
-```
+Ask the Human which branch to create the new feature branch from — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. On `pr_target`: check it out and bring it up to date with the remote. On any other choice: switch and leave the branch as-is.
 
-On `pr_target`: `git fetch origin ${pr_target} && git checkout ${pr_target} && git pull --ff-only`. On a non-pr_target: switch; leave the branch as-is.
-
-Then derive + propose:
-
-```
-{ branch_id, confidence } = branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)
-```
-
-```
-AskUserQuestion: "Proceed with branch_id <X>?"
-options: [Yes, proceed | Suggest different branch_id]
-```
-
-On Yes:
-
-```
-issue_create(agent='bro', objective=<short>)
-discussion_append(issue_id, author='bro', kind='intent', body=<verbatim>)
-discussion_append(issue_id, author='bro', kind='note',   body='Beginning planning on ${branch_id}.')
-git branch "${branch_id}"
-```
+Then call `branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)` and confirm: "Proceed with branch_id X?" (yes / suggest different). On Yes: call `intent_start(agent='bro', objective=<short>, intent_verbatim=<verbatim>, branch_id=<branch_id>)` to create the issue, log the intent, and record the planning note in one step, then create the git branch locally.
 
 ## 3. Author the spec
 
@@ -81,20 +58,11 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 ## 4. Spawn SWE
 
-```
-task_create_batch(agent='bro', issue_id=<I>, tasks=[{branch_id, spec_body, ...}], emit_planning_complete=true, ...)
-```
+Create the tasks with `task_create_batch`, asking it to emit the planning-complete event in the same transaction. `waive_scope_gate` is valid for truly trivial work (`'trivial: <what>'`) or headless mode (`'headless mode, defaults applied; <one-line scope summary>'`).
 
-`waive_scope_gate` is valid for truly trivial work (`'trivial: <what>'`) or headless mode (`'headless mode, defaults applied; <one-line scope summary>'`).
+Then run the worktree hook per branch and spawn SWE per task — the post-create hint carries the exact spawn recipe.
 
-Then spawn SWE with `isolation='worktree'` — the server creates the worktree at `<workspace_root>/.claude/worktrees/<slug>` (where `workspace_root` is the directory holding `.claude/tmb/trajectory.db` and `slug` is `branch_id` minus its `<type>/` prefix). Pass that path so SWE lands in it:
-
-```
-Task(subagent_type='swe', isolation='worktree',
-     prompt='task_id=<N> worktree=<workspace_root>/.claude/worktrees/<slug>')
-```
-
-`isolation='worktree'` is the single creation path — the worktree is made for you on spawn. The batch response includes `parallel_groups` — tasks in the same group are safe to spawn in parallel.
+The batch response includes `parallel_groups` — tasks in the same group are safe to spawn in parallel.
 
 ## 5. Verify on SWE return + atomic close
 
@@ -102,17 +70,18 @@ After SWE returns `status=completed`:
 
 **V1** — pull: `task_get(task_id=<N>)` + `git diff <commit_sha>~1..<commit_sha>`.
 
-**V2** — three checks:
+**V2** — four checks:
 1. Changed files match `## Files`. No surprise files outside scope.
 2. `## Verification` commands pass — re-run verbatim inside the SWE worktree. Do this BEFORE V3 — the cleanup hook removes the worktree on close.
 3. Each `## Success Criteria` bullet visibly met by the diff.
+4. Run `world_model_get(path='<changed-dir>')` to confirm the change landed where expected.
 
 **V3** — all pass → `bro_atomic_close(agent='bro', task_id=<N>, commit_sha=<sha>, verification_summary='...', close_issue_if_last_task=true)`. The post-close hook re-scans automatically — the world model refreshes.
 
-Then spawn pr-reviewer for the push gate (see `tmb_review` §B). On PASS: `git push -u origin <branch>`. On FAIL: surface it, file the fix as a follow-up issue, and hold the push.
+Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On FAIL: surface it, file the fix as a follow-up issue, and hold the push.
 
 **V3 — any check fails**: `bro_verification_fail_record(agent='bro', task_id=<N>, which_check='<V1|V2|V3>', details='<≤500 chars>')`. Leave the task open. Retry via `task_retry_batch` or escalate.
 
 ## Headless overrides (TMB_HEADLESS=1)
 
-No Human in the loop — skip AUQs, apply the documented defaults (see `tmb_recovery` §A per-skill defaults table), and record the fallback. After `branch_id_propose`, run step 2's "On Yes" block (issue_create + intent/note `discussion_append` + branch create) without the AUQs to get `<I>` and `<branch_id>`, then call `headless_intent_start(agent='bro', issue_id=<I>, branch_id=<branch_id>, intent_verbatim=<verbatim>, fallback_summary='<defaults applied>')`, then proceed to step 3.
+No Human in the loop — skip AUQs, apply the documented defaults (see `tmb_recovery` §A per-skill defaults table), and record the fallback. After `branch_id_propose`, call `headless_intent_start` — it writes the issue, intent, and note atomically and won't duplicate an intent that already exists — then proceed to step 3.

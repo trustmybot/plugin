@@ -1,25 +1,33 @@
 #!/usr/bin/env bash
-# No-source-edit-from-main hook (#108).
+# No-source-edit-from-main hook (#108, updated #467, #502).
 #
-# Blocks Edit/Write tool calls when bro mode is active and the target is a
-# source-code file outside an SWE worktree. Enforces the "bro never edits
-# source code directly" doctrine — every code change goes through SWE.
+# Two rules, both LOCATION-based — any agent context (bro, general-purpose
+# subagent, consultant, etc.) is denied; the worktree path is the only
+# credential for Edit/Write. For Bash, prompt-surface writes are denied
+# regardless of agent identity when outside a worktree.
 #
-# Block conditions (all must be true):
+# This is a tripwire for obvious write-forms, not a Bash sandbox. When in
+# doubt, the hook passes — precision beats recall here.
+#
+# Rule 1 — Edit/Write to source code from main checkout:
+#   Block conditions (all must be true):
 #   1. Trajectory DB exists (this is a TMB project)
-#   2. Bro mode is active (transcript shows prior "Entering bro mode." with
-#      no later "exit bro mode" / "stop being bro")
-#   3. CWD is NOT inside .claude/worktrees/ (so this is bro, not SWE)
-#   4. Target file is NOT in the bro-allowlist (markdown, license, gitignore,
-#      git templates, plugin/agent/skill manifests, etc.)
-#
-# Allow conditions (any one allows):
+#   2. Target file is NOT inside .claude/worktrees/ (so this is not SWE)
+#   3. Target file is NOT in the docs/templates/config allowlist
+#   Allow conditions (any one allows):
 #   - DB missing (not a TMB project)
-#   - No bro mode (regular Claude Code session)
-#   - In worktree (SWE legitimately edits source there)
-#   - Target is in allowlist (docs / configs that are bro's job)
+#   - Target is inside .claude/worktrees/<slug>/... (SWE legitimately edits source there)
+#   - Target is in allowlist (docs / configs that are fine to edit from main)
 #
-# Bypass: TMB_ALLOW_SOURCE_EDIT=1 (emergency override for hotfixes).
+# Rule 2 — Bash write-form targeting a prompt surface from main checkout:
+#   Denied for every agent identity (bro, subagent, unknown) when outside a
+#   worktree. Write-forms: >, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync.
+#   Prompt surfaces: agents/*.md, skills/*/SKILL.md, commands/*.md,
+#   templates/*.md, CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md.
+#   Reads (cat/grep/sed -n) are never tripped.
+#   Sanctioned route: spawn an SWE task (prompt_bearing=1 for prompt edits).
+#
+# Bypass: TMB_ALLOW_SOURCE_EDIT=1 (emergency override for hotfixes — rule 1 only).
 
 set -uo pipefail
 
@@ -27,11 +35,173 @@ INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 
 case "$TOOL_NAME" in
-  Edit|Write|MultiEdit|NotebookEdit) ;;
+  Edit|Write|MultiEdit|NotebookEdit|Bash) ;;
   *) exit 0 ;;
 esac
 
-if [ "${TMB_ALLOW_SOURCE_EDIT:-0}" = "1" ]; then
+if [ "${TMB_ALLOW_SOURCE_EDIT:-0}" = "1" ] && [ "$TOOL_NAME" != "Bash" ]; then
+  exit 0
+fi
+
+# ---- Rule 2 (Bash): write-form targeting a prompt surface -------------------
+# Applies before the DB check — this rule does not require a TMB project.
+# Denied for every agent identity when the target is NOT inside a worktree.
+if [ "$TOOL_NAME" = "Bash" ]; then
+  CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || true)
+
+  # Worktree exemption: if the command is operating inside a worktree, allow.
+  _main_bash_in_worktree() {
+    local cmd="$1"
+    case "$cmd" in
+      */.claude/worktrees/*|*.claude/worktrees/*) return 0 ;;
+    esac
+    return 1
+  }
+
+  # _is_prompt_surface_token <token>: returns 0 if the token is a prompt-surface path.
+  _is_prompt_surface_token() {
+    local tok="$1"
+    case "$tok" in
+      agents/*.md|*/agents/*.md) return 0 ;;
+      skills/*/SKILL.md|*/skills/*/SKILL.md) return 0 ;;
+      commands/*.md|*/commands/*.md) return 0 ;;
+      templates/*.md|*/templates/*.md) return 0 ;;
+      CLAUDE.md|*/CLAUDE.md) return 0 ;;
+      CODEX.md|*/CODEX.md) return 0 ;;
+      CURSOR.md|*/CURSOR.md) return 0 ;;
+      GEMINI.md|*/GEMINI.md) return 0 ;;
+    esac
+    return 1
+  }
+
+  # _main_bash_writes_prompt_surface: destination-coupled matching.
+  # The verb/redirect operator must be adjacent to the prompt-surface path token.
+  _main_bash_writes_prompt_surface() {
+    local cmd="$1"
+
+    # --- Redirect forms: > <dest> or >> <dest> ---
+    local after_redir=""
+    case "$cmd" in
+      *">>"*)
+        after_redir="${cmd##*>>}"
+        after_redir="${after_redir#"${after_redir%%[! ]*}"}"
+        local dest_tok="${after_redir%% *}"
+        _is_prompt_surface_token "$dest_tok" && return 0
+        ;;
+    esac
+    case "$cmd" in
+      *">"*)
+        local no_dbl
+        no_dbl=$(printf '%s' "$cmd" | sed 's/>>//g')
+        case "$no_dbl" in
+          *">"*)
+            after_redir="${no_dbl##*>}"
+            after_redir="${after_redir#"${after_redir%%[! ]*}"}"
+            local dest_tok2="${after_redir%% *}"
+            _is_prompt_surface_token "$dest_tok2" && return 0
+            ;;
+        esac
+        ;;
+    esac
+
+    # --- tee: match "tee <dest>" or "tee -a <dest>" ---
+    local tee_rest=""
+    case "$cmd" in
+      *" tee "*|*" tee	"*|"tee "*)
+        case "$cmd" in
+          *" tee "*) tee_rest="${cmd##* tee }" ;;
+          "tee "*) tee_rest="${cmd#tee }" ;;
+        esac
+        case "$tee_rest" in
+          "-a "*) tee_rest="${tee_rest#-a }" ;;
+        esac
+        local tee_dest="${tee_rest%% *}"
+        _is_prompt_surface_token "$tee_dest" && return 0
+        ;;
+    esac
+
+    # --- sed -i: file is the last token after sed -i ---
+    case "$cmd" in
+      *"sed -i"*|*"sed --in-place"*)
+        local after_sedi=""
+        case "$cmd" in
+          *"sed --in-place"*) after_sedi="${cmd##*sed --in-place}" ;;
+          *"sed -i"*) after_sedi="${cmd##*sed -i}" ;;
+        esac
+        local sedi_file="${after_sedi##* }"
+        _is_prompt_surface_token "$sedi_file" && return 0
+        ;;
+    esac
+
+    # --- perl -i: file is the last token after perl -i ---
+    case "$cmd" in
+      *"perl -i"*)
+        local after_perli="${cmd##*perl -i}"
+        local perli_file="${after_perli##* }"
+        _is_prompt_surface_token "$perli_file" && return 0
+        ;;
+    esac
+
+    # --- python/python3 open(<path>, 'w'|'a'): path inside open() ---
+    case "$cmd" in
+      *"python"*"open("*"'w'"*|*"python"*"open("*'"w"'*)
+        local open_arg="${cmd##*open(}"
+        local open_path="${open_arg%%,*}"
+        open_path="${open_path#\'}"
+        open_path="${open_path%\'}"
+        open_path="${open_path#\"}"
+        open_path="${open_path%\"}"
+        _is_prompt_surface_token "$open_path" && return 0
+        ;;
+    esac
+    case "$cmd" in
+      *"python"*"open("*"'a'"*|*"python"*"open("*'"a"'*)
+        local open_arg2="${cmd##*open(}"
+        local open_path2="${open_arg2%%,*}"
+        open_path2="${open_path2#\'}"
+        open_path2="${open_path2%\'}"
+        open_path2="${open_path2#\"}"
+        open_path2="${open_path2%\"}"
+        _is_prompt_surface_token "$open_path2" && return 0
+        ;;
+    esac
+
+    # --- cp/mv/rsync: destination is the LAST argument ---
+    case "$cmd" in
+      "cp "*|*" cp "*)
+        local cp_last="${cmd##* }"
+        _is_prompt_surface_token "$cp_last" && return 0
+        ;;
+    esac
+    case "$cmd" in
+      "mv "*|*" mv "*)
+        local mv_last="${cmd##* }"
+        _is_prompt_surface_token "$mv_last" && return 0
+        ;;
+    esac
+    case "$cmd" in
+      "rsync "*|*" rsync "*)
+        local rsync_last="${cmd##* }"
+        _is_prompt_surface_token "$rsync_last" && return 0
+        ;;
+    esac
+
+    return 1
+  }
+
+  if ! _main_bash_in_worktree "$CMD" \
+      && _main_bash_writes_prompt_surface "$CMD"; then
+    BASH_DENY_REASON="BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed."
+    jq -nc --arg reason "$BASH_DENY_REASON" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $reason
+      }
+    }'
+    exit 0
+  fi
+
   exit 0
 fi
 
@@ -46,37 +216,34 @@ fi
 
 [ -f "$DB_PATH" ] || exit 0
 
-TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
-if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
-  exit 0
-fi
-# Bro mode active when:
-#   - Assistant announced "Entering bro mode." (explicit), OR
-#   - The user addressed `@bro` (the explicit sigil) in the transcript.
-# The sigil is required, not a bare `bro` word: a bare-keyword scan over the
-# whole transcript matches this hook's own block message and every assistant
-# mention of bro, false-blocking plain sessions forever (#276). `@bro` still
-# catches headless `claude -p "@bro ..."` runs where the announcement is skipped.
-# Sticky-exit: a later "exit bro mode" / "stop being bro" deactivates.
-if grep -qiE 'exit bro mode|stop being bro' "$TRANSCRIPT" 2>/dev/null; then
-  exit 0
-fi
-if ! grep -q 'Entering bro mode.' "$TRANSCRIPT" 2>/dev/null \
-   && ! grep -qiE '@bro\b' "$TRANSCRIPT" 2>/dev/null; then
-  exit 0
-fi
-
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)
 [ -n "$TARGET" ] || exit 0
 
 # Worktree exemption: any write whose target path lives inside
 # `.claude/worktrees/<slug>/...` is a legitimate SWE edit in its task
-# worktree — allow regardless of bro/SWE distinction. This MUST be a
+# worktree — allow regardless of agent identity. This MUST be a
 # target-path check, not a $PWD check: CC subagents inherit the parent's
 # CWD, so $PWD is always the project root for every hook invocation
 # (the previous $PWD-based check never matched and silently blocked SWE).
 case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
+esac
+
+# Enforcement surfaces: deny before any allowlist entry is evaluated.
+# No pattern — including *.md or docs/ — can re-open these paths from
+# the main checkout. Route all edits through a worktree (spawn SWE).
+case "$TARGET" in
+  */scripts/hooks/*|scripts/hooks/*|*/hooks/hooks.json|hooks/hooks.json)
+    REASON="BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type."
+    jq -nc --arg reason "$REASON" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $reason
+      }
+    }'
+    exit 0
+    ;;
 esac
 
 BASENAME=$(basename "$TARGET")
@@ -94,13 +261,12 @@ esac
 
 case "$TARGET" in
   *.claude-plugin/plugin.json|*.claude-plugin/marketplace.json) exit 0 ;;
-  */hooks/hooks.json|hooks/hooks.json) exit 0 ;;
   */agents/*.md|agents/*.md) exit 0 ;;
   */skills/*/SKILL.md|skills/*/SKILL.md) exit 0 ;;
   *.github/*) exit 0 ;;
 esac
 
-REASON="BLOCKED: bro is a pure planner — every code change goes through SWE. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning skill → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
+REASON="BLOCKED: source edits from the main checkout are denied for all agent contexts in a TMB project. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning skill → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
 
 jq -nc --arg reason "$REASON" '{
   hookSpecificOutput: {

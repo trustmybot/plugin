@@ -45,6 +45,23 @@ Routing SWE's commits through your local branch (rather than letting SWE push st
 | `origin/<base>` | Shared | Permanent; advances on merges |
 | `origin/<feature>` | Shared | Per-task; created by bro's push from local; removed after MR merge |
 
+## dev→main promotion policy
+
+When `dev` is ready to ship, the release PR is merged into `main` using a **merge commit** (`gh pr merge --merge`). This preserves both branches' full ancestry in the graph.
+
+### Why merge commit, not squash
+
+Squash promotions rewrite `main`'s tree without ancestry: every release appears as a single flat commit with no connection to the feature commits that composed it. In practice this caused two compounding problems:
+
+1. **Version-manifest conflicts at every release.** Because `dev`'s history was not represented in `main`'s ancestry, Git could not find a meaningful common ancestor when computing diffs for the next promotion. Files that changed only on `main` (e.g. `plugin.json` version bumps from a hotfix) were treated as divergent on every subsequent release PR.
+2. **Main-only file deletion at v0.7.0.** A squash promotion replaced `main`'s tree with `dev`'s snapshot, silently deleting files that existed on `main` but had never been on `dev`. This was the failure mode that prompted the policy change (#472/#473).
+
+Merge commits avoid both: `main` gains ancestry over every `dev` commit, so the common ancestor at the next promotion is real and conflicts reflect genuine content divergence.
+
+### Transition note
+
+`main`'s history prior to v0.8.0 consists of squash-promotions (one flat commit per release). The v0.7.1 release bridged ancestry via an `-s ours` merge (#471), which recorded `dev`'s history into `main`'s graph without altering `main`'s working tree. From v0.8.0 onward, every promotion is a standard merge commit.
+
 ## Realized by — files per stage
 
 **Idle**

@@ -431,6 +431,109 @@ describe('discussion_append verified_human gate (#145)', () => {
         }
     });
 });
+describe('discussion_append body size cap (#219)', () => {
+    let db;
+    let issueId;
+    before(async () => {
+        db = tempDB();
+        const issues = issueTools(db);
+        const result = await call(issues.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'body size cap test issue',
+            description: 'Isolated issue for body cap tests.',
+        });
+        const created = parseResult(result);
+        issueId = String(created.id);
+    });
+    after(() => {
+        db.close();
+    });
+    it('accepts body exactly at the 64KB cap', async () => {
+        const disc = discussionTools(db);
+        const body = 'a'.repeat(65_536);
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: issueId,
+            author: 'bro',
+            kind: 'note',
+            body,
+        });
+        assert.ok(!result.isError, `Expected no error at cap: ${JSON.stringify(parseResult(result))}`);
+        const data = parseResult(result);
+        assert.equal(data.author, 'bro');
+    });
+    it('rejects body over 64KB with a named validation error (not a SQLite error)', async () => {
+        const disc = discussionTools(db);
+        const body = 'a'.repeat(65_537);
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: issueId,
+            author: 'bro',
+            kind: 'note',
+            body,
+        });
+        assert.ok(result.isError, 'Should be error for oversized body');
+        const data = parseResult(result);
+        assert.ok(data.error.includes('64KB'), `Error must mention 64KB limit: ${data.error}`);
+        assert.ok(data.error.includes('65537'), `Error must include byte count: ${data.error}`);
+        assert.ok(!data.error.includes('SQLITE'), `Error must not be a SQLite error: ${data.error}`);
+    });
+});
+describe('discussion_append default issue_id resolution (#506)', () => {
+    it('omitting issue_id lands on the newest open issue', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        const r1 = await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'older issue' });
+        await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'newer issue' });
+        const newerIssue = parseResult(await call(issues.handlers, 'issue_list', { agent: 'bro' }));
+        const newerIssueId = String(Math.max(...newerIssue.map((x) => x.id)));
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            author: 'bro',
+            kind: 'note',
+            body: 'No issue_id supplied',
+        });
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const data = parseResult(result);
+        assert.equal(String(data.issue_id), newerIssueId, 'Must land on the newest open issue');
+        void r1;
+        localDb.close();
+    });
+    it('omitting issue_id with no open issues falls back to -1', async () => {
+        const localDb = tempDB();
+        const disc = discussionTools(localDb);
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            author: 'bro',
+            kind: 'note',
+            body: 'Fallback to system issue',
+        });
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const data = parseResult(result);
+        assert.equal(data.issue_id, -1, 'Must fall back to -1 system issue when no open issues exist');
+        localDb.close();
+    });
+    it('explicit issue_id is unchanged by the default logic', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'explicit issue' });
+        const issueList = parseResult(await call(issues.handlers, 'issue_list', { agent: 'bro' }));
+        const firstId = String(issueList[0].id);
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: firstId,
+            author: 'bro',
+            kind: 'note',
+            body: 'Explicit issue_id must be honored',
+        });
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const data = parseResult(result);
+        assert.equal(String(data.issue_id), firstId, 'Explicit issue_id must pass through unchanged');
+        localDb.close();
+    });
+});
 describe('issue_get_with_discussions swe redaction (#344)', () => {
     it('swe sees redacted description in the issue field', async () => {
         const localDb = tempDB();

@@ -4,6 +4,47 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.0 — 2026-06-12
+
+Promotes `v0.8.0-rc.1` to stable. See the rc section below for the full milestone rollup. Release gate green on the rc tag: L0 + L1–L4 + L6 chain 13/13 in a single run. First release under the merge-commit promotion policy.
+
+## v0.8.0-rc.1 — 2026-06-11
+
+The A- campaign release: every prompt surface (agents, skills, commands, CLAUDE.md) re-authored to the DETERMINISM grading bar, backed by composites, server features, and structural hardening across the full v0.8.0 milestone.
+
+### Added — composites + server features
+
+- **`intent_start` composite** — single transaction opening an issue + decision note; replaces the multi-step intent ceremony. Deterministic entry point for every code-touching ask.
+- **`headless_fallback_record` composite** — one-shot sqlite3 fallback for MCP-unreachable sessions; writes the audit row + status flip atomically so bro can close a task even when the server is down.
+- **`agent_resolve` tool (read-only)** — server-side Branch A/B/C resolution (new agent vs existing vs reserved conflict); bro keeps the single `Write` and the existing `agent_register` call, so file/DB consistency is never split across two steps.
+- **`intent_start` wires `onboard` values + shape round** — the composite reads `plugin_config` for repo/branch defaults and validates the intent shape before writing; `onboard` round-trips those values correctly on first boot.
+- **`discussion_search` defaults to current issue** when called without an `issue_id` — removes a class of wrong-issue cross-talk in long sessions.
+- **Vote caps** — `roundtable_vote` rejects a second vote from the same participant; `roundtable_summarize` caps the returned discussion list to avoid context overrun.
+- **Default-repo ranking** — `scan_run` resolves default repo as cwd-enclosing → largest-by-file-count → first-in-list; a `default_repo_guessed` audit event fires on heuristic fallback.
+- **Retry repo override** — `task_retry_batch` accepts an explicit `repo` override so retried tasks can target a different worktree layout than the failed attempt.
+- **Discussions cap** — `discussion_search` truncates results at a configurable ceiling so a pathologically large issue doesn't blow the context window.
+
+### Added — enforcement + structural hardening
+
+- **Role/location fences** — every agent (swe, pr-reviewer, consultant) now runs behind a `requireRoles` + `requireLocation` guard pair; the general-purpose subagent fix closes the gap where a plain CC subagent could call bro-only tools.
+- **SWE scope fence** — `swe-boundary` PreToolUse hook blocks Edit/Write/Bash outside the assigned worktree path; slug-fallback handles renamed channels.
+- **Brief/verification-gate hardening** — `swe-brief-gate` and `swe-verification-gate` fail loud on missing or malformed sentinel values instead of silently passing.
+- **Consultant persistence gate** — consultant agent sessions are terminated after delivering their verdict; a PostToolUse hook prevents re-entry without a new `agent_resolve` call.
+- **Bash-write tripwire** — PreToolUse hook detects Bash commands that write prompt-bearing files (agents/, skills/, CLAUDE.md) and blocks, routing the write through the Edit tool which triggers the prompt-surface fence.
+- **WorktreeCreate contract conformance** — `worktree-create.sh` signals failure via non-zero exit (was silently exiting 0); the hook spec now matches the CC `WorktreeCreate` contract.
+- **L6 resume git-tree fix** — `chain_setup_command` restores the exact git tree (not just HEAD) so resumed chains don't see dirty-worktree false positives.
+- **Merge-commit promotion policy + restored main guards** — `git-guards` re-gates direct pushes to `main`; the merge-commit path (squash vs merge-commit) is now policy-enforced per branch type.
+
+### Changed — prompt-surface A- campaign
+
+- **Every agent/skill/command/CLAUDE.md re-authored** to the DETERMINISM grading bar: personas up front, judgment in prose, deterministic behavior moved behind gates, pointer-style hints for procedure. All surfaces independently graded A/A−.
+- **`agent-create` command** trimmed 123 → 53 lines by extracting deterministic steps to the `swe-boundary` hook and the `agent_resolve` composite; the retained prose is pure judgment.
+- **Agent-hook dispatcher** — the 7 intent-hint hooks (consultant, push, concerns, reonboard, resume, scan, roundtable) are collapsed into a single dispatcher script; 11 → 5 processes per prompt turn.
+
+### Fixed
+
+- **CodeQL hygiene** — shell arithmetic on user-controlled strings hardened; `grep -E` alternation literals escaped; `read` calls guarded with `IFS=` to prevent word-split injection. Closes all CodeQL medium-severity alerts introduced in v0.7.1.
+
 ## v0.7.1 — 2026-06-11
 
 Promotes `v0.7.1-rc.1` to stable, plus the fixes the first Linux release-gate runs surfaced after the rc tag: bro-turn-usage digit-guard token sanitization and code-quality-lint bracket-class ERE literals + unescaped-backtick repair (#463–#465), and CI actions bumped to Node-24-ready majors (#466). See `v0.7.1-rc.1` below for the full milestone rollup (~80 issues, PRs #392–#459). Release gate green on the rc tag: L6 chain 13/13.

@@ -3,6 +3,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { syncIssueCloseRemotes } from './issues.js';
+import { resolveDefaultIssueId } from './discussions.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a spec's `## Files` section. Each
 // bullet's first token is the path; its dirname is the directory ('' = repo
@@ -83,6 +84,24 @@ function intentToType(text) {
     }
     return { prefix: 'chore', confidence: 0.3 };
 }
+// Shared write helper: inserts kind='note' + kind='intent' for a given issue.
+// No-dup guard: if an intent row with the same verbatim already exists for this
+// issue_id, the intent insert is skipped (second call is a no-op). The note is
+// always written so the trajectory stays readable. Returns what was written.
+function insertIntentAndNote(db, issueId, intentVerbatim, noteLine, now) {
+    const existing = db.get(`SELECT id FROM discussions
+      WHERE issue_id = ? AND kind = 'intent' AND body = ?
+      LIMIT 1`, [issueId, `Human intent verbatim: "${intentVerbatim}"`]);
+    db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
+     VALUES (?, 'bro', 'note', ?, ?)`, [issueId, noteLine, now]);
+    const written = ['note'];
+    if (!existing) {
+        db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (?, 'bro', 'intent', ?, ?)`, [issueId, `Human intent verbatim: "${intentVerbatim}"`, now]);
+        written.push('intent');
+    }
+    return written;
+}
 export function compositeTools(db, dbPath, graph = null) {
     const definitions = [
         {
@@ -108,10 +127,8 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'task_retry_batch',
-            description: "Retry composite — collapses the prior 5-call retry recipe (read failure, append " +
-                "rationale, create new task, log audit) into one transaction. Caller passes the " +
-                "failed task_id, the corrected spec_body, and the rationale. Server inherits issue_id, " +
-                "parent_branch_id, and repo from the failed task. Returns the new task row.",
+            description: "Retry composite — one transaction: reads the failed task, appends rationale, creates a " +
+                "new task inheriting issue_id/parent_branch_id/repo (overridable). Returns the new task row.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -125,6 +142,11 @@ export function compositeTools(db, dbPath, graph = null) {
                     retry_rationale: {
                         type: 'string',
                         description: "≤200 chars — the root cause and corrected approach. Persisted as discussion(kind='decision').",
+                    },
+                    repo: {
+                        type: 'string',
+                        description: 'Optional repo override — replaces the repo inherited from the failed task. ' +
+                            'Must not contain ".." or start with "/". Omit to inherit.',
                     },
                     title: { type: 'string' },
                     description: { type: 'string' },
@@ -158,6 +180,39 @@ export function compositeTools(db, dbPath, graph = null) {
                     },
                 },
                 required: ['agent', 'issue_id', 'branch_id', 'intent_verbatim'],
+            },
+        },
+        {
+            name: 'intent_start',
+            description: 'Interactive planning composite — atomically runs issue_create + discussion_append(intent) + ' +
+                'discussion_append(note) + audit_log(branch_id_proposed). Git branch creation stays caller-side. ' +
+                'Returns {issue_id, branch_id}.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    objective: { type: 'string', description: 'Short one-liner issue objective.' },
+                    intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
+                    branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
+                },
+                required: ['agent', 'objective', 'intent_verbatim', 'branch_id'],
+            },
+        },
+        {
+            name: 'headless_fallback_record',
+            description: 'Headless fallback composite — atomically writes audit_log(headless_fallback) + ' +
+                'discussion_append(note) in one DB write. issue_id defaults to the most recent open issue ' +
+                'or -1. Args: question (skipped AUQ), chosen_default (applied value), skill (caller).',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    question: { type: 'string', description: 'The AskUserQuestion prompt that was skipped in headless mode.' },
+                    chosen_default: { type: 'string', description: 'The default value that was applied.' },
+                    skill: { type: 'string', description: 'Which tmb_* skill triggered this fallback.' },
+                    issue_id: { type: 'number', description: 'Optional override. Defaults to most recent open issue or -1.' },
+                },
+                required: ['agent', 'question', 'chosen_default', 'skill'],
             },
         },
         {
@@ -255,8 +310,8 @@ export function compositeTools(db, dbPath, graph = null) {
             description: "Full context bundle for one task in a single call — swe's only context read. " +
                 'Joins the trajectory DB (task row, spec_body, the task issue\'s discussion thread) ' +
                 'with the kuzu world model (each directory the spec\'s `## Files` touch, plus its ' +
-                'children\'s summaries). Lets swe receive scope instead of orchestrating task_get + ' +
-                'world_model_get + discussion_search itself. See docs/architecture/WORLD_MODEL.md.',
+                "children's summaries). Lets swe receive scope instead of orchestrating task_get + " +
+                'world_model_get + discussion_search itself.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -362,6 +417,7 @@ export function compositeTools(db, dbPath, graph = null) {
             const rationale = args['retry_rationale'];
             const description = args['description'];
             const title = args['title'] ?? '';
+            const repoOverride = args['repo'] ?? null;
             if (!BRANCH_ID_RE.test(newBranchId)) {
                 return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
             }
@@ -370,6 +426,14 @@ export function compositeTools(db, dbPath, graph = null) {
             }
             if (!rationale || rationale.length > 200) {
                 return err('retry_rationale must be 1..200 chars.');
+            }
+            if (repoOverride !== null) {
+                if (repoOverride.includes('..')) {
+                    return err(`Invalid repo "${repoOverride}": must not contain "..".`);
+                }
+                if (repoOverride.startsWith('/')) {
+                    return err(`Invalid repo "${repoOverride}": must not start with "/".`);
+                }
             }
             const failed = db.get(`SELECT id, issue_id, branch_id, parent_branch_id, repo, status
              FROM tasks WHERE id = ? LIMIT 1`, [failedTaskId]);
@@ -426,7 +490,7 @@ export function compositeTools(db, dbPath, graph = null) {
                     title,
                     description,
                     spec,
-                    failed.repo,
+                    repoOverride ?? failed.repo,
                     now,
                     now,
                 ]);
@@ -467,6 +531,7 @@ export function compositeTools(db, dbPath, graph = null) {
                 return err('intent_verbatim must be a non-empty string');
             }
             const now = nowISO();
+            let written = [];
             db.transaction(() => {
                 db.run(`INSERT INTO audit
                (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
@@ -477,12 +542,80 @@ export function compositeTools(db, dbPath, graph = null) {
                     JSON.stringify({ fallback_summary: fallbackSummary }),
                     now,
                 ]);
-                db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'note', ?, ?)`, [issueId, 'Headless fallback: no Human in loop; defaults applied.', now]);
-                db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'intent', ?, ?)`, [issueId, `Human intent verbatim: "${intentVerbatim}"`, now]);
+                written = insertIntentAndNote(db, issueId, intentVerbatim, 'Headless fallback: no Human in loop; defaults applied.', now);
             });
-            return ok({ issue_id: issueId, branch_id: branchId, written: ['audit', 'note', 'intent'] });
+            return ok({ issue_id: issueId, branch_id: branchId, written: ['audit', ...written] });
+        })),
+        intent_start: requireRoles('intent_start', ['bro'], wrap(async (args) => {
+            const objective = args['objective'];
+            const intentVerbatim = args['intent_verbatim'];
+            const branchId = args['branch_id'];
+            if (!objective || objective.trim().length === 0) {
+                return err('objective must be a non-empty string');
+            }
+            if (!intentVerbatim || intentVerbatim.trim().length === 0) {
+                return err('intent_verbatim must be a non-empty string');
+            }
+            if (!branchId || branchId.trim().length === 0) {
+                return err('branch_id must be a non-empty string');
+            }
+            if (!BRANCH_ID_RE.test(branchId)) {
+                return err(`branch_id "${branchId}" does not match the conventional format.`);
+            }
+            const now = nowISO();
+            const result = db.transaction(() => {
+                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at)
+             VALUES (?, '', 'open', ?, ?)`, [objective, now, now]);
+                const row = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
+                if (!row)
+                    throw new Error('intent_start: failed to retrieve inserted issue');
+                const issueId = row.id;
+                insertIntentAndNote(db, issueId, intentVerbatim, `Beginning planning on ${branchId}.`, now);
+                db.run(`INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'branch_id_proposed', ?, ?, ?)`, [
+                    issueId,
+                    branchId,
+                    `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
+                    JSON.stringify({ branch_id: branchId, objective }),
+                    now,
+                ]);
+                return { issue_id: issueId, branch_id: branchId };
+            });
+            return ok(result);
+        })),
+        headless_fallback_record: requireRoles('headless_fallback_record', ['bro'], wrap(async (args) => {
+            const question = args['question'];
+            const chosenDefault = args['chosen_default'];
+            const skill = args['skill'];
+            if (!question || question.trim().length === 0) {
+                return err('question must be a non-empty string');
+            }
+            if (!chosenDefault || chosenDefault.trim().length === 0) {
+                return err('chosen_default must be a non-empty string');
+            }
+            if (!skill || skill.trim().length === 0) {
+                return err('skill must be a non-empty string');
+            }
+            let issueId = args['issue_id'] ?? null;
+            if (issueId === null) {
+                issueId = resolveDefaultIssueId(db);
+            }
+            const now = nowISO();
+            const noteBody = `Headless fallback (${skill}): question skipped — applied default "${chosenDefault}".`;
+            db.transaction(() => {
+                db.run(`INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, NULL, 'bro', 'headless_fallback', ?, ?, ?)`, [
+                    issueId,
+                    `${skill}: "${question.slice(0, 120)}" → default: "${chosenDefault.slice(0, 80)}"`,
+                    JSON.stringify({ skill, question, chosen_default: chosenDefault }),
+                    now,
+                ]);
+                db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
+             VALUES (?, 'bro', 'note', ?, ?)`, [issueId, noteBody, now]);
+            });
+            return ok({ issue_id: issueId, written: ['audit', 'note'] });
         })),
         bro_verification_fail_record: requireRoles('bro_verification_fail_record', ['bro'], wrap(async (args) => {
             const taskId = args['task_id'];

@@ -5,7 +5,7 @@
 #
 # templates/agents/ — Lego model:
 #   template.md              ≤25 lines total (carries the full TMB integration contract)
-#   swe.md, pr-reviewer.md  ≤30 lines total (backbone roles; byte-identical to agents/)
+#   swe.md, pr-reviewer.md  no longer ship as templates (backbone roles live in agents/ only)
 #   <consultant role>.md    ≤15 lines body (after frontmatter) — role flavor only;
 #                           the contract lives in template.md, not here.
 #

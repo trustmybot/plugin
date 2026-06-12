@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# WorktreeCreate hook (#110 Phase 2). Routes worktree creation to the correct
-# git repo when tasks.repo is set.
+# WorktreeCreate hook. Routes worktree creation to the correct git repo.
+#
+# Contract (CC WorktreeCreate): stdout = bare absolute worktree path on success;
+# exit 0 = success, non-zero = fail. No JSON dialect, no continue/defer.
 #
 # Reads CC's WorktreeCreate hook input (JSON via stdin). Extracts the
 # requested branch name, then looks up the task by branch_id in the
@@ -11,9 +13,16 @@
 #   2. tmb_default_repo (plugin_config) — used when CWD is not a git repo
 #   3. WORKSPACE_ROOT — fallback for single-repo layouts where workspace IS the repo
 #
+# No-match (branch not in tasks table):
+#   Create the worktree in the resolution-order repo (tasks.repo unavailable →
+#   tmb_default_repo → workspace root), creating the branch if it does not exist.
+#
+# DB-absent (non-TMB project):
+#   Create under <cwd>/.claude/worktrees/<sanitized-branch> from the cwd repo.
+#
 # Runs `git -C <repo> worktree add <path> <branch>` inside the resolved repo.
 # The worktree attaches to the named branch so SWE's commits advance the branch
-# ref directly and pushes carry the commits (#2869 / #2879).
+# ref directly and pushes carry the commits.
 #
 # Worktree path: <workspace_root>/.claude/worktrees/<slug>
 # where slug strips the <type>/ prefix (fix/123-foo → 123-foo).
@@ -21,14 +30,10 @@
 # Resolves <repo> relative to the workspace root (dir containing
 # .claude/<plugin>/trajectory.db), found via tmb_db_path walk-up.
 #
-# Silent pass-through (continue: true) when:
-#   - no branch in input
-#   - no matching task found
-#   - trajectory DB absent (not a TMB project)
-#
 # Exits non-zero when:
-#   - resolved repo is not a git work tree (DB present = known TMB project)
-#   - git worktree add fails (branch does not exist pre-created)
+#   - no branch in input (nothing to create)
+#   - resolved repo is not a git work tree
+#   - git worktree add fails
 
 set -uo pipefail
 
@@ -39,44 +44,65 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INPUT=$(cat)
 
 BRANCH_NAME=$(echo "$INPUT" | jq -r '.branch // ""' 2>/dev/null)
-[ -n "$BRANCH_NAME" ] || { echo '{"continue":true}'; exit 0; }
+if [ -z "$BRANCH_NAME" ]; then
+  printf 'tmb worktree-create: no branch in input — nothing to create\n' >&2
+  exit 1
+fi
+
+# Slug: strip type/ prefix (fix/123-foo → 123-foo)
+SLUG="${BRANCH_NAME#*/}"
 
 DB_PATH=$(tmb_db_path 2>/dev/null) || true
+
+# DB-absent: non-TMB project — create from cwd repo
 if [ -z "$DB_PATH" ] || [ ! -f "$DB_PATH" ]; then
-  echo '{"continue":true}'
+  CWD_REPO="$(pwd)"
+  WORKTREE_PATH="$CWD_REPO/.claude/worktrees/$SLUG"
+  if ! git -C "$CWD_REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf 'tmb worktree-create: no trajectory DB and cwd %s is not a git repo\n' \
+      "$CWD_REPO" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$WORKTREE_PATH")"
+  if [ -e "$WORKTREE_PATH/.git" ]; then
+    printf 'tmb worktree-create: reusing existing worktree %s for branch %s\n' \
+      "$WORKTREE_PATH" "$BRANCH_NAME" >&2
+    echo "$WORKTREE_PATH"
+    exit 0
+  fi
+  if ! git -C "$CWD_REPO" show-ref --verify --quiet "refs/heads/$BRANCH_NAME" 2>/dev/null; then
+    git -C "$CWD_REPO" branch "$BRANCH_NAME" HEAD >/dev/null 2>&1 \
+      || { printf 'tmb worktree-create: could not create branch %s in %s\n' \
+             "$BRANCH_NAME" "$CWD_REPO" >&2; exit 1; }
+    printf 'tmb worktree-create: auto-created branch %s in %s\n' \
+      "$BRANCH_NAME" "$CWD_REPO" >&2
+  fi
+  if ! git -C "$CWD_REPO" worktree add "$WORKTREE_PATH" "$BRANCH_NAME" >/dev/null 2>&1; then
+    printf 'tmb worktree-create: git worktree add failed for branch %s in %s\n' \
+      "$BRANCH_NAME" "$CWD_REPO" >&2
+    exit 1
+  fi
+  printf 'tmb worktree-create: created worktree %s for branch %s (no-DB path)\n' \
+    "$WORKTREE_PATH" "$BRANCH_NAME" >&2
+  echo "$WORKTREE_PATH"
   exit 0
 fi
 
-tmb_have_sqlite || { echo '{"continue":true}'; exit 0; }
+tmb_have_sqlite || {
+  printf 'tmb worktree-create: sqlite3 unavailable\n' >&2
+  exit 1
+}
+
+WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
 
 SAFE_BRANCH="$(printf '%s' "$BRANCH_NAME" | sed "s/'/''/g")"
 TASK_COUNT=$(sqlite3 "$DB_PATH" \
   "SELECT COUNT(*) FROM tasks WHERE branch_id='$SAFE_BRANCH';" \
   2>/dev/null || echo 0)
 
-# No matching task → not a TMB-managed branch; defer to the harness default.
 if [ "$TASK_COUNT" = "0" ]; then
-  echo '{"continue":true}'
-  exit 0
-fi
-
-REPO=$(sqlite3 "$DB_PATH" \
-  "SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='$SAFE_BRANCH' LIMIT 1;" \
-  2>/dev/null || true)
-
-WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
-DEFAULT_REPO=""
-
-# Resolve the repo that owns the branch.
-# Priority: tasks.repo → tmb_default_repo (plugin_config) → WORKSPACE_ROOT.
-if [ -n "$REPO" ]; then
-  # tasks.repo is set: may be relative or absolute
-  case "$REPO" in
-    /*) REPO_ABS="$REPO" ;;
-    *)  REPO_ABS="$WORKSPACE_ROOT/$REPO" ;;
-  esac
-else
-  DEFAULT_REPO=$(tmb_config_get "tmb_default_repo" 2>/dev/null || true)
+  # No matching task — create in the default-repo resolution order
+  DEFAULT_REPO=$(tmb_config_get "tmb_default_repo" "$DB_PATH" 2>/dev/null || true)
   if [ -n "$DEFAULT_REPO" ]; then
     case "$DEFAULT_REPO" in
       /*) REPO_ABS="$DEFAULT_REPO" ;;
@@ -85,36 +111,60 @@ else
   else
     REPO_ABS="$WORKSPACE_ROOT"
   fi
+  WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
+else
+  REPO=$(sqlite3 "$DB_PATH" \
+    "SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='$SAFE_BRANCH' LIMIT 1;" \
+    2>/dev/null || true)
+
+  DEFAULT_REPO=""
+  if [ -n "$REPO" ]; then
+    case "$REPO" in
+      /*) REPO_ABS="$REPO" ;;
+      *)  REPO_ABS="$WORKSPACE_ROOT/$REPO" ;;
+    esac
+  else
+    DEFAULT_REPO=$(tmb_config_get "tmb_default_repo" "$DB_PATH" 2>/dev/null || true)
+    if [ -n "$DEFAULT_REPO" ]; then
+      case "$DEFAULT_REPO" in
+        /*) REPO_ABS="$DEFAULT_REPO" ;;
+        *)  REPO_ABS="$WORKSPACE_ROOT/$DEFAULT_REPO" ;;
+      esac
+    else
+      REPO_ABS="$WORKSPACE_ROOT"
+    fi
+  fi
+
+  WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
 fi
 
-# If the resolved repo isn't a git work tree, fail loudly — silently continuing
-# into the harness default produces an opaque "not a directory" error from CC.
+# If the resolved repo isn't a git work tree, fail loudly
 if ! git -C "$REPO_ABS" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'tmb worktree-create: resolved repo %s is not a git work tree (task repo=%s, default_repo=%s, workspace=%s)\n' \
-    "$REPO_ABS" "${REPO:-}" "$DEFAULT_REPO" "$WORKSPACE_ROOT" >&2
+  printf 'tmb worktree-create: resolved repo %s is not a git work tree\n' \
+    "$REPO_ABS" >&2
   exit 1
 fi
 
-SLUG="${BRANCH_NAME#*/}"
-
-# Worktree path is workspace-rooted (not repo-rooted) so .claude/ state stays
-# out of inner git repos. The worktree is still git-attached to <repo> via
-# `git -C <repo>` — git tracks it in <repo>/.git/worktrees/<slug>; the checkout
-# files live at <workspace_root>/.claude/worktrees/<slug>/.
-WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
-
 mkdir -p "$(dirname "$WORKTREE_PATH")"
 
-# Idempotent: if a worktree already lives at the canonical path, reuse it
-# instead of a second `git worktree add` that fails "already exists" (#306).
+# Idempotent: reuse an existing worktree at the canonical path
 if [ -e "$WORKTREE_PATH/.git" ]; then
   printf 'tmb worktree-create: reusing existing worktree %s for branch %s\n' \
     "$WORKTREE_PATH" "$BRANCH_NAME" >&2
-  jq -nc --arg path "$WORKTREE_PATH" '{"continue":false,"worktreePath":$path}'
+  echo "$WORKTREE_PATH"
   exit 0
 fi
 
-if ! git -C "$REPO_ABS" worktree add "$WORKTREE_PATH" "$BRANCH_NAME" 2>&1; then
+# Create the branch if it does not exist (harness expects creation to succeed)
+if ! git -C "$REPO_ABS" show-ref --verify --quiet "refs/heads/$BRANCH_NAME" 2>/dev/null; then
+  git -C "$REPO_ABS" branch "$BRANCH_NAME" HEAD >/dev/null 2>&1 \
+    || { printf 'tmb worktree-create: could not create branch %s in %s\n' \
+           "$BRANCH_NAME" "$REPO_ABS" >&2; exit 1; }
+  printf 'tmb worktree-create: auto-created branch %s in %s\n' \
+    "$BRANCH_NAME" "$REPO_ABS" >&2
+fi
+
+if ! git -C "$REPO_ABS" worktree add "$WORKTREE_PATH" "$BRANCH_NAME" >/dev/null 2>&1; then
   printf 'tmb worktree-create: git worktree add failed for branch %s in repo %s\n' \
     "$BRANCH_NAME" "$REPO_ABS" >&2
   exit 1
@@ -123,4 +173,4 @@ fi
 printf 'tmb worktree-create: created worktree %s for branch %s in repo %s\n' \
   "$WORKTREE_PATH" "$BRANCH_NAME" "$REPO_ABS" >&2
 
-jq -nc --arg path "$WORKTREE_PATH" '{"continue":false,"worktreePath":$path}'
+echo "$WORKTREE_PATH"

@@ -115,28 +115,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-task-spec.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/require-feature-branch-active.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-reviewer-no-worktree.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-reviewer-spawn-prompt-shape.sh",
-            "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pr-reviewer-after-atomic-close.sh",
-            "timeout": 3
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/agent-spawn-dispatch.sh",
+            "timeout": 15
           }
         ]
       },
@@ -196,6 +176,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-boundary.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-scope-fence.sh",
             "timeout": 5
           },
           {
@@ -312,6 +297,11 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-atomic-close.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/consultant-persistence-gate.sh",
             "timeout": 5
           }
         ]

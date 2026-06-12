@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { tempDB } from './helpers.js';
 import { agentTools } from '../tools/agents.js';
 import { auditTools } from '../tools/audit.js';
@@ -76,25 +79,59 @@ describe('agentTools', () => {
     db.close();
   });
 
-  it('agent_register is idempotent — INSERT OR IGNORE returns existing row unchanged', async () => {
+  it('agent_register promotes template-seeded row to project-local and updates scope+file_path', async () => {
     const db = tempDB();
     const tools = agentTools(db);
 
-    const first = await call(tools.handlers, 'agent_register', {
+    const result = await call(tools.handlers, 'agent_register', {
       agent: 'bro',
-      name: 'architect',
+      name: 'cto',
       kind: 'consultant',
       scope: 'project-local',
-      file_path: '.claude/agents/architect.md',
+      file_path: '.claude/agents/cto.md',
     });
-    const firstRow = parseResult(first);
-    assert.ok(!first.isError, `Expected no error: ${JSON.stringify(firstRow)}`);
-
-    assert.equal(firstRow.scope, 'template', 'Existing row should not be overwritten');
+    const row = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
+    assert.equal(row.scope, 'project-local', 'Promoted row must have scope=project-local');
+    assert.equal(row.file_path, '.claude/agents/cto.md', 'Promoted row must have updated file_path');
 
     const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
     assert.ok(count !== undefined);
-    assert.equal(count.cnt, 6, 'Row count must not grow when INSERT OR IGNORE hits existing name');
+    assert.equal(count.cnt, 6, 'Row count must not grow on promotion');
+    db.close();
+  });
+
+  it('agent_register promotion emits exactly one tmb_agent_created audit; repeat call emits none', async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+
+    await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'cto',
+      kind: 'consultant',
+      scope: 'project-local',
+      file_path: '.claude/agents/cto.md',
+    });
+
+    const afterFirst = db.get<{ cnt: number }>(
+      "SELECT COUNT(*) AS cnt FROM audit WHERE event_type = 'tmb_agent_created'",
+    );
+    assert.ok(afterFirst !== undefined);
+    assert.equal(afterFirst.cnt, 1, 'Promotion must emit exactly one tmb_agent_created audit');
+
+    await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'cto',
+      kind: 'consultant',
+      scope: 'project-local',
+      file_path: '.claude/agents/cto.md',
+    });
+
+    const afterSecond = db.get<{ cnt: number }>(
+      "SELECT COUNT(*) AS cnt FROM audit WHERE event_type = 'tmb_agent_created'",
+    );
+    assert.ok(afterSecond !== undefined);
+    assert.equal(afterSecond.cnt, 1, 'Repeat call on already-project-local must not emit duplicate audit');
     db.close();
   });
 
@@ -277,6 +314,93 @@ describe('audit_log requireRoles guard', () => {
     assert.ok(result.isError, 'Expected isError=true for unknown agent');
     const data = parseResult(result);
     assert.equal(data.error, 'forbidden');
+    db.close();
+  });
+});
+
+describe('agent_resolve', () => {
+  it('Branch A — collision: returns mode=collision when workspace file already exists', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'tmb-resolve-a-'));
+    try {
+      const agentsDir = join(tmp, '.claude', 'agents');
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(join(agentsDir, 'legal-reviewer.md'), '# legal-reviewer\n');
+      const dbPath = join(tmp, '.claude', 'tmb', 'trajectory.db');
+      const db = tempDB();
+      const tools = agentTools(db, dbPath);
+      const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'legal-reviewer' });
+      const data = parseResult(result);
+      assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
+      assert.equal(data.mode, 'collision');
+      assert.ok(typeof data.existing_path === 'string' && data.existing_path.startsWith('/'), 'existing_path must be absolute');
+      assert.ok(data.existing_path.endsWith('legal-reviewer.md'), 'existing_path must end with the agent filename');
+      db.close();
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('Branch B — template-copy: returns mode=template-copy for a known template name', async () => {
+    const db = tempDB();
+    const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
+    const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'architect' });
+    const data = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
+    assert.equal(data.mode, 'template-copy');
+    assert.ok(typeof data.source_path === 'string' && data.source_path.startsWith('/'), 'source_path must be absolute');
+    assert.ok(typeof data.target_path === 'string' && data.target_path.startsWith('/'), 'target_path must be absolute');
+    assert.ok(data.source_path.endsWith('templates/agents/architect.md'), 'source_path must point to plugin template');
+    assert.ok(data.target_path.endsWith('.claude/agents/architect.md'), 'target_path must point into workspace');
+    db.close();
+  });
+
+  it('Branch C — from-scratch: returns mode=from-scratch for an unknown name', async () => {
+    const db = tempDB();
+    const tools = agentTools(db, '/tmp/workspace/.claude/tmb/trajectory.db');
+    const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'novel-consultant' });
+    const data = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(data)}`);
+    assert.equal(data.mode, 'from-scratch');
+    assert.ok(typeof data.scaffold_path === 'string' && data.scaffold_path.startsWith('/'), 'scaffold_path must be absolute');
+    assert.ok(typeof data.target_path === 'string' && data.target_path.startsWith('/'), 'target_path must be absolute');
+    assert.ok(data.scaffold_path.endsWith('templates/agents/template.md'), 'scaffold_path must point to base template');
+    assert.ok(data.target_path.endsWith('.claude/agents/novel-consultant.md'), 'target_path must point into workspace');
+    db.close();
+  });
+
+  it('rejects reserved name "bro"', async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+    const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'bro' });
+    assert.ok(result.isError, 'Expected isError=true for reserved name');
+    assert.match(parseResult(result).error, /reserved orchestrator name/);
+    db.close();
+  });
+
+  it('rejects backbone name "swe"', async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+    const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'swe' });
+    assert.ok(result.isError, 'Expected isError=true for backbone name');
+    assert.match(parseResult(result).error, /backbone agent/);
+    db.close();
+  });
+
+  it('rejects invalid kebab-case name', async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+    const result = await call(tools.handlers, 'agent_resolve', { agent: 'bro', name: 'Invalid_Name' });
+    assert.ok(result.isError, 'Expected isError=true for invalid name');
+    assert.match(parseResult(result).error, /kebab-case/);
+    db.close();
+  });
+
+  it('rejects non-bro caller', async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+    const result = await call(tools.handlers, 'agent_resolve', { agent: 'swe', name: 'legal-reviewer' });
+    assert.ok(result.isError, 'Expected isError=true for non-bro caller');
+    assert.equal(parseResult(result).error, 'forbidden');
     db.close();
   });
 });

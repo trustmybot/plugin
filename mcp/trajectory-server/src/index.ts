@@ -68,7 +68,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 // Session ID is per-server-spawn — covers a single `claude -p` invocation.
 const debugTrajectoryEnabled =
   process.env['TMB_DEBUG_TRAJECTORY'] === '1' && process.env['TMB_EVAL_MODE'] === '1';
-const debugSessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const debugSessionId = crypto.randomUUID();
 let debugStepCounter = 0;
 
 function maybeRecordTrajectory(

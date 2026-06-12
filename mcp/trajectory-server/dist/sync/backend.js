@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
+import { classifyUrl } from '../utils/classify-url.js';
 let _availabilityCache = null;
 export function resetAvailabilityCache() {
     _availabilityCache = null;
@@ -42,9 +43,10 @@ export function detectPreferred() {
         if (result.status !== 0)
             return null;
         const url = (result.stdout ?? '').trim();
-        if (url.includes('github.com'))
+        const provider = classifyUrl(url);
+        if (provider === 'github')
             return 'gh';
-        if (url.includes('gitlab.com'))
+        if (provider === 'gitlab')
             return 'glab';
         return null;
     }

@@ -1,7 +1,7 @@
 ---
 name: tmb_recovery
 description: Bro's response when something fails — AskUserQuestion errors / TMB_HEADLESS=1 (use the documented per-skill default + audit), MCP tool returns is_error=true (halt + surface, don't silently proceed), or the trajectory-server is unreachable (degraded sqlite3 readonly fallback). Loaded reactively on the first failure of a session. Self-contained — defaults table + tool list inline.
-allowed-tools: Bash(skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*), mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append
+allowed-tools: Bash(skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*), mcp__plugin_tmb_trajectory-server__headless_fallback_record, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 
 # Recovery — three failure modes, three responses
@@ -10,8 +10,6 @@ Bro keeps the user-visible flow moving on recoverable errors. Each failure class
 
 The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-server unreachable). Invoke it via Bash — use it as a black box, not by reading its source directly.
 
-Use `world_model_get` / `world_model_search` for project navigation; `discussion_search` / `audit_search` for prior decisions.
-
 ## A. AskUserQuestion error / TMB_HEADLESS=1
 
 `AskUserQuestion` is the only tool bro uses to consult the Human. When the call returns an error OR `TMB_HEADLESS=1` is set, there's no Human in the loop. **Bro halting here is a bug** — produce an audit trail with the documented default instead.
@@ -19,12 +17,7 @@ Use `world_model_get` / `world_model_search` for project navigation; `discussion
 ### Protocol
 
 1. **Look up the documented default** for that question (table below). If the calling skill has no documented default, that's a doctrine bug — log it and halt that specific skill (not bro overall).
-2. **Record both writes** — required, not optional:
-   ```
-   audit_log(agent='bro', from_node='bro', event_type='headless_fallback', summary='<skill_name>: <question_short> → <chosen_default>')
-   discussion_append(agent='bro', kind='note', body='Headless fallback: <skill> asked "<question>", no Human in loop, defaulted to <default>. Reason: <one-line>.')
-   ```
-   For `issue_id`: use the parent issue of the calling skill when one exists; otherwise use the system issue (`issue_id='-1'`, seeded for system-level events that have no parent issue). Use a real issue ID or `'-1'` — `audit` and `discussions` enforce a FK to `issues` and will reject invented placeholder strings.
+2. **Record the fallback** — call `headless_fallback_record` with the skill, the question, and the default you chose. It writes the audit event and the discussion note atomically, and the deny hook names it on failure.
 3. **Continue the skill's flow** with the default as if the Human typed it.
 
 ### Per-skill defaults
@@ -44,12 +37,7 @@ Use `world_model_get` / `world_model_search` for project navigation; `discussion
 
 `tmb_skill-creator` and `/tmb:agent-create` (from-scratch mode) HALT in headless mode rather than apply a default. Silent skill/agent generation in CI is the foot-gun this rule guards against:
 
-```
-audit_log(agent='bro', from_node='bro', event_type='headless_creator_blocked',
-          summary='<creator>: cannot create <name> without Human approval in headless mode.')
-```
-
-Plus a clear surface message: "Cannot create skill/agent in headless mode. Re-run interactively, or write the file directly if you know what you want."
+Record an audit event noting which creator was blocked and the proposed name, then surface: "Cannot create skill/agent in headless mode — re-run interactively."
 
 ## B. MCP tool returns is_error=true
 
@@ -57,16 +45,16 @@ When any MCP call result has `is_error: true` or content includes `{"error": ...
 
 ### Protocol
 
-1. **Halt the current flow immediately.** Don't chain subsequent calls as if the failed one succeeded.
+1. **Halt the current flow immediately.** Treat the failed call as the chain's last.
 2. **Pick one path** based on the error class:
    - **Surface verbatim** to the Human and ask how to proceed, OR
-   - **If recoverable AND you know the corrected call**, write `discussion_append(kind='note', body='Recovered from MCP error: <error_text>. Retrying with <corrected_call>.')` and retry.
+   - **If recoverable AND you know the corrected call**, append a note recording the error and the corrected retry, then retry.
 
 ### Error classification
 
 | Error shape | Meaning | Right response |
 |---|---|---|
-| `forbidden` | Bro called a tool scoped to another role. | Reconsider whether the action is bro's responsibility. Don't retry the same call signature. |
+| `forbidden` | Bro called a tool scoped to another role. | Reconsider whether the action is bro's responsibility. Change the call signature before retrying. |
 | `validation` | Input didn't match the schema (e.g. malformed branch_id). | Fix the input. Retry with the corrected payload. |
 | Constraint failure | DB integrity violation (foreign key, unique). | Surface to Human; usually means a stale or duplicate write attempt. |
 | `no matching deferred tools` | The MCP child process is dead. | Switch to degraded mode (§C). |

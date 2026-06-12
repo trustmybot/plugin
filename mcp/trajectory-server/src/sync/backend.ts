@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
+import { classifyUrl } from '../utils/classify-url.js';
 
 export interface BackendAvailability {
   gh: boolean;
@@ -53,8 +54,9 @@ export function detectPreferred(): 'gh' | 'glab' | null {
     });
     if (result.status !== 0) return null;
     const url = (result.stdout ?? '').trim();
-    if (url.includes('github.com')) return 'gh';
-    if (url.includes('gitlab.com')) return 'glab';
+    const provider = classifyUrl(url);
+    if (provider === 'github') return 'gh';
+    if (provider === 'gitlab') return 'glab';
     return null;
   } catch {
     return null;

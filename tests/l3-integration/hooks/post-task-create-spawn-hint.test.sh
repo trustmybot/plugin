@@ -78,6 +78,24 @@ assert_contains "$out" "SWE-spawn hint" "hint mentions SWE-spawn"
 assert_contains "$out" "task_id=42" "hint lists task id 42"
 assert_contains "$out" "task_id=43" "hint lists task id 43"
 assert_contains "$out" "branch_id=feat/my-feature" "hint lists branch_id"
+assert_contains "$out" "Step 4" "hint cites tmb_planning Step 4"
+assert_contains "$out" "worktree-create.sh" "hint includes worktree-create pre-create step"
+assert_contains "$out" "CLAUDE_PLUGIN_ROOT" "hint uses CLAUDE_PLUGIN_ROOT variable"
+assert_not_contains "$out" "isolation='worktree'" "hint must not use isolation='worktree' in recipe"
+
+# ──────────────────────────────────────────────────────────────
+# Case 4b: absolute worktree path derived from trajectory DB location
+# ──────────────────────────────────────────────────────────────
+test_case "worktree path is absolute and starts with workspace root"
+FIXTURE_WS="$(mktemp -d)"
+FIXTURE_DB_DIR="$FIXTURE_WS/.claude/tmb"
+mkdir -p "$FIXTURE_DB_DIR"
+touch "$FIXTURE_DB_DIR/trajectory.db"
+input=$(make_input "mcp__tmb__trajectory-server__task_create_batch" "$TASK_ARRAY")
+out=$(echo "$input" | TRAJECTORY_DB_PATH="$FIXTURE_DB_DIR/trajectory.db" bash "$HOOK" 2>&1 || true)
+assert_contains "$out" "$FIXTURE_WS/.claude/worktrees/" "emitted path starts with fixture workspace root"
+assert_contains "$out" "worktree=$FIXTURE_WS/.claude/worktrees/my-feature" "slug strips type/ prefix for feat/my-feature"
+rm -rf "$FIXTURE_WS"
 
 # ──────────────────────────────────────────────────────────────
 # Case 5: response text is non-array JSON — passes silently

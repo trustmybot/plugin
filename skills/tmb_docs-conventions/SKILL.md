@@ -1,15 +1,15 @@
 ---
 name: tmb_docs-conventions
-description: Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation. Link integrity: every internal markdown link must resolve to an existing file; broken links are a lint failure.
+description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workflow markdown) or updating user-visible docs. Carries the editing judgment — what to delete, what to preserve, and where ripples land when a rename or restructure happens.
 ---
 
 # Docs Conventions — Editing Discipline
 
-Link integrity is enforced mechanically — every internal markdown link must resolve to a file that exists in the repo. This skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
+Link integrity is gated at L1; this skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
 
 ## Docs-update expectation
 
-When functionality changes, the same PR updates the user-visible docs that describe it. The PR-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?) — not a regex check.
+When functionality changes, the same PR updates the user-visible docs that describe it. The PR-reviewer flags missing doc updates at the push gate. This is a judgment call (what counts as user-visible?).
 
 ## When docs and code disagree
 

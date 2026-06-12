@@ -18,7 +18,7 @@ Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, and the ch
 
 The parent CC session's main checkout may be on ANY branch. Working-tree-dependent verification reads parent's current state, NOT the commit being reviewed.
 
-For working-tree-dependent verification use `pr_review_worktree(agent='pr-reviewer', commit_sha=<sha>, repo_path=<workspace_root>, command='<verification command>')` — `workspace_root` is the directory holding `.claude/tmb/trajectory.db` (same definition as `tmb_planning`); creates the worktree, runs the command, removes it atomically. <!-- enforced by: pr_review_worktree composite (mech 2) -->
+For working-tree-dependent verification use `pr_review_worktree` with the workspace root — the directory holding `.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
 
 Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
 
@@ -45,6 +45,8 @@ Gaps → Design-Compliance findings (severity is separate).
 
 Naming, error-handling style, logging, test structure match the surrounding codebase? Deviations need explicit spec authorization; otherwise flag. Cross-check against the **Living patterns** below.
 
+For context, pull the changed directory's world-model summary (`world_model_get(path='<changed-dir>')`) to see sibling patterns before judging.
+
 ### Phase 4 — Performance (only when the spec mentions it)
 
 O(n²) where O(n) suffices? N+1 patterns? Hot-path allocations?
@@ -56,20 +58,13 @@ Public-API change reflected in user docs / type defs? Breaking change flagged in
 
 ### Writing the validation_attempts row — YOU write it yourself
 
-After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly. Two paths depending on your tool list:
+After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly — use the spawn prompt's `attempt_n`. Two paths depending on your tool list:
 
-**Path 1 — MCP available** (your tool list includes `mcp__plugin_tmb_trajectory-server__validation_record`):
-```
-validation_record(agent='pr-reviewer', task_id=N, attempt_n=1, verdict='pass'|'fail', feedback='MCP available: yes\n<your verdict text>', subagent_session_id='<your-session-id>')
-```
+**Path 1 — MCP available** (your tool list includes `mcp__plugin_tmb_trajectory-server__validation_record`): call `validation_record(agent='pr-reviewer', ...)` — the schema enforces the required shape; start your feedback with `'MCP available: yes'`.
 
-**Path 2 — MCP unavailable** (only Read + Bash in your tool list): `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh <task_id> <attempt_n> <pass|fail> '<verdict text>' '<session-id>'`
+**Path 2 — MCP unavailable** (only Read + Bash in your tool list): use the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` — run it with `--help` for the argument shape.
 
-The `feedback` column CHECK constraint: must start with `'MCP available: yes'` OR `'MCP available: no — honor-system fallback'`. <!-- enforced by: requireRoles (mech 6) — server rejects bro identity; schema CHECK rejects wrong prefix -->
-
-<!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating pr-reviewer is a content-integrity violation — server's validation_record MCP tool returns forbidden for bro identity, AND the auto-mode classifier blocks raw sqlite3 INSERT from bro as impersonation. The honor-system fallback is for YOU to write directly via Bash sqlite3. -->
-
-`scripts/hooks/git-push-guard.sh` only lets pushes through when this row exists. <!-- enforced by: git-push-guard.sh PreToolUse hook (mech 3) -->
+<!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating pr-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->
 
 If you spot a recurring pattern at the push gate, append a bullet to **Living patterns** below using the format documented there.
 
@@ -77,16 +72,14 @@ If you spot a recurring pattern at the push gate, append a bullet to **Living pa
 
 The verdict row is always authored by pr-reviewer itself — via MCP when available, via the fallback script otherwise (§A). <!-- LOAD-BEARING-SAFETY: pr-reviewer must write validation_attempts directly; delegating to bro is impersonation and is blocked by the auto-mode classifier -->
 
-The spawn prompt shape is enforced by `pr-reviewer-spawn-prompt-shape.sh`. <!-- LOAD-BEARING-SAFETY: enforced by pr-reviewer-spawn-prompt-shape.sh PreToolUse hook (mech 3) -->
-
 **Clean spawn prompt example:**
 ```
 task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin attempt_n=<attempt #>
 
-Push-gate review. Per §A worktree discipline if running linters/build/tests against the working tree. Load context via task_brief(agent='pr-reviewer', task_id=42). Verify each Success Criterion against the diff. Write validation_attempts row per §A (path 1 if you have MCP, path 2 if you have only Bash). Verdict='fail' if any check fails.
+Push-gate review. Load the brief, verify each Success Criterion against the diff, and record your verdict — fail if any check fails.
 ```
 
-No-MCP fallback (Bash-only spawn, no `mcp__...` tools in tool list): load spec via `sqlite3 "${TRAJECTORY_DB_PATH}" "SELECT spec_body FROM tasks WHERE id=42"` — keep this as the documented fallback only.
+No-MCP fallback (Bash-only spawn, no `mcp__...` tools in tool list): use the documented fallback script pattern — `bro-sqlite-readonly.sh` in `tmb_recovery` §C.2 for read-only DB access.
 
 ## C. Push-gate orchestration (bro, loaded reactively)
 
@@ -96,7 +89,7 @@ Triggers:
 
 ### Reap commits → local feature branch
 
-`reap_and_review_prep(agent='bro', task_ids=[<N>, ...], repo_path=<workspace_root>)` — fetches each unsigned task's detached HEAD from its worktree into the main checkout, returns `{ reaped: [{task_id, branch_id, commit_sha, reaped, error?}] }`. <!-- enforced by: reap_and_review_prep composite (mech 2) -->
+`reap_and_review_prep` fetches each unsigned task's detached HEAD from its worktree into the main checkout and reports, per task, whether the reap landed or what failed.
 
 ### Spawn pr-reviewer per unsigned task (parallel)
 
@@ -104,7 +97,7 @@ Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local over
 
 Read pr-reviewer's first response line:
 - `MCP available: yes` — the reviewer wrote `validation_record` itself.
-- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the fallback script (§A Path 2), which prepends the required feedback prefix itself. Either way the row must exist before you push; `git-push-guard.sh` blocks the push when it's missing.
+- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the fallback script (§A Path 2), which prepends the required feedback prefix itself. Either way the row must exist before you push.
 
 ### Outcomes
 
@@ -117,31 +110,21 @@ Read pr-reviewer's first response line:
 
 ## D. PR/MR comment triage (bro, loaded by /monitor)
 
-`pr_comments_get` does the deterministic fetch + since-marker bookkeeping; comment rows are auto-persisted as discussion notes by `post-pr-comments-persist.sh` PostToolUse hook. This section is the judgment around what's task-worthy. <!-- enforced by: post-pr-comments-persist.sh PostToolUse hook (mech 4) -->
+`pr_comments_get` does the deterministic fetch + since-marker bookkeeping; comment rows are auto-persisted as discussion notes by `post-pr-comments-persist.sh` PostToolUse hook. This section is the judgment around what's task-worthy.
 
 ### Resolve the PR
 
-If `$ARGUMENTS` has a PR number, use it. Otherwise:
+If the Human named a PR number, use it. Otherwise:
 - GitHub: `gh pr view --json number`
 - GitLab: `glab mr list --source-branch <branch> --json`
 
-Empty result → render AUQ:
-```
-AskUserQuestion: "Which PR/MR number to monitor?"
-options: []  # Other free-text only
-```
+Empty result → ask the Human which PR/MR number to monitor (free-text answer).
 
 ### Fetch
 
-```
-pr_comments_get(agent='bro', pr_number=N)
-```
+Call `pr_comments_get` with the PR number.
 
-Carrier: look up the issue via `tasks.branch_id` for the current branch. If unresolved, render AUQ:
-```
-AskUserQuestion: "Which issue is this PR linked to?"
-options: []  # free-text issue ID
-```
+Carrier: look up the issue via `tasks.branch_id` for the current branch. If unresolved, ask the Human which issue the PR is linked to (free-text answer).
 
 ### Triage (judgment)
 
@@ -156,16 +139,9 @@ Group task-worthy comments by file or shared concept; one task per group. Flag t
 
 ### Dispatch
 
-Render AUQ:
-```
-AskUserQuestion: "Which review comments to address now? (subset OK)"
-multiSelect: true
-options: [<task title (with optional (arch-impact) suffix)> per ratified group]
-```
+Offer the ratified groups as a multi-select — one option per group, titled by the task it would become (suffix arch-impact ones) — and let the Human pick a subset.
 
 For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the world model.
-
-Use `world_model_get` / `world_model_search` for project navigation; `discussion_search` / `audit_search` for prior decisions.
 
 ## Code-quality criteria (qualitative reference)
 
@@ -194,7 +170,7 @@ Format: `- <Pattern name> / Symptom: ... / Root cause: ... / Rule: ... / Check: 
 ### Prompt authoring
 
 - **Negative directive in prompt**
-  Trigger: PR introduces a negation clause (start-of-line `Don't` / `Never` / `Do not`, or mid-sentence `MUST NOT` / `do not`) to a prompt or skill body. <!-- LOAD-BEARING-SAFETY: pattern description must name the negation forms for the lint check to be enforceable -->
+  Trigger: a PR adds a negation-phrased rule to a prompt or skill body — the prompt-author lint flags the exact forms.
   Action: Propose the positive alternative inline ("Use X" instead of "Don't use Y"). Or recommend promotion to a deterministic layer (hook / `requireRoles`) for structural enforcement. If load-bearing safety: require `<!-- LOAD-BEARING-SAFETY: <reason> -->` justification.
 
 (Add new findings here as they're caught.)

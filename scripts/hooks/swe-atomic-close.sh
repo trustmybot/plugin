@@ -135,9 +135,21 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
     | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
 fi
 
+# Derive worktree slug from input cwd (CC payload) or PWD structural fallback.
+# Used by the slug-based task resolution when the transcript yields no task_id.
+HOOK_CWD=$(echo "$INPUT" | jq -r '.cwd // ""' 2>/dev/null || true)
+HOOK_CWD="${HOOK_CWD:-$PWD}"
+WORKTREE_ROOT=""
+case "$HOOK_CWD" in
+  */.claude/worktrees/*)
+    WORKTREE_ROOT=$(echo "$HOOK_CWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
+    ;;
+esac
+
 # Find the task to operate on:
 #   1. task_id extracted from the transcript (authoritative — bound to this SWE).
-#   2. Most-recently-updated task in any SWE-relevant status (fallback only).
+#   2. Worktree slug match via branch_id LIKE '%/<slug>' (no transcript in this harness).
+#   3. Most-recently-updated task in any SWE-relevant status (last-resort fallback).
 ROW=""
 if [ -n "$TRANSCRIPT_TASK_ID" ]; then
   SAFE_TRANSCRIPT_TASK_ID=$(tmb_sql_int "$TRANSCRIPT_TASK_ID")
@@ -148,6 +160,27 @@ if [ -n "$TRANSCRIPT_TASK_ID" ]; then
          AND status IN ('pending', 'needs_validation', 'completed')
        LIMIT 1;" \
       2>/dev/null || true)
+  fi
+fi
+if [ -z "$ROW" ] && [ -n "$WORKTREE_ROOT" ]; then
+  WORKTREE_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
+  if [ -n "$WORKTREE_SLUG" ]; then
+    SAFE_SLUG=$(tmb_sql_quote "$WORKTREE_SLUG")
+    SLUG_ID=$(tmb_sqlite_ro "$DB" "
+      SELECT id FROM tasks
+       WHERE branch_id LIKE '%/${SAFE_SLUG}'
+         AND status IN ('pending','running','completed')
+       ORDER BY id DESC
+       LIMIT 1;
+    " 2>/dev/null || true)
+    SLUG_ID=$(tmb_sql_int "$SLUG_ID")
+    if [ -n "$SLUG_ID" ]; then
+      ROW=$(sqlite3 "$DB" \
+        "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
+         WHERE id = ${SLUG_ID}
+         LIMIT 1;" \
+        2>/dev/null || true)
+    fi
   fi
 fi
 if [ -z "$ROW" ]; then
@@ -261,7 +294,8 @@ fi
 # CC's SubagentStop payload omits token/duration at the top level but
 # DOES include agent_transcript_path — the JSONL with per-message usage.
 # This never fails the hook — a diagnostic line is written on any parse error.
-ISSUE_ID=$(sqlite3 "$DB" "SELECT issue_id FROM tasks WHERE id=${TASK_ID} LIMIT 1;" 2>/dev/null || true)
+SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+ISSUE_ID=$(sqlite3 "$DB" "SELECT issue_id FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null || true)
 ISSUE_ID="${ISSUE_ID:-}"
 
 # TRANSCRIPT_PATH already resolved above for task_id extraction.
@@ -314,10 +348,11 @@ else
   AR_ISSUE_FRAGMENT="NULL"
 fi
 
-AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
-sqlite3 "$DB" "$AR_INSERT" 2>/dev/null || \
+SAFE_AGENT_TYPE=$(tmb_sql_quote "$AGENT_TYPE")
+SAFE_AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
+sqlite3 "$DB" "$SAFE_AR_INSERT" 2>/dev/null || \
   jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
-    '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"sqlite3 insert failed",task_id:$tid}' \
+    '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"agent_runs insert failed",task_id:$tid}' \
     >> "$_LOG_FILE" 2>/dev/null || true
 
 # Log the decision.

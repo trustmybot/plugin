@@ -188,7 +188,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
     },
         {
       name: 'issue_list',
-      description: 'Enumerate issues for the bro pre-scan. Returns a thin index (id, objective, status, created_at, updated_at) ordered by updated_at DESC. Supports optional fields projection to further reduce payload: pass fields=[\'id\',\'status\',\'objective\'] (unknown fields return a named error; id/status/objective/created_at always safe to include).',
+      description: 'List issues ordered by updated_at DESC. Returns a thin index (id, objective, status, created_at, updated_at). Optional fields projection via fields=[\'id\',\'status\',\'objective\']; unknown fields return a named error.',
       inputSchema: {
         type: 'object',
         properties: {

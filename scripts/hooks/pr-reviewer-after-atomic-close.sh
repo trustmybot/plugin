@@ -3,10 +3,11 @@
 # happens AFTER bro_atomic_close: the task referenced by task_id=N in the
 # spawn prompt must have status='closed' in the trajectory DB.
 #
-# Doctrine source: feedback_pr_reviewer_required_pre_push memory + planning
-# skill Step 5.5 — "After bro_atomic_close succeeds, BEFORE pushing the
-# branch, spawn pr-reviewer". The order is non-negotiable: bro_atomic_close
-# is the in-DB closure that produces the artifact pr-reviewer evaluates.
+# Doctrine source: feedback_pr_reviewer_required_pre_push memory + tmb_planning
+# Step 5 (verify + close, then pr-reviewer per tmb_review §B) — "After
+# bro_atomic_close succeeds, BEFORE pushing the branch, spawn pr-reviewer".
+# The order is non-negotiable: bro_atomic_close is the in-DB closure that
+# produces the artifact pr-reviewer evaluates.
 #
 # Non-deterministic bro flakiness has shipped CI runs where bro inferred
 # "SWE completed and closed the task" from SWE's status return and skipped
@@ -68,14 +69,14 @@ fi
 
 _DENY_REASON="BLOCKED: pr-reviewer spawn requires task ${TASK_ID} status=closed but actual status=${STATUS}.
 
-Per planning skill Step 5.5 + feedback_pr_reviewer_required_pre_push doctrine, the order is:
+Per tmb_planning Step 5 (verify + close, then pr-reviewer per tmb_review §B) + feedback_pr_reviewer_required_pre_push doctrine, the order is:
   1. SWE returns status=completed (lifecycle answer, NOT a DB closure).
   2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).
   3. ONLY THEN: spawn pr-reviewer for the push gate.
 
 SWE returning completed does not close the trajectory task — that is bro_atomic_close.
 
-Fix: call bro_atomic_close(agent='bro', task_id=${TASK_ID}, commit_sha=<sha>, file_summaries=[...], verification_summary='...') first, then retry this spawn."
+Fix: call bro_atomic_close(agent='bro', task_id=${TASK_ID}, commit_sha=<sha>, verification_summary='...') first, then retry this spawn."
 jq -nc --arg reason "$_DENY_REASON" '{
   hookSpecificOutput: {
     hookEventName: "PreToolUse",

@@ -179,6 +179,7 @@ if [ "$START_FROM" -gt 1 ]; then
   done < <(l6c_find_recent_prior_runs)
 
   CHECKPOINT_DB=""
+  CHECKPOINT_DIR=""
   if [ -n "${PRIOR_RUN:-}" ]; then
     PREV_STEP=$((START_FROM - 1))
     CHECKPOINT_DIR=$(find "$PRIOR_RUN" -mindepth 1 -maxdepth 1 -type d \
@@ -188,8 +189,19 @@ if [ "$START_FROM" -gt 1 ]; then
     fi
   fi
 
-  if [ -n "$CHECKPOINT_DB" ]; then
-    printf '  resume:   --from %d restoring step-%02d checkpoint from %s\n' \
+  CHECKPOINT_TAR=""
+  if [ -n "$CHECKPOINT_DIR" ] && [ -f "$CHECKPOINT_DIR/checkpoint-project.tar" ]; then
+    CHECKPOINT_TAR="$CHECKPOINT_DIR/checkpoint-project.tar"
+  fi
+
+  if [ -n "$CHECKPOINT_DB" ] && [ -n "$CHECKPOINT_TAR" ]; then
+    printf '  resume:   --from %d restoring step-%02d checkpoint (db + project tree) from %s\n' \
+      "$START_FROM" "$PREV_STEP" "$(basename "$PRIOR_RUN")"
+    mkdir -p "$(dirname "$PROJECT")"
+    tar -C "$(dirname "$PROJECT")" -xf "$CHECKPOINT_TAR"
+    cp "$CHECKPOINT_DB" "$PROJECT/.claude/tmb/trajectory.db"
+  elif [ -n "$CHECKPOINT_DB" ]; then
+    printf '  resume:   --from %d restoring step-%02d checkpoint (db only — no project tar; git-dependent steps may fail) from %s\n' \
       "$START_FROM" "$PREV_STEP" "$(basename "$PRIOR_RUN")"
     mkdir -p "$PROJECT/.claude/tmb"
     (
@@ -408,14 +420,16 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
       || printf "  ⚠ chain_post_command exited non-zero (continuing)\n" >&2
   fi
 
-  # Per-row immutable checkpoint: snapshot the live trajectory DB AFTER
-  # the row passed + any seed_after applied. Resumes from row N restore
-  # step-(N-1)/checkpoint.db rather than copying the live project (which
-  # could be mid-write if a later row crashed). Only on pass — failed
-  # rows leave no checkpoint, so a resume from a failed row naturally
-  # falls back to the previous row's good state.
+  # Per-row immutable checkpoint: snapshot the live trajectory DB and
+  # the entire project tree AFTER the row passed + any seed_after applied.
+  # Resumes from row N restore step-(N-1)/checkpoint.db + checkpoint-project.tar
+  # rather than copying the live project (which could be mid-write if a
+  # later row crashed). Only on pass — failed rows leave no checkpoint,
+  # so a resume from a failed row naturally falls back to the previous
+  # row's good state.
   if [ "$STEP_FAILS" -eq 0 ]; then
     cp "$PROJECT/.claude/tmb/trajectory.db" "$STEP_DIR/checkpoint.db" 2>/dev/null || true
+    tar -C "$(dirname "$PROJECT")" -cf "$STEP_DIR/checkpoint-project.tar" "$(basename "$PROJECT")" 2>/dev/null || true
   fi
 done
 

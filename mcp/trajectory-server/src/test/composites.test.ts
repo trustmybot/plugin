@@ -204,6 +204,84 @@ describe('task_retry_batch', () => {
     assert.match(parse(r)['error'] as string, /status is "pending"/);
   });
 
+  it('#474: repo override lands on the new task; omitted repo inherits from failed task', async () => {
+    const db = tempDB();
+    const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const tasks = taskTools(db);
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const discussions = discussionTools(db);
+    const audit = auditTools(db);
+
+    const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      agent: 'bro', objective: 'repo override test', description: 'x',
+    }))['id']));
+    await call(discussions.handlers, 'discussion_append', {
+      agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+    });
+    await call(audit.handlers, 'audit_log', {
+      agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+      from_node: 'bro', branch_id: 'fix/base', summary: 's',
+    });
+    // Create the initial task with no repo (null) — simulates single-repo workflow.
+    const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+      agent: 'bro', issue_id: issueId,
+      waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+      tasks: [{ branch_id: 'fix/base', description: 'd', spec_body: 's' }],
+    }));
+    const failedId = String(created[0]!.id);
+    await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: failedId, status: 'failed' });
+
+    // With repo override: new task carries the override ('plugin').
+    const retryWithOverride = await call(composites.handlers, 'task_retry_batch', {
+      agent: 'bro', failed_task_id: failedId, new_branch_id: 'fix/base-v2',
+      corrected_spec_body: 'fixed', retry_rationale: 'wrong repo; switch to plugin', description: 'd',
+      repo: 'plugin',
+    });
+    assert.ok(!retryWithOverride.isError, `expected ok: ${JSON.stringify(parse(retryWithOverride))}`);
+    const newId = (parse(retryWithOverride) as { task_id: number }).task_id;
+    const newTask = db.get<{ repo: string | null }>('SELECT repo FROM tasks WHERE id = ?', [newId]);
+    assert.equal(newTask!.repo, 'plugin', 'repo override lands on new task');
+
+    // Without repo override: new task inherits 'plugin' from the previous task.
+    await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: String(newId), status: 'failed' });
+    const retryInherited = await call(composites.handlers, 'task_retry_batch', {
+      agent: 'bro', failed_task_id: String(newId), new_branch_id: 'fix/base-v3',
+      corrected_spec_body: 'fixed again', retry_rationale: 'another attempt', description: 'd',
+    });
+    assert.ok(!retryInherited.isError);
+    const inheritedId = (parse(retryInherited) as { task_id: number }).task_id;
+    const inheritedTask = db.get<{ repo: string | null }>('SELECT repo FROM tasks WHERE id = ?', [inheritedId]);
+    assert.equal(inheritedTask!.repo, 'plugin', 'repo inherited from previous task when omitted');
+
+    db.close();
+  });
+
+  it('#474: repo override rejects ".." in path', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'task_retry_batch', {
+      agent: 'bro', failed_task_id: '1', new_branch_id: 'fix/x-v2',
+      corrected_spec_body: 's', retry_rationale: 'r', description: 'd',
+      repo: '../etc/passwd',
+    });
+    assert.ok(r.isError);
+    assert.match(parse(r)['error'] as string, /must not contain/);
+  });
+
+  it('#474: repo override rejects leading "/"', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'task_retry_batch', {
+      agent: 'bro', failed_task_id: '1', new_branch_id: 'fix/x-v2',
+      corrected_spec_body: 's', retry_rationale: 'r', description: 'd',
+      repo: '/absolute/path',
+    });
+    assert.ok(r.isError);
+    assert.match(parse(r)['error'] as string, /must not start with/);
+  });
+
   it('retry cap: rejects the 4th retry attempt (3 prior in lineage)', async () => {
     const db = tempDB();
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -707,6 +785,258 @@ describe('reap_and_review_prep', () => {
 });
 
 
+
+describe('intent_start (#426)', () => {
+  it('creates issue + intent + note + branch_id_proposed audit atomically', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'add export feature',
+      intent_verbatim: 'I want to export data as CSV',
+      branch_id: 'feat/add-export-feature',
+    });
+    assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+    const out = parse(r) as { issue_id: number; branch_id: string };
+    assert.equal(typeof out.issue_id, 'number');
+    assert.equal(out.branch_id, 'feat/add-export-feature');
+
+    const discussions = db.all<{ kind: string; body: string }>(
+      `SELECT kind, body FROM discussions WHERE issue_id = ? ORDER BY id ASC`,
+      [out.issue_id],
+    );
+    assert.ok(discussions.some((d) => d.kind === 'note' && d.body.includes('Beginning planning on feat/add-export-feature')));
+    assert.ok(discussions.some((d) => d.kind === 'intent' && d.body.includes('I want to export data as CSV')));
+
+    const auditRows = db.all<{ event_type: string; branch_id: string }>(
+      `SELECT event_type, branch_id FROM audit WHERE issue_id = ?`,
+      [out.issue_id],
+    );
+    assert.ok(auditRows.some((a) => a.event_type === 'branch_id_proposed' && a.branch_id === 'feat/add-export-feature'));
+
+    const issue = db.get<{ objective: string; status: string }>(
+      `SELECT objective, status FROM issues WHERE id = ?`,
+      [out.issue_id],
+    );
+    assert.equal(issue!.objective, 'add export feature');
+    assert.equal(issue!.status, 'open');
+
+    db.close();
+  });
+
+  it('rejects non-bro caller', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'swe',
+      objective: 'do thing',
+      intent_verbatim: 'x',
+      branch_id: 'feat/do-thing',
+    });
+    assert.equal(r.isError, true);
+    assert.equal(parse(r)['error'], 'forbidden');
+  });
+
+  it('rejects invalid branch_id', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'do thing',
+      intent_verbatim: 'x',
+      branch_id: 'not valid branch',
+    });
+    assert.equal(r.isError, true);
+    assert.match(parse(r)['error'] as string, /conventional format/);
+  });
+
+  it('rolls back all writes when the transaction fails mid-way', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    // Poison the audit table so the 4th write (audit_log) throws.
+    db.run(`DROP TABLE audit`);
+
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'rollback test',
+      intent_verbatim: 'test rollback',
+      branch_id: 'feat/rollback-test',
+    });
+    assert.equal(r.isError, true);
+
+    // If the transaction rolled back, no issue was created.
+    const issues = db.all<{ id: number }>(`SELECT id FROM issues WHERE id != -1`);
+    assert.equal(issues.length, 0, 'transaction must roll back: no issue row must survive');
+
+    db.close();
+  });
+});
+
+describe('headless_fallback_record (#426)', () => {
+  it('writes audit + note atomically; defaults to most recent open issue', async () => {
+    const db = tempDB();
+    const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    const issueId = Number((parse(await call(issues.handlers, 'issue_create', {
+      agent: 'bro', objective: 'headless fallback target', description: 'x',
+    }))['id']));
+
+    const r = await call(composites.handlers, 'headless_fallback_record', {
+      agent: 'bro',
+      question: 'Should we use feat/ or fix/ prefix?',
+      chosen_default: 'feat/',
+      skill: 'tmb_planning',
+    });
+    assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+    const out = parse(r) as { issue_id: number; written: string[] };
+    assert.equal(out.issue_id, issueId);
+    assert.deepEqual(out.written, ['audit', 'note']);
+
+    const auditRows = db.all<{ event_type: string; content_json: string }>(
+      `SELECT event_type, content_json FROM audit WHERE issue_id = ?`,
+      [issueId],
+    );
+    const fallbackRow = auditRows.find((a) => a.event_type === 'headless_fallback');
+    assert.ok(fallbackRow, 'headless_fallback audit row must exist');
+    const content = JSON.parse(fallbackRow!.content_json) as { skill: string; chosen_default: string };
+    assert.equal(content.skill, 'tmb_planning');
+    assert.equal(content.chosen_default, 'feat/');
+
+    const notes = db.all<{ kind: string; body: string }>(
+      `SELECT kind, body FROM discussions WHERE issue_id = ? AND kind = 'note'`,
+      [issueId],
+    );
+    assert.ok(notes.some((n) => n.body.includes('tmb_planning') && n.body.includes('feat/')));
+
+    db.close();
+  });
+
+  it('falls back to system issue (-1) when no open issue exists', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    const r = await call(composites.handlers, 'headless_fallback_record', {
+      agent: 'bro',
+      question: 'Which base branch?',
+      chosen_default: 'dev',
+      skill: 'tmb_recovery',
+    });
+    assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+    const out = parse(r) as { issue_id: number };
+    assert.equal(out.issue_id, -1, 'must target system issue when no open issues exist');
+
+    db.close();
+  });
+
+  it('respects explicit issue_id override', async () => {
+    const db = tempDB();
+    const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'issue A', description: 'x' });
+    const issueB = Number((parse(await call(issues.handlers, 'issue_create', {
+      agent: 'bro', objective: 'issue B', description: 'x',
+    }))['id']));
+
+    // Pass an explicit issue_id pointing to B even though there's a newer issue.
+    const r = await call(composites.handlers, 'headless_fallback_record', {
+      agent: 'bro',
+      question: 'Which branch?',
+      chosen_default: 'fix/',
+      skill: 'tmb_recovery',
+      issue_id: issueB,
+    });
+    assert.ok(!r.isError);
+    const out = parse(r) as { issue_id: number };
+    assert.equal(out.issue_id, issueB);
+
+    db.close();
+  });
+
+  it('rolls back when the second write (note) fails', async () => {
+    const db = tempDB();
+    const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    const issueId = Number((parse(await call(issues.handlers, 'issue_create', {
+      agent: 'bro', objective: 'rollback test', description: 'x',
+    }))['id']));
+
+    // Poison discussions so the second write throws mid-transaction.
+    db.run(`DROP TABLE discussions`);
+
+    const r = await call(composites.handlers, 'headless_fallback_record', {
+      agent: 'bro',
+      question: 'Which branch?',
+      chosen_default: 'feat/',
+      skill: 'tmb_planning',
+      issue_id: issueId,
+    });
+    assert.equal(r.isError, true);
+
+    // The audit row must also be absent (rolled back).
+    const auditRows = db.all<{ id: number }>(
+      `SELECT id FROM audit WHERE issue_id = ? AND event_type = 'headless_fallback'`,
+      [issueId],
+    );
+    assert.equal(auditRows.length, 0, 'transaction must roll back: no audit row must survive');
+
+    db.close();
+  });
+
+  it('rejects non-bro caller', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'headless_fallback_record', {
+      agent: 'swe', question: 'q', chosen_default: 'x', skill: 'tmb_planning',
+    });
+    assert.equal(r.isError, true);
+    assert.equal(parse(r)['error'], 'forbidden');
+  });
+});
+
+describe('intent_start + headless_intent_start non-duplication (#426)', () => {
+  it('calling intent_start then headless_intent_start on same issue produces no duplicate intent rows', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    // First: intent_start (interactive path) creates the issue + intent row.
+    const r1 = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'dup guard test',
+      intent_verbatim: 'add CSV export',
+      branch_id: 'feat/dup-guard-test',
+    });
+    assert.ok(!r1.isError);
+    const { issue_id } = parse(r1) as { issue_id: number; branch_id: string };
+
+    // Second: headless_intent_start on the same issue with the same verbatim.
+    const r2 = await call(composites.handlers, 'headless_intent_start', {
+      agent: 'bro',
+      issue_id,
+      branch_id: 'feat/dup-guard-test',
+      intent_verbatim: 'add CSV export',
+      fallback_summary: 'headless retry',
+    });
+    assert.ok(!r2.isError);
+    // The written array must NOT include 'intent' (it was de-duped).
+    const out2 = parse(r2) as { written: string[] };
+    assert.ok(!out2.written.includes('intent'), `intent must not be re-written; got: ${JSON.stringify(out2.written)}`);
+
+    // Exactly one intent row with this verbatim must exist.
+    const intentRows = db.all<{ id: number }>(
+      `SELECT id FROM discussions
+        WHERE issue_id = ? AND kind = 'intent' AND body = ?`,
+      [issue_id, 'Human intent verbatim: "add CSV export"'],
+    );
+    assert.equal(intentRows.length, 1, 'exactly one intent row must exist after both calls');
+
+    db.close();
+  });
+});
 
 describe('parseFilesDirs (#300)', () => {
   it('derives unique dirs from a spec ## Files section', () => {
