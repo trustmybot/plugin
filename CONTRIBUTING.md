@@ -28,6 +28,19 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 
 L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 
+## Issues & PRs
+
+### Milestones
+
+- Every issue and every PR carries a milestone — the release expected to ship it. Assign at creation; re-milestone if it slips (never leave one unmilestoned).
+- Milestone hygiene is part of the release ritual: Phase A isn't done while the milestone has open items — close them, move them, or ship them.
+
+### Issue ↔ PR linkage
+
+- A PR that resolves an issue (the normal case) declares it with a closing keyword in the PR **description** — `Closes #N` / `Fixes #N` — so GitHub links the two bidirectionally. Comment-mentions don't create links; use the description.
+- PRs merge into `dev`, where GitHub's auto-close does not fire. Whoever merges closes the issue manually with a comment naming the PR and landing commit (e.g. "Fixed in #530 @ `af89a30`"). The issue is closed only after its PR is merged, never before.
+- A PR with no issue (release mechanics, typo-class fixes) says so in its description in one line.
+
 ## Release
 
 `scripts/maintenance/bump-version.sh <version>` keeps the version in sync across all four manifests.
