@@ -6,11 +6,12 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## v0.8.1-rc.1 — 2026-06-12
 
-Patch release carrying the #529 ensure-branch fix and the upload-artifact v7 upgrade.
+Patch release carrying the #529 ensure-branch fix, the #537 embedding-await fix, and the upload-artifact v7 upgrade.
 
 ### Fixed
 
 - **`task_create_batch` ensures branch exists** — resolves repos via `repos.path`, creates the task's branch from `parent_branch_id` (fallback HEAD) if absent, and fires a `tmb_branch_autocreated` audit event; closes the headless one-way trap behind gate run #94's L6 step-5 failure (GH #529, PR #530).
+- **Embedding writes survive short-lived sessions** — `discussion_append` and `audit_log` now await `embedAndStore`, so one-shot/headless sessions can no longer lose `discussions_embeddings`/`audit_embeddings` rows to server shutdown; embed failures still degrade gracefully to FTS-only (GH #537, PR #538).
 
 ### Changed
 
