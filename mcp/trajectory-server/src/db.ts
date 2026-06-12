@@ -93,7 +93,7 @@ function findExistingDbUp(
 
 export class TrajectoryDB {
   private db: DatabaseSync;
-  private dbPath: string;
+  readonly dbPath: string;
 
   constructor(dbPath: string) {
     // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
