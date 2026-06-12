@@ -74,7 +74,7 @@ export function agentTools(db, dbPath = '') {
         },
         {
             name: 'agent_register',
-            description: 'Register a new agent. Returns existing row unchanged if name already present (INSERT OR IGNORE).',
+            description: 'Register a new agent. Promotes a template-seeded row to project-local when called with scope=project-local; emits tmb_agent_created audit on insert or promotion. True idempotent re-registration (already project-local) is a silent no-op.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -138,19 +138,26 @@ export function agentTools(db, dbPath = '') {
                     `A project-local '${name}' would shadow the backbone and disable it. ` +
                     `To extend ${name}, create a differently-named consultant agent instead.`);
             }
-            db.run(`INSERT OR IGNORE INTO agents (name, kind, scope, file_path)
-         VALUES (?, ?, ?, ?)`, [name, kind, scope, filePath]);
-            const row = db.get('SELECT * FROM agents WHERE name = ?', [name]);
-            // When a new project-local consultant is inserted, emit a tmb_agent_created
-            // audit row automatically. changes() > 0 distinguishes a real insert from
-            // an INSERT OR IGNORE no-op (idempotent re-registration).
-            if (scope === 'project-local' && kind === 'consultant') {
-                const changed = db.get('SELECT changes() AS n', []);
-                if (changed && changed.n > 0 && row) {
-                    const contentJson = JSON.stringify({ name, mode: 'agent_register', agent_id: row.id });
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, datetime('now'))`, [String(args['agent']), `Agent registered: ${name}`, contentJson]);
+            const existing = db.get('SELECT * FROM agents WHERE name = ?', [name]);
+            let promoted = false;
+            if (existing) {
+                if (scope === 'project-local' && (existing.scope === 'template')) {
+                    db.run(`UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = datetime('now')
+             WHERE name = ?`, [scope, kind, filePath, name]);
+                    promoted = true;
                 }
+                // already project-local or other idempotent case: silent no-op
+            }
+            else {
+                db.run(`INSERT INTO agents (name, kind, scope, file_path)
+           VALUES (?, ?, ?, ?)`, [name, kind, scope, filePath]);
+            }
+            const row = db.get('SELECT * FROM agents WHERE name = ?', [name]);
+            const inserted = !existing && (db.get('SELECT changes() AS n', [])?.n ?? 0) > 0;
+            if (scope === 'project-local' && kind === 'consultant' && (inserted || promoted) && row) {
+                const contentJson = JSON.stringify({ name, mode: 'agent_register', agent_id: row.id });
+                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, datetime('now'))`, [String(args['agent']), `Agent registered: ${name}`, contentJson]);
             }
             return ok(row);
         }),

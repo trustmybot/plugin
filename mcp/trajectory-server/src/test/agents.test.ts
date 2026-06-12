@@ -79,25 +79,59 @@ describe('agentTools', () => {
     db.close();
   });
 
-  it('agent_register is idempotent — INSERT OR IGNORE returns existing row unchanged', async () => {
+  it('agent_register promotes template-seeded row to project-local and updates scope+file_path', async () => {
     const db = tempDB();
     const tools = agentTools(db);
 
-    const first = await call(tools.handlers, 'agent_register', {
+    const result = await call(tools.handlers, 'agent_register', {
       agent: 'bro',
-      name: 'architect',
+      name: 'cto',
       kind: 'consultant',
       scope: 'project-local',
-      file_path: '.claude/agents/architect.md',
+      file_path: '.claude/agents/cto.md',
     });
-    const firstRow = parseResult(first);
-    assert.ok(!first.isError, `Expected no error: ${JSON.stringify(firstRow)}`);
-
-    assert.equal(firstRow.scope, 'template', 'Existing row should not be overwritten');
+    const row = parseResult(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
+    assert.equal(row.scope, 'project-local', 'Promoted row must have scope=project-local');
+    assert.equal(row.file_path, '.claude/agents/cto.md', 'Promoted row must have updated file_path');
 
     const count = db.get<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM agents');
     assert.ok(count !== undefined);
-    assert.equal(count.cnt, 6, 'Row count must not grow when INSERT OR IGNORE hits existing name');
+    assert.equal(count.cnt, 6, 'Row count must not grow on promotion');
+    db.close();
+  });
+
+  it('agent_register promotion emits exactly one tmb_agent_created audit; repeat call emits none', async () => {
+    const db = tempDB();
+    const tools = agentTools(db);
+
+    await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'cto',
+      kind: 'consultant',
+      scope: 'project-local',
+      file_path: '.claude/agents/cto.md',
+    });
+
+    const afterFirst = db.get<{ cnt: number }>(
+      "SELECT COUNT(*) AS cnt FROM audit WHERE event_type = 'tmb_agent_created'",
+    );
+    assert.ok(afterFirst !== undefined);
+    assert.equal(afterFirst.cnt, 1, 'Promotion must emit exactly one tmb_agent_created audit');
+
+    await call(tools.handlers, 'agent_register', {
+      agent: 'bro',
+      name: 'cto',
+      kind: 'consultant',
+      scope: 'project-local',
+      file_path: '.claude/agents/cto.md',
+    });
+
+    const afterSecond = db.get<{ cnt: number }>(
+      "SELECT COUNT(*) AS cnt FROM audit WHERE event_type = 'tmb_agent_created'",
+    );
+    assert.ok(afterSecond !== undefined);
+    assert.equal(afterSecond.cnt, 1, 'Repeat call on already-project-local must not emit duplicate audit');
     db.close();
   });
 
