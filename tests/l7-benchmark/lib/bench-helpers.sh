@@ -2,6 +2,9 @@
 # Shared helpers for the L7 bench harness (#6). Source from run-l7.sh +
 # scorers. Mirrors tests/l5-l6/lib/flow-helpers.sh + l6-chain-helpers.sh
 # patterns but specialized for the two-arm benchmark structure.
+#
+# Model default: claude-opus-4-8 (live; replaces the dead claude-opus-4-20250514
+# snapshot). Override via TMB_BENCH_MODEL.
 
 set -uo pipefail
 
@@ -53,13 +56,13 @@ bench_run_arm() {
     --output-format stream-json
     --verbose
     --dangerously-skip-permissions
-    --max-turns 50
+    --max-turns 200
   )
   # Pin bro's underlying model so we match the published comparator's
   # model version exactly. Default is the May 2025 Claude 4 Opus snapshot
   # — same model Anthropic used for their `20250522_tools_claude-4-opus`
   # SWE-bench Verified submission. Override via TMB_BENCH_MODEL env var.
-  local model="${TMB_BENCH_MODEL:-claude-opus-4-20250514}"
+  local model="${TMB_BENCH_MODEL:-claude-opus-4-8}"
   args+=(--model "$model")
   if [ "$arm" = "tmb-on" ]; then
     args+=(--plugin-dir "$PLUGIN_ROOT")
@@ -100,6 +103,10 @@ bench_run_arm() {
       final_prompt="${final_prompt}
 
 I will go to sleep. You solve all of the issues automatically. Don't ask questions."
+    fi
+    # Log first 40 chars of final prompt when prefix is set (plugin arm only).
+    if [ "$arm" = "tmb-on" ] && [ -n "${TMB_BENCH_PROMPT_PREFIX:-}" ]; then
+      bench_log "  PREFIX: prompt[0:40]='${final_prompt:0:40}'"
     fi
     printf "%s\n" "$final_prompt" | claude "${args[@]}" 2>>"$transcript_path.stderr" \
       >> "$transcript_path"
