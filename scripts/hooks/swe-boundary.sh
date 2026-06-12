@@ -2,12 +2,23 @@
 # Hook: SWE boundary enforcement — structural gates keyed on deterministic
 # SWE-context signals.
 #
-# Four rules, all guarded by tmb_swe_context():
+# This is a tripwire for obvious write-forms, not a Bash sandbox. When in
+# doubt, the hook passes — precision beats recall here.
 #
-#   (a) Bash: git push from SWE context            → DENY
-#   (b) Bash: gh/glab MUTATING subcommands          → DENY (read-only gh allowed)
-#   (c) Edit/Write: target outside assigned worktree → DENY
-#   (d) Edit/Write: prompt-surface paths             → DENY (unless prompt_bearing=1)
+# Five rules, all guarded by tmb_swe_context():
+#
+#   (a) Bash: git push from SWE context                  → DENY
+#   (b) Bash: gh/glab MUTATING subcommands               → DENY (read-only gh allowed)
+#   (c) Edit/Write: target outside assigned worktree      → DENY
+#   (d) Edit/Write: prompt-surface paths                  → DENY (unless prompt_bearing=1)
+#   (e) Bash: write-form command targeting prompt surface → DENY (unless prompt_bearing=1)
+#
+# Write-forms matched by rule (e):
+#   >, >>, tee, sed -i, perl -i, python/python3 open(...,'w'|'a'), cp/mv/rsync
+#   with a prompt-surface destination (verb coupled to destination token).
+# Prompt surfaces: agents/*.md, skills/*/SKILL.md, commands/*.md,
+#   templates/*.md, CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md.
+# Read-only commands (cat, grep, sed -n, sed without -i) are never tripped.
 #
 # SWE-context signal (deterministic, defined once here):
 #   - For Bash tool calls: PWD is inside .claude/worktrees/* AND a tasks row with
@@ -58,6 +69,15 @@ tmb_swe_context() {
 
 SWE_CTX=$(tmb_swe_context)
 
+# Resolve the assigned worktree root once — used by rules (c), (d), and (e).
+# Primary signal: $PWD when it's inside a worktree.
+WORKTREE_ROOT=""
+case "$PWD" in
+  */.claude/worktrees/*)
+    WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
+    ;;
+esac
+
 # ---- Rule (a): git push from SWE context ------------------------------------
 # Already handled by git-push-guard.sh (which checks both WT_CWD and agent_type).
 # This hook adds defense-in-depth by also checking the SWE_CTX signal for
@@ -99,6 +119,211 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro."}}'
     exit 0
   fi
+
+  # ---- Rule (e): Bash write-form targeting a prompt surface ------------------
+  # Tripwire for the obvious forms only — reads (cat/grep/sed -n) never fire.
+  # Deny lifts when the resolved task has prompt_bearing=1 (same resolution as
+  # rule (d), including the slug fallback).
+  #
+  # Destination-coupled matching: the verb/redirect operator must be adjacent to
+  # the prompt-surface path token. A prompt-surface path mentioned inside a quoted
+  # string argument (grep/echo) or as the SOURCE of cp/mv does not count.
+  #
+  # _is_prompt_surface_token <token>: returns 0 if the token is a prompt-surface path.
+  _is_prompt_surface_token() {
+    local tok="$1"
+    case "$tok" in
+      agents/*.md|*/agents/*.md) return 0 ;;
+      skills/*/SKILL.md|*/skills/*/SKILL.md) return 0 ;;
+      commands/*.md|*/commands/*.md) return 0 ;;
+      templates/*.md|*/templates/*.md) return 0 ;;
+      CLAUDE.md|*/CLAUDE.md) return 0 ;;
+      CODEX.md|*/CODEX.md) return 0 ;;
+      CURSOR.md|*/CURSOR.md) return 0 ;;
+      GEMINI.md|*/GEMINI.md) return 0 ;;
+    esac
+    return 1
+  }
+
+  _bash_writes_prompt_surface() {
+    local cmd="$1"
+
+    # --- Redirect forms: > <dest> or >> <dest> ---
+    # Extract the token immediately after > or >> (with optional leading spaces).
+    # We strip the redirect operator and look at what follows.
+    # Pattern: anything then ">>" or ">" then optional space then the dest token.
+    # We use a two-step approach: find the dest token after the last redirect.
+    local after_redir=""
+    case "$cmd" in
+      *">>"*)
+        # Extract what comes after >> (rightmost occurrence for pipelines).
+        after_redir="${cmd##*>>}"
+        # Strip leading whitespace.
+        after_redir="${after_redir#"${after_redir%%[! ]*}"}"
+        # Take first token (up to space or end).
+        local dest_tok="${after_redir%% *}"
+        _is_prompt_surface_token "$dest_tok" && return 0
+        ;;
+    esac
+    case "$cmd" in
+      *">"*)
+        # Only match single > (not >>). Strip >> occurrences first.
+        local no_dbl
+        no_dbl=$(printf '%s' "$cmd" | sed 's/>>//g')
+        case "$no_dbl" in
+          *">"*)
+            after_redir="${no_dbl##*>}"
+            after_redir="${after_redir#"${after_redir%%[! ]*}"}"
+            local dest_tok2="${after_redir%% *}"
+            _is_prompt_surface_token "$dest_tok2" && return 0
+            ;;
+        esac
+        ;;
+    esac
+
+    # --- tee: match "tee <dest>" or "tee -a <dest>" ---
+    # The destination is the last non-flag argument to tee.
+    # Extract the argument after 'tee' (or 'tee -a').
+    local tee_rest=""
+    case "$cmd" in
+      *" tee "*|*" tee	"*|"tee "*)
+        # Capture everything after the last occurrence of " tee " or "tee ".
+        case "$cmd" in
+          *" tee "*) tee_rest="${cmd##* tee }" ;;
+          "tee "*) tee_rest="${cmd#tee }" ;;
+        esac
+        # Skip -a flag if present.
+        case "$tee_rest" in
+          "-a "*) tee_rest="${tee_rest#-a }" ;;
+        esac
+        local tee_dest="${tee_rest%% *}"
+        _is_prompt_surface_token "$tee_dest" && return 0
+        ;;
+    esac
+
+    # --- sed -i: match "sed -i[suffix] ... <file>" ---
+    # The file is the last token. We check if the command has sed -i and a
+    # prompt-surface path token appears after sed -i (not before).
+    case "$cmd" in
+      *"sed -i"*|*"sed --in-place"*)
+        local after_sedi=""
+        case "$cmd" in
+          *"sed --in-place"*) after_sedi="${cmd##*sed --in-place}" ;;
+          *"sed -i"*) after_sedi="${cmd##*sed -i}" ;;
+        esac
+        # The last token in after_sedi is the file.
+        local sedi_file="${after_sedi##* }"
+        _is_prompt_surface_token "$sedi_file" && return 0
+        ;;
+    esac
+
+    # --- perl -i: match "perl -i[suffix] ... <file>" ---
+    case "$cmd" in
+      *"perl -i"*)
+        local after_perli="${cmd##*perl -i}"
+        local perli_file="${after_perli##* }"
+        _is_prompt_surface_token "$perli_file" && return 0
+        ;;
+    esac
+
+    # --- python/python3 open(<path>, 'w'|'a'): the path inside open() ---
+    case "$cmd" in
+      *"python"*"open("*"'w'"*|*"python"*"open("*'"w"'*)
+        local open_arg="${cmd##*open(}"
+        local open_path="${open_arg%%,*}"
+        # Strip surrounding quotes.
+        open_path="${open_path#\'}"
+        open_path="${open_path%\'}"
+        open_path="${open_path#\"}"
+        open_path="${open_path%\"}"
+        _is_prompt_surface_token "$open_path" && return 0
+        ;;
+    esac
+    case "$cmd" in
+      *"python"*"open("*"'a'"*|*"python"*"open("*'"a"'*)
+        local open_arg2="${cmd##*open(}"
+        local open_path2="${open_arg2%%,*}"
+        open_path2="${open_path2#\'}"
+        open_path2="${open_path2%\'}"
+        open_path2="${open_path2#\"}"
+        open_path2="${open_path2%\"}"
+        _is_prompt_surface_token "$open_path2" && return 0
+        ;;
+    esac
+
+    # --- cp/mv/rsync: destination is the LAST argument ---
+    # The prompt-surface path must be the last token (destination).
+    case "$cmd" in
+      "cp "*|*" cp "*)
+        local cp_last="${cmd##* }"
+        _is_prompt_surface_token "$cp_last" && return 0
+        ;;
+    esac
+    case "$cmd" in
+      "mv "*|*" mv "*)
+        local mv_last="${cmd##* }"
+        _is_prompt_surface_token "$mv_last" && return 0
+        ;;
+    esac
+    case "$cmd" in
+      "rsync "*|*" rsync "*)
+        local rsync_last="${cmd##* }"
+        _is_prompt_surface_token "$rsync_last" && return 0
+        ;;
+    esac
+
+    return 1
+  }
+
+  BASH_PROMPT_WRITE=""
+  if _bash_writes_prompt_surface "$CMD"; then
+    BASH_PROMPT_WRITE="yes"
+  fi
+
+  if [ "$BASH_PROMPT_WRITE" = "yes" ]; then
+    # Resolve prompt_bearing via transcript or slug fallback (mirrors rule (d)).
+    _PB_TASK_ID=""
+    _PB_TRANSCRIPT=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
+    if [ -n "$_PB_TRANSCRIPT" ] && [ -f "$_PB_TRANSCRIPT" ]; then
+      _PB_TASK_ID=$(jq -r '
+        .message.content // [] |
+        .[] | select(.type == "text") | .text // ""
+      ' "$_PB_TRANSCRIPT" 2>/dev/null \
+        | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+      case "$_PB_TASK_ID" in ''|*[!0-9]*) _PB_TASK_ID="" ;; esac
+    fi
+    if [ -z "$_PB_TASK_ID" ] && [ -n "$WORKTREE_ROOT" ]; then
+      _PB_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
+      if [ -n "$_PB_SLUG" ]; then
+        _PB_DB=$(tmb_db_path || true)
+        if [ -n "$_PB_DB" ] && tmb_have_sqlite; then
+          _SAFE_SLUG=$(tmb_sql_quote "$_PB_SLUG")
+          _PB_TASK_ID=$(tmb_sqlite_ro "$_PB_DB" "
+            SELECT id FROM tasks
+             WHERE branch_id LIKE '%/${_SAFE_SLUG}'
+               AND status IN ('pending','running','completed')
+             ORDER BY id DESC
+             LIMIT 1;
+          " 2>/dev/null || true)
+          case "$_PB_TASK_ID" in ''|*[!0-9]*) _PB_TASK_ID="" ;; esac
+        fi
+      fi
+    fi
+    _PB_ALLOWED=""
+    if [ -n "$_PB_TASK_ID" ]; then
+      _PB_DB=$(tmb_db_path || true)
+      if [ -n "$_PB_DB" ] && tmb_have_sqlite; then
+        _PB_VAL=$(tmb_sqlite_ro "$_PB_DB" "
+          SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${_PB_TASK_ID} LIMIT 1;
+        " 2>/dev/null || echo "0")
+        [ "${_PB_VAL:-0}" -eq 1 ] && _PB_ALLOWED="yes"
+      fi
+    fi
+    if [ "$_PB_ALLOWED" != "yes" ]; then
+      jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync). Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_review_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed."}}'
+      exit 0
+    fi
+  fi
 fi
 
 # ---- Rules (c) and (d): Edit/Write fence ------------------------------------
@@ -111,15 +336,6 @@ esac
 
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null || true)
 [ -n "$TARGET" ] || exit 0
-
-# Resolve the assigned worktree root for this SWE instance.
-# Primary signal: $PWD when it's inside a worktree. Secondary: agent_transcript_path.
-WORKTREE_ROOT=""
-case "$PWD" in
-  */.claude/worktrees/*)
-    WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
-    ;;
-esac
 
 # ---- Rule (c): target outside assigned worktree ----------------------------
 if [ -n "$WORKTREE_ROOT" ]; then

@@ -201,4 +201,104 @@ rm -f "$DB"
 out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_BRO")")
 assert_eq "" "$out" "no DB = not a TMB project = allow"
 
+# ---- Rule 2: Bash write-forms targeting prompt surfaces (main checkout) ----
+
+bash_input() {
+  jq -n --arg cmd "$1" '{
+    tool_name: "Bash",
+    tool_input: { command: $cmd }
+  }'
+}
+
+test_case "Bash non-write: silent pass"
+out=$(run_hook "$(bash_input 'cat agents/swe.md')")
+assert_eq "" "$out" "cat is read-only, should pass"
+
+test_case "Bash redirect > to agents/swe.md: DENIED (bro context)"
+out=$(run_hook "$(bash_input 'echo "content" > agents/swe.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "redirect > to agents/*.md denied from main checkout"
+assert_contains "$out" "prompt-surface" "deny reason mentions prompt-surface"
+
+test_case "Bash redirect >> to CLAUDE.md: DENIED"
+out=$(run_hook "$(bash_input 'echo "extra" >> CLAUDE.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "redirect >> to CLAUDE.md denied"
+
+test_case "Bash tee to commands/scan.md: DENIED"
+out=$(run_hook "$(bash_input 'cat /tmp/x | tee commands/scan.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "tee to commands/*.md denied"
+
+test_case "Bash sed -i on skills/tmb_planning/SKILL.md: DENIED"
+out=$(run_hook "$(bash_input "sed -i 's/old/new/' skills/tmb_planning/SKILL.md")")
+assert_contains "$out" '"permissionDecision":"deny"' "sed -i on SKILL.md denied"
+
+test_case "Bash perl -i on agents/bro.md: DENIED"
+out=$(run_hook "$(bash_input "perl -i -pe 's/x/y/' agents/bro.md")")
+assert_contains "$out" '"permissionDecision":"deny"' "perl -i on agents/*.md denied"
+
+test_case "Bash python3 open w to agents/swe.md: DENIED"
+out=$(run_hook "$(bash_input "python3 -c \"open('agents/swe.md','w').write('x')\"")")
+assert_contains "$out" '"permissionDecision":"deny"' "python3 open w to agents/*.md denied"
+
+test_case "Bash python open a to GEMINI.md: DENIED"
+out=$(run_hook "$(bash_input "python -c \"open('GEMINI.md','a').write('x')\"")")
+assert_contains "$out" '"permissionDecision":"deny"' "python open a to GEMINI.md denied"
+
+test_case "Bash cp to templates/agents/foo.md: DENIED"
+out=$(run_hook "$(bash_input 'cp /tmp/foo.md templates/agents/foo.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "cp to templates/*.md denied"
+
+test_case "Bash mv to commands/foo.md: DENIED"
+out=$(run_hook "$(bash_input 'mv /tmp/foo.md commands/foo.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "mv to commands/*.md denied"
+
+test_case "Bash rsync to agents/foo.md: DENIED"
+out=$(run_hook "$(bash_input 'rsync -av /tmp/agent.md agents/foo.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "rsync to agents/*.md denied"
+
+test_case "Bash redirect > to non-prompt file: pass"
+out=$(run_hook "$(bash_input 'echo "hello" > src/index.ts')")
+assert_eq "" "$out" "redirect to non-prompt file passes"
+
+test_case "Bash sed -n (read-only) on agents/swe.md: pass"
+out=$(run_hook "$(bash_input "sed -n '1,5p' agents/swe.md")")
+assert_eq "" "$out" "sed -n is read-only, should pass"
+
+test_case "Bash grep on agents/swe.md: pass"
+out=$(run_hook "$(bash_input 'grep "pattern" agents/swe.md')")
+assert_eq "" "$out" "grep is read-only, should pass"
+
+test_case "Bash write in a worktree path: pass (worktree exemption)"
+out=$(run_hook "$(bash_input 'echo "x" > .claude/worktrees/task-99/agents/swe.md')")
+assert_eq "" "$out" "worktree-targeted write passes"
+
+test_case "Bash redirect > to CODEX.md: DENIED"
+out=$(run_hook "$(bash_input 'echo "x" > CODEX.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "redirect to CODEX.md denied"
+
+test_case "Bash redirect > to CURSOR.md: DENIED"
+out=$(run_hook "$(bash_input 'echo "x" > CURSOR.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "redirect to CURSOR.md denied"
+
+test_case "Bash deny applies regardless of agent identity (no agent_type field)"
+out=$(run_hook "$(bash_input 'echo "x" > agents/swe.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "deny fires even with no agent identity"
+
+# ---- Rule 2 false-positive regressions (destination-coupling) ----
+
+test_case "Bash grep containing > char: NOT denied (not a redirect)"
+out=$(run_hook "$(bash_input 'grep ">" agents/swe.md')")
+assert_eq "" "$out" "grep with > in pattern should not be denied"
+
+test_case "Bash awk comparison > on .md file: NOT denied (comparison, not redirect)"
+out=$(run_hook "$(bash_input "awk '\$1 > 5' agents/swe.md")")
+assert_eq "" "$out" "awk comparison operator should not be denied"
+
+test_case "Bash echo with prompt path in string redirected to /tmp: NOT denied"
+out=$(run_hook "$(bash_input 'echo "see agents/swe.md for details" > /tmp/notes.txt')")
+assert_eq "" "$out" "redirect to /tmp mentioning a prompt path should not be denied"
+
+test_case "Bash git commit -m message mentioning agents/swe.md: NOT denied"
+out=$(run_hook "$(bash_input 'git commit -m "touch agents/swe.md"')")
+assert_eq "" "$out" "commit message mentioning prompt path should not be denied"
+
 summarize
