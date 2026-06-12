@@ -6,6 +6,7 @@ import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { resolve, dirname } from 'node:path';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -78,26 +79,54 @@ const SWE_ALLOWED_TARGET_STATUSES = new Set(['running', 'completed', 'failed']);
 // States that SWE may not transition OUT OF (terminal for SWE).
 const SWE_LOCKED_SOURCE_STATES = new Set(['closed', 'escalated']);
 
-function validateBranchExistsInRepo(branchId: string, repo: string): void {
-  const result = spawnSync('git', ['-C', repo, 'rev-parse', '--verify', branchId], {
+type BranchAutocreatedAudit = {
+  branchId: string;
+  startPoint: string;
+  repoPath: string;
+};
+
+function ensureBranchInRepo(
+  branchId: string,
+  repoPath: string,
+  parentBranchId: string | null,
+): BranchAutocreatedAudit | null {
+  const existsResult = spawnSync('git', ['-C', repoPath, 'rev-parse', '--verify', branchId], {
     encoding: 'utf8',
     timeout: SUBPROCESS_TIMEOUT_MS,
   });
-  if (result.status === 0) return;
-  const stderr = (result.stderr ?? '') as string;
+  if (existsResult.status === 0) return null;
+
+  const stderr = (existsResult.stderr ?? '') as string;
   if (stderr.includes('not a git repository') || stderr.includes('cannot change to')) {
     serverLog({
       level: 'warn',
-      msg: `[task_create_batch] repo '${repo}' is not a resolvable git repository; skipping branch-existence check for '${branchId}'.`,
+      msg: `[task_create_batch] repo '${repoPath}' is not a resolvable git repository; skipping branch-existence check for '${branchId}'.`,
     });
-    return;
+    return null;
   }
-  throw new Error(
-    `task_create_batch rejected: branch '${branchId}' does not exist in repo '${repo}'. ` +
-      `Pre-create the branch before filing the task: ` +
-      `'git -C ${repo} branch ${branchId} <parent>'. ` +
-      `Bro is responsible for branch creation — SWE never creates branches (#11, #102).`,
-  );
+
+  let startPoint = 'HEAD';
+  if (parentBranchId) {
+    const parentResult = spawnSync(
+      'git',
+      ['-C', repoPath, 'rev-parse', '--verify', parentBranchId],
+      { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS },
+    );
+    if (parentResult.status === 0) startPoint = parentBranchId;
+  }
+
+  const createResult = spawnSync('git', ['-C', repoPath, 'branch', branchId, startPoint], {
+    encoding: 'utf8',
+    timeout: SUBPROCESS_TIMEOUT_MS,
+  });
+  if (createResult.status !== 0) {
+    throw new Error(
+      `task_create_batch: failed to auto-create branch '${branchId}' from '${startPoint}' in repo '${repoPath}': ` +
+        ((createResult.stderr ?? '') as string).trim(),
+    );
+  }
+
+  return { branchId, startPoint, repoPath };
 }
 
 const VALID_STATUSES = new Set([
@@ -607,14 +636,16 @@ export function taskTools(db: TrajectoryDB): {
         }
       }
 
-      // Pre-transaction: format-validate then branch-existence check against
-      // the resolved repo (explicit > default). Order matters: bad format
-      // should produce the format error, not a git error. (#360)
+      // Pre-transaction: format-validate then branch-ensure against the
+      // resolved repo (explicit > default). Order matters: bad format should
+      // produce the format error, not a git error. (#360, #529)
+      const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
+      const autocreatedAudits: Array<{ branchId: string; startPoint: string; repoPath: string }> = [];
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error('Missing required arg: branch_id');
         validateBranchId(t.branch_id);
 
-        let effectiveRepo: string | null = null;
+        let effectiveRepoName: string | null = null;
         if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
           const repo = t.repo as string;
           if (repo.includes('..')) {
@@ -627,13 +658,27 @@ export function taskTools(db: TrajectoryDB): {
               `Invalid repo "${repo}": must not start with "/". Use a relative path like "inner" or "repos/backend".`,
             );
           }
-          effectiveRepo = repo;
+          effectiveRepoName = repo;
         } else {
-          effectiveRepo = defaultRepoValue;
+          effectiveRepoName = defaultRepoValue;
         }
 
-        if (effectiveRepo) {
-          validateBranchExistsInRepo(t.branch_id, effectiveRepo);
+        if (effectiveRepoName) {
+          const reposRow = db.get<{ path: string }>(
+            `SELECT path FROM repos WHERE name = ?`,
+            [effectiveRepoName],
+          );
+          let repoPath: string;
+          if (reposRow) {
+            const rawPath = reposRow.path;
+            repoPath = rawPath.startsWith('/') ? rawPath : resolve(dbDir, rawPath);
+          } else {
+            repoPath = effectiveRepoName;
+          }
+
+          const parentBranchId = (t.parent_branch_id as string | undefined | null) ?? null;
+          const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);
+          if (audit) autocreatedAudits.push(audit);
         }
       }
 
@@ -726,6 +771,22 @@ export function taskTools(db: TrajectoryDB): {
               [row.id, issueId, now],
             );
           }
+        }
+
+        // Audit rows for any branches auto-created by ensureBranchInRepo (#529).
+        for (const ac of autocreatedAudits) {
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'trajectory-server', 'tmb_branch_autocreated', ?, ?, ?)`,
+            [
+              issueId,
+              ac.branchId,
+              `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
+              JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
+              now,
+            ],
+          );
         }
 
         // Optional atomic audit emission: when emit_planning_complete=true, insert

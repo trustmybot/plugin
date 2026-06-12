@@ -329,7 +329,7 @@ export function auditTools(db: TrajectoryDB): {
 
       if (row) {
         const embedText = contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
-        embedAndStore(db, 'audit', row.id, embedText).catch((e) =>
+        await embedAndStore(db, 'audit', row.id, embedText).catch((e) =>
           console.error('[embeddings] audit_log embed failed:', e),
         );
       }

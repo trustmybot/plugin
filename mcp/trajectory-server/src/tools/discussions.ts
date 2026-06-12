@@ -399,7 +399,7 @@ export function discussionTools(db: TrajectoryDB): {
         );
 
         if (row) {
-          embedAndStore(db, 'discussions', row.id, body).catch((e) =>
+          await embedAndStore(db, 'discussions', row.id, body).catch((e) =>
             console.error('[embeddings] discussion_append embed failed:', e),
           );
         }

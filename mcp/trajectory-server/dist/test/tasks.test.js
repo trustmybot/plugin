@@ -785,10 +785,12 @@ describe('taskTools', () => {
             cleanup();
         }
     });
-    it('task_create_batch rejects task when branch does not exist in explicit repo (#102)', async () => {
+    it('task_create_batch auto-creates branch when missing from explicit repo (#529)', async () => {
         const { name, cleanup } = makeGitSubdir('test-git-fixture-branch-missing');
         try {
+            const repoDir = join(process.cwd(), name);
             const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-missing', repoDir]);
             const issueId = await createIssue(db);
             const tools = taskTools(db);
             const result = await call(tools.handlers, 'task_create_batch', {
@@ -798,49 +800,57 @@ describe('taskTools', () => {
                 issue_id: String(issueId),
                 tasks: [
                     {
-                        branch_id: 'feat/nonexistent-branch',
+                        branch_id: 'feat/auto-created-branch',
                         description: 'Feature task',
-                        repo: name,
+                        repo: 'fixture-missing',
                     },
                 ],
             });
-            const data = parseResult(result);
-            assert.ok(result.isError, 'Expected isError=true');
-            assert.match(data.error, /task_create_batch rejected/);
-            assert.match(data.error, /feat\/nonexistent-branch/);
-            assert.match(data.error, /#102/);
+            assert.ok(!result.isError, `Expected no error (auto-create): ${JSON.stringify(parseResult(result))}`);
+            const inserted = parseBatch(result);
+            assert.equal(inserted[0].branch_id, 'feat/auto-created-branch');
+            const branchCheck = spawnSync('git', ['-C', repoDir, 'rev-parse', '--verify', 'feat/auto-created-branch'], { encoding: 'utf8' });
+            assert.equal(branchCheck.status, 0, 'Branch must have been created in git');
+            const auditRow = db.get(`SELECT event_type, summary FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`);
+            assert.ok(auditRow !== undefined, 'tmb_branch_autocreated audit row must exist');
+            assert.ok(auditRow.summary.includes('feat/auto-created-branch'), 'Audit summary must name the branch');
             db.close();
         }
         finally {
             cleanup();
         }
     });
-    it('task_create_batch uses subdir repo for branch check, not parent repo (#102)', async () => {
+    it('task_create_batch uses subdir repo for branch ensure, auto-creates in repoB (#529)', async () => {
         const { name: repoA, cleanup: cleanupA } = makeGitSubdir('test-git-fixture-repo-a');
         const { name: repoB, cleanup: cleanupB } = makeGitSubdir('test-git-fixture-repo-b');
         try {
             const repoADir = join(process.cwd(), repoA);
+            const repoBDir = join(process.cwd(), repoB);
             spawnSync('git', ['branch', 'feat/exists-in-a-only'], { cwd: repoADir, stdio: 'pipe' });
             const db = tempDB();
-            const issueId = await createIssue(db);
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['repo-a', repoADir]);
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['repo-b', repoBDir]);
             const tools = taskTools(db);
+            const issueIdA = await createIssue(db);
+            const issueIdB = await createIssue(db);
             const acceptedResult = await call(tools.handlers, 'task_create_batch', {
                 waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
                 waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
                 agent: 'bro',
-                issue_id: String(issueId),
-                tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo A', repo: repoA }],
+                issue_id: String(issueIdA),
+                tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo A (already exists)', repo: 'repo-a' }],
             });
             assert.ok(!acceptedResult.isError, `Expected accepted for repoA: ${JSON.stringify(parseResult(acceptedResult))}`);
-            const rejectedResult = await call(tools.handlers, 'task_create_batch', {
+            const autocreatedResult = await call(tools.handlers, 'task_create_batch', {
                 waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
                 waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
                 agent: 'bro',
-                issue_id: String(issueId),
-                tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo B (branch absent)', repo: repoB }],
+                issue_id: String(issueIdB),
+                tasks: [{ branch_id: 'feat/exists-in-a-only', description: 'Uses repo B (auto-creates)', repo: 'repo-b' }],
             });
-            assert.ok(rejectedResult.isError, 'Expected rejection when branch absent in repoB');
-            assert.match(parseResult(rejectedResult).error, /task_create_batch rejected/);
+            assert.ok(!autocreatedResult.isError, `Expected auto-create in repoB: ${JSON.stringify(parseResult(autocreatedResult))}`);
+            const branchCheck = spawnSync('git', ['-C', repoBDir, 'rev-parse', '--verify', 'feat/exists-in-a-only'], { encoding: 'utf8' });
+            assert.equal(branchCheck.status, 0, 'Branch must have been auto-created in repoB');
             db.close();
         }
         finally {
@@ -919,11 +929,12 @@ describe('taskTools', () => {
             cleanup();
         }
     });
-    it('task_create_batch rejects via default-repo gate when branch missing from tmb_default_repo (#360)', async () => {
-        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-reject');
+    it('task_create_batch auto-creates branch via default-repo when missing from tmb_default_repo (#529)', async () => {
+        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-autocreate');
         try {
+            const repoDir = join(process.cwd(), repoName);
             const db = tempDB();
-            db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`, [JSON.stringify(repoName)]);
+            db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`, [JSON.stringify(repoDir)]);
             const issueId = await createIssue(db);
             const tools = taskTools(db);
             const result = await call(tools.handlers, 'task_create_batch', {
@@ -933,11 +944,13 @@ describe('taskTools', () => {
                 waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
                 agent: 'bro',
                 issue_id: String(issueId),
-                tasks: [{ branch_id: 'feat/nonexistent-branch', description: 'Branch missing from default repo' }],
+                tasks: [{ branch_id: 'feat/autocreated-via-default', description: 'Branch missing from default repo' }],
             });
-            assert.ok(result.isError, 'Expected rejection when branch missing from default repo');
-            const data = parseResult(result);
-            assert.match(data.error, /does not exist/, `Expected branch-existence error: ${data.error}`);
+            assert.ok(!result.isError, `Expected auto-create success: ${JSON.stringify(parseResult(result))}`);
+            const branchCheck = spawnSync('git', ['-C', repoDir, 'rev-parse', '--verify', 'feat/autocreated-via-default'], { encoding: 'utf8' });
+            assert.equal(branchCheck.status, 0, 'Branch must have been auto-created in default repo');
+            const auditRow = db.get(`SELECT event_type FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`);
+            assert.ok(auditRow !== undefined, 'tmb_branch_autocreated audit row must exist');
             db.close();
         }
         finally {
@@ -1315,6 +1328,155 @@ describe('taskTools', () => {
         assert.equal(raw.parallel_groups.length, 1, 'Overlapping tasks belong to the same group');
         assert.ok(raw.overlapping_pairs[0].shared_paths.includes('src/tools'), 'Shared path must be src/tools');
         db.close();
+    });
+    it('task_create_batch resolves repo via repos.path when repos.name differs from directory basename (#529)', async () => {
+        const { name, cleanup } = makeGitSubdir('test-git-fixture-repos-table');
+        try {
+            const repoDir = join(process.cwd(), name);
+            spawnSync('git', ['-C', repoDir, 'branch', 'feat/repos-table-test'], { stdio: 'pipe' });
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['plugin', repoDir]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+                waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [{ branch_id: 'feat/repos-table-test', description: 'repo resolved via repos table', repo: 'plugin' }],
+            });
+            assert.ok(!result.isError, `Expected no error when resolving via repos table: ${JSON.stringify(parseResult(result))}`);
+            const inserted = parseBatch(result);
+            assert.equal(inserted[0].branch_id, 'feat/repos-table-test');
+            db.close();
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('task_create_batch auto-creates branch from parent_branch_id and emits tmb_branch_autocreated audit (#529)', async () => {
+        const { name, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-parent');
+        try {
+            const repoDir = join(process.cwd(), name);
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-from-parent', repoDir]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+                waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [{
+                        branch_id: 'feat/new-from-parent',
+                        parent_branch_id: 'master',
+                        description: 'auto-create from parent',
+                        repo: 'fixture-from-parent',
+                    }],
+            });
+            assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+            const branchCheck = spawnSync('git', ['-C', repoDir, 'rev-parse', '--verify', 'feat/new-from-parent'], { encoding: 'utf8' });
+            assert.equal(branchCheck.status, 0, 'Branch must have been created');
+            const auditRow = db.get(`SELECT summary, content_json FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`);
+            assert.ok(auditRow !== undefined, 'tmb_branch_autocreated audit row must exist');
+            const content = JSON.parse(auditRow.content_json);
+            assert.equal(content.start_point, 'master', 'Start point must be parent_branch_id');
+            db.close();
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('task_create_batch auto-creates branch from HEAD when parent_branch_id does not exist in repo (#529)', async () => {
+        const { name, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-head');
+        try {
+            const repoDir = join(process.cwd(), name);
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-from-head', repoDir]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+                waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [{
+                        branch_id: 'feat/new-from-head',
+                        parent_branch_id: 'feat/does-not-exist-in-git',
+                        description: 'auto-create from HEAD when parent not in repo',
+                        repo: 'fixture-from-head',
+                    }],
+            });
+            assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+            const branchCheck = spawnSync('git', ['-C', repoDir, 'rev-parse', '--verify', 'feat/new-from-head'], { encoding: 'utf8' });
+            assert.equal(branchCheck.status, 0, 'Branch must have been created from HEAD');
+            const auditRow = db.get(`SELECT content_json FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`);
+            assert.ok(auditRow !== undefined, 'tmb_branch_autocreated audit row must exist');
+            const content = JSON.parse(auditRow.content_json);
+            assert.equal(content.start_point, 'HEAD', 'Start point must be HEAD when parent does not exist in repo');
+            db.close();
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('task_create_batch does not mutate git or emit audit when branch already exists (#529)', async () => {
+        const { name, cleanup } = makeGitSubdir('test-git-fixture-already-exists');
+        try {
+            const repoDir = join(process.cwd(), name);
+            spawnSync('git', ['-C', repoDir, 'branch', 'feat/already-there'], { stdio: 'pipe' });
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-already-exists', repoDir]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+                waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [{ branch_id: 'feat/already-there', description: 'branch exists', repo: 'fixture-already-exists' }],
+            });
+            assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+            const auditRow = db.get(`SELECT event_type FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`);
+            assert.equal(auditRow, undefined, 'No tmb_branch_autocreated audit row when branch already exists');
+            db.close();
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('task_create_batch warn-skips branch ensure when repo path is not a git repository (#529)', async () => {
+        const { mkdirSync: _mk, rmSync: _rm } = await import('node:fs');
+        const nonGitDir = join(process.cwd(), 'test-non-git-fixture-529');
+        try {
+            _mk(nonGitDir, { recursive: true });
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-non-git', nonGitDir]);
+            const issueId = await createIssue(db);
+            const tools = taskTools(db);
+            const result = await call(tools.handlers, 'task_create_batch', {
+                waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+                waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+                waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+                agent: 'bro',
+                issue_id: String(issueId),
+                tasks: [{ branch_id: 'feat/no-git-check', description: 'non-git path skips check', repo: 'fixture-non-git' }],
+            });
+            assert.ok(!result.isError, `Expected warn-skip (no error) for non-git path: ${JSON.stringify(parseResult(result))}`);
+            db.close();
+        }
+        finally {
+            _rm(nonGitDir, { recursive: true, force: true });
+        }
     });
 });
 //# sourceMappingURL=tasks.test.js.map

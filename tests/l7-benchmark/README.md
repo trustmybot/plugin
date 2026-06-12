@@ -104,7 +104,7 @@ expansion — selected without pre-screening for TMB solvability.
 | Pass criterion | All `FAIL_TO_PASS` pass + sampled `PASS_TO_PASS` doesn't regress | Same (we sample, leaderboard runs full) |
 | Python version | **Pinned per task via uv (Python 3.9 for current corpus)** | Per-task Docker image (Python 3.9 for these tasks) |
 | Transitive deps | **Per-task pin set in `env_install_cmd` matching SWE-bench's image** | Same (their pins come from per-task lockfile) |
-| Agent harness | Claude Code + TMB plugin, `--max-turns 50` | SWE-agent / KGCompass / ExpeRepair, varying iteration caps |
+| Agent harness | Claude Code + TMB plugin, `--max-turns 200` | SWE-agent / KGCompass / ExpeRepair, varying iteration caps |
 | Env isolation | `uv venv` per task at `$PROJECT/.bench-venv/`, prepended to PATH for agent and verify | Docker container per task |
 
 The remaining fairness gap is **PASS_TO_PASS sampling** — leaderboard
@@ -151,6 +151,9 @@ bash tests/l7-benchmark/run-l7.sh --all
 
 # Custom N (per-task repeat for variance smoothing)
 N=3 bash tests/l7-benchmark/run-l7.sh --all
+
+# Bro-mode sweep — require prefix, abort if unset
+TMB_BENCH_PROMPT_PREFIX='@bro ' bash tests/l7-benchmark/run-l7.sh --all --require-prefix
 ```
 
 **Prompt tiers:** Two env vars control the prompt sent to Claude. `TMB_BENCH_ENRICH_PROMPT=1` appends an overnight-autonomous suffix ("I will go to sleep…") to model real TMB usage. `TMB_BENCH_PROMPT_PREFIX` prepends a verbatim string to the prompt — set it to `'@bro '` to run the **bro-mode tier**, where the plugin's doctrine chain (`tmb_planning` → SWE → V1/V2/V3 → atomic-close) fires as designed:
@@ -160,6 +163,20 @@ TMB_BENCH_PROMPT_PREFIX='@bro ' bash tests/l7-benchmark/run-l7.sh 03-swebench-fl
 ```
 
 When `TMB_BENCH_PROMPT_PREFIX` is unset or empty, the prompt is unchanged (byte-identical to previous behaviour). The two vars compose: prefix is applied first, enrich suffix last.
+
+**`--require-prefix`:** When passed, the runner aborts before spawning any claude process if `TMB_BENCH_PROMPT_PREFIX` is unset or empty. Use this in sweep scripts to guarantee bro-mode is active:
+
+```bash
+--require-prefix   # abort pre-spawn if TMB_BENCH_PROMPT_PREFIX is unset/empty
+```
+
+**Model default:** `claude-opus-4-8` (live model, replacing the dead `claude-opus-4-20250514` snapshot). Override via `TMB_BENCH_MODEL`. After each run the runner prints `MODEL: requested=<x> actual=<y>` extracted from the session transcript and exits non-zero on mismatch.
+
+**Reap phase:** After the claude run and before `verify.sh`, the runner checks the task repo for branches with commits ahead of the working tree. When found, the most recent such branch is merged (or cherry-picked on conflict) onto the working tree. Doctrine-compliant runs leave work on task branches with no remote, so this phase makes those commits visible to the scorer. The reaped branch and SHA are logged.
+
+**Budget:** The runner uses `--max-turns 200` (raised from 50). When the result payload contains `error_max_turns`, it prints `BUDGET: exhausted` so exhausted runs are distinguishable from other failures.
+
+**Ceremony check:** When `TMB_BENCH_PROMPT_PREFIX` contains `@bro`, the runner checks the trajectory DB for ≥1 tasks row OR ≥1 `planning_complete` audit event. It prints `CEREMONY: fired` or `CEREMONY: INERT` and exits non-zero on INERT — the doctrine-inert-arm bug is unrepeatable.
 
 Requires:
 - `claude` (with `CLAUDE_CODE_OAUTH_TOKEN` set)

@@ -20,6 +20,17 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 | `rc` | fast-forwarded to the `vX.Y.Z-rc.N` tag under validation | `tmb@trustmybot-rc` (catalog `trustmybot/marketplace-rc`) |
 | `dev` | integration trunk; all PRs land here first | — (not published) |
 
+### Branching & merging
+
+1. **Feature branches come from `dev`** and are named by git convention (`feat/`, `fix/`, `docs/`, `chore/`, `test/` + slug). One concern per branch.
+2. **Nothing merges to `main` except `dev`** — and only when `dev` carries an rc tag whose release-gate CI passed (Phases B–C of Release). Promotion is a **merge commit** (Phase D). *Exception:* docs-only changes that need no functionality test may merge to `main` directly — and must be mirrored back to `dev` in the same sitting so the branches never drift.
+3. **Typical feature workflow:** branch from `dev` → implement → local L0–L4 green → PR → `dev`. If your branch is the **last one planned before a release**, also run the local L6 chain — at that point you're in the Release workflow (Phase B); follow it.
+4. **All integration goes through GitHub PRs** — `gh pr create` / `gh pr merge`. Never `git merge` locally, never push directly to `dev` or `main`.
+5. **Merge policy by surface:** code / docs / tests PRs auto-merge once checks are green. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) never auto-merge — a maintainer reviews the PR itself.
+6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) must pass a full release-gate `workflow_dispatch` on the feature branch *before* merge — `dev` stays green at all times; a tag-triggered gate is never the first time CI sees your change.
+7. **Delete branches on merge** (`--delete-branch`); a stale branch is a future wrong-base.
+8. **Prompt engineering follows [`docs/prompt-engineering/DETERMINISM.md`](docs/prompt-engineering/DETERMINISM.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
+
 ## CI (GitHub Actions)
 
 `.github/workflows/release-gate.yml` runs on GitHub's runners:
@@ -28,16 +39,46 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 
 L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 
+## Issues & PRs
+
+### Milestones
+
+- Every issue and every PR carries a milestone — the release expected to ship it. Assign at creation; re-milestone if it slips (never leave one unmilestoned).
+- Milestone hygiene is part of the release ritual: Phase A isn't done while the milestone has open items — close them, move them, or ship them.
+
+### Issue ↔ PR linkage
+
+- A PR that resolves an issue (the normal case) declares it with a closing keyword in the PR **description** — `Closes #N` / `Fixes #N` — so GitHub links the two bidirectionally. Comment-mentions don't create links; use the description.
+- PRs merge into `dev`, where GitHub's auto-close does not fire. Whoever merges closes the issue manually with a comment naming the PR and landing commit (e.g. "Fixed in #530 @ `af89a30`"). The issue is closed only after its PR is merged, never before.
+- A PR with no issue (release mechanics, typo-class fixes) says so in its description in one line.
+
 ## Release
 
 `scripts/maintenance/bump-version.sh <version>` keeps the version in sync across all four manifests.
 
-1. On a branch off `dev`: `bump-version.sh X.Y.Z-rc.N`, add a `## vX.Y.Z-rc.N` CHANGELOG section, PR → `dev`.
-2. Tag the rc on `dev` and push → release-gate CI runs the full gate (L1–L4 + L6 + L0). Fast-forward `rc` to the tag.
-3. Validate via `tmb@trustmybot-rc` against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — marketplace install, **not** `--plugin-dir`.
-4. Green → PR `dev → main`, merge, then `bash scripts/release.sh` tags the stable `vX.Y.Z` on `main` and cuts the GitHub release. (`release.sh` checks that the manifests and the `## vX.Y.Z` CHANGELOG section agree, and is safe to re-run.)
+**Phase A — candidate**
+1. Land everything intended for the release on `dev` via the normal PR flow (auto-merge policy applies).
+2. Bump PR on a branch off `dev`: `bump-version.sh X.Y.Z-rc.N` + a `## vX.Y.Z-rc.N` CHANGELOG section → PR → `dev`.
 
-rc validation is **required** for anything touching install, schema, or doctrine — those are the breakage classes (v0.2.0 / v0.3.0) the rc channel exists to catch. Doc-only changes can skip the rc lap.
+**Phase B — local license (the gate)**
+3. Run the full local L6 chain (`bash tests/l5-l6/run-l6-chain.sh`) on the exact `dev` tree you intend to tag. **13/13 green licenses the rc tag.** A green CI gate on a feature branch never substitutes.
+4. On any step failure: reproduce and debug with the matching L5 row (`bash tests/l5-l6/run-l5.sh <row>`), fix on `dev` through the normal flow, then **resume the chain from the failed step** (`run-l6-chain.sh --from <step>`). Iterate until the chain completes.
+5. Whether the resumed 13/13 counts as the license depends on what the fix touched:
+   - Fix confined to **test fixtures, scorers, or docs** → the resumed pass stands; tag.
+   - Fix touched **runtime** (`mcp/`, `scripts/hooks/`, schema, `agents/`, `skills/`, `commands/`, `CLAUDE.md`) → finish with **one full fresh chain**, because steps before the failure ran on pre-fix code and their green doesn't transfer.
+
+**Phase C — rc**
+6. Tag `vX.Y.Z-rc.N` on `dev`, push. The tag-triggered CI release-gate (L1–L4 + L6 + L0) is **re-confirmation**, not the gate. Fast-forward the `rc` branch to the tag.
+7. **Publish to the rc channel**: in `trustmybot/marketplace-rc`, edit `.claude-plugin/marketplace.json` → `plugins[].source.ref` to the new rc tag and push. Installs of `tmb@trustmybot-rc` now serve the rc.
+8. Validate via `tmb@trustmybot-rc` marketplace install against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — required for anything touching install, schema, or doctrine; doc-only changes may skip.
+
+**Phase D — stable**
+9. Final bump PR (`X.Y.Z`) → `dev`.
+10. **Functional-identity rule**: the stable tag must be functionally identical to the latest green rc. Permitted deltas after the rc: version manifests, CHANGELOG, `docs/`, README-class files. Anything else — plugin code, prompts, hooks, MCP server, schema, CI workflows — invalidates the rc: cut `rc.N+1` and repeat Phases B–C.
+11. Promotion PR `dev → main` as a **merge commit**; merge.
+12. `git checkout main && git pull`, then `bash scripts/release.sh` — it tags `v<plugin.json version>` on `main` HEAD, pushes the tag, cuts the GitHub release from the matching CHANGELOG section, and runs the Docker install canary. Each step asks y/N and skips if already done (safe to re-run); it refuses off-`main`, on a dirty tree, or on a version/CHANGELOG mismatch.
+13. The stable catalog (`trustmybot/marketplace`) pins `ref: "main"` — promotion updates it automatically; no catalog edit.
+14. **Canary red = fix-forward immediately** — the release is already public. Diagnose before announcing; never delete the tag.
 
 ## Writing code & tests
 

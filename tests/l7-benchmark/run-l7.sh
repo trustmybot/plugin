@@ -3,9 +3,13 @@
 # Three orthogonal scoring axes: problem-solving, token-saving, quality.
 #
 # Usage:
-#   bash tests/l7-benchmark/run-l7.sh <task-name>     # one task
-#   bash tests/l7-benchmark/run-l7.sh --all           # every task in tasks/
-#   N=3 bash tests/l7-benchmark/run-l7.sh --all       # N runs per (task, arm)
+#   bash tests/l7-benchmark/run-l7.sh <task-name>            # one task
+#   bash tests/l7-benchmark/run-l7.sh --all                  # every task in tasks/
+#   N=3 bash tests/l7-benchmark/run-l7.sh --all              # N runs per (task, arm)
+#   --require-prefix: abort pre-spawn if TMB_BENCH_PROMPT_PREFIX is unset/empty
+#
+# Model default: claude-opus-4-8 (live). Override via TMB_BENCH_MODEL.
+# Raw arm is byte-identical to previous behaviour except for the model default.
 #
 # See tests/l7-benchmark/README.md for full design + cost ceiling.
 
@@ -21,10 +25,20 @@ export PLUGIN_ROOT
 N="${N:-1}"
 TASKS_DIR="$HERE/tasks"
 RUNS_ROOT="${TMB_BENCH_RUNS_DIR:-$HOME/.claude/tmb/bench-runs}"
+REQUIRE_PREFIX=0
 
 # Resolve task arg + help-text path before auth check so users get usage
-# without needing credentials.
-TASK_ARG="${1:-}"
+# without needing credentials. Strip --require-prefix first so the remaining
+# positional args resolve cleanly.
+ARGS=()
+for _arg in "$@"; do
+  if [ "$_arg" = "--require-prefix" ]; then
+    REQUIRE_PREFIX=1
+  else
+    ARGS+=("$_arg")
+  fi
+done
+TASK_ARG="${ARGS[0]:-}"
 TASKS=()
 case "$TASK_ARG" in
   ""|-h|--help)
@@ -71,6 +85,12 @@ for cmd in claude sqlite3 jq git; do
   fi
 done
 
+# --require-prefix preflight: abort if the prefix is unset/empty.
+if [ "$REQUIRE_PREFIX" = "1" ] && [ -z "${TMB_BENCH_PROMPT_PREFIX:-}" ]; then
+  printf "❌ --require-prefix set but TMB_BENCH_PROMPT_PREFIX is unset/empty.\n" >&2
+  exit 1
+fi
+
 RESULTS_JSONL="$RUN_DIR/_results.jsonl"
 : > "$RESULTS_JSONL"
 
@@ -78,7 +98,7 @@ printf '=== L7 bench %s ===\n' "$RUN_ID"
 printf '  tasks:    %s\n' "${TASKS[*]}"
 if [ "${TMB_BENCH_RAW:-0}" = "1" ]; then
   printf '  arm:      raw (pure model baseline, no plugin loaded;\n'
-  printf '            model: %s)\n' "${TMB_BENCH_MODEL:-claude-opus-4-20250514}"
+  printf '            model: %s)\n' "${TMB_BENCH_MODEL:-claude-opus-4-8}"
 else
   printf '  arm:      tmb-on (TMB plugin loaded; compare against\n'
   printf '            published comparators — see RESULTS.md)\n'
@@ -112,12 +132,57 @@ run_one() {
   t_end=$(date +%s)
   duration_s=$((t_end - t_start))
 
+  # 2a. Budget: detect turn exhaustion in result payload.
+  if grep -q '"error_max_turns"' "$transcript" 2>/dev/null; then
+    bench_log "  BUDGET: exhausted"
+    printf '    BUDGET: exhausted\n'
+  fi
+
+  # 2b. Model verification: extract init event's actual model from transcript,
+  #     compare against requested model. Exit non-zero on mismatch.
+  local requested_model actual_model
+  requested_model="${TMB_BENCH_MODEL:-claude-opus-4-8}"
+  actual_model=$(jq -r '
+    [.[] | select(.type == "system" and (.subtype == "init" or .event == "init"))
+         | (.model // .data.model // "") | select(. != "")] | first // ""
+  ' "$transcript" 2>/dev/null || true)
+  if [ -z "$actual_model" ]; then
+    actual_model=$(jq -r '
+      [.[] | select(has("model")) | .model | select(. != null and . != "")] | first // ""
+    ' "$transcript" 2>/dev/null || true)
+  fi
+  printf '    MODEL: requested=%s actual=%s\n' "$requested_model" "${actual_model:-unknown}"
+  if [ -n "$actual_model" ] && [ "$actual_model" != "$requested_model" ]; then
+    bench_log "  MODEL MISMATCH: requested=$requested_model actual=$actual_model"
+    printf "❌ MODEL MISMATCH: requested=%s actual=%s\n" "$requested_model" "$actual_model" >&2
+    return 1
+  fi
+
   # 3. Capture trajectory.db (arm A only) for post-mortem.
   local db
   db=$(bench_resolve_db "$project")
   if [ -n "$db" ]; then
     cp "$db" "$out_dir/trajectory.db" 2>/dev/null || true
   fi
+
+  # 3a. Reap: if the task repo has branches ahead of base with un-merged commits,
+  #     cherry-pick them onto the working tree before verify.sh sees it.
+  #     Doctrine-compliant runs leave work on task branches with no remote.
+  (
+    cd "$project" || exit 0
+    _reap_base=$(git symbolic-ref --short HEAD 2>/dev/null || echo "main")
+    _reap_ahead=$(git for-each-ref --format='%(refname:short) %(ahead-behind:HEAD)' refs/heads \
+      2>/dev/null | awk -v base="$_reap_base" '$1 != base && $2+0 > 0 {print $1}' || true)
+    if [ -n "$_reap_ahead" ]; then
+      _reap_branch=$(printf '%s' "$_reap_ahead" | tail -1)
+      _reap_sha=$(git rev-parse "$_reap_branch" 2>/dev/null || true)
+      bench_log "  REAP: merging branch=$_reap_branch sha=${_reap_sha:0:12} onto working tree"
+      printf '    REAP: branch=%s sha=%s\n' "$_reap_branch" "${_reap_sha:0:12}"
+      git merge --no-edit "$_reap_branch" >> "$out_dir/reap.log" 2>&1 || \
+        git cherry-pick "$(git merge-base HEAD "$_reap_branch")".."$_reap_branch" \
+          >> "$out_dir/reap.log" 2>&1 || true
+    fi
+  )
 
   # 4. Score the axes (SWE-bench: resolved + apply + tokens + cost + duration;
   #    TMB-specific: quality composite + hallucination check).
@@ -130,6 +195,29 @@ run_one() {
   verify_ec=$(jq -r '.pass // 0' <<< "$probsol")
   [ "$verify_ec" = "1" ] && verify_ec="0" || verify_ec="1"
   halluc=$("$HERE/scorers/hallucination.sh" "$transcript" "$verify_ec" 2>/dev/null || echo '{"axis":"hallucination","hallucinated":0,"claimed_success":0,"verify_passed":0}')
+
+  # 4a. Ceremony check: when @bro is in the prefix, assert the trajectory DB
+  #     shows doctrine fired (tasks rows OR planning_complete audit event).
+  #     Print CEREMONY: fired/INERT; exit non-zero on INERT.
+  if [[ "${TMB_BENCH_PROMPT_PREFIX:-}" == *"@bro"* ]]; then
+    local ceremony_status="INERT"
+    if [ -f "$out_dir/trajectory.db" ]; then
+      local task_rows audit_rows
+      task_rows=$(sqlite3 "$out_dir/trajectory.db" \
+        "SELECT COUNT(*) FROM tasks;" 2>/dev/null || echo 0)
+      audit_rows=$(sqlite3 "$out_dir/trajectory.db" \
+        "SELECT COUNT(*) FROM audit_log WHERE event_type='planning_complete';" 2>/dev/null || echo 0)
+      if [ "$task_rows" -gt 0 ] || [ "$audit_rows" -gt 0 ]; then
+        ceremony_status="fired"
+      fi
+    fi
+    printf '    CEREMONY: %s\n' "$ceremony_status"
+    bench_log "  CEREMONY: $ceremony_status"
+    if [ "$ceremony_status" = "INERT" ]; then
+      printf "❌ CEREMONY INERT: doctrine chain did not fire for @bro run\n" >&2
+      return 1
+    fi
+  fi
 
   # 5. Persist scores + emit run record. `resolved` is the SWE-bench-aligned
   #    canonical name for problem-solving; we keep `problem_solving` as an
