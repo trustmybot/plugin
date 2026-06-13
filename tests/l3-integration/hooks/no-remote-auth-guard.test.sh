@@ -154,4 +154,21 @@ sqlite3 "$DB_NO_REMOTES" "
 out_nr=$(echo "$(input_bash 'gh auth login')" | TRAJECTORY_DB_PATH="$DB_NO_REMOTES" bash "$HOOK" 2>/dev/null || true)
 assert_eq "" "$out_nr" "absent remotes key → allow"
 
+# ============================================================================
+# Subshell-wrapped forms: (gh auth login) / (glab auth login) → deny
+# ============================================================================
+test_case "subshell (gh auth login): deny"
+out_sub_gh=$(run_hook "$(input_bash '(gh auth login)')")
+assert_contains "$out_sub_gh" '"permissionDecision":"deny"' "subshell gh auth login must deny"
+
+test_case "subshell (gh auth login): deny reason mentions BLOCKED"
+assert_contains "$out_sub_gh" "BLOCKED" "BLOCKED in reason for subshell gh"
+
+test_case "subshell (glab auth login): deny"
+out_sub_glab=$(run_hook "$(input_bash '(glab auth login)')")
+assert_contains "$out_sub_glab" '"permissionDecision":"deny"' "subshell glab auth login must deny"
+
+test_case "subshell (glab auth login): deny reason mentions BLOCKED"
+assert_contains "$out_sub_glab" "BLOCKED" "BLOCKED in reason for subshell glab"
+
 summarize

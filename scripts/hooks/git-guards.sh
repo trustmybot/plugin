@@ -18,10 +18,10 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
 # Early-exit: skip all DB work when the command contains no git/gh word.
 # This avoids ~3 sqlite3 opens on every ls/cat/echo call.
 _cmd_needs_git_guard() {
-  # Match 'git' or 'gh' as standalone words anywhere in the command.
+  # Match 'git', 'gh', or 'glab' as standalone words anywhere in the command.
   # Any non-word char may precede (handles `foo;git ...`, `echo y&&git ...`);
-  # word chars before (legit) or after (github) do not match.
-  printf '%s' "$1" | grep -qE '(^|[^[:alnum:]_./-])(git|gh)([[:space:]]|$)'
+  # word chars before (legit) or after (github/glabber) do not match.
+  printf '%s' "$1" | grep -qE '(^|[^[:alnum:]_./-])(git|gh|glab)([[:space:]]|$)'
 }
 _cmd_needs_git_guard "$CMD" || exit 0
 
@@ -192,18 +192,34 @@ branch_is_protected() {
 #
 # Exception: when PR_TARGET == "dev" (dual-tier model), `dev → main` is the
 # release-merge path and is allowed. The head MUST be `dev` (either
-# explicit `--head dev` or the current branch is `dev` and `--head` is
-# omitted). Any other head targeting main is blocked — feature branches do
-# not PR directly to main.
-case "$CMD" in
-  *"gh pr create"*)
+# explicit `--head dev` / --source-branch dev or the current branch is `dev`
+# and the flag is omitted). Any other head targeting main is blocked — feature
+# branches do not PR directly to main.
+#
+# Uses an anchored _rule1_match (mirroring _rule2_match's boundary class) so
+# the trigger phrase inside quoted argument text does NOT fire.
+_rule1_match() {
+  local cmd="$1"
+  # Return which forge tool's PR/MR-create command is present at a statement
+  # boundary (start of string, or after ; && || | with optional spaces).
+  # Exits 0 with "gh" or "glab" printed; exits 1 when neither matches.
+  if printf '%s' "$cmd" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'; then
+    echo "gh"; return 0
+  fi
+  if printf '%s' "$cmd" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)glab[[:space:]]+mr[[:space:]]+create([[:space:]]|$)'; then
+    echo "glab"; return 0
+  fi
+  return 1
+}
+
+_RULE1_FORGE=$(_rule1_match "$CMD" || true)
+if [ -n "$_RULE1_FORGE" ]; then
+  if [ "$_RULE1_FORGE" = "gh" ]; then
+    # --- gh pr create ---
     if echo "$CMD" | grep -qF -- "--base ${PR_TARGET}"; then
       :  # OK — feature → pr_target (the standard path)
     elif [ "$PR_TARGET" = "dev" ] && echo "$CMD" | grep -qF -- "--base main"; then
       # Dual-tier exception: dev → main release merge.
-      # `set -o pipefail` makes the assignment fail when grep finds no
-      # `--head` (which is the common case — gh defaults head to the
-      # current branch). The `|| true` keeps the pipeline succeeding.
       HEAD_BRANCH=$(echo "$CMD" | grep -oE -- '--head[= ][^[:space:]]+' | head -1 | sed -E 's/--head[= ]+//' | tr -d "'\"" || true)
       if [ -z "$HEAD_BRANCH" ]; then
         HEAD_BRANCH=$(git branch --show-current 2>/dev/null || true)
@@ -218,8 +234,38 @@ case "$CMD" in
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
-    ;;
-esac
+  else
+    # --- glab mr create ---
+    # Target flag: --target-branch <b> or -b <b> (or --target-branch=<b>)
+    TARGET_BRANCH=$(echo "$CMD" | grep -oE -- '--target-branch[= ][^[:space:]]+' | head -1 | sed -E 's/--target-branch[= ]+//' | tr -d "'\"" || true)
+    if [ -z "$TARGET_BRANCH" ]; then
+      TARGET_BRANCH=$(echo "$CMD" | grep -oE -- '-b[= ][^[:space:]]+' | head -1 | sed -E 's/-b[= ]+//' | tr -d "'\"" || true)
+    fi
+    # Head/source flag: --source-branch <b> or -s <b>
+    SOURCE_BRANCH=$(echo "$CMD" | grep -oE -- '--source-branch[= ][^[:space:]]+' | head -1 | sed -E 's/--source-branch[= ]+//' | tr -d "'\"" || true)
+    if [ -z "$SOURCE_BRANCH" ]; then
+      SOURCE_BRANCH=$(echo "$CMD" | grep -oE -- '-s[= ][^[:space:]]+' | head -1 | sed -E 's/-s[= ]+//' | tr -d "'\"" || true)
+    fi
+    if [ -z "$SOURCE_BRANCH" ]; then
+      SOURCE_BRANCH=$(git branch --show-current 2>/dev/null || true)
+    fi
+
+    if [ "$TARGET_BRANCH" = "$PR_TARGET" ]; then
+      :  # OK — feature → pr_target (the standard path)
+    elif [ "$PR_TARGET" = "dev" ] && [ "$TARGET_BRANCH" = "main" ]; then
+      # Dual-tier exception: dev → main release merge.
+      if [ "$SOURCE_BRANCH" != "dev" ]; then
+        jq -nc --arg r "BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must MR to ${PR_TARGET}: glab mr create --target-branch ${PR_TARGET} --source-branch <branch>. Got --source-branch=${SOURCE_BRANCH}." \
+          '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+        exit 0
+      fi
+    else
+      jq -nc --arg r "BLOCKED: MRs must target ${PR_TARGET} branch. Use: glab mr create --target-branch ${PR_TARGET} --source-branch <branch>. (Dev → main release merges are allowed when PR_TARGET=dev.)" \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+      exit 0
+    fi
+  fi
+fi
 
 # --- Rule 2: No direct commits/merges/rebases to protected_branches (worktree-aware) ---
 # Uses cmd_effective_branch so detached-HEAD worktrees resolve via DB lookup.

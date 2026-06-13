@@ -18,9 +18,9 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null ||
 # TTY/network. Matches: gh auth login, glab auth login, with optional flags
 # between words. Does NOT match: auth status, auth token, auth logout, etc.
 MATCHED_TOOL=""
-if printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])gh[[:space:]]+auth[[:space:]]+login([[:space:]]|$|;|&&|\|\|)'; then
+if printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])gh[[:space:]]+auth[[:space:]]+login([[:space:]]|$|;|&&|\|\||\))'; then
   MATCHED_TOOL="gh"
-elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])glab[[:space:]]+auth[[:space:]]+login([[:space:]]|$|;|&&|\|\|)'; then
+elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])glab[[:space:]]+auth[[:space:]]+login([[:space:]]|$|;|&&|\|\||\))'; then
   MATCHED_TOOL="glab"
 fi
 
