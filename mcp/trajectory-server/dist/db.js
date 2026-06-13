@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 11;
+const TARGET_SCHEMA_VERSION = 12;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -352,6 +352,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 11 && toVersion >= 11) {
         migrateV10toV11(db);
     }
+    if (fromVersion < 12 && toVersion >= 12) {
+        migrateV11toV12(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -493,6 +496,26 @@ function migrateV10toV11(db) {
                AND protected_branches IS NULL
           `).run(prTarget, branchingModel, protectedBranches);
                 }
+            }
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+function migrateV11toV12(db) {
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'agent_runs')) {
+            if (!hasColumn(db, 'agent_runs', 'usage_baseline_json')) {
+                db.exec('ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT');
             }
         }
         db.exec('COMMIT');
