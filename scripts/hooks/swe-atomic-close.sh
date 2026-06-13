@@ -28,6 +28,8 @@ PLUGIN_NAME=$(tmb_resolve_plugin_name)
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || true
 # shellcheck source=scripts/hooks/lib/normalize-role.sh
 . "$SCRIPT_DIR/lib/normalize-role.sh" 2>/dev/null || true
+# shellcheck source=scripts/hooks/lib/resolve-workspace.sh
+. "$SCRIPT_DIR/lib/resolve-workspace.sh" 2>/dev/null || true
 
 mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
@@ -215,7 +217,30 @@ fi
 
 # Derive the worktree path: slug = everything after the last '/' in branch_id.
 SLUG="${BRANCH##*/}"
-WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
+# Resolve workspace root via shared lib (dirname×3 of DB).
+# In a workspace-above-repo layout (repo at <ws>/plugin, worktrees at
+# <ws>/.claude/worktrees) REPO_ROOT points into the inner repo while
+# worktrees live at the workspace root one level up.
+WS_ROOT=""
+if command -v tmb_workspace_root >/dev/null 2>&1 && [ -n "$DB" ]; then
+  WS_ROOT=$(tmb_workspace_root "$DB" || true)
+fi
+# Sentinel fallback: subagents that inherit cwd=~ and lack env vars.
+if [ -n "$WS_ROOT" ] && [ ! -d "${WS_ROOT}/.claude/worktrees/${SLUG}" ]; then
+  _SENTINEL="${HOME}/.claude/${PLUGIN_NAME}-active-workspace"
+  if [ -f "$_SENTINEL" ]; then
+    _WS_SENTINEL=$(head -1 "$_SENTINEL" 2>/dev/null || true)
+    if [ -n "$_WS_SENTINEL" ] && [ -d "${_WS_SENTINEL}/.claude/worktrees/${SLUG}" ]; then
+      WS_ROOT="$_WS_SENTINEL"
+    fi
+  fi
+fi
+# Fall back to REPO_ROOT if WS_ROOT is empty (preserves previous behavior).
+if [ -n "$WS_ROOT" ]; then
+  WT_PATH="${WS_ROOT}/.claude/worktrees/${SLUG}"
+else
+  WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
+fi
 
 # Read the SWE's worktree HEAD.
 WT_HEAD=$(git -C "$WT_PATH" rev-parse HEAD 2>/dev/null || true)

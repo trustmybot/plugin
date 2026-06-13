@@ -27,6 +27,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/normalize-role.sh"
 # shellcheck source=scripts/lib/resolve-plugin-name.sh
 . "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+# shellcheck source=scripts/hooks/lib/resolve-workspace.sh
+. "$SCRIPT_DIR/lib/resolve-workspace.sh"
 
 INPUT=$(cat)
 
@@ -115,15 +117,11 @@ fi
 # Extract the SLUG from branch_id (last path component) to locate worktree.
 SLUG="${BRANCH_ID##*/}"
 
-# Resolve workspace root the same way post-task-create-spawn-hint.sh does:
-# DB lives at <workspace_root>/.claude/<plugin>/trajectory.db, so dirname 3×.
+# Resolve workspace root via shared lib (dirname×3 of DB).
 # This handles workspace-above-repo layouts (repo at <ws>/plugin,
 # worktrees at <ws>/.claude/worktrees/<slug>) where a PWD walk-up from
 # inside the repo would land on the repo root instead of the workspace root.
-WS_ROOT=""
-if [ -n "$DB" ]; then
-  WS_ROOT="$(dirname "$(dirname "$(dirname "$DB")")")"
-fi
+WS_ROOT=$(tmb_workspace_root "$DB" || true)
 
 WT_PATH=""
 if [ -n "$WS_ROOT" ] && [ -d "${WS_ROOT}/.claude/worktrees/${SLUG}" ]; then
