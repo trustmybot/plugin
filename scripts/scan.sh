@@ -126,7 +126,7 @@ while IFS= read -r repo_root; do
 
   name=$(basename "$repo_root")
 
-  files_list=$(git -C "$repo_root" ls-files 2>/dev/null || true)
+  files_list=$(git -C "$repo_root" -c core.quotePath=false ls-files 2>/dev/null || true)
   if [ -z "$files_list" ]; then
     jq -nc \
       --arg name "$name" --arg path "$repo_root" \
@@ -139,7 +139,7 @@ while IFS= read -r repo_root; do
   # Single-pass git log: build relpath→sha map in one subprocess.
   # awk: 40-hex lines update current SHA; file lines record first (most-recent) SHA.
   sha_map_file=$(mktemp -t tmb-shamap.XXXXXX)
-  git -C "$repo_root" log --format='%H' --name-only --no-renames 2>/dev/null \
+  git -C "$repo_root" -c core.quotePath=false log --format='%H' --name-only --no-renames 2>/dev/null \
   | awk '
       /^[0-9a-f]{40}$/ { cur = $0; next }
       /^$/              { next }
