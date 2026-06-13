@@ -114,10 +114,6 @@ if [ -z "$DB" ] || ! command -v sqlite3 >/dev/null 2>&1; then
   exit 0
 fi
 
-# Read pr_target from config (default: main).
-PR_TARGET=$(tmb_config_get "pr_target" 2>/dev/null || true)
-PR_TARGET="${PR_TARGET:-main}"
-
 # Extract task_id from the subagent transcript (#369).
 # When two SWEs run in parallel, the most-recently-updated task heuristic
 # can auto-complete the WRONG task. The transcript contains the spawn prompt
