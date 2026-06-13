@@ -4,6 +4,16 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.3 — 2026-06-13
+
+Patch release. Fixes the world-model scan crashing on repos with non-ASCII tracked paths — surfaced when scanning django (the benchmark corpus), which ships `tests/staticfiles_tests/apps/test/static/test/⊗.txt` (U+2297). No Claude-side (agents/skills/CLAUDE.md) changes; the release-gate is skipped per hotfix policy.
+
+### Fixed
+- `scan.sh` emitted invalid JSON on repos with a non-ASCII tracked path: git C-quoted the path into octal `\nnn` escapes the awk JSON emitter couldn't portably escape, so `scan_run` aborted with `jq: Invalid escape`. Both git calls now run with `-c core.quotePath=false`, keeping paths as raw UTF-8 (valid inside a JSON string). Added an L3 regression test. (#586)
+
+### Changed
+- Plugin description refreshed to reflect the kuzu world model (helping agents understand and navigate complex codebases).
+
 ## v0.8.2 — 2026-06-13
 
 Promotes `v0.8.2-rc.2` to stable — functionally identical to the rc (version manifests + CHANGELOG only). See the rc sections below for the full change list: multi-repo / per-repo branching config (#550/#549/#560), per-task bro token attribution (schema v12, #542), GitLab + offline guard parity (#564/#548/#546), worktree-lifecycle and completion-deadlock fixes (#551/#559/#547), and the non-isolated-SWE first-class mode (#547). Licensed by the local L6 chain 13/13 (the rc-tag CI is re-confirmation, not the gate).
