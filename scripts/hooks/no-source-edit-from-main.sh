@@ -1,26 +1,22 @@
 #!/usr/bin/env bash
-# No-source-edit-from-main hook (#108, updated #467, #502).
-#
-# Two rules, both LOCATION-based — any agent context (bro, general-purpose
-# subagent, consultant, etc.) is denied; the worktree path is the only
-# credential for Edit/Write. For Bash, prompt-surface writes are denied
-# regardless of agent identity when outside a worktree.
-#
-# This is a tripwire for obvious write-forms, not a Bash sandbox. When in
-# doubt, the hook passes — precision beats recall here.
+# No-source-edit-from-main hook (#108, updated #467, #502, #547).
 #
 # Rule 1 — Edit/Write to source code from main checkout:
 #   Block conditions (all must be true):
 #   1. Trajectory DB exists (this is a TMB project)
-#   2. Target file is NOT inside .claude/worktrees/ (so this is not SWE)
+#   2. Target file is NOT inside .claude/worktrees/ (so this is not an isolated SWE)
 #   3. Target file is NOT in the docs/templates/config allowlist
+#   4. Normalized agent role is NOT 'swe' (non-isolated SWE first-class permit)
 #   Allow conditions (any one allows):
 #   - DB missing (not a TMB project)
 #   - Target is inside .claude/worktrees/<slug>/... (SWE legitimately edits source there)
 #   - Target is in allowlist (docs / configs that are fine to edit from main)
+#   - Normalized agent role == 'swe' (non-isolated SWE running in main checkout)
+#   Enforcement surfaces (scripts/hooks/, hooks/hooks.json) are ALWAYS denied from
+#   main, even for swe — they sit above the swe permit and are never re-opened.
 #
 # Rule 2 — Bash write-form targeting a prompt surface from main checkout:
-#   Denied for every agent identity (bro, subagent, unknown) when outside a
+#   Denied for every agent identity (bro, subagent, swe, unknown) when outside a
 #   worktree. Write-forms: >, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync.
 #   Prompt surfaces: agents/*.md, skills/*/SKILL.md, commands/*.md,
 #   templates/*.md, CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md.
@@ -31,8 +27,13 @@
 
 set -uo pipefail
 
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=scripts/hooks/lib/normalize-role.sh
+. "$PLUGIN_ROOT/scripts/hooks/lib/normalize-role.sh"
+
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
+AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
 
 case "$TOOL_NAME" in
   Edit|Write|MultiEdit|NotebookEdit|Bash) ;;
@@ -266,7 +267,14 @@ case "$TARGET" in
   *.github/*) exit 0 ;;
 esac
 
-REASON="BLOCKED: source edits from the main checkout are denied for all agent contexts in a TMB project. Target '$TARGET' looks like source code; route via the code-touching ask chain (tmb_planning skill → task_create_batch → spawn SWE in a worktree). For emergency hotfix-style overrides, set TMB_ALLOW_SOURCE_EDIT=1."
+# Non-isolated SWE permit: a genuine SWE role editing source from the main
+# checkout (non-isolated mode) is allowed. This fires AFTER the worktree allow,
+# AFTER the enforcement-surface denies, and AFTER the docs/allowlist allows —
+# so enforcement surfaces (scripts/hooks/, hooks/hooks.json) remain
+# worktree-only even for swe, and bro/unknown/absent roles still fail closed.
+if [ "$AGENT_TYPE" = "swe" ]; then exit 0; fi
+
+REASON="BLOCKED: source edits from the main checkout are denied. Normal route: use tmb_planning → task_create_batch to spawn SWE in an isolated worktree. If the worktree-create step failed (e.g. WorktreeCreate input had no .branch field), SWE running with agent_type='swe' is auto-permitted to edit in-place (non-isolated mode). For a bro emergency hotfix, set TMB_ALLOW_SOURCE_EDIT=1 in the PROCESS environment at launch time — setting it in a shell rc file has no effect on an already-running session."
 
 jq -nc --arg reason "$REASON" '{
   hookSpecificOutput: {
