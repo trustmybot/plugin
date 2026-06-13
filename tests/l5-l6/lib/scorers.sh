@@ -110,33 +110,35 @@ l5_score_trajectory_required() {
   entry_count=$(jq -r 'length' "$req_path" 2>/dev/null || echo 0)
 
   local i
-  for i in $(seq 0 $((entry_count - 1))); do
-    local entry_type tool skip_sql
-    entry_type=$(jq -r ".[$i] | type" "$req_path" 2>/dev/null)
+  if [ "${entry_count:-0}" -gt 0 ]; then
+    for i in $(seq 0 $((entry_count - 1))); do
+      local entry_type tool skip_sql
+      entry_type=$(jq -r ".[$i] | type" "$req_path" 2>/dev/null)
 
-    if [ "$entry_type" = "string" ]; then
-      tool=$(jq -r ".[$i]" "$req_path")
-      skip_sql=""
-    else
-      tool=$(jq -r ".[$i].tool" "$req_path" 2>/dev/null)
-      skip_sql=$(jq -r ".[$i].skip_if_pre_state_sql // empty" "$req_path" 2>/dev/null)
-    fi
-
-    [ -z "$tool" ] && continue
-
-    if [ -n "$skip_sql" ] && [ -f "$pre_step_db" ]; then
-      local hit
-      hit=$(sqlite3 "$pre_step_db" "$skip_sql" 2>/dev/null | head -1)
-      if [ -n "$hit" ]; then
-        echo "  ⊘ trajectory_required: $tool waived (pre-state condition met)"
-        continue
+      if [ "$entry_type" = "string" ]; then
+        tool=$(jq -r ".[$i]" "$req_path")
+        skip_sql=""
+      else
+        tool=$(jq -r ".[$i].tool" "$req_path" 2>/dev/null)
+        skip_sql=$(jq -r ".[$i].skip_if_pre_state_sql // empty" "$req_path" 2>/dev/null)
       fi
-    fi
 
-    if ! echo "$tools_called" | grep -qFx "$tool"; then
-      missing="${missing}; $tool"
-    fi
-  done
+      [ -z "$tool" ] && continue
+
+      if [ -n "$skip_sql" ] && [ -f "$pre_step_db" ]; then
+        local hit
+        hit=$(sqlite3 "$pre_step_db" "$skip_sql" 2>/dev/null | head -1)
+        if [ -n "$hit" ]; then
+          echo "  ⊘ trajectory_required: $tool waived (pre-state condition met)"
+          continue
+        fi
+      fi
+
+      if ! echo "$tools_called" | grep -qFx "$tool"; then
+        missing="${missing}; $tool"
+      fi
+    done
+  fi
 
   if [ -z "$missing" ]; then
     echo "  ✓ trajectory_required: all required tools called"
