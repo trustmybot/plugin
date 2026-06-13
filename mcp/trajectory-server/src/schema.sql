@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 11, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 12, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -232,7 +232,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     tool_uses            INTEGER NOT NULL DEFAULT 0,
     duration_ms          INTEGER NOT NULL DEFAULT 0,
     started_at           TEXT,
-    completed_at         TEXT
+    completed_at         TEXT,
+    usage_baseline_json  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);

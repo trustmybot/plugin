@@ -97,4 +97,79 @@ assert_eq "1" "$TABLE_OK" "agent_runs table must survive corrupt transcript"
 tokens_safe=$(sqlite3 "$DB" "SELECT tokens_in FROM agent_runs WHERE id=${RUN_ID};" 2>/dev/null || echo "-1")
 assert_eq "0" "$tokens_safe" "corrupt input must be coerced to 0 by printf '%d'"
 
+# ── multi-task-per-turn scenario ─────────────────────────────────────────────
+# Two bro rows open (task A then task B). A growing transcript is replayed
+# across two Stop invocations. Assert:
+#   - task A gets its window delta (not 0)
+#   - task B gets only the tokens after its baseline
+#   - no double-counting (A + B == total)
+
+TMPDIR_MT=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_MT"' EXIT
+MT_DB="$TMPDIR_MT/trajectory.db"
+MT_T1="$TMPDIR_MT/transcript1.jsonl"
+MT_T2="$TMPDIR_MT/transcript2.jsonl"
+
+sqlite3 "$MT_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
+
+# Insert task A's bro row (open, no baseline yet).
+sqlite3 "$MT_DB" "
+  INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total,
+    cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at)
+  VALUES (NULL, NULL, 'bro', 0, 0, 0, 0, 0, 0, 0, datetime('now'));
+"
+MT_ID_A=$(sqlite3 "$MT_DB" "SELECT MAX(id) FROM agent_runs;")
+
+# Transcript after task A's turn: 200 input, 80 output, 1 tool.
+cat > "$MT_T1" << 'EOF'
+{"timestamp":"2026-06-09T10:00:00.000Z","message":{"usage":{"input_tokens":200,"output_tokens":80,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}
+EOF
+
+test_case "multi-task: task A Stop — baseline=0, delta=cumulative"
+echo "{\"transcript_path\":\"${MT_T1}\"}" \
+  | TRAJECTORY_DB_PATH="$MT_DB" bash "$HOOK" 2>&1 || true
+
+mt_a_ti=$(sqlite3 "$MT_DB" "SELECT tokens_in FROM agent_runs WHERE id=${MT_ID_A};")
+assert_eq "200" "$mt_a_ti" "task A tokens_in should equal full transcript (baseline=0)"
+mt_a_baseline=$(sqlite3 "$MT_DB" "SELECT usage_baseline_json FROM agent_runs WHERE id=${MT_ID_A};")
+assert_not_contains "$mt_a_baseline" "null" "task A baseline must be written (not null)"
+
+# Now open task B's bro row while A is still open.
+sqlite3 "$MT_DB" "
+  INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total,
+    cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, started_at)
+  VALUES (NULL, NULL, 'bro', 0, 0, 0, 0, 0, 0, 0, datetime('now'));
+"
+MT_ID_B=$(sqlite3 "$MT_DB" "SELECT MAX(id) FROM agent_runs;")
+
+# Transcript after task B's turn: cumulative grows by 150 input, 60 output, 1 tool.
+cat > "$MT_T2" << 'EOF'
+{"timestamp":"2026-06-09T10:00:00.000Z","message":{"usage":{"input_tokens":200,"output_tokens":80,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}
+{"timestamp":"2026-06-09T10:00:05.000Z","message":{"usage":{"input_tokens":150,"output_tokens":60,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}]}}
+EOF
+
+test_case "multi-task: task B Stop — baseline=task A watermark, delta=incremental"
+echo "{\"transcript_path\":\"${MT_T2}\"}" \
+  | TRAJECTORY_DB_PATH="$MT_DB" bash "$HOOK" 2>&1 || true
+
+mt_b_ti=$(sqlite3 "$MT_DB" "SELECT tokens_in FROM agent_runs WHERE id=${MT_ID_B};")
+assert_eq "150" "$mt_b_ti" "task B tokens_in should be only the delta (350-200=150)"
+
+mt_b_baseline=$(sqlite3 "$MT_DB" "SELECT usage_baseline_json FROM agent_runs WHERE id=${MT_ID_B};")
+assert_not_contains "$mt_b_baseline" "null" "task B baseline must be written"
+
+test_case "multi-task: task A row is unchanged after task B Stop"
+mt_a_ti_after=$(sqlite3 "$MT_DB" "SELECT tokens_in FROM agent_runs WHERE id=${MT_ID_A};")
+assert_eq "200" "$mt_a_ti_after" "task A tokens_in must be unchanged after task B Stop"
+
+test_case "multi-task: no double-counting (A + B == total)"
+mt_total=$((mt_a_ti_after + mt_b_ti))
+assert_eq "350" "$mt_total" "A+B must equal total transcript tokens_in (no double-count)"
+
+test_case "multi-task: idempotent — re-running task B Stop produces same delta"
+echo "{\"transcript_path\":\"${MT_T2}\"}" \
+  | TRAJECTORY_DB_PATH="$MT_DB" bash "$HOOK" 2>&1 || true
+mt_b_ti_again=$(sqlite3 "$MT_DB" "SELECT tokens_in FROM agent_runs WHERE id=${MT_ID_B};")
+assert_eq "150" "$mt_b_ti_again" "task B delta must be the same on re-run (baseline write-once)"
+
 summarize
