@@ -9,6 +9,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
@@ -93,8 +95,31 @@ cmd_effective_branch() {
   fi
 }
 
-# Fetch all 3 config keys in ONE sqlite3 invocation to avoid repeated DB opens.
-_load_config() {
+# --- Per-repo config resolution ---
+# Resolve the effective branching config from the repos row for the git
+# toplevel of the command's working directory, falling back to global
+# plugin_config for legacy single-repo installs.
+# If the cwd's git root is not a registered TMB repo, guard no-ops (exit 0).
+_CMD_CWD=$(cmd_cwd "$CMD")
+_GIT_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
+_DB=$(tmb_db_path 2>/dev/null || true)
+
+if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite && [ -n "$_GIT_ROOT" ]; then
+  if ! tmb_repo_is_registered "$_DB" "$_GIT_ROOT"; then
+    exit 0
+  fi
+  _REPO_ROW=$(tmb_repo_resolve "$_DB" "$_GIT_ROOT")
+  _REPO_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
+  _REPO_MODEL=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f2)
+  _REPO_PROTECTED=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f3)
+else
+  _REPO_TARGET=""
+  _REPO_MODEL=""
+  _REPO_PROTECTED=""
+fi
+
+# Fetch global config as fallback for repos rows that lack per-repo values.
+_load_global_config() {
   local db
   db=$(tmb_db_path 2>/dev/null || true)
   [ -n "$db" ] || return 0
@@ -105,26 +130,39 @@ _load_config() {
      WHERE key IN ('branching_model', 'pr_target', 'protected_branches');
   " 2>/dev/null || true
 }
-_config_rows=$(_load_config)
+_global_config_rows=$(_load_global_config)
 
-_cfg_scalar() {
-  # Extract unquoted scalar for key $1 from pipe-separated rows (key|value_json).
-  printf '%s\n' "$_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}' \
+_gcfg_scalar() {
+  printf '%s\n' "$_global_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}' \
     | sed 's/^"//;s/"$//'
 }
-_cfg_raw() {
-  printf '%s\n' "$_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}'
+_gcfg_raw() {
+  printf '%s\n' "$_global_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}'
 }
 
-BRANCHING_MODEL=$(_cfg_scalar "branching_model")
+# Effective values: per-repo wins, global is fallback.
+if [ -n "$_REPO_MODEL" ]; then
+  BRANCHING_MODEL="$_REPO_MODEL"
+else
+  BRANCHING_MODEL=$(_gcfg_scalar "branching_model")
+fi
 
 if [ -z "$BRANCHING_MODEL" ]; then
   echo "TMB: branching_model not configured — run bro onboarding" >&2
   exit 0
 fi
 
-PR_TARGET=$(_cfg_scalar "pr_target")
-PROTECTED_RAW=$(_cfg_raw "protected_branches")
+if [ -n "$_REPO_TARGET" ]; then
+  PR_TARGET="$_REPO_TARGET"
+else
+  PR_TARGET=$(_gcfg_scalar "pr_target")
+fi
+
+if [ -n "$_REPO_PROTECTED" ]; then
+  PROTECTED_RAW="$_REPO_PROTECTED"
+else
+  PROTECTED_RAW=$(_gcfg_raw "protected_branches")
+fi
 
 if [ -z "$PR_TARGET" ] || [ -z "$PROTECTED_RAW" ]; then
   jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run bro onboarding or fix your config."}}'
@@ -246,24 +284,36 @@ case "$CMD" in
 esac
 
 # --- Rule 4: New branches must be based on latest pr_target (worktree-aware) ---
+# Remote freshness check is skipped when the repo has no origin remote or
+# origin/<pr_target> does not exist — avoids false blocks on offline/local repos.
 case "$CMD" in
   *"git checkout -b"*|*"git switch -c"*)
-    BRANCH=$(cmd_branch "$CMD")
-    if [ "$BRANCH" != "$PR_TARGET" ]; then
+    BRANCH=$(cmd_effective_branch "$CMD")
+    if [ -n "$BRANCH" ] && [ "$BRANCH" != "$PR_TARGET" ]; then
       jq -nc --arg r "BLOCKED: New branches must be created from ${PR_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${PR_TARGET} && git pull origin ${PR_TARGET} first." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
-    # fetch/check still operate from CC's CWD — pr_target is the project's root branch concern.
+    # Detached HEAD (BRANCH empty): guide to checkout -B rather than hard-deny.
+    if [ -z "$BRANCH" ]; then
+      jq -nc --arg r "BLOCKED: Detached HEAD detected. Run: git checkout -B ${PR_TARGET} origin/${PR_TARGET} to reattach, then create your feature branch." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+      exit 0
+    fi
+    # Skip remote freshness check when repo has no origin remote configured.
+    _HAS_REMOTE=$(git -C "$_CMD_CWD" remote get-url origin 2>/dev/null || true)
+    if [ -z "$_HAS_REMOTE" ]; then
+      exit 0
+    fi
     # timeout 5: portable guard against flaky networks stalling the hook.
-    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch origin "$PR_TARGET" --quiet 2>/dev/null || true
+    git -C "$_CMD_CWD" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch origin "$PR_TARGET" --quiet 2>/dev/null || true
     # Use --verify: without it, `git rev-parse origin/main` prints the literal
     # string "origin/main" when the ref doesn't exist, then exits non-zero.
     # 2>/dev/null swallows the stderr so the literal-string stdout sneaks
     # through, making LOCAL/REMOTE non-empty even for refs that don't exist.
     # The "behind origin" check then false-fires on any repo without a remote.
-    LOCAL=$(git rev-parse --verify "${PR_TARGET}" 2>/dev/null || true)
-    REMOTE=$(git rev-parse --verify "origin/${PR_TARGET}" 2>/dev/null || true)
+    LOCAL=$(git -C "$_CMD_CWD" rev-parse --verify "${PR_TARGET}" 2>/dev/null || true)
+    REMOTE=$(git -C "$_CMD_CWD" rev-parse --verify "origin/${PR_TARGET}" 2>/dev/null || true)
     if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
       jq -nc --arg r "BLOCKED: Local ${PR_TARGET} is behind origin/${PR_TARGET}. Run: git pull origin ${PR_TARGET} first." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'

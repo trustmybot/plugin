@@ -34,6 +34,24 @@ test_case "git log is not gated (read-only)"
 out=$(run_hook '{"tool_input":{"command":"git log --oneline -5"}}')
 assert_not_contains "$out" '"permissionDecision":"deny"' "git log should pass"
 
+test_case "#549: unregistered repo → guard no-ops (commit on protected branch not blocked)"
+_unreg_dir=$(mktemp -d -t tmb-guards-unreg-XXXX)
+(
+  cd "$_unreg_dir" || exit 1
+  git init -q -b main
+  git config user.email t@t.t
+  git config user.name T
+  echo init > README.md
+  git add . && git commit -qm init
+  mkdir -p .claude/tmb
+  sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+  # No INSERT INTO repos — repo intentionally left unregistered
+)
+_unreg_out=$(cd "$_unreg_dir" && echo '{"tool_input":{"command":"git commit -m broken"}}' \
+  | TRAJECTORY_DB_PATH="$_unreg_dir/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1 || true)
+assert_not_contains "$_unreg_out" '"permissionDecision":"deny"' "unregistered repo must not block (no-op)"
+rm -rf "$_unreg_dir"
+
 # ---- v0.3.2+ worktree-aware tests ----------------------------------------
 #
 # Set up a temp git repo with a worktree on a feature branch. Plant a
@@ -59,6 +77,7 @@ setup_worktree_repo() {
     # policy keys (branching_model=github-flow, pr_target=main, protected=["main"]).
     mkdir -p .claude/tmb
     sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path) VALUES ('fixture', '$(git rev-parse --show-toplevel)');" >/dev/null
   )
   REPO_PATH="$dir"
 }
@@ -157,6 +176,7 @@ setup_detached_worktree_repo() {
     #   - a task whose branch_id = 'feat/cli-todo' (non-protected, commit should pass)
     mkdir -p .claude/tmb
     sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path) VALUES ('fixture', '$(git rev-parse --show-toplevel)');" >/dev/null
     sqlite3 .claude/tmb/trajectory.db "
       INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
         VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
@@ -202,6 +222,7 @@ dir=$(mktemp -d -t tmb-guards-quote-XXXX)
   git worktree add -q --detach ".claude/worktrees/o'brien-cli"
   mkdir -p .claude/tmb
   sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+  sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path) VALUES ('fixture', '$(git rev-parse --show-toplevel)');" >/dev/null
   sqlite3 .claude/tmb/trajectory.db "
     INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
       VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));

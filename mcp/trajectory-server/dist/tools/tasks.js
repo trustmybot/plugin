@@ -609,12 +609,23 @@ export function taskTools(db) {
                     else {
                         repoValue = defaultRepoValue;
                     }
-                    // Server-side parent_branch_id default: when omitted/null, read pr_target
-                    // from plugin_config (default 'main'). Fixes L5 92-base-branch where bro
-                    // skipped reading config('pr_target') and tasks landed against main on
-                    // gitflow projects with pr_target='dev'.
+                    // Server-side parent_branch_id default: when omitted/null, resolve from
+                    // the per-repo target_branch (v11) falling back to global pr_target.
+                    // Fixes L5 92-base-branch where bro skipped reading config('pr_target')
+                    // and tasks landed against main on gitflow projects with pr_target='dev'.
                     let parentBranchId = t.parent_branch_id ?? null;
                     if (parentBranchId == null) {
+                        // 1. Try per-repo target_branch from the task's repos row.
+                        const taskRepoName = t.repo ?? defaultRepoValue;
+                        if (taskRepoName) {
+                            const repoTargetRow = db.get(`SELECT target_branch FROM repos WHERE name = ?`, [taskRepoName]);
+                            if (repoTargetRow?.target_branch) {
+                                parentBranchId = repoTargetRow.target_branch;
+                            }
+                        }
+                    }
+                    if (parentBranchId == null) {
+                        // 2. Fall back to global pr_target.
                         const prTargetRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'pr_target'`);
                         if (prTargetRow?.value_json) {
                             try {
