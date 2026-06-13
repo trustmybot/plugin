@@ -827,4 +827,93 @@ test_case "slug fallback: transcript present → task 601 NOT touched (slug not 
 txfirst_status_601=$(sqlite3 "$TXFIRST_DB" "SELECT status FROM tasks WHERE id=601;")
 assert_eq "pending" "$txfirst_status_601" "task 601 untouched when transcript resolves task 600"
 
+# ========================================================
+# Workspace-above-repo layout: DB two levels above the repo.
+# Reproduces the completion deadlock: WT at <ws>/.claude/worktrees/<slug>,
+# repo at <ws>/inner-repo (REPO_ROOT != WS_ROOT).
+# ========================================================
+
+echo '--- Test: workspace-above-repo: worktree at WS_ROOT, not REPO_ROOT → auto-completed ---'
+
+WS_ROOT_DIR="$TMPDIR/ws-above"
+INNER_REPO="$WS_ROOT_DIR/inner-repo"
+WS_DB="$WS_ROOT_DIR/.claude/tmb/trajectory.db"
+WS_WT="$WS_ROOT_DIR/.claude/worktrees/ws-task"
+
+mkdir -p "$INNER_REPO"
+mkdir -p "$(dirname "$WS_DB")"
+
+git init -q -b dev "$INNER_REPO"
+git -C "$INNER_REPO" config user.email t@t.io
+git -C "$INNER_REPO" config user.name t
+echo base > "$INNER_REPO/base.txt"
+git -C "$INNER_REPO" add .
+git -C "$INNER_REPO" commit -qm "base"
+
+sqlite3 "$WS_DB" "
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    issue_id INTEGER NOT NULL DEFAULT 1,
+    branch_id TEXT NOT NULL,
+    parent_branch_id TEXT,
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    spec_body TEXT NOT NULL DEFAULT '',
+    commit_sha TEXT,
+    repo TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+  );
+  CREATE TABLE repos (
+    name TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    file_count INTEGER NOT NULL DEFAULT 0,
+    last_scanned_at TEXT NOT NULL DEFAULT ''
+  );
+  CREATE TABLE agent_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    issue_id INTEGER,
+    agent_type TEXT NOT NULL DEFAULT 'swe',
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    tokens_total INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    tool_uses INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE plugin_config (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL DEFAULT '\"\"'
+  );
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
+    VALUES (700, 'fix/ws-task', 'dev', 'pending', datetime('now', '+1 second'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# Worktree lives at the WS root, not inside the inner repo.
+git -C "$INNER_REPO" branch fix/ws-task HEAD
+git -C "$INNER_REPO" worktree add -q "$WS_WT" fix/ws-task
+
+# SWE commits in the workspace-level worktree.
+(cd "$WS_WT" && echo "$RANDOM" >> ws-work.txt && git add ws-work.txt && git commit -qm "feat: ws work")
+WS_WT_HEAD=$(git -C "$WS_WT" rev-parse HEAD)
+
+ws_swe_input() {
+  jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
+}
+
+test_case "workspace-above-repo: worktree at WS_ROOT → pending task auto-completed (deadlock fix)"
+out=$(run_hook_in_dir "$INNER_REPO" "$(ws_swe_input)" "$WS_DB")
+assert_eq "" "$out" "no additionalContext on auto-close"
+ws_status=$(sqlite3 "$WS_DB" "SELECT status FROM tasks WHERE id=700;")
+assert_eq "completed" "$ws_status" "task 700 auto-closed via workspace-root worktree path"
+ws_sha=$(sqlite3 "$WS_DB" "SELECT commit_sha FROM tasks WHERE id=700;")
+assert_eq "$WS_WT_HEAD" "$ws_sha" "commit_sha written from WS_ROOT worktree HEAD"
+
 summarize
