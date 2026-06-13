@@ -4,6 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.2 — 2026-06-13
+
+Promotes `v0.8.2-rc.2` to stable — functionally identical to the rc (version manifests + CHANGELOG only). See the rc sections below for the full change list: multi-repo / per-repo branching config (#550/#549/#560), per-task bro token attribution (schema v12, #542), GitLab + offline guard parity (#564/#548/#546), worktree-lifecycle and completion-deadlock fixes (#551/#559/#547), and the non-isolated-SWE first-class mode (#547). Licensed by the local L6 chain 13/13 (the rc-tag CI is re-confirmation, not the gate).
+
 ## v0.8.2-rc.2 — 2026-06-13
 
 Re-cut of `rc.1` with L6-chain test-fixture determinism fixes only — functionally identical shipped runtime. `rc.1`'s CI re-confirmation flaked on brittle L6 scorers (not product behavior): the `trajectory_required` scorer iterated spuriously on an empty `tools-required.json` under BSD `seq` (#576), and required an explicit `scan_run` call that the session-start auto-prescan already satisfies (#580); the step-12 chain now also pre-creates the resume task's branch (#578). Licensed by local L6 13/13.
