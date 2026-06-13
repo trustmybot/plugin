@@ -1,7 +1,7 @@
 {
   "name": "tmb",
   "version": "0.8.3",
-  "description": "TMB plugin \u2014 bro orchestrates swe + pr-reviewer across a task-close and a push gate, on an MCP server pairing a SQLite trajectory log with a kuzu world-model graph for multi-repo navigation.",
+  "description": "TMB plugin \u2014 bro orchestrates swe + pr-reviewer across a task-close and a push gate, backed by an MCP server: a SQLite trajectory log plus a kuzu world model that helps agents understand and navigate complex codebases.",
   "author": {
     "name": "trustmybot",
     "url": "https://github.com/trustmybot"
