@@ -77,12 +77,20 @@ l5_score_outcome() {
 }
 
 # l5_score_trajectory_required <project_dir> <flow> <scorer_dir> <run_id>
-# Reads scorer_dir/tools-required.json (a JSON array of tool/MCP names).
-# Asserts every listed tool was called at least once (superset semantics
+# Reads scorer_dir/tools-required.json (a JSON array). Each entry is either:
+#   - a plain string (tool name always required), or
+#   - an object {"tool":"name","skip_if_pre_state_sql":"SELECT 1 FROM ..."}
+#     where the SQL is evaluated against $project/.claude/tmb/_l6_pre_step.db
+#     when that file exists; if the query returns any row the requirement is
+#     waived (pre-state condition already satisfied — the tool is only needed
+#     when the pre-state lacks the resource). In L5 mode (no pre-step DB) the
+#     condition is ignored and the tool remains required.
+# Asserts every non-waived tool was called at least once (superset semantics
 # per LangSmith docs). Order-agnostic. Reads tool_use names from trajectory.jsonl.
 l5_score_trajectory_required() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local db="$project/.claude/tmb/trajectory.db"
+  local pre_step_db="$project/.claude/tmb/_l6_pre_step.db"
   local jsonl="$project/trajectory.jsonl"
   local req_path="$scorer_dir/tools-required.json"
 
@@ -98,15 +106,37 @@ l5_score_trajectory_required() {
   local tools_called
   tools_called=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
 
-  local required missing=""
-  required=$(jq -r '.[]' "$req_path")
+  local entry_count missing=""
+  entry_count=$(jq -r 'length' "$req_path" 2>/dev/null || echo 0)
 
-  while IFS= read -r tool; do
+  local i
+  for i in $(seq 0 $((entry_count - 1))); do
+    local entry_type tool skip_sql
+    entry_type=$(jq -r ".[$i] | type" "$req_path" 2>/dev/null)
+
+    if [ "$entry_type" = "string" ]; then
+      tool=$(jq -r ".[$i]" "$req_path")
+      skip_sql=""
+    else
+      tool=$(jq -r ".[$i].tool" "$req_path" 2>/dev/null)
+      skip_sql=$(jq -r ".[$i].skip_if_pre_state_sql // empty" "$req_path" 2>/dev/null)
+    fi
+
     [ -z "$tool" ] && continue
+
+    if [ -n "$skip_sql" ] && [ -f "$pre_step_db" ]; then
+      local hit
+      hit=$(sqlite3 "$pre_step_db" "$skip_sql" 2>/dev/null | head -1)
+      if [ -n "$hit" ]; then
+        echo "  ⊘ trajectory_required: $tool waived (pre-state condition met)"
+        continue
+      fi
+    fi
+
     if ! echo "$tools_called" | grep -qFx "$tool"; then
       missing="${missing}; $tool"
     fi
-  done <<< "$required"
+  done
 
   if [ -z "$missing" ]; then
     echo "  ✓ trajectory_required: all required tools called"
