@@ -41,7 +41,7 @@ git -C "$FIXTURE_WS" commit -q -m "initial commit"
 
 # Helper: run the real hook from the fixture workspace with explicit DB.
 run_hook() {
-  (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true
+  (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) || true
 }
 
 # reset_db: remove the DB and any WAL/SHM sidecars atomically, then recreate.
