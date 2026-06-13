@@ -27,9 +27,20 @@ git push -q -u origin main
 
 mkdir -p .claude/tmb
 DB="$WORK/.claude/tmb/trajectory.db"
+_REPO_REALPATH=$(git rev-parse --show-toplevel)
 sqlite3 "$DB" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value) VALUES ('pr_target', 'main');
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"main\"');
+  CREATE TABLE IF NOT EXISTS repos (
+    name              TEXT PRIMARY KEY,
+    path              TEXT    NOT NULL,
+    file_count        INTEGER NOT NULL DEFAULT 0,
+    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    target_branch     TEXT,
+    branching_model   TEXT,
+    protected_branches TEXT
+  );
+  INSERT INTO repos (name, path) VALUES ('fixture', '$_REPO_REALPATH');
 "
 export TRAJECTORY_DB_PATH="$DB"
 
@@ -86,3 +97,5 @@ git remote remove origin
 out=$(run_hook "$(input 'git worktree add .claude/worktrees/y stale-branch')")
 git remote add origin "$ORIGIN"
 assert_eq "" "$out" "no origin = no check"
+
+summarize

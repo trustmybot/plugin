@@ -4,7 +4,7 @@
 # branch-up-to-date-with-remote.sh.
 #
 # Provides:
-#   tmb_repo_git_root <dir>     — print the git toplevel for <dir>, or empty
+#   tmb_repo_git_root <dir>     — print the MAIN worktree root for <dir>, or empty
 #   tmb_repo_resolve <db> <git_root>
 #                               — print pipe-separated "target_branch|branching_model|protected_branches"
 #                                 from the repos row matching <git_root>.
@@ -15,13 +15,19 @@
 # All functions never fail the caller (use || true / return 0 patterns).
 
 # tmb_repo_git_root <dir>
-# Prints the git toplevel for <dir>; empty string if not inside a git repo.
+# Prints the MAIN worktree root for <dir>; empty string if not inside a git repo.
+# Works correctly for linked worktrees and subdirs — always returns the single
+# registered repo root, not the linked-worktree path.
 tmb_repo_git_root() {
   local dir="${1:-$PWD}"
-  if [ -d "$dir" ]; then
-    git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true
+  local target
+  target=$([ -d "$dir" ] && echo "$dir" || echo "$PWD")
+  local common
+  common=$(git -C "$target" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || true
+  if [ -n "$common" ]; then
+    (cd "$(dirname "$common")" && pwd) 2>/dev/null || true
   else
-    git rev-parse --show-toplevel 2>/dev/null || true
+    git -C "$target" rev-parse --show-toplevel 2>/dev/null || true
   fi
 }
 
