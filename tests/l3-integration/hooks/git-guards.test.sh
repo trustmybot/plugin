@@ -416,4 +416,86 @@ done
 
 cleanup_repo
 
+# ---- glab mr create enforcement (GitLab parity) --------------------------------
+# Mirrors the gh pr create Rule 1 tests but exercises _rule1_match + glab path.
+# Uses a repo with pr_target=dev (dual-tier model) so we can also test the
+# dev→main release-merge exception.
+
+setup_glab_repo() {
+  local dir
+  dir=$(mktemp -d -t tmb-guards-glab-XXXX)
+  (
+    cd "$dir" || exit 1
+    git init -q -b dev
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md
+    git add . && git commit -qm init
+
+    mkdir -p .claude/tmb
+    sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path) VALUES ('fixture', '$(git rev-parse --show-toplevel)');" >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "
+      UPDATE plugin_config SET value_json = '\"dev\"'         WHERE key = 'pr_target';
+      UPDATE plugin_config SET value_json = '[\"main\",\"dev\"]' WHERE key = 'protected_branches';
+    " >/dev/null
+  )
+  REPO_PATH="$dir"
+}
+
+test_case "glab: glab mr list (read-only) is NOT blocked (early-exit passes glab)"
+out=$(run_hook '{"tool_input":{"command":"glab mr list"}}')
+assert_not_contains "$out" '"permissionDecision":"deny"' "glab mr list must not be blocked"
+
+test_case "glab: glab mr create --target-branch wrong → deny"
+setup_glab_repo
+out=$(run_hook_in_repo "glab mr create --target-branch wrong --source-branch feat/x --title 'x'")
+assert_contains "$out" '"permissionDecision":"deny"' "wrong target must block"
+assert_contains "$out" "BLOCKED" "deny reason must say BLOCKED"
+cleanup_repo
+
+test_case "glab: glab mr create --target-branch dev (== PR_TARGET) → allow"
+setup_glab_repo
+out=$(run_hook_in_repo "glab mr create --target-branch dev --source-branch feat/x --title 'x'")
+assert_not_contains "$out" '"permissionDecision":"deny"' "correct target must allow"
+cleanup_repo
+
+test_case "glab: glab mr create -b dev (short flag, == PR_TARGET) → allow"
+setup_glab_repo
+out=$(run_hook_in_repo "glab mr create -b dev -s feat/x --title 'x'")
+assert_not_contains "$out" '"permissionDecision":"deny"' "short -b correct target must allow"
+cleanup_repo
+
+test_case "glab: glab mr create -b main + --source-branch dev → allow (release exception)"
+setup_glab_repo
+out=$(run_hook_in_repo "glab mr create -b main --source-branch dev --title 'release'")
+assert_not_contains "$out" '"permissionDecision":"deny"' "dev→main with source=dev must allow"
+cleanup_repo
+
+test_case "glab: glab mr create -b main + --source-branch feat/x → deny (release exception non-dev source)"
+setup_glab_repo
+out=$(run_hook_in_repo "glab mr create -b main --source-branch feat/x --title 'x'")
+assert_contains "$out" '"permissionDecision":"deny"' "dev→main with non-dev source must block"
+cleanup_repo
+
+test_case "glab: glab mr create -b main + -s dev → allow (short -s source=dev release exception)"
+setup_glab_repo
+out=$(run_hook_in_repo "glab mr create -b main -s dev --title 'release'")
+assert_not_contains "$out" '"permissionDecision":"deny"' "short -s dev must allow release exception"
+cleanup_repo
+
+# ---- Rule 1 substring false-positive regression --------------------------------
+# A command that merely MENTIONS the PR/MR-create phrase inside quoted text
+# must NOT be blocked (anchored _rule1_match fix).
+
+setup_worktree_repo
+test_case "substring false-positive: echo quoting 'gh pr create --base x' is NOT blocked"
+out=$(run_hook_in_repo "echo \"run gh pr create --base dev from your feature branch\"")
+assert_not_contains "$out" '"permissionDecision":"deny"' "gh pr create inside quoted echo must not block"
+
+test_case "substring false-positive: echo quoting 'glab mr create --target-branch x' is NOT blocked"
+out=$(run_hook_in_repo "echo \"run glab mr create --target-branch dev from your feature branch\"")
+assert_not_contains "$out" '"permissionDecision":"deny"' "glab mr create inside quoted echo must not block"
+cleanup_repo
+
 summarize
