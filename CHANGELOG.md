@@ -4,6 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.2-rc.2 — 2026-06-13
+
+Re-cut of `rc.1` with L6-chain test-fixture determinism fixes only — functionally identical shipped runtime. `rc.1`'s CI re-confirmation flaked on brittle L6 scorers (not product behavior): the `trajectory_required` scorer iterated spuriously on an empty `tools-required.json` under BSD `seq` (#576), and required an explicit `scan_run` call that the session-start auto-prescan already satisfies (#580); the step-12 chain now also pre-creates the resume task's branch (#578). Licensed by local L6 13/13.
+
 ## v0.8.2-rc.1 — 2026-06-13
 
 Multi-repo support, per-task token attribution, GitLab/offline parity in the guards, and the worktree-lifecycle fixes that ended the SubagentStop completion deadlock. Schema v10 → v12.
