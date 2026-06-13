@@ -540,6 +540,63 @@ describe('onboard tools', () => {
       db.close();
     });
 
+    it('repos rows get target_branch/branching_model/protected_branches seeded after onboard_apply', async () => {
+      const db = tempDB();
+      db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a'), ('/repo/b', 'b')`);
+      const tools = onboardTools(db);
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'gitflow' });
+      const rows = db.all<{ target_branch: string; branching_model: string; protected_branches: string }>(
+        `SELECT target_branch, branching_model, protected_branches FROM repos ORDER BY path`,
+      );
+      assert.equal(rows.length, 2);
+      for (const row of rows) {
+        assert.equal(row.target_branch, 'dev');
+        assert.equal(row.branching_model, 'gitflow');
+        assert.equal(row.protected_branches, JSON.stringify(['main', 'dev']));
+      }
+      db.close();
+    });
+
+    it('re-onboard with different model overwrites all repos rows (no stale values)', async () => {
+      const db = tempDB();
+      db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+      const tools = onboardTools(db);
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'github-flow' });
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'gitflow' });
+      const row = db.get<{ target_branch: string; branching_model: string; protected_branches: string }>(
+        `SELECT target_branch, branching_model, protected_branches FROM repos WHERE path = '/repo/a'`,
+      );
+      assert.ok(row, 'repos row should exist');
+      assert.equal(row.target_branch, 'dev');
+      assert.equal(row.branching_model, 'gitflow');
+      assert.equal(row.protected_branches, JSON.stringify(['main', 'dev']));
+      db.close();
+    });
+
+    it('onboard_apply with empty repos table does not error', async () => {
+      const db = tempDB();
+      const tools = onboardTools(db);
+      const result = await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+      const data = parse(result);
+      assert.equal(data.ok, true);
+      db.close();
+    });
+
+    it('stored protected_branches in repos parses as a JSON array', async () => {
+      const db = tempDB();
+      db.run(`INSERT INTO repos (path, name) VALUES ('/repo/x', 'x')`);
+      const tools = onboardTools(db);
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'github-flow' });
+      const row = db.get<{ protected_branches: string }>(
+        `SELECT protected_branches FROM repos WHERE path = '/repo/x'`,
+      );
+      assert.ok(row, 'repos row should exist');
+      const parsed = JSON.parse(row.protected_branches) as unknown;
+      assert.ok(Array.isArray(parsed), 'protected_branches must parse as a JSON array');
+      assert.ok((parsed as string[]).length > 0, 'array must be non-empty');
+      db.close();
+    });
+
     it('successful apply leaves a coherent DB state (transactional write)', async () => {
       const db = tempDB();
       const tools = onboardTools(db);
