@@ -19,4 +19,4 @@ FROM plugin_config;
 SELECT
   CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
   'no-audit-events (got ' || COUNT(*) || ', expected 0)' AS description
-FROM audit WHERE kind='event';
+FROM audit;
