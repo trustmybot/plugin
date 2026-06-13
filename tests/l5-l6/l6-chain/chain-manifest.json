@@ -127,7 +127,8 @@
       "partial_test": false,
       "seed_before": "seeds/before-12-issue-resume.sql",
       "seed_after": null,
-      "halt_on_fail": true
+      "halt_on_fail": true,
+      "chain_setup_command": "base=$(git for-each-ref --format='%(refname:short)' refs/heads | while read -r br; do git ls-tree -r --name-only \"$br\" | grep -qx 'src/cli.py' && { echo \"$br\"; break; }; done); git branch feat/add-count-subcommand \"${base:-HEAD}\" 2>/dev/null || true"
     },
     {
       "step": 13,

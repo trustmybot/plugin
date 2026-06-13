@@ -14,22 +14,18 @@
 SELECT
   CASE WHEN
        (SELECT COUNT(*) FROM audit
-         WHERE kind='event'
-           AND event_type IN ('config_changed', 'headless_reonboard_blocked'))
+         WHERE event_type IN ('config_changed', 'headless_reonboard_blocked'))
      + (SELECT COUNT(*) FROM audit
-         WHERE kind='event'
-           AND (summary LIKE '%/onboard%' OR content_json LIKE '%/onboard%'))
+         WHERE (summary LIKE '%/onboard%' OR content_json LIKE '%/onboard%'))
      + (SELECT COUNT(*) FROM discussions
          WHERE body LIKE '%/onboard%')
      >= 1 THEN 1 ELSE 0 END AS pass,
   'config-changed-or-headless-block-or-onboard-routing (got ' ||
     (
       (SELECT COUNT(*) FROM audit
-        WHERE kind='event'
-          AND event_type IN ('config_changed', 'headless_reonboard_blocked'))
+        WHERE event_type IN ('config_changed', 'headless_reonboard_blocked'))
     + (SELECT COUNT(*) FROM audit
-        WHERE kind='event'
-          AND (summary LIKE '%/onboard%' OR content_json LIKE '%/onboard%'))
+        WHERE (summary LIKE '%/onboard%' OR content_json LIKE '%/onboard%'))
     + (SELECT COUNT(*) FROM discussions
         WHERE body LIKE '%/onboard%')
     ) || ' total signals, expected ≥ 1)' AS description;

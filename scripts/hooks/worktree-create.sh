@@ -45,7 +45,7 @@ INPUT=$(cat)
 
 BRANCH_NAME=$(echo "$INPUT" | jq -r '.branch // ""' 2>/dev/null)
 if [ -z "$BRANCH_NAME" ]; then
-  printf 'tmb worktree-create: no branch in input — nothing to create\n' >&2
+  printf 'tmb worktree-create: WorktreeCreate input has no .branch field — cannot create an isolated worktree; SWE will run non-isolated in the main checkout (supported). If isolation is required, ensure the spawn passes the task'"'"'s branch.\n' >&2
   exit 1
 fi
 

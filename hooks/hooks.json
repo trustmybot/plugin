@@ -33,6 +33,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/ensure-kuzu-installed.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/substrate-preflight.sh",
+            "timeout": 5
           }
         ]
       }
@@ -107,6 +112,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/commit-msg-lint.sh",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-remote-auth-guard.sh",
+            "timeout": 5
           }
         ]
       },

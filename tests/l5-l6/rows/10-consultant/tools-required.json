@@ -1,5 +1,8 @@
 [
   "mcp__plugin_tmb_trajectory-server__agent_resolve",
-  "mcp__plugin_tmb_trajectory-server__agent_register",
+  {
+    "tool": "mcp__plugin_tmb_trajectory-server__agent_register",
+    "skip_if_pre_state_sql": "SELECT 1 FROM agents WHERE name='cto' AND scope='project-local' LIMIT 1"
+  },
   "Agent"
 ]

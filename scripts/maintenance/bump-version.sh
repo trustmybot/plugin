@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Atomic plugin-version bump. Updates the four locations that must stay in
+# Atomic plugin-version bump. Updates the three manifests that must stay in
 # sync, or fails leaving every file unchanged. Idempotent — re-running with
 # the same version is a no-op.
 #
@@ -10,11 +10,9 @@
 #   1. .claude-plugin/plugin.json                         "version"
 #   2. package.json                                       "version"
 #   3. mcp/trajectory-server/package.json                 "version"
-#   4. mcp/trajectory-server/src/index.ts                 serverLog startup version
 #
-# Does NOT touch the MCP `Server({version: 'X.Y.Z'})` literal in index.ts —
-# that's the trajectory-server protocol-handshake version, independent of
-# the plugin version.
+# mcp/trajectory-server/src/index.ts derives the version from package.json
+# at runtime (readFileSync → packageVersion) and is not touched.
 
 set -euo pipefail
 
@@ -37,7 +35,6 @@ FILES=(
   ".claude-plugin/plugin.json"
   "package.json"
   "mcp/trajectory-server/package.json"
-  "mcp/trajectory-server/src/index.ts"
 )
 
 for f in "${FILES[@]}"; do
@@ -71,27 +68,14 @@ bump_json() {
   fi
 }
 
-bump_index_ts() {
-  local src="$1" dst="$2"
-  # Match the serverLog startup version literal only — leaves the MCP
-  # Server constructor's version untouched.
-  sed -E "s/(serverLog\(\{[^}]*version:[[:space:]]*)'$CURRENT'/\1'$NEW_VERSION'/" "$src" > "$dst"
-  if ! grep -q "version: '$NEW_VERSION'" "$dst"; then
-    echo "Error: failed to bump $src — no serverLog version matched" >&2
-    return 1
-  fi
-}
-
 bump_json    .claude-plugin/plugin.json                "$TMP_DIR/plugin.json"
 bump_json    package.json                              "$TMP_DIR/root-package.json"
 bump_json    mcp/trajectory-server/package.json        "$TMP_DIR/trajectory-package.json"
-bump_index_ts mcp/trajectory-server/src/index.ts       "$TMP_DIR/index.ts"
 
 # All edits staged successfully — commit them.
 mv "$TMP_DIR/plugin.json"             .claude-plugin/plugin.json
 mv "$TMP_DIR/root-package.json"       package.json
 mv "$TMP_DIR/trajectory-package.json" mcp/trajectory-server/package.json
-mv "$TMP_DIR/index.ts"                mcp/trajectory-server/src/index.ts
 
-echo "Bumped $CURRENT → $NEW_VERSION across 4 files."
+echo "Bumped $CURRENT → $NEW_VERSION across 3 files."
 echo "Next: rebuild MCP server, run tests, commit."

@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 10;
+const TARGET_SCHEMA_VERSION = 12;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -313,6 +313,28 @@ export function nowISO(): string {
   return new Date().toISOString();
 }
 
+export type RepoRow = {
+  name: string;
+  path: string;
+  file_count: number;
+  last_scanned_at: string;
+  target_branch: string | null;
+  branching_model: string | null;
+  protected_branches: string | null;
+};
+
+/**
+ * Resolve the repos row whose `path` matches the git toplevel of `gitRoot`.
+ * Returns null when no registered repo matches (unregistered repo → guards no-op).
+ */
+export function resolveRepoByPath(db: TrajectoryDB, gitRoot: string): RepoRow | null {
+  const row = db.get<RepoRow>(
+    `SELECT * FROM repos WHERE path = ? LIMIT 1`,
+    [gitRoot],
+  );
+  return row ?? null;
+}
+
 
 function backupDbBeforeMigration(
   db: DatabaseSync,
@@ -379,6 +401,12 @@ function runMigrations(
   }
   if (fromVersion < 10 && toVersion >= 10) {
     migrateV9toV10(db);
+  }
+  if (fromVersion < 11 && toVersion >= 11) {
+    migrateV10toV11(db);
+  }
+  if (fromVersion < 12 && toVersion >= 12) {
+    migrateV11toV12(db);
   }
 }
 
@@ -458,6 +486,96 @@ function migrateV9toV10(db: DatabaseSync): void {
     if (tableExists(db, 'tasks')) {
       if (!hasColumn(db, 'tasks', 'prompt_bearing')) {
         db.exec('ALTER TABLE tasks ADD COLUMN prompt_bearing INTEGER NOT NULL DEFAULT 0');
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+function migrateV10toV11(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    if (tableExists(db, 'repos')) {
+      if (!hasColumn(db, 'repos', 'target_branch')) {
+        db.exec('ALTER TABLE repos ADD COLUMN target_branch TEXT');
+      }
+      if (!hasColumn(db, 'repos', 'branching_model')) {
+        db.exec('ALTER TABLE repos ADD COLUMN branching_model TEXT');
+      }
+      if (!hasColumn(db, 'repos', 'protected_branches')) {
+        db.exec('ALTER TABLE repos ADD COLUMN protected_branches TEXT');
+      }
+
+      // Backfill per-repo config from global plugin_config so existing
+      // single-repo installs behave identically after the upgrade.
+      if (tableExists(db, 'plugin_config')) {
+        const prTargetRow = db
+          .prepare("SELECT value_json FROM plugin_config WHERE key = 'pr_target'")
+          .get() as { value_json: string } | undefined;
+        const branchingModelRow = db
+          .prepare("SELECT value_json FROM plugin_config WHERE key = 'branching_model'")
+          .get() as { value_json: string } | undefined;
+        const protectedBranchesRow = db
+          .prepare("SELECT value_json FROM plugin_config WHERE key = 'protected_branches'")
+          .get() as { value_json: string } | undefined;
+
+        const prTarget = prTargetRow?.value_json
+          ? (() => {
+              try {
+                const v = JSON.parse(prTargetRow.value_json) as unknown;
+                return typeof v === 'string' && v.length > 0 ? v : null;
+              } catch { return null; }
+            })()
+          : null;
+
+        const branchingModel = branchingModelRow?.value_json
+          ? (() => {
+              try {
+                const v = JSON.parse(branchingModelRow.value_json) as unknown;
+                return typeof v === 'string' && v.length > 0 ? v : null;
+              } catch { return null; }
+            })()
+          : null;
+
+        const protectedBranches = protectedBranchesRow?.value_json ?? null;
+
+        if (prTarget !== null || branchingModel !== null || protectedBranches !== null) {
+          db.prepare(`
+            UPDATE repos
+               SET target_branch     = COALESCE(target_branch, ?),
+                   branching_model   = COALESCE(branching_model, ?),
+                   protected_branches = COALESCE(protected_branches, ?)
+             WHERE target_branch IS NULL
+               AND branching_model IS NULL
+               AND protected_branches IS NULL
+          `).run(prTarget, branchingModel, protectedBranches);
+        }
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+function migrateV11toV12(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    if (tableExists(db, 'agent_runs')) {
+      if (!hasColumn(db, 'agent_runs', 'usage_baseline_json')) {
+        db.exec('ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT');
       }
     }
     db.exec('COMMIT');

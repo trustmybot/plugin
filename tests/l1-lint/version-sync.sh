@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lint: enforce that the four version fields agree.
+# Lint: enforce that the three version fields agree.
 #
 #   .claude-plugin/plugin.json  → the canonical published version
 #   mcp/trajectory-server/package.json → the MCP subpackage version
