@@ -58,12 +58,3 @@ before_md5=$(md5 -q "$REPO/.gitignore" 2>/dev/null || md5sum "$REPO/.gitignore" 
 run_in_repo "$REPO" >/dev/null
 after_md5=$(md5 -q "$REPO/.gitignore" 2>/dev/null || md5sum "$REPO/.gitignore" | awk '{print $1}')
 assert_eq "$before_md5" "$after_md5" "matches both .claude/ and .claude variants"
-
-test_case "existing .gitignore with .claude/* (rules-exception form): idempotent"
-REPO="$TMPDIR/repo5"
-mkdir -p "$REPO" && (cd "$REPO" && git init -q -b main)
-printf '.claude/*\n!.claude/rules/\n' > "$REPO/.gitignore"
-before_md5=$(md5 -q "$REPO/.gitignore" 2>/dev/null || md5sum "$REPO/.gitignore" | awk '{print $1}')
-run_in_repo "$REPO" >/dev/null
-after_md5=$(md5 -q "$REPO/.gitignore" 2>/dev/null || md5sum "$REPO/.gitignore" | awk '{print $1}')
-assert_eq "$before_md5" "$after_md5" "does not clobber the .claude/* rules-exception form"

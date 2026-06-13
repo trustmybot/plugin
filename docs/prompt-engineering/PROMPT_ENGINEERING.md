@@ -104,4 +104,4 @@ Examples of volatile fields that belong at the tail:
 - DB path, plugin source path
 - Any timestamp or PID
 
-This rule is encoded in `.claude/rules/hooks.md` and enforced by the L3 ordering tests.
+This rule is enforced by the L3 ordering tests.

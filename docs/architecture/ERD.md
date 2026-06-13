@@ -290,7 +290,7 @@ Before #2886 `agent_runs` only captured **subagent spawns** (SWE, pr-reviewer, c
 
 | Runtime | What drives loading | What the DB is for |
 |---|---|---|
-| **Plugin (Claude Code)** | File system. CC reads `skills/<name>/SKILL.md`, `.claude/rules/*.md`, `commands/<x>.md` directly. | Catalog + analytics overlay. Junction rows enable the "agent should have used skill Y but didn't" detector. |
+| **Plugin (Claude Code)** | File system. CC reads `skills/<name>/SKILL.md`, `commands/<x>.md` directly. | Catalog + analytics overlay. Junction rows enable the "agent should have used skill Y but didn't" detector. |
 | **Enterprise (LangGraph)** | The DB. LangGraph queries the catalog to discover + load capabilities at runtime. | Source of truth. The catalog IS the runtime. |
 
 Same schema, two read paths. Designed so the enterprise runtime can adopt this without schema churn.
