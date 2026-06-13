@@ -12,7 +12,7 @@ Patch release. Fixes the world-model scan crashing on repos with non-ASCII track
 - `scan.sh` emitted invalid JSON on repos with a non-ASCII tracked path: git C-quoted the path into octal `\nnn` escapes the awk JSON emitter couldn't portably escape, so `scan_run` aborted with `jq: Invalid escape`. Both git calls now run with `-c core.quotePath=false`, keeping paths as raw UTF-8 (valid inside a JSON string). Added an L3 regression test. (#586)
 
 ### Changed
-- Plugin description refreshed to reflect the kuzu world-model graph and multi-repo navigation.
+- Plugin description refreshed to reflect the kuzu world model (helping agents understand and navigate complex codebases).
 
 ## v0.8.2 — 2026-06-13
 
