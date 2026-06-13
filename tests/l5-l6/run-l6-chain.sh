@@ -301,6 +301,7 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   fi
 
   l6c_snapshot_db "$PROJECT" "$STEP_DIR/pre-state.sql"
+  cp "$PROJECT/.claude/tmb/trajectory.db" "$PROJECT/.claude/tmb/_l6_pre_step.db" 2>/dev/null || true
   cp "$ROW_DIR/prompt.txt" "$STEP_DIR/user-input.txt"
 
   # If plugin_config.pr_target points at a branch that doesn't exist in
