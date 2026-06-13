@@ -10,9 +10,9 @@ The bug class this catches: bro overplanning — re-creating an issue / re-runni
 
 ## Pre-state
 
-`onboarding-named` fixture + a pre-seeded resume issue and task on `feat/seed-cli` (id auto-increment for L6-chain compatibility):
-- `issues(objective='Add a CLI entry point (resume)', status='open')`
-- `tasks(branch_id='feat/seed-cli', status='pending')`
+`onboarding-named` fixture + a pre-seeded resume issue and task on `feat/add-count-subcommand` (id auto-increment for L6-chain compatibility):
+- `issues(objective='Add count subcommand to todo CLI', status='open')`
+- `tasks(branch_id='feat/add-count-subcommand', status='pending')`
 - `audit(event_type='planning_complete')` linked to the resume issue
 
 ## Turns
@@ -26,8 +26,8 @@ The bug class this catches: bro overplanning — re-creating an issue / re-runni
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | resume issue exists exactly once (`objective='Add a CLI entry point (resume)'`); task on `feat/seed-cli` exists exactly once — bro did NOT replan |
-| `outcome-coherence.json` | resume issue count `=1`; task on `feat/seed-cli` count `=1` |
+| `outcome.sql` | resume issue exists exactly once (`objective='Add count subcommand to todo CLI'`); task on `feat/add-count-subcommand` exists exactly once — bro did NOT replan |
+| `outcome-coherence.json` | resume issue count `=1`; task on `feat/add-count-subcommand` count `=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `Agent` (SWE dispatch). The "must read existing state" half is asserted by `outcome.sql` + `outcome-coherence.json` — if bro replanned, those would show 2/2. |
 | `tools-forbidden.json` | `issue_create`, `task_create_batch` — bro must NOT replan |
