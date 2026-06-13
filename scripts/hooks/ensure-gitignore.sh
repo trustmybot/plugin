@@ -20,7 +20,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 GITIGNORE="$REPO_ROOT/.gitignore"
 
-# Pattern we ensure is present. Match `.claude`, `.claude/`, or `.claude/*` (the rules-exception form).
+# Pattern we ensure is present. Match `.claude`, `.claude/`, or `.claude/*`.
 if [ -f "$GITIGNORE" ] && grep -qE '^\.claude(/\*?)?$' "$GITIGNORE" 2>/dev/null; then
   exit 0
 fi
