@@ -4,6 +4,29 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.2-rc.1 — 2026-06-13
+
+Multi-repo support, per-task token attribution, GitLab/offline parity in the guards, and the worktree-lifecycle fixes that ended the SubagentStop completion deadlock. Schema v10 → v12.
+
+### Added
+
+- **Per-repo branching config** — the `repos` table gains `target_branch` / `branching_model` / `protected_branches` (schema v11). The git/push guards resolve their config from the command's git-root and no-op on unregistered or sibling repos, so a TMB project no longer imposes its branching model on neighbouring repos. Onboarding seeds the per-repo columns (#550, #549, #560).
+- **GitLab parity in the guards** — `glab mr create --target-branch` is enforced against the PR target exactly like `gh pr create --base`, and `glab` is recognized everywhere `gh` is. `gh`/`glab auth login` is short-circuited when no remote is configured (it would hang), with a local-only notice at session start (#564, #548).
+- **Per-task bro token attribution** — schema v12 adds `agent_runs.usage_baseline_json`; each task's bro row now records its own token delta instead of the whole session's cumulative landing on the newest open row (#542).
+- **Substrate preflight** — a SessionStart banner names any missing tool (jq/sqlite3/git/node) and announces local-only operation (#545).
+
+### Fixed
+
+- **Worktree lifecycle** — worktree commands resolve to the main repo root so registered-repo guards fire inside worktrees (#550); the SubagentStop close hook resolves the worktree at the workspace root, ending an intermittent completion deadlock that stranded finished tasks at `pending` (#551); close hooks reset HEAD to the per-repo target branch (#559).
+- **Offline / no-remote work** — remote-freshness checks skip when there is no origin remote or the upstream ref is absent, so local-only work is no longer blocked (#546).
+- **Non-isolated SWE is first-class** — when no worktree is available, `no-source-edit` permits `swe`-role edits in the main checkout (bro and other identities still denied), and the deny message teaches the real recovery (#547).
+- **Flaky prescan test** removed an ubuntu WAL/disk-IO race (#557); **L7 model verification** reads the per-line init model (#527); **L6 chain seeds** match live resume state (#536).
+
+### Removed / Internal
+
+- Removed `.claude/rules/` — Claude Code plugins don't recognize it (#543).
+- `bump-version.sh` no longer edits `index.ts` (the server derives its version from `package.json` at runtime) (#571); test syncs for schema v12 and stale fixtures (#569, #573).
+
 ## v0.8.1 — 2026-06-12
 
 Promotes `v0.8.1-rc.1` to stable. See the rc section below for the change list. Local L6 chain 13/13 on the tagged tree (the licensing gate per the new phased release workflow); release-gate CI green on the rc tag as re-confirmation.
