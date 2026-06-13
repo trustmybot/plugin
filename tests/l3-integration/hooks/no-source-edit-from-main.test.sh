@@ -51,6 +51,14 @@ input() {
   }'
 }
 
+input_with_agent() {
+  jq -n --arg tn "$1" --arg fp "$2" --arg at "$3" '{
+    tool_name: $tn,
+    agent_type: $at,
+    tool_input: { file_path: $fp }
+  }'
+}
+
 run_hook() {
   echo "$1" | bash "$HOOK" 2>&1 || true
 }
@@ -70,7 +78,7 @@ assert_eq "" "$out" "env bypass works"
 test_case "bro mode + src/foo.ts: BLOCK"
 out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
-assert_contains "$out" 'source edits from the main checkout are denied for all agent contexts' "reason cites location policy"
+assert_contains "$out" 'source edits from the main checkout are denied' "reason cites location policy"
 
 test_case "plain session (no bro) + src/foo.ts: BLOCK (location-based)"
 out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_PLAIN")")
@@ -87,7 +95,7 @@ assert_contains "$out" '"permissionDecision":"deny"' "no transcript = no identit
 test_case "general-purpose subagent context + src/foo.ts: BLOCK"
 out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_SUBAGENT")")
 assert_contains "$out" '"permissionDecision":"deny"' "subagent identity never grants main-checkout source edits"
-assert_contains "$out" 'source edits from the main checkout are denied for all agent contexts' "reason cites location policy"
+assert_contains "$out" 'source edits from the main checkout are denied' "reason cites location policy"
 
 test_case "#276: bare 'bro' word + src/foo.ts: BLOCK (location policy, not substring match)"
 out=$(run_hook "$(input 'Edit' 'src/foo.ts' "$TRANSCRIPT_BARE_BRO")")
@@ -300,5 +308,43 @@ assert_eq "" "$out" "redirect to /tmp mentioning a prompt path should not be den
 test_case "Bash git commit -m message mentioning agents/swe.md: NOT denied"
 out=$(run_hook "$(bash_input 'git commit -m "touch agents/swe.md"')")
 assert_eq "" "$out" "commit message mentioning prompt path should not be denied"
+
+# ---- Non-isolated SWE first-class (agent_type=swe permit) ----
+# Restore DB (removed in the "no DB" test case above)
+sqlite3 "$DB" "CREATE TABLE meta (k TEXT);" 2>/dev/null || true
+
+test_case "agent_type=swe + src/foo.ts from main: ALLOWED (non-isolated SWE permit)"
+out=$(run_hook "$(input_with_agent 'Edit' 'src/foo.ts' 'swe')")
+assert_eq "" "$out" "swe role may edit source from main checkout"
+
+test_case "agent_type=swe + mcp/server.ts from main: ALLOWED"
+out=$(run_hook "$(input_with_agent 'Write' 'mcp/trajectory-server/src/index.ts' 'swe')")
+assert_eq "" "$out" "swe role may write .ts source from main checkout"
+
+test_case "agent_type=bro + src/foo.ts from main: DENIED (bro may not use swe permit)"
+out=$(run_hook "$(input_with_agent 'Edit' 'src/foo.ts' 'bro')")
+assert_contains "$out" '"permissionDecision":"deny"' "bro is denied even with explicit agent_type"
+
+test_case "no agent_type + src/foo.ts from main: DENIED (fail closed)"
+out=$(run_hook "$(input 'Edit' 'src/foo.ts' '')")
+assert_contains "$out" '"permissionDecision":"deny"' "absent agent_type fails closed"
+
+test_case "agent_type=swe + scripts/hooks/foo.sh from main: DENIED (enforcement surface)"
+out=$(run_hook "$(input_with_agent 'Edit' 'scripts/hooks/foo.sh' 'swe')")
+assert_contains "$out" '"permissionDecision":"deny"' "swe cannot edit enforcement surfaces from main"
+assert_contains "$out" 'enforcement surfaces' "deny message cites enforcement-surface doctrine"
+
+test_case "agent_type=swe + hooks/hooks.json from main: DENIED (enforcement surface)"
+out=$(run_hook "$(input_with_agent 'Edit' 'hooks/hooks.json' 'swe')")
+assert_contains "$out" '"permissionDecision":"deny"' "swe cannot edit hooks.json from main"
+
+test_case "REGRESSION: worktree path edit + agent_type=swe: ALLOWED"
+out=$(run_hook "$(input_with_agent 'Edit' '.claude/worktrees/task-99/src/foo.ts' 'swe')")
+assert_eq "" "$out" "worktree-path edit always allowed regardless of agent_type"
+
+test_case "deny message teaches recovery without mentioning shell rc files"
+out=$(run_hook "$(input_with_agent 'Edit' 'src/foo.ts' 'bro')")
+assert_not_contains "$out" 'bashrc' "deny message must not mention bashrc"
+assert_contains "$out" 'non-isolated' "deny message mentions non-isolated mode"
 
 summarize
