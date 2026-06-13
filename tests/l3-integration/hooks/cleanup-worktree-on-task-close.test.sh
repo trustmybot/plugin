@@ -176,4 +176,68 @@ out=$(bro_atomic_close_input 'mcp__plugin_tmb_trajectory-server__bro_atomic_clos
 assert_eq "" "$out" "non-bro agent must be silent no-op for bro_atomic_close"
 [ -d "$REPO/.claude/worktrees/atomic2" ] || { echo "FAIL: worktree removed for non-bro agent"; exit 1; }
 
+# ---- #559: per-repo HEAD-reset target resolution -----------------------------
+# Set up plugin_config + repos table in the main DB for these cases.
+_REPO_REALPATH=$(git -C "$REPO" rev-parse --show-toplevel)
+sqlite3 "$DB" "
+  CREATE TABLE IF NOT EXISTS plugin_config (key TEXT PRIMARY KEY, value_json TEXT, updated_at TEXT);
+  INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('pr_target', '\"dev\"', datetime('now'));
+  CREATE TABLE IF NOT EXISTS repos (
+    name              TEXT PRIMARY KEY,
+    path              TEXT NOT NULL,
+    file_count        INTEGER NOT NULL DEFAULT 0,
+    last_scanned_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    target_branch     TEXT,
+    branching_model   TEXT,
+    protected_branches TEXT
+  );
+"
+
+test_case "#559: registered repo with target_branch='main' → HEAD reset to main (not global dev)"
+# dev branch must exist so global fallback is plausible; main already exists.
+git -C "$REPO" branch -f dev HEAD 2>/dev/null || true
+# Create a scratch branch to put HEAD on (can't checkout the worktree branch).
+git -C "$REPO" branch -f scratch-50 HEAD
+git -C "$REPO" checkout -q scratch-50
+sqlite3 "$DB" "INSERT OR REPLACE INTO repos (name, path, target_branch) VALUES ('fixture', '${_REPO_REALPATH}', 'main');"
+git -C "$REPO" branch fix/per-repo-main HEAD
+git -C "$REPO" worktree add -q .claude/worktrees/per-repo-main fix/per-repo-main
+sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status) VALUES (50, 'fix/per-repo-main', 'completed');"
+out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 50)" \
+  | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" 'cleaned up worktree' "worktree removed"
+AFTER_HEAD=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
+[ "$AFTER_HEAD" = "main" ] || { echo "FAIL: HEAD is '$AFTER_HEAD', expected 'main'"; exit 1; }
+echo "  HEAD reset to main (per-repo target_branch honored)"
+
+test_case "#559: registered repo with NULL target_branch → falls back to global pr_target='dev'"
+sqlite3 "$DB" "INSERT OR REPLACE INTO repos (name, path, target_branch) VALUES ('fixture', '${_REPO_REALPATH}', NULL);"
+git -C "$REPO" branch fix/per-repo-null HEAD
+git -C "$REPO" worktree add -q .claude/worktrees/per-repo-null fix/per-repo-null
+sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status) VALUES (51, 'fix/per-repo-null', 'completed');"
+# Put HEAD on a scratch branch (not the worktree branch, not dev yet).
+git -C "$REPO" branch -f scratch-51 HEAD
+git -C "$REPO" checkout -q scratch-51
+out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 51)" \
+  | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" 'cleaned up worktree' "worktree removed"
+AFTER_HEAD=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
+[ "$AFTER_HEAD" = "dev" ] || { echo "FAIL: HEAD is '$AFTER_HEAD', expected 'dev'"; exit 1; }
+echo "  HEAD reset to dev (global pr_target fallback honored)"
+
+test_case "#559: TMB_KEEP_HEAD_ON_CLOSE=1 still skips the reset"
+sqlite3 "$DB" "INSERT OR REPLACE INTO repos (name, path, target_branch) VALUES ('fixture', '${_REPO_REALPATH}', 'main');"
+git -C "$REPO" branch fix/per-repo-bypass HEAD
+git -C "$REPO" worktree add -q .claude/worktrees/per-repo-bypass fix/per-repo-bypass
+sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status) VALUES (52, 'fix/per-repo-bypass', 'completed');"
+# Start on a scratch branch so the hook would otherwise move us to main.
+git -C "$REPO" branch -f scratch-52 HEAD
+git -C "$REPO" checkout -q scratch-52
+out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 52)" \
+  | env TMB_KEEP_HEAD_ON_CLOSE=1 bash "$HOOK" 2>&1 || true)
+assert_contains "$out" 'cleaned up worktree' "worktree removed"
+AFTER_HEAD=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
+[ "$AFTER_HEAD" = "scratch-52" ] || { echo "FAIL: HEAD is '$AFTER_HEAD', expected 'scratch-52'"; exit 1; }
+echo "  HEAD unchanged when TMB_KEEP_HEAD_ON_CLOSE=1"
+
 summarize
