@@ -142,14 +142,11 @@ run_one() {
   #     compare against requested model. Exit non-zero on mismatch.
   local requested_model actual_model
   requested_model="${TMB_BENCH_MODEL:-claude-opus-4-8}"
-  actual_model=$(jq -r '
-    [.[] | select(.type == "system" and (.subtype == "init" or .event == "init"))
-         | (.model // .data.model // "") | select(. != "")] | first // ""
-  ' "$transcript" 2>/dev/null || true)
+  actual_model=$(jq -r 'select(.type=="system" and (.subtype=="init" or .event=="init")) | (.model // .data.model) // empty' \
+    "$transcript" 2>/dev/null | head -1)
   if [ -z "$actual_model" ]; then
-    actual_model=$(jq -r '
-      [.[] | select(has("model")) | .model | select(. != null and . != "")] | first // ""
-    ' "$transcript" 2>/dev/null || true)
+    actual_model=$(jq -r 'select(has("model")) | .model // empty' \
+      "$transcript" 2>/dev/null | head -1)
   fi
   printf '    MODEL: requested=%s actual=%s\n' "$requested_model" "${actual_model:-unknown}"
   if [ -n "$actual_model" ] && [ "$actual_model" != "$requested_model" ]; then
