@@ -28,6 +28,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/resolve-plugin-name.sh
 . "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 PLUGIN_NAME=$(tmb_resolve_plugin_name)
 
 INPUT=$(cat)
@@ -62,11 +64,29 @@ DB_PATH="${TRAJECTORY_DB_PATH:-$REPO_ROOT/.claude/${PLUGIN_NAME}/trajectory.db}"
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
-PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target' LIMIT 1;" 2>/dev/null)
+# If REPO_ROOT is not a registered TMB repo, no-op — don't impose policy on
+# unregistered/sibling repos (#549).
+if ! tmb_repo_is_registered "$DB_PATH" "$REPO_ROOT"; then
+  exit 0
+fi
+
+# Resolve per-repo target_branch, falling back to global pr_target.
+_REPO_ROW=$(tmb_repo_resolve "$DB_PATH" "$REPO_ROOT")
+PR_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
+
+if [ -z "$PR_TARGET" ]; then
+  PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target' LIMIT 1;" 2>/dev/null || true)
+  PR_TARGET=$(echo "${PR_TARGET:-}" | tr -d '"')
+fi
 [ -n "$PR_TARGET" ] || PR_TARGET="main"
-PR_TARGET=$(echo "$PR_TARGET" | tr -d '"')
 
 if ! git -C "$REPO_ROOT" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
+  exit 0
+fi
+
+# Skip remote freshness check when repo has no origin remote (#546).
+_HAS_REMOTE=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)
+if [ -z "$_HAS_REMOTE" ]; then
   exit 0
 fi
 

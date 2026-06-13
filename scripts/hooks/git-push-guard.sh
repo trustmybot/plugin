@@ -16,6 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh
 . "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
@@ -135,8 +137,13 @@ fi
 PUSH_SHAS=$(git ${GIT_DIR_ARGS} log '@{u}..HEAD' --pretty=%H 2>/dev/null || true)
 if [ -z "$PUSH_SHAS" ]; then
   # No upstream — first push of new branch. Compute commits unique to this
-  # branch vs the configured pr_target base.
-  PR_TARGET=$(sqlite3 "$DB" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target'" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')
+  # branch vs the per-repo target_branch (falling back to global pr_target).
+  _PUSH_GIT_ROOT=$(tmb_repo_git_root "${CD_TARGET:-$PWD}")
+  _PUSH_REPO_ROW=$(tmb_repo_resolve "$DB" "$_PUSH_GIT_ROOT")
+  PR_TARGET=$(printf '%s' "$_PUSH_REPO_ROW" | cut -d'|' -f1)
+  if [ -z "$PR_TARGET" ]; then
+    PR_TARGET=$(sqlite3 "$DB" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target'" 2>/dev/null | sed -e 's/^"//' -e 's/"$//')
+  fi
   PR_TARGET="${PR_TARGET:-dev}"
   # shellcheck disable=SC2086
   PUSH_SHAS=$(git ${GIT_DIR_ARGS} log "origin/${PR_TARGET}..HEAD" --pretty=%H 2>/dev/null || true)

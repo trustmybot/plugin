@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 10, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 11, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -182,7 +182,10 @@ CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
     file_count        INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    target_branch     TEXT,
+    branching_model   TEXT,
+    protected_branches TEXT
 );
 
 CREATE TABLE IF NOT EXISTS plugin_config (
