@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { sqlLog } from './logger.js';
+import { sqlLog, serverLog } from './logger.js';
 const TARGET_SCHEMA_VERSION = 12;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -86,6 +86,14 @@ function findExistingDbUp(startDir, pluginName, opts) {
 export class TrajectoryDB {
     db;
     dbPath;
+    /**
+     * True when the DB opened with user tables present but NO plugin_meta table
+     * (a pre-stamp legacy shape that predates schema versioning). Such a DB is
+     * adopted forward (its tables are kept; the schema is reapplied) rather than
+     * treated as a clean fresh install — but the ambiguity is surfaced as a
+     * degraded signal so the upgrade is not silent. Non-fatal.
+     */
+    legacyNoPluginMeta = false;
     constructor(dbPath) {
         // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
         // on 22.x, stable on 24+. The plugin's .mcp.json passes --experimental-sqlite
@@ -95,7 +103,7 @@ export class TrajectoryDB {
         this.db.exec('PRAGMA journal_mode = WAL');
         this.db.exec('PRAGMA foreign_keys = ON');
         this.db.exec('PRAGMA busy_timeout = 5000');
-        this.applySchema();
+        this.legacyNoPluginMeta = this.applySchema();
         this.syncPluginVersion();
     }
     applySchema() {
@@ -119,11 +127,32 @@ export class TrajectoryDB {
             .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_meta'")
             .get();
         if (pluginMetaExists === undefined) {
-            // Fresh DB — apply schema and confirm the seed landed.
+            // No plugin_meta table. Two shapes land here:
+            //   - A genuinely fresh DB (no user tables at all).
+            //   - A pre-stamp LEGACY DB that already holds workflow tables but
+            //     predates schema versioning (#602). Adopting that silently as
+            //     "fresh" hides an unverified upgrade, so detect it and surface a
+            //     degraded signal. Either way we reapply schema (CREATE IF NOT
+            //     EXISTS is idempotent; the seed lands) — the difference is only
+            //     whether we warn.
+            const userTableCount = this.db
+                .prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+                .get();
+            const isLegacy = userTableCount.n > 0;
+            if (isLegacy) {
+                serverLog({
+                    kind: 'legacy_db_no_plugin_meta',
+                    level: 'warn',
+                    db_path: this.dbPath,
+                    existing_tables: userTableCount.n,
+                    message: 'TrajectoryDB: opened a DB with tables but no plugin_meta row (pre-stamp legacy shape). ' +
+                        'Adopting it forward and stamping schema_version — verify the upgrade and back up if unsure.',
+                });
+            }
             this.db.exec(sql);
             applyEvalIfNeeded();
             verifySeed();
-            return;
+            return isLegacy;
         }
         const versionRow = this.db
             .prepare('SELECT schema_version FROM plugin_meta LIMIT 1')
@@ -134,7 +163,7 @@ export class TrajectoryDB {
             this.db.exec(sql);
             applyEvalIfNeeded();
             verifySeed();
-            return;
+            return false;
         }
         const storedVersion = versionRow.schema_version;
         if (storedVersion > TARGET_SCHEMA_VERSION) {
@@ -149,12 +178,13 @@ export class TrajectoryDB {
                 .run(TARGET_SCHEMA_VERSION);
             applyEvalIfNeeded();
             verifySeed();
-            return;
+            return false;
         }
         // storedVersion === TARGET_SCHEMA_VERSION — idempotent reapply.
         this.db.exec(sql);
         applyEvalIfNeeded();
         verifySeed();
+        return false;
     }
     syncPluginVersion(env = process.env) {
         const root = env['CLAUDE_PLUGIN_ROOT'];

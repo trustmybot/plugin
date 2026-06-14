@@ -26,6 +26,43 @@ command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
+# Version-skew probe (#602). Surface the ACTIVE plugin version and, when the
+# marketplace cache holds a NEWER version that isn't the running one, a
+# 'restart to apply' line. Read-only and non-fatal — every step falls through
+# silently so a missing manifest / non-cache install just omits the line.
+#
+# CLAUDE_PLUGIN_ROOT for a marketplace install is a versioned cache dir:
+#   ~/.claude/plugins/cache/<owner>/<plugin>/<version>
+# so the active version is that leaf and sibling versions live alongside it.
+PLUGIN_VERSION=""
+NEWER_CACHED_VERSION=""
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
+  PLUGIN_VERSION=$(jq -r '.version // empty' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || true)
+  VERSIONS_DIR=$(dirname "${CLAUDE_PLUGIN_ROOT}")
+  if [ -n "$PLUGIN_VERSION" ] && [ -d "$VERSIONS_DIR" ]; then
+    HIGHEST_CACHED=""
+    while IFS= read -r vdir; do
+      [ -d "$vdir" ] || continue
+      vname=$(basename "$vdir")
+      case "$vname" in
+        [0-9]*) ;;
+        *) continue ;;
+      esac
+      if [ -z "$HIGHEST_CACHED" ]; then
+        HIGHEST_CACHED="$vname"
+      else
+        HIGHEST_CACHED=$(printf '%s\n%s\n' "$HIGHEST_CACHED" "$vname" | sort -V | tail -1)
+      fi
+    done < <(find "$VERSIONS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+    # A newer version is cached but not active when the highest cached dir
+    # sorts strictly above the running version.
+    if [ -n "$HIGHEST_CACHED" ] && [ "$HIGHEST_CACHED" != "$PLUGIN_VERSION" ]; then
+      TOP=$(printf '%s\n%s\n' "$PLUGIN_VERSION" "$HIGHEST_CACHED" | sort -V | tail -1)
+      [ "$TOP" = "$HIGHEST_CACHED" ] && NEWER_CACHED_VERSION="$HIGHEST_CACHED"
+    fi
+  fi
+fi
+
 # Probe git state. Each query falls through to "(unknown)" on error so
 # the hook stays silent rather than blowing up on an unusual repo state.
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
@@ -99,8 +136,17 @@ COLD_SUFFIX=""
 [ -n "$COLD_NOTE" ] && COLD_SUFFIX="
 $COLD_NOTE"
 
+# Version-skew note (#602) — only when a newer version sits in the cache but
+# the older one is still running.
+[ -n "$NEWER_CACHED_VERSION" ] && COLD_SUFFIX="${COLD_SUFFIX}
+newer plugin version ${NEWER_CACHED_VERSION} is installed but ${PLUGIN_VERSION} is still running — restart Claude Code (or /reload-plugins) to apply"
+
+PLUGIN_VERSION_LINE="(unknown)"
+[ -n "$PLUGIN_VERSION" ] && PLUGIN_VERSION_LINE="$PLUGIN_VERSION"
+
 INVENTORY=$(cat <<EOF
 === Project Inventory (auto, deterministic) ===
+Plugin version:    ${PLUGIN_VERSION_LINE}
 Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
 Architecture docs: ${HAS_ARCH_DOCS}
