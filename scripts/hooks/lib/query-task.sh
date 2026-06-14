@@ -239,6 +239,103 @@ tmb_sql_quote() {
   printf '%s' "${1:-}" | sed "s/'/''/g"
 }
 
+# tmb_worktree_root_for_target <target_path>
+# Determine the worktree root for a prompt_bearing resolution.
+# Priority:
+#   1. The TARGET path if it is under .claude/worktrees/<slug>.
+#   2. Fall back to $PWD when $PWD is under a worktree.
+# Prints the worktree root (.../.claude/worktrees/<slug>) or empty string.
+# Never fails the caller.
+tmb_worktree_root_for_target() {
+  local target="${1:-}"
+  case "$target" in
+    */.claude/worktrees/*)
+      echo "$target" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
+      return 0
+      ;;
+  esac
+  case "$PWD" in
+    */.claude/worktrees/*)
+      echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
+      return 0
+      ;;
+  esac
+  return 0
+}
+
+# tmb_resolve_task_id_for_target <target_path> <input_json> [<db>]
+# Robustly resolve the active task_id that gates a prompt_bearing edit/write.
+# Resolution order (first non-empty wins):
+#   1. Worktree's checked-out branch: derive WORKTREE_ROOT from the TARGET path
+#      (or $PWD), then `git -C <wt> rev-parse --abbrev-ref HEAD` → exact
+#      `branch_id = '<branch>'` (NO status filter).
+#   2. Slug fallback: `branch_id LIKE '%/<slug>'` from the worktree root (NO
+#      status filter).
+#   3. Transcript fallback: parse `task_id=[0-9]+` from the WHOLE transcript
+#      message content (not only type:"text" blocks).
+# All SQL is sanitized via tmb_sql_quote. Prints the resolved task_id (decimal)
+# or empty string. Never fails the caller.
+tmb_resolve_task_id_for_target() {
+  local target="${1:-}"
+  local input="${2:-}"
+  local db="${3:-}"
+  if [ -z "$db" ]; then
+    db=$(tmb_db_path) || true
+  fi
+
+  local wt_root
+  wt_root=$(tmb_worktree_root_for_target "$target")
+
+  local task_id=""
+
+  if [ -n "$db" ] && tmb_have_sqlite && [ -n "$wt_root" ]; then
+    # (1) Exact branch match from the worktree's checked-out branch.
+    local branch
+    branch=$(git -C "$wt_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+    if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
+      local safe_branch
+      safe_branch=$(tmb_sql_quote "$branch")
+      task_id=$(tmb_sqlite_ro "$db" "
+        SELECT id FROM tasks
+         WHERE branch_id = '${safe_branch}'
+         ORDER BY id DESC
+         LIMIT 1;
+      " 2>/dev/null || true)
+      case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+    fi
+
+    # (2) Slug fallback — no status filter.
+    if [ -z "$task_id" ]; then
+      local slug
+      slug=$(echo "$wt_root" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
+      if [ -n "$slug" ]; then
+        local safe_slug
+        safe_slug=$(tmb_sql_quote "$slug")
+        task_id=$(tmb_sqlite_ro "$db" "
+          SELECT id FROM tasks
+           WHERE branch_id LIKE '%/${safe_slug}'
+           ORDER BY id DESC
+           LIMIT 1;
+        " 2>/dev/null || true)
+        case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+      fi
+    fi
+  fi
+
+  # (3) Transcript fallback — parse the whole message content.
+  if [ -z "$task_id" ] && [ -n "$input" ]; then
+    local transcript
+    transcript=$(echo "$input" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
+    if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+      task_id=$(jq -r '.message.content // [] | tostring' "$transcript" 2>/dev/null \
+        | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+      case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+    fi
+  fi
+
+  echo "$task_id"
+}
+
 # tmb_task_spec_status <task_id> [<db>]
 # Prints two lines: <status>\n<body_len> for the given tasks row.
 # Prints nothing when the row does not exist, DB is absent, sqlite3 is unavailable,

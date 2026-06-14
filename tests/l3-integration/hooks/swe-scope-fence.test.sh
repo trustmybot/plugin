@@ -250,9 +250,21 @@ assert_contains "$out" '"permissionDecision":"deny"' "editing a different root f
 NON_WT_DIR="$TMPDIR/non-worktree"
 mkdir -p "$NON_WT_DIR"
 
-test_case "non-worktree: hook passes through when PWD is not a worktree"
+test_case "non-worktree: hook passes through when PWD is not a worktree (relative target)"
 out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "anything/file.ts")" | bash "$HOOK" 2>&1) || true)
-assert_not_contains "$out" '"permissionDecision":"deny"' "non-worktree PWD should not be blocked"
+assert_not_contains "$out" '"permissionDecision":"deny"' "non-worktree PWD + relative target should not be blocked"
+
+# ===========================================================================
+# Worktree derived from the TARGET when PWD is outside any worktree (#597)
+# ===========================================================================
+
+test_case "target-derived: absolute in-scope target resolves the worktree from PWD-outside: passes"
+out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "$WT_A/scripts/hooks/my-hook.sh")" | bash "$HOOK" 2>&1) || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "in-scope absolute target should pass even when PWD is outside a worktree"
+
+test_case "target-derived: absolute out-of-scope target resolves the worktree from PWD-outside: denied"
+out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "$WT_A/src/api/handler.ts")" | bash "$HOOK" 2>&1) || true)
+assert_contains "$out" '"permissionDecision":"deny"' "out-of-scope absolute target should be denied even when PWD is outside a worktree"
 
 # ===========================================================================
 # Non-Edit/Write tools are ignored

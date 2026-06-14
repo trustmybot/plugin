@@ -44,11 +44,18 @@ sqlite3 "$DB" "
   INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
   INSERT INTO tasks VALUES (10, 1, 'feat/my-feature', 'pending', '', 0);
   INSERT INTO tasks VALUES (11, 1, 'feat/prompt-task', 'pending', '', 1);
+  INSERT INTO tasks VALUES (12, 1, 'fix/failed-pb', 'failed', '', 1);
+  INSERT INTO tasks VALUES (13, 1, 'fix/failed-nonpb', 'failed', '', 0);
 "
 
 # Worktree for the prompt-bearing task (slug matches feat/prompt-task).
 WT_PROMPT="$WT_ROOT/prompt-task"
 mkdir -p "$WT_PROMPT"
+
+# Worktrees for the failed-status tasks (slug matches branch_id suffix).
+WT_FAILED_PB="$WT_ROOT/failed-pb"
+WT_FAILED_NONPB="$WT_ROOT/failed-nonpb"
+mkdir -p "$WT_FAILED_PB" "$WT_FAILED_NONPB"
 
 run_hook_swe() {
   local input="$1"
@@ -292,6 +299,21 @@ out=$(cd "$WT_UNKNOWN" && echo "$(make_edit_no_transcript swe "$WT_UNKNOWN/agent
 assert_contains "$out" '"permissionDecision":"deny"' "no matching task slug should deny prompt-surface edit"
 
 # ===========================================================================
+# Rule (d) — failed-status + absolute target + PWD NOT in worktree (#597)
+# The regression: a prompt_bearing=1 task whose row is `failed`, edited via an
+# ABSOLUTE path while $PWD is outside any worktree, was wrongly denied because
+# WORKTREE_ROOT came from $PWD and the slug query filtered on transient status.
+# ===========================================================================
+
+test_case "(d/597) failed-status prompt_bearing=1, absolute target, PWD outside worktree: ALLOWED"
+out=$(cd "$NONWT_DIR" && echo "$(make_edit_no_transcript swe "$WT_FAILED_PB/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "failed-status prompt_bearing=1 via absolute target should be allowed"
+
+test_case "(d/597) failed-status prompt_bearing=0, absolute target, PWD outside worktree: DENIED"
+out=$(cd "$NONWT_DIR" && echo "$(make_edit_no_transcript swe "$WT_FAILED_NONPB/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "failed-status prompt_bearing=0 via absolute target should still be denied"
+
+# ===========================================================================
 # Rule (e): Bash write-forms targeting prompt surfaces
 # ===========================================================================
 
@@ -364,8 +386,9 @@ test_case "(e) SWE redirect > to non-prompt file: NOT denied"
 out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "content" > src/index.ts' 10)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "redirect to non-prompt file should not be denied by rule (e)"
 
-test_case "(e) SWE redirect > to agents/swe.md with prompt_bearing=1: ALLOWED"
-out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "content" > agents/swe.md' 11)")
+test_case "(e) SWE redirect > to agents/swe.md with prompt_bearing=1 (transcript resolves task): ALLOWED"
+# Run from a non-worktree PWD so the transcript is the resolver (no slug match).
+out=$(run_hook_swe_pwd "$(make_bash_with_transcript swe 'echo "content" > agents/swe.md' 11)" "$NONWT_DIR")
 assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 task should allow Bash write to prompt surface"
 
 test_case "(e) SWE sed -i on CLAUDE.md via slug fallback (prompt_bearing=1): ALLOWED"
