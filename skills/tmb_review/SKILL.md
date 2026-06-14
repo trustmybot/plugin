@@ -58,11 +58,7 @@ Public-API change reflected in user docs / type defs? Breaking change flagged in
 
 ### Writing the validation_attempts row — YOU write it yourself
 
-After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly — use the spawn prompt's `attempt_n`. Two paths depending on your tool list:
-
-**Path 1 — MCP available** (your tool list includes `mcp__plugin_tmb_trajectory-server__validation_record`): call `validation_record(agent='pr-reviewer', ...)` — the schema enforces the required shape; start your feedback with `'MCP available: yes'`.
-
-**Path 2 — MCP unavailable** (only Read + Bash in your tool list): use the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` — run it with `--help` for the argument shape.
+After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it — the schema enforces the shape — and open your feedback with `'MCP available: yes'`. If your tools are only Read + Bash, write the row through the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` (`--help` shows the argument shape).
 
 <!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating pr-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->
 
@@ -83,13 +79,11 @@ No-MCP fallback (Bash-only spawn, no `mcp__...` tools in tool list): use the doc
 
 ## C. Push-gate orchestration (bro, loaded reactively)
 
-Triggers:
-1. `git push` blocked by `git-push-guard.sh` ("BLOCKED: pushing N unsigned commits.")
-2. Human says "review before push" / "@bro review before push".
+This loads when the push guard blocks unsigned commits, or when the Human asks to review before pushing.
 
 ### Reap commits → local feature branch
 
-`reap_and_review_prep` fetches each unsigned task's detached HEAD from its worktree into the main checkout and reports, per task, whether the reap landed or what failed.
+`reap_and_review_prep` fetches each unsigned task's detached HEAD into the main checkout and reports per task whether the reap landed.
 
 ### Spawn pr-reviewer per unsigned task (parallel)
 
@@ -97,7 +91,7 @@ Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local over
 
 Read pr-reviewer's first response line:
 - `MCP available: yes` — the reviewer wrote `validation_record` itself.
-- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the fallback script (§A Path 2), which prepends the required feedback prefix itself. Either way the row must exist before you push.
+- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the §A fallback script, which prepends the required feedback prefix itself. Either way the row must exist before you push.
 
 ### Outcomes
 

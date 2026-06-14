@@ -10,7 +10,7 @@ Explicit Human-typed (or hook-routed) entry point for agent creation + optional 
 
 ## Resolution
 
-Resolve the mode with `agent_resolve(agent='bro', name=<name>)` — returns `collision`, `template-copy`, or `from-scratch`. Write the file to `<project>/.claude/agents/<name>.md`, then call `agent_register(agent='bro', name, kind='consultant', scope='project-local', file_path='.claude/agents/<name>.md')`.
+`agent_resolve(agent='bro', name=<name>)` returns the mode — `collision`, `template-copy`, or `from-scratch` — which decides the path below. Whichever path writes the file at `<project>/.claude/agents/<name>.md`, follow it with `agent_register` to record the new project-local consultant.
 
 ## Collision dialog
 
@@ -26,11 +26,7 @@ Show the template, ask for confirmation (interactive), then write verbatim. Temp
 
 ## From-scratch
 
-1. AskUserQuestion (up to 3 questions in one batch): role/title, core responsibilities, closest existing agent + gap.
-2. Read `.claude/agents/` for name collision + stack context from top-level files.
-3. Draft from `${CLAUDE_PLUGIN_ROOT}/templates/agents/template.md`. Body cap: 15 lines after frontmatter.
-4. Pre-write lint: `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`. Surface findings via AUQ.
-5. Show full draft, ask for approval. Write on approval with `tmb_owner: bro` in frontmatter.
+Gather the shape in one AskUserQuestion batch (up to 3 questions): role/title, core responsibilities, and the closest existing agent plus its gap. Read the top-level project files for stack context, then draft from `${CLAUDE_PLUGIN_ROOT}/templates/agents/template.md` — body cap 15 lines after frontmatter. Run the pre-write lint (`${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`) and surface its findings via AUQ. Show the full draft, and on approval write it with `tmb_owner: bro` in frontmatter.
 
 ## Headless mode
 
