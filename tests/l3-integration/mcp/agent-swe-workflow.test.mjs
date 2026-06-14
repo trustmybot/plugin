@@ -50,7 +50,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   assert.ok(taskId);
 
   // 1. SWE reads the spec
-  const getSpec = await call(client, 'task_get', { agent: 'swe', task_id: taskId });
+  const getSpec = await call(client, 'task_get', { agent: 'swe', task_id: taskId, include_spec_body: true });
   assert.equal(getSpec.ok, true, `task_get: ${JSON.stringify(getSpec)}`);
   assert.equal(getSpec.data.spec_body, SPEC_BODY);
 
