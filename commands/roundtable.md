@@ -17,31 +17,17 @@ before proceeding.
 
 ## Phase 1 — Setup
 
-1. Glob `.claude/agents/`, select 2–4 agents (exclude SWE). Halt if < 2.
-2. `roundtable_create(agent='bro', issue_id=<carrier>, topic=<topic>,`
-   `expected_participants=N)` — store `roundtable_id`.
+Glob `.claude/agents/` and pick 2–4 participants, excluding SWE; halt if fewer than 2 qualify. Open the round with `roundtable_create` (passing the carrier issue, topic, and participant count) and keep the returned `roundtable_id`.
 
 ## Phase 2 — Collect (parallel Task spawns)
 
-Each participant delivers a one-line stance and a short rationale — the server enforces the caps. After each participant responds, BEFORE synthesis:
-
-`discussion_append(agent='bro', issue_id=<carrier>, author='<name>', kind='analysis', body=<full position>)` then `roundtable_vote(agent='bro', roundtable_id=<id>, participant='<name>', vote=<stance>, rationale=<rationale>)`.
-
-Server auto-flips `state → awaiting_human` after the Nth distinct non-human vote.
+Each participant delivers a one-line stance and a short rationale — the server enforces the caps. As each one responds, and before you synthesize, capture their full position with `discussion_append` (kind `analysis`) and then their stance with `roundtable_vote`. The server flips `state → awaiting_human` once the Nth distinct non-human vote lands.
 
 ## Phase 3 — Synthesize
 
-Extract agreements (≥2 endorsements, or unilateral with no opposition)
-and disagreements (≥2 materially different stances on the same
-question).
+Extract agreements (≥2 endorsements, or unilateral with no opposition) and disagreements (≥2 materially different stances on one question). When there are more than fit, keep the top 4 agreements and top 3 disagreements — one AUQ slot for agreements, up to 3 radio slots for disagreements.
 
-When there are more, keep the top 4 agreements and top 3
-disagreements — one AUQ slot goes to agreements, up to 3 radio slots
-to disagreements.
-
-When synthesis yields zero of both, ask "Retry or skip?"; on skip,
-call `roundtable_close(skip:true, outcome='skipped — no substance')`
-and stop.
+When synthesis yields neither, ask "Retry or skip?"; on skip, call `roundtable_close(skip:true, outcome='skipped — no substance')` and stop.
 
 ## Phase 4 — Ratify (one AUQ)
 

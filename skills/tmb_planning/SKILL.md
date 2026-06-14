@@ -14,11 +14,9 @@ Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world
 
 ## 2. Propose a branch
 
-When a remote is configured:
+When a remote is configured, ask the Human which branch to base the new feature branch on — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. Choosing `pr_target` means check it out and bring it up to date with the remote; any other choice means switch and leave it as-is.
 
-Ask the Human which branch to create the new feature branch from — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. On `pr_target`: check it out and bring it up to date with the remote. On any other choice: switch and leave the branch as-is.
-
-Then call `branch_id_propose(agent='bro', intent=<verbatim>, objective=<short>)` and confirm: "Proceed with branch_id X?" (yes / suggest different). On Yes: call `intent_start(agent='bro', objective=<short>, intent_verbatim=<verbatim>, branch_id=<branch_id>)` to create the issue, log the intent, and record the planning note in one step, then create the git branch locally.
+Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. Create the git branch locally afterward.
 
 ## 3. Author the spec
 
@@ -66,21 +64,16 @@ The batch response includes `parallel_groups` — tasks in the same group are sa
 
 ## 5. Verify on SWE return + atomic close
 
-After SWE returns `status=completed`:
+After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff` of the commit) and judge it against the spec on four counts:
 
-**V1** — pull: `task_get(task_id=<N>)` + `git diff <commit_sha>~1..<commit_sha>`.
+1. Changed files match `## Files` — nothing surprising outside scope.
+2. `## Verification` commands pass when re-run verbatim inside the SWE worktree. Run these BEFORE you close — the cleanup hook removes the worktree on close, taking the working tree with it.
+3. Each `## Success Criteria` bullet is visibly met by the diff.
+4. `world_model_get` on the changed directory confirms the change landed where expected.
 
-**V2** — four checks:
-1. Changed files match `## Files`. No surprise files outside scope.
-2. `## Verification` commands pass — re-run verbatim inside the SWE worktree. Do this BEFORE V3 — the cleanup hook removes the worktree on close.
-3. Each `## Success Criteria` bullet visibly met by the diff.
-4. Run `world_model_get(path='<changed-dir>')` to confirm the change landed where expected.
+All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, file the fix as a follow-up issue, and hold the push.
 
-**V3** — all pass → `bro_atomic_close(agent='bro', task_id=<N>, commit_sha=<sha>, verification_summary='...', close_issue_if_last_task=true)`. The post-close hook re-scans automatically — the world model refreshes.
-
-Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On FAIL: surface it, file the fix as a follow-up issue, and hold the push.
-
-**V3 — any check fails**: `bro_verification_fail_record(agent='bro', task_id=<N>, which_check='<V1|V2|V3>', details='<≤500 chars>')`. Leave the task open. Retry via `task_retry_batch` or escalate.
+If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry_batch` or escalate.
 
 ## Headless overrides (TMB_HEADLESS=1)
 
