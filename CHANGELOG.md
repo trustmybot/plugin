@@ -4,6 +4,14 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.9.0-rc.1 — 2026-06-14
+
+Token-reduction release (cto-audited). Trims the always-on MCP tool-schema cost and per-spawn overhead; no change to workflow behavior or enforcement. Measured −3,784 B / ~1,023 tok off the always-on tool catalog, plus ~12–14K tok saved per pr-reviewer / consultant spawn.
+
+### Changed
+- **Per-role MCP tool allowlists (#637):** `pr-reviewer` and the 5 consultant templates now declare explicit per-tool `tools:` lists instead of granting the whole trajectory-server bundle (swe already did this). A read-only reviewer/consultant no longer carries ~60 irrelevant tool schemas — ~12–14K fewer tokens per spawn.
+- **Leaner MCP tool schemas (#637):** deduplicated the repeated `agent` param description across all 68 tools (112→59 B each), condensed the 8 `waive_*` descriptions, thinned `task_create_batch` / `task_get` returns (full `spec_body` now only via `include_spec_body`), and bounded `task_brief`'s discussion payload (`decision`/`intent` kept full; other kinds capped to the last 8 + 500-char bodies with a `discussion_search` pointer). Gating, validity, and the `agent` pattern regex are unchanged — purely schema/return-size cuts.
+
 ## v0.8.6 — 2026-06-14
 
 ### Fixed
