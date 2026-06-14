@@ -4,6 +4,11 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.6 — 2026-06-14
+
+### Fixed
+- **install-smoke semantic step no longer flakes (#636):** the L0 install-smoke's `discussion_search(mode=semantic)` check gives the embeddings model cold-load headroom (timeout 8→60) and treats a slow/cold model as the graceful `semantic_unavailable` path, failing only on a genuine MCP error payload. Removes a false-red release canary (hit during the v0.8.5 cut).
+
 ## v0.8.5 — 2026-06-14
 
 Release-process + multi-repo guard follow-ups to v0.8.4.
