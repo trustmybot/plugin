@@ -15,6 +15,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/resolve-plugin-name.sh
 . "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
 
 # Cwd walk-up DB resolution. Skips the sentinel-fallback step that the
 # regular tmb_db_path helper uses, breaking the circular dependency.
@@ -43,8 +45,18 @@ PLUGIN_NAME=$(tmb_resolve_plugin_name)
 DB_PATH=$(resolve_db_cwd_only "$PLUGIN_NAME") || exit 0
 [ -z "$DB_PATH" ] && exit 0
 
+# Schema-mismatch guard: never adopt a stale legacy DB (no prompt_bearing
+# column). A sentinel pointing at a legacy ~/.claude/<plugin> DB is exactly
+# what silently denied prompt_bearing=1 edits. Require the current schema.
+tmb_db_schema_current "$DB_PATH" || exit 0
+
 # Workspace = dirname x 3 of DB path: <ws>/.claude/<plugin>/trajectory.db -> <ws>/.claude/<plugin> -> <ws>/.claude -> <ws>
 WORKSPACE=$(dirname "$(dirname "$(dirname "$DB_PATH")")")
+
+# Never record $HOME as the workspace. A DB resolved to $HOME/.claude/<plugin>
+# is the legacy home DB; writing it would re-poison every subagent that reads
+# the sentinel.
+[ "$WORKSPACE" = "$HOME" ] && exit 0
 
 SENTINEL_DIR="$HOME/.claude"
 SENTINEL="$SENTINEL_DIR/${PLUGIN_NAME}-active-workspace"
