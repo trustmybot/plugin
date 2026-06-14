@@ -13,6 +13,23 @@ import { dirname } from 'node:path';
 function single(result) {
     return Array.isArray(result) ? result[0] : result;
 }
+// kuzu is single-writer: a concurrent opener (e.g. the SessionStart prescan
+// racing the MCP server on a cold world model) loses the write-lock and the
+// open throws "Could not set lock on file ...". The loser would otherwise be
+// left without a graph connection for the whole session (#590). Detect that
+// specific error so the caller can retry once the holder releases.
+export function isKuzuLockError(e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return /could not set lock/i.test(msg) || /lock.*world-model\.kuzu/i.test(msg);
+}
+const KUZU_OPEN_MAX_ATTEMPTS = 8;
+const KUZU_OPEN_BASE_DELAY_MS = 50;
+function sleepSync(ms) {
+    // Synchronous busy-free wait via Atomics so the retry backoff matches the
+    // server's sync open path without pulling in async plumbing.
+    const sab = new Int32Array(new SharedArrayBuffer(4));
+    Atomics.wait(sab, 0, 0, ms);
+}
 export class WorldModelGraph {
     db;
     conn;
@@ -25,9 +42,30 @@ export class WorldModelGraph {
         // would crash the whole MCP server. (#271)
         const req = createRequire(import.meta.url);
         const kuzu = req('kuzu');
-        this.db = new kuzu.Database(dbPath);
+        this.db = WorldModelGraph.openWithRetry(kuzu, dbPath);
         this.conn = new kuzu.Connection(this.db);
         this.applySchema();
+    }
+    // Open the kuzu Database, retrying with bounded exponential backoff when the
+    // open fails on write-lock contention. A non-lock error (missing binary,
+    // corrupt file) is rethrown immediately so it still surfaces as
+    // graph_db_open_failed. (#590)
+    static openWithRetry(kuzu, dbPath, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS) {
+        let lastErr;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                return new kuzu.Database(dbPath);
+            }
+            catch (e) {
+                if (!isKuzuLockError(e))
+                    throw e;
+                lastErr = e;
+                if (attempt < maxAttempts - 1) {
+                    sleepSync(KUZU_OPEN_BASE_DELAY_MS * 2 ** attempt);
+                }
+            }
+        }
+        throw lastErr;
     }
     applySchema() {
         // kuzu only supports single-column PRIMARY KEY — use a composite-string
