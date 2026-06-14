@@ -4,6 +4,16 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.5 — 2026-06-14
+
+Release-process + multi-repo guard follow-ups to v0.8.4.
+
+### Changed
+- **release-gate runs on rc tags only (#630):** dropped the stable-tag trigger from the CI release-gate. The stable tag is functionally identical to the green rc (functional-identity rule), so it's no longer re-gated — saves a full real-CC L6 run per release. rc tags + manual `workflow_dispatch` still trigger it.
+
+### Fixed
+- **git-guards scoped to the managed repo (#631):** the no-direct-commit, branch-from-`pr_target`, and PR-target guards now fire only for the managed repo (`tmb_default_repo`), so they no longer block legitimate commits/branches in sibling repos of a multi-repo workspace (e.g. the marketplace channel repos). Single-repo projects are unaffected (the guards stay active when `tmb_default_repo` is empty). Mirrors the #592 no-source-edit scoping.
+
 ## v0.8.4 — 2026-06-14
 
 Reliability + upgrade-smoothness release. Hardens the world-model cold start and the SWE enforcement gates, smooths the upgrade flow, defaults SWE to Opus, and retires the flawed-era benchmark narrative.
