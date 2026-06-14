@@ -13,4 +13,4 @@ If something in `docs/` turns out to be load-bearing for bro's behavior, inline 
 | `reference/UPGRADE.md` | Plugin version migration notes |
 | `architecture/` | Design rationale (ERD, FLOWS, GIT, RESPONSIBILITIES, UI, WORLD_MODEL) |
 | `prompt-engineering/` | DETERMINISM, ENFORCEMENT, PROMPT_ENGINEERING |
-| `contributing/` | Benchmark methodology (BENCHMARK) + enum/label registries (ENUMS, LABELS) |
+| `contributing/` | Enum/label registries (ENUMS, LABELS) |

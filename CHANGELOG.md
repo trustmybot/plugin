@@ -144,10 +144,6 @@ Promotes `v0.7.0-rc.3` to stable. See `v0.7.0-rc.1`–`rc.3` + `v0.7.0-dev` for 
 
 ## v0.7.0-rc.3 — 2026-06-07
 
-### Measured
-
-- **Measured: ~61% token reduction (v0.6→v0.7) at 8/8 resolved.** Re-running the original SWE-bench 8-task corpus on the current version resolved 8/8 using ~6.97M tokens / $6.98 vs the pre-world-model baseline's 17.7M / $17.33 (−61% tokens, −51% wall-clock) — the world model's long-context-management payoff. It also beats a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31) on the same corpus. See docs/contributing/BENCHMARK.md.
-
 ### Fixed
 
 - **`tmb_default_repo` no longer defaults to the alphabetically-first repo when CC runs above all repos (#316).** `scan_run` now resolves the default repo as cwd-enclosing → largest-by-file-count → first-in-list, and emits a `default_repo_guessed` audit when it falls back to the heuristic. Previously, launching from a workspace root above multiple repos silently picked the wrong repo — which, combined with auto issue-sync, created a real issue in the wrong repository. This is the actual root cause behind what rc.2's #314 note misattributed to a "phantom remote id".
