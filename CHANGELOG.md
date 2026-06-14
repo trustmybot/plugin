@@ -4,7 +4,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
-## v0.8.4-rc.1 — 2026-06-14
+## v0.8.4 — 2026-06-14
 
 Reliability + upgrade-smoothness release. Hardens the world-model cold start and the SWE enforcement gates, smooths the upgrade flow, defaults SWE to Opus, and retires the flawed-era benchmark narrative.
 
