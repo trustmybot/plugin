@@ -498,4 +498,98 @@ out=$(run_hook_in_repo "echo \"run glab mr create --target-branch dev from your 
 assert_not_contains "$out" '"permissionDecision":"deny"' "glab mr create inside quoted echo must not block"
 cleanup_repo
 
+# ---- #631: managed-repo scope (mirrors #592) -----------------------------------
+# In a multi-repo workspace, git-guards' Rule 1/2/4 must only fire for the
+# managed product repo (plugin_config tmb_default_repo). Sibling repos
+# (e.g. marketplace-rc, main-only with no dev branch) are exempt. When
+# tmb_default_repo is empty/'.', behavior is unchanged (single-repo guarding).
+#
+# Layout: <ws>/.claude/tmb/trajectory.db with managed + sibling repos as
+# siblings under <ws>. The DB is three levels above each repo's git root, so
+# managed = <ws>/<tmb_default_repo>; sibling git roots fall outside that subtree.
+
+setup_multirepo_workspace() {
+  # $1 = tmb_default_repo value to store (e.g. "managed", "" for single-repo).
+  local default_repo="$1"
+  local ws
+  ws=$(mktemp -d -t tmb-guards-ws-XXXX)
+  mkdir -p "$ws/.claude/tmb"
+  sqlite3 "$ws/.claude/tmb/trajectory.db" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+  # Managed repo on protected main.
+  (
+    cd "$ws" && git init -q -b main managed
+    cd "$ws/managed" || exit 1
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md
+    git add . && git commit -qm init
+  )
+  # Sibling repo (e.g. marketplace-rc): also on main, also registered.
+  (
+    cd "$ws" && git init -q -b main sibling
+    cd "$ws/sibling" || exit 1
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md
+    git add . && git commit -qm init
+  )
+  # Register repos with git's canonical toplevel path (handles /tmp →
+  # /private/tmp on macOS) so tmb_repo_is_registered matches the hook's _GIT_ROOT.
+  local managed_root sibling_root
+  managed_root=$(git -C "$ws/managed" rev-parse --show-toplevel)
+  sibling_root=$(git -C "$ws/sibling" rev-parse --show-toplevel)
+  sqlite3 "$ws/.claude/tmb/trajectory.db" \
+    "INSERT INTO repos (name, path) VALUES ('managed', '$managed_root');
+     INSERT INTO repos (name, path) VALUES ('sibling', '$sibling_root');" >/dev/null
+  if [ -n "$default_repo" ]; then
+    sqlite3 "$ws/.claude/tmb/trajectory.db" \
+      "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '\"${default_repo}\"');" >/dev/null
+  fi
+  WS_PATH="$ws"
+}
+
+run_hook_in_ws() {
+  # $1 = absolute repo dir to cd into, $2 = git command.
+  local repo_dir="$1" cmd="$2" payload
+  payload=$(jq -cn --arg c "cd $repo_dir && $cmd" '{tool_input:{command:$c}}')
+  (cd "$WS_PATH" && echo "$payload" \
+    | TRAJECTORY_DB_PATH="$WS_PATH/.claude/tmb/trajectory.db" \
+      bash "$HOOK" 2>&1 || true)
+}
+
+cleanup_ws() {
+  [ -n "${WS_PATH:-}" ] && [ -d "${WS_PATH:-}" ] && rm -rf "$WS_PATH"
+  WS_PATH=""
+}
+
+test_case "#631: managed-repo direct commit to main IS still blocked (tmb_default_repo=managed)"
+setup_multirepo_workspace "managed"
+out=$(run_hook_in_ws "$WS_PATH/managed" "git commit -m broken")
+assert_contains "$out" '"permissionDecision":"deny"' "commit on managed repo's protected main must still block"
+cleanup_ws
+
+test_case "#631: sibling-repo direct commit to main is ALLOWED (outside managed scope)"
+setup_multirepo_workspace "managed"
+out=$(run_hook_in_ws "$WS_PATH/sibling" "git commit -m wip")
+assert_not_contains "$out" '"permissionDecision":"deny"' "commit on sibling repo must be exempt from git-guards"
+cleanup_ws
+
+test_case "#631: sibling-repo branch-from-main is ALLOWED (Rule 4 exempt outside managed scope)"
+setup_multirepo_workspace "managed"
+out=$(run_hook_in_ws "$WS_PATH/sibling" "git checkout -b feat/x")
+assert_not_contains "$out" '"permissionDecision":"deny"' "branch creation in sibling repo must be exempt"
+cleanup_ws
+
+test_case "#631: single-repo (empty tmb_default_repo) commit to main STILL blocked (unchanged)"
+setup_multirepo_workspace ""
+out=$(run_hook_in_ws "$WS_PATH/managed" "git commit -m broken")
+assert_contains "$out" '"permissionDecision":"deny"' "empty tmb_default_repo must guard the whole tree as before"
+cleanup_ws
+
+test_case "#631: single-repo sibling commit also blocked when tmb_default_repo empty (no scoping)"
+setup_multirepo_workspace ""
+out=$(run_hook_in_ws "$WS_PATH/sibling" "git commit -m broken")
+assert_contains "$out" '"permissionDecision":"deny"' "with no managed scope, every registered repo is guarded (status quo)"
+cleanup_ws
+
 summarize
