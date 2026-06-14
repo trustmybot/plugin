@@ -4,7 +4,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
-## v0.8.4 — 2026-06-14
+## v0.8.4-rc.2 — 2026-06-14
 
 Reliability + upgrade-smoothness release. Hardens the world-model cold start and the SWE enforcement gates, smooths the upgrade flow, defaults SWE to Opus, and retires the flawed-era benchmark narrative.
 
@@ -15,6 +15,7 @@ Reliability + upgrade-smoothness release. Hardens the world-model cold start and
 ### Changed
 - **Default SWE model is now Opus (#594):** at parity cost to Sonnet on the hard corpus, Opus avoids the retry-storm tail (better worst-case wall time). Project-local Sonnet overrides remain supported; cost rates updated to Opus tiers.
 - **Benchmarks retired from the plugin repo (#593, #595):** the contradicted benchmark section/table, the `tests/l7-benchmark/` tree, and `docs/contributing/BENCHMARK.md` are removed — methodology and receipts now live in the separate benchmarks repo. README reframed to long-term-project + reliability positioning. (The earlier campaign's figures were formally retracted.)
+- **Release gate is automated L6 (#622):** retired the stale manual-dogfood sign-off (`MANUAL_DOGFOOD_PASSED`/`BYPASS_DOGFOOD`) from `release.sh`; the gate is now the CI release-gate (L1–L4 + L6 + L0 = local L6 13/13). `release.sh`'s real guards (off-main / dirty / unsynced / version-mismatch) and the Docker canary are unchanged; CONTRIBUTING + `tests/manual` reframe the manual walk as an optional spot-check.
 
 ### Fixed
 - **World-model cold-start race (#590, #591):** a kuzu single-writer lock race between the SessionStart prescan and the MCP server no longer leaves the world model unavailable for the whole session — the open path retries with bounded backoff, and a genuine lock failure surfaces as `graph_db_open_failed` rather than a phantom "scan already running (pid N)".
@@ -22,6 +23,8 @@ Reliability + upgrade-smoothness release. Hardens the world-model cold start and
 
 ### Internal
 - Pre-release hygiene (#604): startup-log version derives from `package.json`, dead `l7-benchmark` lint-allowlist entries removed, architecture docs synced to current behavior. Test-fixture corrections for the prescan golden snapshot and the SQL-lint allowlist line drift.
+- Code simplification (#616): 5 behavior-preserving cleanups across the hooks + MCP server (prepare-once in `pruneDirectories`, case-arm dedupe in `no-source-edit-from-main`, `tmb_sql_int` reuse in `query-task`, precedence grouping in `session-start-prescan`).
+- Prompt quality (#615): tightened 5 B/B+ skill/command surfaces (tmb_planning, tmb_review, tmb_skill-creator, agent-create, roundtable) toward A- per DETERMINISM.md — compressed verbatim call-signatures into composite references, judgment-framed procedures; no behavior change.
 
 ## v0.8.3 — 2026-06-13
 
