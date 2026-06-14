@@ -4,7 +4,7 @@
 
 **An agentic engineering harness for Claude Code — multi-agent orchestration, a persistent memory system, and guardrails enforced in code, not convention. MIT, free forever.**
 
-TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `pr-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets, with every commit clearing guardrails enforced in code, not by convention.
+TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `pr-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets.
 
 > **Claude Code today.** TMB ships the Claude Code adapter; Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
 
@@ -12,7 +12,9 @@ TMB turns Claude Code into a production-grade agent harness. Three roles split t
 
 ## Who is TMB for?
 
-**Any engineer shipping real production code with Claude Code — solo dev to large org.** Pure Claude Code is a brilliant code generator, but production work needs guarantees it doesn't give you: structural gates against agent drift, state that survives session resets, an auditable record of every decision, and role separation so the agent that writes code never signs off on it. Those matter **more** as the stakes rise, not less.
+**Any engineer shipping real production code with Claude Code — solo dev to large org.** Pure Claude Code is a brilliant code generator; TMB adds the guarantees production work needs: structural gates against agent drift, state that survives session resets, an auditable record of every decision, and role separation so the agent that writes code never signs off on it.
+
+That structure earns its keep on **long-horizon, multi-task work** — a codebase you keep returning to, a slate of related changes, anything run unattended — and anywhere a wrong "it works" is expensive. For a single quick edit, raw Claude Code is leaner, and that's the right tool for the job.
 
 ---
 
@@ -38,25 +40,6 @@ Refresh after upstream changes: `/plugin marketplace update trustmybot`.
 Saying `@bro` activates the persona for the rest of the session. First trigger in a project runs ~30s of silent onboarding (one shape question + 0–3 follow-ups). Code-touching asks route through bro → SWE → pr-reviewer at push time. Read-only asks are answered inline. Messages that don't address `@bro` are answered by regular Claude Code.
 
 Walkthroughs: [`docs/architecture/FLOWS.md`](docs/architecture/FLOWS.md).
-
----
-
-## Benchmarks
-
-TMB resolves **8 / 8** hard SWE-bench tasks that pure Claude Code — and the published agentic harnesses — **fail**, with **zero hallucinated success claims**.
-
-And it runs lean. On the same slate, against a raw Claude Code baseline (no plugin):
-
-| | Raw Claude Code | **TMB** | Δ |
-|---|---|---|---|
-| Tokens | 15.87M | **6.97M** | **−56%** |
-| Cost | $10.31 | **$6.98** | **−32%** |
-| Wall-clock | 1890s | **1256s** | **−34%** |
-| Hallucinations | 0 | 0 | — |
-
-The world model — reasoning from a compressed repo graph instead of re-reading files — is what makes TMB cheaper than raw, not pricier.
-
-Methodology, the published-comparator results, and per-task data: **[`docs/contributing/BENCHMARK.md`](docs/contributing/BENCHMARK.md)**.
 
 ---
 
