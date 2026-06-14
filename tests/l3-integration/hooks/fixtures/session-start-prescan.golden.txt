@@ -1,4 +1,5 @@
 === Project Inventory (auto, deterministic) ===
+Plugin version: __VOLATILE__
 Top-level dirs: __VOLATILE__
 Stacks detected: __VOLATILE__
 Architecture docs: __VOLATILE__
