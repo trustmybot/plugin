@@ -175,13 +175,7 @@ echo init > README.md && git add . && git commit -qm init
 claude   # bare CC, no --plugin-dir; uses the marketplace install
 ```
 
-Then `@bro hello` and walk the 10-item checklist in [`scenarios.md`](./scenarios.md). After completing all 10:
-
-```bash
-export MANUAL_DOGFOOD_PASSED=v<X.Y.Z>   # the FINAL tag, not the rc.N tag
-```
-
-This sets the gate that `scripts/release.sh` checks before tagging the stable release.
+Then `@bro hello` and walk the checklist in [`scenarios.md`](./scenarios.md). This walk is an optional spot-check, not a tag-blocking sign-off — the stable release is gated by the automated CI release-gate (= local L6). If a scenario surfaces a bug, file an issue and fix it before promoting.
 
 ### Reset between test runs
 
