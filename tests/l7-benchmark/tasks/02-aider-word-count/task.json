@@ -1,9 +1,0 @@
-{
-  "source": "exercism / Aider's benchmark suite",
-  "exercise": "word-count",
-  "language": "python",
-  "class": "parsing",
-  "internet_required": false,
-  "expected_solution_loc": "≤15 lines",
-  "test_count": 12
-}

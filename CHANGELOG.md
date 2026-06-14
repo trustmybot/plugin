@@ -140,13 +140,9 @@ The full-repo audit release: the entire v0.7.1 milestone (~80 issues — a 50-is
 
 ## v0.7.0 — 2026-06-07
 
-Promotes `v0.7.0-rc.3` to stable. See `v0.7.0-rc.1`–`rc.3` + `v0.7.0-dev` for the cumulative changes from v0.6.0 — the **kuzu graph-DB world model** (ADR 0002, schema v8), the pre-release doc-accuracy sweep, and the #314 / #315 / #316 fixes. **Benchmarks:** 8/8 on the curated SWE-bench slate at ~6.97M tokens / $6.98 — cheaper than a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31), 0 hallucinations. L6 13/13 in CI.
+Promotes `v0.7.0-rc.3` to stable. See `v0.7.0-rc.1`–`rc.3` + `v0.7.0-dev` for the cumulative changes from v0.6.0 — the **kuzu graph-DB world model** (ADR 0002, schema v8), the pre-release doc-accuracy sweep, and the #314 / #315 / #316 fixes.
 
 ## v0.7.0-rc.3 — 2026-06-07
-
-### Measured
-
-- **Measured: ~61% token reduction (v0.6→v0.7) at 8/8 resolved.** Re-running the original SWE-bench 8-task corpus on the current version resolved 8/8 using ~6.97M tokens / $6.98 vs the pre-world-model baseline's 17.7M / $17.33 (−61% tokens, −51% wall-clock) — the world model's long-context-management payoff. It also beats a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31) on the same corpus. See docs/contributing/BENCHMARK.md.
 
 ### Fixed
 
