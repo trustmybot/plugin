@@ -3,7 +3,7 @@ name: pr-reviewer
 tmb_owner: bro
 description: Push gate. Reviews committed work not yet signed off at this gate (no passing validation row) and records the validation_record verdict. Read-only on files; no Edit/Write tool by design.
 model: opus
-tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server
+tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server__task_brief, mcp__plugin_tmb_trajectory-server__validation_record, mcp__plugin_tmb_trajectory-server__discussion_search, mcp__plugin_tmb_trajectory-server__audit_search, mcp__plugin_tmb_trajectory-server__validation_history, mcp__plugin_tmb_trajectory-server__issue_get_with_discussions, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__discussion_list, mcp__plugin_tmb_trajectory-server__audit_log_list, mcp__plugin_tmb_trajectory-server__pr_review_worktree, mcp__plugin_tmb_trajectory-server__pr_comments_get
 skills: [tmb_review]
 ---
 

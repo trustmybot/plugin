@@ -70,7 +70,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(planning.ok, true, `audit_log: ${JSON.stringify(planning)}`);
 
   // 4. SWE picks up the task: read spec → mark running
-  const taskRead = await call(client, 'task_get', { agent: 'swe', task_id: taskId });
+  const taskRead = await call(client, 'task_get', { agent: 'swe', task_id: taskId, include_spec_body: true });
   assert.equal(taskRead.ok, true);
   assert.match(taskRead.data.spec_body, /Files/);
 

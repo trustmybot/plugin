@@ -61,7 +61,7 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
   assert.ok(taskId, `task id not returned: ${JSON.stringify(batch.data)}`);
 
   // 4. Read task back (would be how bro double-checks)
-  const getTask = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
+  const getTask = await call(client, 'task_get', { agent: 'bro', task_id: taskId, include_spec_body: true });
   assert.equal(getTask.ok, true);
   assert.equal(getTask.data.branch_id, 'feat/hello-endpoint');
   assert.match(getTask.data.spec_body, /Task: \/hello endpoint/);

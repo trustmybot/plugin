@@ -195,7 +195,12 @@ describe('discussions + snapshot integration', () => {
         assert.equal(created.length, 1);
         const task = created[0];
         globalThis['testTaskId'] = String(task.id);
-        assert.equal(task.spec_body, 'This is the spec body for the discussions task.', 'spec_body must persist as written');
+        const getResult = await call(tasks.handlers, 'task_get', {
+            agent: 'bro',
+            task_id: String(task.id),
+            include_spec_body: true,
+        });
+        assert.equal(parseResult(getResult).spec_body, 'This is the spec body for the discussions task.', 'spec_body must persist as written');
     });
     it('step 5: task_update_status with commit_sha persists both atomically', async () => {
         const tasks = taskTools(db);
