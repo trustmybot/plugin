@@ -1,11 +1,11 @@
 name: release-gate
 on:
-  # Release gate: fires ONLY on release tags (rc.N + stable) + manual dispatch.
+  # Release gate: fires ONLY on rc tags + manual dispatch.
+  # The stable tag is functionally identical to the green rc, so it isn't re-gated.
   # Not on dev pushes/PRs — the full gate (incl. L6) is a release-time check.
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       skip_l6:
