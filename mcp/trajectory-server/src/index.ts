@@ -200,7 +200,7 @@ await server.connect(transport);
 serverLog({
   kind: 'startup',
   pid: process.pid,
-  version: '0.7.0',
+  version: packageVersion,
   db_path: dbPath,
   legacy_db_no_plugin_meta: db.legacyNoPluginMeta,
 });
