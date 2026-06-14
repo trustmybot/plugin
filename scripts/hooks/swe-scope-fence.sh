@@ -41,31 +41,25 @@ SWE_CTX=$(tmb_swe_context "$AGENT_TYPE")
 
 [ "$SWE_CTX" = "yes" ] || exit 0
 
-# Only fire when PWD is inside a worktree — we need the slug to resolve the task.
-case "$PWD" in
-  */.claude/worktrees/*)
-    WORKTREE_SLUG=$(echo "$PWD" | sed -E 's|.*/.claude/worktrees/([^/]+).*|\1|')
-    ;;
-  *)
-    exit 0
-    ;;
-esac
-
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null || true)
 [ -n "$TARGET" ] || exit 0
+
+# Resolve the worktree root from the TARGET (or $PWD). Fail open when neither
+# yields a worktree — we need it to scope the spec lookup and target comparison.
+WORKTREE_ROOT=$(tmb_worktree_root_for_target "$TARGET")
+[ -n "$WORKTREE_ROOT" ] || exit 0
 
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] || exit 0
 tmb_have_sqlite || exit 0
 
-# Resolve the active task by worktree slug (slug = branch_id without the type/ prefix,
-# or more precisely the last component of branch_id: feat/<slug>).
-SAFE_SLUG=$(tmb_sql_quote "$WORKTREE_SLUG")
+# Resolve the active task (worktree branch → slug → transcript), no status filter.
+TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
+[ -n "$TASK_ID" ] || exit 0
+
 SPEC_BODY=$(tmb_sqlite_ro "$DB" "
   SELECT spec_body FROM tasks
-   WHERE branch_id LIKE '%/${SAFE_SLUG}'
-     AND status IN ('pending','running','completed')
-   ORDER BY id DESC
+   WHERE id = ${TASK_ID}
    LIMIT 1;
 " 2>/dev/null || true)
 
@@ -113,10 +107,7 @@ done <<< "$FILES_SECTION"
 # Fail open: no parseable paths.
 [ "${#ALLOWED_DIRS[@]}" -gt 0 ] || exit 0
 
-# Normalize target to a repo-relative path for comparison.
-# Strip the worktree root prefix so we can compare against spec paths.
-WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
-
+# Normalize target to a repo-relative path for comparison (strip WORKTREE_ROOT).
 case "$TARGET" in
   /*) ABS_TARGET="$TARGET" ;;
   *)  ABS_TARGET="${PWD}/${TARGET}" ;;

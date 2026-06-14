@@ -281,37 +281,13 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   fi
 
   if [ "$BASH_PROMPT_WRITE" = "yes" ]; then
-    # Resolve prompt_bearing via transcript or slug fallback (mirrors rule (d)).
-    _PB_TASK_ID=""
-    _PB_TRANSCRIPT=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-    if [ -n "$_PB_TRANSCRIPT" ] && [ -f "$_PB_TRANSCRIPT" ]; then
-      _PB_TASK_ID=$(jq -r '
-        .message.content // [] |
-        .[] | select(.type == "text") | .text // ""
-      ' "$_PB_TRANSCRIPT" 2>/dev/null \
-        | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
-      case "$_PB_TASK_ID" in ''|*[!0-9]*) _PB_TASK_ID="" ;; esac
-    fi
-    if [ -z "$_PB_TASK_ID" ] && [ -n "$WORKTREE_ROOT" ]; then
-      _PB_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
-      if [ -n "$_PB_SLUG" ]; then
-        _PB_DB=$(tmb_db_path || true)
-        if [ -n "$_PB_DB" ] && tmb_have_sqlite; then
-          _SAFE_SLUG=$(tmb_sql_quote "$_PB_SLUG")
-          _PB_TASK_ID=$(tmb_sqlite_ro "$_PB_DB" "
-            SELECT id FROM tasks
-             WHERE branch_id LIKE '%/${_SAFE_SLUG}'
-               AND status IN ('pending','running','completed')
-             ORDER BY id DESC
-             LIMIT 1;
-          " 2>/dev/null || true)
-          case "$_PB_TASK_ID" in ''|*[!0-9]*) _PB_TASK_ID="" ;; esac
-        fi
-      fi
-    fi
+    # Resolve prompt_bearing via the shared resolver (worktree branch → slug →
+    # transcript). Bash write-forms have no Edit target path; pass empty so the
+    # resolver derives the worktree from $PWD.
+    _PB_DB=$(tmb_db_path || true)
+    _PB_TASK_ID=$(tmb_resolve_task_id_for_target "" "$INPUT" "$_PB_DB")
     _PB_ALLOWED=""
     if [ -n "$_PB_TASK_ID" ]; then
-      _PB_DB=$(tmb_db_path || true)
       if [ -n "$_PB_DB" ] && tmb_have_sqlite; then
         _PB_VAL=$(tmb_sqlite_ro "$_PB_DB" "
           SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${_PB_TASK_ID} LIMIT 1;
@@ -382,33 +358,9 @@ esac
 if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
   DB=$(tmb_db_path || true)
   if [ -n "$DB" ] && tmb_have_sqlite; then
-    # Resolve task_id from transcript.
-    TASK_ID=""
-    TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-    if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
-      TASK_ID=$(jq -r '
-        .message.content // [] |
-        .[] | select(.type == "text") | .text // ""
-      ' "$TRANSCRIPT_PATH" 2>/dev/null \
-        | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
-      case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
-    fi
-    # Slug fallback: when transcript provides no task_id but a worktree root is
-    # known, resolve the task by branch_id slug (same query as swe-scope-fence.sh).
-    if [ -z "$TASK_ID" ] && [ -n "$WORKTREE_ROOT" ]; then
-      WORKTREE_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
-      if [ -n "$WORKTREE_SLUG" ]; then
-        SAFE_SLUG=$(tmb_sql_quote "$WORKTREE_SLUG")
-        TASK_ID=$(tmb_sqlite_ro "$DB" "
-          SELECT id FROM tasks
-           WHERE branch_id LIKE '%/${SAFE_SLUG}'
-             AND status IN ('pending','running','completed')
-           ORDER BY id DESC
-           LIMIT 1;
-        " 2>/dev/null || true)
-        case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
-      fi
-    fi
+    # Resolve task_id robustly (worktree branch → slug → transcript), deriving
+    # the worktree from the TARGET when $PWD isn't inside one.
+    TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
     if [ -n "$TASK_ID" ]; then
       PROMPT_BEARING=$(tmb_sqlite_ro "$DB" "
         SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${TASK_ID} LIMIT 1;
