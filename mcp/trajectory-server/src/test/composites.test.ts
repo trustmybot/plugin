@@ -1121,4 +1121,45 @@ describe('task_brief (#300)', () => {
     assert.match(parse(r)['error'] as string, /No task/);
     db.close();
   });
+
+  it('bounds discussions: decision/intent kept full, other kinds truncated + capped', async () => {
+    const db = tempDB();
+    const id = seedTask(db, { repo: 'app', spec: SPEC });
+    const longBody = 'x'.repeat(2000);
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (1, 'bro', 'decision', ?, datetime('now', '+1 second'))`,
+      [longBody],
+    );
+    for (let i = 0; i < 12; i++) {
+      db.run(
+        `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+         VALUES (1, 'swe', 'note', ?, datetime('now', ?))`,
+        [`note ${i}`, `+${10 + i} seconds`],
+      );
+    }
+    db.run(
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (1, 'swe', 'note', ?, datetime('now', '+30 seconds'))`,
+      [longBody],
+    );
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id })) as RawResult;
+    const out = parse(r) as Record<string, unknown>;
+    const disc = out['task_discussions'] as Array<{ kind: string; body: string; truncated?: boolean }>;
+
+    const longDecision = disc.find((d) => d.kind === 'decision' && d.body.length > 1000);
+    assert.ok(longDecision, 'a long decision is present');
+    assert.equal(longDecision!.body.length, 2000, 'decision body kept full');
+    assert.equal(longDecision!.truncated, undefined, 'decision not truncated');
+
+    const truncatedNote = disc.find((d) => d.truncated === true);
+    assert.ok(truncatedNote, 'the long note was truncated');
+    assert.ok(truncatedNote!.body.length < 700, 'truncated body capped near 500 + pointer');
+    assert.match(truncatedNote!.body, /truncated; discussion_search\(issue_id=1\)/);
+
+    const noteCount = disc.filter((d) => d.kind === 'note').length;
+    assert.ok(noteCount <= 8, `non-full kinds capped to last 8 (got ${noteCount})`);
+    db.close();
+  });
 });

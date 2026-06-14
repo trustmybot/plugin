@@ -188,7 +188,7 @@ export function taskTools(db) {
                     },
                     waive_scope_gate: {
                         type: 'boolean',
-                        description: "Set true to bypass the scope-ambiguity gate. Only acceptable for truly trivial changes (typo fix, one-line doc change, etc.) where no Q+A was needed. If false or omitted, the issue MUST have at least one discussion row with kind='question' before tasks can be created.",
+                        description: "Bypass the scope-ambiguity gate (issue needs a kind='question' discussion). Only for trivial changes.",
                     },
                     emit_planning_complete: {
                         type: 'boolean',
@@ -200,45 +200,47 @@ export function taskTools(db) {
                     },
                     waive_scope_gate_reason: {
                         type: 'string',
-                        description: "Required when waive_scope_gate=true. Min 10 chars. Explain why this task has no Human-reviewed scope (e.g. 'typo fix in README line 12; no interpretation needed').",
+                        description: 'Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary.',
                     },
                     waive_branch_gate: {
                         type: 'boolean',
+                        description: 'Bypass the branch-existence gate.',
                     },
                     waive_branch_gate_reason: {
                         type: 'string',
+                        description: 'Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary.',
                     },
                     waive_registry_gate: {
                         type: 'boolean',
-                        description: "Set true to bypass the world-model-cold gate. Only acceptable when /scan can't run for some reason (offline / scratch test fixture). If false or omitted, the kuzu world model MUST be warm (a deep_scan_completed audit row must exist) before tasks can be created — populate via /scan or scan_run.",
+                        description: "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run.",
                     },
                     waive_registry_gate_reason: {
                         type: 'string',
-                        description: "Required when waive_registry_gate=true. Min 10 chars. Explain why /scan can't run.",
+                        description: 'Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary.',
                     },
                     waive_intent_gate: {
                         type: 'boolean',
-                        description: "Set true to bypass the intent-discussion gate. Acceptable for trivial work where the user intent is unambiguous and verbatim capture would be ceremony. If false or omitted, the issue MUST have at least one discussion row with kind='intent' before tasks can be created.",
+                        description: "Bypass the intent-discussion gate (issue needs a kind='intent' row). Only when intent is unambiguous.",
                     },
                     waive_intent_gate_reason: {
                         type: 'string',
-                        description: "Required when waive_intent_gate=true. Min 10 chars. Explain why intent capture is unnecessary.",
+                        description: 'Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary.',
                     },
                     waive_decision_gate: {
                         type: 'boolean',
-                        description: "Set true to bypass the decision-audit gate. Acceptable only for trivial work where capturing a chosen approach as a kind='decision' discussion is ceremony (typo fix, mechanical rename, etc.). If false or omitted, the issue MUST have at least one kind='decision' discussion summarizing bro's chosen approach (1-3 sentences: what, why, trade-offs) before tasks can be created.",
+                        description: "Bypass the decision-audit gate (issue needs a kind='decision' row). Only for trivial work.",
                     },
                     waive_decision_gate_reason: {
                         type: 'string',
-                        description: "Required when waive_decision_gate=true. Min 10 chars. Explain why an explicit decision-audit row is unnecessary.",
+                        description: 'Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary.',
                     },
                     waive_spec_shape: {
                         type: 'boolean',
-                        description: "Set true to bypass the spec-section shape gate. Acceptable for tasks without a full spec (e.g. placeholder tasks, non-SWE tasks). If false or omitted, each spec_body must contain ## Files, ## Success Criteria, ## Verification and be ≤200 lines.",
+                        description: 'Bypass the spec-section shape gate (## Files/## Success Criteria/## Verification, ≤200 lines).',
                     },
                     waive_spec_shape_reason: {
                         type: 'string',
-                        description: "Required when waive_spec_shape=true. Min 10 chars. Explain why the spec does not have the required sections.",
+                        description: 'Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary.',
                     },
                 },
                 required: ['agent', 'issue_id', 'tasks'],
@@ -252,6 +254,10 @@ export function taskTools(db) {
                 properties: {
                     agent: { type: 'string' },
                     task_id: { type: 'string' },
+                    include_spec_body: {
+                        type: 'boolean',
+                        description: 'Include spec_body + description (default false).',
+                    },
                 },
                 required: ['agent', 'task_id'],
             },
@@ -826,7 +832,20 @@ export function taskTools(db) {
                     }
                 }
             }
-            return ok({ tasks: inserted, parallel_groups: parallelGroups, overlapping_pairs: overlappingPairs });
+            return ok({
+                tasks: inserted.map((t) => ({
+                    id: t.id,
+                    issue_id: t.issue_id,
+                    branch_id: t.branch_id,
+                    parent_branch_id: t.parent_branch_id,
+                    title: t.title,
+                    status: t.status,
+                    repo: t.repo,
+                    prompt_bearing: t.prompt_bearing,
+                })),
+                parallel_groups: parallelGroups,
+                overlapping_pairs: overlappingPairs,
+            });
         })),
         task_get: wrapHandler(async (args) => {
             requireArg(args, 'agent');
@@ -835,7 +854,12 @@ export function taskTools(db) {
             if (!task) {
                 throw new Error(`Not found: ${taskId}`);
             }
-            return ok(task);
+            const includeSpec = args['include_spec_body'] === true;
+            if (includeSpec) {
+                return ok(task);
+            }
+            const { spec_body: _spec, description: _desc, ...thin } = task;
+            return ok(thin);
         }),
         task_update_status: requireRoles('task_update_status', ['bro', 'swe'], wrapHandler(async (args) => {
             requireArg(args, 'agent');

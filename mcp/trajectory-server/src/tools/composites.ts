@@ -442,7 +442,12 @@ export function compositeTools(
         }
 
         // The task issue's own discussion thread (intent / decision / notes).
-        const task_discussions = db.all<{
+        // Bound it: keep decision/intent rows full (load-bearing scope the
+        // executor must obey verbatim); cap other kinds to the last few and
+        // truncate their bodies, with a pointer to discussion_search for the
+        // full text. This is the unbounded-growth term in the brief — paid on
+        // every swe/pr-reviewer spawn for a long-lived issue.
+        const raw = db.all<{
           author: string;
           kind: string;
           body: string;
@@ -452,6 +457,24 @@ export function compositeTools(
             WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200`,
           [task.issue_id],
         );
+
+        const FULL_KINDS = new Set(['decision', 'intent']);
+        const NOTE_CAP = 500;
+        const OTHER_ROW_CAP = 8;
+        const full = raw.filter((d) => FULL_KINDS.has(d.kind));
+        const other = raw.filter((d) => !FULL_KINDS.has(d.kind)).slice(-OTHER_ROW_CAP);
+        const task_discussions = raw
+          .filter((d) => full.includes(d) || other.includes(d))
+          .map((d) => {
+            if (FULL_KINDS.has(d.kind) || d.body.length <= NOTE_CAP) return d;
+            return {
+              ...d,
+              body:
+                d.body.slice(0, NOTE_CAP) +
+                `\n… [truncated; discussion_search(issue_id=${task.issue_id}) for full text]`,
+              truncated: true,
+            };
+          });
 
         return ok({
           task_id: task.id,

@@ -26,7 +26,7 @@ function decorateWithAgent(tools) {
         const mergedAgent = {
             type: 'string',
             pattern: '^[a-z][a-z0-9_-]*$',
-            description: "Calling agent identity. First-class roles: bro, swe, pr-reviewer. Any other valid name is treated as consultant.",
+            description: 'Calling agent: bro, swe, pr-reviewer, or a consultant name.',
             ...existingAgent,
         };
         return {

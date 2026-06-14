@@ -523,9 +523,18 @@ describe('taskTools', () => {
     const inserted = parseBatch(batchResult);
     assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
 
+    const thinResult = await call(tools.handlers, 'task_get', {
+      agent: 'bro',
+      task_id: String(inserted[0].id),
+    });
+    const thin = parseResult(thinResult);
+    assert.ok(!thinResult.isError);
+    assert.equal(thin.spec_body, undefined, 'task_get omits spec_body by default');
+
     const getResult = await call(tools.handlers, 'task_get', {
       agent: 'bro',
       task_id: String(inserted[0].id),
+      include_spec_body: true,
     });
     const task = parseResult(getResult);
     assert.ok(!getResult.isError);
@@ -553,7 +562,16 @@ describe('taskTools', () => {
     });
     const inserted = parseBatch(batchResult);
     assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-    assert.equal(inserted[0].spec_body, '');
+    assert.equal(inserted[0].spec_body, undefined, 'thin batch return omits spec_body');
+
+    const getResult = await call(tools.handlers, 'task_get', {
+      agent: 'bro',
+      task_id: String(inserted[0].id),
+      include_spec_body: true,
+    });
+    const task = parseResult(getResult);
+    assert.ok(!getResult.isError);
+    assert.equal(task.spec_body, '');
 
     db.close();
   });
@@ -1197,7 +1215,14 @@ describe('taskTools', () => {
     const tasks = parseBatch(result);
     assert.equal(tasks.length, 1);
     assert.equal(tasks[0]!.branch_id, 'feat/slim');
-    assert.equal(tasks[0]!.description, 'minimal');
+    assert.equal(tasks[0]!.description, undefined, 'thin batch return omits description');
+
+    const getResult = await call(tools.handlers, 'task_get', {
+      agent: 'bro',
+      task_id: String(tasks[0]!.id),
+      include_spec_body: true,
+    });
+    assert.equal(parseResult(getResult).description, 'minimal');
 
     // Verify the dropped columns no longer exist on the row.
     const colInfo = db.all<{ name: string }>(`PRAGMA table_info(tasks)`);

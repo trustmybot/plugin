@@ -231,8 +231,14 @@ describe('discussions + snapshot integration', () => {
 
     const task = created[0]!;
     (globalThis as Record<string, unknown>)['testTaskId'] = String(task.id);
+
+    const getResult = await call(tasks.handlers, 'task_get', {
+      agent: 'bro',
+      task_id: String(task.id),
+      include_spec_body: true,
+    });
     assert.equal(
-      task.spec_body,
+      parseResult(getResult).spec_body,
       'This is the spec body for the discussions task.',
       'spec_body must persist as written',
     );
