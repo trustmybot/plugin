@@ -329,7 +329,7 @@ tmb_resolve_task_id_for_target() {
          ORDER BY id DESC
          LIMIT 1;
       " 2>/dev/null || true)
-      case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+      task_id=$(tmb_sql_int "$task_id")
     fi
 
     # (2) Slug fallback — no status filter.
@@ -345,7 +345,7 @@ tmb_resolve_task_id_for_target() {
            ORDER BY id DESC
            LIMIT 1;
         " 2>/dev/null || true)
-        case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+        task_id=$(tmb_sql_int "$task_id")
       fi
     fi
   fi
@@ -357,7 +357,7 @@ tmb_resolve_task_id_for_target() {
     if [ -n "$transcript" ] && [ -f "$transcript" ]; then
       task_id=$(jq -r '.message.content // [] | tostring' "$transcript" 2>/dev/null \
         | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
-      case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+      task_id=$(tmb_sql_int "$task_id")
     fi
   fi
 
