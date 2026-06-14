@@ -30,6 +30,7 @@ mask_session_start_prescan() {
   local input="$1"
   printf '%s\n' "$input" \
     | sed \
+        -e 's/Plugin version:.*/Plugin version: __VOLATILE__/' \
         -e 's/Top-level dirs:.*/Top-level dirs: __VOLATILE__/' \
         -e 's/Stacks detected:.*/Stacks detected: __VOLATILE__/' \
         -e 's/Architecture docs:.*/Architecture docs: __VOLATILE__/' \

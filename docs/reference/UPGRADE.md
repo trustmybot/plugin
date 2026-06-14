@@ -20,6 +20,18 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 
 Or open Claude Code and inspect the plugin via `/plugin info tmb`.
 
+The SessionStart project inventory also prints a `Plugin version:` line at the top of every session, so you can see the running version without a query.
+
+### Version-skew banner — "restart to apply"
+
+CC can fetch a newer version into its marketplace cache while the **older** MCP server / hooks keep running until you reload. When that happens, the SessionStart inventory appends a line:
+
+```
+newer plugin version <X.Y.Z> is installed but <A.B.C> is still running — restart Claude Code (or /reload-plugins) to apply
+```
+
+That is your cue to reload — the new files are on disk but inert until the MCP server reboots (see below). The line disappears once the running version matches the highest cached version. It is read-only and never blocks the session.
+
 ### How CC delivers an update
 
 Claude Code checks the marketplace for new versions automatically. A new version is detected when the `version` field in `plugin.json` changes — pushing commits without bumping `version` does **not** trigger an update.
@@ -32,7 +44,20 @@ After CC reports the plugin updated, **run `/reload-plugins`** in your session. 
 
 If you'd rather restart the whole session, that works too: `Cmd+R` in the desktop app, or close + reopen.
 
+If the SessionStart "newer plugin version … restart to apply" banner is showing, this is the step that clears it.
+
 `/plugin marketplace update trustmybot` forces CC to re-check the marketplace immediately rather than waiting for its periodic poll.
+
+### Pruning stale cached versions
+
+Each update leaves the previous version's files in `~/.claude/plugins/cache/<owner>/tmb/<version>`. To reclaim that space, run the bundled GC — it keeps the active version plus the single previous one and removes the rest, never touching the active version:
+
+```bash
+bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh --dry-run   # preview Step C
+bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh             # prompts before pruning
+```
+
+Step C is safe to re-run: once only active + previous remain it reports nothing to prune.
 
 ### Switching channels (stable ↔ RC)
 
@@ -149,6 +174,15 @@ The transaction wrapping `migrateV1toV2` rolls back. Your DB stays at the old ve
 
 - Free disk space / close the other session, then restart CC. Migration re-runs from scratch.
 - The pre-migration backup is still there if you'd rather roll back: restore the `.bak` file.
+
+### Legacy DB with no `plugin_meta` row
+
+A DB that has workflow tables but **no `plugin_meta` table** predates schema versioning. The MCP server adopts it forward — it reapplies the schema, stamps `schema_version`, and preserves your existing rows — but it does **not** treat it as a clean fresh install. So the upgrade isn't silent, boot emits a warning rather than quietly adopting it:
+
+- `~/.claude/tmb/logs/mcp-server.log` shows a `"kind":"legacy_db_no_plugin_meta","level":"warn"` line, and the startup line carries `"legacy_db_no_plugin_meta":true`.
+- stderr prints `WARNING: trajectory DB had tables but no plugin_meta row …`.
+
+This is non-fatal. If you didn't expect a legacy DB here, back up the file and verify your data before continuing.
 
 ### Unknown legacy shape
 

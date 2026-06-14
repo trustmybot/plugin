@@ -44,11 +44,18 @@ sqlite3 "$DB" "
   INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
   INSERT INTO tasks VALUES (10, 1, 'feat/my-feature', 'pending', '', 0);
   INSERT INTO tasks VALUES (11, 1, 'feat/prompt-task', 'pending', '', 1);
+  INSERT INTO tasks VALUES (12, 1, 'fix/failed-pb', 'failed', '', 1);
+  INSERT INTO tasks VALUES (13, 1, 'fix/failed-nonpb', 'failed', '', 0);
 "
 
 # Worktree for the prompt-bearing task (slug matches feat/prompt-task).
 WT_PROMPT="$WT_ROOT/prompt-task"
 mkdir -p "$WT_PROMPT"
+
+# Worktrees for the failed-status tasks (slug matches branch_id suffix).
+WT_FAILED_PB="$WT_ROOT/failed-pb"
+WT_FAILED_NONPB="$WT_ROOT/failed-nonpb"
+mkdir -p "$WT_FAILED_PB" "$WT_FAILED_NONPB"
 
 run_hook_swe() {
   local input="$1"
@@ -292,6 +299,21 @@ out=$(cd "$WT_UNKNOWN" && echo "$(make_edit_no_transcript swe "$WT_UNKNOWN/agent
 assert_contains "$out" '"permissionDecision":"deny"' "no matching task slug should deny prompt-surface edit"
 
 # ===========================================================================
+# Rule (d) — failed-status + absolute target + PWD NOT in worktree (#597)
+# The regression: a prompt_bearing=1 task whose row is `failed`, edited via an
+# ABSOLUTE path while $PWD is outside any worktree, was wrongly denied because
+# WORKTREE_ROOT came from $PWD and the slug query filtered on transient status.
+# ===========================================================================
+
+test_case "(d/597) failed-status prompt_bearing=1, absolute target, PWD outside worktree: ALLOWED"
+out=$(cd "$NONWT_DIR" && echo "$(make_edit_no_transcript swe "$WT_FAILED_PB/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "failed-status prompt_bearing=1 via absolute target should be allowed"
+
+test_case "(d/597) failed-status prompt_bearing=0, absolute target, PWD outside worktree: DENIED"
+out=$(cd "$NONWT_DIR" && echo "$(make_edit_no_transcript swe "$WT_FAILED_NONPB/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "failed-status prompt_bearing=0 via absolute target should still be denied"
+
+# ===========================================================================
 # Rule (e): Bash write-forms targeting prompt surfaces
 # ===========================================================================
 
@@ -364,8 +386,9 @@ test_case "(e) SWE redirect > to non-prompt file: NOT denied"
 out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "content" > src/index.ts' 10)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "redirect to non-prompt file should not be denied by rule (e)"
 
-test_case "(e) SWE redirect > to agents/swe.md with prompt_bearing=1: ALLOWED"
-out=$(run_hook_swe "$(make_bash_with_transcript swe 'echo "content" > agents/swe.md' 11)")
+test_case "(e) SWE redirect > to agents/swe.md with prompt_bearing=1 (transcript resolves task): ALLOWED"
+# Run from a non-worktree PWD so the transcript is the resolver (no slug match).
+out=$(run_hook_swe_pwd "$(make_bash_with_transcript swe 'echo "content" > agents/swe.md' 11)" "$NONWT_DIR")
 assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 task should allow Bash write to prompt surface"
 
 test_case "(e) SWE sed -i on CLAUDE.md via slug fallback (prompt_bearing=1): ALLOWED"
@@ -399,5 +422,120 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "redirect to /tmp menti
 test_case "(e/fp) git commit -m message mentioning agents/swe.md: NOT denied"
 out=$(run_hook_swe "$(make_bash_with_transcript swe 'git commit -m "touch agents/swe.md"' 10)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "commit message mentioning prompt path should not be denied"
+
+# ===========================================================================
+# Layer 1 — schema-mismatch fail-safe (#596)
+# A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
+# column) up-tree from the hook's cwd must be treated as UNRESOLVED, not
+# queried-and-defaulted-to-0. The hook resolves the live DB instead.
+# These cases do NOT set TRAJECTORY_DB_PATH (that override bypasses walk-up);
+# they exercise the cwd walk-up + sentinel resolution directly.
+# ===========================================================================
+
+# Build a fake HOME containing a stale legacy DB, plus a real project workspace
+# (current schema) one level under it with a worktree for a prompt_bearing=1 task.
+SCHEMA_HOME="$TMPDIR/schema-home"
+mkdir -p "$SCHEMA_HOME/.claude/tmb"
+sqlite3 "$SCHEMA_HOME/.claude/tmb/trajectory.db" "
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    issue_id INTEGER NOT NULL,
+    branch_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    spec_body TEXT NOT NULL DEFAULT ''
+  );
+  INSERT INTO tasks VALUES (10, 1, 'feat/prompt-task', 'pending', '');
+"
+
+# Live project workspace under that HOME, with the current schema.
+LIVE_WS="$SCHEMA_HOME/project"
+mkdir -p "$LIVE_WS/.claude/tmb"
+sqlite3 "$LIVE_WS/.claude/tmb/trajectory.db" "
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    issue_id INTEGER NOT NULL,
+    branch_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    spec_body TEXT NOT NULL DEFAULT '',
+    prompt_bearing INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO tasks VALUES (10, 1, 'feat/prompt-task', 'pending', '', 1);
+"
+LIVE_WT_PROMPT="$LIVE_WS/.claude/worktrees/prompt-task"
+mkdir -p "$LIVE_WT_PROMPT/agents"
+
+test_case "(L1) stale legacy DB up-tree, live DB at workspace: prompt_bearing=1 edit ALLOWED"
+out=$(cd "$LIVE_WT_PROMPT" && \
+  echo "$(make_edit_no_transcript swe "$LIVE_WT_PROMPT/agents/swe.md")" | \
+  HOME="$SCHEMA_HOME" env -u TRAJECTORY_DB_PATH bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "live current-schema DB should be resolved, prompt edit allowed"
+
+# The schema probe rejects the legacy DB and accepts the current-schema one.
+test_case "(L1) schema probe: rejects legacy DB"
+probe_legacy=$( . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"; \
+  if tmb_db_schema_current "$SCHEMA_HOME/.claude/tmb/trajectory.db"; then echo current; else echo stale; fi )
+assert_eq "stale" "$probe_legacy" "legacy DB (no prompt_bearing) probed as stale"
+
+test_case "(L1) schema probe: accepts current-schema DB"
+probe_live=$( . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"; \
+  if tmb_db_schema_current "$LIVE_WS/.claude/tmb/trajectory.db"; then echo current; else echo stale; fi )
+assert_eq "current" "$probe_live" "current-schema DB probed as current"
+
+# The #596 failure mode exactly: hook cwd=$HOME, walk-up finds nothing, the
+# sentinel points at $HOME, and $HOME's only DB is the stale legacy one. The
+# resolver must NOT adopt the stale sentinel DB (would default prompt_bearing
+# to 0 and silently deny). tmb_db_path must report unresolved.
+test_case "(L1) stale sentinel DB at \$HOME is NOT adopted by tmb_db_path"
+SENTINEL_HOME="$TMPDIR/sentinel-stale-home"
+mkdir -p "$SENTINEL_HOME/.claude/tmb"
+sqlite3 "$SENTINEL_HOME/.claude/tmb/trajectory.db" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT, status TEXT);
+"
+printf '%s\n' "$SENTINEL_HOME" > "$SENTINEL_HOME/.claude/tmb-active-workspace"
+resolved=$( cd "$SENTINEL_HOME" && \
+  HOME="$SENTINEL_HOME" env -u TRAJECTORY_DB_PATH \
+  bash -c '. "'"$PLUGIN_ROOT"'/scripts/hooks/lib/query-task.sh"; tmb_db_path || true' )
+assert_eq "" "$resolved" "stale sentinel DB must be treated as unresolved"
+
+# ===========================================================================
+# Layer 2 — sentinel writer hardening (#596)
+# ===========================================================================
+SENTINEL_WRITER="$PLUGIN_ROOT/scripts/hooks/write-active-workspace-sentinel.sh"
+
+test_case "(L2) sentinel writer refuses to record \$HOME (legacy home DB)"
+FAKE_HOME="$TMPDIR/l2-home"
+mkdir -p "$FAKE_HOME/.claude/tmb"
+sqlite3 "$FAKE_HOME/.claude/tmb/trajectory.db" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER DEFAULT 0);
+"
+rm -f "$FAKE_HOME/.claude/tmb-active-workspace"
+( cd "$FAKE_HOME" && HOME="$FAKE_HOME" env -u TRAJECTORY_DB_PATH bash "$SENTINEL_WRITER" ) || true
+[ -f "$FAKE_HOME/.claude/tmb-active-workspace" ] && l2_home_wrote="wrote" || l2_home_wrote="refused"
+assert_eq "refused" "$l2_home_wrote" "sentinel writer must not record \$HOME"
+
+test_case "(L2) sentinel writer refuses a stale-schema DB"
+FAKE_WS="$TMPDIR/l2-stale-ws"
+mkdir -p "$FAKE_WS/.claude/tmb"
+sqlite3 "$FAKE_WS/.claude/tmb/trajectory.db" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT);
+"
+SENT_HOME="$TMPDIR/l2-stale-home"
+mkdir -p "$SENT_HOME/.claude"
+rm -f "$SENT_HOME/.claude/tmb-active-workspace"
+( cd "$FAKE_WS" && HOME="$SENT_HOME" env -u TRAJECTORY_DB_PATH bash "$SENTINEL_WRITER" ) || true
+[ -f "$SENT_HOME/.claude/tmb-active-workspace" ] && l2_stale_wrote="wrote" || l2_stale_wrote="refused"
+assert_eq "refused" "$l2_stale_wrote" "sentinel writer must refuse stale-schema DB"
+
+test_case "(L2) sentinel writer records a current-schema project workspace"
+GOOD_WS="$TMPDIR/l2-good-ws"
+mkdir -p "$GOOD_WS/.claude/tmb"
+sqlite3 "$GOOD_WS/.claude/tmb/trajectory.db" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT, prompt_bearing INTEGER DEFAULT 0);
+"
+GOOD_HOME="$TMPDIR/l2-good-home"
+mkdir -p "$GOOD_HOME/.claude"
+rm -f "$GOOD_HOME/.claude/tmb-active-workspace"
+( cd "$GOOD_WS" && HOME="$GOOD_HOME" env -u TRAJECTORY_DB_PATH bash "$SENTINEL_WRITER" ) || true
+assert_eq "$GOOD_WS" "$(head -1 "$GOOD_HOME/.claude/tmb-active-workspace" 2>/dev/null || true)" "sentinel writer records current-schema workspace"
 
 summarize

@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 # Interactive remediation for the CC plugin MCP-config cache bug (issue #2888).
 #
-# Two independent recovery steps:
+# Three independent recovery steps:
 #   Step A — clear per-project `disabledMcpServers["plugin:tmb:trajectory-server"]`
 #            entries from ~/.claude.json. CC writes this flag when a user
 #            disables an MCP server through CC's UI; it persists across plugin
 #            re-enable, plugin updates, full CC restarts, and rm -rf .claude/.
 #            The plugin cannot read or write this — CC-owned state.
+#   Step C — cache GC (#602): prune stale cached versions under
+#            ~/.claude/plugins/cache/<owner>/<plugin>/<version>, keeping only
+#            the ACTIVE (from installed_plugins.json) + the single PREVIOUS
+#            version. The active version is never removed.
 #   Step B — nuke ~/.claude/plugins/cache/<marketplace-owner>/ + remove plugin entries
 #            from installed_plugins.json. The Mode A recovery doctrine for
 #            CC's plugin-cache bug.
 #
-# Each step has its own y/N prompt. Step A is the lighter, more common fix
-# and defaults to y; Step B is more aggressive and defaults to N.
+# Each mutating step has its own y/N prompt. Step A is the lighter, more common
+# fix and defaults to y; Step C prunes conservatively; Step B is the most
+# aggressive and defaults to N.
+# Pass --dry-run to preview Step C's prune without deleting anything.
 # Idempotent: re-runs see nothing to do and exit 0.
 # Run from a terminal, NOT from inside Claude Code.
 
@@ -31,8 +37,9 @@ if [ -f "$INSTALLED_JSON" ]; then
   done < <(jq -r '.plugins | keys[]' "$INSTALLED_JSON" 2>/dev/null | grep -E '^tmb' || true)
 fi
 
-# Allow --channel override (stable or rc).
+# Allow --channel override (stable or rc) and --dry-run (Step C preview).
 CHANNEL_ARG=""
+DRY_RUN=0
 ARGS=("$@")
 i=0
 while [ $i -lt ${#ARGS[@]} ]; do
@@ -42,6 +49,7 @@ while [ $i -lt ${#ARGS[@]} ]; do
     --channel)
       i=$((i + 1))
       [ $i -lt ${#ARGS[@]} ] && CHANNEL_ARG="${ARGS[$i]}" ;;
+    --dry-run) DRY_RUN=1 ;;
   esac
   i=$((i + 1))
 done
@@ -146,6 +154,108 @@ else
           printf '\n'
           ;;
       esac
+    fi
+  fi
+fi
+
+# ============================================================================
+# Step C — cache GC (#602): prune stale cached versions, keep active + previous
+# ============================================================================
+
+printf '%s\n\n' '--- Step C: cache GC — prune stale cached versions (keep active + previous) ---'
+
+VERSIONS_DIR="${CACHE_DIR}/${PLUGIN_NAME}"
+
+# Active version from installed_plugins.json — the version CC currently resolves.
+ACTIVE_VERSION=""
+if [ -f "$INSTALLED_JSON" ]; then
+  ACTIVE_VERSION=$(jq -r --arg entry "$PLUGIN_ENTRY" --arg name "$PLUGIN_NAME" '
+    (.plugins[$entry] // .plugins[$name] // [])
+    | map(.version) | map(select(. != null and . != "unknown"))
+    | first // empty
+  ' "$INSTALLED_JSON" 2>/dev/null || true)
+fi
+
+if [ ! -d "$VERSIONS_DIR" ]; then
+  printf '  No version cache at %s — nothing to GC.\n\n' "$VERSIONS_DIR"
+else
+  # Collect numeric-leading version dirs (skip "unknown" and stray names).
+  GC_VERSIONS=()
+  while IFS= read -r vdir; do
+    [ -d "$vdir" ] || continue
+    vname="$(basename "$vdir")"
+    case "$vname" in
+      [0-9]*) GC_VERSIONS+=("$vname") ;;
+    esac
+  done < <(find "$VERSIONS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+
+  if [ "${#GC_VERSIONS[@]}" -eq 0 ]; then
+    printf '  No semver version dirs under %s — nothing to GC.\n\n' "$VERSIONS_DIR"
+  else
+    # Sort versions ascending; keep set = active + previous (the highest version
+    # that sorts strictly below active). Anything else is prunable. The active
+    # version is NEVER in the prune list.
+    SORTED=()
+    while IFS= read -r v; do
+      [ -n "$v" ] && SORTED+=("$v")
+    done < <(printf '%s\n' "${GC_VERSIONS[@]}" | sort -V)
+
+    # Fall back to the highest cached version as "active" when installed_plugins
+    # has no usable version (keeps GC safe — we never guess-delete the top).
+    if [ -z "$ACTIVE_VERSION" ]; then
+      ACTIVE_VERSION="${SORTED[$(( ${#SORTED[@]} - 1 ))]}"
+      printf '  (no active version in installed_plugins — treating highest cached %s as active)\n' "$ACTIVE_VERSION"
+    fi
+
+    # Previous = highest version strictly below active.
+    PREVIOUS_VERSION=""
+    for v in "${SORTED[@]}"; do
+      if [ "$v" != "$ACTIVE_VERSION" ]; then
+        top=$(printf '%s\n%s\n' "$v" "$ACTIVE_VERSION" | sort -V | tail -1)
+        [ "$top" = "$ACTIVE_VERSION" ] && PREVIOUS_VERSION="$v"
+      fi
+    done
+
+    PRUNE=()
+    for v in "${SORTED[@]}"; do
+      [ "$v" = "$ACTIVE_VERSION" ] && continue
+      [ "$v" = "$PREVIOUS_VERSION" ] && continue
+      PRUNE+=("$v")
+    done
+
+    printf '  cache dir:        %s\n' "$VERSIONS_DIR"
+    printf '  cached versions:  %s\n' "${SORTED[*]}"
+    printf '  active (keep):    %s\n' "$ACTIVE_VERSION"
+    printf '  previous (keep):  %s\n' "${PREVIOUS_VERSION:-(none)}"
+
+    if [ "${#PRUNE[@]}" -eq 0 ]; then
+      printf '  Nothing to prune — only active + previous are cached.\n\n'
+    else
+      printf '\n  Would remove %s stale version(s):\n' "${#PRUNE[@]}"
+      for v in "${PRUNE[@]}"; do
+        printf '    rm -rf %s/%s\n' "$VERSIONS_DIR" "$v"
+      done
+
+      if [ "$DRY_RUN" -eq 1 ]; then
+        printf '\n  --dry-run: not deleting anything.\n\n'
+      else
+        printf '\n  Proceed with Step C prune? (Y/n) '
+        read -r answer_c
+        case "$answer_c" in
+          n|N|no|NO)
+            printf '  Skipped Step C.\n\n'
+            ;;
+          *)
+            for v in "${PRUNE[@]}"; do
+              # Final guard: never delete the active version, whatever the list says.
+              [ "$v" = "$ACTIVE_VERSION" ] && continue
+              rm -rf "${VERSIONS_DIR:?}/${v:?}"
+              printf '  Removed %s/%s\n' "$VERSIONS_DIR" "$v"
+            done
+            printf '\n'
+            ;;
+        esac
+      fi
     fi
   fi
 fi

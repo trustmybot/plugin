@@ -11,7 +11,7 @@ scripts/hooks/swe-atomic-close.sh:264
 
 # query-task.sh tmb_sqlite_ro: $sql is the helper's whole-statement parameter;
 # sanitization is the CALLER's job and call sites are this lint's subjects.
-scripts/hooks/lib/query-task.sh:99
+scripts/hooks/lib/query-task.sh:127
 
 # swe-atomic-close.sh: AR_INSERT is assembled one line above exclusively from
 # sanitized values — tmb_sql_int (TASK_ID line 166, SAFE_ISSUE_ID line 310),

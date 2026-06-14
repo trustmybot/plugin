@@ -4,6 +4,25 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.8.4 — 2026-06-14
+
+Reliability + upgrade-smoothness release. Hardens the world-model cold start and the SWE enforcement gates, smooths the upgrade flow, defaults SWE to Opus, and retires the flawed-era benchmark narrative.
+
+### Added
+- **Smoother upgrades (#602):** SessionStart surfaces the active plugin version and a "restart to apply" note when a newer version is cached but not yet running; `heal-mcp-cache.sh` gains cache GC (`--dry-run`; prunes stale cached versions, keeps active + previous, never deletes the active one); the MCP server warns on a legacy pre-stamp DB (no `plugin_meta`) instead of silently adopting it. `docs/reference/UPGRADE.md` documents the flow.
+- **TMB attribution footer (#601):** bro/swe-generated PRs, issues, and MRs carry a TMB-branded footer (`🤖 Generated with Claude Code, powered by Bro`).
+
+### Changed
+- **Default SWE model is now Opus (#594):** at parity cost to Sonnet on the hard corpus, Opus avoids the retry-storm tail (better worst-case wall time). Project-local Sonnet overrides remain supported; cost rates updated to Opus tiers.
+- **Benchmarks retired from the plugin repo (#593, #595):** the contradicted benchmark section/table, the `tests/l7-benchmark/` tree, and `docs/contributing/BENCHMARK.md` are removed — methodology and receipts now live in the separate benchmarks repo. README reframed to long-term-project + reliability positioning. (The earlier campaign's figures were formally retracted.)
+
+### Fixed
+- **World-model cold-start race (#590, #591):** a kuzu single-writer lock race between the SessionStart prescan and the MCP server no longer leaves the world model unavailable for the whole session — the open path retries with bounded backoff, and a genuine lock failure surfaces as `graph_db_open_failed` rather than a phantom "scan already running (pid N)".
+- **SWE enforcement gates no longer misfire (#592, #596, #597, #606):** `no-source-edit-from-main` Rule 1 is scoped to the managed repo (`tmb_default_repo`), so sibling repos in a multi-repo workspace aren't blocked; the `prompt_bearing` gate no longer adopts a stale legacy `~/.claude/tmb/trajectory.db` (schema fail-safe) and resolves the task id via the worktree's checked-out branch; `swe-scope-fence` strips markdown backticks from spec `## Files` paths so backtick-wrapped paths no longer deny every in-scope edit.
+
+### Internal
+- Pre-release hygiene (#604): startup-log version derives from `package.json`, dead `l7-benchmark` lint-allowlist entries removed, architecture docs synced to current behavior. Test-fixture corrections for the prescan golden snapshot and the SQL-lint allowlist line drift.
+
 ## v0.8.3 — 2026-06-13
 
 Patch release. Fixes the world-model scan crashing on repos with non-ASCII tracked paths — surfaced when scanning django (the benchmark corpus), which ships `tests/staticfiles_tests/apps/test/static/test/⊗.txt` (U+2297). No Claude-side (agents/skills/CLAUDE.md) changes; the release-gate is skipped per hotfix policy.
@@ -140,13 +159,9 @@ The full-repo audit release: the entire v0.7.1 milestone (~80 issues — a 50-is
 
 ## v0.7.0 — 2026-06-07
 
-Promotes `v0.7.0-rc.3` to stable. See `v0.7.0-rc.1`–`rc.3` + `v0.7.0-dev` for the cumulative changes from v0.6.0 — the **kuzu graph-DB world model** (ADR 0002, schema v8), the pre-release doc-accuracy sweep, and the #314 / #315 / #316 fixes. **Benchmarks:** 8/8 on the curated SWE-bench slate at ~6.97M tokens / $6.98 — cheaper than a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31), 0 hallucinations. L6 13/13 in CI.
+Promotes `v0.7.0-rc.3` to stable. See `v0.7.0-rc.1`–`rc.3` + `v0.7.0-dev` for the cumulative changes from v0.6.0 — the **kuzu graph-DB world model** (ADR 0002, schema v8), the pre-release doc-accuracy sweep, and the #314 / #315 / #316 fixes.
 
 ## v0.7.0-rc.3 — 2026-06-07
-
-### Measured
-
-- **Measured: ~61% token reduction (v0.6→v0.7) at 8/8 resolved.** Re-running the original SWE-bench 8-task corpus on the current version resolved 8/8 using ~6.97M tokens / $6.98 vs the pre-world-model baseline's 17.7M / $17.33 (−61% tokens, −51% wall-clock) — the world model's long-context-management payoff. It also beats a same-model raw Claude Code baseline (6/8 · 15.87M · $10.31) on the same corpus. See docs/contributing/BENCHMARK.md.
 
 ### Fixed
 

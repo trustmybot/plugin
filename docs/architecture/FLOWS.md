@@ -239,6 +239,8 @@ When a workspace has multiple inner git repos (siblings or submodules), `tmb_def
 
 The L5 row `tests/l5-l6/rows/33-multirepo-commit/` catches regressions at the storage layer: a Cypher `MATCH (d:Directory) WHERE d.path STARTS WITH 'api/' OR d.path STARTS WITH 'app/'` returns ≥1 node only on a workspace-rooted path leak.
 
+`tmb_default_repo` also scopes the `no-source-edit-from-main.sh` guard: Rule 1 only protects the managed-repo subtree, so absolute edits to sibling repos are allowed (an empty/`.` default guards the whole tree). See `docs/architecture/RESPONSIBILITIES.md` (#592).
+
 ---
 
 ## C. Consultant invocation

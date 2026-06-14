@@ -30,6 +30,27 @@ _TMB_DB_PATH_CACHE=""
 #      explicitly to pin the resolution.
 # Prints the path only if the file exists; non-zero exit if no DB found.
 # Memoizes the result in _TMB_DB_PATH_CACHE for the lifetime of the process.
+# tmb_db_schema_current <db>
+# Returns 0 when <db> carries the current TMB schema, non-zero otherwise.
+# Cheap probe: the tasks table must have a prompt_bearing column — the column
+# the swe-boundary gate actually reads. A legacy ~/.claude/tmb/trajectory.db
+# from a prior schema lacks it; querying such a DB returns empty and would
+# default prompt_bearing to 0, silently denying a legitimate prompt edit.
+# Treat a schema-mismatched DB as UNRESOLVED instead.
+# When sqlite3 is unavailable the caller cannot query anyway; report current
+# (0) so resolution is not blocked on a missing tool.
+tmb_db_schema_current() {
+  local db="${1:-}"
+  [ -n "$db" ] && [ -f "$db" ] || return 1
+  tmb_have_sqlite || return 0
+  local cols
+  cols=$(tmb_sqlite_ro "$db" "SELECT name FROM pragma_table_info('tasks');")
+  case "$cols" in
+    *prompt_bearing*) return 0 ;;
+  esac
+  return 1
+}
+
 tmb_db_path() {
   if [ -n "$_TMB_DB_PATH_CACHE" ]; then
     echo "$_TMB_DB_PATH_CACHE"
@@ -60,7 +81,12 @@ tmb_db_path() {
       break
     fi
     local candidate="$dir/.claude/$plugin_name/trajectory.db"
-    [ -f "$candidate" ] && candidates+=("$candidate")
+    # Schema-mismatch fail-safe: a candidate whose tasks table lacks the
+    # prompt_bearing column is a stale legacy DB. Skip it rather than adopt
+    # it and silently default prompt_bearing to 0.
+    if [ -f "$candidate" ] && tmb_db_schema_current "$candidate"; then
+      candidates+=("$candidate")
+    fi
     dir="$(dirname "$dir")"
   done
   if [ ${#candidates[@]} -gt 0 ]; then
@@ -75,7 +101,9 @@ tmb_db_path() {
     ws=$(head -1 "$sentinel" 2>/dev/null)
     if [ -n "$ws" ]; then
       local sentinel_db="$ws/.claude/$plugin_name/trajectory.db"
-      if [ -f "$sentinel_db" ]; then
+      # Same fail-safe on the sentinel path: a stale-schema sentinel DB is
+      # treated as unresolved rather than queried-and-defaulted-to-0.
+      if [ -f "$sentinel_db" ] && tmb_db_schema_current "$sentinel_db"; then
         _TMB_DB_PATH_CACHE="$sentinel_db"
         echo "$_TMB_DB_PATH_CACHE"
         return 0
@@ -237,6 +265,103 @@ tmb_sql_int() {
 # Never fails the caller.
 tmb_sql_quote() {
   printf '%s' "${1:-}" | sed "s/'/''/g"
+}
+
+# tmb_worktree_root_for_target <target_path>
+# Determine the worktree root for a prompt_bearing resolution.
+# Priority:
+#   1. The TARGET path if it is under .claude/worktrees/<slug>.
+#   2. Fall back to $PWD when $PWD is under a worktree.
+# Prints the worktree root (.../.claude/worktrees/<slug>) or empty string.
+# Never fails the caller.
+tmb_worktree_root_for_target() {
+  local target="${1:-}"
+  case "$target" in
+    */.claude/worktrees/*)
+      echo "$target" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
+      return 0
+      ;;
+  esac
+  case "$PWD" in
+    */.claude/worktrees/*)
+      echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
+      return 0
+      ;;
+  esac
+  return 0
+}
+
+# tmb_resolve_task_id_for_target <target_path> <input_json> [<db>]
+# Robustly resolve the active task_id that gates a prompt_bearing edit/write.
+# Resolution order (first non-empty wins):
+#   1. Worktree's checked-out branch: derive WORKTREE_ROOT from the TARGET path
+#      (or $PWD), then `git -C <wt> rev-parse --abbrev-ref HEAD` → exact
+#      `branch_id = '<branch>'` (NO status filter).
+#   2. Slug fallback: `branch_id LIKE '%/<slug>'` from the worktree root (NO
+#      status filter).
+#   3. Transcript fallback: parse `task_id=[0-9]+` from the WHOLE transcript
+#      message content (not only type:"text" blocks).
+# All SQL is sanitized via tmb_sql_quote. Prints the resolved task_id (decimal)
+# or empty string. Never fails the caller.
+tmb_resolve_task_id_for_target() {
+  local target="${1:-}"
+  local input="${2:-}"
+  local db="${3:-}"
+  if [ -z "$db" ]; then
+    db=$(tmb_db_path) || true
+  fi
+
+  local wt_root
+  wt_root=$(tmb_worktree_root_for_target "$target")
+
+  local task_id=""
+
+  if [ -n "$db" ] && tmb_have_sqlite && [ -n "$wt_root" ]; then
+    # (1) Exact branch match from the worktree's checked-out branch.
+    local branch
+    branch=$(git -C "$wt_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+    if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
+      local safe_branch
+      safe_branch=$(tmb_sql_quote "$branch")
+      task_id=$(tmb_sqlite_ro "$db" "
+        SELECT id FROM tasks
+         WHERE branch_id = '${safe_branch}'
+         ORDER BY id DESC
+         LIMIT 1;
+      " 2>/dev/null || true)
+      case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+    fi
+
+    # (2) Slug fallback — no status filter.
+    if [ -z "$task_id" ]; then
+      local slug
+      slug=$(echo "$wt_root" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
+      if [ -n "$slug" ]; then
+        local safe_slug
+        safe_slug=$(tmb_sql_quote "$slug")
+        task_id=$(tmb_sqlite_ro "$db" "
+          SELECT id FROM tasks
+           WHERE branch_id LIKE '%/${safe_slug}'
+           ORDER BY id DESC
+           LIMIT 1;
+        " 2>/dev/null || true)
+        case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+      fi
+    fi
+  fi
+
+  # (3) Transcript fallback — parse the whole message content.
+  if [ -z "$task_id" ] && [ -n "$input" ]; then
+    local transcript
+    transcript=$(echo "$input" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
+    if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+      task_id=$(jq -r '.message.content // [] | tostring' "$transcript" 2>/dev/null \
+        | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+      case "$task_id" in ''|*[!0-9]*) task_id="" ;; esac
+    fi
+  fi
+
+  echo "$task_id"
 }
 
 # tmb_task_spec_status <task_id> [<db>]

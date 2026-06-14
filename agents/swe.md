@@ -2,7 +2,7 @@
 name: swe
 tmb_owner: bro
 description: Executor. Implements task specs in isolated worktrees with atomic close.
-model: sonnet
+model: opus
 maxTurns: 150
 tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server__task_brief, mcp__plugin_tmb_trajectory-server__task_update_status
 skills: [tmb_swe-checklist, tmb_docs-conventions]
