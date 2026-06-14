@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 
@@ -179,6 +180,49 @@ describe('TrajectoryDB', () => {
         } else {
           process.env['CLAUDE_PLUGIN_ROOT'] = saved;
         }
+      }
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('flags legacyNoPluginMeta=false on a genuinely fresh DB', () => {
+    const db = new TrajectoryDB(':memory:');
+    assert.equal(db.legacyNoPluginMeta, false);
+    db.close();
+  });
+
+  it('flags legacyNoPluginMeta=true when a DB has tables but no plugin_meta (#602)', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-legacy-'));
+    try {
+      const dbPath = join(tmpDir, 'trajectory.db');
+      // Seed a pre-stamp legacy shape: a user table present, NO plugin_meta.
+      // Use a zombie table the current schema no longer defines so reapplying
+      // schema.sql stays clean — the flag only depends on a non-sqlite table
+      // existing alongside a missing plugin_meta.
+      const seed = new DatabaseSync(dbPath);
+      seed.exec('PRAGMA journal_mode = WAL');
+      seed.exec(`
+        CREATE TABLE regen_state (id INTEGER PRIMARY KEY, state_json TEXT);
+        INSERT INTO regen_state (state_json) VALUES ('{"legacy":true}');
+      `);
+      seed.close();
+
+      const db = new TrajectoryDB(dbPath);
+      try {
+        assert.equal(db.legacyNoPluginMeta, true, 'pre-stamp legacy DB must be flagged');
+        // Adopted forward, not bricked: plugin_meta now exists and is stamped,
+        // and the pre-existing legacy table is preserved.
+        const meta = db.get<{ schema_version: number }>(
+          'SELECT schema_version FROM plugin_meta LIMIT 1',
+        );
+        assert.ok(meta !== undefined, 'plugin_meta should be stamped on adopt-forward');
+        const legacyRow = db.get<{ state_json: string }>(
+          'SELECT state_json FROM regen_state LIMIT 1',
+        );
+        assert.ok(legacyRow !== undefined, 'pre-existing legacy rows must survive');
+      } finally {
+        db.close();
       }
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });

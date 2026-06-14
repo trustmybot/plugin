@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { sqlLog } from './logger.js';
+import { sqlLog, serverLog } from './logger.js';
 
 const TARGET_SCHEMA_VERSION = 12;
 
@@ -95,6 +95,15 @@ export class TrajectoryDB {
   private db: DatabaseSync;
   readonly dbPath: string;
 
+  /**
+   * True when the DB opened with user tables present but NO plugin_meta table
+   * (a pre-stamp legacy shape that predates schema versioning). Such a DB is
+   * adopted forward (its tables are kept; the schema is reapplied) rather than
+   * treated as a clean fresh install — but the ambiguity is surfaced as a
+   * degraded signal so the upgrade is not silent. Non-fatal.
+   */
+  readonly legacyNoPluginMeta: boolean = false;
+
   constructor(dbPath: string) {
     // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
     // on 22.x, stable on 24+. The plugin's .mcp.json passes --experimental-sqlite
@@ -104,11 +113,11 @@ export class TrajectoryDB {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA foreign_keys = ON');
     this.db.exec('PRAGMA busy_timeout = 5000');
-    this.applySchema();
+    this.legacyNoPluginMeta = this.applySchema();
     this.syncPluginVersion();
   }
 
-  private applySchema(): void {
+  private applySchema(): boolean {
     const schemaDir = dirname(fileURLToPath(import.meta.url));
     const sql = readFileSync(join(schemaDir, 'schema.sql'), 'utf8');
 
@@ -135,11 +144,35 @@ export class TrajectoryDB {
       .get() as { name: string } | undefined;
 
     if (pluginMetaExists === undefined) {
-      // Fresh DB — apply schema and confirm the seed landed.
+      // No plugin_meta table. Two shapes land here:
+      //   - A genuinely fresh DB (no user tables at all).
+      //   - A pre-stamp LEGACY DB that already holds workflow tables but
+      //     predates schema versioning (#602). Adopting that silently as
+      //     "fresh" hides an unverified upgrade, so detect it and surface a
+      //     degraded signal. Either way we reapply schema (CREATE IF NOT
+      //     EXISTS is idempotent; the seed lands) — the difference is only
+      //     whether we warn.
+      const userTableCount = this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+        )
+        .get() as { n: number };
+      const isLegacy = userTableCount.n > 0;
+      if (isLegacy) {
+        serverLog({
+          kind: 'legacy_db_no_plugin_meta',
+          level: 'warn',
+          db_path: this.dbPath,
+          existing_tables: userTableCount.n,
+          message:
+            'TrajectoryDB: opened a DB with tables but no plugin_meta row (pre-stamp legacy shape). ' +
+            'Adopting it forward and stamping schema_version — verify the upgrade and back up if unsure.',
+        });
+      }
       this.db.exec(sql);
       applyEvalIfNeeded();
       verifySeed();
-      return;
+      return isLegacy;
     }
 
     const versionRow = this.db
@@ -152,7 +185,7 @@ export class TrajectoryDB {
       this.db.exec(sql);
       applyEvalIfNeeded();
       verifySeed();
-      return;
+      return false;
     }
 
     const storedVersion = versionRow.schema_version;
@@ -172,13 +205,14 @@ export class TrajectoryDB {
         .run(TARGET_SCHEMA_VERSION);
       applyEvalIfNeeded();
       verifySeed();
-      return;
+      return false;
     }
 
     // storedVersion === TARGET_SCHEMA_VERSION — idempotent reapply.
     this.db.exec(sql);
     applyEvalIfNeeded();
     verifySeed();
+    return false;
   }
 
   private syncPluginVersion(env: NodeJS.ProcessEnv = process.env): void {

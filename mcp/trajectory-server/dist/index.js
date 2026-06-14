@@ -170,8 +170,17 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 const transport = new StdioServerTransport();
 await server.connect(transport);
-serverLog({ kind: 'startup', pid: process.pid, version: '0.7.0', db_path: dbPath });
+serverLog({
+    kind: 'startup',
+    pid: process.pid,
+    version: '0.7.0',
+    db_path: dbPath,
+    legacy_db_no_plugin_meta: db.legacyNoPluginMeta,
+});
 process.stderr.write(`server started (db: ${dbPath})\n`);
+if (db.legacyNoPluginMeta) {
+    process.stderr.write('WARNING: trajectory DB had tables but no plugin_meta row (pre-stamp legacy); adopted forward and stamped. Verify the upgrade.\n');
+}
 embed('warmup').catch(() => { });
 startBackfill(db).catch((e) => console.error('[embeddings] startBackfill error:', e));
 //# sourceMappingURL=index.js.map
