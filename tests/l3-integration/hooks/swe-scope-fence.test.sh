@@ -82,6 +82,17 @@ Task.
 - Works
 "
 
+SPEC_BACKTICK="## Description
+Task whose ## Files paths are wrapped in markdown backticks.
+
+## Files
+- \`scripts/hooks/my-hook.sh\` — new hook
+- \`tests/l3-integration/hooks/my-hook.test.sh\` — tests
+
+## Success Criteria
+- Works
+"
+
 sqlite3 "$DB" "
   CREATE TABLE issues (
     id INTEGER PRIMARY KEY,
@@ -105,6 +116,7 @@ sqlite3 "$DB" "
   INSERT INTO tasks VALUES (3, 1, 'feat/task-nofiles', 'running', '$(echo "$SPEC_NO_FILES" | sed "s/'/''/g")', 0);
   INSERT INTO tasks VALUES (4, 1, 'feat/task-malformed', 'running', '$(echo "$SPEC_MALFORMED" | sed "s/'/''/g")', 0);
   INSERT INTO tasks VALUES (5, 1, 'feat/task-rootfile', 'running', '$(echo "$SPEC_ROOT_FILE" | sed "s/'/''/g")', 0);
+  INSERT INTO tasks VALUES (6, 1, 'feat/task-backtick', 'running', '$(echo "$SPEC_BACKTICK" | sed "s/'/''/g")', 0);
 "
 
 run_hook() {
@@ -265,6 +277,17 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "in-scope absolute targ
 test_case "target-derived: absolute out-of-scope target resolves the worktree from PWD-outside: denied"
 out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "$WT_A/src/api/handler.ts")" | bash "$HOOK" 2>&1) || true)
 assert_contains "$out" '"permissionDecision":"deny"' "out-of-scope absolute target should be denied even when PWD is outside a worktree"
+
+# ===========================================================================
+# Backtick-wrapped ## Files paths resolve the same dirs as plain paths (#606)
+# ===========================================================================
+
+WT_BACKTICK="$WT_ROOT/task-backtick"
+mkdir -p "$WT_BACKTICK"
+
+test_case "backtick-path: in-scope edit listed as a backtick-wrapped path is allowed (#606)"
+out=$(run_hook "$WT_BACKTICK" "$(make_edit_input "scripts/hooks/my-hook.sh")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "backtick-wrapped ## Files path should resolve the same allowed dir"
 
 # ===========================================================================
 # Non-Edit/Write tools are ignored
