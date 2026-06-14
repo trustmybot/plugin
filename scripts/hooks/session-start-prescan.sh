@@ -81,7 +81,7 @@ TOPLEVEL=$(printf '%s' "$TOPLEVEL" | awk '{ for (i=1;i<=NF && i<=10;i++) printf(
 # Stack indicators.
 STACKS=""
 [ -f package.json ] && STACKS="$STACKS Node"
-[ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ] && STACKS="$STACKS Python"
+{ [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; } && STACKS="$STACKS Python"
 [ -f go.mod ] && STACKS="$STACKS Go"
 [ -f Cargo.toml ] && STACKS="$STACKS Rust"
 [ -f Gemfile ] && STACKS="$STACKS Ruby"

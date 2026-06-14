@@ -2,11 +2,7 @@
 
 > **What this is:** a tight, ~15-item checklist of the things **only a human walking through Claude Code can verify**. L0–L4 cover the rest structurally (Docker install-smoke, lint, MCP unit + integration, workflow-simulation trajectory tests). L5 (`tests/l5-l6/`) covers automated CC behavior.
 >
-> **When you must run this:**
-> - **Before promoting a release candidate to stable** (the canonical RC validation step — see [`CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) Path 2).
-> - **Before tagging any release** ≥ v0.2.0. The release script (`scripts/release.sh`) refuses to tag until `MANUAL_DOGFOOD_PASSED=v<X.Y.Z>` matches the version being released.
->
-> **Hotfixes** can bypass via `BYPASS_DOGFOOD=1`, with the bypass reason documented in the release commit. Acceptable when the change demonstrably can't affect Claude-side behavior (doc-only releases, CI-only fixes).
+> **When to run this:** This is an **optional spot-check**, not a tag-blocking sign-off. The release is gated by the automated CI release-gate (= local L6: 13/13 + the CI re-confirmation). Walk these scenarios when you want eyes on UX and interactive surfaces the automated layers can't model — most usefully before promoting a release candidate to stable (see [`CONTRIBUTING.md` § Release ritual](../../CONTRIBUTING.md#release-ritual) Path 2), or before a PR that touches the install path, schema, or agent doctrine.
 
 ---
 
@@ -405,18 +401,9 @@ Expected: an entry with `kind=issue_sync_active`, `backend=glab`, and the new is
 
 ---
 
-## How to sign off
+## What to do with the result
 
-Once every checkbox passes for the version you're about to release:
-
-```bash
-export MANUAL_DOGFOOD_PASSED=v0.2.0
-bash scripts/release.sh
-```
-
-`release.sh` checks `$MANUAL_DOGFOOD_PASSED` matches `plugin.json` version. If not set or mismatched, it refuses to tag.
-
-If something fails, **do not tag**. File an issue, fix it, re-run the affected checklist item, then sign off.
+This walk is an optional spot-check — the release is gated by the automated CI release-gate (= local L6), not by this checklist. If a scenario fails, file an issue and fix it; a failure here is a real bug even though it doesn't itself block the tag. Re-run the affected item once fixed.
 
 ## Why this is the only manual layer
 

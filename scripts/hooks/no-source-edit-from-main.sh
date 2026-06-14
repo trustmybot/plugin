@@ -149,7 +149,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
 
     # --- python/python3 open(<path>, 'w'|'a'): path inside open() ---
     case "$cmd" in
-      *"python"*"open("*"'w'"*|*"python"*"open("*'"w"'*)
+      *"python"*"open("*"'w'"*|*"python"*"open("*'"w"'*|*"python"*"open("*"'a'"*|*"python"*"open("*'"a"'*)
         local open_arg="${cmd##*open(}"
         local open_path="${open_arg%%,*}"
         open_path="${open_path#\'}"
@@ -159,35 +159,12 @@ if [ "$TOOL_NAME" = "Bash" ]; then
         _is_prompt_surface_token "$open_path" && return 0
         ;;
     esac
-    case "$cmd" in
-      *"python"*"open("*"'a'"*|*"python"*"open("*'"a"'*)
-        local open_arg2="${cmd##*open(}"
-        local open_path2="${open_arg2%%,*}"
-        open_path2="${open_path2#\'}"
-        open_path2="${open_path2%\'}"
-        open_path2="${open_path2#\"}"
-        open_path2="${open_path2%\"}"
-        _is_prompt_surface_token "$open_path2" && return 0
-        ;;
-    esac
 
     # --- cp/mv/rsync: destination is the LAST argument ---
     case "$cmd" in
-      "cp "*|*" cp "*)
-        local cp_last="${cmd##* }"
-        _is_prompt_surface_token "$cp_last" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      "mv "*|*" mv "*)
-        local mv_last="${cmd##* }"
-        _is_prompt_surface_token "$mv_last" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      "rsync "*|*" rsync "*)
-        local rsync_last="${cmd##* }"
-        _is_prompt_surface_token "$rsync_last" && return 0
+      "cp "*|*" cp "*|"mv "*|*" mv "*|"rsync "*|*" rsync "*)
+        local copy_last="${cmd##* }"
+        _is_prompt_surface_token "$copy_last" && return 0
         ;;
     esac
 

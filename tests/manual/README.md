@@ -15,11 +15,10 @@ L0–L6 are automated (Docker install-smoke, lint, MCP unit + integration, workf
 |---|---|---|
 | Active development on a feature/skill/hook | A (local) | optional, for sanity |
 | About to merge a PR that touches install path / schema / agent doctrine | A then C | yes |
-| Validating a release candidate before promoting `tmb-rc` → `tmb` (stable) | **B (marketplace RC) — mandatory** | yes |
-| About to tag a release | walk Path B + set `MANUAL_DOGFOOD_PASSED=v<X.Y.Z>` | yes (`scripts/release.sh` enforces) |
-| Hotfix release that demonstrably can't change Claude-side behavior | skip with `BYPASS_DOGFOOD=1` | no — but document the bypass reason in the release commit |
+| Validating a release candidate before promoting `tmb-rc` → `tmb` (stable) | B (marketplace RC) | optional spot-check — recommended |
+| About to tag a release | — | no — the tag is gated by the CI release-gate (= local L6), not this walk |
 
-## Why Path B is mandatory for RC validation
+## Why Path B is the right path for RC spot-checks
 
 v0.2.0 and v0.3.0 both shipped install-path bugs that broke every stable user. Both were validated locally via Path A and passed. **Path A doesn't exercise the marketplace install lifecycle** (`bun install --ignore-scripts`) where both bugs lived. Path B is the only manual path that catches that bug class.
 

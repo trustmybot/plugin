@@ -49,10 +49,7 @@ Present the full drafted file in a fenced code block. Ask:
 
 ## Step 5 — Write on approval
 
-1. Call `skill_register` — the server validates and reserves the name (see **Hard rules** on collisions).
-2. Write the skill file at `<project>/.claude/skills/<name>/SKILL.md`.
-3. For each agent in the attach list, **edit only the `skills:` array** to append the new name.
-4. Verify by re-reading both the skill file and each agent's frontmatter.
+Register the name first with `skill_register` — the server validates and reserves it, surfacing collisions (see **Hard rules**) before anything lands on disk. Then write the skill file at `<project>/.claude/skills/<name>/SKILL.md`, append the new name to each attach-list agent's `skills:` array (and only that array), and re-read both the skill file and the touched frontmatter to confirm the edits landed.
 
 ## Step 6 — Log + report
 
