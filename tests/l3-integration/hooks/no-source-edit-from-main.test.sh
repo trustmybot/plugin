@@ -347,4 +347,33 @@ out=$(run_hook "$(input_with_agent 'Edit' 'src/foo.ts' 'bro')")
 assert_not_contains "$out" 'bashrc' "deny message must not mention bashrc"
 assert_contains "$out" 'non-isolated' "deny message mentions non-isolated mode"
 
+# ---- Managed-repo scope (#592): multi-repo workspace ----
+# DB lives at <workspace_root>/.claude/<plugin>/trajectory.db, so the hook
+# derives the workspace root three levels above DB_PATH and the managed repo as
+# <workspace_root>/<tmb_default_repo>. Build that exact layout so MANAGED_ROOT
+# is deterministic.
+WS_ROOT="$TMPDIR/ws"
+MANAGED_DB="$WS_ROOT/.claude/tmb/trajectory.db"
+mkdir -p "$WS_ROOT/.claude/tmb"
+sqlite3 "$MANAGED_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);"
+sqlite3 "$MANAGED_DB" "INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '\"plugin\"');"
+
+run_hook_db() {
+  echo "$2" | env TRAJECTORY_DB_PATH="$1" bash "$HOOK" 2>&1 || true
+}
+
+test_case "managed repo scope + edit inside managed repo from main: BLOCK"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Edit' "$WS_ROOT/plugin/src/foo.ts" "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "source edit inside the managed repo still denied from main"
+
+test_case "managed repo scope + edit in sibling repo from main: ALLOWED"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Edit' "$WS_ROOT/benchmarks/src/foo.ts" "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "sibling-repo source edit allowed — outside managed-repo scope"
+
+test_case "single-repo project (empty tmb_default_repo) + src/foo.ts: BLOCK (whole tree guarded)"
+SINGLE_DB="$TMPDIR/single.db"
+sqlite3 "$SINGLE_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);"
+out=$(run_hook_db "$SINGLE_DB" "$(input 'Edit' '/some/project/src/foo.ts' "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "empty tmb_default_repo guards the whole tree as before"
+
 summarize
