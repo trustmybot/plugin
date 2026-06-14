@@ -91,7 +91,7 @@ Bro is the only agent allowed to call:
 
 ## SWE (`agents/swe.md`)
 
-Frontmatter: `model: sonnet`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server`, `skills: [tmb_swe-checklist]`.
+Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Write, Edit, mcp__plugin_tmb_trajectory-server`, `skills: [tmb_swe-checklist]`.
 
 ### Spawn contract
 

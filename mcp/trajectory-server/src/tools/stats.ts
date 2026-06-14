@@ -27,15 +27,15 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
-// Per-token cost rates in USD (Anthropic claude-sonnet-4-5 / claude-opus-4 tiers).
+// Per-token cost rates in USD (Anthropic claude-opus-4-8 tiers).
 // cache_read is ~11x cheaper than plain input; cache_creation is ~25% more expensive.
-// Using per-million token rates: input=$3, output=$15, cache_read=$0.30, cache_creation=$3.75.
+// Using per-million token rates: input=$15, output=$75, cache_read=$1.50, cache_creation=$18.75.
 // Rates are defined here as constants so callers can see the assumption and the
 // estimated_cost_usd field stays meaningful even when the model changes.
-const RATE_INPUT_PER_MTK = 3.0;
-const RATE_OUTPUT_PER_MTK = 15.0;
-const RATE_CACHE_READ_PER_MTK = 0.30;
-const RATE_CACHE_CREATION_PER_MTK = 3.75;
+const RATE_INPUT_PER_MTK = 15.0;
+const RATE_OUTPUT_PER_MTK = 75.0;
+const RATE_CACHE_READ_PER_MTK = 1.50;
+const RATE_CACHE_CREATION_PER_MTK = 18.75;
 
 function estimateCostUsd(
   tokensIn: number,
