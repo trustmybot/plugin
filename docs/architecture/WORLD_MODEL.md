@@ -33,6 +33,10 @@ Follow-up slices (post-v0.7) add `File`, `Symbol`, `IMPORTS`, `CALLS`, `DEFINES`
 
 Re-running `scan_run` is summary-preserving via MERGE — existing nodes update structural fields and refresh README-derived summaries.
 
+## Concurrency
+
+kuzu is **single-writer**: only one process may hold the database's write lock, so a `scan_run` can collide with another opener (e.g. the SessionStart prescan warming the graph). `src/graph-db.ts` opens with bounded exponential backoff — up to 8 attempts starting at 50 ms — retrying only on a write-lock error and rethrowing any non-lock error (missing binary, corrupt file) immediately. When the retries exhaust, the open surfaces as `graph_db_open_failed`, and `scan_run` reports that distinct error rather than a phantom "scan already running" — restart the session to retry (#590/591).
+
 ## Querying
 
 `world_model_get(repo, path, depth)` returns a directory tree. Implementation reads all Directory nodes for the repo from kuzu, then builds the tree in TypeScript by linking each node to its `parent_path`. Default `depth=2` (root + immediate children); `depth=null` returns the full subtree.

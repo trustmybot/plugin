@@ -74,9 +74,9 @@ Bro is the only agent allowed to call:
 | Hook | When | Effect |
 |---|---|---|
 | `activation-routine.sh` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
-| `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth) |
+| `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth); emit the active `Plugin version:` line, plus a "restart to apply" note when a newer version sits in the marketplace cache (#602) |
 | `ensure-gitignore.sh` | SessionStart | Ensure `.claude/` is gitignored |
-| `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree |
+| `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped to the managed repo: Rule 1 only guards the `tmb_default_repo` subtree, so absolute edits to sibling repos in a multi-repo workspace are allowed; an empty or `.` `tmb_default_repo` guards the whole tree (#592) |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
 | `cleanup-worktree-on-task-close.sh` | PostToolUse `task_update_status` | Remove worktree after bro closes task |
@@ -84,7 +84,7 @@ Bro is the only agent allowed to call:
 
 ### Universal rules
 
-- **Bro never edits source code** — every code change goes through SWE (Layer 2 hook enforces).
+- **Bro never edits source code** — every code change goes through SWE (Layer 2 hook enforces). The guard is scoped to the managed repo (`tmb_default_repo`): sibling repos in a multi-repo workspace are outside Rule 1's scope, while an empty/`.` default guards the whole tree (#592).
 - **Voice**: relaxed tone, action-first, no padding.
 
 ---
