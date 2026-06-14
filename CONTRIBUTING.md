@@ -70,7 +70,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 **Phase C — rc**
 6. Tag `vX.Y.Z-rc.N` on `dev`, push. The tag-triggered CI release-gate (L1–L4 + L6 + L0) is **re-confirmation**, not the gate. Fast-forward the `rc` branch to the tag.
 7. **Publish to the rc channel**: in `trustmybot/marketplace-rc`, edit `.claude-plugin/marketplace.json` → `plugins[].source.ref` to the new rc tag and push. Installs of `tmb@trustmybot-rc` now serve the rc.
-8. Validate via `tmb@trustmybot-rc` marketplace install against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) — required for anything touching install, schema, or doctrine; doc-only changes may skip.
+8. The CI release-gate (L1–L4 + L6 + L0) is the gate; a manual `tmb@trustmybot-rc` marketplace install against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) is an **optional spot-check** for UX scenarios the automated layer can't model (e.g. interactive AskUserQuestion responses) — handy when a change touches install, schema, or doctrine.
 
 **Phase D — stable**
 9. Final bump PR (`X.Y.Z`) → `dev`.
