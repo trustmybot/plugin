@@ -119,8 +119,8 @@ export class WorldModelGraph {
     pruneDirectories(repo, keepKeys) {
         const all = this.allDirectoriesForRepo(repo);
         const toDelete = all.filter((d) => !keepKeys.has(d.key));
+        const stmt = this.conn.prepareSync(`MATCH (d:Directory {key: $key}) DETACH DELETE d`);
         for (const d of toDelete) {
-            const stmt = this.conn.prepareSync(`MATCH (d:Directory {key: $key}) DETACH DELETE d`);
             this.conn.executeSync(stmt, { key: d.key });
         }
         return toDelete.length;
