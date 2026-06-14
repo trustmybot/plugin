@@ -12,7 +12,7 @@ import { TrajectoryDB, resolveDbPath } from './db.js';
 import { serverLog, serverLogSync } from './logger.js';
 import { startBackfill } from './embeddings/backfill.js';
 import { embed } from './embeddings/model.js';
-import { WorldModelGraph, resolveGraphDbPath } from './graph-db.js';
+import { WorldModelGraph, resolveGraphDbPath, isKuzuLockError } from './graph-db.js';
 
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
@@ -39,15 +39,19 @@ const packageVersion = readPackageVersion();
 // crash — world_model_* will return 'world-model-unavailable'; trajectory
 // workflow continues to function.
 let graph: WorldModelGraph | null = null;
+// When the open fails on kuzu write-lock contention (the cold-start prescan
+// race, #590), the constructor already retried with backoff. If it still
+// failed, record the lock-error message so scan_run reports a real
+// graph_db_open_failed instead of a phantom "scan already running" (#591).
+let graphOpenError: string | null = null;
 try {
   const graphPath = resolveGraphDbPath(dbPath);
   graph = new WorldModelGraph(graphPath);
   serverLogSync({ kind: 'graph_db_open', path: graphPath });
 } catch (e) {
-  serverLogSync({
-    kind: 'graph_db_open_failed',
-    error_message: e instanceof Error ? e.message : String(e),
-  });
+  const errorMessage = e instanceof Error ? e.message : String(e);
+  serverLogSync({ kind: 'graph_db_open_failed', error_message: errorMessage });
+  if (isKuzuLockError(e)) graphOpenError = errorMessage;
 }
 
 const server = new Server(
@@ -55,7 +59,7 @@ const server = new Server(
   { capabilities: { tools: {} } },
 );
 
-registerTools(server, db, dbPath, graph);
+registerTools(server, db, dbPath, graph, graphOpenError);
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: toolDefinitions,

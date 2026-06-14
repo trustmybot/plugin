@@ -53,6 +53,7 @@ export function registerTools(
   db: TrajectoryDB,
   dbPath = '',
   graph: WorldModelGraph | null = null,
+  graphOpenError: string | null = null,
 ): void {
   const discussions = discussionTools(db);
   const issues = issueTools(db, dbPath);
@@ -71,7 +72,7 @@ export function registerTools(
   const prComments = prCommentsTools(db);
   const composites = compositeTools(db, dbPath, graph);
   const onboard = onboardTools(db, dbPath);
-  const scan = scanTools(db, graph, dbPath);
+  const scan = scanTools(db, graph, dbPath, graphOpenError);
   const worldModel = worldModelTools(db, graph);
 
   toolDefinitions = decorateWithAgent([

@@ -90,6 +90,8 @@ while IFS= read -r line; do
       path_part=$(echo "$line" | sed -E 's/^[[:space:]]*-[[:space:]]+//')
       # Take only the first token (path), strip any " — ..." or " - ..." description.
       path_token=$(echo "$path_part" | sed -E 's/[[:space:]]+(—|-)[[:space:]].*//' | awk '{print $1}')
+      # Strip surrounding markdown backticks: `path/to/file` → path/to/file.
+      path_token=$(echo "$path_token" | sed -E 's/^`+//; s/`+$//')
       # Skip empty or non-path tokens.
       [ -n "$path_token" ] || continue
       case "$path_token" in

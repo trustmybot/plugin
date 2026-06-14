@@ -22,9 +22,13 @@ async function main() {
   let graph = null;
   try {
     const graphPath = resolveGraphDbPath(dbPath);
+    // WorldModelGraph retries with bounded backoff on kuzu write-lock
+    // contention (#590) — so this background prescan recovers if it briefly
+    // loses the cold-start race with the MCP server instead of giving up.
     graph = new WorldModelGraph(graphPath);
   } catch {
-    // kuzu unavailable — scan proceeds without world-model writes.
+    // kuzu still unavailable after retries (missing binding, or the lock
+    // never freed) — scan proceeds without world-model writes.
   }
 
   try {

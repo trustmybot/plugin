@@ -41,7 +41,7 @@ function decorateWithAgent(tools) {
         };
     });
 }
-export function registerTools(server, db, dbPath = '', graph = null) {
+export function registerTools(server, db, dbPath = '', graph = null, graphOpenError = null) {
     const discussions = discussionTools(db);
     const issues = issueTools(db, dbPath);
     const tasks = taskTools(db);
@@ -59,7 +59,7 @@ export function registerTools(server, db, dbPath = '', graph = null) {
     const prComments = prCommentsTools(db);
     const composites = compositeTools(db, dbPath, graph);
     const onboard = onboardTools(db, dbPath);
-    const scan = scanTools(db, graph, dbPath);
+    const scan = scanTools(db, graph, dbPath, graphOpenError);
     const worldModel = worldModelTools(db, graph);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,

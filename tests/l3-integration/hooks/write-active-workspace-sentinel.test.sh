@@ -16,6 +16,14 @@ run_hook() {
   echo '{}' | bash "$HOOK" 2>&1 || true
 }
 
+# Create a trajectory.db carrying the current schema (a tasks table with a
+# prompt_bearing column). The schema-mismatch fail-safe (#596) treats a DB
+# lacking that column as unresolved, so fixtures must seed the real schema
+# rather than touch an empty file.
+seed_db() {
+  sqlite3 "$1" "CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT, prompt_bearing INTEGER DEFAULT 0);"
+}
+
 # ---- sentinel writer hook tests --------------------------------------------
 
 test_case "no DB found: hook exits silently"
@@ -31,7 +39,7 @@ test_case "DB found: sentinel written at \$HOME/.claude/tmb-active-workspace"
 WS="$TMPDIR/workspace"
 DB_DIR="$WS/.claude/tmb"
 mkdir -p "$DB_DIR"
-touch "$DB_DIR/trajectory.db"
+seed_db "$DB_DIR/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB_DIR/trajectory.db"
 export HOME="$TMPDIR/fakehome2"
 mkdir -p "$HOME/.claude"
@@ -48,7 +56,7 @@ test_case "sentinel written: hook is idempotent (rewrite on each call)"
 WS="$TMPDIR/workspace2"
 DB_DIR="$WS/.claude/tmb"
 mkdir -p "$DB_DIR"
-touch "$DB_DIR/trajectory.db"
+seed_db "$DB_DIR/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB_DIR/trajectory.db"
 export HOME="$TMPDIR/fakehome3"
 mkdir -p "$HOME/.claude"
@@ -66,7 +74,7 @@ test_case "tmb_db_path: sentinel resolver finds DB (cwd unrelated)"
 WS="$TMPDIR/sentws"
 DB_DIR="$WS/.claude/tmb"
 mkdir -p "$DB_DIR"
-touch "$DB_DIR/trajectory.db"
+seed_db "$DB_DIR/trajectory.db"
 FAKE_HOME="$TMPDIR/fakehome4"
 mkdir -p "$FAKE_HOME/.claude"
 printf '%s\n' "$WS" > "$FAKE_HOME/.claude/tmb-active-workspace"
@@ -81,7 +89,7 @@ printf '%s\n' "$WS2" > "$FAKE_HOME2/.claude/tmb-active-workspace"
 WALK_DIR="$TMPDIR/walkdir"
 DB_WALK="$WALK_DIR/.claude/tmb"
 mkdir -p "$DB_WALK"
-touch "$DB_WALK/trajectory.db"
+seed_db "$DB_WALK/trajectory.db"
 result=$(cd "$WALK_DIR" && HOME="$FAKE_HOME2" bash -c ". '$QUERY_LIB'; tmb_db_path" 2>/dev/null)
 assert_eq "$DB_WALK/trajectory.db" "$result" "walk-up fallback when sentinel DB absent"
 
@@ -89,7 +97,7 @@ test_case "tmb_db_path: no sentinel, walk-up still works"
 WALK_DIR2="$TMPDIR/walkdir2"
 DB_WALK2="$WALK_DIR2/.claude/tmb"
 mkdir -p "$DB_WALK2"
-touch "$DB_WALK2/trajectory.db"
+seed_db "$DB_WALK2/trajectory.db"
 FAKE_HOME3="$TMPDIR/fakehome6"
 mkdir -p "$FAKE_HOME3/.claude"
 result=$(cd "$WALK_DIR2" && HOME="$FAKE_HOME3" bash -c ". '$QUERY_LIB'; tmb_db_path" 2>/dev/null)
@@ -99,7 +107,7 @@ test_case "tmb_db_path: TRAJECTORY_DB_PATH env wins over sentinel"
 WS3="$TMPDIR/envws"
 DB_DIR3="$WS3/.claude/tmb"
 mkdir -p "$DB_DIR3"
-touch "$DB_DIR3/trajectory.db"
+seed_db "$DB_DIR3/trajectory.db"
 OVERRIDE_DB="$TMPDIR/override.db"
 touch "$OVERRIDE_DB"
 FAKE_HOME4="$TMPDIR/fakehome7"
@@ -114,8 +122,8 @@ trap 'rm -rf "$OUTER_ROOT"' EXIT
 OUTER_DB_DIR="$OUTER_ROOT/outer/.claude/tmb"
 INNER_DB_DIR="$OUTER_ROOT/outer/inner/.claude/tmb"
 mkdir -p "$OUTER_DB_DIR" "$INNER_DB_DIR"
-touch "$OUTER_DB_DIR/trajectory.db"
-touch "$INNER_DB_DIR/trajectory.db"
+seed_db "$OUTER_DB_DIR/trajectory.db"
+seed_db "$INNER_DB_DIR/trajectory.db"
 FAKE_HOME_NOSENTINEL="$TMPDIR/fakehome_nosentinel"
 mkdir -p "$FAKE_HOME_NOSENTINEL/.claude"
 SUB_DIR="$OUTER_ROOT/outer/inner/some/sub/dir"

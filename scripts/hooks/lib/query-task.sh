@@ -30,6 +30,27 @@ _TMB_DB_PATH_CACHE=""
 #      explicitly to pin the resolution.
 # Prints the path only if the file exists; non-zero exit if no DB found.
 # Memoizes the result in _TMB_DB_PATH_CACHE for the lifetime of the process.
+# tmb_db_schema_current <db>
+# Returns 0 when <db> carries the current TMB schema, non-zero otherwise.
+# Cheap probe: the tasks table must have a prompt_bearing column — the column
+# the swe-boundary gate actually reads. A legacy ~/.claude/tmb/trajectory.db
+# from a prior schema lacks it; querying such a DB returns empty and would
+# default prompt_bearing to 0, silently denying a legitimate prompt edit.
+# Treat a schema-mismatched DB as UNRESOLVED instead.
+# When sqlite3 is unavailable the caller cannot query anyway; report current
+# (0) so resolution is not blocked on a missing tool.
+tmb_db_schema_current() {
+  local db="${1:-}"
+  [ -n "$db" ] && [ -f "$db" ] || return 1
+  tmb_have_sqlite || return 0
+  local cols
+  cols=$(tmb_sqlite_ro "$db" "SELECT name FROM pragma_table_info('tasks');")
+  case "$cols" in
+    *prompt_bearing*) return 0 ;;
+  esac
+  return 1
+}
+
 tmb_db_path() {
   if [ -n "$_TMB_DB_PATH_CACHE" ]; then
     echo "$_TMB_DB_PATH_CACHE"
@@ -60,7 +81,12 @@ tmb_db_path() {
       break
     fi
     local candidate="$dir/.claude/$plugin_name/trajectory.db"
-    [ -f "$candidate" ] && candidates+=("$candidate")
+    # Schema-mismatch fail-safe: a candidate whose tasks table lacks the
+    # prompt_bearing column is a stale legacy DB. Skip it rather than adopt
+    # it and silently default prompt_bearing to 0.
+    if [ -f "$candidate" ] && tmb_db_schema_current "$candidate"; then
+      candidates+=("$candidate")
+    fi
     dir="$(dirname "$dir")"
   done
   if [ ${#candidates[@]} -gt 0 ]; then
@@ -75,7 +101,9 @@ tmb_db_path() {
     ws=$(head -1 "$sentinel" 2>/dev/null)
     if [ -n "$ws" ]; then
       local sentinel_db="$ws/.claude/$plugin_name/trajectory.db"
-      if [ -f "$sentinel_db" ]; then
+      # Same fail-safe on the sentinel path: a stale-schema sentinel DB is
+      # treated as unresolved rather than queried-and-defaulted-to-0.
+      if [ -f "$sentinel_db" ] && tmb_db_schema_current "$sentinel_db"; then
         _TMB_DB_PATH_CACHE="$sentinel_db"
         echo "$_TMB_DB_PATH_CACHE"
         return 0

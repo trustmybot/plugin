@@ -14,6 +14,10 @@
 #   - Normalized agent role == 'swe' (non-isolated SWE running in main checkout)
 #   Enforcement surfaces (scripts/hooks/, hooks/hooks.json) are ALWAYS denied from
 #   main, even for swe — they sit above the swe permit and are never re-opened.
+#   Managed-repo scope: in a multi-repo workspace Rule 1 only guards the managed
+#   product repo (plugin_config tmb_default_repo); absolute targets in sibling
+#   repos are allowed. Empty/'.' tmb_default_repo guards the whole tree (the
+#   normal single-repo user project).
 #
 # Rule 2 — Bash write-form targeting a prompt surface from main checkout:
 #   Denied for every agent identity (bro, subagent, swe, unknown) when outside a
@@ -229,6 +233,32 @@ TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_pa
 case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
 esac
+
+# Managed-repo scope (#592): in a multi-repo workspace, Rule 1 must only guard
+# the managed product repo (plugin_config tmb_default_repo), not its siblings.
+# The DB lives at <workspace_root>/.claude/<plugin>/trajectory.db, so the
+# workspace root is three levels above DB_PATH and the managed repo is
+# <workspace_root>/<tmb_default_repo>. An absolute target outside that subtree
+# belongs to a sibling repo and is allowed. When tmb_default_repo is empty or
+# '.' (the normal single-repo user project), the whole tree is guarded as before.
+DEFAULT_REPO=""
+if command -v sqlite3 >/dev/null 2>&1; then
+  DEFAULT_REPO=$(sqlite3 -readonly -cmd '.timeout 500' "$DB_PATH" \
+    "SELECT json_extract(value_json, '\$') FROM plugin_config WHERE key='tmb_default_repo' LIMIT 1;" \
+    2>/dev/null || true)
+fi
+if [ -n "$DEFAULT_REPO" ] && [ "$DEFAULT_REPO" != "." ]; then
+  case "$TARGET" in
+    /*)
+      WORKSPACE_ROOT=$(dirname "$(dirname "$(dirname "$DB_PATH")")")
+      MANAGED_ROOT="$WORKSPACE_ROOT/$DEFAULT_REPO"
+      case "$TARGET" in
+        "$MANAGED_ROOT"/*) : ;;       # inside the managed repo — keep guarding
+        *) exit 0 ;;                  # sibling repo — outside Rule 1 scope
+      esac
+      ;;
+  esac
+fi
 
 # Enforcement surfaces: deny before any allowlist entry is evaluated.
 # No pattern — including *.md or docs/ — can re-open these paths from
