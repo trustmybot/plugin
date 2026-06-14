@@ -4,7 +4,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
-## v0.9.0-rc.1 — 2026-06-14
+## v0.9.0 — 2026-06-14
 
 Token-reduction release (cto-audited). Trims the always-on MCP tool-schema cost and per-spawn overhead; no change to workflow behavior or enforcement. Measured −3,784 B / ~1,023 tok off the always-on tool catalog, plus ~12–14K tok saved per pr-reviewer / consultant spawn.
 
