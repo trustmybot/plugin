@@ -19,14 +19,21 @@ cd "$ROOT/mcp/trajectory-server"
 TMPDIR=$(mktemp -d -t tmb-dist-fresh-XXXX)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Build into a temp outDir (without touching the committed dist/)
-if [ ! -x ./node_modules/.bin/tsc ]; then
-  echo "  ⊘ tsc not installed locally — skipping (run 'bun install' first)" >&2
+# Build into a temp outDir (without touching the committed dist/).
+# The shipped entrypoint dist/index.js is an esbuild bundle (self-contained so a
+# fresh marketplace install with no node_modules still boots the MCP, #647); the
+# rest of dist/ is plain tsc output. Reproduce both so the diff is apples-to-apples.
+if [ ! -x ./node_modules/.bin/tsc ] || [ ! -x ./node_modules/.bin/esbuild ]; then
+  echo "  ⊘ tsc/esbuild not installed locally — skipping (run 'bun install' first)" >&2
   echo "Dist-fresh: SKIPPED"
   exit 0
 fi
 
 ./node_modules/.bin/tsc --outDir "$TMPDIR" >/dev/null
+./node_modules/.bin/esbuild src/index.ts \
+  --bundle --platform=node --format=esm --target=node22 \
+  --external:kuzu --external:@huggingface/transformers \
+  --outfile="$TMPDIR/index.js" --sourcemap >/dev/null 2>&1
 cp src/schema*.sql "$TMPDIR/"
 
 # Diff (ignore .map files since their sourceRoot is path-dependent)

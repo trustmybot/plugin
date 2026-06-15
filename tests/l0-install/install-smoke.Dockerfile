@@ -32,6 +32,85 @@ COPY . /plugin
 RUN rm -rf node_modules \
            mcp/trajectory-server/node_modules
 
+# A0: COLD MCP — the shipped entrypoint must boot with ZERO node_modules.
+# A fresh `claude plugin install` leaves no node_modules (CC skips lifecycle
+# scripts), so dist/index.js MUST be a self-contained esbuild bundle with
+# @modelcontextprotocol/sdk inlined. v0.9.0 shipped a tsc-transpiled entrypoint
+# that imported the SDK as a bare external → ERR_MODULE_NOT_FOUND → MCP died →
+# bro had no backend (#647). This step runs BEFORE `bun install`, so
+# node_modules genuinely does not exist — the real fresh-install condition.
+#
+# We assert two things from one cold boot:
+#   (1) tools/list returns onboard_state_get — the server actually started.
+#   (2) NO ERR_MODULE_NOT_FOUND for @modelcontextprotocol/sdk anywhere in stderr.
+# kuzu + @huggingface/transformers stay external/lazy and degrade gracefully —
+# their ERR_MODULE_NOT_FOUND is EXPECTED here and is NOT a failure (world model
+# → world-model-unavailable, semantic search → FTS). We only reject the SDK one.
+RUN test ! -e mcp/trajectory-server/node_modules \
+ || (echo "❌ FAIL: node_modules present — cold-MCP assertion must run before bun install" && exit 1)
+RUN echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  | TRAJECTORY_DB_PATH=:memory: timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js > /tmp/cold-mcp.out 2> /tmp/cold-mcp.err; \
+  if grep -q 'ERR_MODULE_NOT_FOUND' /tmp/cold-mcp.err \
+     && grep 'ERR_MODULE_NOT_FOUND' /tmp/cold-mcp.err | grep -q '@modelcontextprotocol/sdk'; then \
+    echo "❌ FAIL: cold MCP boot hit ERR_MODULE_NOT_FOUND for @modelcontextprotocol/sdk — dist/index.js is NOT self-contained (#647). Bundle it: cd mcp/trajectory-server && bun run build"; \
+    cat /tmp/cold-mcp.err; exit 1; \
+  fi; \
+  grep -q '"name":"onboard_state_get"' /tmp/cold-mcp.out \
+   || (echo "❌ FAIL: cold MCP boot (no node_modules) did not return tools/list with onboard_state_get"; cat /tmp/cold-mcp.out /tmp/cold-mcp.err; exit 1)
+RUN echo "✓ A0: cold MCP boot with zero node_modules — dist/index.js self-contained, SDK inlined, tools/list served"
+
+# A0b: GENUINE from-scratch `claude plugin install` (Human directive, #648).
+# A0 boots the entrypoint directly from the source tree. This step proves the
+# REAL distribution path: install the actual `claude` CLI, register the
+# under-test tree as a marketplace, `claude plugin install` it, then boot the
+# MCP from the INSTALLED cache location — the same files+layout a real user
+# gets. The old L0 ran its own `bun install` (rosier than reality) and never
+# exercised the CLI's copy-into-cache path, which is why #647 was invisible.
+#
+# Why we rewrite marketplace.json to a local `"./"` source: the committed
+# .claude-plugin/marketplace.json declares the `tmb` plugin via a remote git
+# URL (gitlab .../plugin.git@main), so `claude plugin install tmb@trustmybot`
+# would CLONE published main — NOT the branch code under test. A relative
+# `"./"` source (the only local-directory form this CLI version accepts —
+# absolute path/local/directory source objects are rejected) makes the CLI
+# copy THIS tree into the cache. The container is disposable, so overwriting
+# the manifest here is safe and does not touch the committed file.
+RUN npm i -g @anthropic-ai/claude-code \
+ && command -v claude >/dev/null \
+ || (echo "❌ FAIL: claude CLI did not install" && exit 1)
+RUN node -e 'const f="/plugin/.claude-plugin/marketplace.json";const m=require(f);m.plugins=[{name:"tmb",source:"./"}];require("fs").writeFileSync(f,JSON.stringify(m,null,2))'
+RUN test ! -e mcp/trajectory-server/node_modules \
+ || (echo "❌ FAIL: node_modules present before claude plugin install — must run on a cold tree" && exit 1)
+RUN claude plugin marketplace add /plugin 2>&1 | tee /tmp/mkt-add.log \
+ && grep -q 'Successfully added marketplace' /tmp/mkt-add.log \
+ || (echo "❌ FAIL: claude plugin marketplace add /plugin failed"; cat /tmp/mkt-add.log; exit 1)
+RUN MKT=$(node -e 'process.stdout.write(require("/plugin/.claude-plugin/marketplace.json").name)'); \
+    claude plugin install "tmb@${MKT}" 2>&1 | tee /tmp/plugin-install.log; \
+    grep -q 'Successfully installed plugin' /tmp/plugin-install.log \
+     || (echo "❌ FAIL: claude plugin install tmb@${MKT} failed"; cat /tmp/plugin-install.log; exit 1)
+# Resolve the INSTALLED entrypoint from the cache (layout:
+# $HOME/.claude/plugins/cache/<marketplace>/<plugin>/<version>/mcp/...).
+# Then strip any node_modules the CLI's install created: a fresh marketplace
+# install leaves the bundle to stand on its own, with NO manual `bun install`.
+# This is the #647 fence at the real installed location.
+RUN ENTRY=$(find "$HOME/.claude/plugins/cache" -path '*/tmb/*/mcp/trajectory-server/dist/index.js' | head -n1); \
+    test -n "$ENTRY" \
+     || (echo "❌ FAIL: installed dist/index.js not found under plugins cache"; find "$HOME/.claude/plugins/cache" -maxdepth 5 -type d; exit 1); \
+    echo "Installed MCP entrypoint: $ENTRY"; \
+    INSTALL_ROOT=$(cd "$(dirname "$ENTRY")/../.." && pwd); \
+    find "$INSTALL_ROOT" -name node_modules -type d -prune -exec rm -rf {} + 2>/dev/null; \
+    rm -rf "$(cd "$INSTALL_ROOT/../.." && pwd)/node_modules"; \
+    echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+      | TRAJECTORY_DB_PATH=:memory: timeout 8 node --experimental-sqlite "$ENTRY" > /tmp/installed-mcp.out 2> /tmp/installed-mcp.err; \
+    if grep -q 'ERR_MODULE_NOT_FOUND' /tmp/installed-mcp.err \
+       && grep 'ERR_MODULE_NOT_FOUND' /tmp/installed-mcp.err | grep -q '@modelcontextprotocol/sdk'; then \
+      echo "❌ FAIL: MCP booted from the real install location hit ERR_MODULE_NOT_FOUND for @modelcontextprotocol/sdk — the published bundle is NOT self-contained (#647)"; \
+      cat /tmp/installed-mcp.err; exit 1; \
+    fi; \
+    grep -q '"name":"onboard_state_get"' /tmp/installed-mcp.out \
+     || (echo "❌ FAIL: MCP from real claude-plugin-install location did not return tools/list with onboard_state_get"; cat /tmp/installed-mcp.out /tmp/installed-mcp.err; exit 1)
+RUN echo "✓ A0b: genuine claude plugin install → MCP boots from installed cache location (no manual bun install), tools/list served, SDK inlined"
+
 # Simulate CC's plugin install path: `bun install --ignore-scripts`.
 # CC sandboxes plugin installs and DOES NOT run lifecycle scripts (postinstall,
 # preinstall, etc.) — confirmed empirically through v0.2.0 (better-sqlite3
