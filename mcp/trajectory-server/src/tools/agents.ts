@@ -57,9 +57,27 @@ const VALID_SCOPES = new Set(['global', 'template', 'project-local']);
 const RESERVED_NAME = 'bro';
 const BACKBONE_GLOBAL_ONLY = new Set(['swe', 'pr-reviewer']);
 
-// plugin root = 5 levels up from dist/tools/agents.js
-// dist/tools/agents.js → dist/tools → dist → mcp/trajectory-server → mcp → plugin root
-const PLUGIN_ROOT = dirname(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url))))));
+// Plugin root holds templates/agents/<name>.md. CC always sets
+// CLAUDE_PLUGIN_ROOT to the installed plugin's source root (L6 sets it via
+// --plugin-dir); prefer it. Fall back to walking up from this module until a
+// dir with .claude-plugin/plugin.json is found — correct for BOTH the tsc
+// layout (dist/tools/agents.js) and the esbuild bundle (dist/index.js), which
+// sit at different depths. No hardcoded dirname count.
+function resolvePluginRoot(): string {
+  const env = process.env['CLAUDE_PLUGIN_ROOT'];
+  if (env && existsSync(join(env, '.claude-plugin', 'plugin.json'))) return env;
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    if (existsSync(join(dir, '.claude-plugin', 'plugin.json'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Last resort: trust CLAUDE_PLUGIN_ROOT even without a verified manifest.
+  return env ?? dirname(fileURLToPath(import.meta.url));
+}
+
+const PLUGIN_ROOT = resolvePluginRoot();
 
 function resolveWorkspaceRoot(dbPath: string): string {
   if (!dbPath || dbPath === ':memory:') return '';

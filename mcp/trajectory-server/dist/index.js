@@ -25523,7 +25523,19 @@ var VALID_KINDS = /* @__PURE__ */ new Set(["backbone", "consultant"]);
 var VALID_SCOPES4 = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
 var RESERVED_NAME = "bro";
 var BACKBONE_GLOBAL_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
-var PLUGIN_ROOT = dirname4(dirname4(dirname4(dirname4(dirname4(fileURLToPath2(import.meta.url))))));
+function resolvePluginRoot() {
+  const env = process.env["CLAUDE_PLUGIN_ROOT"];
+  if (env && existsSync2(join6(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname4(fileURLToPath2(import.meta.url));
+  for (; ; ) {
+    if (existsSync2(join6(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname4(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return env ?? dirname4(fileURLToPath2(import.meta.url));
+}
+var PLUGIN_ROOT = resolvePluginRoot();
 function resolveWorkspaceRoot(dbPath2) {
   if (!dbPath2 || dbPath2 === ":memory:") return "";
   return dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "");
