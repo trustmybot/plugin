@@ -4,6 +4,13 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.9.2-rc.1 — 2026-06-15
+
+Headless enforcement for marketplace installs.
+
+### Fixed
+- **Headless hook enforcement** (#661): marketplace-installed plugin hooks don't fire in headless `claude -p` (Claude Code activates plugin hooks via the interactive trust dialog, which `-p` skips). TMB's doctrine enforcement is its PreToolUse hooks (the no-source-edit hook forces bro to dispatch swe), so headless/CI users on a marketplace install previously got no enforcement and bro could edit source directly. `/onboard` (`onboard_apply`) now writes a TMB-managed PreToolUse hooks block into `~/.claude/settings.json` — settings.json hooks DO fire headless. Derived from the plugin's own `hooks/hooks.json` (PreToolUse only, plugin-root resolved to an absolute path), idempotent, preserves user hooks, and never fails onboarding.
+
 ## v0.9.1 — 2026-06-15
 
 Fresh-install reliability. No workflow or enforcement changes.
