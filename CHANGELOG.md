@@ -4,6 +4,11 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.9.2-rc.2 — 2026-06-15
+
+### Fixed
+- **Headless enforcement shim now actually enforces** (#661): rc.1 wrote the PreToolUse hooks to `~/.claude/settings.json` but they didn't fire — `swe-brief-gate` ran first in the chain and short-circuited before `no-source-edit-from-main`. The shim now excludes advisory/short-circuiting hooks so `no-source-edit-from-main` runs first and denies (end-to-end verified: a direct source edit is blocked under headless `claude -p`). Idempotency now keys on a `_tmb_managed` sentinel (not a `/tmb/` path substring, which missed dev/worktree paths and could accumulate entries), and the shim refuses to write when the plugin root is a dev worktree.
+
 ## v0.9.2-rc.1 — 2026-06-15
 
 Headless enforcement for marketplace installs.
