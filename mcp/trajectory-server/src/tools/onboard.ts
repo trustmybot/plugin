@@ -14,6 +14,10 @@
 // rules live here, not in the skill.
 
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import os from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
@@ -21,6 +25,25 @@ import type { Provider } from '../utils/classify-url.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { writeHeadlessEnforcementShim } from './onboard-hooks-shim.js';
+
+// Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
+// have .claude-plugin/plugin.json), else walk up from this module until that
+// manifest is found — correct for both the tsc layout (dist/tools/onboard.js)
+// and the esbuild bundle (dist/index.js). Returns null if unresolvable so the
+// headless shim can skip gracefully.
+function resolvePluginRoot(): string | null {
+  const env = process.env['CLAUDE_PLUGIN_ROOT'];
+  if (env && existsSync(join(env, '.claude-plugin', 'plugin.json'))) return env;
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    if (existsSync(join(dir, '.claude-plugin', 'plugin.json'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -656,6 +679,15 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
             [pr_target, branching_model, JSON.stringify(protected_branches)],
           );
         });
+
+        // Best-effort: write TMB PreToolUse hooks into the user settings.json so
+        // enforcement fires in headless `claude -p` under a marketplace install
+        // (plugin hooks don't fire there). A failure must NOT fail onboarding.
+        try {
+          writeHeadlessEnforcementShim({ pluginRoot: resolvePluginRoot(), homeDir: os.homedir() });
+        } catch {
+          // Shim is best-effort; onboarding still succeeds.
+        }
 
         return ok({
           ok: true,
