@@ -8,6 +8,7 @@
 # Allowed exceptions (historical migration + guard itself):
 #  - mcp/trajectory-server/src/db.ts — migrateV7toV8 DROP TABLE (historical)
 #  - mcp/trajectory-server/dist/db.js — compiled output of the above
+#  - mcp/trajectory-server/dist/index.js — esbuild bundle inlining the above
 #  - docs/architecture/WORLD_MODEL.md — 'What was replaced' context
 #  - CHANGELOG.md — accurate history
 #  - tests/l1-lint/no-directories-table-refs.sh — this script itself
@@ -32,6 +33,7 @@ while IFS= read -r f; do
   case "$f" in
     mcp/trajectory-server/src/db.ts) continue;;
     mcp/trajectory-server/dist/db.js) continue;;
+    mcp/trajectory-server/dist/index.js) continue;;
     docs/architecture/WORLD_MODEL.md) continue;;
     CHANGELOG.md) continue;;
     tests/l1-lint/no-directories-table-refs.sh) continue;;

@@ -4,6 +4,17 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.9.1 — 2026-06-15
+
+Fresh-install reliability. No workflow or enforcement changes.
+
+### Fixed
+- **Fresh-install MCP server** (#647): the trajectory-server's shipped `dist/index.js` is now a self-contained esbuild bundle (`@modelcontextprotocol/sdk` inlined; `kuzu` + `@huggingface/transformers` kept external/lazy). A fresh marketplace install with no `node_modules` now starts the MCP server immediately — previously it failed to resolve the SDK, leaving the trajectory backend and world model dead until a later restart. The world model still lazy-loads via `ensure-kuzu-installed.sh` and degrades gracefully (FTS) in the interim.
+- **release.sh canary timeout** (#643): the L0 install-smoke canary `docker build` is wrapped in `timeout` (`${TMB_CANARY_TIMEOUT:-600}`) so a stalled buildkit can't hang a release.
+
+### Tests
+- **L0 genuine from-scratch install** (#648): install-smoke now performs a real `claude plugin install` from the under-test tree and asserts the MCP boots from the installed location with no manual dependency install — closing the coverage gap that let #647 ship — plus a committed-dist cold-boot guard.
+
 ## v0.9.0 — 2026-06-14
 
 Token-reduction release (cto-audited). Trims the always-on MCP tool-schema cost and per-spawn overhead; no change to workflow behavior or enforcement. Measured −3,784 B / ~1,023 tok off the always-on tool catalog, plus ~12–14K tok saved per pr-reviewer / consultant spawn.
