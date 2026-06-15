@@ -209,16 +209,27 @@ if confirm "Step 4: Run L5 release canary (re-clone tag in Docker, run install-s
     printf "  Cloning %s into %s ...\n" "$NEW_TAG" "$CANARY_DIR"
     if git clone --quiet --depth 1 --branch "$NEW_TAG" \
         "https://github.com/trustmybot/plugin.git" "$CANARY_DIR/plugin"; then
-      if (cd "$CANARY_DIR/plugin" && docker build \
+      # Wrap the build in `timeout` so a stalled buildkit can't hang the release
+      # indefinitely (#643). Default 600s; override with TMB_CANARY_TIMEOUT.
+      CANARY_TIMEOUT="${TMB_CANARY_TIMEOUT:-600}"
+      if (cd "$CANARY_DIR/plugin" && timeout "$CANARY_TIMEOUT" docker build \
             -f tests/l0-install/install-smoke.Dockerfile \
             -t "tmb-canary-$NEW_VERSION" \
             --quiet .); then
         printf "  ✓ Canary PASSED — published %s installs cleanly from a fresh clone\n\n" "$NEW_TAG"
       else
-        printf "\n  ⚠️  CANARY FAILED — published %s does NOT install cleanly!\n" "$NEW_TAG" >&2
-        printf "     The release is public but broken. Investigate before announcing.\n" >&2
-        printf "     Likely causes: .gitignore excluded something needed; postinstall regression;\n" >&2
-        printf "     bun.lock out of sync; etc.\n" >&2
+        rc=$?
+        if [ "$rc" -eq 124 ]; then
+          printf "\n  ⚠️  CANARY TIMED OUT after %ss — docker build did not finish.\n" "$CANARY_TIMEOUT" >&2
+          printf "     The release %s is already public; the canary is INCONCLUSIVE, not green.\n" "$NEW_TAG" >&2
+          printf "     Re-run manually before announcing: bash tests/l0-install/run-install-smoke.sh\n" >&2
+          printf "     (raise the budget with TMB_CANARY_TIMEOUT=<seconds> if the build is just slow).\n" >&2
+        else
+          printf "\n  ⚠️  CANARY FAILED — published %s does NOT install cleanly!\n" "$NEW_TAG" >&2
+          printf "     The release is public but broken. Investigate before announcing.\n" >&2
+          printf "     Likely causes: .gitignore excluded something needed; postinstall regression;\n" >&2
+          printf "     bun.lock out of sync; etc.\n" >&2
+        fi
         exit 1
       fi
     else

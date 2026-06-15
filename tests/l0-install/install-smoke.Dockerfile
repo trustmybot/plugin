@@ -32,6 +32,33 @@ COPY . /plugin
 RUN rm -rf node_modules \
            mcp/trajectory-server/node_modules
 
+# A0: COLD MCP — the shipped entrypoint must boot with ZERO node_modules.
+# A fresh `claude plugin install` leaves no node_modules (CC skips lifecycle
+# scripts), so dist/index.js MUST be a self-contained esbuild bundle with
+# @modelcontextprotocol/sdk inlined. v0.9.0 shipped a tsc-transpiled entrypoint
+# that imported the SDK as a bare external → ERR_MODULE_NOT_FOUND → MCP died →
+# bro had no backend (#647). This step runs BEFORE `bun install`, so
+# node_modules genuinely does not exist — the real fresh-install condition.
+#
+# We assert two things from one cold boot:
+#   (1) tools/list returns onboard_state_get — the server actually started.
+#   (2) NO ERR_MODULE_NOT_FOUND for @modelcontextprotocol/sdk anywhere in stderr.
+# kuzu + @huggingface/transformers stay external/lazy and degrade gracefully —
+# their ERR_MODULE_NOT_FOUND is EXPECTED here and is NOT a failure (world model
+# → world-model-unavailable, semantic search → FTS). We only reject the SDK one.
+RUN test ! -e mcp/trajectory-server/node_modules \
+ || (echo "❌ FAIL: node_modules present — cold-MCP assertion must run before bun install" && exit 1)
+RUN echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  | TRAJECTORY_DB_PATH=:memory: timeout 8 node --experimental-sqlite mcp/trajectory-server/dist/index.js > /tmp/cold-mcp.out 2> /tmp/cold-mcp.err; \
+  if grep -q 'ERR_MODULE_NOT_FOUND' /tmp/cold-mcp.err \
+     && grep 'ERR_MODULE_NOT_FOUND' /tmp/cold-mcp.err | grep -q '@modelcontextprotocol/sdk'; then \
+    echo "❌ FAIL: cold MCP boot hit ERR_MODULE_NOT_FOUND for @modelcontextprotocol/sdk — dist/index.js is NOT self-contained (#647). Bundle it: cd mcp/trajectory-server && bun run build"; \
+    cat /tmp/cold-mcp.err; exit 1; \
+  fi; \
+  grep -q '"name":"onboard_state_get"' /tmp/cold-mcp.out \
+   || (echo "❌ FAIL: cold MCP boot (no node_modules) did not return tools/list with onboard_state_get"; cat /tmp/cold-mcp.out /tmp/cold-mcp.err; exit 1)
+RUN echo "✓ A0: cold MCP boot with zero node_modules — dist/index.js self-contained, SDK inlined, tools/list served"
+
 # Simulate CC's plugin install path: `bun install --ignore-scripts`.
 # CC sandboxes plugin installs and DOES NOT run lifecycle scripts (postinstall,
 # preinstall, etc.) — confirmed empirically through v0.2.0 (better-sqlite3
