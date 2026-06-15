@@ -4,7 +4,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
-## v0.9.1-rc.1 — 2026-06-15
+## v0.9.1 — 2026-06-15
 
 Fresh-install reliability. No workflow or enforcement changes.
 
