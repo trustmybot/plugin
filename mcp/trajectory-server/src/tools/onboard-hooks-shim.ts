@@ -11,13 +11,14 @@
 // under double-fire.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { serverLog } from '../logger.js';
 
 interface HookCommand {
   type: string;
   command: string;
   timeout?: number;
+  _tmb_managed?: boolean;
 }
 
 interface HookGroup {
@@ -27,10 +28,36 @@ interface HookGroup {
 
 const PLUGIN_ROOT_PLACEHOLDER = '${CLAUDE_PLUGIN_ROOT}';
 
-// A resolved command path is a prior TMB entry when it lives under a TMB plugin
-// hooks dir — i.e. it contains both /tmb/ and /scripts/hooks/.
-function isTmbHookCommand(command: string): boolean {
-  return command.includes('/tmb/') && command.includes('/scripts/hooks/');
+// Every TMB-managed hook entry is stamped with `_tmb_managed: true`. The
+// idempotency purge keys on THIS field, never on a path substring: dev/worktree
+// command paths (e.g. .claude/worktrees/X/scripts/hooks/...) contain no /tmb/
+// segment, so a substring purge missed them and every re-run appended (the
+// 543KB/2268-entry accumulation incident). CC ignores unknown hook-object keys.
+
+// As a settings-hook chain, the FIRST hook in a matcher group that returns a
+// decision short-circuits the rest. hooks.json lists advisory / allow-returning
+// hooks ahead of the deny-capable gates (e.g. swe-brief-gate before
+// no-source-edit-from-main in the Edit|Write group), so copied verbatim they
+// would swallow the deny. We exclude these advisory hooks by script basename so
+// the deny-capable enforcement gates run first (no-source-edit-from-main becomes
+// first in its group). Keep all genuine deny gates: no-source-edit-from-main,
+// swe-boundary, swe-scope-fence, git-guards, git-push-guard,
+// no-worktree-branch-create, stay-on-base-guard, no-remote-auth-guard,
+// agent-spawn-dispatch, swe-verification-gate, auq-headless-deny,
+// roundtable-auq-shape.
+const ADVISORY_HOOK_DENYLIST = new Set([
+  'swe-brief-gate.sh',
+  'naming-lint.sh',
+  'code-quality-lint.sh',
+  'commit-msg-lint.sh',
+  'askuserquestion-length-lint.sh',
+  'branch-up-to-date-with-remote.sh',
+  'debug-trajectory.sh',
+]);
+
+function basename(command: string): string {
+  const parts = command.split('/');
+  return parts[parts.length - 1] ?? command;
 }
 
 function readPreToolUseFromHooksJson(pluginRoot: string): HookGroup[] | null {
@@ -47,27 +74,36 @@ function readPreToolUseFromHooksJson(pluginRoot: string): HookGroup[] | null {
   return pre;
 }
 
-// Substitute ${CLAUDE_PLUGIN_ROOT} with the absolute plugin root in every
-// command, producing fresh TMB-managed PreToolUse groups.
+// Build fresh TMB-managed PreToolUse groups: drop advisory/allow-returning hooks
+// (so deny gates run first), substitute ${CLAUDE_PLUGIN_ROOT} with the absolute
+// plugin root, stamp every entry with the sentinel, and drop any matcher group
+// left empty. hooks.json order is preserved within each matcher.
 function buildTmbGroups(pre: HookGroup[], pluginRoot: string): HookGroup[] {
-  return pre.map((group) => ({
-    ...(group.matcher !== undefined ? { matcher: group.matcher } : {}),
-    hooks: (group.hooks ?? []).map((h) => ({
-      ...h,
-      command: h.command.split(PLUGIN_ROOT_PLACEHOLDER).join(pluginRoot),
-    })),
-  }));
+  const groups: HookGroup[] = [];
+  for (const group of pre) {
+    const hooks = (group.hooks ?? [])
+      .filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename(h.command)))
+      .map((h) => ({
+        type: h.type,
+        command: h.command.split(PLUGIN_ROOT_PLACEHOLDER).join(pluginRoot),
+        ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
+        _tmb_managed: true,
+      }));
+    if (hooks.length === 0) continue;
+    groups.push({
+      ...(group.matcher !== undefined ? { matcher: group.matcher } : {}),
+      hooks,
+    });
+  }
+  return groups;
 }
 
-// Remove any existing PreToolUse hook command entries that resolve to a prior
-// TMB hooks dir, dropping now-empty matcher groups. Non-TMB user entries are
-// preserved untouched.
+// Remove every prior TMB-managed entry by sentinel, dropping now-empty matcher
+// groups. Non-TMB user entries are preserved untouched.
 function purgeTmbEntries(pre: HookGroup[]): HookGroup[] {
   const cleaned: HookGroup[] = [];
   for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter(
-      (h) => !(h.type === 'command' && typeof h.command === 'string' && isTmbHookCommand(h.command)),
-    );
+    const hooks = (group.hooks ?? []).filter((h) => h._tmb_managed !== true);
     if (hooks.length === 0) continue;
     cleaned.push({ ...group, hooks });
   }
@@ -82,6 +118,16 @@ export function writeHeadlessEnforcementShim(opts: {
 
   if (!pluginRoot) {
     const reason = 'plugin root unresolvable';
+    serverLog({ event: 'onboard_hooks_shim_skip', reason });
+    return { written: false, reason };
+  }
+
+  // Never write the real ~/.claude/settings.json from a dev/worktree context.
+  // A plugin root under .claude/worktrees/ means we're running an SWE worktree
+  // build, not a real install; writing there polluted the dev box's settings
+  // (the 2268-entry incident). Skip — onboard still reports ok.
+  if (pluginRoot.includes('/.claude/worktrees/')) {
+    const reason = 'plugin-root-in-worktree';
     serverLog({ event: 'onboard_hooks_shim_skip', reason });
     return { written: false, reason };
   }
