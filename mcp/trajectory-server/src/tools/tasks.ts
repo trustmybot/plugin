@@ -69,6 +69,39 @@ function validateParentBranchId(branchId: string): void {
   );
 }
 
+// Typed Rails (#673): validate the per-task files[]/verification[] fields at the
+// MCP boundary. Flat schema (no oneOf/allOf/anyOf): each field, when present,
+// must be a non-empty array of non-empty strings. Throws a named error so the
+// model can retry with a corrected shape. Returns the normalized arrays
+// (omitted/undefined → empty array, which disables the corresponding hook).
+function validateTypedRailsFields(t: TaskInput): { files: string[]; verification: string[] } {
+  const checkStringArray = (value: unknown, field: 'files' | 'verification'): string[] => {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be an array of strings, got ${typeof value}.`,
+      );
+    }
+    if (value.length === 0) {
+      throw new Error(
+        `typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be a non-empty array when provided (omit the field entirely to disable the ${field === 'files' ? 'scope fence' : 'verification gate'}).`,
+      );
+    }
+    for (const el of value) {
+      if (typeof el !== 'string' || el.trim().length === 0) {
+        throw new Error(
+          `typed_field_violation: task branch_id='${t.branch_id}' — every '${field}' entry must be a non-empty string.`,
+        );
+      }
+    }
+    return value as string[];
+  };
+  return {
+    files: checkStringArray(t.files, 'files'),
+    verification: checkStringArray(t.verification, 'verification'),
+  };
+}
+
 // Allowed target statuses for swe. SWE may only set running, completed, or
 // failed — pre-execution states (pending, escalated) are bro-managed; 'closed'
 // is bro's atomic-close transition; 'needs_validation' is not a valid SWE
@@ -227,6 +260,24 @@ export function taskTools(db: TrajectoryDB): {
                     'Set to 1 when this task intentionally modifies prompt-surface files ' +
                     '(agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, etc.). ' +
                     'The swe-boundary hook checks this flag before blocking prompt-surface writes. Default 0.',
+                },
+                files: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description:
+                    'Typed Rails (#673): scope-fence allowlist — the path-like strings SWE is ' +
+                    'allowed to edit for this task. The swe-scope-fence hook reads this column ' +
+                    'directly (no longer scrapes ## Files markdown). Non-empty array of paths. ' +
+                    'Persisted as a JSON array. An empty/omitted array disables scope enforcement.',
+                },
+                verification: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description:
+                    'Typed Rails (#673): verification commands run by the swe-verification-gate hook ' +
+                    'in the task worktree before SWE may flip the task to completed (no longer scrapes ' +
+                    '## Verification markdown). Non-empty array of shell command strings. Persisted as ' +
+                    'a JSON array. An empty/omitted array disables verification enforcement.',
                 },
               },
               required: ['branch_id', 'description'],
@@ -651,6 +702,9 @@ export function taskTools(db: TrajectoryDB): {
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error('Missing required arg: branch_id');
         validateBranchId(t.branch_id);
+        // Typed Rails (#673): reject bad files[]/verification[] shape before any
+        // side effects (branch auto-create / INSERT). Named error → model retries.
+        validateTypedRailsFields(t);
 
         let effectiveRepoName: string | null = null;
         if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
@@ -758,11 +812,13 @@ export function taskTools(db: TrajectoryDB): {
           }
 
           const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
+          const { files: typedFiles, verification: typedVerification } =
+            validateTypedRailsFields(t);
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
+                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
@@ -772,6 +828,8 @@ export function taskTools(db: TrajectoryDB): {
               t.spec_body ?? '',
               repoValue,
               promptBearing,
+              JSON.stringify(typedFiles),
+              JSON.stringify(typedVerification),
               now,
               now,
             ],

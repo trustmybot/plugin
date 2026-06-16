@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 12;
+var TARGET_SCHEMA_VERSION = 13;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21173,6 +21173,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 12 && toVersion >= 12) {
     migrateV11toV12(db2);
   }
+  if (fromVersion < 13 && toVersion >= 13) {
+    migrateV12toV13(db2);
+  }
 }
 function hasColumn(db2, table, column) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
@@ -21308,6 +21311,26 @@ function migrateV11toV12(db2) {
     if (tableExists(db2, "agent_runs")) {
       if (!hasColumn(db2, "agent_runs", "usage_baseline_json")) {
         db2.exec("ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT");
+      }
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  }
+}
+function migrateV12toV13(db2) {
+  db2.exec("BEGIN");
+  try {
+    if (tableExists(db2, "tasks")) {
+      if (!hasColumn(db2, "tasks", "files")) {
+        db2.exec("ALTER TABLE tasks ADD COLUMN files TEXT NOT NULL DEFAULT '[]'");
+      }
+      if (!hasColumn(db2, "tasks", "verification")) {
+        db2.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
       }
     }
     db2.exec("COMMIT");
@@ -23517,6 +23540,33 @@ function validateParentBranchId(branchId) {
     `Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`
   );
 }
+function validateTypedRailsFields(t) {
+  const checkStringArray = (value, field) => {
+    if (value === void 0 || value === null) return [];
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field}' must be an array of strings, got ${typeof value}.`
+      );
+    }
+    if (value.length === 0) {
+      throw new Error(
+        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field}' must be a non-empty array when provided (omit the field entirely to disable the ${field === "files" ? "scope fence" : "verification gate"}).`
+      );
+    }
+    for (const el of value) {
+      if (typeof el !== "string" || el.trim().length === 0) {
+        throw new Error(
+          `typed_field_violation: task branch_id='${t.branch_id}' \u2014 every '${field}' entry must be a non-empty string.`
+        );
+      }
+    }
+    return value;
+  };
+  return {
+    files: checkStringArray(t.files, "files"),
+    verification: checkStringArray(t.verification, "verification")
+  };
+}
 var SWE_ALLOWED_TARGET_STATUSES = /* @__PURE__ */ new Set(["running", "completed", "failed"]);
 var SWE_LOCKED_SOURCE_STATES = /* @__PURE__ */ new Set(["closed", "escalated"]);
 function ensureBranchInRepo(branchId, repoPath, parentBranchId) {
@@ -23625,6 +23675,16 @@ function taskTools(db2) {
                 prompt_bearing: {
                   type: "number",
                   description: "Set to 1 when this task intentionally modifies prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, etc.). The swe-boundary hook checks this flag before blocking prompt-surface writes. Default 0."
+                },
+                files: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Typed Rails (#673): scope-fence allowlist \u2014 the path-like strings SWE is allowed to edit for this task. The swe-scope-fence hook reads this column directly (no longer scrapes ## Files markdown). Non-empty array of paths. Persisted as a JSON array. An empty/omitted array disables scope enforcement."
+                },
+                verification: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Typed Rails (#673): verification commands run by the swe-verification-gate hook in the task worktree before SWE may flip the task to completed (no longer scrapes ## Verification markdown). Non-empty array of shell command strings. Persisted as a JSON array. An empty/omitted array disables verification enforcement."
                 }
               },
               required: ["branch_id", "description"]
@@ -23946,6 +24006,7 @@ function taskTools(db2) {
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error("Missing required arg: branch_id");
         validateBranchId(t.branch_id);
+        validateTypedRailsFields(t);
         let effectiveRepoName = null;
         if (t.repo !== void 0 && t.repo !== null && t.repo !== "") {
           const repo = t.repo;
@@ -24032,11 +24093,12 @@ function taskTools(db2) {
             if (parentBranchId == null) parentBranchId = "main";
           }
           const promptBearing = typeof t.prompt_bearing === "number" && t.prompt_bearing === 1 ? 1 : 0;
+          const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
+                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
@@ -24046,6 +24108,8 @@ function taskTools(db2) {
               t.spec_body ?? "",
               repoValue,
               promptBearing,
+              JSON.stringify(typedFiles),
+              JSON.stringify(typedVerification),
               now,
               now
             ]

@@ -2,9 +2,9 @@
 # Tests for scripts/hooks/swe-verification-gate.sh
 #
 # Hook contract: PreToolUse gate on task_update_status(agent=swe, status=completed).
-# Extracts ## Verification block from spec_body, runs each command in the
-# task worktree. Deny on non-zero exit or total timeout. Allow on pass, no block,
-# or valid waiver.
+# Reads the typed `verification` column (JSON array of command strings, Typed
+# Rails #673), runs each command in the task worktree. Deny on non-zero exit or
+# total timeout. Allow on pass, empty array, or valid waiver.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,7 +46,8 @@ sqlite3 "$DB" "
     issue_id INTEGER NOT NULL REFERENCES issues(id),
     branch_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
-    spec_body TEXT NOT NULL DEFAULT ''
+    spec_body TEXT NOT NULL DEFAULT '',
+    verification TEXT NOT NULL DEFAULT '[]'
   );
   CREATE TABLE audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,10 +60,10 @@ sqlite3 "$DB" "
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
-  INSERT INTO tasks VALUES (1, 1, 'feat/my-feature', 'pending', '## Verification' || char(10) || 'bash tests/run.sh' || char(10));
-  INSERT INTO tasks VALUES (2, 1, 'feat/no-verify', 'pending', '## Description' || char(10) || 'No verification block here.' || char(10));
-  INSERT INTO tasks VALUES (3, 1, 'feat/fail-verify', 'pending', '## Verification' || char(10) || 'exit 1' || char(10));
-  INSERT INTO tasks VALUES (4, 1, 'feat/multi-cmd', 'pending', '## Verification' || char(10) || 'echo ok' || char(10) || 'exit 0' || char(10));
+  INSERT INTO tasks VALUES (1, 1, 'feat/my-feature', 'pending', '', '[\"bash tests/run.sh\"]');
+  INSERT INTO tasks VALUES (2, 1, 'feat/no-verify', 'pending', '', '[]');
+  INSERT INTO tasks VALUES (3, 1, 'feat/fail-verify', 'pending', '', '[\"exit 1\"]');
+  INSERT INTO tasks VALUES (4, 1, 'feat/multi-cmd', 'pending', '', '[\"echo ok\",\"exit 0\"]');
 "
 
 # Create a passing test runner in the worktree.
@@ -101,12 +102,12 @@ test_case "SWE setting status=failed: allowed"
 out=$(run_hook "$(make_input swe failed 1)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "status=failed should not trigger gate"
 
-# ---- No ## Verification block: allow with advisory --------------------------
-test_case "SWE completing task with no ## Verification block: allowed with advisory"
+# ---- Empty typed verification[]: allow with advisory ------------------------
+test_case "SWE completing task with empty typed verification[]: allowed with advisory"
 out=$(run_hook "$(make_input swe completed 2)")
-assert_not_contains "$out" '"permissionDecision":"deny"' "no verification block should allow"
+assert_not_contains "$out" '"permissionDecision":"deny"' "empty verification[] should allow"
 assert_contains "$out" "additionalContext" "should emit advisory additionalContext"
-assert_contains "$out" "no ## Verification block" "advisory should mention missing block"
+assert_contains "$out" "no typed verification" "advisory should mention missing typed field"
 
 # ---- Passing verification: allowed ------------------------------------------
 test_case "SWE completing task with passing verification: allowed"
@@ -154,8 +155,7 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "no DB should allow"
 # ---- Timeout: DENIED --------------------------------------------------------
 test_case "Verification timeout: DENIED"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (99, 1, 'feat/slow-test', 'pending',
-    '## Verification' || char(10) || 'sleep 5' || char(10) || 'echo done' || char(10));
+  INSERT INTO tasks VALUES (99, 1, 'feat/slow-test', 'pending', '', '[\"sleep 5\",\"echo done\"]');
 "
 mkdir -p "$WT_ROOT/slow-test"
 out=$(cd "$REPO_DIR" && \
@@ -192,43 +192,33 @@ assert_contains "$ROW" "it's a doc-only change" "stored content_json should reta
 EXTRACTED=$(sqlite3 "$DB" "SELECT json_extract(content_json, '\$.waiver_reason') FROM audit WHERE event_type='verification_gate_waived' ORDER BY id DESC LIMIT 1;")
 assert_contains "$EXTRACTED" "can't run here" "content_json should be valid JSON (json_extract works)"
 
-# ---- Bullet+backtick verification: passing -----------------------------------
-# Spec writes:  ## Verification\n- `echo ok`\n- `exit 0`
-test_case "bullet+backtick ## Verification block: all pass → allowed"
+# ---- Multi-command typed verification[]: passing -----------------------------
+test_case "multi-command typed verification[]: all pass → allowed"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (10, 1, 'feat/bullet-pass', 'pending',
-    '## Verification' || char(10) ||
-    '- \`echo bullet-ok\`' || char(10) ||
-    '- \`exit 0\`' || char(10));
+  INSERT INTO tasks VALUES (10, 1, 'feat/typed-pass', 'pending', '', '[\"echo typed-ok\",\"exit 0\"]');
 "
-mkdir -p "$WT_ROOT/bullet-pass"
+mkdir -p "$WT_ROOT/typed-pass"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 10)")
-assert_not_contains "$out" '"permissionDecision":"deny"' "bullet+backtick all-pass should allow"
+assert_not_contains "$out" '"permissionDecision":"deny"' "typed multi-command all-pass should allow"
 
-# ---- Bullet+backtick verification: failing -----------------------------------
-# Spec writes:  ## Verification\n- `exit 1`
-test_case "bullet+backtick ## Verification block: failing cmd → DENIED"
+# ---- Typed verification[]: failing command -----------------------------------
+test_case "typed verification[]: failing command → DENIED"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (11, 1, 'feat/bullet-fail', 'pending',
-    '## Verification' || char(10) ||
-    '- \`exit 1\`' || char(10));
+  INSERT INTO tasks VALUES (11, 1, 'feat/typed-fail', 'pending', '', '[\"exit 1\"]');
 "
-mkdir -p "$WT_ROOT/bullet-fail"
+mkdir -p "$WT_ROOT/typed-fail"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 11)")
-assert_contains "$out" '"permissionDecision":"deny"' "bullet+backtick failing cmd should deny"
+assert_contains "$out" '"permissionDecision":"deny"' "typed failing cmd should deny"
 assert_contains "$out" "verification failed" "deny reason should say verification failed"
 
-# ---- Bullet-only (no backticks) verification: passing ------------------------
-test_case "bullet-only (no backticks) ## Verification block: all pass → allowed"
+# ---- Typed verification[] with shell metacharacters in a command -------------
+test_case "typed verification[]: command with pipes/redirects runs verbatim → allowed"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (12, 1, 'feat/bullet-bare-pass', 'pending',
-    '## Verification' || char(10) ||
-    '- echo bare-ok' || char(10) ||
-    '- exit 0' || char(10));
+  INSERT INTO tasks VALUES (12, 1, 'feat/typed-shell', 'pending', '', '[\"echo a | grep a\"]');
 "
-mkdir -p "$WT_ROOT/bullet-bare-pass"
+mkdir -p "$WT_ROOT/typed-shell"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 12)")
-assert_not_contains "$out" '"permissionDecision":"deny"' "bare-bullet all-pass should allow"
+assert_not_contains "$out" '"permissionDecision":"deny"' "shell-metachar command should run and pass"
 
 # ---- Workspace-above-repo layout: gate runs (no skip warning) ----------------
 # Layout: ws/.claude/tmb/trajectory.db  +  ws/.claude/worktrees/<slug>/
@@ -237,9 +227,7 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "bare-bullet all-pass s
 # With the new DB-derived resolution the gate finds ws/.claude/worktrees/.
 test_case "workspace-above-repo layout: gate resolves worktree and runs (no skip)"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (20, 1, 'feat/ws-above-repo', 'pending',
-    '## Verification' || char(10) ||
-    'echo ws-above-repo-ok' || char(10));
+  INSERT INTO tasks VALUES (20, 1, 'feat/ws-above-repo', 'pending', '', '[\"echo ws-above-repo-ok\"]');
 "
 mkdir -p "$WT_ROOT/ws-above-repo"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 20)")

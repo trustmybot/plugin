@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/swe-scope-fence.sh
 #
-# Hook contract: deny edits outside the task's ## Files dirs in SWE worktrees.
+# Hook contract: deny edits outside the task's typed files[] dirs in SWE
+# worktrees. The hook reads the typed `files` column (JSON array, Typed Rails
+# #673), NOT ## Files markdown.
 #
 # Scenarios:
 #   - in-scope edit (path under an allowed dir) → passes
 #   - out-of-scope edit → denied with allowed dirs + recovery message
 #   - no-task (worktree slug not in DB) → passes (fail open)
-#   - malformed ## Files section → passes (fail open)
+#   - empty typed files[] → passes (skip with advisory)
 #   - dir-granularity: file listed → its directory is the allowed scope
 #   - root-level file listed → only that exact file is allowed (no dir promotion)
-#   - tests/ path always allowed when ## Files includes a tests/ parent
+#   - tests/ path always allowed when files[] includes a tests/ parent
 #   - non-worktree PWD → passes (hook is not in SWE worktree context)
 set -euo pipefail
 
@@ -31,67 +33,11 @@ WT_A="$WT_ROOT/task-alpha"
 WT_B="$WT_ROOT/task-beta"
 mkdir -p "$WT_A" "$WT_B"
 
-# Fixture spec bodies.
-SPEC_WITH_FILES="## Description
-Some task.
-
-## Files
-- scripts/hooks/my-hook.sh — new hook
-- tests/l3-integration/hooks/my-hook.test.sh — tests
-
-## Success Criteria
-- Works
-"
-
-SPEC_MULTIDIR="## Description
-Multi-dir task.
-
-## Files
-- src/api/handler.ts — new handler
-- src/lib/util.ts — utility
-- tests/unit/handler.test.ts — unit tests
-
-## Success Criteria
-- Works
-"
-
-SPEC_NO_FILES="## Description
-Task with no files section.
-
-## Success Criteria
-- Works
-"
-
-SPEC_MALFORMED="## Description
-Task.
-
-## Files
-This section has no bullet points, just prose.
-
-## Success Criteria
-- Works
-"
-
-SPEC_ROOT_FILE="## Description
-Task.
-
-## Files
-- Makefile — build system
-
-## Success Criteria
-- Works
-"
-
-SPEC_BACKTICK="## Description
-Task whose ## Files paths are wrapped in markdown backticks.
-
-## Files
-- \`scripts/hooks/my-hook.sh\` — new hook
-- \`tests/l3-integration/hooks/my-hook.test.sh\` — tests
-
-## Success Criteria
-- Works
-"
+# Typed files[] fixtures (JSON arrays — Typed Rails #673).
+FILES_WITH_FILES='["scripts/hooks/my-hook.sh","tests/l3-integration/hooks/my-hook.test.sh"]'
+FILES_MULTIDIR='["src/api/handler.ts","src/lib/util.ts","tests/unit/handler.test.ts"]'
+FILES_EMPTY='[]'
+FILES_ROOT_FILE='["Makefile"]'
 
 sqlite3 "$DB" "
   CREATE TABLE issues (
@@ -108,15 +54,14 @@ sqlite3 "$DB" "
     branch_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     spec_body TEXT NOT NULL DEFAULT '',
-    prompt_bearing INTEGER NOT NULL DEFAULT 0
+    prompt_bearing INTEGER NOT NULL DEFAULT 0,
+    files TEXT NOT NULL DEFAULT '[]'
   );
   INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
-  INSERT INTO tasks VALUES (1, 1, 'feat/task-alpha', 'running', '$(echo "$SPEC_WITH_FILES" | sed "s/'/''/g")', 0);
-  INSERT INTO tasks VALUES (2, 1, 'feat/task-beta', 'running', '$(echo "$SPEC_MULTIDIR" | sed "s/'/''/g")', 0);
-  INSERT INTO tasks VALUES (3, 1, 'feat/task-nofiles', 'running', '$(echo "$SPEC_NO_FILES" | sed "s/'/''/g")', 0);
-  INSERT INTO tasks VALUES (4, 1, 'feat/task-malformed', 'running', '$(echo "$SPEC_MALFORMED" | sed "s/'/''/g")', 0);
-  INSERT INTO tasks VALUES (5, 1, 'feat/task-rootfile', 'running', '$(echo "$SPEC_ROOT_FILE" | sed "s/'/''/g")', 0);
-  INSERT INTO tasks VALUES (6, 1, 'feat/task-backtick', 'running', '$(echo "$SPEC_BACKTICK" | sed "s/'/''/g")', 0);
+  INSERT INTO tasks VALUES (1, 1, 'feat/task-alpha', 'running', '', 0, '$FILES_WITH_FILES');
+  INSERT INTO tasks VALUES (2, 1, 'feat/task-beta', 'running', '', 0, '$FILES_MULTIDIR');
+  INSERT INTO tasks VALUES (3, 1, 'feat/task-nofiles', 'running', '', 0, '$FILES_EMPTY');
+  INSERT INTO tasks VALUES (5, 1, 'feat/task-rootfile', 'running', '', 0, '$FILES_ROOT_FILE');
 "
 
 run_hook() {
@@ -225,20 +170,19 @@ out=$(run_hook "$WT_UNKNOWN" "$(make_edit_input "anything/file.ts")")
 assert_not_contains "$out" '"permissionDecision":"deny"' "unknown task should fail open"
 
 # ===========================================================================
-# ## Files absent or unparseable → fail open
+# Empty typed files[] → skip enforcement (clean break, no markdown fallback)
 # ===========================================================================
 
 WT_NOFILES="$WT_ROOT/task-nofiles"
-WT_MALFORMED="$WT_ROOT/task-malformed"
-mkdir -p "$WT_NOFILES" "$WT_MALFORMED"
+mkdir -p "$WT_NOFILES"
 
-test_case "no-files-section: task without ## Files passes (fail open)"
+test_case "empty-files: task with empty typed files[] passes (skip with advisory)"
 out=$(run_hook "$WT_NOFILES" "$(make_edit_input "anything/file.ts")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "task without ## Files should fail open"
+assert_not_contains "$out" '"permissionDecision":"deny"' "empty typed files[] should skip enforcement"
 
-test_case "malformed-files: ## Files section with no bullets passes (fail open)"
-out=$(run_hook "$WT_MALFORMED" "$(make_edit_input "anything/file.ts")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "malformed ## Files should fail open"
+test_case "empty-files: skip emits advisory additionalContext (no spec_body fallback)"
+out=$(run_hook "$WT_NOFILES" "$(make_edit_input "anything/file.ts")")
+assert_contains "$out" "no typed files" "advisory should mention missing typed files[] field"
 
 # ===========================================================================
 # Root-level file listed → exact path only (no dir promotion)
@@ -277,17 +221,6 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "in-scope absolute targ
 test_case "target-derived: absolute out-of-scope target resolves the worktree from PWD-outside: denied"
 out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "$WT_A/src/api/handler.ts")" | bash "$HOOK" 2>&1) || true)
 assert_contains "$out" '"permissionDecision":"deny"' "out-of-scope absolute target should be denied even when PWD is outside a worktree"
-
-# ===========================================================================
-# Backtick-wrapped ## Files paths resolve the same dirs as plain paths (#606)
-# ===========================================================================
-
-WT_BACKTICK="$WT_ROOT/task-backtick"
-mkdir -p "$WT_BACKTICK"
-
-test_case "backtick-path: in-scope edit listed as a backtick-wrapped path is allowed (#606)"
-out=$(run_hook "$WT_BACKTICK" "$(make_edit_input "scripts/hooks/my-hook.sh")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "backtick-wrapped ## Files path should resolve the same allowed dir"
 
 # ===========================================================================
 # Non-Edit/Write tools are ignored

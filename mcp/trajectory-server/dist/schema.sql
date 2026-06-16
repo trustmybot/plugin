@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- prompt-surface files. When 0 (default), the swe-boundary hook denies writes
     -- to agents/, skills/*/SKILL.md, commands/, templates/, and *.md identity files.
     prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+    -- Typed Rails (#673): files/verification are JSON arrays the enforcement
+    -- hooks read directly. files[] is the scope-fence allowlist (swe-scope-fence.sh);
+    -- verification[] is the command list the verification gate runs
+    -- (swe-verification-gate.sh). Both default to an empty array; an empty array
+    -- means the hook skips enforcement with a warning (no spec_body markdown
+    -- fallback). See docs/architecture/TYPED_RAILS.md.
+    files             TEXT    NOT NULL DEFAULT '[]',
+    verification      TEXT    NOT NULL DEFAULT '[]',
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     completed_at      TEXT
@@ -173,7 +181,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 12, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 13, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
