@@ -28623,13 +28623,18 @@ function onboardTools(db2, dbPath2 = "") {
       }
     }
   ];
+  const probeDir = () => {
+    const fromDefaultRepo = resolveDefaultRepoPath(db2, dbPath2 ?? "");
+    if (fromDefaultRepo) return fromDefaultRepo;
+    const workspaceRoot = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
+    return workspaceRoot || process.cwd();
+  };
   const handlers = {
     onboard_state_get: requireRoles(
       "onboard_state_get",
       ["bro"],
       wrapHandler15(async () => {
-        const cwd = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
-        const git = probeGit(cwd || process.cwd());
+        const git = probeGit(probeDir());
         const gh = probeCli("gh");
         const glab = probeCli("glab");
         const onboarded = readOnboardedFlag(db2);
@@ -28661,8 +28666,7 @@ function onboardTools(db2, dbPath2 = "") {
       wrapHandler15(async (args) => {
         const shape = args["shape"];
         const round = args["round"];
-        const cwd = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
-        const git = probeGit(cwd || process.cwd());
+        const git = probeGit(probeDir());
         if (round === "shape") {
           return ok17({ questions: [shapeQuestion(git.origin_kind)] });
         }
@@ -28736,6 +28740,7 @@ function onboardTools(db2, dbPath2 = "") {
         }
         let remotes = [];
         let issue_sync = "off";
+        let warning;
         if (shape === "remote") {
           const rawRemote = args["remote"];
           let remoteList;
@@ -28773,8 +28778,7 @@ function onboardTools(db2, dbPath2 = "") {
           if (issue_sync !== "auto" && issue_sync !== "off") {
             throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
           }
-          const cwd = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
-          const git = probeGit(cwd || process.cwd());
+          const git = probeGit(probeDir());
           const findUrl = (p) => git.detected_remotes.find((r) => r.provider === p)?.url ?? "";
           const wantedGh = remoteList.includes("github");
           const wantedGl = remoteList.includes("gitlab");
@@ -28785,6 +28789,10 @@ function onboardTools(db2, dbPath2 = "") {
               provider: "gitlab",
               url: findUrl("gitlab")
             });
+          }
+          const origin = remotes.find((r) => r.name === "origin");
+          if (origin && origin.url.length === 0) {
+            warning = `remote URL not detected for ${origin.provider}; issues will not sync \u2014 check the repo's git remote`;
           }
         }
         const protected_branches = deriveProtectedBranches(branching_model, pr_target);
@@ -28806,13 +28814,15 @@ function onboardTools(db2, dbPath2 = "") {
         }
         return ok17({
           ok: true,
+          ...warning ? { warning } : {},
           applied: {
             onboarded: true,
             branching_model,
             pr_target,
             protected_branches,
             remotes,
-            issue_sync
+            issue_sync,
+            ...warning ? { warning } : {}
           }
         });
       })
