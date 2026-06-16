@@ -155,3 +155,191 @@ describe('cheatcode_search', () => {
     assert.equal(out['error'], 'forbidden');
   });
 });
+
+// Vet fixtures stub the network exactly as TMB_CHEATCODE_VET_FIXTURE intends:
+// the {repo, contents} object stands in for the best-effort GitHub responses.
+const VET_OFFICIAL = JSON.stringify({
+  repo: {
+    stargazers_count: 1200,
+    forks_count: 80,
+    pushed_at: '2026-05-01T00:00:00Z',
+    archived: false,
+    license: { spdx_id: 'MIT' },
+    owner: { login: 'anthropics', type: 'Organization' },
+  },
+  contents: ['README.md', 'LICENSE'],
+});
+
+const VET_EXEC = JSON.stringify({
+  repo: {
+    stargazers_count: 9000,
+    forks_count: 800,
+    pushed_at: '2026-06-01T00:00:00Z',
+    archived: false,
+    license: { spdx_id: 'Apache-2.0' },
+    owner: { login: 'someorg', type: 'Organization' },
+  },
+  contents: ['README.md', 'hooks', 'scripts'],
+});
+
+const VET_ARCHIVED = JSON.stringify({
+  repo: {
+    stargazers_count: 50,
+    forks_count: 2,
+    pushed_at: '2022-01-01T00:00:00Z',
+    archived: true,
+    license: { spdx_id: 'MIT' },
+    owner: { login: 'x', type: 'User' },
+  },
+});
+
+const VET_EMPTY = JSON.stringify({});
+
+type VetCand = { name: string; kind: string; source_url: string; tier?: number };
+type VetResult = {
+  candidate: VetCand;
+  signals: {
+    reputation: { registry_tier: number | null; stars: number | null; forks: number | null };
+    maintenance: { pushed_at: string | null; archived: boolean; active: boolean | null };
+    license: string | null;
+    maintainer: { login: string | null; type: string | null };
+    security_surface: { code_execution: boolean; network: boolean; fs_writes: boolean };
+  };
+  trust_tier: string;
+  rationale: string;
+  capabilities: string[];
+};
+
+describe('cheatcode_vet', () => {
+  function withFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-vet-'));
+    const path = join(dir, 'signals.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  async function vet(body: string, candidate: VetCand): Promise<VetResult> {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(body);
+    process.env['TMB_CHEATCODE_VET_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_vet', { agent: 'bro', candidate });
+      assert.notEqual(r.isError, true, `vet errored: ${r.content[0]?.text}`);
+      return parse(r) as unknown as VetResult;
+    } finally {
+      delete process.env['TMB_CHEATCODE_VET_FIXTURE'];
+      cleanup();
+    }
+  }
+
+  it('classifies an official tier-1 candidate with no exec surface as trusted', async () => {
+    const out = await vet(VET_OFFICIAL, {
+      name: 'official-pdf',
+      kind: 'skill',
+      source_url: 'https://github.com/anthropics/pdf',
+      tier: 1,
+    });
+    assert.equal(out.trust_tier, 'trusted');
+    assert.deepEqual(out.capabilities, []);
+    assert.equal(out.signals.reputation.registry_tier, 1);
+    assert.equal(out.signals.reputation.stars, 1200);
+    assert.equal(out.signals.license, 'MIT');
+    assert.equal(out.signals.maintainer.login, 'anthropics');
+  });
+
+  it('orders tiers: trusted > caution > untrusted > unknown by signal strength', async () => {
+    const trusted = await vet(VET_OFFICIAL, {
+      name: 'a',
+      kind: 'skill',
+      source_url: 'https://github.com/anthropics/pdf',
+      tier: 1,
+    });
+    const caution = await vet(VET_EXEC, {
+      name: 'b',
+      kind: 'skill',
+      source_url: 'https://github.com/someorg/hooky',
+    });
+    const untrusted = await vet(VET_ARCHIVED, {
+      name: 'c',
+      kind: 'skill',
+      source_url: 'https://github.com/x/old',
+      tier: 2,
+    });
+    const unknown = await vet(VET_EMPTY, {
+      name: 'd',
+      kind: 'skill',
+      source_url: 'https://gitlab.com/x/y',
+    });
+    assert.equal(trusted.trust_tier, 'trusted');
+    assert.equal(caution.trust_tier, 'caution');
+    assert.equal(untrusted.trust_tier, 'untrusted');
+    assert.equal(unknown.trust_tier, 'unknown');
+  });
+
+  it('flags code_execution for a candidate that ships hooks/scripts and never trusts it on popularity', async () => {
+    const out = await vet(VET_EXEC, {
+      name: 'hooky',
+      kind: 'skill',
+      source_url: 'https://github.com/someorg/hooky',
+    });
+    assert.ok(out.capabilities.includes('code_execution'), 'code_execution flagged');
+    assert.equal(out.signals.security_surface.code_execution, true);
+    assert.notEqual(out.trust_tier, 'trusted', 'popular code-executing cheatcode is never trusted');
+    assert.equal(out.trust_tier, 'caution');
+  });
+
+  it('degrades to unknown on an empty/failed signal set and never throws', async () => {
+    const out = await vet(VET_EMPTY, {
+      name: 'mystery',
+      kind: 'skill',
+      source_url: 'https://gitlab.com/x/y',
+    });
+    assert.equal(out.trust_tier, 'unknown');
+    assert.equal(out.signals.reputation.stars, null);
+    assert.equal(out.signals.maintainer.login, null);
+  });
+
+  it('is deterministic: identical input yields identical output', async () => {
+    const cand: VetCand = { name: 'hooky', kind: 'skill', source_url: 'https://github.com/someorg/hooky' };
+    const a = await vet(VET_EXEC, cand);
+    const b = await vet(VET_EXEC, cand);
+    assert.deepEqual(a, b);
+  });
+
+  it('writes a cheatcode_vet audit row carrying the candidate + tier', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(VET_OFFICIAL);
+    process.env['TMB_CHEATCODE_VET_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      await call(tools.handlers, 'cheatcode_vet', {
+        agent: 'bro',
+        candidate: { name: 'official-pdf', kind: 'skill', source_url: 'https://github.com/anthropics/pdf', tier: 1 },
+      });
+      const row = db.get<{ event_type: string; content_json: string }>(
+        `SELECT event_type, content_json FROM audit WHERE event_type = 'cheatcode_vet' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(row, 'cheatcode_vet audit row exists');
+      const content = JSON.parse(row!.content_json);
+      assert.equal(content.candidate.name, 'official-pdf');
+      assert.equal(content.trust_tier, 'trusted');
+      assert.ok(Array.isArray(content.capabilities));
+    } finally {
+      delete process.env['TMB_CHEATCODE_VET_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_vet', {
+      agent: 'swe',
+      candidate: { name: 'x', kind: 'skill', source_url: 'https://github.com/x/y' },
+    });
+    assert.equal(r.isError, true);
+    const out = parse(r);
+    assert.equal(out['error'], 'forbidden');
+  });
+});

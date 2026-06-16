@@ -29606,21 +29606,24 @@ function wrap4(fn) {
     }
   };
 }
-function resolveSearchScript() {
+function resolveScriptsFile(name) {
   const here = dirname9(fileURLToPath5(import.meta.url));
   const candidates = [
-    join10(here, "..", "..", "..", "..", "scripts", "cheatcode-search.sh"),
-    join10(here, "..", "..", "..", "scripts", "cheatcode-search.sh")
+    join10(here, "..", "..", "..", "..", "scripts", name),
+    join10(here, "..", "..", "..", "scripts", name)
   ];
   for (const c of candidates) if (existsSync7(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join10(pluginRoot, "scripts", "cheatcode-search.sh");
+    const c = join10(pluginRoot, "scripts", name);
     if (existsSync7(c)) return c;
   }
-  throw new Error("cheatcode-search.sh not found \u2014 expected at <plugin>/scripts/cheatcode-search.sh");
+  throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
 }
+var resolveSearchScript = () => resolveScriptsFile("cheatcode-search.sh");
+var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
+var VET_TIMEOUT_MS = 60 * 1e3;
 function runSearchWithScript(script, query, kind, timeoutMs) {
   return new Promise((resolve3, reject) => {
     const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
@@ -29671,6 +29674,66 @@ function runSearchWithScript(script, query, kind, timeoutMs) {
     });
   });
 }
+var VALID_TIERS = /* @__PURE__ */ new Set([
+  "trusted",
+  "caution",
+  "untrusted",
+  "unknown"
+]);
+function runVetWithScript(script, candidate, timeoutMs) {
+  return new Promise((resolve3, reject) => {
+    const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+    let settled = false;
+    const killTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+      }
+      reject(new Error("cheatcode-vet.sh timed out after 60 seconds"));
+    }, timeoutMs);
+    child.on("error", (e) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      reject(new Error(`cheatcode-vet.sh spawn error: ${e.message}`));
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
+      if (code !== 0) {
+        reject(new Error(`cheatcode-vet.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch {
+        reject(new Error(`cheatcode-vet.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || !VALID_TIERS.has(parsed.trust_tier)) {
+        reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing/invalid trust_tier)"));
+        return;
+      }
+      if (!Array.isArray(parsed.capabilities)) {
+        reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing capabilities[])"));
+        return;
+      }
+      resolve3(parsed);
+    });
+  });
+}
 var VALID_KINDS2 = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
 function cheatcodeTools(db2) {
   const definitions = [
@@ -29692,6 +29755,28 @@ function cheatcodeTools(db2) {
           }
         },
         required: ["agent", "capability_query"]
+      }
+    },
+    {
+      name: "cheatcode_vet",
+      description: "Gather reputation + security-surface signals for ONE cheatcode candidate and emit a deterministic trust_tier (trusted|caution|untrusted|unknown) + rationale + capabilities[]. Forks scripts/cheatcode-vet.sh, records a cheatcode_vet audit row. The tier is a reproducible classification, NOT an install verdict (that stays bro + Human).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          candidate: {
+            type: "object",
+            description: "One candidate to vet (e.g. a row from cheatcode_search).",
+            properties: {
+              name: { type: "string" },
+              kind: { type: "string", enum: ["skill", "mcp", "plugin", "any"] },
+              source_url: { type: "string", description: "The repo URL the signals key off." },
+              tier: { type: "number", description: "Registry tier carried over from the candidate (optional)." }
+            },
+            required: ["name", "kind", "source_url"]
+          }
+        },
+        required: ["agent", "candidate"]
       }
     }
   ];
@@ -29720,6 +29805,43 @@ function cheatcodeTools(db2) {
           ]
         );
         return ok19({ query, kind, candidates: out.candidates });
+      })
+    ),
+    cheatcode_vet: requireRoles(
+      "cheatcode_vet",
+      ["bro"],
+      wrap4(async (args) => {
+        const raw = args["candidate"];
+        if (!raw || typeof raw !== "object") return err18("candidate is required");
+        const name = raw["name"]?.trim();
+        const sourceUrl = raw["source_url"]?.trim();
+        if (!name) return err18("candidate.name is required");
+        if (!sourceUrl) return err18("candidate.source_url is required");
+        const rawKind = raw["kind"] ?? "any";
+        const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
+        const tierVal = raw["tier"];
+        const candidate = {
+          name,
+          kind,
+          source_url: sourceUrl
+        };
+        if (typeof tierVal === "number") candidate.tier = tierVal;
+        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
+        db2.run(
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (-1, NULL, 'bro', 'cheatcode_vet', ?, ?, ?)`,
+          [
+            `Cheatcode vet: '${name}' (kind=${kind}) \u2192 trust_tier=${out.trust_tier}`,
+            JSON.stringify({
+              candidate: out.candidate,
+              trust_tier: out.trust_tier,
+              capabilities: out.capabilities,
+              rationale: out.rationale
+            }),
+            nowISO()
+          ]
+        );
+        return ok19(out);
       })
     )
   };

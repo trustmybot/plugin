@@ -24,7 +24,7 @@ Everything between those two judgments is a tool call, not a checklist.
 ## Why these boundaries (boundary test applied)
 
 - "Search the web and rank" — strike the verb → "ranked candidate list exists." A fact, reproducible from a query. → composite tool (mech 2), not prose steps.
-- "Gather trust signals" — fact-gathering, reproducible. → tool (mech 2). The *verdict* on those signals is judgment → stays prose.
+- "Gather trust signals" — fact-gathering, reproducible. → tool (mech 2). The tool also emits a `trust_tier` that is a *deterministic classification* of the signal set (like the search score), not an install verdict — the "trustworthy enough to install?" *verdict* is judgment → stays prose (skill + AskUserQuestion).
 - "Don't install without approval" — "don't proceed until Z." → PreToolUse block (mech 3), not a prose reminder.
 - "After install, record it / refresh state" — "after A also do B." → PostToolUse (mech 4) or inside the install composite's transaction.
 - "Detect capability gap" / "is it trustworthy" — classify / weigh novel input. → prose (mech 7), no deterministic substitute.

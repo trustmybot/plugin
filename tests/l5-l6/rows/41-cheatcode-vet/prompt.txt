@@ -1,0 +1,3 @@
+@bro I found a candidate Claude Code skill for PDF table extraction: pdf-table-extractor at https://github.com/example-org/pdf-table-extractor (it's a tier-1 official-registry skill). Before we consider installing it, vet its trust signals for me — reputation, maintenance, and what it's allowed to do — and tell me the trust tier.
+
+Don't ask questions.
