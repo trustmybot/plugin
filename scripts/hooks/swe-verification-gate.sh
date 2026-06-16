@@ -2,15 +2,28 @@
 # Hook: Verification gate for SWE task_update_status(completed).
 #
 # Fires when SWE calls task_update_status with agent='swe' and status='completed'.
-# Extracts the ## Verification block from the task's spec_body, runs each command
-# in the task's worktree, and denies if any command exits non-zero or times out.
+# Reads the typed `verification` column (a JSON array of command strings, Typed
+# Rails #673), runs each command in the task's worktree, and denies if any
+# command exits non-zero or times out.
+#
+# Clean break (#673): the gate reads the typed `verification` column only — it
+# does NOT scrape ## Verification markdown from spec_body. A task with an empty
+# verification[] array (e.g. pre-migration tasks, or bro omitting the field)
+# skips the gate with a warning.
+#
+# Toolchain PATH (#673, second defect): the swe-subagent PreToolUse hook process
+# starts with a minimal, login-stripped PATH where mise/homebrew tools
+# (npm/node/shellcheck) are absent → verification commands would exit 127 (false
+# DENY). lib/resolve-toolchain-path.sh resolves and prepends the user's real
+# toolchain dirs before the bash -c loop; see that file's header for the
+# mechanism and why bash -lc is insufficient (zsh + mise).
 #
 # Fires on: PreToolUse — matcher: mcp__.*trajectory-server__task_update_status
 #
 # Decision logic:
 #   - Non-SWE caller              → allow
 #   - Status != 'completed'       → allow
-#   - No ## Verification block    → allow with additionalContext warning
+#   - Empty typed verification[]  → allow with additionalContext warning
 #   - waive_verification_gate_reason (>=10 chars) → allow + audit row
 #   - Verification passes          → allow
 #   - Verification fails           → DENY with failing command + output tail
@@ -21,14 +34,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/hooks/lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
-# shellcheck source=scripts/hooks/lib/normalize-role.sh
+# shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh"
-# shellcheck source=scripts/lib/resolve-plugin-name.sh
+# shellcheck source=scripts/lib/resolve-plugin-name.sh disable=SC1091
 . "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
-# shellcheck source=scripts/hooks/lib/resolve-workspace.sh
+# shellcheck source=scripts/hooks/lib/resolve-workspace.sh disable=SC1091
 . "$SCRIPT_DIR/lib/resolve-workspace.sh"
+# shellcheck source=scripts/hooks/lib/resolve-toolchain-path.sh disable=SC1091
+. "$SCRIPT_DIR/lib/resolve-toolchain-path.sh"
 
 INPUT=$(cat)
 
@@ -90,10 +105,10 @@ if [ -n "$WAIVER" ] && [ ${#WAIVER} -ge 10 ]; then
   exit 0
 fi
 
-# Fetch spec_body and branch_id for this task (queried separately to avoid
-# delimiter collision — spec_body may contain any character including '|').
-SPEC_BODY=$(tmb_sqlite_ro "$DB" \
-  "SELECT spec_body FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
+# Fetch the typed `verification` column and branch_id for this task. The typed
+# column is a JSON array of command strings (Typed Rails #673).
+VERIFICATION_JSON=$(tmb_sqlite_ro "$DB" \
+  "SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
 BRANCH_ID=$(tmb_sqlite_ro "$DB" \
   "SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
 
@@ -101,16 +116,13 @@ if [ -z "$BRANCH_ID" ]; then
   exit 0
 fi
 
-# Extract ## Verification block from spec_body.
-# Match ## Verification (case-sensitive, required by spec) up to next ## heading or end.
-VERIFICATION_BLOCK=$(printf '%s' "$SPEC_BODY" | awk '
-  /^## Verification/ { in_block=1; next }
-  in_block && /^## / { exit }
-  in_block { print }
-' | sed '/^[[:space:]]*$/d')
+# Parse the JSON array into commands (one per line). Empty array or invalid JSON
+# yields no lines.
+VERIFICATION_BLOCK=$(printf '%s' "$VERIFICATION_JSON" | jq -r '.[]?' 2>/dev/null || true)
 
+# Clean break: empty typed verification[] → skip the gate (no markdown fallback).
 if [ -z "$VERIFICATION_BLOCK" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: no ## Verification block found in spec_body — verification gate skipped. Consider adding verification commands to the spec."}}'
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed verification[] — verification gate skipped. Ask bro to set the task'"'"'s verification[] field (Typed Rails #673) to enforce verification commands."}}'
   exit 0
 fi
 
@@ -148,53 +160,23 @@ if [ -z "$WT_PATH" ] || [ ! -d "$WT_PATH" ]; then
   exit 0
 fi
 
+# Resolve the user's real toolchain PATH so verification commands invoking
+# mise/homebrew tools (npm/node/shellcheck) don't exit 127 under the minimal
+# hook-process PATH. See lib/resolve-toolchain-path.sh.
+TOOLCHAIN_PATH=$(tmb_resolve_toolchain_path "$PATH" 2>/dev/null || printf '%s' "$PATH")
+
 TIMEOUT_S="${TMB_VERIFICATION_TIMEOUT_S:-240}"
 START_TS=$(date +%s 2>/dev/null || echo 0)
 
 FAILED_CMD=""
 FAILED_OUTPUT=""
 
-# Parse verification commands. Accepted line forms (per spec convention):
-#   - `cmd`          bullet + backtick-wrapped command
-#   - cmd            bullet + bare command
-#   - cmd            bare command (no bullet)
-#   - $ cmd          shell-prompt style
-#   - > cmd          blockquote style
-# Skip blank lines, markdown heading lines, and fenced-code-block markers.
-# Parenthetical suffixes separated by ' (' are stripped (e.g. '(substitute ...)').
+# Each entry of the typed verification[] array is a clean shell command string
+# (Typed Rails #673) — no markdown bullets/backticks/blockquotes to strip. Run
+# each non-empty line as a command in the worktree.
 while IFS= read -r line; do
   [ -z "$line" ] && continue
-  case "$line" in
-    "#"*|"---"*) continue ;;
-    "\`\`\`"*) continue ;;
-  esac
-
   CMD="$line"
-
-  # Strip leading bullet prefix: '- ' or '* '
-  case "$CMD" in
-    "- "*) CMD="${CMD#- }" ;;
-    "* "*) CMD="${CMD#* }" ;;
-  esac
-
-  # Strip leading '$ ' or '> ' prompt/blockquote markers.
-  case "$CMD" in
-    "\$ "*) CMD="${CMD#\$ }" ;;
-    "> "*) CMD="${CMD#> }" ;;
-  esac
-
-  # Strip surrounding backticks (full wrapping: `cmd`).
-  case "$CMD" in
-    "\`"*"\`") CMD="${CMD#\`}"; CMD="${CMD%\`}" ;;
-  esac
-
-  # Strip trailing parenthetical suffix ' (...)' — trivially separable annotation.
-  # e.g. '- `bash run.sh` (substitute <env> with your value)'
-  case "$CMD" in
-    *" ("*")") CMD="${CMD%% (*}" ;;
-  esac
-
-  [ -z "$CMD" ] && continue
 
   # Check total timeout before each command.
   NOW_TS=$(date +%s 2>/dev/null || echo 0)
@@ -206,8 +188,9 @@ while IFS= read -r line; do
     exit 0
   fi
 
-  # Run command in worktree, bounded by the remaining time budget.
-  CMD_OUTPUT=$( (cd "$WT_PATH" && tmb_run_with_timeout "$REMAINING" bash -c "$CMD") 2>&1 ) || {
+  # Run command in worktree with the resolved toolchain PATH, bounded by the
+  # remaining time budget.
+  CMD_OUTPUT=$( (cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$REMAINING" bash -c "$CMD") 2>&1 ) || {
     CMD_RC=$?
     if [ "$CMD_RC" -eq 124 ]; then
       jq -nc --arg cmd "$CMD" --arg t "$TIMEOUT_S" \

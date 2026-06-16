@@ -48,6 +48,18 @@ export interface Task {
    * Default 0.
    */
   prompt_bearing: number;
+  /**
+   * Typed Rails (#673): JSON array of path-like strings. The scope-fence hook
+   * (swe-scope-fence.sh) reads this directly to build its dir allowlist. An
+   * empty array means the hook skips enforcement with a warning.
+   */
+  files: string;
+  /**
+   * Typed Rails (#673): JSON array of command strings. The verification gate
+   * (swe-verification-gate.sh) runs each entry in the worktree. An empty array
+   * means the gate skips with a warning.
+   */
+  verification: string;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -107,6 +119,18 @@ export interface TaskInput {
    * Default 0.
    */
   prompt_bearing?: number;
+  /**
+   * Typed Rails (#673): scope-fence allowlist for this task. Non-empty array of
+   * path-like strings; the swe-scope-fence hook reads it to bound SWE's edits.
+   * Persisted as a JSON array in tasks.files.
+   */
+  files?: string[];
+  /**
+   * Typed Rails (#673): verification commands for this task. Non-empty array of
+   * command strings; the swe-verification-gate hook runs each in the worktree.
+   * Persisted as a JSON array in tasks.verification.
+   */
+  verification?: string[];
 }
 
 export interface PluginConfigRow {

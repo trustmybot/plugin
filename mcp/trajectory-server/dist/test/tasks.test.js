@@ -454,6 +454,110 @@ describe('taskTools', () => {
         assert.equal(task.spec_body, specBody);
         db.close();
     });
+    it('task_create_batch persists typed files[]/verification[] as JSON arrays', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const batchResult = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                {
+                    branch_id: 'feat/typed-fields',
+                    description: 'Typed Rails fields',
+                    files: ['src/foo.ts', 'tests/foo.test.ts'],
+                    verification: ['npm test', 'npm run lint'],
+                },
+            ],
+        });
+        const inserted = parseBatch(batchResult);
+        assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+        const row = db.get('SELECT files, verification FROM tasks WHERE id = ?', [inserted[0].id]);
+        assert.deepEqual(JSON.parse(row.files), ['src/foo.ts', 'tests/foo.test.ts']);
+        assert.deepEqual(JSON.parse(row.verification), ['npm test', 'npm run lint']);
+        db.close();
+    });
+    it('task_create_batch defaults omitted files[]/verification[] to empty arrays', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const batchResult = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/no-typed-fields', description: 'No typed fields' }],
+        });
+        const inserted = parseBatch(batchResult);
+        assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+        const row = db.get('SELECT files, verification FROM tasks WHERE id = ?', [inserted[0].id]);
+        assert.equal(row.files, '[]', 'omitted files[] defaults to empty array');
+        assert.equal(row.verification, '[]', 'omitted verification[] defaults to empty array');
+        db.close();
+    });
+    it('task_create_batch rejects non-array files with a named typed_field_violation', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                { branch_id: 'feat/bad-files', description: 'Bad files', files: 'src/foo.ts' },
+            ],
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'Expected isError=true');
+        assert.match(data.error, /typed_field_violation/);
+        assert.match(data.error, /'files' must be an array/);
+        const count = db.get(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/bad-files'`);
+        assert.equal(count?.c, 0, 'no task row may be written on a rejected shape');
+        db.close();
+    });
+    it('task_create_batch rejects an empty files[] array (provide commands or omit the field)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/empty-files', description: 'Empty files', files: [] }],
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'Expected isError=true');
+        assert.match(data.error, /typed_field_violation/);
+        assert.match(data.error, /non-empty array/);
+        db.close();
+    });
+    it('task_create_batch rejects a verification[] entry that is not a non-empty string', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                {
+                    branch_id: 'feat/bad-verify',
+                    description: 'Bad verify entry',
+                    verification: ['npm test', '   '],
+                },
+            ],
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'Expected isError=true');
+        assert.match(data.error, /typed_field_violation/);
+        assert.match(data.error, /every 'verification' entry must be a non-empty string/);
+        db.close();
+    });
     it('task_create_batch without spec_body defaults to empty string', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);

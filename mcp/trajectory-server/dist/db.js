@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 12;
+const TARGET_SCHEMA_VERSION = 13;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -385,6 +385,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 12 && toVersion >= 12) {
         migrateV11toV12(db);
     }
+    if (fromVersion < 13 && toVersion >= 13) {
+        migrateV12toV13(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -546,6 +549,35 @@ function migrateV11toV12(db) {
         if (tableExists(db, 'agent_runs')) {
             if (!hasColumn(db, 'agent_runs', 'usage_baseline_json')) {
                 db.exec('ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT');
+            }
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// Typed Rails (#673): promote files/verification to typed task columns the
+// enforcement hooks read directly (instead of scraping ## Files / ## Verification
+// markdown from spec_body). Both are JSON arrays defaulting to '[]'; existing
+// task rows keep that empty default, so the rewritten hooks skip enforcement
+// for pre-migration tasks (clean break, no markdown fallback). See
+// docs/architecture/TYPED_RAILS.md.
+function migrateV12toV13(db) {
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'tasks')) {
+            if (!hasColumn(db, 'tasks', 'files')) {
+                db.exec("ALTER TABLE tasks ADD COLUMN files TEXT NOT NULL DEFAULT '[]'");
+            }
+            if (!hasColumn(db, 'tasks', 'verification')) {
+                db.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
             }
         }
         db.exec('COMMIT');
