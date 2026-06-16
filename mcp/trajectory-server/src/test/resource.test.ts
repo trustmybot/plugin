@@ -22,30 +22,33 @@ async function call(
   return h(args) as unknown as RawResult;
 }
 
+// Mixed-tier fixture. The curated (tier 2) candidate is given STRICTLY MORE
+// relevance than the official (tier 1) one, so a tier-blind ranker would float
+// it to the top. Tier dominance (200 base vs 100) must keep official first.
 const FIXTURE = JSON.stringify([
   {
-    name: 'pdf-extractor',
+    name: 'curated-pdf',
     kind: 'skill',
-    source_url: 'https://example.test/pdf-extractor',
-    description: 'extract tables from pdf documents',
-    stars: 5000,
-    downloads: 4000,
+    source_url: 'https://example.test/curated-pdf',
+    description: 'extract pdf table data from documents',
+    registry: 'pulsemcp',
+    tier: 2,
   },
   {
-    name: 'doc-reader',
+    name: 'official-pdf',
     kind: 'skill',
-    source_url: 'https://example.test/doc-reader',
-    description: 'read pdf files',
-    stars: 10,
-    downloads: 0,
+    source_url: 'https://example.test/official-pdf',
+    description: 'pdf tooling',
+    registry: 'mcp-official',
+    tier: 1,
   },
   {
     name: 'unrelated-thing',
     kind: 'mcp',
     source_url: 'https://example.test/unrelated',
     description: 'manages kubernetes clusters',
-    stars: 1,
-    downloads: 0,
+    registry: 'mcp-official',
+    tier: 1,
   },
 ]);
 
@@ -57,7 +60,7 @@ describe('resource_search', () => {
     return { dir, path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
   }
 
-  it('returns candidates ranked by score descending', async () => {
+  it('ranks official (tier 1) above curated (tier 2) even when curated is more relevant', async () => {
     const db = tempDB();
     const { path, cleanup } = withFixture();
     process.env['TMB_RESOURCE_SEARCH_FIXTURE'] = path;
@@ -68,7 +71,11 @@ describe('resource_search', () => {
         capability_query: 'pdf table extraction',
       });
       const out = parse(r);
-      const candidates = out['candidates'] as Array<{ name: string; score: number }>;
+      const candidates = out['candidates'] as Array<{
+        name: string;
+        score: number;
+        signals: { registry: string; tier: number; relevance: number };
+      }>;
       assert.ok(candidates.length >= 2, 'at least two candidates returned');
       for (let i = 1; i < candidates.length; i++) {
         assert.ok(
@@ -76,8 +83,16 @@ describe('resource_search', () => {
           `score order violated at index ${i}`,
         );
       }
-      // The high-relevance, high-reputation candidate ranks first.
-      assert.equal(candidates[0].name, 'pdf-extractor');
+      // official-pdf (tier 1, relevance 1) must beat curated-pdf (tier 2, relevance 2):
+      // tier dominance (200 base) outweighs the curated candidate's extra relevance.
+      assert.equal(candidates[0].name, 'official-pdf');
+      assert.equal(candidates[0].signals.tier, 1);
+      const official = candidates.find((c) => c.name === 'official-pdf')!;
+      const curated = candidates.find((c) => c.name === 'curated-pdf')!;
+      assert.ok(curated.signals.relevance > official.signals.relevance, 'curated is more relevant');
+      assert.ok(official.score > curated.score, 'official still outscores curated by tier');
+      assert.equal(official.signals.registry, 'mcp-official');
+      assert.equal(curated.signals.registry, 'pulsemcp');
     } finally {
       delete process.env['TMB_RESOURCE_SEARCH_FIXTURE'];
       cleanup();

@@ -29602,7 +29602,7 @@ function resourceTools(db2) {
   const definitions = [
     {
       name: "resource_search",
-      description: "Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/resource-search.sh (rank by relevance + reputation, no LLM), records a resource_search audit row, returns ranked candidates.",
+      description: "Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/resource-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a resource_search audit row, returns ranked candidates.",
       inputSchema: {
         type: "object",
         properties: {

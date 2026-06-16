@@ -16,7 +16,11 @@ interface Candidate {
   kind: string;
   source_url: string;
   score: number;
-  signals: Record<string, number>;
+  signals: {
+    registry: string;
+    tier: number;
+    relevance: number;
+  };
 }
 
 interface SearchOutput {
@@ -138,7 +142,7 @@ export function resourceTools(db: TrajectoryDB): {
     {
       name: 'resource_search',
       description:
-        'Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/resource-search.sh (rank by relevance + reputation, no LLM), records a resource_search audit row, returns ranked candidates.',
+        'Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/resource-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a resource_search audit row, returns ranked candidates.',
       inputSchema: {
         type: 'object',
         properties: {
