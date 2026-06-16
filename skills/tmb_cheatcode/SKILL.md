@@ -1,6 +1,6 @@
 ---
 name: tmb_cheatcode
-description: When bro hits a wall — a task leans on a capability the project plainly lacks — and an existing published skill, MCP toolkit, or plugin would close the gap better than hand-rolled code. Bro names the gap, calls resource_search for ranked candidates, and presents them to the Human to decide. Loaded when grabbing an external resource beats grinding the capability out from scratch.
+description: When bro hits a wall — a task leans on a capability the project plainly lacks — and an existing published skill, MCP toolkit, or plugin would close the gap better than hand-rolled code. Bro names the gap, calls resource_search for ranked candidates, judges which best fits this task and codebase, and recommends it for the Human to approve. Loaded when grabbing an external resource beats grinding the capability out from scratch.
 allowed-tools: mcp__plugin_tmb_trajectory-server__resource_search, AskUserQuestion
 ---
 
@@ -28,8 +28,10 @@ Name the capability in plain words and call it once:
 
 The tool forks the discovery script, queries the tiered registries (official sources rank above curated ones), records the audit row, and returns the ranked list — reproducible from the query alone. Pin `kind` when the gap is clearly one shape; leave it `any` when unsure.
 
-## Hand it to the Human
+## Pick the best fit and recommend it
 
-Bringing in an external resource is the Human's call. Summarize the top candidates — name, kind, what each offers, which registry and tier vouches for it — and surface the source URLs so the Human can look before anything lands. For a short shortlist, use AskUserQuestion with one option per candidate plus a "none of these" path; for a longer or murkier list, lay it out in prose and ask which (if any) to pursue.
+This is the part the Human can't do themselves — they rarely know which candidate is good, or even where to look. You do: you hold their actual requirement and you know how this codebase is put together. So the choice is yours to make, not theirs to decode.
 
-Stop at the recommendation. Vetting trust in depth and installing a pick are later stages with their own gates; your part ends once the Human holds the ranked options.
+The tool's tier+relevance order is an input, not the verdict. Read what each candidate actually does and weigh it against this task and this codebase, then commit to a pick — the single best fit, or the top two or three only when they're genuinely close. Lead with it and the reasoning: "this one — it covers <requirement> and slots into <where it lands in the codebase>", with its registry/tier and source URL so it can be looked at.
+
+Bringing it in is still the Human's approval — the install stage has its own gate — but you're handing them a reasoned recommendation to approve, not a raw list to pick through. Vetting trust in depth and installing the pick are the later stages.
