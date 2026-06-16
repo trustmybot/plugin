@@ -29509,7 +29509,7 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
   return { definitions, handlers };
 }
 
-// src/tools/resource.ts
+// src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync7 } from "node:fs";
 import { dirname as dirname9, join as join10 } from "node:path";
@@ -29535,16 +29535,16 @@ function wrap4(fn) {
 function resolveSearchScript() {
   const here = dirname9(fileURLToPath5(import.meta.url));
   const candidates = [
-    join10(here, "..", "..", "..", "..", "scripts", "resource-search.sh"),
-    join10(here, "..", "..", "..", "scripts", "resource-search.sh")
+    join10(here, "..", "..", "..", "..", "scripts", "cheatcode-search.sh"),
+    join10(here, "..", "..", "..", "scripts", "cheatcode-search.sh")
   ];
   for (const c of candidates) if (existsSync7(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join10(pluginRoot, "scripts", "resource-search.sh");
+    const c = join10(pluginRoot, "scripts", "cheatcode-search.sh");
     if (existsSync7(c)) return c;
   }
-  throw new Error("resource-search.sh not found \u2014 expected at <plugin>/scripts/resource-search.sh");
+  throw new Error("cheatcode-search.sh not found \u2014 expected at <plugin>/scripts/cheatcode-search.sh");
 }
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
 function runSearchWithScript(script, query, kind, timeoutMs) {
@@ -29564,13 +29564,13 @@ function runSearchWithScript(script, query, kind, timeoutMs) {
         child.kill("SIGKILL");
       } catch {
       }
-      reject(new Error("resource-search.sh timed out after 60 seconds"));
+      reject(new Error("cheatcode-search.sh timed out after 60 seconds"));
     }, timeoutMs);
     child.on("error", (e) => {
       if (settled) return;
       settled = true;
       clearTimeout(killTimer);
-      reject(new Error(`resource-search.sh spawn error: ${e.message}`));
+      reject(new Error(`cheatcode-search.sh spawn error: ${e.message}`));
     });
     child.on("close", (code) => {
       if (settled) return;
@@ -29579,18 +29579,18 @@ function runSearchWithScript(script, query, kind, timeoutMs) {
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
       if (code !== 0) {
-        reject(new Error(`resource-search.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
+        reject(new Error(`cheatcode-search.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
         return;
       }
       let parsed;
       try {
         parsed = JSON.parse(stdout);
       } catch {
-        reject(new Error(`resource-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+        reject(new Error(`cheatcode-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
         return;
       }
       if (!Array.isArray(parsed.candidates)) {
-        reject(new Error("resource-search.sh emitted unexpected shape (missing candidates[])"));
+        reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
         return;
       }
       resolve3(parsed);
@@ -29598,11 +29598,11 @@ function runSearchWithScript(script, query, kind, timeoutMs) {
   });
 }
 var VALID_KINDS2 = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
-function resourceTools(db2) {
+function cheatcodeTools(db2) {
   const definitions = [
     {
-      name: "resource_search",
-      description: "Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/resource-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a resource_search audit row, returns ranked candidates.",
+      name: "cheatcode_search",
+      description: "Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.",
       inputSchema: {
         type: "object",
         properties: {
@@ -29622,8 +29622,8 @@ function resourceTools(db2) {
     }
   ];
   const handlers = {
-    resource_search: requireRoles(
-      "resource_search",
+    cheatcode_search: requireRoles(
+      "cheatcode_search",
       ["bro"],
       wrap4(async (args) => {
         const query = args["capability_query"]?.trim();
@@ -29633,7 +29633,7 @@ function resourceTools(db2) {
         const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
         db2.run(
           `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'resource_search', ?, ?, ?)`,
+           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`,
           [
             `Resource search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
             JSON.stringify({
@@ -29911,7 +29911,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
   const composites = compositeTools(db2, dbPath2, graph2);
   const onboard = onboardTools(db2, dbPath2);
   const scan = scanTools(db2, graph2, dbPath2, graphOpenError2);
-  const resource = resourceTools(db2);
+  const cheatcode = cheatcodeTools(db2);
   const worldModel = worldModelTools(db2, graph2);
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
@@ -29932,7 +29932,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
-    ...resource.definitions,
+    ...cheatcode.definitions,
     ...worldModel.definitions
   ]);
   toolHandlers = {
@@ -29954,7 +29954,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,
-    ...resource.handlers,
+    ...cheatcode.handlers,
     ...worldModel.handlers
   };
 }

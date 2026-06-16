@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tempDB } from './helpers.js';
-import { resourceTools } from '../tools/resource.js';
+import { cheatcodeTools } from '../tools/cheatcode.js';
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }
@@ -42,7 +42,7 @@ const FIXTURE = JSON.stringify([
         tier: 1,
     },
 ]);
-describe('resource_search', () => {
+describe('cheatcode_search', () => {
     function withFixture() {
         const dir = mkdtempSync(join(tmpdir(), 'tmb-resource-'));
         const path = join(dir, 'candidates.json');
@@ -54,8 +54,8 @@ describe('resource_search', () => {
         const { path, cleanup } = withFixture();
         process.env['TMB_RESOURCE_SEARCH_FIXTURE'] = path;
         try {
-            const tools = resourceTools(db);
-            const r = await call(tools.handlers, 'resource_search', {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_search', {
                 agent: 'bro',
                 capability_query: 'pdf table extraction',
             });
@@ -86,8 +86,8 @@ describe('resource_search', () => {
         const { path, cleanup } = withFixture();
         process.env['TMB_RESOURCE_SEARCH_FIXTURE'] = path;
         try {
-            const tools = resourceTools(db);
-            const r = await call(tools.handlers, 'resource_search', {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_search', {
                 agent: 'bro',
                 capability_query: 'pdf',
                 kind: 'skill',
@@ -102,18 +102,18 @@ describe('resource_search', () => {
             cleanup();
         }
     });
-    it('writes a resource_search audit row', async () => {
+    it('writes a cheatcode_search audit row', async () => {
         const db = tempDB();
         const { path, cleanup } = withFixture();
         process.env['TMB_RESOURCE_SEARCH_FIXTURE'] = path;
         try {
-            const tools = resourceTools(db);
-            await call(tools.handlers, 'resource_search', {
+            const tools = cheatcodeTools(db);
+            await call(tools.handlers, 'cheatcode_search', {
                 agent: 'bro',
                 capability_query: 'pdf table extraction',
             });
-            const row = db.get(`SELECT event_type, content_json FROM audit WHERE event_type = 'resource_search' ORDER BY id DESC LIMIT 1`);
-            assert.ok(row, 'resource_search audit row exists');
+            const row = db.get(`SELECT event_type, content_json FROM audit WHERE event_type = 'cheatcode_search' ORDER BY id DESC LIMIT 1`);
+            assert.ok(row, 'cheatcode_search audit row exists');
             const content = JSON.parse(row.content_json);
             assert.equal(content.query, 'pdf table extraction');
             assert.ok(typeof content.candidate_count === 'number');
@@ -125,8 +125,8 @@ describe('resource_search', () => {
     });
     it('rejects a non-bro caller', async () => {
         const db = tempDB();
-        const tools = resourceTools(db);
-        const r = await call(tools.handlers, 'resource_search', {
+        const tools = cheatcodeTools(db);
+        const r = await call(tools.handlers, 'cheatcode_search', {
             agent: 'swe',
             capability_query: 'pdf',
         });
@@ -135,4 +135,4 @@ describe('resource_search', () => {
         assert.equal(out['error'], 'forbidden');
     });
 });
-//# sourceMappingURL=resource.test.js.map
+//# sourceMappingURL=cheatcode.test.js.map

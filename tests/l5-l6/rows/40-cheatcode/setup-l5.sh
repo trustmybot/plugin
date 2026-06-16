@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Cheatcode-discovery L5 isolation: seed a deterministic candidate fixture and
-# point resource_search at it via TMB_RESOURCE_SEARCH_FIXTURE so no live web is
+# point cheatcode_search at it via TMB_RESOURCE_SEARCH_FIXTURE so no live web is
 # ever touched. The fixture lives in the project dir; the env export covers
 # runners that source this setup. Even without the env var the row still passes
-# (resource_search records its audit row with an empty candidate set), so the
+# (cheatcode_search records its audit row with an empty candidate set), so the
 # fixture only enriches the ranked output — it never gates the assertion.
 set -uo pipefail
 

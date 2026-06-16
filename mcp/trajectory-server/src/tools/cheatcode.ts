@@ -50,23 +50,23 @@ function wrap(fn: Fn): Fn {
   };
 }
 
-// Locate scripts/resource-search.sh relative to this compiled module. Plugin layout:
-//   <plugin>/mcp/trajectory-server/dist/tools/resource.js
-//   <plugin>/scripts/resource-search.sh
+// Locate scripts/cheatcode-search.sh relative to this compiled module. Plugin layout:
+//   <plugin>/mcp/trajectory-server/dist/tools/cheatcode.js
+//   <plugin>/scripts/cheatcode-search.sh
 // Walking up four levels lands at the plugin root (mirrors scan.ts).
 function resolveSearchScript(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    join(here, '..', '..', '..', '..', 'scripts', 'resource-search.sh'),
-    join(here, '..', '..', '..', 'scripts', 'resource-search.sh'),
+    join(here, '..', '..', '..', '..', 'scripts', 'cheatcode-search.sh'),
+    join(here, '..', '..', '..', 'scripts', 'cheatcode-search.sh'),
   ];
   for (const c of candidates) if (existsSync(c)) return c;
   const pluginRoot = process.env['CLAUDE_PLUGIN_ROOT'];
   if (pluginRoot) {
-    const c = join(pluginRoot, 'scripts', 'resource-search.sh');
+    const c = join(pluginRoot, 'scripts', 'cheatcode-search.sh');
     if (existsSync(c)) return c;
   }
-  throw new Error('resource-search.sh not found — expected at <plugin>/scripts/resource-search.sh');
+  throw new Error('cheatcode-search.sh not found — expected at <plugin>/scripts/cheatcode-search.sh');
 }
 
 const SEARCH_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
@@ -96,14 +96,14 @@ export function runSearchWithScript(
       } catch {
         // already exited
       }
-      reject(new Error('resource-search.sh timed out after 60 seconds'));
+      reject(new Error('cheatcode-search.sh timed out after 60 seconds'));
     }, timeoutMs);
 
     child.on('error', (e) => {
       if (settled) return;
       settled = true;
       clearTimeout(killTimer);
-      reject(new Error(`resource-search.sh spawn error: ${e.message}`));
+      reject(new Error(`cheatcode-search.sh spawn error: ${e.message}`));
     });
 
     child.on('close', (code) => {
@@ -113,18 +113,18 @@ export function runSearchWithScript(
       const stdout = Buffer.concat(stdoutChunks).toString('utf8');
       const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
       if (code !== 0) {
-        reject(new Error(`resource-search.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
+        reject(new Error(`cheatcode-search.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
         return;
       }
       let parsed: SearchOutput;
       try {
         parsed = JSON.parse(stdout) as SearchOutput;
       } catch {
-        reject(new Error(`resource-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+        reject(new Error(`cheatcode-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
         return;
       }
       if (!Array.isArray(parsed.candidates)) {
-        reject(new Error('resource-search.sh emitted unexpected shape (missing candidates[])'));
+        reject(new Error('cheatcode-search.sh emitted unexpected shape (missing candidates[])'));
         return;
       }
       resolve(parsed);
@@ -134,15 +134,15 @@ export function runSearchWithScript(
 
 const VALID_KINDS = new Set<ResourceKind>(['skill', 'mcp', 'plugin', 'any']);
 
-export function resourceTools(db: TrajectoryDB): {
+export function cheatcodeTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
   const definitions: Tool[] = [
     {
-      name: 'resource_search',
+      name: 'cheatcode_search',
       description:
-        'Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/resource-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a resource_search audit row, returns ranked candidates.',
+        'Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -163,8 +163,8 @@ export function resourceTools(db: TrajectoryDB): {
   ];
 
   const handlers: Record<string, Fn> = {
-    resource_search: requireRoles(
-      'resource_search',
+    cheatcode_search: requireRoles(
+      'cheatcode_search',
       ['bro'],
       wrap(async (args) => {
         const query = (args['capability_query'] as string | undefined)?.trim();
@@ -178,7 +178,7 @@ export function resourceTools(db: TrajectoryDB): {
 
         db.run(
           `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'resource_search', ?, ?, ?)`,
+           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`,
           [
             `Resource search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
             JSON.stringify({

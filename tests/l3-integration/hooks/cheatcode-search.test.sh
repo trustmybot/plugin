@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# L3: scripts/resource-search.sh ranks fixture candidates deterministically.
+# L3: scripts/cheatcode-search.sh ranks fixture candidates deterministically.
 # Network is stubbed via TMB_RESOURCE_SEARCH_FIXTURE — no live web.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
-SCRIPT="$PLUGIN_ROOT/scripts/resource-search.sh"
+SCRIPT="$PLUGIN_ROOT/scripts/cheatcode-search.sh"
 
 command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 
@@ -74,4 +74,4 @@ set -e
 if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on missing --query"; fi
 
 summarize
-printf "PASS resource-search\n"
+printf "PASS cheatcode-search\n"

@@ -1,5 +1,5 @@
 {
   "max_turns": 1,
   "user_after_bro": [],
-  "terminal_pattern": "candidates|ranked|resource_search|options|here are"
+  "terminal_pattern": "candidates|ranked|cheatcode_search|options|here are"
 }

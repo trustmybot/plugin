@@ -1,6 +1,6 @@
-# 3rd-Party Resource Integration (v0.10.0)
+# Cheatcode Integration (v0.10.0)
 
-Design for the discover → vet → install → hot-load pipeline that lets bro acquire external Claude Code resources (skills, MCP/toolkits, plugins) on demand. Epic #656; sub-issues #657–#660. This doc is the architecture-of-record; every stage below names the [DETERMINISM.md](../prompt-engineering/DETERMINISM.md) mechanism it lands in.
+Design for the discover → vet → install → hot-load pipeline that lets bro acquire cheatcodes (skills, MCP/toolkits, plugins) on demand. Epic #656; sub-issues #657–#660. This doc is the architecture-of-record; every stage below names the [DETERMINISM.md](../prompt-engineering/DETERMINISM.md) mechanism it lands in.
 
 ## Principle
 
@@ -16,7 +16,7 @@ Everything between those two judgments is a tool call, not a checklist.
 | Stage | Judgment (mech 7) | Deterministic layer |
 |---|---|---|
 | **Detect gap (#657)** | bro spots "task needs capability X I don't have" — grab a cheatcode (`tmb_cheatcode` skill) instead of grinding it out | — |
-| **Search/rank (#657)** | — | `resource_search` composite MCP tool → forks `scripts/resource-search.sh` (query tiered registries + parse + deterministic ranking), returns ranked candidates + records an audit row. One call, like `scan_run`→`scan.sh`. |
+| **Search/rank (#657)** | — | `cheatcode_search` composite MCP tool → forks `scripts/cheatcode-search.sh` (query tiered registries + parse + deterministic ranking), returns ranked candidates + records an audit row. One call, like `scan_run`→`scan.sh`. |
 | **Vet (#658)** | bro weighs "trustworthy enough?" + AskUserQuestion | `resource_vet` tool gathers reputation/security **signals** atomically (stars, age, downloads, maintainer, license, install-surface); never decides. |
 | **Install (#659)** | — (approval is the human's, not bro's) | `resource_install` composite (marketplace-install path, no seeding) + **PreToolUse approval gate**: install blocked unless an explicit human-approval record exists for that candidate (mech 3). Records install in trajectory DB. |
 | **Hot-load (#660)** | — | `resource_activate` tool attempts in-session load; if CC requires a restart, returns a deterministic `restart_required` verdict and the skill surfaces `claude --resume` (TMB state is in trajectory checkpoints, so resume is safe). |
@@ -31,7 +31,7 @@ Everything between those two judgments is a tool call, not a checklist.
 
 ## Registries (tiered)
 
-Discovery queries real, reputable registries — there is no self-built index. Each source carries a **tier** that doubles as its reputation signal; the ranker trusts the tier, not invented star/download counts. `scripts/resource-search.sh` merges the normalized candidates, dedupes by `source_url` (keeping the lowest tier number = most trusted), and ranks.
+Discovery queries real, reputable registries — there is no self-built index. Each source carries a **tier** that doubles as its reputation signal; the ranker trusts the tier, not invented star/download counts. `scripts/cheatcode-search.sh` merges the normalized candidates, dedupes by `source_url` (keeping the lowest tier number = most trusted), and ranks.
 
 **Tier 1 — OFFICIAL:**
 

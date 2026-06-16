@@ -23,26 +23,26 @@ function wrap(fn) {
         }
     };
 }
-// Locate scripts/resource-search.sh relative to this compiled module. Plugin layout:
-//   <plugin>/mcp/trajectory-server/dist/tools/resource.js
-//   <plugin>/scripts/resource-search.sh
+// Locate scripts/cheatcode-search.sh relative to this compiled module. Plugin layout:
+//   <plugin>/mcp/trajectory-server/dist/tools/cheatcode.js
+//   <plugin>/scripts/cheatcode-search.sh
 // Walking up four levels lands at the plugin root (mirrors scan.ts).
 function resolveSearchScript() {
     const here = dirname(fileURLToPath(import.meta.url));
     const candidates = [
-        join(here, '..', '..', '..', '..', 'scripts', 'resource-search.sh'),
-        join(here, '..', '..', '..', 'scripts', 'resource-search.sh'),
+        join(here, '..', '..', '..', '..', 'scripts', 'cheatcode-search.sh'),
+        join(here, '..', '..', '..', 'scripts', 'cheatcode-search.sh'),
     ];
     for (const c of candidates)
         if (existsSync(c))
             return c;
     const pluginRoot = process.env['CLAUDE_PLUGIN_ROOT'];
     if (pluginRoot) {
-        const c = join(pluginRoot, 'scripts', 'resource-search.sh');
+        const c = join(pluginRoot, 'scripts', 'cheatcode-search.sh');
         if (existsSync(c))
             return c;
     }
-    throw new Error('resource-search.sh not found — expected at <plugin>/scripts/resource-search.sh');
+    throw new Error('cheatcode-search.sh not found — expected at <plugin>/scripts/cheatcode-search.sh');
 }
 const SEARCH_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
 export function runSearchWithScript(script, query, kind, timeoutMs) {
@@ -65,14 +65,14 @@ export function runSearchWithScript(script, query, kind, timeoutMs) {
             catch {
                 // already exited
             }
-            reject(new Error('resource-search.sh timed out after 60 seconds'));
+            reject(new Error('cheatcode-search.sh timed out after 60 seconds'));
         }, timeoutMs);
         child.on('error', (e) => {
             if (settled)
                 return;
             settled = true;
             clearTimeout(killTimer);
-            reject(new Error(`resource-search.sh spawn error: ${e.message}`));
+            reject(new Error(`cheatcode-search.sh spawn error: ${e.message}`));
         });
         child.on('close', (code) => {
             if (settled)
@@ -82,7 +82,7 @@ export function runSearchWithScript(script, query, kind, timeoutMs) {
             const stdout = Buffer.concat(stdoutChunks).toString('utf8');
             const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
             if (code !== 0) {
-                reject(new Error(`resource-search.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
+                reject(new Error(`cheatcode-search.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
                 return;
             }
             let parsed;
@@ -90,11 +90,11 @@ export function runSearchWithScript(script, query, kind, timeoutMs) {
                 parsed = JSON.parse(stdout);
             }
             catch {
-                reject(new Error(`resource-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+                reject(new Error(`cheatcode-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
                 return;
             }
             if (!Array.isArray(parsed.candidates)) {
-                reject(new Error('resource-search.sh emitted unexpected shape (missing candidates[])'));
+                reject(new Error('cheatcode-search.sh emitted unexpected shape (missing candidates[])'));
                 return;
             }
             resolve(parsed);
@@ -102,11 +102,11 @@ export function runSearchWithScript(script, query, kind, timeoutMs) {
     });
 }
 const VALID_KINDS = new Set(['skill', 'mcp', 'plugin', 'any']);
-export function resourceTools(db) {
+export function cheatcodeTools(db) {
     const definitions = [
         {
-            name: 'resource_search',
-            description: 'Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/resource-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a resource_search audit row, returns ranked candidates.',
+            name: 'cheatcode_search',
+            description: 'Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -126,7 +126,7 @@ export function resourceTools(db) {
         },
     ];
     const handlers = {
-        resource_search: requireRoles('resource_search', ['bro'], wrap(async (args) => {
+        cheatcode_search: requireRoles('cheatcode_search', ['bro'], wrap(async (args) => {
             const query = args['capability_query']?.trim();
             if (!query)
                 return err('capability_query is required');
@@ -136,7 +136,7 @@ export function resourceTools(db) {
                 : 'any';
             const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
             db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'resource_search', ?, ?, ?)`, [
+           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`, [
                 `Resource search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
                 JSON.stringify({
                     query,
@@ -151,4 +151,4 @@ export function resourceTools(db) {
     };
     return { definitions, handlers };
 }
-//# sourceMappingURL=resource.js.map
+//# sourceMappingURL=cheatcode.js.map

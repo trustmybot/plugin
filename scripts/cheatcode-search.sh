@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# resource-search.sh — deterministic 3rd-party-resource discovery + ranking.
+# cheatcode-search.sh — deterministic 3rd-party-resource discovery + ranking.
 #
 # Discovers candidate Claude Code resources (skills, MCP/toolkits, plugins) for
 # a capability query from real, reputable registries, then ranks them by a
@@ -39,7 +39,7 @@
 #   score      = (tier == 1 ? 200 : 100) + relevance * 10
 #
 # Usage:
-#   bash scripts/resource-search.sh --query <q> [--kind skill|mcp|plugin|any]
+#   bash scripts/cheatcode-search.sh --query <q> [--kind skill|mcp|plugin|any]
 
 set -uo pipefail
 

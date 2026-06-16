@@ -1,7 +1,7 @@
 ---
 name: tmb_cheatcode
-description: When bro hits a wall — a task leans on a capability the project plainly lacks — and an existing published skill, MCP toolkit, or plugin would close the gap better than hand-rolled code. Bro names the gap, calls resource_search for ranked candidates, judges which best fits this task and codebase, and recommends it for the Human to approve. Loaded when grabbing an external resource beats grinding the capability out from scratch.
-allowed-tools: mcp__plugin_tmb_trajectory-server__resource_search, AskUserQuestion
+description: When bro hits a wall — a task leans on a capability the project plainly lacks — and an existing published skill, MCP toolkit, or plugin would close the gap better than hand-rolled code. Bro names the gap, calls cheatcode_search for ranked candidates, judges which best fits this task and codebase, and recommends it for the Human to approve. Loaded when grabbing an external resource beats grinding the capability out from scratch.
+allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, AskUserQuestion
 ---
 
 # cheatcode
@@ -22,7 +22,7 @@ If code you'd write anyway covers it, or a capability already on hand does, it's
 
 Name the capability and call once:
 
-`resource_search(agent='bro', capability_query='<capability>', kind='skill'|'mcp'|'plugin'|'any')`
+`cheatcode_search(agent='bro', capability_query='<capability>', kind='skill'|'mcp'|'plugin'|'any')`
 
 One call searches, ranks, and records the audit row. Pin `kind` when the shape is obvious; leave `any` when unsure.
 
