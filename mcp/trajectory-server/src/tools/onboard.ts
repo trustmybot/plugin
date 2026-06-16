@@ -22,6 +22,7 @@ import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import type { Provider } from '../utils/classify-url.js';
+import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
@@ -463,13 +464,28 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
     },
   ];
 
+  // The probe must run inside the default repo's git tree, not the workspace
+  // root. In a multi-repo workspace the trajectory.db lives above the repos,
+  // so the stripped workspace path is not a git repo at all (#675) — git
+  // probes there report in_git:false and detect no remotes, persisting blank
+  // remote URLs that silently disable issue-sync. Prefer the authoritative
+  // repo path from tmb_default_repo; fall back to the legacy workspace-root
+  // derivation only when it can't be resolved.
+  const probeDir = (): string => {
+    const fromDefaultRepo = resolveDefaultRepoPath(db, dbPath ?? '');
+    if (fromDefaultRepo) return fromDefaultRepo;
+    const workspaceRoot = dbPath
+      ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '')
+      : process.cwd();
+    return workspaceRoot || process.cwd();
+  };
+
   const handlers: Record<string, Fn> = {
     onboard_state_get: requireRoles(
       'onboard_state_get',
       ['bro'],
       wrapHandler(async () => {
-        const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
-        const git = probeGit(cwd || process.cwd());
+        const git = probeGit(probeDir());
         const gh = probeCli('gh');
         const glab = probeCli('glab');
 
@@ -509,8 +525,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         const shape = args['shape'] as 'local' | 'remote' | undefined;
         const round = args['round'] as 'shape' | 'main' | 'sync';
 
-        const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
-        const git = probeGit(cwd || process.cwd());
+        const git = probeGit(probeDir());
 
         if (round === 'shape') {
           return ok({ questions: [shapeQuestion(git.origin_kind)] });
@@ -601,6 +616,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
 
         let remotes: Array<{ name: string; provider: Provider; url: string }> = [];
         let issue_sync: 'auto' | 'off' = 'off';
+        let warning: string | undefined;
         if (shape === 'remote') {
           const rawRemote = args['remote'];
           // Accept array (canonical, post-multiSelect) or string (legacy/single).
@@ -643,8 +659,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
             throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
           }
 
-          const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
-          const git = probeGit(cwd || process.cwd());
+          const git = probeGit(probeDir());
           const findUrl = (p: Provider): string =>
             git.detected_remotes.find((r) => r.provider === p)?.url ?? '';
           // Stable order: github first, then gitlab. The first entry uses
@@ -658,6 +673,15 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
               provider: 'gitlab',
               url: findUrl('gitlab'),
             });
+          }
+
+          // Defensive: if the origin remote's URL is still blank after the
+          // probe, issue-sync will silently skip (blank_remote_url). Surface a
+          // warning so the operator can fix the repo's git remote rather than
+          // discover the silent skip later (#675).
+          const origin = remotes.find((r) => r.name === 'origin');
+          if (origin && origin.url.length === 0) {
+            warning = `remote URL not detected for ${origin.provider}; issues will not sync — check the repo's git remote`;
           }
         }
 
@@ -691,6 +715,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
 
         return ok({
           ok: true,
+          ...(warning ? { warning } : {}),
           applied: {
             onboarded: true,
             branching_model,
@@ -698,6 +723,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
             protected_branches,
             remotes,
             issue_sync,
+            ...(warning ? { warning } : {}),
           },
         });
       }),

@@ -1,5 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { onboardTools } from '../tools/onboard.js';
 import { tempDB } from './helpers.js';
 function call(handlers, name, args) {
@@ -32,6 +36,35 @@ describe('onboard tools', () => {
             const data = parse(result);
             assert.equal(data.first_run, false);
             db.close();
+        });
+        it('probes the DEFAULT REPO path, not the workspace-root cwd (#675)', async () => {
+            // A real git repo with a github origin, sitting at an arbitrary path that
+            // is NOT the workspace root the dbPath would strip down to. The probe must
+            // resolve it via the `repos` row (resolveDefaultRepoPath single-repo
+            // fallback) so in_git:true and the remote is detected.
+            const repoDir = mkdtempSync(join(tmpdir(), 'onboard-probe-'));
+            const gitOpts = { cwd: repoDir, encoding: 'utf8' };
+            try {
+                spawnSync('git', ['init', '-q'], gitOpts);
+                spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/widget.git'], gitOpts);
+                const db = tempDB();
+                db.run(`INSERT INTO repos (path, name) VALUES (?, 'widget')`, [repoDir]);
+                // dbPath points at a workspace root that is NOT a git repo — the legacy
+                // derivation would probe here and find nothing.
+                const tools = onboardTools(db, '/tmp/some-workspace/.claude/tmb/trajectory.db');
+                const result = await call(tools.handlers, 'onboard_state_get', {});
+                const data = parse(result);
+                const probe = data.probe;
+                assert.equal(probe.in_git, true, 'must probe inside the default repo git tree');
+                const origin = probe.detected_remotes.find((r) => r.name === 'origin');
+                assert.ok(origin, 'origin remote must be detected from the default repo path');
+                assert.equal(origin.url, 'https://github.com/acme/widget.git');
+                assert.equal(origin.provider, 'github');
+                db.close();
+            }
+            finally {
+                rmSync(repoDir, { recursive: true, force: true });
+            }
         });
     });
     describe('onboard_get_questions', () => {
@@ -239,6 +272,33 @@ describe('onboard tools', () => {
             assert.equal(applied.pr_target, 'dev');
             assert.deepEqual(applied.protected_branches, ['main', 'dev']);
             db.close();
+        });
+        it('remote shape with no detectable origin URL emits a blank-URL warning (#675)', async () => {
+            // Default repo path points at a NON-git directory → probe finds no remote
+            // → origin URL blank. onboard_apply must surface a warning (not throw) so
+            // issue-sync silence is visible to the operator. (An empty dir, rather
+            // than the test cwd which IS a git repo with a real origin.)
+            const noGitDir = mkdtempSync(join(tmpdir(), 'onboard-nogit-'));
+            try {
+                const db = tempDB();
+                db.run(`INSERT INTO repos (path, name) VALUES (?, 'widget')`, [noGitDir]);
+                const tools = onboardTools(db, '/tmp/some-workspace/.claude/tmb/trajectory.db');
+                const result = await call(tools.handlers, 'onboard_apply', {
+                    shape: 'remote',
+                    branching_model: 'github-flow',
+                    remote: ['github'],
+                    issue_sync: 'auto',
+                });
+                const data = parse(result);
+                assert.equal(data.ok, true);
+                assert.match(String(data.warning), /remote URL not detected for github/);
+                const applied = data.applied;
+                assert.match(String(applied.warning), /issues will not sync/);
+                db.close();
+            }
+            finally {
+                rmSync(noGitDir, { recursive: true, force: true });
+            }
         });
         it('remote shape: persists single-provider array', async () => {
             const db = tempDB();
