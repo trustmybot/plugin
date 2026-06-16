@@ -17,6 +17,10 @@
 # files[] array (e.g. pre-migration tasks, or bro omitting the field) skips
 # enforcement.
 #
+# Toolchain PATH (#673 audit): this hook performs only path-string comparison
+# (jq/dirname/sqlite via libs) — it never execs user toolchains, so the
+# toolchain-PATH resolution in swe-verification-gate.sh is not needed here.
+#
 # Fail-open policy: passes through when:
 #   - not an SWE worktree context
 #   - task row unresolvable

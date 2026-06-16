@@ -234,4 +234,68 @@ out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 20)")
 assert_not_contains "$out" "verification gate skipped" "workspace-above-repo gate must not skip"
 assert_not_contains "$out" '"permissionDecision":"deny"' "workspace-above-repo passing cmd should allow"
 
+# ---- Minimal hook PATH: toolchain (mise/homebrew) tool resolves (#673) --------
+# The swe-subagent PreToolUse hook process starts with a minimal, login-stripped
+# PATH where npm/node/shellcheck are absent (they live in mise/homebrew). The
+# gate must resolve the user toolchain PATH so such a verification[] command
+# runs instead of exiting 127 (false DENY).
+#
+# We pick a real toolchain tool (node via mise, else shellcheck via homebrew),
+# capture its bin dir, then run the hook under a PATH that DELIBERATELY excludes
+# that bin dir (but keeps the hook's own deps: jq, sqlite3, the timeout impl).
+# If the gate's PATH resolution works, the command resolves and runs.
+TOOL=""; TOOL_BIN=""
+for cand in node npm shellcheck; do
+  p=$(command -v "$cand" 2>/dev/null || true)
+  if [ -n "$p" ]; then TOOL="$cand"; TOOL_BIN=$(dirname "$p"); break; fi
+done
+
+if [ -n "$TOOL" ]; then
+  # Build a PATH that keeps the hook's runtime deps but drops the tool's bin dir.
+  DEP_DIRS=""
+  for dep in jq sqlite3 timeout gtimeout perl date dirname tail head bash sort tr; do
+    dp=$(command -v "$dep" 2>/dev/null || true)
+    [ -n "$dp" ] || continue
+    d=$(dirname "$dp")
+    case ":$DEP_DIRS:" in *":$d:"*) ;; *) DEP_DIRS="${DEP_DIRS:+$DEP_DIRS:}$d" ;; esac
+  done
+  # Strip the tool's bin dir from the dep PATH so it is genuinely unresolvable
+  # before the gate prepends the toolchain dirs.
+  MINIMAL_PATH=""
+  IFS=: read -ra _dirs <<< "$DEP_DIRS"
+  for d in "${_dirs[@]}"; do
+    [ "$d" = "$TOOL_BIN" ] && continue
+    MINIMAL_PATH="${MINIMAL_PATH:+$MINIMAL_PATH:}$d"
+  done
+  MINIMAL_PATH="${MINIMAL_PATH}:/usr/bin:/bin:/usr/sbin:/sbin"
+
+  run_hook_min_path() {
+    echo "$1" | env PATH="$MINIMAL_PATH" bash "$HOOK" 2>&1 || true
+  }
+
+  # Sanity: under the minimal PATH the tool is genuinely unresolvable.
+  test_case "minimal PATH: chosen toolchain tool ($TOOL) is unresolvable before gate resolution"
+  unresolved=$(env PATH="$MINIMAL_PATH" bash -c "command -v $TOOL >/dev/null 2>&1 && echo found || echo missing")
+  assert_eq "missing" "$unresolved" "$TOOL must be off the minimal PATH for this test to be meaningful"
+
+  # Passing: a verification command invoking the toolchain tool resolves and runs.
+  test_case "minimal PATH: passing verification using mise/homebrew tool resolves and ALLOWS (#673)"
+  sqlite3 "$DB" "
+    INSERT INTO tasks VALUES (30, 1, 'feat/toolchain-pass', 'pending', '', '[\"$TOOL --version\"]');
+  "
+  mkdir -p "$WT_ROOT/toolchain-pass"
+  out=$(cd "$REPO_DIR" && run_hook_min_path "$(make_input swe completed 30)")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "toolchain tool should resolve and pass (no false 127 DENY)"
+
+  # Failing: the same tool exits non-zero → genuine DENY (resolution still works).
+  test_case "minimal PATH: failing verification using mise/homebrew tool resolves and DENIES (#673)"
+  sqlite3 "$DB" "
+    INSERT INTO tasks VALUES (31, 1, 'feat/toolchain-fail', 'pending', '', '[\"$TOOL --no-such-flag-xyz; exit 1\"]');
+  "
+  mkdir -p "$WT_ROOT/toolchain-fail"
+  out=$(cd "$REPO_DIR" && run_hook_min_path "$(make_input swe completed 31)")
+  assert_contains "$out" '"permissionDecision":"deny"' "genuinely failing toolchain command should still DENY"
+  assert_contains "$out" "verification failed" "deny reason should say verification failed"
+fi
+
 summarize

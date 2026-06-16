@@ -11,6 +11,13 @@
 # verification[] array (e.g. pre-migration tasks, or bro omitting the field)
 # skips the gate with a warning.
 #
+# Toolchain PATH (#673, second defect): the swe-subagent PreToolUse hook process
+# starts with a minimal, login-stripped PATH where mise/homebrew tools
+# (npm/node/shellcheck) are absent → verification commands would exit 127 (false
+# DENY). lib/resolve-toolchain-path.sh resolves and prepends the user's real
+# toolchain dirs before the bash -c loop; see that file's header for the
+# mechanism and why bash -lc is insufficient (zsh + mise).
+#
 # Fires on: PreToolUse — matcher: mcp__.*trajectory-server__task_update_status
 #
 # Decision logic:
@@ -35,6 +42,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
 # shellcheck source=scripts/hooks/lib/resolve-workspace.sh disable=SC1091
 . "$SCRIPT_DIR/lib/resolve-workspace.sh"
+# shellcheck source=scripts/hooks/lib/resolve-toolchain-path.sh disable=SC1091
+. "$SCRIPT_DIR/lib/resolve-toolchain-path.sh"
 
 INPUT=$(cat)
 
@@ -151,6 +160,11 @@ if [ -z "$WT_PATH" ] || [ ! -d "$WT_PATH" ]; then
   exit 0
 fi
 
+# Resolve the user's real toolchain PATH so verification commands invoking
+# mise/homebrew tools (npm/node/shellcheck) don't exit 127 under the minimal
+# hook-process PATH. See lib/resolve-toolchain-path.sh.
+TOOLCHAIN_PATH=$(tmb_resolve_toolchain_path "$PATH" 2>/dev/null || printf '%s' "$PATH")
+
 TIMEOUT_S="${TMB_VERIFICATION_TIMEOUT_S:-240}"
 START_TS=$(date +%s 2>/dev/null || echo 0)
 
@@ -174,8 +188,9 @@ while IFS= read -r line; do
     exit 0
   fi
 
-  # Run command in worktree, bounded by the remaining time budget.
-  CMD_OUTPUT=$( (cd "$WT_PATH" && tmb_run_with_timeout "$REMAINING" bash -c "$CMD") 2>&1 ) || {
+  # Run command in worktree with the resolved toolchain PATH, bounded by the
+  # remaining time budget.
+  CMD_OUTPUT=$( (cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$REMAINING" bash -c "$CMD") 2>&1 ) || {
     CMD_RC=$?
     if [ "$CMD_RC" -eq 124 ]; then
       jq -nc --arg cmd "$CMD" --arg t "$TIMEOUT_S" \
