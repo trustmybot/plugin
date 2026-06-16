@@ -20,6 +20,7 @@ import { prCommentsTools } from './pr_comments.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
+import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world-model.js';
 export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
@@ -72,6 +73,7 @@ export function registerTools(
   const composites = compositeTools(db, dbPath, graph);
   const onboard = onboardTools(db, dbPath);
   const scan = scanTools(db, graph, dbPath, graphOpenError);
+  const cheatcode = cheatcodeTools(db);
   const worldModel = worldModelTools(db, graph);
 
   toolDefinitions = decorateWithAgent([
@@ -93,6 +95,7 @@ export function registerTools(
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
+    ...cheatcode.definitions,
     ...worldModel.definitions,
   ]);
 
@@ -115,6 +118,7 @@ export function registerTools(
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,
+    ...cheatcode.handlers,
     ...worldModel.handlers,
   };
 }

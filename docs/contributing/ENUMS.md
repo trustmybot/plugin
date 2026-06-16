@@ -101,6 +101,7 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | `bro_verification_fail` | Bro task-gate found a check that failed |
 | `deep_scan_completed` | `scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs` |
 | `swe_retry_spawned` | Bro spawned a SWE retry after failure; captures retry rationale in `content_json` |
+| `cheatcode_search` | `cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
 

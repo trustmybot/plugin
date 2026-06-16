@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js
 var require_code = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.regexpCode = exports.getEsmExportName = exports.getProperty = exports.safeStringify = exports.stringify = exports.strConcat = exports.addCodeArg = exports.str = exports._ = exports.nil = exports._Code = exports.Name = exports.IDENTIFIER = exports._CodeOrName = void 0;
@@ -182,9 +182,9 @@ var require_code = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js
 var require_scope = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
@@ -327,9 +327,9 @@ var require_scope = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js
 var require_codegen = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.or = exports.and = exports.not = exports.CodeGen = exports.operators = exports.varKinds = exports.ValueScopeName = exports.ValueScope = exports.Scope = exports.Name = exports.regexpCode = exports.stringify = exports.getProperty = exports.nil = exports.strConcat = exports.str = exports._ = void 0;
@@ -1047,9 +1047,9 @@ var require_codegen = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js
 var require_util = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/util.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.checkStrictMode = exports.getErrorPath = exports.Type = exports.useFunc = exports.setEvaluated = exports.evaluatedPropsToName = exports.mergeEvaluated = exports.eachItem = exports.unescapeJsonPointer = exports.escapeJsonPointer = exports.escapeFragment = exports.unescapeFragment = exports.schemaRefOrVal = exports.schemaHasRulesButRef = exports.schemaHasRules = exports.checkUnknownRules = exports.alwaysValidSchema = exports.toHash = void 0;
@@ -1214,9 +1214,9 @@ var require_util = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js
 var require_names = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/names.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -1253,9 +1253,9 @@ var require_names = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js
 var require_errors = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendErrors = exports.resetErrorsCount = exports.reportExtraError = exports.reportError = exports.keyword$DataError = exports.keywordError = void 0;
@@ -1297,21 +1297,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err19 = gen.name("err");
+      const err20 = gen.name("err");
       gen.forRange("i", errsCount, names_1.default.errors, (i) => {
-        gen.const(err19, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
-        gen.if((0, codegen_1._)`${err19}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err19}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err19}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+        gen.const(err20, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
+        gen.if((0, codegen_1._)`${err20}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err20}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err20}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err19}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err19}.data`, data);
+          gen.assign((0, codegen_1._)`${err20}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err20}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err19 = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err19}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err19})`);
+      const err20 = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err20}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err20})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -1375,9 +1375,9 @@ var require_errors = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js
 var require_boolSchema = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.boolOrEmptySchema = exports.topBoolOrEmptySchema = void 0;
@@ -1426,9 +1426,9 @@ var require_boolSchema = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js
 var require_rules = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getRules = exports.isJSONType = void 0;
@@ -1457,9 +1457,9 @@ var require_rules = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js
 var require_applicability = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = void 0;
@@ -1480,9 +1480,9 @@ var require_applicability = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js
 var require_dataType = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.reportTypeError = exports.checkDataTypes = exports.checkDataType = exports.coerceAndCheckDataType = exports.getJSONTypes = exports.getSchemaTypes = exports.DataType = void 0;
@@ -1664,9 +1664,9 @@ var require_dataType = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js
 var require_defaults = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.assignDefaults = void 0;
@@ -1701,9 +1701,9 @@ var require_defaults = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js
 var require_code2 = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateUnion = exports.validateArray = exports.usePattern = exports.callValidateCode = exports.schemaProperties = exports.allSchemaProperties = exports.noPropertyInData = exports.propertyInData = exports.isOwnProperty = exports.hasPropFunc = exports.reportMissingProp = exports.checkMissingProp = exports.checkReportMissingProp = void 0;
@@ -1834,9 +1834,9 @@ var require_code2 = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js
 var require_keyword = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateKeywordUsage = exports.validSchemaType = exports.funcKeywordCode = exports.macroKeywordCode = void 0;
@@ -1952,9 +1952,9 @@ var require_keyword = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js
 var require_subschema = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendSubschemaMode = exports.extendSubschemaData = exports.getSubschema = void 0;
@@ -2035,9 +2035,9 @@ var require_subschema = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
+// ../../node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "../../../../../plugin/node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module) {
+  "../../node_modules/.bun/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js"(exports, module) {
     "use strict";
     module.exports = function equal(a, b) {
       if (a === b) return true;
@@ -2070,9 +2070,9 @@ var require_fast_deep_equal = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js
+// ../../node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse = __commonJS({
-  "../../../../../plugin/node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports, module) {
+  "../../node_modules/.bun/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js"(exports, module) {
     "use strict";
     var traverse = module.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
@@ -2158,9 +2158,9 @@ var require_json_schema_traverse = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js
 var require_resolve = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getSchemaRefs = exports.resolveUrl = exports.normalizeId = exports._getFullPath = exports.getFullPath = exports.inlineRef = void 0;
@@ -2314,9 +2314,9 @@ var require_resolve = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js
 var require_validate = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getData = exports.KeywordCxt = exports.validateFunctionCode = void 0;
@@ -2822,9 +2822,9 @@ var require_validate = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js
 var require_validation_error = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var ValidationError = class extends Error {
@@ -2838,9 +2838,9 @@ var require_validation_error = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js
 var require_ref_error = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/ref_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var resolve_1 = require_resolve();
@@ -2855,9 +2855,9 @@ var require_ref_error = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js
 var require_compile = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/compile/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveSchema = exports.getCompilingSchema = exports.resolveRef = exports.compileSchema = exports.SchemaEnv = void 0;
@@ -3079,9 +3079,9 @@ var require_compile = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json
 var require_data = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports, module) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/data.json"(exports, module) {
     module.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -3098,9 +3098,9 @@ var require_data = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js
+// ../../node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js
 var require_utils = __commonJS({
-  "../../../../../plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js"(exports, module) {
+  "../../node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/utils.js"(exports, module) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
@@ -3355,9 +3355,9 @@ var require_utils = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js
+// ../../node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js
 var require_schemes = __commonJS({
-  "../../../../../plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js"(exports, module) {
+  "../../node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/lib/schemes.js"(exports, module) {
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
@@ -3565,9 +3565,9 @@ var require_schemes = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js
+// ../../node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js
 var require_fast_uri = __commonJS({
-  "../../../../../plugin/node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js"(exports, module) {
+  "../../node_modules/.bun/fast-uri@3.1.0/node_modules/fast-uri/index.js"(exports, module) {
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
@@ -3820,9 +3820,9 @@ var require_fast_uri = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js
 var require_uri = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/uri.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var uri = require_fast_uri();
@@ -3831,9 +3831,9 @@ var require_uri = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js
 var require_core = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/core.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = void 0;
@@ -4442,9 +4442,9 @@ var require_core = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js
 var require_id = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var def = {
@@ -4457,9 +4457,9 @@ var require_id = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js
 var require_ref = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.callRef = exports.getValidate = void 0;
@@ -4579,9 +4579,9 @@ var require_ref = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js
 var require_core2 = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var id_1 = require_id();
@@ -4600,9 +4600,9 @@ var require_core2 = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
 var require_limitNumber = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4632,9 +4632,9 @@ var require_limitNumber = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
 var require_multipleOf = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4660,9 +4660,9 @@ var require_multipleOf = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js
 var require_ucs2length = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function ucs2length(str) {
@@ -4686,9 +4686,9 @@ var require_ucs2length = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js
 var require_limitLength = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4718,9 +4718,9 @@ var require_limitLength = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js
 var require_pattern = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4755,9 +4755,9 @@ var require_pattern = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
 var require_limitProperties = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4784,9 +4784,9 @@ var require_limitProperties = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js
 var require_required = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4866,9 +4866,9 @@ var require_required = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js
 var require_limitItems = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4895,9 +4895,9 @@ var require_limitItems = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js
 var require_equal = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var equal = require_fast_deep_equal();
@@ -4906,9 +4906,9 @@ var require_equal = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
 var require_uniqueItems = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var dataType_1 = require_dataType();
@@ -4973,9 +4973,9 @@ var require_uniqueItems = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js
 var require_const = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5002,9 +5002,9 @@ var require_const = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js
 var require_enum = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5051,9 +5051,9 @@ var require_enum = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js
 var require_validation = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var limitNumber_1 = require_limitNumber();
@@ -5089,9 +5089,9 @@ var require_validation = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
 var require_additionalItems = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateAdditionalItems = void 0;
@@ -5142,9 +5142,9 @@ var require_additionalItems = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js
 var require_items = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateTuple = void 0;
@@ -5199,9 +5199,9 @@ var require_items = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
 var require_prefixItems = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var items_1 = require_items();
@@ -5216,9 +5216,9 @@ var require_prefixItems = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js
 var require_items2020 = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5251,9 +5251,9 @@ var require_items2020 = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js
 var require_contains = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5345,9 +5345,9 @@ var require_contains = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
 var require_dependencies = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateSchemaDeps = exports.validatePropertyDeps = exports.error = void 0;
@@ -5439,9 +5439,9 @@ var require_dependencies = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
 var require_propertyNames = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5482,9 +5482,9 @@ var require_propertyNames = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
 var require_additionalProperties = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5588,9 +5588,9 @@ var require_additionalProperties = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js
 var require_properties = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var validate_1 = require_validate();
@@ -5646,9 +5646,9 @@ var require_properties = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
 var require_patternProperties = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5720,9 +5720,9 @@ var require_patternProperties = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js
 var require_not = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5751,9 +5751,9 @@ var require_not = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
 var require_anyOf = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5768,9 +5768,9 @@ var require_anyOf = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
 var require_oneOf = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5826,9 +5826,9 @@ var require_oneOf = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js
 var require_allOf = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5853,9 +5853,9 @@ var require_allOf = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js
 var require_if = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5922,9 +5922,9 @@ var require_if = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
 var require_thenElse = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5940,9 +5940,9 @@ var require_thenElse = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js
 var require_applicator = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var additionalItems_1 = require_additionalItems();
@@ -5988,9 +5988,9 @@ var require_applicator = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js
 var require_format = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6078,9 +6078,9 @@ var require_format = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js
 var require_format2 = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var format_1 = require_format();
@@ -6089,9 +6089,9 @@ var require_format2 = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js
 var require_metadata = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.contentVocabulary = exports.metadataVocabulary = void 0;
@@ -6112,9 +6112,9 @@ var require_metadata = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js
 var require_draft7 = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var core_1 = require_core2();
@@ -6134,9 +6134,9 @@ var require_draft7 = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js
 var require_types = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DiscrError = void 0;
@@ -6148,9 +6148,9 @@ var require_types = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js
 var require_discriminator = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6253,9 +6253,9 @@ var require_discriminator = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_07 = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
     module.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
@@ -6410,9 +6410,9 @@ var require_json_schema_draft_07 = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js
+// ../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js
 var require_ajv = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports, module) {
+  "../../node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/ajv.js"(exports, module) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv = void 0;
@@ -6480,9 +6480,9 @@ var require_ajv = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js
+// ../../node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js
 var require_formats = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js"(exports) {
+  "../../node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatNames = exports.fastFormats = exports.fullFormats = void 0;
@@ -6683,9 +6683,9 @@ var require_formats = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js
+// ../../node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js
 var require_limit = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js"(exports) {
+  "../../node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatLimitDefinition = void 0;
@@ -6755,9 +6755,9 @@ var require_limit = __commonJS({
   }
 });
 
-// ../../../../../plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
+// ../../node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
 var require_dist = __commonJS({
-  "../../../../../plugin/node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module) {
+  "../../node_modules/.bun/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var formats_1 = require_formats();
@@ -6802,7 +6802,7 @@ import path from "node:path";
 import { mkdirSync as mkdirSync6, readFileSync as readFileSync4 } from "node:fs";
 import { performance as performance2 } from "node:perf_hooks";
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -6936,7 +6936,7 @@ var getParsedType = (data) => {
   }
 };
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/ZodError.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -7050,7 +7050,7 @@ ZodError.create = (issues) => {
   return error2;
 };
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/locales/en.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v3/locales/en.js
 var errorMap = (issue2, _ctx) => {
   let message;
   switch (issue2.code) {
@@ -7153,13 +7153,13 @@ var errorMap = (issue2, _ctx) => {
 };
 var en_default = errorMap;
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/errors.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function getErrorMap() {
   return overrideErrorMap;
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/parseUtil.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path: path2, errorMaps, issueData } = params;
   const fullPath = [...path2, ...issueData.path || []];
@@ -7268,14 +7268,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/errorUtil.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
   errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
 })(errorUtil || (errorUtil = {}));
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path2, key) {
     this._cachedPath = [];
@@ -7420,8 +7420,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err19) {
-        if (err19?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err20) {
+        if (err20?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -10679,7 +10679,7 @@ var nullableType = ZodNullable.create;
 var preprocessType = ZodEffects.createWithPreprocess;
 var pipelineType = ZodPipeline.create;
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/core.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/core.js
 var NEVER = Object.freeze({
   status: "aborted"
 });
@@ -10754,7 +10754,7 @@ function config(newConfig) {
   return globalConfig;
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/util.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -11433,7 +11433,7 @@ var Class = class {
   }
 };
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/errors.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/errors.js
 var initializer = (inst, def) => {
   inst.name = "$ZodError";
   Object.defineProperty(inst, "_zod", {
@@ -11499,7 +11499,7 @@ function formatError(error2, mapper = (issue2) => issue2.message) {
   return fieldErrors;
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/parse.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/parse.js
 var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: false }) : { async: false };
   const result = schema._zod.run({ value, issues: [] }, ctx);
@@ -11579,7 +11579,7 @@ var _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
   return _safeParseAsync(_Err)(schema, value, _ctx);
 };
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/regexes.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -11736,7 +11736,7 @@ var sha512_hex = /^[0-9a-fA-F]{128}$/;
 var sha512_base64 = /* @__PURE__ */ fixedBase64(86, "==");
 var sha512_base64url = /* @__PURE__ */ fixedBase64url(86);
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/checks.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/checks.js
 var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
   var _a2;
   inst._zod ?? (inst._zod = {});
@@ -12284,7 +12284,7 @@ var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (ins
   };
 });
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/doc.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/doc.js
 var Doc = class {
   constructor(args = []) {
     this.content = [];
@@ -12320,14 +12320,14 @@ var Doc = class {
   }
 };
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/versions.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/versions.js
 var version = {
   major: 4,
   minor: 3,
   patch: 6
 };
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/schemas.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/schemas.js
 var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
   var _a2;
   inst ?? (inst = {});
@@ -14298,7 +14298,7 @@ function handleRefineResult(result, payload, input, inst) {
   }
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/locales/en.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/locales/en.js
 var error = () => {
   const Sizable = {
     string: { unit: "characters", verb: "to have" },
@@ -14407,7 +14407,7 @@ function en_default2() {
   };
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/registries.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/registries.js
 var _a;
 var $output = Symbol("ZodOutput");
 var $input = Symbol("ZodInput");
@@ -14457,7 +14457,7 @@ function registry() {
 (_a = globalThis).__zod_globalRegistry ?? (_a.__zod_globalRegistry = registry());
 var globalRegistry = globalThis.__zod_globalRegistry;
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/api.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -15261,7 +15261,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
   return inst;
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/to-json-schema.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -15613,7 +15613,7 @@ var createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) =
   return finalize(ctx, schema);
 };
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/json-schema-processors.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/core/json-schema-processors.js
 var formatMap = {
   guid: "uuid",
   url: "uri",
@@ -16089,7 +16089,7 @@ var lazyProcessor = (schema, ctx, _json, params) => {
   seen.ref = innerType;
 };
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 function isZ4Schema(s) {
   const schema = s;
   return !!schema._zod;
@@ -16152,7 +16152,7 @@ function getLiteralValue(schema) {
   return void 0;
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
 var schemas_exports3 = {};
 __export(schemas_exports3, {
   ZodAny: () => ZodAny2,
@@ -16321,7 +16321,7 @@ __export(schemas_exports3, {
   xor: () => xor
 });
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/checks.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -16355,7 +16355,7 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/iso.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/iso.js
 var iso_exports2 = {};
 __export(iso_exports2, {
   ZodISODate: () => ZodISODate,
@@ -16396,7 +16396,7 @@ function duration2(params) {
   return _isoDuration(ZodISODuration, params);
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/errors.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/errors.js
 var initializer2 = (inst, issues) => {
   $ZodError.init(inst, issues);
   inst.name = "ZodError";
@@ -16436,7 +16436,7 @@ var ZodRealError = $constructor("ZodError", initializer2, {
   Parent: Error
 });
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/parse.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/parse.js
 var parse2 = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync2 = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse3 = /* @__PURE__ */ _safeParse(ZodRealError);
@@ -16450,7 +16450,7 @@ var safeDecode2 = /* @__PURE__ */ _safeDecode(ZodRealError);
 var safeEncodeAsync2 = /* @__PURE__ */ _safeEncodeAsync(ZodRealError);
 var safeDecodeAsync2 = /* @__PURE__ */ _safeDecodeAsync(ZodRealError);
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/schemas.js
 var ZodType2 = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
   $ZodType.init(inst, def);
   Object.assign(inst["~standard"], {
@@ -17529,22 +17529,22 @@ function preprocess(fn, schema) {
   return pipe(transform(fn), schema);
 }
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/compat.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/compat.js
 var ZodFirstPartyTypeKind2;
 /* @__PURE__ */ (function(ZodFirstPartyTypeKind3) {
 })(ZodFirstPartyTypeKind2 || (ZodFirstPartyTypeKind2 = {}));
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/from-json-schema.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/from-json-schema.js
 var z = {
   ...schemas_exports3,
   ...checks_exports2,
   iso: iso_exports2
 };
 
-// ../../../../../plugin/node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/external.js
+// ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v4/classic/external.js
 config(en_default2());
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
 var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
 var RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
@@ -19063,18 +19063,18 @@ var UrlElicitationRequiredError = class extends McpError {
   }
 };
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
 function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
-// ../../../../../plugin/node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/Options.js
+// ../../node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/Options.js
 var ignoreOverride = Symbol("Let zodToJsonSchema decide on which parser to use");
 
-// ../../../../../plugin/node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
+// ../../node_modules/.bun/zod-to-json-schema@3.25.2+3c5d820c62823f0b/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
 var ALPHA_NUMERIC = new Set("ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz0123456789");
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
 function getMethodLiteral(schema) {
   const shape = getObjectShape(schema);
   const methodSchema = shape?.method;
@@ -19095,7 +19095,7 @@ function parseWithCompat(schema, data) {
   return result.data;
 }
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
 var DEFAULT_REQUEST_TIMEOUT_MSEC = 6e4;
 var Protocol = class {
   constructor(_options) {
@@ -20049,7 +20049,7 @@ function mergeCapabilities(base, additional) {
   return result;
 }
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
 var import_ajv = __toESM(require_ajv(), 1);
 var import_ajv_formats = __toESM(require_dist(), 1);
 function createDefaultAjvInstance() {
@@ -20117,7 +20117,7 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
 var ExperimentalServerTasks = class {
   constructor(_server) {
     this._server = _server;
@@ -20330,7 +20330,7 @@ var ExperimentalServerTasks = class {
   }
 };
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
 function assertToolsCallTaskCapability(requests, method, entityName) {
   if (!requests) {
     throw new Error(`${entityName} does not support task creation (required for ${method})`);
@@ -20365,7 +20365,7 @@ function assertClientRequestTaskCapability(requests, method, entityName) {
   }
 }
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
 var Server = class extends Protocol {
   /**
    * Initializes this server with the given name and version information.
@@ -20745,10 +20745,10 @@ var Server = class extends Protocol {
   }
 };
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 import process3 from "node:process";
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var ReadBuffer = class {
   append(chunk) {
     this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
@@ -20776,7 +20776,7 @@ function serializeMessage(message) {
   return JSON.stringify(message) + "\n";
 }
 
-// ../../../../../plugin/node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// ../../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 var StdioServerTransport = class {
   constructor(_stdin = process3.stdin, _stdout = process3.stdout) {
     this._stdin = _stdin;
@@ -21029,16 +21029,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return out;
-    } catch (err19) {
+    } catch (err20) {
       sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err19 instanceof Error ? err19.message : String(err19)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err19;
+      throw err20;
     }
   }
   get(sql, params) {
@@ -21055,16 +21055,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return row;
-    } catch (err19) {
+    } catch (err20) {
       sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err19 instanceof Error ? err19.message : String(err19)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err19;
+      throw err20;
     }
   }
   all(sql, params) {
@@ -21081,16 +21081,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return rows;
-    } catch (err19) {
+    } catch (err20) {
       sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err19 instanceof Error ? err19.message : String(err19)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err19;
+      throw err20;
     }
   }
   /**
@@ -21104,12 +21104,12 @@ var TrajectoryDB = class {
       const result = fn();
       this.db.exec("COMMIT");
       return result;
-    } catch (err19) {
+    } catch (err20) {
       try {
         this.db.exec("ROLLBACK");
       } catch {
       }
-      throw err19;
+      throw err20;
     }
   }
   close() {
@@ -21221,12 +21221,12 @@ function migrateV8toV9(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV9toV10(db2) {
@@ -21238,12 +21238,12 @@ function migrateV9toV10(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV10toV11(db2) {
@@ -21294,12 +21294,12 @@ function migrateV10toV11(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV11toV12(db2) {
@@ -21311,12 +21311,12 @@ function migrateV11toV12(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV7toV8(db2) {
@@ -21332,12 +21332,12 @@ function migrateV7toV8(db2) {
     db2.exec("DROP TABLE IF EXISTS directories_fts");
     db2.exec("DROP TABLE IF EXISTS directories");
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV6toV7(db2) {
@@ -21352,12 +21352,12 @@ function migrateV6toV7(db2) {
     db2.exec("DROP TABLE IF EXISTS file_registry_fts");
     db2.exec("DROP TABLE IF EXISTS file_registry");
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV5toV6(db2) {
@@ -21391,12 +21391,12 @@ function migrateV5toV6(db2) {
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV4toV5(db2) {
@@ -21417,12 +21417,12 @@ function migrateV4toV5(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV3toV4(db2) {
@@ -21471,12 +21471,12 @@ function migrateV3toV4(db2) {
       `);
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV2toV3(db2) {
@@ -21573,12 +21573,12 @@ function migrateV2toV3(db2) {
       db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV1toV2(db2) {
@@ -21758,12 +21758,12 @@ function migrateV1toV2(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 
@@ -27150,7 +27150,7 @@ function resolveComments(backend, prNumber, repo, since, botPatterns, spawnFn) {
   return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ?? fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn);
 }
 function prCommentsTools(db2, _spawnFn) {
-  const spawn2 = _spawnFn ?? defaultSpawnFn2;
+  const spawn3 = _spawnFn ?? defaultSpawnFn2;
   const definitions = [
     {
       name: "pr_comments_get",
@@ -27212,11 +27212,11 @@ function prCommentsTools(db2, _spawnFn) {
       const configValue = configRow ? JSON.parse(configRow.value_json) : "auto";
       let backend;
       if (configValue === "off") {
-        const ghAvail = spawn2("gh", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
+        const ghAvail = spawn3("gh", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
         if (ghAvail) {
           backend = "gh";
         } else {
-          const glabAvail = spawn2("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
+          const glabAvail = spawn3("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
           if (!glabAvail) {
             return err15("Neither gh nor glab is installed/available; cannot fetch PR comments");
           }
@@ -27237,7 +27237,7 @@ function prCommentsTools(db2, _spawnFn) {
         }
       }
       const botPatterns = buildBotPatterns(botsOverride);
-      const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn2);
+      const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn3);
       if (!fetchResult) {
         return err15("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
       }
@@ -29204,17 +29204,17 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
   const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join10 = (names) => {
+  const join11 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
   if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join10(fileNames.slice().sort())})`);
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join11(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join10(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join11(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
@@ -29509,8 +29509,11 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
   return { definitions, handlers };
 }
 
-// src/tools/world-model.ts
-var WORLD_MODEL_GET_MAX_NODES = 500;
+// src/tools/cheatcode.ts
+import { spawn as spawn2 } from "node:child_process";
+import { existsSync as existsSync7 } from "node:fs";
+import { dirname as dirname9, join as join10 } from "node:path";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 function ok19(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -29526,6 +29529,146 @@ function wrap4(fn) {
       return await fn(args);
     } catch (e) {
       return err18(e.message);
+    }
+  };
+}
+function resolveSearchScript() {
+  const here = dirname9(fileURLToPath5(import.meta.url));
+  const candidates = [
+    join10(here, "..", "..", "..", "..", "scripts", "cheatcode-search.sh"),
+    join10(here, "..", "..", "..", "scripts", "cheatcode-search.sh")
+  ];
+  for (const c of candidates) if (existsSync7(c)) return c;
+  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
+  if (pluginRoot) {
+    const c = join10(pluginRoot, "scripts", "cheatcode-search.sh");
+    if (existsSync7(c)) return c;
+  }
+  throw new Error("cheatcode-search.sh not found \u2014 expected at <plugin>/scripts/cheatcode-search.sh");
+}
+var SEARCH_TIMEOUT_MS = 60 * 1e3;
+function runSearchWithScript(script, query, kind, timeoutMs) {
+  return new Promise((resolve3, reject) => {
+    const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+    let settled = false;
+    const killTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+      }
+      reject(new Error("cheatcode-search.sh timed out after 60 seconds"));
+    }, timeoutMs);
+    child.on("error", (e) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      reject(new Error(`cheatcode-search.sh spawn error: ${e.message}`));
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
+      if (code !== 0) {
+        reject(new Error(`cheatcode-search.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch {
+        reject(new Error(`cheatcode-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+        return;
+      }
+      if (!Array.isArray(parsed.candidates)) {
+        reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
+        return;
+      }
+      resolve3(parsed);
+    });
+  });
+}
+var VALID_KINDS2 = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
+function cheatcodeTools(db2) {
+  const definitions = [
+    {
+      name: "cheatcode_search",
+      description: "Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          capability_query: {
+            type: "string",
+            description: 'The needed capability (e.g. "pdf table extraction").'
+          },
+          kind: {
+            type: "string",
+            enum: ["skill", "mcp", "plugin", "any"],
+            description: "Filter to one cheatcode kind. Defaults to any."
+          }
+        },
+        required: ["agent", "capability_query"]
+      }
+    }
+  ];
+  const handlers = {
+    cheatcode_search: requireRoles(
+      "cheatcode_search",
+      ["bro"],
+      wrap4(async (args) => {
+        const query = args["capability_query"]?.trim();
+        if (!query) return err18("capability_query is required");
+        const rawKind = args["kind"] ?? "any";
+        const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
+        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
+        db2.run(
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`,
+          [
+            `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
+            JSON.stringify({
+              query,
+              kind,
+              candidate_count: out.candidates.length,
+              top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score }))
+            }),
+            nowISO()
+          ]
+        );
+        return ok19({ query, kind, candidates: out.candidates });
+      })
+    )
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/world-model.ts
+var WORLD_MODEL_GET_MAX_NODES = 500;
+function ok20(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err19(message) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function wrap5(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err19(e.message);
     }
   };
 }
@@ -29626,7 +29769,7 @@ function worldModelTools(db2, graph2) {
     world_model_get: requireRoles(
       "world_model_get",
       ["bro", "swe", "pr-reviewer"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
           const cfg = db2.get(
@@ -29643,28 +29786,28 @@ function worldModelTools(db2, graph2) {
         const depthArg = args["depth"];
         const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
         if (!graph2) {
-          return ok19({ repo, root: null, warning: "world-model-unavailable" });
+          return ok20({ repo, root: null, warning: "world-model-unavailable" });
         }
         const nodes = graph2.allDirectoriesForRepo(repo);
         if (nodes.length === 0) {
-          return ok19({ repo, root: null, warning: "world-model-empty" });
+          return ok20({ repo, root: null, warning: "world-model-empty" });
         }
         const rows = nodes;
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path2, depth, { nodeCounter });
         if (!tree) {
-          return ok19({ repo, root: null, warning: "path-not-found", path: path2 });
+          return ok20({ repo, root: null, warning: "path-not-found", path: path2 });
         }
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        return ok19({ repo, root: tree, ...truncated ? { truncated: true } : {} });
+        return ok20({ repo, root: tree, ...truncated ? { truncated: true } : {} });
       })
     ),
     world_model_search: requireRoles(
       "world_model_search",
       ["bro", "swe", "pr-reviewer"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const query = args["query"];
-        if (!query || typeof query !== "string") return err18("query is required");
+        if (!query || typeof query !== "string") return err19("query is required");
         const mode = args["mode"] ?? "hybrid";
         const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
         let repo = args["repo"] ?? "";
@@ -29680,11 +29823,11 @@ function worldModelTools(db2, graph2) {
           }
         }
         if (!graph2) {
-          return ok19({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+          return ok20({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
         const hits = graph2.keywordSearchDirectories(repo, query, k);
         if (mode === "keyword") {
-          return ok19({
+          return ok20({
             results: hits.map((h) => ({
               repo: h.repo,
               path: h.path,
@@ -29698,14 +29841,14 @@ function worldModelTools(db2, graph2) {
           });
         }
         if (mode === "semantic") {
-          return ok19({
+          return ok20({
             results: [],
             total_matched: 0,
             warning: "semantic_unavailable",
             mode: "semantic"
           });
         }
-        return ok19({
+        return ok20({
           results: hits.map((h) => ({
             repo: h.repo,
             path: h.path,
@@ -29768,6 +29911,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
   const composites = compositeTools(db2, dbPath2, graph2);
   const onboard = onboardTools(db2, dbPath2);
   const scan = scanTools(db2, graph2, dbPath2, graphOpenError2);
+  const cheatcode = cheatcodeTools(db2);
   const worldModel = worldModelTools(db2, graph2);
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
@@ -29788,6 +29932,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
+    ...cheatcode.definitions,
     ...worldModel.definitions
   ]);
   toolHandlers = {
@@ -29809,6 +29954,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,
+    ...cheatcode.handlers,
     ...worldModel.handlers
   };
 }
@@ -29920,10 +30066,10 @@ function shutdown(signal) {
   graph?.close();
   process.exit(0);
 }
-process.on("uncaughtException", (err19) => {
-  serverLogSync({ kind: "uncaughtException", error_message: err19.message, stack: err19.stack, pid: process.pid });
-  process.stderr.write(`uncaughtException: ${err19.message}
-${err19.stack ?? ""}
+process.on("uncaughtException", (err20) => {
+  serverLogSync({ kind: "uncaughtException", error_message: err20.message, stack: err20.stack, pid: process.pid });
+  process.stderr.write(`uncaughtException: ${err20.message}
+${err20.stack ?? ""}
 `);
   process.exit(1);
 });
@@ -29967,17 +30113,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   let result;
   try {
     result = await handler(args ?? {});
-  } catch (err19) {
+  } catch (err20) {
     const duration_ms2 = Math.round(performance2.now() - start);
     serverLog({
       kind: "tool_exit",
       tool: name,
       agent,
       is_error: true,
-      error_message: err19 instanceof Error ? err19.message : String(err19),
+      error_message: err20 instanceof Error ? err20.message : String(err20),
       duration_ms: duration_ms2
     });
-    throw err19;
+    throw err20;
   }
   const duration_ms = Math.round(performance2.now() - start);
   serverLog({
