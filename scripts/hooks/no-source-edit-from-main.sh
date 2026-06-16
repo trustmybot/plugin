@@ -213,11 +213,26 @@ esac
 
 # Managed-repo scope (#592): in a multi-repo workspace, Rule 1 must only guard
 # the managed product repo (plugin_config tmb_default_repo), not its siblings.
-# The DB lives at <workspace_root>/.claude/<plugin>/trajectory.db, so the
-# workspace root is three levels above DB_PATH and the managed repo is
-# <workspace_root>/<tmb_default_repo>. An absolute target outside that subtree
-# belongs to a sibling repo and is allowed. When tmb_default_repo is empty or
-# '.' (the normal single-repo user project), the whole tree is guarded as before.
+# tmb_default_repo is the repo NAME, so the managed root is resolved by a
+# path-keyed lookup against repos.path (the canonical absolute path set by scan)
+# rather than string-joining the workspace root with the name — that join
+# mis-scopes single-repo-at-root layouts (where the git repo IS the workspace
+# root) one level too deep, leaking the whole tree as a "sibling". Both the
+# resolved MANAGED_ROOT and the absolute target are realpath-normalized before
+# the enclosure test (handles /tmp->/private/tmp symlinks and trailing slashes).
+# Fail-closed: if the repos.path lookup is empty (repo name not found), the whole
+# tree is guarded — the same as an empty/'.' tmb_default_repo (single-repo user
+# project). Only a resolved MANAGED_ROOT plus a target outside it allows a
+# sibling-repo edit.
+_realpath() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m "$1" 2>/dev/null || printf '%s' "$1"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null || printf '%s' "$1"
+  else
+    printf '%s' "$1"
+  fi
+}
 DEFAULT_REPO=""
 if command -v sqlite3 >/dev/null 2>&1; then
   DEFAULT_REPO=$(sqlite3 -readonly -cmd '.timeout 500' "$DB_PATH" \
@@ -227,12 +242,20 @@ fi
 if [ -n "$DEFAULT_REPO" ] && [ "$DEFAULT_REPO" != "." ]; then
   case "$TARGET" in
     /*)
-      WORKSPACE_ROOT=$(dirname "$(dirname "$(dirname "$DB_PATH")")")
-      MANAGED_ROOT="$WORKSPACE_ROOT/$DEFAULT_REPO"
-      case "$TARGET" in
-        "$MANAGED_ROOT"/*) : ;;       # inside the managed repo — keep guarding
-        *) exit 0 ;;                  # sibling repo — outside Rule 1 scope
-      esac
+      MANAGED_ROOT=""
+      if command -v sqlite3 >/dev/null 2>&1; then
+        MANAGED_ROOT=$(sqlite3 -readonly -cmd '.timeout 500' "$DB_PATH" \
+          "SELECT path FROM repos WHERE name='$(printf '%s' "$DEFAULT_REPO" | sed "s/'/''/g")' LIMIT 1;" \
+          2>/dev/null || true)
+      fi
+      if [ -n "$MANAGED_ROOT" ]; then
+        MANAGED_ROOT=$(_realpath "$MANAGED_ROOT")
+        TARGET_REAL=$(_realpath "$TARGET")
+        case "$TARGET_REAL" in
+          "$MANAGED_ROOT"/*) : ;;       # inside the managed repo — keep guarding
+          *) exit 0 ;;                  # sibling repo — outside Rule 1 scope
+        esac
+      fi
       ;;
   esac
 fi

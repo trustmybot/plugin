@@ -348,15 +348,16 @@ assert_not_contains "$out" 'bashrc' "deny message must not mention bashrc"
 assert_contains "$out" 'non-isolated' "deny message mentions non-isolated mode"
 
 # ---- Managed-repo scope (#592): multi-repo workspace ----
-# DB lives at <workspace_root>/.claude/<plugin>/trajectory.db, so the hook
-# derives the workspace root three levels above DB_PATH and the managed repo as
-# <workspace_root>/<tmb_default_repo>. Build that exact layout so MANAGED_ROOT
-# is deterministic.
+# The hook resolves the managed root from repos.path (path-keyed), so build a
+# repos row whose path is the managed repo's absolute location. tmb_default_repo
+# carries the repo NAME; repos.path carries the canonical absolute path.
 WS_ROOT="$TMPDIR/ws"
 MANAGED_DB="$WS_ROOT/.claude/tmb/trajectory.db"
 mkdir -p "$WS_ROOT/.claude/tmb"
 sqlite3 "$MANAGED_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);"
 sqlite3 "$MANAGED_DB" "INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '\"plugin\"');"
+sqlite3 "$MANAGED_DB" "CREATE TABLE repos(name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')), target_branch TEXT, branching_model TEXT, protected_branches TEXT);"
+sqlite3 "$MANAGED_DB" "INSERT INTO repos (name, path) VALUES ('plugin', '$WS_ROOT/plugin');"
 
 run_hook_db() {
   echo "$2" | env TRAJECTORY_DB_PATH="$1" bash "$HOOK" 2>&1 || true
@@ -375,5 +376,23 @@ SINGLE_DB="$TMPDIR/single.db"
 sqlite3 "$SINGLE_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);"
 out=$(run_hook_db "$SINGLE_DB" "$(input 'Edit' '/some/project/src/foo.ts' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "empty tmb_default_repo guards the whole tree as before"
+
+# ---- Single-repo-at-root: the git repo IS the workspace root ----
+# repos.path == workspace root, so the managed root resolves to the workspace
+# itself and source under it must be guarded. The old string-join (workspace +
+# name) computed one level too deep and leaked $WS/src/* as a "sibling" — this
+# is the regression the path-keyed lookup closes.
+SR_ROOT="$TMPDIR/repo-at-root"
+SR_DB="$SR_ROOT/.claude/tmb/trajectory.db"
+mkdir -p "$SR_ROOT/.claude/tmb"
+SR_NAME=$(basename "$SR_ROOT")
+sqlite3 "$SR_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);"
+sqlite3 "$SR_DB" "INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '\"$SR_NAME\"');"
+sqlite3 "$SR_DB" "CREATE TABLE repos(name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')), target_branch TEXT, branching_model TEXT, protected_branches TEXT);"
+sqlite3 "$SR_DB" "INSERT INTO repos (name, path) VALUES ('$SR_NAME', '$SR_ROOT');"
+
+test_case "single-repo-at-root + src/foo.ts from main as bro: BLOCK (regression)"
+out=$(run_hook_db "$SR_DB" "$(input_with_agent 'Edit' "$SR_ROOT/src/foo.ts" 'bro')")
+assert_contains "$out" '"permissionDecision":"deny"' "source under the single repo-at-root is guarded, not leaked as a sibling"
 
 summarize
