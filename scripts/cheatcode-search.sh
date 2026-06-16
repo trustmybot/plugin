@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# cheatcode-search.sh — deterministic 3rd-party-resource discovery + ranking.
+# cheatcode-search.sh — deterministic cheatcode discovery + ranking.
 #
-# Discovers candidate Claude Code resources (skills, MCP/toolkits, plugins) for
+# Discovers candidate Claude Code cheatcodes (skills, MCP/toolkits, plugins) for
 # a capability query from real, reputable registries, then ranks them by a
 # deterministic score so the ordering is reproducible from (query, kind,
 # candidate set) alone — no LLM, no randomness.
@@ -10,7 +10,7 @@
 #   tier 1 = OFFICIAL  (MCP registry, Anthropic marketplace)
 #   tier 2 = CURATED   (PulseMCP, Smithery — best-effort, skipped if unreachable)
 #
-# The candidate source is abstracted behind TMB_RESOURCE_SEARCH_FIXTURE: when
+# The candidate source is abstracted behind TMB_CHEATCODE_SEARCH_FIXTURE: when
 # that env var points at a JSON file, the candidate set is read from it (the
 # test hook — no network). Otherwise the registry adapters below run. Either way
 # the ranking is identical, so tests exercise the production ranking path on
@@ -148,12 +148,12 @@ adapter_pulsemcp() {
 # Acquire the candidate set. Fixture path (test hook) takes precedence over any
 # live lookup so CI never touches the network.
 candidates_json=""
-if [ -n "${TMB_RESOURCE_SEARCH_FIXTURE:-}" ]; then
-  [ -f "$TMB_RESOURCE_SEARCH_FIXTURE" ] || {
-    echo "{\"error\":\"fixture not found: $TMB_RESOURCE_SEARCH_FIXTURE\"}" >&2
+if [ -n "${TMB_CHEATCODE_SEARCH_FIXTURE:-}" ]; then
+  [ -f "$TMB_CHEATCODE_SEARCH_FIXTURE" ] || {
+    echo "{\"error\":\"fixture not found: $TMB_CHEATCODE_SEARCH_FIXTURE\"}" >&2
     exit 1
   }
-  candidates_json=$(cat "$TMB_RESOURCE_SEARCH_FIXTURE")
+  candidates_json=$(cat "$TMB_CHEATCODE_SEARCH_FIXTURE")
   if ! printf '%s' "$candidates_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
     echo '{"error":"fixture is not a JSON array of candidates"}' >&2
     exit 1

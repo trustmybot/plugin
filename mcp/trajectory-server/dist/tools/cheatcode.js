@@ -106,7 +106,7 @@ export function cheatcodeTools(db) {
     const definitions = [
         {
             name: 'cheatcode_search',
-            description: 'Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
+            description: 'Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -118,7 +118,7 @@ export function cheatcodeTools(db) {
                     kind: {
                         type: 'string',
                         enum: ['skill', 'mcp', 'plugin', 'any'],
-                        description: 'Filter to one resource kind. Defaults to any.',
+                        description: 'Filter to one cheatcode kind. Defaults to any.',
                     },
                 },
                 required: ['agent', 'capability_query'],
@@ -137,7 +137,7 @@ export function cheatcodeTools(db) {
             const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
             db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
            VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`, [
-                `Resource search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
+                `Cheatcode search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
                 JSON.stringify({
                     query,
                     kind,

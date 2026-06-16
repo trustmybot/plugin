@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # L3: scripts/cheatcode-search.sh ranks fixture candidates deterministically.
-# Network is stubbed via TMB_RESOURCE_SEARCH_FIXTURE — no live web.
+# Network is stubbed via TMB_CHEATCODE_SEARCH_FIXTURE — no live web.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,7 +28,7 @@ cat > "$FIXTURE" <<'JSON'
 ]
 JSON
 
-OUT=$(TMB_RESOURCE_SEARCH_FIXTURE="$FIXTURE" bash "$SCRIPT" --query "pdf table extraction" --kind any)
+OUT=$(TMB_CHEATCODE_SEARCH_FIXTURE="$FIXTURE" bash "$SCRIPT" --query "pdf table extraction" --kind any)
 
 test_case "output is valid JSON"
 if printf '%s' "$OUT" | jq -e . >/dev/null 2>&1; then _pass; else _fail "not JSON: $OUT"; fi
@@ -58,17 +58,17 @@ tier=$(printf '%s' "$OUT" | jq -r '.candidates[0].signals.tier')
 assert_eq "1" "$tier" "top tier"
 
 test_case "kind filter excludes other kinds"
-OUT_SKILL=$(TMB_RESOURCE_SEARCH_FIXTURE="$FIXTURE" bash "$SCRIPT" --query "pdf" --kind skill)
+OUT_SKILL=$(TMB_CHEATCODE_SEARCH_FIXTURE="$FIXTURE" bash "$SCRIPT" --query "pdf" --kind skill)
 nonskill=$(printf '%s' "$OUT_SKILL" | jq '[.candidates[] | select(.kind != "skill")] | length')
 assert_eq "0" "$nonskill" "non-skill candidates filtered out"
 
 test_case "deterministic across runs (identical output)"
-OUT2=$(TMB_RESOURCE_SEARCH_FIXTURE="$FIXTURE" bash "$SCRIPT" --query "pdf table extraction" --kind any)
+OUT2=$(TMB_CHEATCODE_SEARCH_FIXTURE="$FIXTURE" bash "$SCRIPT" --query "pdf table extraction" --kind any)
 assert_eq "$OUT" "$OUT2" "repeated run output"
 
 test_case "missing --query fails non-zero"
 set +e
-TMB_RESOURCE_SEARCH_FIXTURE="$FIXTURE" bash "$SCRIPT" --kind any >/dev/null 2>&1
+TMB_CHEATCODE_SEARCH_FIXTURE="$FIXTURE" bash "$SCRIPT" --kind any >/dev/null 2>&1
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on missing --query"; fi

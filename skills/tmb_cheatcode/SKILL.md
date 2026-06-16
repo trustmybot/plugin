@@ -1,6 +1,6 @@
 ---
 name: tmb_cheatcode
-description: When bro hits a wall — a task leans on a capability the project plainly lacks — and an existing published skill, MCP toolkit, or plugin would close the gap better than hand-rolled code. Bro names the gap, calls cheatcode_search for ranked candidates, judges which best fits this task and codebase, and recommends it for the Human to approve. Loaded when grabbing an external resource beats grinding the capability out from scratch.
+description: When bro hits a wall — a task leans on a capability the project plainly lacks — and an existing published skill, MCP toolkit, or plugin would close the gap better than hand-rolled code. Bro names the gap, calls cheatcode_search for ranked candidates, judges which best fits this task and codebase, and recommends it for the Human to approve. Loaded when grabbing an external cheatcode beats grinding the capability out from scratch.
 allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, AskUserQuestion
 ---
 

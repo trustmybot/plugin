@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cheatcode-discovery L5 isolation: seed a deterministic candidate fixture and
-# point cheatcode_search at it via TMB_RESOURCE_SEARCH_FIXTURE so no live web is
+# point cheatcode_search at it via TMB_CHEATCODE_SEARCH_FIXTURE so no live web is
 # ever touched. The fixture lives in the project dir; the env export covers
 # runners that source this setup. Even without the env var the row still passes
 # (cheatcode_search records its audit row with an empty candidate set), so the
@@ -11,7 +11,7 @@ PROJECT="$1"
 # shellcheck disable=SC2034
 SCENARIO_DIR="$2"
 
-FIXTURE="$PROJECT/.tmb-resource-fixture.json"
+FIXTURE="$PROJECT/.tmb-cheatcode-fixture.json"
 cat > "$FIXTURE" <<'JSON'
 [
   { "name": "pdf-table-extractor", "kind": "skill", "source_url": "https://example.test/pdf-table-extractor",
@@ -23,4 +23,4 @@ cat > "$FIXTURE" <<'JSON'
 ]
 JSON
 
-export TMB_RESOURCE_SEARCH_FIXTURE="$FIXTURE"
+export TMB_CHEATCODE_SEARCH_FIXTURE="$FIXTURE"

@@ -9,7 +9,7 @@ import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-type ResourceKind = 'skill' | 'mcp' | 'plugin' | 'any';
+type CheatcodeKind = 'skill' | 'mcp' | 'plugin' | 'any';
 
 interface Candidate {
   name: string;
@@ -74,7 +74,7 @@ const SEARCH_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
 export function runSearchWithScript(
   script: string,
   query: string,
-  kind: ResourceKind,
+  kind: CheatcodeKind,
   timeoutMs: number,
 ): Promise<SearchOutput> {
   return new Promise<SearchOutput>((resolve, reject) => {
@@ -132,7 +132,7 @@ export function runSearchWithScript(
   });
 }
 
-const VALID_KINDS = new Set<ResourceKind>(['skill', 'mcp', 'plugin', 'any']);
+const VALID_KINDS = new Set<CheatcodeKind>(['skill', 'mcp', 'plugin', 'any']);
 
 export function cheatcodeTools(db: TrajectoryDB): {
   definitions: Tool[];
@@ -142,7 +142,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_search',
       description:
-        'Discover + deterministically rank 3rd-party Claude Code resources (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
+        'Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -154,7 +154,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           kind: {
             type: 'string',
             enum: ['skill', 'mcp', 'plugin', 'any'],
-            description: 'Filter to one resource kind. Defaults to any.',
+            description: 'Filter to one cheatcode kind. Defaults to any.',
           },
         },
         required: ['agent', 'capability_query'],
@@ -170,8 +170,8 @@ export function cheatcodeTools(db: TrajectoryDB): {
         const query = (args['capability_query'] as string | undefined)?.trim();
         if (!query) return err('capability_query is required');
         const rawKind = (args['kind'] as string | undefined) ?? 'any';
-        const kind: ResourceKind = VALID_KINDS.has(rawKind as ResourceKind)
-          ? (rawKind as ResourceKind)
+        const kind: CheatcodeKind = VALID_KINDS.has(rawKind as CheatcodeKind)
+          ? (rawKind as CheatcodeKind)
           : 'any';
 
         const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
@@ -180,7 +180,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
            VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`,
           [
-            `Resource search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
+            `Cheatcode search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
             JSON.stringify({
               query,
               kind,

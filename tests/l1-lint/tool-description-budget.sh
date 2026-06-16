@@ -15,7 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 SERVER_DIST="$PLUGIN_ROOT/mcp/trajectory-server/dist/index.js"
 
-BUDGET_BYTES="${TMB_TOOL_DESC_BUDGET:-12560}"  # recalibrated: cheatcode_search composite tool (272B) added for the v0.10.0 3rd-party-resource discovery stage
+BUDGET_BYTES="${TMB_TOOL_DESC_BUDGET:-12560}"  # recalibrated: cheatcode_search composite tool (272B) added for the v0.10.0 cheatcode discovery stage
 
 if [ ! -f "$SERVER_DIST" ]; then
   echo "Building MCP server..."

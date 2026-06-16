@@ -54,7 +54,7 @@ const FIXTURE = JSON.stringify([
 
 describe('cheatcode_search', () => {
   function withFixture(): { dir: string; path: string; cleanup: () => void } {
-    const dir = mkdtempSync(join(tmpdir(), 'tmb-resource-'));
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-'));
     const path = join(dir, 'candidates.json');
     writeFileSync(path, FIXTURE);
     return { dir, path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
@@ -63,7 +63,7 @@ describe('cheatcode_search', () => {
   it('ranks official (tier 1) above curated (tier 2) even when curated is more relevant', async () => {
     const db = tempDB();
     const { path, cleanup } = withFixture();
-    process.env['TMB_RESOURCE_SEARCH_FIXTURE'] = path;
+    process.env['TMB_CHEATCODE_SEARCH_FIXTURE'] = path;
     try {
       const tools = cheatcodeTools(db);
       const r = await call(tools.handlers, 'cheatcode_search', {
@@ -94,7 +94,7 @@ describe('cheatcode_search', () => {
       assert.equal(official.signals.registry, 'mcp-official');
       assert.equal(curated.signals.registry, 'pulsemcp');
     } finally {
-      delete process.env['TMB_RESOURCE_SEARCH_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_SEARCH_FIXTURE'];
       cleanup();
     }
   });
@@ -102,7 +102,7 @@ describe('cheatcode_search', () => {
   it('filters candidates by kind', async () => {
     const db = tempDB();
     const { path, cleanup } = withFixture();
-    process.env['TMB_RESOURCE_SEARCH_FIXTURE'] = path;
+    process.env['TMB_CHEATCODE_SEARCH_FIXTURE'] = path;
     try {
       const tools = cheatcodeTools(db);
       const r = await call(tools.handlers, 'cheatcode_search', {
@@ -115,7 +115,7 @@ describe('cheatcode_search', () => {
       assert.ok(candidates.every((c) => c.kind === 'skill'), 'all candidates are skills');
       assert.equal(out['kind'], 'skill');
     } finally {
-      delete process.env['TMB_RESOURCE_SEARCH_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_SEARCH_FIXTURE'];
       cleanup();
     }
   });
@@ -123,7 +123,7 @@ describe('cheatcode_search', () => {
   it('writes a cheatcode_search audit row', async () => {
     const db = tempDB();
     const { path, cleanup } = withFixture();
-    process.env['TMB_RESOURCE_SEARCH_FIXTURE'] = path;
+    process.env['TMB_CHEATCODE_SEARCH_FIXTURE'] = path;
     try {
       const tools = cheatcodeTools(db);
       await call(tools.handlers, 'cheatcode_search', {
@@ -138,7 +138,7 @@ describe('cheatcode_search', () => {
       assert.equal(content.query, 'pdf table extraction');
       assert.ok(typeof content.candidate_count === 'number');
     } finally {
-      delete process.env['TMB_RESOURCE_SEARCH_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_SEARCH_FIXTURE'];
       cleanup();
     }
   });
