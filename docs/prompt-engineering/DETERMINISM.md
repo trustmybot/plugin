@@ -93,6 +93,7 @@ Before merging a skill change, verify each procedural sentence answers **yes** t
 - [ ] This sentence describes a *judgment* the LLM must make on novel input
 - [ ] The LLM dropping this sentence cannot break the workflow (some other layer enforces)
 - [ ] No deterministic mechanism (1–6) can encode this constraint
+- [ ] This sentence directs an action — a judgment, a call, or a constraint — not exposition explaining why the skill exists or restating its description
 
 If any procedural sentence answers **no** to all three, file a follow-up issue to migrate it to the appropriate mechanism. Don't ship the skill prose as the safety net.
 
@@ -101,6 +102,8 @@ If any procedural sentence answers **no** to all three, file a follow-up issue t
 ## Size discipline
 
 A single skill SKILL.md should stay under **200 LOC**. The number is a soft ceiling on cognitive load, not a hard limit — but breaching it is a signal that the skill is doing too much. The doctrine's math (5-step procedural prose ≈ 77% adherence at p=0.95) compounds with size: longer skills carry more procedural sentences and more compound-failure surface.
+
+LOC under the ceiling is necessary, not sufficient. A 37-line skill that spends a third of its lines selling the concept or narrating itself fails the **(F) load-bearing** test as surely as a 250-line one breaches the size ceiling. Measure density, not just length.
 
 When a skill exceeds 200 LOC, the standard moves are, in order:
 
@@ -124,9 +127,9 @@ The canonical fix lives in `scripts/hooks/lib/normalize-role.sh` — source it a
 
 ## Grading doctrine — scoring a prompt surface
 
-Use these five tests to grade every line in an agent file, skill, or CLAUDE.md.
+Use these six tests to grade every line in an agent file, skill, or CLAUDE.md.
 
-### The five tests
+### The six tests
 
 | Test | Pass condition |
 |---|---|
@@ -135,6 +138,18 @@ Use these five tests to grade every line in an agent file, skill, or CLAUDE.md.
 | **(C) Natural-language test** | LLMs are built on natural language: if the Human cannot read a prompt line as natural language, it is machine-spec in disguise — migrate it or rewrite it. |
 | **(D) Placement test** | 100%-required judgment belongs in the always-loaded body; optional judgment in trigger-loaded skills; deterministic logic in code. CLAUDE.md is the reference implementation. |
 | **(E) Persona test** | Every agent opens with a plain-language identity sentence ("You are a senior software engineer. You execute tasks assigned by bro."). |
+| **(F) Load-bearing test** | Every line drives a judgment, names a call, or states a constraint the reader acts on. No line sells the concept, narrates the skill's own purpose, restates the frontmatter, or repeats a point for emphasis. |
+
+### Every line earns its place
+
+A prompt is not documentation. It loads into the agent's context every time its trigger fires, so every line is a recurring tax — and a line that doesn't direct an action isn't paying for itself. Four exposition patterns, cut on sight:
+
+- **Concept-selling** — "Sometimes the smart play is to stop grinding and grab a cheatcode… reaching for it beats reinventing it." The agent already loaded the skill; it doesn't need persuading the skill is worth using.
+- **Self-narration** — "This skill carries the one call that has no deterministic substitute…" A skill describing what kind of skill it is is README voice. Do the thing; don't annotate its shape.
+- **Frontmatter restatement** — the body re-explaining the when/why already in the `description`. Say it once, in the description.
+- **Rhetorical repetition** — one point stretched across three sentences for emphasis. State it once, plainly.
+
+Strike all four and what's left is the load-bearing skill: the judgments, the calls, the constraints. If that's most of what was there, the prompt was already concise. If it's a fraction, it was a README.
 
 ### Four-way line disposition
 
@@ -144,14 +159,15 @@ Use these five tests to grade every line in an agent file, skill, or CLAUDE.md.
 | Encodeable as if/else, NOT yet enforced | **KEEP** as readable prose, rewrite naturally, file a migration issue. |
 | Required judgment (100% of runs) | **BODY** — move to the always-loaded agent file. |
 | Optional/situational judgment | **SKILL** — trigger-loaded, not burned on every turn. |
+| Explains, motivates, or restates rather than directing (README-voice) | **DELETE** — exposition, not judgment. The reader loaded the skill; it doesn't need selling. |
 
 ### A–F rubric
 
 | Grade | What it means |
 |---|---|
-| **A** | Every line passes all five tests. No machine-spec, no redundant enforcement prose. |
-| **B** | Compliant architecture with residual machine-spec or minor duplication. |
-| **C** | Procedures wearing a prompt costume — readable but enforceable. |
+| **A** | Every line passes all six tests. Each line drives a judgment, names a call, or states a constraint — no machine-spec, no exposition, no duplication. |
+| **B** | Compliant architecture, but carries residual machine-spec, exposition (concept-selling / self-narration / frontmatter restatement), or minor duplication. A README wearing a skill's frontmatter lands here. |
+| **C** | Procedures wearing a prompt costume — readable but enforceable; or so padded with exposition the judgment core is buried. |
 | **D** | Prompt is doing enforcement's job for at least one workflow step. |
 | **F** | Agent can act against policy before any gate fires. |
 
