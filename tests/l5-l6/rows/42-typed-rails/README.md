@@ -1,4 +1,4 @@
-# 41-typed-rails
+# 42-typed-rails
 
 **Flow under test**: Typed Rails (#673) — `files`/`verification` are typed, schema-validated columns on `tasks`, not markdown scraped from `spec_body`. A code-touching ask flows through `task_create_batch`, and every created task row carries the typed `files`/`verification` columns as valid JSON arrays.
 

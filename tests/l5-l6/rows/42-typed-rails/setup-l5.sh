@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 41-typed-rails L5 isolation: onboarding-named fixture seeds identity; no extra
+# 42-typed-rails L5 isolation: onboarding-named fixture seeds identity; no extra
 # pre-state. The row exercises Typed Rails (#673) — a code-touching ask should
 # flow through task_create_batch, and the created task row must carry the typed
 # files/verification columns (JSON arrays). bro's emission of the typed fields

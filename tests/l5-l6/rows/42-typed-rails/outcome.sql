@@ -1,4 +1,4 @@
--- 41-typed-rails (#673): a code-touching ask flows through task_create_batch.
+-- 42-typed-rails (#673): a code-touching ask flows through task_create_batch.
 -- The created task row must carry the typed files/verification columns, and
 -- each must hold a valid JSON array (the typed-field contract). Pre-migration
 -- markdown scraping is gone; files/verification are columns, not spec_body prose.
