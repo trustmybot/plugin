@@ -54,6 +54,29 @@ Every adapter is best-effort: a short `curl --max-time` timeout, and on any fail
 - Web discovery respects any web-deny posture; sources are surfaced to the human before install.
 - Approval is per-candidate and per-session (not generalized).
 
+## Teardown — uninstall (#676)
+
+Acquisition must be reversible. A `cheatcode_uninstall` composite (mechanism 2) reverses an install in one transaction:
+
+- Reads the install record and its attachment record (below), reverses the attachment, removes the artifact via the marketplace/plugin uninstall path (no manual file deletion), deletes the install record, and emits a `cheatcode_uninstalled` audit row (mechanism 4).
+- **Idempotent:** removes whatever is present, no-ops on what isn't — a partially-installed cheatcode tears down cleanly.
+
+Removal is safer than addition, so uninstall is **bro-proposed + Human-confirmed** (AskUserQuestion), not gated by a PreToolUse approval record. Exception: if an open task declares a dependency on the cheatcode, surface that before removing.
+
+## Attachment — which agent gets the capability (#677)
+
+Hot-load (#660) loads a cheatcode into the session; *attachment* decides which agent can use it. It is kind-dependent, and the rule never violates the prompt-surface review policy (agent/skill/command/CLAUDE.md edits are Human-reviewed, never automatic):
+
+| Kind | Attachment | Prompt-surface? |
+|---|---|---|
+| **plugin** | marketplace install loads its skills/hooks/commands via the plugin manifest — available without editing any agent | no — automatable |
+| **MCP toolkit** | register the server (config) + role-route which agents may call the new tools (mechanisms 1/6) | no — automatable behind the install approval gate |
+| **standalone skill** | must be added to a consuming agent's `skills:` frontmatter array | **yes** — the pipeline *proposes* the edit as a Human-reviewed PR, never an automatic write |
+
+Default-prefer **plugin / MCP** kinds, which attach without touching prompt-surface. A standalone-skill cheatcode is allowed, but its attachment is a Human-reviewed prompt-surface change like any other — the pipeline opens the PR, it does not self-merge.
+
+Every attachment writes an **attachment record** to the trajectory DB (kind, target agent/role, artifact) so `cheatcode_uninstall` can reverse exactly what was wired.
+
 ## Testing mandate (every stage)
 
 Each sub-issue ships with, before merge:
@@ -66,4 +89,4 @@ Each sub-issue ships with, before merge:
 
 ## Build order
 
-#657 (search) → #658 (vet) → #659 (install + approval gate) → #660 (hot-load). Each lands its own tools/hooks + full test stack including its L5/L6 row before the next begins.
+#657 (search ✅) → **#676 + #677 (lifecycle design, this doc)** → #658 (vet) → #659 (install + approval gate) → #660 (hot-load). #659 and #660 are blocked until the teardown contract and attachment semantics above are settled. Each stage lands its own tools/hooks + full test stack including its L5/L6 row before the next begins.
