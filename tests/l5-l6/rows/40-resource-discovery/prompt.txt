@@ -1,0 +1,3 @@
+@bro this task needs to parse and extract tables out of PDF reports, and we don't have anything for that. Find me some third-party Claude Code resources that could close that gap and show me the ranked options.
+
+Don't ask questions.
