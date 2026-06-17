@@ -295,4 +295,147 @@ describe('cheatcode_vet', () => {
         assert.equal(out['error'], 'forbidden');
     });
 });
+// Install fixtures stub the marketplace exactly as TMB_CHEATCODE_INSTALL_FIXTURE
+// intends: the {installed, version} object stands in for the marketplace call.
+const INSTALL_OK = JSON.stringify({ installed: true, version: '1.2.3' });
+describe('cheatcode_install', () => {
+    function withFixture(body) {
+        const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-install-'));
+        const path = join(dir, 'install.json');
+        writeFileSync(path, body);
+        return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+    }
+    it('writes one cheatcodes row + its attachment row in a single transaction', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 },
+                trust_tier: 'trusted',
+            });
+            assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+            const out = parse(r);
+            assert.equal(out['installed'], true);
+            const codes = db.all(`SELECT id, name, trust_tier, version, status FROM cheatcodes`);
+            assert.equal(codes.length, 1, 'exactly one cheatcodes row');
+            assert.equal(codes[0].name, 'pdf-plugin');
+            assert.equal(codes[0].trust_tier, 'trusted');
+            assert.equal(codes[0].version, '1.2.3');
+            assert.equal(codes[0].status, 'installed');
+            const atts = db.all(`SELECT cheatcode_id, target, artifact FROM cheatcode_attachments`);
+            assert.ok(atts.length >= 1, 'at least one attachment row');
+            assert.equal(atts[0].cheatcode_id, codes[0].id, 'attachment FKs the cheatcode');
+            assert.equal(atts[0].target, 'plugin');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('is idempotent — re-installing the same candidate no-ops', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            const cand = { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 };
+            await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate: cand });
+            const r2 = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate: cand });
+            const out2 = parse(r2);
+            assert.equal(out2['idempotent'], true);
+            assert.equal(out2['installed'], false);
+            const n = db.get(`SELECT COUNT(*) AS n FROM cheatcodes`);
+            assert.equal(n.n, 1, 're-install did not duplicate the row');
+            const an = db.get(`SELECT COUNT(*) AS n FROM cheatcode_attachments`);
+            assert.equal(an.n, 1, 're-install did not duplicate the attachment');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('skill-kind returns a proposed-PR payload and writes no cheatcode_attachments md', async () => {
+        const db = tempDB();
+        // Skill kind with no fixture installs nothing at the marketplace; the
+        // attachment is the proposed-PR payload only.
+        const tools = cheatcodeTools(db);
+        const r = await call(tools.handlers, 'cheatcode_install', {
+            agent: 'bro',
+            candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        });
+        assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+        const out = parse(r);
+        const proposed = out['proposed_pr'];
+        assert.ok(proposed, 'proposed_pr payload present for skill kind');
+        assert.equal(proposed['kind'], 'agent-frontmatter');
+        assert.equal(out['method'], 'skill-proposed-pr');
+        assert.equal(out['installed'], false, 'no marketplace install for a standalone skill');
+        // The attachment record describes the proposed PR — no agent md is touched.
+        const atts = db.all(`SELECT target, artifact FROM cheatcode_attachments`);
+        assert.ok(atts.some((a) => a.target === 'proposed-pr'), 'attachment is the proposed-PR plan');
+    });
+    it('writes cheatcode_install + cheatcode_installed audit rows', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 },
+            });
+            const install = db.get(`SELECT event_type FROM audit WHERE event_type = 'cheatcode_install' ORDER BY id DESC LIMIT 1`);
+            const installed = db.get(`SELECT content_json FROM audit WHERE event_type = 'cheatcode_installed' ORDER BY id DESC LIMIT 1`);
+            assert.ok(install, 'cheatcode_install audit row exists');
+            assert.ok(installed, 'cheatcode_installed audit row exists');
+            const content = JSON.parse(installed.content_json);
+            assert.equal(content.name, 'pdf-plugin');
+            assert.ok(typeof content.cheatcode_id === 'number');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('rejects a non-bro caller', async () => {
+        const db = tempDB();
+        const tools = cheatcodeTools(db);
+        const r = await call(tools.handlers, 'cheatcode_install', {
+            agent: 'swe',
+            candidate: { name: 'x', kind: 'plugin', source_url: 'https://github.com/x/y' },
+        });
+        assert.equal(r.isError, true);
+        const out = parse(r);
+        assert.equal(out['error'], 'forbidden');
+    });
+    it('cheatcode_approve writes a per-candidate cheatcode_approved audit row', async () => {
+        const db = tempDB();
+        const tools = cheatcodeTools(db);
+        const r = await call(tools.handlers, 'cheatcode_approve', {
+            agent: 'bro',
+            candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+        });
+        assert.notEqual(r.isError, true);
+        const out = parse(r);
+        assert.equal(out['approved'], true);
+        const row = db.get(`SELECT content_json FROM audit WHERE event_type = 'cheatcode_approved' ORDER BY id DESC LIMIT 1`);
+        assert.ok(row, 'cheatcode_approved audit row exists');
+        const content = JSON.parse(row.content_json);
+        assert.equal(content.source_url, 'https://github.com/x/pdf');
+    });
+    it('cheatcode_approve rejects a non-bro caller', async () => {
+        const db = tempDB();
+        const tools = cheatcodeTools(db);
+        const r = await call(tools.handlers, 'cheatcode_approve', {
+            agent: 'swe',
+            candidate: { name: 'x', kind: 'plugin', source_url: 'https://github.com/x/y' },
+        });
+        assert.equal(r.isError, true);
+        const out = parse(r);
+        assert.equal(out['error'], 'forbidden');
+    });
+});
 //# sourceMappingURL=cheatcode.test.js.map
