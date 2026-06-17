@@ -76,6 +76,18 @@ tmb_user_toolchain_dirs() {
   # 4. ~/.local/bin.
   [ -n "$home" ] && [ -d "$home/.local/bin" ] && printf '%s\n' "$home/.local/bin"
 
+  # 5. bun — installed by reflex (Library/Application Support/reflex/bun/bin)
+  #    or via the official installer (~/.bun/bin); neither is on the minimal
+  #    PATH, so a bun-using verification[] exits 127 → false DENY. Probe the
+  #    well-known install dirs directly (mirrors the node/npm resolution above).
+  if [ -n "$home" ]; then
+    for cand in \
+      "$home/Library/Application Support/reflex/bun/bin" \
+      "$home/.bun/bin"; do
+      [ -d "$cand" ] && [ -x "$cand/bun" ] && printf '%s\n' "$cand"
+    done
+  fi
+
   return 0
 }
 
