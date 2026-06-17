@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 14, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 15, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -435,6 +435,10 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
     source_url   TEXT    NOT NULL,
     version      TEXT,
     trust_tier   TEXT,
+    -- scope (#659): where the install lands. 'local' = project-scoped install
+    -- (the default so bro never hits a global/local AskUserQuestion); 'global'
+    -- = user-wide install. Forwarded to scripts/cheatcode-install.sh as --scope.
+    scope        TEXT    NOT NULL DEFAULT 'local' CHECK (scope IN ('local','global')),
     status       TEXT    NOT NULL DEFAULT 'installed',
     installed_at TEXT    NOT NULL,
     UNIQUE(name, source_url)

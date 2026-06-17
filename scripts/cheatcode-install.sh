@@ -27,18 +27,25 @@
 # installed=false with an error note — it never crashes.
 #
 # Fixture shape (object; every field optional):
-#   { "installed": true, "version": "1.2.3", "error": null }
+#   { "installed": true, "version": "1.2.3", "error": null,
+#     "attachments": [ { "target": "swe", "artifact": "..." } ] }
+# When the fixture supplies attachments[], they are passed through verbatim
+# (the per-agent attachment target — feature-dev→swe, code-review→pr-reviewer);
+# otherwise the kind-derived default attachment is used.
 #
 # Input (one candidate per call):
 #   --candidate '<json>'   a candidate object {name,kind,source_url,tier?}
 #   or the discrete flags:
 #   --source-url <url>  --kind <skill|mcp|plugin>  [--name <n>]  [--tier <1|2>]
+#   --scope <local|global>  install scope (default local) — echoed in the output
+#       and persisted on the cheatcodes row by the caller.
 #
 # Output shape on stdout:
 #   {
 #     "candidate":  { "name", "kind", "source_url", "tier" },
 #     "installed":  true|false,
 #     "version":    "<version or null>",
+#     "scope":      "local|global",
 #     "method":     "marketplace|mcp-register|skill-proposed-pr",
 #     "attachments":[ { "target", "artifact" }, ... ],
 #     "proposed_pr":{ ... } | null,
@@ -52,6 +59,7 @@ SOURCE_URL=""
 KIND=""
 TIER=""
 NAME=""
+SCOPE="local"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -60,11 +68,17 @@ while [ "$#" -gt 0 ]; do
     --kind)       KIND="${2:-}"; shift 2 ;;
     --tier)       TIER="${2:-}"; shift 2 ;;
     --name)       NAME="${2:-}"; shift 2 ;;
+    --scope)      SCOPE="${2:-}"; shift 2 ;;
     *) echo "{\"error\":\"unknown arg: $1\"}" >&2; exit 1 ;;
   esac
 done
 
 command -v jq >/dev/null 2>&1 || { echo '{"error":"jq missing"}' >&2; exit 1; }
+
+case "$SCOPE" in
+  local|global) : ;;
+  *) echo "{\"error\":\"--scope must be local|global (got '${SCOPE}')\"}" >&2; exit 1 ;;
+esac
 
 # Normalize the candidate into a single JSON object regardless of input form.
 # --candidate wins; the discrete flags fill in otherwise.
@@ -145,9 +159,10 @@ if [ -n "${TMB_CHEATCODE_INSTALL_FIXTURE:-}" ]; then
     exit 1
   fi
   install_result=$(printf '%s' "$fixture" | jq -c '{
-    installed: (.installed // false),
-    version:   (.version // null),
-    error:     (.error // null)
+    installed:   (.installed // false),
+    version:     (.version // null),
+    error:       (.error // null),
+    attachments: (if (.attachments | type) == "array" then .attachments else null end)
   }')
 elif [ "$cand_kind" = "plugin" ] || [ "$cand_kind" = "mcp" ]; then
   install_result=$(marketplace_install)
@@ -164,12 +179,17 @@ printf '%s' "$install_result" \
     --arg kind "$cand_kind" \
     --arg name "$cand_name" \
     --arg url "$src_url" \
+    --arg scope "$SCOPE" \
 '
   . as $ir
   | (if $kind == "plugin" then "marketplace"
      elif $kind == "mcp"  then "mcp-register"
      else "skill-proposed-pr" end) as $method
-  | (if $kind == "plugin" then
+  # Fixture-supplied attachments[] pass through verbatim — that is the per-agent
+  # attachment target (feature-dev→swe, code-review→pr-reviewer). Otherwise the
+  # kind-derived default attachment is used.
+  | (if ($ir.attachments | type) == "array" then $ir.attachments
+     elif $kind == "plugin" then
         [ { target: "plugin", artifact: ("marketplace-plugin:" + $url) } ]
      elif $kind == "mcp" then
         [ { target: "mcp", artifact: ("mcp-server:" + $url) } ]
@@ -191,6 +211,7 @@ printf '%s' "$install_result" \
       candidate:   $candidate,
       installed:   ($ir.installed // false),
       version:     ($ir.version // null),
+      scope:       $scope,
       method:      $method,
       attachments: $attachments,
       proposed_pr: $proposed_pr,

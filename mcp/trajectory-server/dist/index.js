@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 14;
+var TARGET_SCHEMA_VERSION = 15;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21179,6 +21179,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 14 && toVersion >= 14) {
     migrateV13toV14(db2);
   }
+  if (fromVersion < 15 && toVersion >= 15) {
+    migrateV14toV15(db2);
+  }
 }
 function hasColumn(db2, table, column) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
@@ -21373,6 +21376,21 @@ function migrateV13toV14(db2) {
     db2.exec(
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  }
+}
+function migrateV14toV15(db2) {
+  db2.exec("BEGIN");
+  try {
+    if (tableExists(db2, "cheatcodes") && !hasColumn(db2, "cheatcodes", "scope")) {
+      db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
+    }
     db2.exec("COMMIT");
   } catch (err20) {
     try {
@@ -29808,11 +29826,13 @@ function runVetWithScript(script, candidate, timeoutMs) {
     });
   });
 }
-function runInstallWithScript(script, candidate, timeoutMs) {
+function runInstallWithScript(script, candidate, scope, timeoutMs) {
   return new Promise((resolve3, reject) => {
-    const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
+    const child = spawn2(
+      "bash",
+      [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
+      { stdio: ["ignore", "pipe", "pipe"] }
+    );
     const stdoutChunks = [];
     const stderrChunks = [];
     child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
@@ -30000,7 +30020,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Skill-kind returns a proposed-PR payload, never writes agent md.",
+      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default \u2014 pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Skill-kind returns a proposed-PR payload, never writes agent md.",
       inputSchema: {
         type: "object",
         properties: {
@@ -30019,6 +30039,11 @@ function cheatcodeTools(db2) {
           trust_tier: {
             type: "string",
             description: "The cheatcode_vet trust_tier recorded at install time (optional)."
+          },
+          scope: {
+            type: "string",
+            enum: ["local", "global"],
+            description: "Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row."
           }
         },
         required: ["agent", "candidate"]
@@ -30146,6 +30171,8 @@ function cheatcodeTools(db2) {
         if ("error" in parsed) return err18(parsed.error);
         const { name, kind, sourceUrl, tier } = parsed;
         const trustTier = args["trust_tier"]?.trim() ?? null;
+        const rawScope = args["scope"]?.trim();
+        const scope = rawScope === "global" ? "global" : "local";
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
           [name, sourceUrl]
@@ -30171,14 +30198,15 @@ function cheatcodeTools(db2) {
         const out = await runInstallWithScript(
           resolveInstallScript(),
           candidate,
+          scope,
           INSTALL_TIMEOUT_MS
         );
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
           const res = db2.run(
-            `INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, status, installed_at)
-             VALUES (?, ?, ?, ?, ?, 'installed', ?)`,
-            [name, kind, sourceUrl, out.version, trustTier, installedAt]
+            `INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, scope, status, installed_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'installed', ?)`,
+            [name, kind, sourceUrl, out.version, trustTier, scope, installedAt]
           );
           const id = Number(res.lastInsertRowid);
           for (const att of out.attachments) {
@@ -30221,6 +30249,7 @@ function cheatcodeTools(db2) {
           candidate: out.candidate,
           method: out.method,
           version: out.version,
+          scope,
           attachments: out.attachments,
           // Skill-kind: the agent-frontmatter edit is a Human-reviewed PR, never
           // an automatic write — surface the proposed payload, write no md.

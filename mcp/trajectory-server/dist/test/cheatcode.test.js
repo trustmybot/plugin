@@ -335,6 +335,98 @@ describe('cheatcode_install', () => {
             cleanup();
         }
     });
+    it('defaults scope to local and persists it on the cheatcodes row', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+            });
+            assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+            const out = parse(r);
+            assert.equal(out['scope'], 'local', 'response echoes the default local scope');
+            const row = db.get(`SELECT scope FROM cheatcodes LIMIT 1`);
+            assert.equal(row.scope, 'local', 'persisted scope defaults to local');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('persists scope=global when requested', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+                scope: 'global',
+            });
+            assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+            assert.equal(parse(r)['scope'], 'global');
+            const row = db.get(`SELECT scope FROM cheatcodes LIMIT 1`);
+            assert.equal(row.scope, 'global', 'persisted scope is global');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('routes two install candidates to distinct per-agent attachment targets', async () => {
+        const db = tempDB();
+        const tools = cheatcodeTools(db);
+        // The fixture carries the attachment target: feature-dev → swe,
+        // code-review → pr-reviewer. The script passes it through, the handler
+        // records it on cheatcode_attachments.target.
+        const featureDev = withFixture(JSON.stringify({
+            installed: true,
+            version: '1.0.0',
+            attachments: [{ target: 'swe', artifact: 'marketplace-plugin:feature-dev' }],
+        }));
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = featureDev.path;
+        let featureId;
+        try {
+            const r = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
+            });
+            assert.notEqual(r.isError, true, `feature-dev install errored: ${r.content[0]?.text}`);
+            featureId = parse(r)['cheatcode_id'];
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            featureDev.cleanup();
+        }
+        const codeReview = withFixture(JSON.stringify({
+            installed: true,
+            version: '1.0.0',
+            attachments: [{ target: 'pr-reviewer', artifact: 'marketplace-plugin:code-review' }],
+        }));
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = codeReview.path;
+        let reviewId;
+        try {
+            const r = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'code-review', kind: 'plugin', source_url: 'https://github.com/x/code-review' },
+            });
+            assert.notEqual(r.isError, true, `code-review install errored: ${r.content[0]?.text}`);
+            reviewId = parse(r)['cheatcode_id'];
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            codeReview.cleanup();
+        }
+        const featureTarget = db.get(`SELECT target FROM cheatcode_attachments WHERE cheatcode_id = ?`, [featureId]);
+        const reviewTarget = db.get(`SELECT target FROM cheatcode_attachments WHERE cheatcode_id = ?`, [reviewId]);
+        assert.equal(featureTarget.target, 'swe', 'feature-dev routes to swe');
+        assert.equal(reviewTarget.target, 'pr-reviewer', 'code-review routes to pr-reviewer');
+        assert.notEqual(featureTarget.target, reviewTarget.target, 'targets are distinct per candidate');
+    });
     it('is idempotent — re-installing the same candidate no-ops', async () => {
         const db = tempDB();
         const { path, cleanup } = withFixture(INSTALL_OK);

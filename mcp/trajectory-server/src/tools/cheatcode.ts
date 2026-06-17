@@ -235,10 +235,13 @@ interface InstallAttachment {
   artifact: string;
 }
 
+type CheatcodeScope = 'local' | 'global';
+
 interface InstallOutput {
   candidate: { name: string; kind: string; source_url: string; tier: number | null };
   installed: boolean;
   version: string | null;
+  scope: CheatcodeScope;
   method: string;
   attachments: InstallAttachment[];
   proposed_pr: Record<string, unknown> | null;
@@ -248,12 +251,15 @@ interface InstallOutput {
 export function runInstallWithScript(
   script: string,
   candidate: { name: string; kind: string; source_url: string; tier?: number },
+  scope: CheatcodeScope,
   timeoutMs: number,
 ): Promise<InstallOutput> {
   return new Promise<InstallOutput>((resolve, reject) => {
-    const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      'bash',
+      [script, '--candidate', JSON.stringify(candidate), '--scope', scope],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
@@ -482,7 +488,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_install',
       description:
-        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Skill-kind returns a proposed-PR payload, never writes agent md.',
+        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default — pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Skill-kind returns a proposed-PR payload, never writes agent md.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -501,6 +507,12 @@ export function cheatcodeTools(db: TrajectoryDB): {
           trust_tier: {
             type: 'string',
             description: 'The cheatcode_vet trust_tier recorded at install time (optional).',
+          },
+          scope: {
+            type: 'string',
+            enum: ['local', 'global'],
+            description:
+              'Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row.',
           },
         },
         required: ['agent', 'candidate'],
@@ -643,6 +655,9 @@ export function cheatcodeTools(db: TrajectoryDB): {
         if ('error' in parsed) return err(parsed.error);
         const { name, kind, sourceUrl, tier } = parsed;
         const trustTier = (args['trust_tier'] as string | undefined)?.trim() ?? null;
+        // Default local so bro never hits a global/local AskUserQuestion.
+        const rawScope = (args['scope'] as string | undefined)?.trim();
+        const scope: CheatcodeScope = rawScope === 'global' ? 'global' : 'local';
 
         // Idempotent re-install: the (name, source_url) pair is the candidate
         // identity. If it is already installed, no-op — never duplicate the row
@@ -674,6 +689,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
         const out = await runInstallWithScript(
           resolveInstallScript(),
           candidate,
+          scope,
           INSTALL_TIMEOUT_MS,
         );
 
@@ -682,9 +698,9 @@ export function cheatcodeTools(db: TrajectoryDB): {
         const installedAt = nowISO();
         const cheatcodeId = db.transaction(() => {
           const res = db.run(
-            `INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, status, installed_at)
-             VALUES (?, ?, ?, ?, ?, 'installed', ?)`,
-            [name, kind, sourceUrl, out.version, trustTier, installedAt],
+            `INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, scope, status, installed_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'installed', ?)`,
+            [name, kind, sourceUrl, out.version, trustTier, scope, installedAt],
           );
           const id = Number(res.lastInsertRowid);
 
@@ -730,6 +746,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           candidate: out.candidate,
           method: out.method,
           version: out.version,
+          scope,
           attachments: out.attachments,
           // Skill-kind: the agent-frontmatter edit is a Human-reviewed PR, never
           // an automatic write — surface the proposed payload, write no md.
