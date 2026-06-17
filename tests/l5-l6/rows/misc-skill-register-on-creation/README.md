@@ -34,6 +34,6 @@
 - The `agents[].skills[]` frontmatter wiring that `tmb_skill-creator` also performs.
 - Multi-turn ratification flow (the prompt carries Human pre-approval to keep it single-turn).
 
-## Verification status
+## Run status
 
 **Authored but not yet run end-to-end against `claude -p`.** Reasoning: the assertions are correctness-by-construction (any successful `skill_register` call with default or explicit `scope='project-local'` produces the expected row; the schema seed is fixed at `scope='global'`). Run via `bash tests/l5-l6/run-l5.sh misc-skill-register-on-creation` when you want a live signal.

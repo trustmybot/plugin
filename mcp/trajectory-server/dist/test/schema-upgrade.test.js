@@ -1693,7 +1693,7 @@ function seedV12Db(dbPath) {
     INSERT INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (1, 'test issue', '', 'open', datetime('now'), datetime('now'));
     INSERT INTO tasks (id, issue_id, branch_id, description, status, attempts, spec_body, created_at, updated_at)
-    VALUES (1, 1, 'feat/v12-task', 'desc', 'pending', 0, '## Files\n- src/foo.ts\n## Verification\n- npm test', datetime('now'), datetime('now'));
+    VALUES (1, 1, 'feat/v12-task', 'desc', 'pending', 0, '## Success Criteria\n- it works', datetime('now'), datetime('now'));
     INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 12, '0.9.0');
   `);
     db.close();

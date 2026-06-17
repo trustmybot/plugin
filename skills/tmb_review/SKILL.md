@@ -31,8 +31,8 @@ Show input → code path → expected → actual.
 
 ### Phase 2 — Design compliance
 
-Sections are H2-anchored in `spec_body`:
-- `## Files` — every named file/function changed; nothing surprising.
+The machine contract is the brief's typed `files[]`/`verification[]`; the prose is H2-anchored in `spec_body`:
+- typed `files[]` — every named file/function changed; nothing surprising.
 - `## Success Criteria` — each bullet visible in the diff.
 - `## Description` error-handling items — each has a code path.
 - `## Out of Scope` — nothing forbidden was done.

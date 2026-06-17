@@ -17,7 +17,7 @@ Sign off (or fail) one task's commit against its spec. Your spawn prompt carries
 
 **Review**: load the brief via `task_brief` — it carries the spec, the commit, and the changed dirs' world-model summaries for sibling context — then diff the commit against its parent. Use `discussion_search` / `audit_search` for prior validation patterns. Apply:
 
-- Scope: changed files match the spec's `## Files`
+- Scope: changed files match the brief's typed `files[]`
 - Success criteria met by the diff (not just claimed)
 - Fits the codebase: the change lives where it belongs and matches local patterns — the brief's `scope_world_model` lists the changed dirs' neighbors
 

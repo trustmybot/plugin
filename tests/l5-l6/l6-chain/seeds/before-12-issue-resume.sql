@@ -16,18 +16,9 @@ SELECT id, 'feat/add-count-subcommand', 'dev', 'Add count subcommand',
        '## Description
 Add a `count` subcommand to src/cli.py that prints the number of todo items in the JSON store.
 
-## Files
-- src/cli.py — extend argparse subparsers with `count`
-
 ## Success Criteria
 - `python -m src.cli count` prints an integer
 - All existing tests still pass
-
-## Verification
-```bash
-python -m src.cli add "demo"
-python -m src.cli count   # prints 1
-```
 ', 'See spec.', 'pending',
        datetime('now'), datetime('now')
 FROM issues

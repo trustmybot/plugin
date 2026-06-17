@@ -3,7 +3,7 @@
 #
 # Hook contract: deny edits outside the task's typed files[] dirs in SWE
 # worktrees. The hook reads the typed `files` column (JSON array, Typed Rails
-# #673), NOT ## Files markdown.
+# #673).
 #
 # Scenarios:
 #   - in-scope edit (path under an allowed dir) → passes
@@ -151,7 +151,7 @@ out=$(run_hook "$WT_B" "$(make_edit_input "src/lib/other.ts")")
 assert_not_contains "$out" '"permissionDecision":"deny"' "file in listed dir should pass"
 
 # ===========================================================================
-# tests/ paths always allowed when ## Files lists a tests/ parent
+# tests/ paths always allowed when files[] lists a tests/ parent
 # ===========================================================================
 
 test_case "tests-always-allowed: tests/ sibling passes when tests/ parent listed"

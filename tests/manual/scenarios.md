@@ -81,8 +81,8 @@ git worktree list  # should show a worktree under .claude/worktrees/ or similar
 ### ⑥ Bro task gate (verification before close)
 
 After SWE completes ④, bro should:
-1. Re-run the spec's `## Verification` commands.
-2. Sanity-check the diff against the spec's `## Files`.
+1. Re-run the task's typed `verification[]` commands.
+2. Sanity-check the diff against the task's typed `files[]`.
 3. Confirm each `## Success Criteria` bullet.
 4. THEN flip the task to `closed`.
 

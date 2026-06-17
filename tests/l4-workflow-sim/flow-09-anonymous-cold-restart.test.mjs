@@ -57,7 +57,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
       branch_id: 'feat/role-test',
       title: 'role test',
       description: 'fixture',
-      spec_body: '## Description\nfixture\n## Files\n- none\n## Success Criteria\n- none\n## Verification\n```\necho ok\n```',
+      spec_body: '## Description\nfixture\n## Success Criteria\n- none',
     }],
   });
   assert.equal(task.ok, true);
@@ -111,7 +111,7 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
       branch_id: 'feat/audit-event-test',
       title: 'audit event test',
       description: 'fixture',
-      spec_body: '## Description\nfixture\n## Files\n- none\n## Success Criteria\n- none\n## Verification\n```\necho ok\n```',
+      spec_body: '## Description\nfixture\n## Success Criteria\n- none',
     }],
   });
   const createdTask = Array.isArray(task.data) ? task.data[0] : task.data.tasks?.[0];
