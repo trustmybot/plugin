@@ -4,6 +4,9 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Fixed
+- **Headless hook paths survive plugin upgrades** (#680): the headless enforcement shim wrote version-PINNED absolute hook paths (e.g. `.../cache/<mp>/tmb/0.9.2-rc.2/scripts/hooks/<name>.sh`) into `~/.claude/settings.json`, so every plugin upgrade or cache-clean orphaned all 13 entries — headless `claude -p` runs (CI, L5/L6, benches) then silently executed the stale hooks or none. `/onboard` now materializes one stable resolver at `~/.claude/tmb-hooks/resolve-hook.sh` (outside the versioned cache, so it never orphans) and writes version-agnostic commands (`bash <resolver> --marketplace <mp> --hook <name>`). The resolver discovers the active tmb version at hook-fire time — from Claude Code's installed-plugins manifest, falling back to the highest-semver cache dir — and execs the real gate with stdin + argv forwarded untouched. If no version resolves it fails OPEN with a loud stderr warning (never exit 2, which would block every tool call).
+
 ## v0.10.0-alpha — 2026-06-16
 
 ### Changed

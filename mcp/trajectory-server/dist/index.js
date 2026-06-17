@@ -28272,9 +28272,11 @@ import { dirname as dirname6, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync3 } from "node:fs";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync3, chmodSync } from "node:fs";
 import { join as join7 } from "node:path";
-var PLUGIN_ROOT_PLACEHOLDER = "${CLAUDE_PLUGIN_ROOT}";
+var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
+var STABLE_RESOLVER_NAME = "resolve-hook.sh";
+var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-headless-hook.sh"];
 var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
   "swe-brief-gate.sh",
   "naming-lint.sh",
@@ -28287,6 +28289,16 @@ var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
 function basename2(command) {
   const parts = command.split("/");
   return parts[parts.length - 1] ?? command;
+}
+function hookName(command) {
+  return basename2(command).replace(/\.sh$/, "");
+}
+function deriveMarketplace(pluginRoot) {
+  const segs = pluginRoot.split("/").filter((s) => s.length > 0);
+  const cacheIdx = segs.lastIndexOf("cache");
+  if (cacheIdx === -1 || cacheIdx + 1 >= segs.length) return null;
+  const mp = segs[cacheIdx + 1];
+  return mp && mp.length > 0 ? mp : null;
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
   const hooksJsonPath = join7(pluginRoot, "hooks", "hooks.json");
@@ -28301,12 +28313,12 @@ function readPreToolUseFromHooksJson(pluginRoot) {
   if (!Array.isArray(pre)) return null;
   return pre;
 }
-function buildTmbGroups(pre, pluginRoot) {
+function buildTmbGroups(pre, resolverPath, marketplace) {
   const groups = [];
   for (const group of pre) {
     const hooks = (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename2(h.command))).map((h) => ({
       type: h.type,
-      command: h.command.split(PLUGIN_ROOT_PLACEHOLDER).join(pluginRoot),
+      command: `bash ${resolverPath} --marketplace ${marketplace} --hook ${hookName(h.command)}`,
       ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
       _tmb_managed: true
     }));
@@ -28317,6 +28329,16 @@ function buildTmbGroups(pre, pluginRoot) {
     });
   }
   return groups;
+}
+function materializeResolver(pluginRoot, homeDir) {
+  const canonical = join7(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  if (!existsSync3(canonical)) return null;
+  const resolverDir = join7(homeDir, ...STABLE_RESOLVER_DIR);
+  const resolverPath = join7(resolverDir, STABLE_RESOLVER_NAME);
+  mkdirSync4(resolverDir, { recursive: true });
+  writeFileSync2(resolverPath, readFileSync2(canonical, "utf8"));
+  chmodSync(resolverPath, 493);
+  return resolverPath;
 }
 function purgeTmbEntries(pre) {
   const cleaned = [];
@@ -28345,7 +28367,19 @@ function writeHeadlessEnforcementShim(opts) {
     serverLog({ event: "onboard_hooks_shim_skip", reason });
     return { written: false, reason };
   }
-  const tmbGroups = buildTmbGroups(pre, pluginRoot);
+  const marketplace = deriveMarketplace(pluginRoot);
+  if (!marketplace) {
+    const reason = "cannot derive marketplace from plugin root";
+    serverLog({ event: "onboard_hooks_shim_skip", reason });
+    return { written: false, reason };
+  }
+  const resolverPath = materializeResolver(pluginRoot, homeDir);
+  if (!resolverPath) {
+    const reason = "canonical resolver script missing";
+    serverLog({ event: "onboard_hooks_shim_skip", reason });
+    return { written: false, reason };
+  }
+  const tmbGroups = buildTmbGroups(pre, resolverPath, marketplace);
   const settingsDir = join7(homeDir, ".claude");
   const settingsPath = join7(settingsDir, "settings.json");
   let settings = {};
