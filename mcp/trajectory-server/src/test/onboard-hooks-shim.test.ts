@@ -71,13 +71,24 @@ describe('writeHeadlessEnforcementShim', () => {
   let homeDir: string;
   let base: string;
 
+  const MARKETPLACE = 'trustmybot';
+
+  // A realistic install layout: .../plugins/cache/<marketplace>/tmb/<version>.
+  // The marketplace is derived from this path; the canonical resolver must exist
+  // under the plugin root so onboard can materialize it.
   function makePluginRoot(base: string): string {
-    const root = join(mkdtempSync(join(base, 'cache-')), 'tmb', '0.0.0');
+    const root = join(base, 'cache', MARKETPLACE, 'tmb', '0.0.0');
     mkdirSync(join(root, '.claude-plugin'), { recursive: true });
     writeFileSync(join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'tmb' }));
     mkdirSync(join(root, 'hooks'), { recursive: true });
     writeFileSync(join(root, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
+    mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
+    writeFileSync(join(root, 'scripts', 'lib', 'resolve-headless-hook.sh'), '#!/usr/bin/env bash\nexit 0\n');
     return root;
+  }
+
+  function resolverPath(): string {
+    return join(homeDir, '.claude', 'tmb-hooks', 'resolve-hook.sh');
   }
 
   function settingsPath(): string {
@@ -92,7 +103,11 @@ describe('writeHeadlessEnforcementShim', () => {
   function groupFor(s: { hooks?: { PreToolUse?: HookGroup[] } }, matcher: string): HookGroup | undefined {
     return (s.hooks?.PreToolUse ?? []).find((g) => g.matcher === matcher);
   }
+  // Extract the resolver's --hook value (re-appending .sh) so the existing
+  // name-based assertions keep reading like "no-source-edit-from-main.sh".
   function basename(c: string): string {
+    const m = c.match(/--hook\s+(\S+)/);
+    if (m) return `${m[1]}.sh`;
     return c.split('/').pop() ?? c;
   }
 
@@ -106,16 +121,23 @@ describe('writeHeadlessEnforcementShim', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('fresh write: creates settings.json with absolute PreToolUse commands', () => {
+  it('fresh write: version-agnostic resolver commands, no version segment, resolver materialized', () => {
     const res = writeHeadlessEnforcementShim({ pluginRoot, homeDir });
     assert.equal(res.written, true);
     assert.ok(existsSync(settingsPath()));
 
+    // The stable resolver is materialized outside the versioned cache.
+    assert.ok(existsSync(resolverPath()), 'resolver not materialized');
+
     const s = readSettings();
     const cmds = allPreCommands(s);
-    // ${CLAUDE_PLUGIN_ROOT} substituted with the absolute plugin root.
+    const stable = resolverPath();
     for (const c of cmds) {
-      assert.ok(c.startsWith(pluginRoot + '/scripts/hooks/'), `expected absolute path, got ${c}`);
+      // Every command invokes the stable resolver with marketplace + hook args.
+      assert.ok(c.startsWith(`bash ${stable} --marketplace ${MARKETPLACE} --hook `), `expected resolver command, got ${c}`);
+      // No version-pinned cache path leaks in (Success Criterion 1).
+      assert.ok(!/tmb\/\d+\.\d+\.\d+/.test(c), `version segment leaked: ${c}`);
+      assert.ok(!c.includes('/tmb/0.0.0/'), `version-pinned path leaked: ${c}`);
       assert.ok(!c.includes('${CLAUDE_PLUGIN_ROOT}'), 'placeholder not substituted');
     }
   });
@@ -171,12 +193,14 @@ describe('writeHeadlessEnforcementShim', () => {
     assert.ok(!cmds.some((c) => c.includes('session-start-prescan')), 'SessionStart leaked');
   });
 
-  it('idempotent re-write: running twice yields one TMB block, byte-identical', () => {
+  it('idempotent re-write: running twice yields one TMB block, byte-identical, no version refs', () => {
     writeHeadlessEnforcementShim({ pluginRoot, homeDir });
     const first = readFileSync(settingsPath(), 'utf8');
     writeHeadlessEnforcementShim({ pluginRoot, homeDir });
     const second = readFileSync(settingsPath(), 'utf8');
     assert.equal(first, second);
+    // Idempotent re-run never leaves a version-pinned path segment.
+    assert.ok(!/tmb\/\d+\.\d+\.\d+/.test(second), 'version segment present after re-run');
   });
 
   // Success Criterion 2 + Bug B: no accumulation across 3 writes, including when
