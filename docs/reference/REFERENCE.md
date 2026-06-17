@@ -33,7 +33,6 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **scan**: `scan_run`, `repos_list`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
 - **skills**: `skill_register`, `skill_promote`, `skill_record_outcome`, `skill_record_invocation`, `skill_invocations_list`
-- **commands**: `command_register`, `command_list`
 - **agents**: `agent_list`, `agent_register`
 - **composites**: `branch_id_propose`, `task_retry_batch`, `task_brief`, `bro_atomic_close`, `bro_verification_fail_record`, `headless_intent_start`, `pr_review_worktree`, `reap_and_review_prep`
 - **audit**: `audit_log`, `audit_log_list`, `audit_search`

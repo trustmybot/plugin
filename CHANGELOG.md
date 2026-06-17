@@ -25,6 +25,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ### Removed
 - **Dead `rules` + `rule_invocations` registry** (#97): the schema audit ranked this #1 dead weight — both tables were honor-system-only with 0 rows in every reachable DB and zero readers (no hook, routing, prompt, or scorer touched the register/list tools). Dropped the two tables + their indexes from `schema.sql`, removed the four `rule_*` MCP tools (`rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list`), and added an idempotent v15→v16 migration that drops `rule_invocations` then `rules` (child first). Schema bumped to v16.
+- **Dead `commands` catalog** (#97): schema-audit wave 2 — the seed-only `commands` table was read only by `command_list`, with nothing routing on it (Claude Code discovers `commands/*.md` directly) and `command_register` honor-system + unused. Dropped the table + its index from `schema.sql`, removed the `command_register` / `command_list` MCP tools (and their `tools/commands.ts` file), and added an idempotent v16→v17 migration that drops `commands`. Schema bumped to v17.
 
 ## v0.10.0-alpha — 2026-06-16
 

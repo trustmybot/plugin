@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 16;
+const TARGET_SCHEMA_VERSION = 17;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -397,6 +397,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 16 && toVersion >= 16) {
         migrateV15toV16(db);
     }
+    if (fromVersion < 17 && toVersion >= 17) {
+        migrateV16toV17(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -678,6 +681,27 @@ function migrateV15toV16(db) {
         db.exec('DROP TABLE IF EXISTS rule_invocations');
         // LINT-ALLOW: v15→v16 migration retires the dead rules registry (#97 schema audit).
         db.exec('DROP TABLE IF EXISTS rules');
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+function migrateV16toV17(db) {
+    db.exec('BEGIN');
+    try {
+        // Drop the dead commands catalog (#97 schema audit): seed-only, read only
+        // by command_list; nothing routes on it (CC discovers commands/*.md
+        // directly), command_register was honor-system + unused. No junction/child
+        // table references it.
+        // LINT-ALLOW: v16→v17 migration retires the dead commands catalog (#97 schema audit).
+        db.exec('DROP TABLE IF EXISTS commands');
         db.exec('COMMIT');
     }
     catch (err) {
