@@ -113,6 +113,8 @@ Reading the dotted edges:
 
 **Note on retired step 14:** the `skill_invocations` hook-attribution assertion that step 14 used to own is now folded into step 04's outcome.sql — `skill_invocations` rows accumulate naturally on any chain step that invokes tmb skills, and step 04 is the first such step. The standalone row was redundant.
 
+**Note on the cheatcode steps (chain steps 4 and 9):** the chain now runs the cheatcode pipeline end-to-end via two rows wired into `chain-manifest.json` (dir names `rows/44-cheatcode-install-plugins` and `rows/45-cheatcode-uninstall-plugins`, pending the cosmetic 1–15 dir renumber). **Chain step 4** (`44-cheatcode-install-plugins`) installs two marketplace plugins via cheatcode — `feature-dev` attaches to `swe`, `code-review` attaches to `pr-reviewer` — so the install state is cumulative for the rest of the journey. **Chain step 9** (`45-cheatcode-uninstall-plugins`) reverses it, tearing the installed cheatcodes + attachments back down. Both steps stage their deterministic, no-network fixture via a `chain_setup_command` that reuses the row's own `setup-l5.sh` (the same script L5 isolation sources directly). The existing rows shift down accordingly: `04-first-task-hits-gate` runs at chain step 5, `09-concerns-protocol` at step 11, `13-search-grounding` at step 15.
+
 **Reading the S13 dotted edge:** S8 → S13: step 08 records the `kind='decision'` discussion that step 13 searches for. In L6, the organic DB carry means the row is already present when step 13 fires. In L5 isolation, `setup-l5.sh` seeds the same decision body so the same prompt + assertion work unchanged.
 
 ---
