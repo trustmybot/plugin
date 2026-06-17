@@ -290,8 +290,10 @@ echo '  ok'
 echo '--- Test: transcript parsed → agent_runs has real token/duration values ---'
 
 TRANSCRIPT="$TMPDIR/synthetic-transcript.jsonl"
-# Two assistant messages: known usage + one tool_use block; timestamps 1500ms apart.
+# Spawn-prompt user turn carrying task_id=42 (authoritative attribution), then
+# two assistant messages: known usage + one tool_use block; timestamps 1500ms apart.
 cat > "$TRANSCRIPT" <<'JSONL'
+{"timestamp":"2026-04-01T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"task_id=42 branch_id=fix/test-branch do the work"}]}}
 {"timestamp":"2026-04-01T00:00:00.000Z","message":{"role":"assistant","usage":{"input_tokens":100,"output_tokens":50},"content":[{"type":"tool_use","id":"t1","name":"bash","input":{}}]}}
 {"timestamp":"2026-04-01T00:00:01.500Z","message":{"role":"assistant","usage":{"input_tokens":200,"output_tokens":75},"content":[]}}
 JSONL

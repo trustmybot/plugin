@@ -4,6 +4,9 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Fixed
+- **`task_stats` no longer over-counts spawn cost** (#685): the SubagentStop hook (`swe-atomic-close.sh`) inserted a fresh `agent_runs` row on *every* time a SWE came to rest, summed each transcript message's *cumulative* `cache_read_input_tokens` (re-reporting the same cached prefix N times → tens of millions per row), and could attribute a spawn's metrics to a same-batch sibling task via the weak updated-at fallback. The hook now writes exactly one row per spawn (idempotent UPSERT keyed on the spawn's transcript identity), records the spawn's own cache-read/creation as the high-water mark rather than a per-message sum, and refuses to attribute metrics when a transcript is present but yields no `task_id` (logging and skipping instead of guessing a sibling). `task_stats` aggregates are honest again.
+
 ## v0.10.0-alpha — 2026-06-16
 
 ### Changed

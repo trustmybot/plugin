@@ -36,6 +36,18 @@ mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 # Parse a JSONL transcript file and return pipe-separated stats:
 #   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens
 # On any error or missing file, prints 0|0|0|0|0|0.
+#
+# Measure semantics (per-spawn, NOT a per-message sum):
+#   - input_tokens / output_tokens are reported per message and are disjoint,
+#     so summing them yields the spawn's true generation cost — `add` is correct.
+#   - cache_read_input_tokens / cache_creation_input_tokens re-report the
+#     *cumulative* cached prefix on every message: each turn reads (nearly) the
+#     whole accumulated context from cache, so each message restates a value
+#     close to the running total. Summing them multicounts the same cached
+#     prefix N times (tens of millions for a normal spawn — issue #685). The
+#     spawn's own cache read is the high-water mark, so we take `max`, not `add`.
+#   - tool_uses is a count of tool_use blocks in the transcript (a snapshot of
+#     the spawn's own activity), not a cumulative re-report, so length is right.
 tmb_parse_transcript_stats() {
   local transcript_path="$1"
   if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
@@ -46,8 +58,8 @@ tmb_parse_transcript_stats() {
   result=$(jq -rsc '
     (map(select(.message.usage != null) | .message.usage.input_tokens // 0) | add // 0) as $ti |
     (map(select(.message.usage != null) | .message.usage.output_tokens // 0) | add // 0) as $to |
-    (map(select(.message.usage != null) | .message.usage.cache_read_input_tokens // 0) | add // 0) as $cr |
-    (map(select(.message.usage != null) | .message.usage.cache_creation_input_tokens // 0) | add // 0) as $cc |
+    (map(select(.message.usage != null) | .message.usage.cache_read_input_tokens // 0) | max // 0) as $cr |
+    (map(select(.message.usage != null) | .message.usage.cache_creation_input_tokens // 0) | max // 0) as $cc |
     (map(.message.content // [] | arrays | .[]) | map(select(.type == "tool_use")) | length) as $tu |
     ( map(select(.timestamp != null) |
         .timestamp |
@@ -148,7 +160,14 @@ esac
 #   1. task_id extracted from the transcript (authoritative — bound to this SWE).
 #   2. Worktree slug match via branch_id LIKE '%/<slug>' (no transcript in this harness).
 #   3. Most-recently-updated task in any SWE-relevant status (last-resort fallback).
+#
+# RESOLVE_CONFIDENCE records HOW the task was bound so the agent_runs write can
+# refuse to attribute metrics to a guessed sibling (#685):
+#   transcript|slug → authoritative (bound to this exact SWE/worktree)
+#   updated_at      → weak heuristic; safe for the close decision but NOT for
+#                     metric attribution when same-batch siblings exist.
 ROW=""
+RESOLVE_CONFIDENCE=""
 if [ -n "$TRANSCRIPT_TASK_ID" ]; then
   SAFE_TRANSCRIPT_TASK_ID=$(tmb_sql_int "$TRANSCRIPT_TASK_ID")
   if [ -n "$SAFE_TRANSCRIPT_TASK_ID" ]; then
@@ -158,6 +177,7 @@ if [ -n "$TRANSCRIPT_TASK_ID" ]; then
          AND status IN ('pending', 'needs_validation', 'completed')
        LIMIT 1;" \
       2>/dev/null || true)
+    [ -n "$ROW" ] && RESOLVE_CONFIDENCE="transcript"
   fi
 fi
 if [ -z "$ROW" ] && [ -n "$WORKTREE_ROOT" ]; then
@@ -178,10 +198,12 @@ if [ -z "$ROW" ] && [ -n "$WORKTREE_ROOT" ]; then
          WHERE id = ${SLUG_ID}
          LIMIT 1;" \
         2>/dev/null || true)
+      [ -n "$ROW" ] && RESOLVE_CONFIDENCE="slug"
     fi
   fi
 fi
 if [ -z "$ROW" ]; then
+  RESOLVE_CONFIDENCE="updated_at"
   ROW=$(sqlite3 "$DB" \
     "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
      WHERE status IN ('pending', 'needs_validation', 'completed')
@@ -315,6 +337,20 @@ fi
 # CC's SubagentStop payload omits token/duration at the top level but
 # DOES include agent_transcript_path — the JSONL with per-message usage.
 # This never fails the hook — a diagnostic line is written on any parse error.
+#
+# Misattribution guard (#685): a real CC spawn transcript always carries the
+# spawn prompt with task_id=N. When a transcript IS present but yields no such
+# id, the only task we could reach is the weak updated_at fallback — which,
+# among same-batch sibling SWEs, binds metrics to the WRONG task. In that case
+# refuse to guess: skip the agent_runs write and log it. (No transcript at all
+# is the legacy harness where updated_at is the only signal and is acceptable.)
+# The close decision + its logging below always run; only the metric write is
+# withheld.
+AR_ATTRIBUTION_SAFE="true"
+if [ "$RESOLVE_CONFIDENCE" = "updated_at" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -z "$TRANSCRIPT_TASK_ID" ]; then
+  AR_ATTRIBUTION_SAFE="false"
+fi
+
 SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
 ISSUE_ID=$(sqlite3 "$DB" "SELECT issue_id FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null || true)
 ISSUE_ID="${ISSUE_ID:-}"
@@ -370,11 +406,53 @@ else
 fi
 
 SAFE_AGENT_TYPE=$(tmb_sql_quote "$AGENT_TYPE")
-SAFE_AR_INSERT="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
-sqlite3 "$DB" "$SAFE_AR_INSERT" 2>/dev/null || \
-  jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
-    '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"agent_runs insert failed",task_id:$tid}' \
+
+if [ "$AR_ATTRIBUTION_SAFE" != "true" ]; then
+  jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" \
+    '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"task_id unresolved from transcript; refusing sibling-fallback attribution",task_id:$tid,transcript:$tr}' \
     >> "$_LOG_FILE" 2>/dev/null || true
+else
+  # Idempotent one-row-per-spawn write (#685). SubagentStop fires once per
+  # time the SWE comes to rest, so a single spawn can re-enter this hook N
+  # times. Key the row on a stable per-spawn identity (the transcript path,
+  # stored in usage_baseline_json as {"spawn_id":...}); later stops UPDATE the
+  # same row in place with refreshed metrics rather than INSERTing a duplicate.
+  #
+  # The marker lives in usage_baseline_json (swe rows never use the bro-turn
+  # baseline). When that column is absent (legacy/minimal schema) or no
+  # transcript identity is available, fall back to a plain INSERT — the prior
+  # one-row-per-stop behavior, acceptable for single-SWE harnesses.
+  AR_HAS_BASELINE_COL=$(sqlite3 "$DB" \
+    "SELECT COUNT(*) FROM pragma_table_info('agent_runs') WHERE name='usage_baseline_json';" \
+    2>/dev/null || echo 0)
+  case "${AR_HAS_BASELINE_COL}" in (''|*[!0-9]*) AR_HAS_BASELINE_COL=0 ;; esac
+
+  AR_EXISTING_ID=""
+  SAFE_SPAWN_ID=""
+  if [ "$AR_HAS_BASELINE_COL" -ge 1 ] && [ -n "$TRANSCRIPT_PATH" ]; then
+    SAFE_SPAWN_ID=$(tmb_sql_quote "$TRANSCRIPT_PATH")
+    AR_EXISTING_ID=$(sqlite3 "$DB" \
+      "SELECT id FROM agent_runs
+        WHERE task_id=${SAFE_TASK_ID}
+          AND agent_type='${SAFE_AGENT_TYPE}'
+          AND json_extract(usage_baseline_json, '\$.spawn_id') = '${SAFE_SPAWN_ID}'
+        ORDER BY id DESC LIMIT 1;" \
+      2>/dev/null || true)
+    AR_EXISTING_ID=$(tmb_sql_int "$AR_EXISTING_ID")
+  fi
+
+  if [ -n "$AR_EXISTING_ID" ]; then
+    AR_WRITE="UPDATE agent_runs SET tokens_in=${TOKENS_IN}, tokens_out=${TOKENS_OUT}, tokens_total=${TOKENS_TOTAL}, cache_read_tokens=${CACHE_READ_TOKENS}, cache_creation_tokens=${CACHE_CREATION_TOKENS}, tool_uses=${TOOL_USES}, duration_ms=${DURATION_MS}, completed_at=datetime('now') WHERE id=${AR_EXISTING_ID};"
+  elif [ "$AR_HAS_BASELINE_COL" -ge 1 ] && [ -n "$SAFE_SPAWN_ID" ]; then
+    AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_baseline_json) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'), json_object('spawn_id', '${SAFE_SPAWN_ID}'));"
+  else
+    AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
+  fi
+  sqlite3 "$DB" "$AR_WRITE" 2>/dev/null || \
+    jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
+      '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"agent_runs write failed",task_id:$tid}' \
+      >> "$_LOG_FILE" 2>/dev/null || true
+fi
 
 # Log the decision.
 if [ "$DECISION" = "auto-completed" ] || [ "$DECISION" = "auto-complete-failed" ]; then
