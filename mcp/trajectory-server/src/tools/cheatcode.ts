@@ -804,34 +804,44 @@ export function cheatcodeTools(db: TrajectoryDB): {
           UNINSTALL_TIMEOUT_MS,
         );
 
-        // One transaction: every attachment row + the cheatcodes row + the
-        // audit row land (delete) together or not at all.
+        // Honesty gate (#114): only delete the install + attachment rows when the
+        // teardown actually removed the artifact. A failed teardown keeps the row,
+        // flips status to 'broken' (orphaned install still on disk), and still
+        // records the audit row — the tool reports uninstalled:false with the
+        // error surfaced rather than lying about a clean removal.
         const uninstalledAt = nowISO();
+        const auditContent = JSON.stringify({
+          cheatcode_id: existing.id,
+          name: existing.name,
+          kind: existing.kind,
+          source_url: existing.source_url,
+          removed: reversal.removed,
+          method: reversal.method,
+          attachments,
+          error: reversal.error,
+        });
+        const auditSummary = `Cheatcode uninstall: '${existing.name}' (kind=${existing.kind}, method=${reversal.method}, removed=${reversal.removed})`;
+
+        // One transaction: row delete (or status flip) + audit row land together.
         db.transaction(() => {
-          db.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
-          db.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
+          if (reversal.removed) {
+            db.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
+            db.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
+          } else {
+            db.run(`UPDATE cheatcodes SET status = 'broken', updated_at = ? WHERE id = ?`, [
+              uninstalledAt,
+              existing.id,
+            ]);
+          }
           db.run(
             `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
              VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`,
-            [
-              `Cheatcode uninstalled: '${existing.name}' (kind=${existing.kind}, method=${reversal.method})`,
-              JSON.stringify({
-                cheatcode_id: existing.id,
-                name: existing.name,
-                kind: existing.kind,
-                source_url: existing.source_url,
-                removed: reversal.removed,
-                method: reversal.method,
-                attachments,
-                error: reversal.error,
-              }),
-              uninstalledAt,
-            ],
+            [auditSummary, auditContent, uninstalledAt],
           );
         });
 
         return ok({
-          uninstalled: true,
+          uninstalled: reversal.removed,
           cheatcode_id: existing.id,
           name: existing.name,
           kind: existing.kind,

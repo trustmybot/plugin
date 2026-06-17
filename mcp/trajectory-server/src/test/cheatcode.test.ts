@@ -2,9 +2,41 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { cheatcodeTools } from '../tools/cheatcode.js';
+
+// The real cheatcode-uninstall.sh on disk — same resolution the tool uses
+// (dist/test → ../../../../scripts). Run directly so the mcp-deregister branch
+// is exercised on the real dispatch, not a fixtured shortcut.
+const UNINSTALL_SCRIPT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  '..',
+  'scripts',
+  'cheatcode-uninstall.sh',
+);
+
+// Run the script with a PATH that has jq/bash coreutils but NO `claude`, so the
+// teardown adapters take their soft-degrade branch deterministically. This lets
+// us assert which dispatch branch (plugin marketplace vs mcp deregister) ran by
+// its method + error note, without touching the network or a real CLI.
+function runUninstallScript(candidate: { name: string; kind: string; source_url: string }): {
+  removed: boolean;
+  method: string;
+  error: string | null;
+} {
+  const r = spawnSync('bash', [UNINSTALL_SCRIPT, '--candidate', JSON.stringify(candidate)], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: '/usr/bin:/bin' },
+  });
+  assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+  return JSON.parse(r.stdout);
+}
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -743,6 +775,77 @@ describe('cheatcode_uninstall', () => {
       delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
       cleanup();
     }
+  });
+
+  it('honesty gate: a failed teardown (removed:false) keeps the row as status=broken, returns uninstalled:false + error, still audits', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'broken-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/broken',
+      tier: 1,
+    });
+
+    // Real failure signal — the marketplace teardown reported removed:false with
+    // an error. Not fixtured away (#109): the failure path is what's under test.
+    const { path, cleanup } = withFixture(
+      JSON.stringify({ removed: false, error: 'marketplace uninstall failed (exit 1)' }),
+    );
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = path;
+    try {
+      const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.notEqual(r.isError, true, `uninstall errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+      assert.equal(out['uninstalled'], false, 'reports honest failure, not success');
+      assert.equal(out['removed'], false);
+      assert.ok(out['error'], 'error surfaced to caller');
+
+      const row = db.get<{ status: string }>(`SELECT status FROM cheatcodes WHERE id = ?`, [id]);
+      assert.ok(row, 'cheatcodes row kept (not deleted) on failed teardown');
+      assert.equal(row!.status, 'broken', 'status flipped to broken');
+      assert.equal(
+        db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments WHERE cheatcode_id = ?`, [id])!.n,
+        1,
+        'attachment row kept on failed teardown',
+      );
+
+      const audit = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'cheatcode_uninstalled' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(audit, 'cheatcode_uninstalled audit row still written on failure');
+      const content = JSON.parse(audit!.content_json);
+      assert.equal(content.cheatcode_id, id);
+      assert.equal(content.removed, false);
+      assert.ok(content.error, 'audit records the teardown error');
+    } finally {
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('mcp kind dispatches to the claude mcp remove deregister path (method mcp-deregister), distinct from plugin marketplace', () => {
+    // Real script, no fixture, no `claude` on PATH → both adapters soft-degrade.
+    // The mcp branch must produce method 'mcp-deregister' with an mcp-flavoured
+    // error, while the plugin branch produces 'marketplace' — proving the
+    // dispatch split routes mcp to the deregister adapter, not marketplace.
+    const mcp = runUninstallScript({
+      name: 'serena',
+      kind: 'mcp',
+      source_url: 'https://github.com/x/serena',
+    });
+    assert.equal(mcp.method, 'mcp-deregister');
+    assert.equal(mcp.removed, false);
+    assert.ok(mcp.error && /mcp/i.test(mcp.error), `mcp branch error mentions mcp: ${mcp.error}`);
+
+    const plugin = runUninstallScript({
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+    });
+    assert.equal(plugin.method, 'marketplace');
+    assert.equal(plugin.removed, false);
+    assert.notEqual(plugin.method, mcp.method, 'mcp and plugin take distinct branches');
   });
 
   it('is idempotent — uninstalling an absent install no-ops without error', async () => {
