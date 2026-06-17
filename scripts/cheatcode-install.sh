@@ -26,10 +26,15 @@
 # (network denied, missing CLI, non-zero exit) the install degrades to
 # installed=false with an error note — it never crashes.
 #
-# Fixture shape (object; every field optional):
-#   { "installed": true, "version": "1.2.3", "error": null,
+# Fixture shape — two forms, auto-detected by the candidate name:
+#   FLAT (one install): { "installed": true, "version": "1.2.3", "error": null,
 #     "attachments": [ { "target": "swe", "artifact": "..." } ] }
-# When the fixture supplies attachments[], they are passed through verbatim
+#   PER-CANDIDATE (one file routes many installs): keyed by candidate name →
+#     { "feature-dev": { "installed": true, "attachments":[{target:"swe",...}] },
+#       "code-review": { "installed": true, "attachments":[{target:"pr-reviewer",...}] } }
+# When the top level has a key matching the install candidate's name, that entry
+# is used; otherwise the whole object is read as the FLAT shape (backward-compatible).
+# When the chosen entry supplies attachments[], they are passed through verbatim
 # (the per-agent attachment target — feature-dev→swe, code-review→pr-reviewer);
 # otherwise the kind-derived default attachment is used.
 #
@@ -158,7 +163,16 @@ if [ -n "${TMB_CHEATCODE_INSTALL_FIXTURE:-}" ]; then
     echo '{"error":"fixture is not a JSON object"}' >&2
     exit 1
   fi
-  install_result=$(printf '%s' "$fixture" | jq -c '{
+  # Per-candidate keyed shape: a top-level key matching this candidate's name
+  # whose value is an object selects that entry. Otherwise read the whole object
+  # as the FLAT shape (backward-compatible). The selected entry is normalized
+  # identically either way.
+  entry="$fixture"
+  if [ -n "$cand_name" ] \
+     && printf '%s' "$fixture" | jq -e --arg n "$cand_name" '(.[$n] | type) == "object"' >/dev/null 2>&1; then
+    entry=$(printf '%s' "$fixture" | jq -c --arg n "$cand_name" '.[$n]')
+  fi
+  install_result=$(printf '%s' "$entry" | jq -c '{
     installed:   (.installed // false),
     version:     (.version // null),
     error:       (.error // null),

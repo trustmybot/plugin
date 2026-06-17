@@ -77,6 +77,46 @@ OUT_ATT=$(TMB_CHEATCODE_INSTALL_FIXTURE="$ATT_FIXTURE" bash "$SCRIPT" \
 test_case "fixture-supplied attachment target passes through"
 assert_eq "swe" "$(printf '%s' "$OUT_ATT" | jq -r '.attachments[0].target')" "attachment target"
 
+# Per-candidate keyed fixture: ONE file keyed by candidate name routes each
+# install to its own entry → distinct attachment targets (feature-dev→swe,
+# code-review→pr-reviewer).
+KEYED_FIXTURE="$WORKSPACE/install-keyed.json"
+cat > "$KEYED_FIXTURE" <<'JSON'
+{
+  "feature-dev": { "installed": true, "version": "1.0.0",
+                   "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] },
+  "code-review": { "installed": true, "version": "1.0.0",
+                   "attachments": [ { "target": "pr-reviewer", "artifact": "marketplace-plugin:code-review" } ] }
+}
+JSON
+
+OUT_FD=$(TMB_CHEATCODE_INSTALL_FIXTURE="$KEYED_FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
+OUT_CR=$(TMB_CHEATCODE_INSTALL_FIXTURE="$KEYED_FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"code-review","kind":"plugin","source_url":"https://x.test/code-review"}')
+
+test_case "per-candidate keyed fixture routes feature-dev to swe"
+assert_eq "swe" "$(printf '%s' "$OUT_FD" | jq -r '.attachments[0].target')" "feature-dev target"
+
+test_case "per-candidate keyed fixture routes code-review to pr-reviewer"
+assert_eq "pr-reviewer" "$(printf '%s' "$OUT_CR" | jq -r '.attachments[0].target')" "code-review target"
+
+test_case "per-candidate keyed targets are distinct"
+if [ "$(printf '%s' "$OUT_FD" | jq -r '.attachments[0].target')" != \
+     "$(printf '%s' "$OUT_CR" | jq -r '.attachments[0].target')" ]; then _pass; else _fail "targets not distinct"; fi
+
+# Backward-compat: a candidate whose name is NOT a top-level key falls back to
+# the FLAT shape — the keyed file's own top-level installed/version is ignored
+# and the flat read applies. Using the FLAT fixture from above proves the flat
+# path is unchanged (regression).
+OUT_FLAT_REGRESS=$(TMB_CHEATCODE_INSTALL_FIXTURE="$FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/pdf"}')
+
+test_case "flat fixture still works for an unmatched candidate name (regression)"
+assert_eq "true" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.installed')" "flat installed"
+assert_eq "1.2.3" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.version')" "flat version"
+assert_eq "plugin" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.attachments[0].target')" "flat default attachment"
+
 # Skill kind with no fixture: nothing installs at the marketplace; the
 # attachment is the proposed-PR payload only — never an automatic md write.
 OUT_SKILL=$(bash "$SCRIPT" \

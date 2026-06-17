@@ -427,6 +427,48 @@ describe('cheatcode_install', () => {
         assert.equal(reviewTarget.target, 'pr-reviewer', 'code-review routes to pr-reviewer');
         assert.notEqual(featureTarget.target, reviewTarget.target, 'targets are distinct per candidate');
     });
+    it('per-candidate keyed fixture routes two installs from ONE file to distinct targets', async () => {
+        const db = tempDB();
+        const tools = cheatcodeTools(db);
+        // A SINGLE fixture file keyed by candidate name. Both installs read the same
+        // file; each candidate's own entry selects its attachment target.
+        const keyed = withFixture(JSON.stringify({
+            'feature-dev': {
+                installed: true,
+                version: '1.0.0',
+                attachments: [{ target: 'swe', artifact: 'marketplace-plugin:feature-dev' }],
+            },
+            'code-review': {
+                installed: true,
+                version: '1.0.0',
+                attachments: [{ target: 'pr-reviewer', artifact: 'marketplace-plugin:code-review' }],
+            },
+        }));
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = keyed.path;
+        try {
+            const rf = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
+            });
+            assert.notEqual(rf.isError, true, `feature-dev install errored: ${rf.content[0]?.text}`);
+            const featureId = parse(rf)['cheatcode_id'];
+            const rr = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'code-review', kind: 'plugin', source_url: 'https://github.com/x/code-review' },
+            });
+            assert.notEqual(rr.isError, true, `code-review install errored: ${rr.content[0]?.text}`);
+            const reviewId = parse(rr)['cheatcode_id'];
+            const featureTarget = db.get(`SELECT target FROM cheatcode_attachments WHERE cheatcode_id = ?`, [featureId]);
+            const reviewTarget = db.get(`SELECT target FROM cheatcode_attachments WHERE cheatcode_id = ?`, [reviewId]);
+            assert.equal(featureTarget.target, 'swe', 'feature-dev entry routes to swe');
+            assert.equal(reviewTarget.target, 'pr-reviewer', 'code-review entry routes to pr-reviewer');
+            assert.notEqual(featureTarget.target, reviewTarget.target, 'targets are distinct per candidate');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            keyed.cleanup();
+        }
+    });
     it('is idempotent — re-installing the same candidate no-ops', async () => {
         const db = tempDB();
         const { path, cleanup } = withFixture(INSTALL_OK);
