@@ -6,6 +6,7 @@
 # that fires wins (patterns are checked in priority order).
 #
 # Pattern classes handled:
+#   cheatcode-install — install of a named plugin/skill/mcp/cheatcode (or 'in <scope> scope')
 #   consultant-spawn — domain-expert keyword + question/advisory shape required
 #   search-grounding — decision-retrieval questions (decision-anchored only)
 #   concerns-protocol — doubt-class / weaken-gate phrases
@@ -14,7 +15,8 @@
 #   resume-intent    — keep-going / pick-up / continue phrases (DB query on match)
 #   adr-required     — architectural intent (two-token checks)
 #
-# Bypass env vars forwarded: TMB_DISABLE_SEARCH_HINT, TMB_DISABLE_CONCERNS_HINT,
+# Bypass env vars forwarded: TMB_DISABLE_CHEATCODE_INSTALL_HINT,
+# TMB_DISABLE_CONSULTANT_HINT, TMB_DISABLE_SEARCH_HINT, TMB_DISABLE_CONCERNS_HINT,
 # TMB_DISABLE_PUSH_INTENT_HINT, TMB_DISABLE_REONBOARD_HINT, TMB_DISABLE_RESUME_HINT,
 # TMB_DISABLE_ADR_HINT.
 #
@@ -23,7 +25,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/hooks/lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
@@ -61,6 +63,37 @@ has_word() {
   esac
   return 1
 }
+
+# ---------------------------------------------------------------------------
+# 0. cheatcode-install — installing a NAMED external capability.
+#    Fires when the prompt installs a plugin/skill/mcp/cheatcode (the capability
+#    noun appears with 'install'), OR requests 'in (local|global) scope'.
+#    Anchored on the capability noun so dependency installs (npm/pip/bun install,
+#    'install dependencies') never match. Checked before consultant-spawn so an
+#    install directive routes to the cheatcode pipeline, NOT agent-create — while
+#    a bare role name (no install/capability noun) still falls through to
+#    consultant-spawn.
+# ---------------------------------------------------------------------------
+if [ "${TMB_DISABLE_CHEATCODE_INSTALL_HINT:-0}" != "1" ]; then
+  cheatcode_install_match=""
+  case "$LOWER" in
+    *"in local scope"*|*"in global scope"*)
+      cheatcode_install_match="in scope"
+      ;;
+    *install*)
+      case "$LOWER" in
+        *plugin*|*skill*|*mcp*|*cheatcode*)
+          cheatcode_install_match="install capability"
+          ;;
+      esac
+      ;;
+  esac
+
+  if [ -n "$cheatcode_install_match" ]; then
+    CTX="[tmb cheatcode-install routing] This is a cheatcode install, NOT agent/consultant creation. Record the per-candidate approval (cheatcode_approve) then call cheatcode_install with the requested scope (default local). Do NOT call agent_resolve / /tmb:agent-create for these names."
+    emit_context "$CTX"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # 1. consultant-spawn
