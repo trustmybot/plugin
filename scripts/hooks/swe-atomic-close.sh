@@ -21,14 +21,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib/resolve-plugin-name.sh
+# shellcheck source=scripts/lib/resolve-plugin-name.sh disable=SC1091
 . "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
 PLUGIN_NAME=$(tmb_resolve_plugin_name)
-# shellcheck source=scripts/hooks/lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || true
-# shellcheck source=scripts/hooks/lib/normalize-role.sh
+# shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh" 2>/dev/null || true
-# shellcheck source=scripts/hooks/lib/resolve-workspace.sh
+# shellcheck source=scripts/hooks/lib/resolve-workspace.sh disable=SC1091
 . "$SCRIPT_DIR/lib/resolve-workspace.sh" 2>/dev/null || true
 
 mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
@@ -229,6 +229,7 @@ TASK_REPO=$(echo "$ROW" | cut -d'|' -f5)
 #   3. Else PWD itself.
 REPO_ROOT=""
 if [ -n "$TASK_REPO" ]; then
+  # shellcheck disable=SC2001
   REPO_ROOT=$(sqlite3 "$DB" \
     "SELECT path FROM repos WHERE name='$(echo "$TASK_REPO" | sed "s/'/''/g")' LIMIT 1;" \
     2>/dev/null || true)
@@ -407,6 +408,14 @@ fi
 
 SAFE_AGENT_TYPE=$(tmb_sql_quote "$AGENT_TYPE")
 
+SAFE_TOKENS_IN=$(tmb_sql_int "$TOKENS_IN"); SAFE_TOKENS_IN=${SAFE_TOKENS_IN:-0}
+SAFE_TOKENS_OUT=$(tmb_sql_int "$TOKENS_OUT"); SAFE_TOKENS_OUT=${SAFE_TOKENS_OUT:-0}
+SAFE_TOKENS_TOTAL=$(tmb_sql_int "$TOKENS_TOTAL"); SAFE_TOKENS_TOTAL=${SAFE_TOKENS_TOTAL:-0}
+SAFE_CACHE_READ_TOKENS=$(tmb_sql_int "$CACHE_READ_TOKENS"); SAFE_CACHE_READ_TOKENS=${SAFE_CACHE_READ_TOKENS:-0}
+SAFE_CACHE_CREATION_TOKENS=$(tmb_sql_int "$CACHE_CREATION_TOKENS"); SAFE_CACHE_CREATION_TOKENS=${SAFE_CACHE_CREATION_TOKENS:-0}
+SAFE_TOOL_USES=$(tmb_sql_int "$TOOL_USES"); SAFE_TOOL_USES=${SAFE_TOOL_USES:-0}
+SAFE_DURATION_MS=$(tmb_sql_int "$DURATION_MS"); SAFE_DURATION_MS=${SAFE_DURATION_MS:-0}
+
 if [ "$AR_ATTRIBUTION_SAFE" != "true" ]; then
   jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" \
     '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"task_id unresolved from transcript; refusing sibling-fallback attribution",task_id:$tid,transcript:$tr}' \
@@ -442,13 +451,13 @@ else
   fi
 
   if [ -n "$AR_EXISTING_ID" ]; then
-    AR_WRITE="UPDATE agent_runs SET tokens_in=${TOKENS_IN}, tokens_out=${TOKENS_OUT}, tokens_total=${TOKENS_TOTAL}, cache_read_tokens=${CACHE_READ_TOKENS}, cache_creation_tokens=${CACHE_CREATION_TOKENS}, tool_uses=${TOOL_USES}, duration_ms=${DURATION_MS}, completed_at=datetime('now') WHERE id=${AR_EXISTING_ID};"
+    SAFE_AR_WRITE="UPDATE agent_runs SET tokens_in=${SAFE_TOKENS_IN}, tokens_out=${SAFE_TOKENS_OUT}, tokens_total=${SAFE_TOKENS_TOTAL}, cache_read_tokens=${SAFE_CACHE_READ_TOKENS}, cache_creation_tokens=${SAFE_CACHE_CREATION_TOKENS}, tool_uses=${SAFE_TOOL_USES}, duration_ms=${SAFE_DURATION_MS}, completed_at=datetime('now') WHERE id=${AR_EXISTING_ID};"
   elif [ "$AR_HAS_BASELINE_COL" -ge 1 ] && [ -n "$SAFE_SPAWN_ID" ]; then
-    AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_baseline_json) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'), json_object('spawn_id', '${SAFE_SPAWN_ID}'));"
+    SAFE_AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_baseline_json) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_TOKENS_TOTAL}, ${SAFE_CACHE_READ_TOKENS}, ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, datetime('now'), json_object('spawn_id', '${SAFE_SPAWN_ID}'));"
   else
-    AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${TOKENS_IN}, ${TOKENS_OUT}, ${TOKENS_TOTAL}, ${CACHE_READ_TOKENS}, ${CACHE_CREATION_TOKENS}, ${TOOL_USES}, ${DURATION_MS}, datetime('now'));"
+    SAFE_AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_TOKENS_TOTAL}, ${SAFE_CACHE_READ_TOKENS}, ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, datetime('now'));"
   fi
-  sqlite3 "$DB" "$AR_WRITE" 2>/dev/null || \
+  sqlite3 "$DB" "$SAFE_AR_WRITE" 2>/dev/null || \
     jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
       '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"agent_runs write failed",task_id:$tid}' \
       >> "$_LOG_FILE" 2>/dev/null || true
