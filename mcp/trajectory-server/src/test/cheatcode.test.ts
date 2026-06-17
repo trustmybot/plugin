@@ -508,3 +508,236 @@ describe('cheatcode_install', () => {
     assert.equal(out['error'], 'forbidden');
   });
 });
+
+// Uninstall fixtures stub the marketplace exactly as TMB_CHEATCODE_UNINSTALL_FIXTURE
+// intends: the {removed} object stands in for the marketplace uninstall call.
+const UNINSTALL_OK = JSON.stringify({ removed: true, error: null });
+
+describe('cheatcode_uninstall', () => {
+  function withFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-uninstall-'));
+    const path = join(dir, 'uninstall.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  // Install a plugin cheatcode and return its id, so uninstall has a real
+  // install (+ attachment) to reverse.
+  async function seedInstall(
+    tools: ReturnType<typeof cheatcodeTools>,
+    candidate: { name: string; kind: string; source_url: string; tier?: number },
+  ): Promise<number> {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-seed-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const r = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate });
+      assert.notEqual(r.isError, true, `seed install errored: ${r.content[0]?.text}`);
+      return parse(r)['cheatcode_id'] as number;
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('reverses the install in one transaction: deletes the cheatcodes + attachment rows and emits a cheatcode_uninstalled audit row', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+      tier: 1,
+    });
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes`)!.n, 1);
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`)!.n, 1);
+
+    const { path, cleanup } = withFixture(UNINSTALL_OK);
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = path;
+    try {
+      const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.notEqual(r.isError, true, `uninstall errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+      assert.equal(out['uninstalled'], true);
+      assert.equal(out['removed'], true);
+      assert.equal(out['method'], 'marketplace');
+
+      assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes`)!.n, 0, 'cheatcodes row deleted');
+      assert.equal(
+        db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`)!.n,
+        0,
+        'attachment row deleted',
+      );
+
+      const audit = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'cheatcode_uninstalled' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(audit, 'cheatcode_uninstalled audit row exists');
+      const content = JSON.parse(audit!.content_json);
+      assert.equal(content.cheatcode_id, id);
+      assert.equal(content.name, 'pdf-plugin');
+      assert.equal(content.removed, true);
+      assert.ok(Array.isArray(content.attachments), 'audit records what was reversed');
+    } finally {
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('is idempotent — uninstalling an absent install no-ops without error', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: 9999 });
+    assert.notEqual(r.isError, true, `absent uninstall errored: ${r.content[0]?.text}`);
+    const out = parse(r);
+    assert.equal(out['uninstalled'], false);
+    assert.equal(out['idempotent'], true);
+
+    // No audit row written for a no-op teardown.
+    const audit = db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_uninstalled'`,
+    );
+    assert.equal(audit!.n, 0, 'no audit row for a no-op uninstall');
+  });
+
+  it('is idempotent — a second uninstall of the same cheatcode no-ops', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+    });
+    const { path, cleanup } = withFixture(UNINSTALL_OK);
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = path;
+    try {
+      const r1 = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.equal(parse(r1)['uninstalled'], true);
+      const r2 = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.notEqual(r2.isError, true);
+      assert.equal(parse(r2)['idempotent'], true);
+      assert.equal(parse(r2)['uninstalled'], false);
+    } finally {
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('rejects a missing cheatcode_id', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro' });
+    assert.equal(r.isError, true);
+    assert.ok(parse(r)['error']);
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'swe', cheatcode_id: 1 });
+    assert.equal(r.isError, true);
+    assert.equal(parse(r)['error'], 'forbidden');
+  });
+});
+
+describe('cheatcode_activate', () => {
+  async function seedInstall(
+    tools: ReturnType<typeof cheatcodeTools>,
+    candidate: { name: string; kind: string; source_url: string; tier?: number },
+  ): Promise<number> {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-act-seed-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const r = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate });
+      assert.notEqual(r.isError, true, `seed install errored: ${r.content[0]?.text}`);
+      return parse(r)['cheatcode_id'] as number;
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('returns activated for a skill-kind cheatcode (usable in-session)', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    // Skill kind with no fixture installs nothing at the marketplace but still
+    // records the cheatcodes row, which activate keys off.
+    const r0 = await call(tools.handlers, 'cheatcode_install', {
+      agent: 'bro',
+      candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+    });
+    const id = parse(r0)['cheatcode_id'] as number;
+
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
+    assert.notEqual(r.isError, true, `activate errored: ${r.content[0]?.text}`);
+    const out = parse(r);
+    assert.equal(out['status'], 'activated');
+    assert.equal(out['reason'], null);
+  });
+
+  it('returns restart_required + a reason for a plugin-kind cheatcode', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+    });
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
+    assert.notEqual(r.isError, true, `activate errored: ${r.content[0]?.text}`);
+    const out = parse(r);
+    assert.equal(out['status'], 'restart_required');
+    assert.ok(typeof out['reason'] === 'string' && (out['reason'] as string).length > 0, 'reason present');
+  });
+
+  it('returns restart_required + a reason for an mcp-kind cheatcode', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-mcp',
+      kind: 'mcp',
+      source_url: 'https://github.com/x/pdf-mcp',
+    });
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
+    const out = parse(r);
+    assert.equal(out['status'], 'restart_required');
+    assert.ok(typeof out['reason'] === 'string' && (out['reason'] as string).length > 0, 'reason present');
+  });
+
+  it('writes a cheatcode_activate audit row carrying the verdict', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+    });
+    await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
+    const row = db.get<{ content_json: string }>(
+      `SELECT content_json FROM audit WHERE event_type = 'cheatcode_activate' ORDER BY id DESC LIMIT 1`,
+    );
+    assert.ok(row, 'cheatcode_activate audit row exists');
+    const content = JSON.parse(row!.content_json);
+    assert.equal(content.cheatcode_id, id);
+    assert.equal(content.status, 'restart_required');
+  });
+
+  it('errors on an unknown cheatcode_id (never silently throws)', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: 9999 });
+    assert.equal(r.isError, true);
+    assert.ok(parse(r)['error']);
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'swe', cheatcode_id: 1 });
+    assert.equal(r.isError, true);
+    assert.equal(parse(r)['error'], 'forbidden');
+  });
+});

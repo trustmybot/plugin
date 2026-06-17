@@ -308,6 +308,76 @@ export function runInstallWithScript(
 const resolveInstallScript = (): string => resolveScriptsFile('cheatcode-install.sh');
 const INSTALL_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
 
+interface UninstallOutput {
+  candidate: { name: string; kind: string; source_url: string; tier: number | null };
+  removed: boolean;
+  method: string;
+  error: string | null;
+}
+
+export function runUninstallWithScript(
+  script: string,
+  candidate: { name: string; kind: string; source_url: string; tier?: number },
+  timeoutMs: number,
+): Promise<UninstallOutput> {
+  return new Promise<UninstallOutput>((resolve, reject) => {
+    const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    let settled = false;
+    const killTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // already exited
+      }
+      reject(new Error('cheatcode-uninstall.sh timed out after 60 seconds'));
+    }, timeoutMs);
+
+    child.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      reject(new Error(`cheatcode-uninstall.sh spawn error: ${e.message}`));
+    });
+
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+      const stderr = Buffer.concat(stderrChunks).toString('utf8').slice(0, 2000);
+      if (code !== 0) {
+        reject(new Error(`cheatcode-uninstall.sh failed (exit ${code ?? '?'}): ${stderr || 'unknown error'}`));
+        return;
+      }
+      let parsed: UninstallOutput;
+      try {
+        parsed = JSON.parse(stdout) as UninstallOutput;
+      } catch {
+        reject(new Error(`cheatcode-uninstall.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+        return;
+      }
+      if (!parsed || typeof parsed !== 'object' || typeof parsed.method !== 'string') {
+        reject(new Error('cheatcode-uninstall.sh emitted unexpected shape (missing method)'));
+        return;
+      }
+      resolve(parsed);
+    });
+  });
+}
+
+const resolveUninstallScript = (): string => resolveScriptsFile('cheatcode-uninstall.sh');
+const UNINSTALL_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
+
 const INSTALLABLE_KINDS = new Set<CheatcodeKind>(['skill', 'mcp', 'plugin']);
 
 const VALID_KINDS = new Set<CheatcodeKind>(['skill', 'mcp', 'plugin', 'any']);
@@ -434,6 +504,38 @@ export function cheatcodeTools(db: TrajectoryDB): {
           },
         },
         required: ['agent', 'candidate'],
+      },
+    },
+    {
+      name: 'cheatcode_uninstall',
+      description:
+        'Uninstall ONE installed cheatcode by cheatcode_id. Reverses the install in one transaction: forks scripts/cheatcode-uninstall.sh to reverse each attachment via the marketplace/plugin uninstall path (no manual file deletion), deletes the cheatcodes + cheatcode_attachments rows, emits a cheatcode_uninstalled audit row. Idempotent — an absent or partial install no-ops without error. Bro-proposed + Human-confirmed (AskUserQuestion), not PreToolUse-gated.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          cheatcode_id: {
+            type: 'number',
+            description: 'The id of the cheatcodes row to tear down (from cheatcode_install).',
+          },
+        },
+        required: ['agent', 'cheatcode_id'],
+      },
+    },
+    {
+      name: 'cheatcode_activate',
+      description:
+        'Hot-load ONE installed cheatcode by cheatcode_id and return a deterministic activation verdict. Skill-kind attachments are usable in-session (activated); plugin/MCP kinds load on the next claude -p cold start, so they return restart_required + a reason (docs/architecture/CHEATCODES.md §Hot-load #660). Never throws on a known install; an unknown cheatcode_id is an error.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          cheatcode_id: {
+            type: 'number',
+            description: 'The id of the cheatcodes row to activate (from cheatcode_install).',
+          },
+        },
+        required: ['agent', 'cheatcode_id'],
       },
     },
   ];
@@ -633,6 +735,135 @@ export function cheatcodeTools(db: TrajectoryDB): {
           // an automatic write — surface the proposed payload, write no md.
           proposed_pr: out.proposed_pr,
           error: out.error,
+        });
+      }),
+    ),
+    cheatcode_uninstall: requireRoles(
+      'cheatcode_uninstall',
+      ['bro'],
+      wrap(async (args) => {
+        const idVal = args['cheatcode_id'];
+        if (typeof idVal !== 'number' || !Number.isInteger(idVal)) {
+          return err('cheatcode_id is required (integer)');
+        }
+
+        // Idempotent: an absent install no-ops cleanly, never an error. The
+        // attachment is a partial install that also tears down without a row.
+        const existing = db.get<CheatcodeRow>(
+          `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
+          [idVal],
+        );
+        if (!existing) {
+          return ok({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
+        }
+
+        const attachments = db.all<{ id: number; target: string; artifact: string }>(
+          `SELECT id, target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
+          [existing.id],
+        );
+
+        // Reverse the attachment via the forked uninstall path (marketplace /
+        // plugin uninstall — no manual file deletion). One spawn reverses the
+        // candidate; the per-kind method mirrors the install attachment surface.
+        const candidate: { name: string; kind: string; source_url: string } = {
+          name: existing.name,
+          kind: existing.kind,
+          source_url: existing.source_url,
+        };
+        const reversal = await runUninstallWithScript(
+          resolveUninstallScript(),
+          candidate,
+          UNINSTALL_TIMEOUT_MS,
+        );
+
+        // One transaction: every attachment row + the cheatcodes row + the
+        // audit row land (delete) together or not at all.
+        const uninstalledAt = nowISO();
+        db.transaction(() => {
+          db.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
+          db.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
+          db.run(
+            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`,
+            [
+              `Cheatcode uninstalled: '${existing.name}' (kind=${existing.kind}, method=${reversal.method})`,
+              JSON.stringify({
+                cheatcode_id: existing.id,
+                name: existing.name,
+                kind: existing.kind,
+                source_url: existing.source_url,
+                removed: reversal.removed,
+                method: reversal.method,
+                attachments,
+                error: reversal.error,
+              }),
+              uninstalledAt,
+            ],
+          );
+        });
+
+        return ok({
+          uninstalled: true,
+          cheatcode_id: existing.id,
+          name: existing.name,
+          kind: existing.kind,
+          method: reversal.method,
+          removed: reversal.removed,
+          attachments,
+          error: reversal.error,
+        });
+      }),
+    ),
+    cheatcode_activate: requireRoles(
+      'cheatcode_activate',
+      ['bro'],
+      wrap(async (args) => {
+        const idVal = args['cheatcode_id'];
+        if (typeof idVal !== 'number' || !Number.isInteger(idVal)) {
+          return err('cheatcode_id is required (integer)');
+        }
+
+        const existing = db.get<CheatcodeRow>(
+          `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
+          [idVal],
+        );
+        if (!existing) return err(`no cheatcode with id ${idVal}`);
+
+        // Deterministic verdict by kind (docs/architecture/CHEATCODES.md
+        // §Hot-load #660): a standalone skill is usable in-session; plugin /
+        // MCP kinds register on the next claude -p cold start, so they need a
+        // restart. Never throws on a known install.
+        const restartReason: Record<'plugin' | 'mcp', string> = {
+          plugin: 'plugin manifest (skills/hooks/commands) loads on the next claude -p cold start',
+          mcp: 'MCP server registers on the next claude -p cold start',
+        };
+        const verdict =
+          existing.kind === 'skill'
+            ? { status: 'activated' as const, reason: null }
+            : { status: 'restart_required' as const, reason: restartReason[existing.kind] };
+
+        db.run(
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`,
+          [
+            `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) → ${verdict.status}`,
+            JSON.stringify({
+              cheatcode_id: existing.id,
+              name: existing.name,
+              kind: existing.kind,
+              status: verdict.status,
+              reason: verdict.reason,
+            }),
+            nowISO(),
+          ],
+        );
+
+        return ok({
+          cheatcode_id: existing.id,
+          name: existing.name,
+          kind: existing.kind,
+          status: verdict.status,
+          reason: verdict.reason,
         });
       }),
     ),

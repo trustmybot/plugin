@@ -29860,6 +29860,58 @@ function runInstallWithScript(script, candidate, timeoutMs) {
 }
 var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
 var INSTALL_TIMEOUT_MS = 60 * 1e3;
+function runUninstallWithScript(script, candidate, timeoutMs) {
+  return new Promise((resolve3, reject) => {
+    const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+    let settled = false;
+    const killTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+      }
+      reject(new Error("cheatcode-uninstall.sh timed out after 60 seconds"));
+    }, timeoutMs);
+    child.on("error", (e) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      reject(new Error(`cheatcode-uninstall.sh spawn error: ${e.message}`));
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
+      if (code !== 0) {
+        reject(new Error(`cheatcode-uninstall.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch {
+        reject(new Error(`cheatcode-uninstall.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || typeof parsed.method !== "string") {
+        reject(new Error("cheatcode-uninstall.sh emitted unexpected shape (missing method)"));
+        return;
+      }
+      resolve3(parsed);
+    });
+  });
+}
+var resolveUninstallScript = () => resolveScriptsFile("cheatcode-uninstall.sh");
+var UNINSTALL_TIMEOUT_MS = 60 * 1e3;
 var INSTALLABLE_KINDS = /* @__PURE__ */ new Set(["skill", "mcp", "plugin"]);
 var VALID_KINDS2 = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
 function parseInstallCandidate(raw) {
@@ -29970,6 +30022,36 @@ function cheatcodeTools(db2) {
           }
         },
         required: ["agent", "candidate"]
+      }
+    },
+    {
+      name: "cheatcode_uninstall",
+      description: "Uninstall ONE installed cheatcode by cheatcode_id. Reverses the install in one transaction: forks scripts/cheatcode-uninstall.sh to reverse each attachment via the marketplace/plugin uninstall path (no manual file deletion), deletes the cheatcodes + cheatcode_attachments rows, emits a cheatcode_uninstalled audit row. Idempotent \u2014 an absent or partial install no-ops without error. Bro-proposed + Human-confirmed (AskUserQuestion), not PreToolUse-gated.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          cheatcode_id: {
+            type: "number",
+            description: "The id of the cheatcodes row to tear down (from cheatcode_install)."
+          }
+        },
+        required: ["agent", "cheatcode_id"]
+      }
+    },
+    {
+      name: "cheatcode_activate",
+      description: "Hot-load ONE installed cheatcode by cheatcode_id and return a deterministic activation verdict. Skill-kind attachments are usable in-session (activated); plugin/MCP kinds load on the next claude -p cold start, so they return restart_required + a reason (docs/architecture/CHEATCODES.md \xA7Hot-load #660). Never throws on a known install; an unknown cheatcode_id is an error.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          cheatcode_id: {
+            type: "number",
+            description: "The id of the cheatcodes row to activate (from cheatcode_install)."
+          }
+        },
+        required: ["agent", "cheatcode_id"]
       }
     }
   ];
@@ -30144,6 +30226,112 @@ function cheatcodeTools(db2) {
           // an automatic write — surface the proposed payload, write no md.
           proposed_pr: out.proposed_pr,
           error: out.error
+        });
+      })
+    ),
+    cheatcode_uninstall: requireRoles(
+      "cheatcode_uninstall",
+      ["bro"],
+      wrap4(async (args) => {
+        const idVal = args["cheatcode_id"];
+        if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
+          return err18("cheatcode_id is required (integer)");
+        }
+        const existing = db2.get(
+          `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
+          [idVal]
+        );
+        if (!existing) {
+          return ok19({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
+        }
+        const attachments = db2.all(
+          `SELECT id, target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
+          [existing.id]
+        );
+        const candidate = {
+          name: existing.name,
+          kind: existing.kind,
+          source_url: existing.source_url
+        };
+        const reversal = await runUninstallWithScript(
+          resolveUninstallScript(),
+          candidate,
+          UNINSTALL_TIMEOUT_MS
+        );
+        const uninstalledAt = nowISO();
+        db2.transaction(() => {
+          db2.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
+          db2.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
+          db2.run(
+            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`,
+            [
+              `Cheatcode uninstalled: '${existing.name}' (kind=${existing.kind}, method=${reversal.method})`,
+              JSON.stringify({
+                cheatcode_id: existing.id,
+                name: existing.name,
+                kind: existing.kind,
+                source_url: existing.source_url,
+                removed: reversal.removed,
+                method: reversal.method,
+                attachments,
+                error: reversal.error
+              }),
+              uninstalledAt
+            ]
+          );
+        });
+        return ok19({
+          uninstalled: true,
+          cheatcode_id: existing.id,
+          name: existing.name,
+          kind: existing.kind,
+          method: reversal.method,
+          removed: reversal.removed,
+          attachments,
+          error: reversal.error
+        });
+      })
+    ),
+    cheatcode_activate: requireRoles(
+      "cheatcode_activate",
+      ["bro"],
+      wrap4(async (args) => {
+        const idVal = args["cheatcode_id"];
+        if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
+          return err18("cheatcode_id is required (integer)");
+        }
+        const existing = db2.get(
+          `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
+          [idVal]
+        );
+        if (!existing) return err18(`no cheatcode with id ${idVal}`);
+        const restartReason = {
+          plugin: "plugin manifest (skills/hooks/commands) loads on the next claude -p cold start",
+          mcp: "MCP server registers on the next claude -p cold start"
+        };
+        const verdict = existing.kind === "skill" ? { status: "activated", reason: null } : { status: "restart_required", reason: restartReason[existing.kind] };
+        db2.run(
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`,
+          [
+            `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) \u2192 ${verdict.status}`,
+            JSON.stringify({
+              cheatcode_id: existing.id,
+              name: existing.name,
+              kind: existing.kind,
+              status: verdict.status,
+              reason: verdict.reason
+            }),
+            nowISO()
+          ]
+        );
+        return ok19({
+          cheatcode_id: existing.id,
+          name: existing.name,
+          kind: existing.kind,
+          status: verdict.status,
+          reason: verdict.reason
         });
       })
     )
