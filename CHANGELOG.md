@@ -4,6 +4,11 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.10.0-alpha — 2026-06-16
+
+### Changed
+- **Dev channel version bumped to 0.10.0-alpha** (#76): the `dev` channel ships commits without an rc/stable version bump, but Claude Code keys its plugin cache by `plugin.json` version — so dev updates landed as no-ops once the cache dir for `0.9.2-rc.2` existed. Bumping dev to a distinct pre-release version restores cache-busting on update. Includes the Typed Rails work (#673/#681/#682). dev-only: no marketplace-repo, rc, or stable changes.
+
 ## v0.9.2-rc.2 — 2026-06-15
 
 ### Fixed
