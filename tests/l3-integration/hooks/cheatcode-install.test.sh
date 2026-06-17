@@ -46,6 +46,37 @@ assert_eq "plugin" "$(printf '%s' "$OUT" | jq -r '.attachments[0].target')" "att
 test_case "plugin install has no proposed_pr"
 assert_eq "null" "$(printf '%s' "$OUT" | jq -r '.proposed_pr')" "proposed_pr"
 
+test_case "scope defaults to local when --scope omitted"
+assert_eq "local" "$(printf '%s' "$OUT" | jq -r '.scope')" "scope"
+
+# --scope global is echoed in the output (#659).
+OUT_GLOBAL=$(TMB_CHEATCODE_INSTALL_FIXTURE="$FIXTURE" bash "$SCRIPT" \
+  --scope global \
+  --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}')
+
+test_case "--scope global is echoed in the output"
+assert_eq "global" "$(printf '%s' "$OUT_GLOBAL" | jq -r '.scope')" "scope global"
+
+test_case "invalid scope fails non-zero"
+set +e
+bash "$SCRIPT" --scope bad --candidate '{"name":"x","kind":"plugin","source_url":"https://x"}' >/dev/null 2>&1
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on bad scope"; fi
+
+# Fixture-supplied attachments pass through verbatim — the per-agent attachment
+# target (feature-dev→swe, code-review→pr-reviewer).
+ATT_FIXTURE="$WORKSPACE/install-att.json"
+cat > "$ATT_FIXTURE" <<'JSON'
+{ "installed": true, "version": "1.0.0", "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] }
+JSON
+
+OUT_ATT=$(TMB_CHEATCODE_INSTALL_FIXTURE="$ATT_FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
+
+test_case "fixture-supplied attachment target passes through"
+assert_eq "swe" "$(printf '%s' "$OUT_ATT" | jq -r '.attachments[0].target')" "attachment target"
+
 # Skill kind with no fixture: nothing installs at the marketplace; the
 # attachment is the proposed-PR payload only — never an automatic md write.
 OUT_SKILL=$(bash "$SCRIPT" \

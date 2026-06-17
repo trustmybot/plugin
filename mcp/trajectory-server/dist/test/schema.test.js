@@ -43,11 +43,11 @@ describe('schema — current table set, default values, constraints', () => {
         assert.deepEqual(actualNames, [...expectedTables].sort());
         db.close();
     });
-    it('fresh DB has schema_version = 14 in plugin_meta', () => {
+    it('fresh DB has schema_version = 15 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 14);
+        assert.equal(meta.schema_version, 15);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });
@@ -79,6 +79,16 @@ describe('schema — current table set, default values, constraints', () => {
             assert.equal(col.notnull, 1, `${name} must be NOT NULL`);
             assert.equal(col.dflt_value, "'[]'", `${name} default must be an empty JSON array`);
         }
+        db.close();
+    });
+    it('cheatcodes table has scope column NOT NULL DEFAULT local (#659)', () => {
+        const db = tempDB();
+        const cols = db.all('PRAGMA table_info(cheatcodes)');
+        const col = cols.find((c) => c.name === 'scope');
+        assert.ok(col !== undefined, 'scope column must exist in cheatcodes');
+        assert.equal(col.type.toUpperCase(), 'TEXT', 'scope must be TEXT');
+        assert.equal(col.notnull, 1, 'scope must be NOT NULL');
+        assert.equal(col.dflt_value, "'local'", "scope default must be 'local'");
         db.close();
     });
     it('validation_attempts.task_id is INTEGER with FK to tasks(id)', () => {

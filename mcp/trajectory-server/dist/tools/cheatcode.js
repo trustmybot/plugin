@@ -170,11 +170,9 @@ export function runVetWithScript(script, candidate, timeoutMs) {
         });
     });
 }
-export function runInstallWithScript(script, candidate, timeoutMs) {
+export function runInstallWithScript(script, candidate, scope, timeoutMs) {
     return new Promise((resolve, reject) => {
-        const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
-            stdio: ['ignore', 'pipe', 'pipe'],
-        });
+        const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate), '--scope', scope], { stdio: ['ignore', 'pipe', 'pipe'] });
         const stdoutChunks = [];
         const stderrChunks = [];
         child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
@@ -379,7 +377,7 @@ export function cheatcodeTools(db) {
         },
         {
             name: 'cheatcode_install',
-            description: 'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Skill-kind returns a proposed-PR payload, never writes agent md.',
+            description: 'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default — pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Skill-kind returns a proposed-PR payload, never writes agent md.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -398,6 +396,11 @@ export function cheatcodeTools(db) {
                     trust_tier: {
                         type: 'string',
                         description: 'The cheatcode_vet trust_tier recorded at install time (optional).',
+                    },
+                    scope: {
+                        type: 'string',
+                        enum: ['local', 'global'],
+                        description: 'Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row.',
                     },
                 },
                 required: ['agent', 'candidate'],
@@ -512,6 +515,9 @@ export function cheatcodeTools(db) {
                 return err(parsed.error);
             const { name, kind, sourceUrl, tier } = parsed;
             const trustTier = args['trust_tier']?.trim() ?? null;
+            // Default local so bro never hits a global/local AskUserQuestion.
+            const rawScope = args['scope']?.trim();
+            const scope = rawScope === 'global' ? 'global' : 'local';
             // Idempotent re-install: the (name, source_url) pair is the candidate
             // identity. If it is already installed, no-op — never duplicate the row
             // or re-run the marketplace install.
@@ -532,13 +538,13 @@ export function cheatcodeTools(db) {
             };
             if (typeof tier === 'number')
                 candidate.tier = tier;
-            const out = await runInstallWithScript(resolveInstallScript(), candidate, INSTALL_TIMEOUT_MS);
+            const out = await runInstallWithScript(resolveInstallScript(), candidate, scope, INSTALL_TIMEOUT_MS);
             // One transaction: the cheatcodes row + every attachment row + both
             // audit rows land together or not at all.
             const installedAt = nowISO();
             const cheatcodeId = db.transaction(() => {
-                const res = db.run(`INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, status, installed_at)
-             VALUES (?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, sourceUrl, out.version, trustTier, installedAt]);
+                const res = db.run(`INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, scope, status, installed_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, sourceUrl, out.version, trustTier, scope, installedAt]);
                 const id = Number(res.lastInsertRowid);
                 for (const att of out.attachments) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
@@ -571,6 +577,7 @@ export function cheatcodeTools(db) {
                 candidate: out.candidate,
                 method: out.method,
                 version: out.version,
+                scope,
                 attachments: out.attachments,
                 // Skill-kind: the agent-frontmatter edit is a Human-reviewed PR, never
                 // an automatic write — surface the proposed payload, write no md.

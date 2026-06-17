@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 14;
+const TARGET_SCHEMA_VERSION = 15;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -391,6 +391,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 14 && toVersion >= 14) {
         migrateV13toV14(db);
     }
+    if (fromVersion < 15 && toVersion >= 15) {
+        migrateV14toV15(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -626,6 +629,30 @@ function migrateV13toV14(db) {
       )
     `);
         db.exec('CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)');
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// Cheatcode install scope (#659): record where each install lands. Adds the
+// cheatcodes.scope column (NOT NULL DEFAULT 'local') so existing rows adopt the
+// project-scoped default. ALTER ADD COLUMN can't carry the CHECK constraint that
+// schema.sql declares for fresh DBs, but applySchema re-runs schema.sql after
+// migrations and the column already matching name+default keeps both paths in
+// sync.
+function migrateV14toV15(db) {
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'cheatcodes') && !hasColumn(db, 'cheatcodes', 'scope')) {
+            db.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
+        }
         db.exec('COMMIT');
     }
     catch (err) {
