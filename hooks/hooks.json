@@ -151,6 +151,16 @@
         ]
       },
       {
+        "matcher": "mcp__.*trajectory-server__cheatcode_install",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cheatcode-install-approval.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion",
         "hooks": [
           {

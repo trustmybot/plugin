@@ -554,7 +554,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13);
+    assert.equal(meta.schema_version, 14);
 
     const identity = db.get<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='identity'",
@@ -615,7 +615,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     assert.equal(onboardedRow.value_json, 'true');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     );
     assert.equal(backups.length, 1, 'exactly one backup file must exist');
 
@@ -638,10 +638,10 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta);
-    assert.equal(meta.schema_version, 13);
+    assert.equal(meta.schema_version, 14);
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     );
     assert.equal(backups.length, 1, 'backup must exist for rc-current upgrade');
 
@@ -662,7 +662,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first upgrade creates exactly one backup');
 
@@ -670,7 +670,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
   });
@@ -697,7 +697,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     const db = new TrajectoryDB(dbPath);
 
     const backupFile = readdirSync(dirname(dbPath)).find(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     );
     assert.ok(backupFile, 'backup file must exist');
 
@@ -760,7 +760,7 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13, 'schema_version must be 13 after migration');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after migration');
 
     // file_registry FTS was retired in v7; discussions_fts and audit_fts remain.
     for (const ftsTable of ['discussions_fts', 'audit_fts']) {
@@ -782,9 +782,9 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
     assert.ok((auditFtsCount?.n ?? 0) >= 1, 'audit_fts must be backfilled');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one pre-v13 backup must exist');
+    assert.equal(backups.length, 1, 'exactly one pre-v14 backup must exist');
 
     db.close();
   });
@@ -880,7 +880,7 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v4 upgrade creates exactly one backup');
 
@@ -888,7 +888,7 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
   });
@@ -1148,7 +1148,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13, 'schema_version must be 13 after v4->v5 migration');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after v4->v5 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(issues)').map((c) => c.name);
     assert.ok(cols.includes('gh_iid'), 'gh_iid column must exist after migration');
@@ -1216,7 +1216,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v5 upgrade creates exactly one backup');
 
@@ -1224,7 +1224,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v5 must not create another backup');
   });
@@ -1238,7 +1238,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 13, 'fresh DB schema_version must be 13');
+    assert.equal(meta?.schema_version, 14, 'fresh DB schema_version must be 14');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(issues)').map((c) => c.name);
     assert.ok(cols.includes('gh_iid'), 'gh_iid must exist in fresh DB');
@@ -1260,7 +1260,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13, 'schema_version must be 13 after migration');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after migration');
 
     for (const t of ['discussions_embeddings', 'audit_embeddings', 'audit_embeddings']) {
       const row = db.get<{ name: string }>(
@@ -1288,9 +1288,9 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     assert.equal(embCount?.n, 0, 'embedding tables must be empty after migration (no backfill)');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one pre-v13 backup must exist');
+    assert.equal(backups.length, 1, 'exactly one pre-v14 backup must exist');
 
     db.close();
   });
@@ -1306,7 +1306,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta);
-    assert.equal(meta.schema_version, 13, 'v2 DB must reach v13 via chained migrations');
+    assert.equal(meta.schema_version, 14, 'v2 DB must reach v14 via chained migrations');
 
     for (const t of ['discussions_fts', 'audit_fts']) {
       const row = db.get<{ name: string }>(
@@ -1345,7 +1345,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v4 upgrade creates exactly one backup');
 
@@ -1353,7 +1353,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
   });
@@ -1479,16 +1479,16 @@ describe('schema upgrade — v8 -> v9 migration (cache-class token columns + pr_
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13, 'schema_version must be 13 after migration');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(agent_runs)').map((c) => c.name);
     assert.ok(cols.includes('cache_read_tokens'), 'cache_read_tokens must exist after v9 migration');
     assert.ok(cols.includes('cache_creation_tokens'), 'cache_creation_tokens must exist after v9 migration');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one pre-v13 backup must exist');
+    assert.equal(backups.length, 1, 'exactly one pre-v14 backup must exist');
 
     db.close();
   });
@@ -1527,7 +1527,7 @@ describe('schema upgrade — v8 -> v9 migration (cache-class token columns + pr_
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v9 upgrade creates exactly one backup');
 
@@ -1535,7 +1535,7 @@ describe('schema upgrade — v8 -> v9 migration (cache-class token columns + pr_
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v9 must not create another backup');
   });
@@ -1639,7 +1639,7 @@ describe('schema upgrade — v9 -> v10 migration (prompt_bearing column)', () =>
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13, 'schema_version must be 13 after v9->v10 migration');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after v9->v10 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.ok(cols.includes('prompt_bearing'), 'tasks.prompt_bearing must exist after migration');
@@ -1691,7 +1691,7 @@ describe('schema upgrade — v9 -> v10 migration (prompt_bearing column)', () =>
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v10 upgrade creates exactly one backup');
 
@@ -1699,7 +1699,7 @@ describe('schema upgrade — v9 -> v10 migration (prompt_bearing column)', () =>
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v10 must not create another backup');
   });
@@ -1713,7 +1713,7 @@ describe('schema upgrade — v9 -> v10 migration (prompt_bearing column)', () =>
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 13, 'fresh DB schema_version must be 13');
+    assert.equal(meta?.schema_version, 14, 'fresh DB schema_version must be 14');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.ok(cols.includes('prompt_bearing'), 'prompt_bearing must exist in fresh DB');
@@ -1794,7 +1794,7 @@ describe('schema upgrade — v10 -> v11 migration (per-repo target_branch column
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13, 'schema_version must be 13 after v10->v11 migration');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after v10->v11 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(repos)').map((c) => c.name);
     assert.ok(cols.includes('target_branch'), 'repos.target_branch must exist after migration');
@@ -1873,7 +1873,7 @@ describe('schema upgrade — v10 -> v11 migration (per-repo target_branch column
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v11 upgrade creates exactly one backup');
 
@@ -1881,12 +1881,12 @@ describe('schema upgrade — v10 -> v11 migration (per-repo target_branch column
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v11 must not create another backup');
   });
 
-  it('fresh DB has repos columns and schema_version=13', () => {
+  it('fresh DB has repos columns and schema_version=14', () => {
     const tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, 'trajectory.db');
 
@@ -1895,7 +1895,7 @@ describe('schema upgrade — v10 -> v11 migration (per-repo target_branch column
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 13, 'fresh DB schema_version must be 13');
+    assert.equal(meta?.schema_version, 14, 'fresh DB schema_version must be 14');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(repos)').map((c) => c.name);
     assert.ok(cols.includes('target_branch'), 'target_branch must exist in fresh DB repos table');
@@ -1994,15 +1994,15 @@ describe('schema upgrade — v11 -> v12 migration (usage_baseline_json column)',
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13, 'schema_version must be 13 after v11->v12 migration');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after v11->v12 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(agent_runs)').map((c) => c.name);
     assert.ok(cols.includes('usage_baseline_json'), 'agent_runs.usage_baseline_json must exist after migration');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v13 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v14 backup must be written on upgrade');
 
     db.close();
   });
@@ -2032,7 +2032,7 @@ describe('schema upgrade — v11 -> v12 migration (usage_baseline_json column)',
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v12 upgrade creates exactly one backup');
 
@@ -2040,12 +2040,12 @@ describe('schema upgrade — v11 -> v12 migration (usage_baseline_json column)',
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v12 must not create another backup');
   });
 
-  it('fresh v12 DB has usage_baseline_json column and schema_version=13', () => {
+  it('fresh v12 DB has usage_baseline_json column and schema_version=14', () => {
     const tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, 'trajectory.db');
 
@@ -2054,7 +2054,7 @@ describe('schema upgrade — v11 -> v12 migration (usage_baseline_json column)',
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 13, 'fresh DB schema_version must be 13');
+    assert.equal(meta?.schema_version, 14, 'fresh DB schema_version must be 14');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(agent_runs)').map((c) => c.name);
     assert.ok(cols.includes('usage_baseline_json'), 'usage_baseline_json must exist in fresh DB agent_runs');
@@ -2125,16 +2125,16 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 13, 'schema_version must be 13 after v12->v13 migration');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after v12->v13 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.ok(cols.includes('files'), 'tasks.files must exist after migration');
     assert.ok(cols.includes('verification'), 'tasks.verification must exist after migration');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v13 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v14 backup must be written on upgrade');
 
     db.close();
   });
@@ -2169,7 +2169,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v13 upgrade creates exactly one backup');
 
@@ -2177,7 +2177,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v13.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v13 must not create another backup');
   });
@@ -2191,7 +2191,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 13, 'fresh DB schema_version must be 13');
+    assert.equal(meta?.schema_version, 14, 'fresh DB schema_version must be 14');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.ok(cols.includes('files'), 'files must exist in fresh DB tasks');
@@ -2207,6 +2207,117 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     );
     assert.equal(row?.files, '[]', 'fresh insert defaults files to empty array');
     assert.equal(row?.verification, '[]', 'fresh insert defaults verification to empty array');
+
+    db.close();
+  });
+});
+
+function seedV13Db(dbPath: string): void {
+  const db = new DatabaseSync(dbPath);
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec(`
+    CREATE TABLE issues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        objective TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE TABLE plugin_meta (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        schema_version INTEGER NOT NULL,
+        plugin_version TEXT NOT NULL
+    );
+    CREATE TABLE plugin_config (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL
+    );
+    INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+    VALUES (-1, 'system', '', 'open', datetime('now'), datetime('now'));
+    INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 13, '0.10.0-alpha');
+  `);
+  db.close();
+}
+
+describe('schema upgrade — v13 -> v14 migration (cheatcode install stage, #659)', () => {
+  it('v13 DB gains cheatcodes + cheatcode_attachments tables after migration', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedV13Db(dbPath);
+
+    const db = new TrajectoryDB(dbPath);
+
+    const meta = db.get<{ schema_version: number }>(
+      'SELECT schema_version FROM plugin_meta LIMIT 1',
+    );
+    assert.ok(meta, 'plugin_meta row required');
+    assert.equal(meta.schema_version, 14, 'schema_version must be 14 after v13->v14 migration');
+
+    for (const t of ['cheatcodes', 'cheatcode_attachments']) {
+      const row = db.get<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [t],
+      );
+      assert.ok(row !== undefined, `${t} table must exist after migration`);
+    }
+
+    const backups = readdirSync(dirname(dbPath)).filter(
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
+    );
+    assert.equal(backups.length, 1, 'exactly one .pre-v14 backup must be written on upgrade');
+
+    db.close();
+  });
+
+  it('v13->v14 migration is idempotent (no second backup on re-open)', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedV13Db(dbPath);
+
+    const db1 = new TrajectoryDB(dbPath);
+    db1.close();
+
+    const firstCount = readdirSync(dirname(dbPath)).filter(
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
+    ).length;
+    assert.equal(firstCount, 1, 'first v14 upgrade creates exactly one backup');
+
+    const db2 = new TrajectoryDB(dbPath);
+    db2.close();
+
+    const secondCount = readdirSync(dirname(dbPath)).filter(
+      (f) => f.startsWith(basename(dbPath) + '.pre-v14.') && f.endsWith('.bak'),
+    ).length;
+    assert.equal(secondCount, 1, 'reopening at v14 must not create another backup');
+  });
+
+  it('v13->v14: cheatcode_attachments FKs cheatcodes with cascade delete', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedV13Db(dbPath);
+
+    const db = new TrajectoryDB(dbPath);
+
+    const cc = db.run(
+      `INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, status, installed_at)
+       VALUES (?, ?, ?, ?, ?, 'installed', ?)`,
+      ['pdf', 'plugin', 'https://github.com/x/pdf', '1.0.0', 'trusted', '2026-01-01'],
+    );
+    const id = Number(cc.lastInsertRowid);
+    db.run(
+      `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
+       VALUES (?, ?, ?, ?)`,
+      [id, 'plugin', 'marketplace-plugin:https://github.com/x/pdf', '2026-01-01'],
+    );
+
+    db.run('DELETE FROM cheatcodes WHERE id = ?', [id]);
+    const orphan = db.get<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM cheatcode_attachments WHERE cheatcode_id = ?',
+      [id],
+    );
+    assert.equal(orphan?.n, 0, 'attachment rows cascade-delete with their cheatcode');
 
     db.close();
   });

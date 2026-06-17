@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 describe('TrajectoryDB', () => {
-    it('opens an in-memory DB and verifies all 22 prod tables exist with schema_version=13 (world model in kuzu)', () => {
+    it('opens an in-memory DB and verifies all 24 prod tables exist with schema_version=14 (world model in kuzu)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -35,6 +35,9 @@ describe('TrajectoryDB', () => {
             // #2905 embedding tables (workflow tables only)
             'discussions_embeddings',
             'audit_embeddings',
+            // #659 cheatcode install stage
+            'cheatcodes',
+            'cheatcode_attachments',
         ];
         const rows = db.all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%\\_fts\\_%' ESCAPE '\\' ORDER BY name");
         const actualNames = rows.map((r) => r.name).sort();
@@ -42,7 +45,7 @@ describe('TrajectoryDB', () => {
         assert.deepEqual(actualNames, expectedSorted);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta should have a row');
-        assert.equal(meta.schema_version, 13);
+        assert.equal(meta.schema_version, 14);
         db.close();
     });
     it('run inserts a row into skills, get retrieves it, all lists multiple rows', () => {

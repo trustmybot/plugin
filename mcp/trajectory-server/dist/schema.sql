@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 13, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 14, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -420,6 +420,41 @@ CREATE TABLE IF NOT EXISTS audit_embeddings (
   embedded_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_id);
+
+-- Cheatcodes catalog (#659). One row per installed cheatcode (skill, MCP
+-- toolkit, or plugin) acquired via the discover → vet → install pipeline
+-- (docs/architecture/CHEATCODES.md). cheatcode_install writes the row through
+-- the marketplace-install path; cheatcode_uninstall (#676) reverses it. The
+-- (name, source_url) pair is the candidate identity — re-installing the same
+-- candidate no-ops (idempotent). trust_tier carries the cheatcode_vet (#658)
+-- classification at install time; status tracks the lifecycle.
+CREATE TABLE IF NOT EXISTS cheatcodes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL,
+    kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+    source_url   TEXT    NOT NULL,
+    version      TEXT,
+    trust_tier   TEXT,
+    status       TEXT    NOT NULL DEFAULT 'installed',
+    installed_at TEXT    NOT NULL,
+    UNIQUE(name, source_url)
+);
+
+-- Attachment records (#677). One row per artifact wired into the project by an
+-- install — the marketplace plugin manifest, an MCP server registration, or a
+-- proposed agent-frontmatter PR. target names the agent/role the capability is
+-- attached to (or 'plugin'/'mcp' when attachment needs no prompt-surface edit);
+-- artifact records what was wired so cheatcode_uninstall can reverse exactly it.
+CREATE TABLE IF NOT EXISTS cheatcode_attachments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    cheatcode_id INTEGER NOT NULL REFERENCES cheatcodes(id) ON DELETE CASCADE,
+    target       TEXT    NOT NULL,
+    artifact     TEXT    NOT NULL,
+    created_at   TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode
+    ON cheatcode_attachments(cheatcode_id);
 
 -- World model lives in a sibling kuzu graph DB (ADR 0002), not in this
 -- SQLite file. The previous v6 'directories' / 'directories_fts' /

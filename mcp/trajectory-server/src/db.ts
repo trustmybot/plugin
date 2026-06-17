@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 13;
+const TARGET_SCHEMA_VERSION = 14;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -357,6 +357,25 @@ export type RepoRow = {
   protected_branches: string | null;
 };
 
+export type CheatcodeRow = {
+  id: number;
+  name: string;
+  kind: 'skill' | 'mcp' | 'plugin';
+  source_url: string;
+  version: string | null;
+  trust_tier: string | null;
+  status: string;
+  installed_at: string;
+};
+
+export type CheatcodeAttachmentRow = {
+  id: number;
+  cheatcode_id: number;
+  target: string;
+  artifact: string;
+  created_at: string;
+};
+
 /**
  * Resolve the repos row whose `path` matches the git toplevel of `gitRoot`.
  * Returns null when no registered repo matches (unregistered repo → guards no-op).
@@ -444,6 +463,9 @@ function runMigrations(
   }
   if (fromVersion < 13 && toVersion >= 13) {
     migrateV12toV13(db);
+  }
+  if (fromVersion < 14 && toVersion >= 14) {
+    migrateV13toV14(db);
   }
 }
 
@@ -643,6 +665,50 @@ function migrateV12toV13(db: DatabaseSync): void {
         db.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
       }
     }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// Cheatcode install stage (#659): the cheatcodes catalog + its attachment
+// records. Both are net-new tables, so CREATE IF NOT EXISTS is enough — there is
+// no existing data to reshape. applySchema re-runs schema.sql after migrations
+// and would create them in the fresh-DB path too; creating them here keeps the
+// migration self-contained and idempotent regardless of starting shape.
+function migrateV13toV14(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cheatcodes (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          source_url   TEXT    NOT NULL,
+          version      TEXT,
+          trust_tier   TEXT,
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          UNIQUE(name, source_url)
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cheatcode_attachments (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          cheatcode_id INTEGER NOT NULL REFERENCES cheatcodes(id) ON DELETE CASCADE,
+          target       TEXT    NOT NULL,
+          artifact     TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)',
+    );
     db.exec('COMMIT');
   } catch (err) {
     try {
