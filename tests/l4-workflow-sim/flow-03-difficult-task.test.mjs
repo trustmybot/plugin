@@ -85,7 +85,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
       branch_id: 'refactor/jwt-auth',
       title: 'Replace session middleware with JWT (RS256)',
       description: 'Per ADR-0042: implement RS256, force re-login on cutover.',
-      spec_body: '## Files\n- middleware/auth.py\n## Verification\n```\npytest tests/auth\n```\n## Success Criteria\n- JWT validates RS256\n- old session code removed',
+      spec_body: '## Success Criteria\n- JWT validates RS256\n- old session code removed',
     }],
   });
   assert.equal(batch.ok, true, `batch (no-waive): ${JSON.stringify(batch)}`);
@@ -126,7 +126,7 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
     tasks: [{
       branch_id: 'refactor/x',
       title: 't', description: 'd',
-      spec_body: '## Files\n- src/x.py\n## Success Criteria\n- x refactored\n## Verification\n```\npytest tests/x\n```',
+      spec_body: '## Success Criteria\n- x refactored',
     }],
   });
   assert.equal(batch.ok, false,

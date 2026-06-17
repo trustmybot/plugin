@@ -23,14 +23,8 @@ async function seedCompletedTask(client) {
       spec_body: [
         '# Task: pr-test handler',
         '',
-        '## Files',
-        '- src/handler.ts',
-        '',
         '## Success Criteria',
         '- handler returns 200 with body "ok"',
-        '',
-        '## Verification',
-        '- bun test src/handler.test.ts',
       ].join('\n'),
     }],
   });

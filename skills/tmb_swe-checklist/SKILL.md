@@ -7,8 +7,8 @@ description: SWE's self-review heuristics — load only when about to atomic-clo
 
 Before `task_update_status(completed)`, confirm these by reading the diff. Mechanical patterns (bare except, mutable defaults, etc.) are caught by `scripts/hooks/code-quality-lint.sh` on every Edit/Write. You check the things only a human reader would see.
 
-- **Spec fidelity.** Every bullet under `## Files`, `## Success Criteria`, and every error/edge case named in `## Description` has a concrete change in the diff. Quote the bullet, point to the diff line.
-- **Scope discipline.** Nothing changed outside `## Files` except trivial imports. No "while I was there" cleanups. No new TODOs.
+- **Spec fidelity.** Every path in the typed `files[]`, every bullet under `## Success Criteria`, and every error/edge case named in `## Description` has a concrete change in the diff. Quote the item, point to the diff line.
+- **Scope discipline.** Nothing changed outside the typed `files[]` except trivial imports. No "while I was there" cleanups. No new TODOs.
 - **Verification output.** Paste the verification output in your close report.
 
 Escalate (not guess) when:

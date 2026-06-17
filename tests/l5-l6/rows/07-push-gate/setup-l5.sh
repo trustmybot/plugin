@@ -30,8 +30,8 @@ INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, spec_body,
                    description, status, commit_sha,
                    created_at, updated_at)
 SELECT id, 'feat/seed-todo', 'main', 'Seed todo CLI',
-       '## Files
-todo.py
+       '## Success Criteria
+- todo CLI prints todo
 ', '', 'needs_validation', '$SEED_SHA',
        datetime('now'), datetime('now')
 FROM issues

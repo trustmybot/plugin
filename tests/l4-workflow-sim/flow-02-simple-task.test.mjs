@@ -54,7 +54,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
       branch_id: 'feat/hello',
       title: 'Add /hello endpoint',
       description: 'Wire /hello → 200 OK {msg:"hello"}.',
-      spec_body: '## Files\n- app/routes.py\n## Verification\n```\ncurl localhost/hello\n```\n## Success Criteria\n- 200 OK',
+      spec_body: '## Success Criteria\n- 200 OK',
     }],
   });
   assert.equal(batch.ok, true, `task_create_batch: ${JSON.stringify(batch)}`);
@@ -72,7 +72,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   // 4. SWE picks up the task: read spec → mark running
   const taskRead = await call(client, 'task_get', { agent: 'swe', task_id: taskId, include_spec_body: true });
   assert.equal(taskRead.ok, true);
-  assert.match(taskRead.data.spec_body, /Files/);
+  assert.match(taskRead.data.spec_body, /Success Criteria/);
 
   const running = await call(client, 'task_update_status', {
     agent: 'swe', task_id: taskId, status: 'running',

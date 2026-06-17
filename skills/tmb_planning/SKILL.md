@@ -32,17 +32,15 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. I
 
 **Typed args** on `task_create_batch` carry the machine-read contract; **spec_body markdown** carries the prose bro and swe reason from.
 
-Pass on each swe-executed task:
+Pass the machine contract on each swe-executed task — the scope fence reads `files[]`, the verification gate reads `verification[]`:
 
 - `files: string[]` — the paths the task touches.
 - `verification: string[]` — runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
 
-Spec body sections — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
+Spec body sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
 
 - `## Description` — ≤3 sentences, file paths with line refs, Assumptions bullets
-- `## Files` — path — action (mirrors the typed `files[]` for the reader)
 - `## Success Criteria` — 2–5 testable assertions
-- `## Verification` — the same commands as typed `verification[]`, for the reader
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
@@ -73,8 +71,8 @@ The batch response includes `parallel_groups` — tasks in the same group are sa
 
 After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff` of the commit) and judge it against the spec on four counts:
 
-1. Changed files match `## Files` — nothing surprising outside scope.
-2. `## Verification` commands pass when re-run verbatim inside the SWE worktree. Run these BEFORE you close — the cleanup hook removes the worktree on close, taking the working tree with it.
+1. Changed files match the typed `files[]` — nothing surprising outside scope.
+2. The typed `verification[]` commands pass when re-run verbatim inside the SWE worktree. Run these BEFORE you close — the cleanup hook removes the worktree on close, taking the working tree with it.
 3. Each `## Success Criteria` bullet is visibly met by the diff.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
