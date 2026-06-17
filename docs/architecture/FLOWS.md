@@ -134,7 +134,7 @@ Same chain as flow 2, plus: before `task_create_batch`, bro co-authors an ADR an
 flowchart TD
     A[Human asks for role X] --> B{Role X exists in<br/>.claude/agents/?}
     B -->|yes| C[Route to existing agent]
-    B -->|no| D[Bro loads tmb_agent-creator]
+    B -->|no| D[Bro runs /tmb:agent-create]
     D --> E[Skill: ≤3 clarifying Qs]
     E --> F[Skill: draft tailored prompt]
     F --> G[Show prompt to Human]

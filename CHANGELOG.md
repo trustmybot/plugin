@@ -4,8 +4,14 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Added
+- **Skill-catalog-sync L1 lint** (#102): a new `tests/l1-lint/skill-catalog-sync.sh` asserts exact-set parity between the shipped `skills/<name>/SKILL.md` directories on disk and the seeded builtin-skill rows in `schema.sql` (`cheatcodes` with `origin='builtin'` AND `kind='skill'`). It fails both directions — a shipped skill with no seed row (its invocations are silently dropped by `skill-invocation-record.sh`'s FK check) and a seed row with no shipped dir (a dangling catalog entry) — closing the silent-failure seam between the capability catalog and disk. Wired into the L1 runner next to `labels-stable`.
+
 ### Changed
 - **Unified the `skills` table into `cheatcodes`** (#101): one typed capability registry, reversing the earlier distinct-tables decision. `cheatcodes` gains an `origin` enum (`builtin` = plugin-shipped tmb_* skills, `installed` = cheatcodes acquired via the discover → vet → install pipeline), a `file_path` column (the SKILL.md location), and a `description` + `created_at`/`updated_at`; the install-scope and skill-placement enums collapse into one `scope` (`global` | `template` | `project-local`), with installed rows mapping `local → project-local`. CHECK constraints enforce the shape: a skill row carries `file_path`, an installed row carries `source_url`, a builtin row does not. The bundled tmb_* skills are re-seeded as `origin='builtin'` rows; `skill_register` / `skill_promote` / `skill_invocations_list`, the `skill-invocation-record.sh` hook, `cheatcode_install` / `cheatcode_uninstall` / `cheatcode_activate`, and the report's Skill Usage Summary all operate on the unified table (every tool name preserved). The FK-safe v18→v19 migration rebuilds `skill_invocations` to repoint its FK from `skills(name)` to `cheatcodes(name)`, folds the skills rows in, and drops `skills` — transactional, idempotent, and `foreign_key_check`-verified. Schema bumped to v19.
+
+### Fixed
+- **Builtin-skill catalog drift** (#102): the new skill-catalog-sync lint caught a real pre-existing seed bug the #101 unification carried forward verbatim. `tmb_cheatcode` ships (`skills/tmb_cheatcode/SKILL.md`) but was never seeded into `cheatcodes` — so `skill-invocation-record.sh`'s FK check silently dropped its invocations — while `tmb_agent-creator` stayed seeded after its `skills/` dir was deleted at v0.7.0, leaving a dangling catalog row. The `schema.sql` builtin-skill seed now equals the 8 shipped `skills/` dirs exactly (`tmb_cheatcode` in, `tmb_agent-creator` out). An idempotent, transactional v19→v20 migration corrects existing DBs — `DELETE`s the dangling `tmb_agent-creator` builtin row and `INSERT OR IGNORE`s `tmb_cheatcode` (pure row correction, no FK rebuild; `foreign_key_check`-verified). Also fixed a stale `tmb_agent-creator` reference in `docs/architecture/FLOWS.md`. Schema bumped to v20.
 
 ## v0.10.0-beta — 2026-06-17
 

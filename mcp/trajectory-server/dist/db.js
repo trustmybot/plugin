@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 19;
+const TARGET_SCHEMA_VERSION = 20;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -405,6 +405,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 19 && toVersion >= 19) {
         migrateV18toV19(db);
+    }
+    if (fromVersion < 20 && toVersion >= 20) {
+        migrateV19toV20(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -916,6 +919,46 @@ function migrateV18toV19(db) {
     }
     finally {
         db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v19→v20: correct the builtin-skill seed drift carried forward by the #101
+// unification. The seed listed `tmb_agent-creator` (its skills/ dir was deleted
+// at v0.7.0 → a dangling catalog row) and omitted `tmb_cheatcode` (a shipped
+// skill whose invocations the skill-invocation-record.sh FK check silently
+// drops with no seed row). Pure row correction — no table/FK rebuild. The dead
+// name has no skill_invocations referencing it (the dir never shipped a row
+// before v18→v19 either), so the DELETE is safe; foreign_key_check verifies it.
+function migrateV19toV20(db) {
+    if (!tableExists(db, 'cheatcodes')) {
+        return;
+    }
+    db.exec('BEGIN');
+    try {
+        // LINT-ALLOW: v19→v20 removes the dangling tmb_agent-creator builtin row (dir deleted v0.7.0, no invocations reference it) (#102).
+        db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_agent-creator' AND origin = 'builtin'");
+        db.exec(`
+      INSERT OR IGNORE INTO cheatcodes
+        (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      VALUES
+        ('tmb_cheatcode', 'skill', 'builtin',
+         'When bro hits a wall — a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap — name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.',
+         NULL, 'skills/tmb_cheatcode/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now'))
+    `);
+        const violations = db.prepare('PRAGMA foreign_key_check').all();
+        if (violations.length > 0) {
+            throw new Error(`migrateV19toV20: foreign_key_check found ${violations.length} dangling reference(s) after the builtin-skill seed correction`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
     }
 }
 function migrateV7toV8(db) {
