@@ -12,7 +12,7 @@ cd "$ROOT"
 
 failed=0
 
-for cmd in $(find commands -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort); do
+for cmd in $(find commands -maxdepth 1 -type f -name '*.md' ! -name 'README.md' 2>/dev/null | sort); do
   filename=$(basename "$cmd")
 
   # Filename must match ^[a-z][a-z0-9-]*\.md$
