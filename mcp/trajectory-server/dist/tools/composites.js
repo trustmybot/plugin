@@ -5,28 +5,28 @@ import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { syncIssueCloseRemotes } from './issues.js';
 import { resolveDefaultIssueId } from './discussions.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
-// Extract the unique directories implied by a spec's `## Files` section. Each
-// bullet's first token is the path; its dirname is the directory ('' = repo
-// root). task_brief resolves these against the world model. (#300)
-export function parseFilesDirs(specBody) {
+// Extract the unique directories implied by a task's typed `files[]` array. Each
+// entry is a path; its dirname is the directory ('' = repo root). task_brief
+// resolves these against the world model. (#300)
+export function filesToDirs(files) {
     const dirs = new Set();
-    let inFiles = false;
-    for (const line of specBody.split('\n')) {
-        const h2 = line.match(/^##\s+(.+)/);
-        if (h2) {
-            inFiles = /^files\b/i.test(h2[1].trim());
-            continue;
-        }
-        if (!inFiles)
-            continue;
-        const m = line.match(/^\s*[-*]\s+`?([^`\s—|]+)/);
-        if (!m)
-            continue;
-        const path = m[1].replace(/[`,.;]+$/, '');
+    for (const path of files) {
         const slash = path.lastIndexOf('/');
         dirs.add(slash >= 0 ? path.slice(0, slash) : '');
     }
     return [...dirs];
+}
+// Parse the tasks.files JSON column into a string[] (empty on null/malformed).
+export function parseTaskFiles(filesJson) {
+    if (!filesJson)
+        return [];
+    try {
+        const parsed = JSON.parse(filesJson);
+        return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string') : [];
+    }
+    catch {
+        return [];
+    }
 }
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -309,7 +309,7 @@ export function compositeTools(db, dbPath, graph = null) {
             name: 'task_brief',
             description: "Full context bundle for one task in a single call — swe's only context read. " +
                 'Joins the trajectory DB (task row, spec_body, the task issue\'s discussion thread) ' +
-                'with the kuzu world model (each directory the spec\'s `## Files` touch, plus its ' +
+                "with the kuzu world model (each directory the task's typed files[] touch, plus its " +
                 "children's summaries). Lets swe receive scope instead of orchestrating task_get + " +
                 'world_model_get + discussion_search itself.',
             inputSchema: {
@@ -327,7 +327,7 @@ export function compositeTools(db, dbPath, graph = null) {
             const taskId = args['task_id'];
             if (taskId === undefined || taskId === null)
                 return err('task_id is required');
-            const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.commit_sha, t.repo,
+            const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.commit_sha, t.repo,
                   i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`, [taskId]);
@@ -346,8 +346,8 @@ export function compositeTools(db, dbPath, graph = null) {
                     }
                 }
             }
-            // Scope: the dirs the spec's ## Files touch, resolved in the world model.
-            const dirs = parseFilesDirs(task.spec_body);
+            // Scope: the dirs the task's typed files[] touch, resolved in the world model.
+            const dirs = filesToDirs(parseTaskFiles(task.files));
             let scope_world_model = [];
             let world_model_warning;
             if (!graph) {

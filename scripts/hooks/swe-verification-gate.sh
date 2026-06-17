@@ -6,10 +6,9 @@
 # Rails #673), runs each command in the task's worktree, and denies if any
 # command exits non-zero or times out.
 #
-# Clean break (#673): the gate reads the typed `verification` column only — it
-# does NOT scrape ## Verification markdown from spec_body. A task with an empty
-# verification[] array (e.g. pre-migration tasks, or bro omitting the field)
-# skips the gate with a warning.
+# Typed Rails (#673): the gate reads the typed `verification` column directly.
+# A task with an empty verification[] array (e.g. pre-migration tasks, or bro
+# omitting the field) skips the gate with a warning.
 #
 # Toolchain PATH (#673, second defect): the swe-subagent PreToolUse hook process
 # starts with a minimal, login-stripped PATH where mise/homebrew tools
@@ -120,7 +119,7 @@ fi
 # yields no lines.
 VERIFICATION_BLOCK=$(printf '%s' "$VERIFICATION_JSON" | jq -r '.[]?' 2>/dev/null || true)
 
-# Clean break: empty typed verification[] → skip the gate (no markdown fallback).
+# Empty typed verification[] → skip the gate.
 if [ -z "$VERIFICATION_BLOCK" ]; then
   jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed verification[] — verification gate skipped. Ask bro to set the task'"'"'s verification[] field (Typed Rails #673) to enforce verification commands."}}'
   exit 0

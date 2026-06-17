@@ -672,12 +672,10 @@ function migrateV11toV12(db: DatabaseSync): void {
   }
 }
 
-// Typed Rails (#673): promote files/verification to typed task columns the
-// enforcement hooks read directly (instead of scraping ## Files / ## Verification
-// markdown from spec_body). Both are JSON arrays defaulting to '[]'; existing
-// task rows keep that empty default, so the rewritten hooks skip enforcement
-// for pre-migration tasks (clean break, no markdown fallback). See
-// docs/architecture/TYPED_RAILS.md.
+// Typed Rails (#673): add typed files/verification task columns the enforcement
+// hooks read directly. Both are JSON arrays defaulting to '[]'; existing task
+// rows keep that empty default, so the hooks skip enforcement for pre-migration
+// tasks. See docs/architecture/TYPED_RAILS.md.
 function migrateV12toV13(db: DatabaseSync): void {
   db.exec('BEGIN');
   try {

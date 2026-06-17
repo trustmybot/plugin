@@ -1722,7 +1722,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
         const row = db.get('SELECT id, files, verification FROM tasks WHERE id = 1');
         assert.ok(row, 'seeded task must survive migration');
         assert.equal(row.files, '[]', 'existing rows must default files to an empty JSON array');
-        assert.equal(row.verification, '[]', 'existing rows must default verification to an empty JSON array (no scrape from spec_body ## Files/## Verification)');
+        assert.equal(row.verification, '[]', 'existing rows must default verification to an empty JSON array');
         db.close();
     });
     it('v12->v13 migration is idempotent (no second backup on re-open)', () => {

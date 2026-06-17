@@ -23777,19 +23777,18 @@ function issueTools(db2, dbPath2 = "") {
 // src/tools/tasks.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { resolve, dirname as dirname3 } from "node:path";
-function specFileDirs(specBody) {
+function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
-  let inFiles = false;
-  for (const line of specBody.split("\n")) {
-    const h2 = line.match(/^##\s+(.+)/);
-    if (h2) {
-      inFiles = /^files\b/i.test(h2[1].trim());
-      continue;
-    }
-    if (!inFiles) continue;
-    const m = line.match(/^\s*[-*]\s+`?([^`\s—|]+)/);
-    if (!m) continue;
-    const path2 = m[1].replace(/[`,.;]+$/, "");
+  if (!filesJson) return dirs;
+  let files;
+  try {
+    files = JSON.parse(filesJson);
+  } catch {
+    return dirs;
+  }
+  if (!Array.isArray(files)) return dirs;
+  for (const path2 of files) {
+    if (typeof path2 !== "string") continue;
     const slash = path2.lastIndexOf("/");
     dirs.add(slash >= 0 ? path2.slice(0, slash) : "");
   }
@@ -23955,12 +23954,12 @@ function taskTools(db2) {
                 files: {
                   type: "array",
                   items: { type: "string" },
-                  description: "Typed Rails (#673): scope-fence allowlist \u2014 the path-like strings SWE is allowed to edit for this task. The swe-scope-fence hook reads this column directly (no longer scrapes ## Files markdown). Non-empty array of paths. Persisted as a JSON array. An empty/omitted array disables scope enforcement."
+                  description: "Typed Rails (#673): scope-fence allowlist \u2014 the authoritative list of path-like strings SWE is allowed to edit for this task. The swe-scope-fence hook reads this column directly. Non-empty array of paths. Persisted as a JSON array. An empty/omitted array disables scope enforcement."
                 },
                 verification: {
                   type: "array",
                   items: { type: "string" },
-                  description: "Typed Rails (#673): verification commands run by the swe-verification-gate hook in the task worktree before SWE may flip the task to completed (no longer scrapes ## Verification markdown). Non-empty array of shell command strings. Persisted as a JSON array. An empty/omitted array disables verification enforcement."
+                  description: "Typed Rails (#673): the authoritative verification commands run by the swe-verification-gate hook in the task worktree before SWE may flip the task to completed. Non-empty array of shell command strings. Persisted as a JSON array. An empty/omitted array disables verification enforcement."
                 }
               },
               required: ["branch_id", "description"]
@@ -24016,7 +24015,7 @@ function taskTools(db2) {
           },
           waive_spec_shape: {
             type: "boolean",
-            description: "Bypass the spec-section shape gate (## Files/## Success Criteria/## Verification, \u2264200 lines)."
+            description: "Bypass the spec-section shape gate (## Success Criteria, \u2264200 lines)."
           },
           waive_spec_shape_reason: {
             type: "string",
@@ -24094,7 +24093,7 @@ function taskTools(db2) {
           return err3("waive_spec_shape_reason must be a string \u226510 chars.");
         }
       } else {
-        const REQUIRED_H2 = ["## Files", "## Success Criteria", "## Verification"];
+        const REQUIRED_H2 = ["## Success Criteria"];
         for (const t of args["tasks"]) {
           if (!t.spec_body) continue;
           const missing = REQUIRED_H2.filter(
@@ -24111,7 +24110,7 @@ function taskTools(db2) {
                 type: "text",
                 text: JSON.stringify({
                   error: "spec_shape_violation",
-                  message: `Spec shape gate: task branch_id='${t.branch_id}' \u2014 ${parts.join("; ")}. Each spec_body must contain ## Files, ## Success Criteria, ## Verification (H2 headings) and be \u2264200 lines. Add the missing sections or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (\u226510 chars) for tasks without full specs.`,
+                  message: `Spec shape gate: task branch_id='${t.branch_id}' \u2014 ${parts.join("; ")}. Each spec_body must contain a ## Success Criteria (H2 heading) and be \u2264200 lines. Add the missing section or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (\u226510 chars) for tasks without full specs.`,
                   branch_id: t.branch_id,
                   missing_sections: missing,
                   line_count: lineCount
@@ -24531,7 +24530,7 @@ function taskTools(db2) {
       if (inserted.length > 1) {
         const taskFilePaths = inserted.map((t) => ({
           id: t.id,
-          paths: specFileDirs(t.spec_body ?? "")
+          paths: taskFileDirs(t.files)
         }));
         const adjMatrix = /* @__PURE__ */ new Map();
         for (const t of taskFilePaths) adjMatrix.set(t.id, /* @__PURE__ */ new Set());
@@ -27216,23 +27215,22 @@ function prCommentsTools(db2, _spawnFn) {
 // src/tools/composites.ts
 import { execFileSync } from "node:child_process";
 var WORKTREE_TIMEOUT_MS = 6e4;
-function parseFilesDirs(specBody) {
+function filesToDirs(files) {
   const dirs = /* @__PURE__ */ new Set();
-  let inFiles = false;
-  for (const line of specBody.split("\n")) {
-    const h2 = line.match(/^##\s+(.+)/);
-    if (h2) {
-      inFiles = /^files\b/i.test(h2[1].trim());
-      continue;
-    }
-    if (!inFiles) continue;
-    const m = line.match(/^\s*[-*]\s+`?([^`\s—|]+)/);
-    if (!m) continue;
-    const path2 = m[1].replace(/[`,.;]+$/, "");
+  for (const path2 of files) {
     const slash = path2.lastIndexOf("/");
     dirs.add(slash >= 0 ? path2.slice(0, slash) : "");
   }
   return [...dirs];
+}
+function parseTaskFiles(filesJson) {
+  if (!filesJson) return [];
+  try {
+    const parsed = JSON.parse(filesJson);
+    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
 }
 function ok14(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -27485,7 +27483,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
     },
     {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read. Joins the trajectory DB (task row, spec_body, the task issue's discussion thread) with the kuzu world model (each directory the spec's `## Files` touch, plus its children's summaries). Lets swe receive scope instead of orchestrating task_get + world_model_get + discussion_search itself.",
+      description: "Full context bundle for one task in a single call \u2014 swe's only context read. Joins the trajectory DB (task row, spec_body, the task issue's discussion thread) with the kuzu world model (each directory the task's typed files[] touch, plus its children's summaries). Lets swe receive scope instead of orchestrating task_get + world_model_get + discussion_search itself.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27504,7 +27502,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const taskId = args["task_id"];
         if (taskId === void 0 || taskId === null) return err14("task_id is required");
         const task = db2.get(
-          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.commit_sha, t.repo,
+          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.commit_sha, t.repo,
                   i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
@@ -27523,7 +27521,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             }
           }
         }
-        const dirs = parseFilesDirs(task.spec_body);
+        const dirs = filesToDirs(parseTaskFiles(task.files));
         let scope_world_model = [];
         let world_model_warning;
         if (!graph2) {

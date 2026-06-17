@@ -2174,7 +2174,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     assert.equal(
       row.verification,
       '[]',
-      'existing rows must default verification to an empty JSON array (no scrape from spec_body ## Files/## Verification)',
+      'existing rows must default verification to an empty JSON array',
     );
 
     db.close();
