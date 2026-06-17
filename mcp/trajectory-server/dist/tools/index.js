@@ -4,7 +4,6 @@ import { taskTools } from './tasks.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
-import { ruleTools } from './rules.js';
 import { commandTools } from './commands.js';
 import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
@@ -49,7 +48,6 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
     const audit = auditTools(db);
     const validation = validationTools(db);
     const skills = skillTools(db);
-    const rules = ruleTools(db);
     const commands = commandTools(db);
     const agents = agentTools(db, dbPath);
     const reports = reportTools(db);
@@ -70,7 +68,6 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
         ...audit.definitions,
         ...validation.definitions,
         ...skills.definitions,
-        ...rules.definitions,
         ...commands.definitions,
         ...agents.definitions,
         ...reports.definitions,
@@ -92,7 +89,6 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
         ...audit.handlers,
         ...validation.handlers,
         ...skills.handlers,
-        ...rules.handlers,
         ...commands.handlers,
         ...agents.handlers,
         ...reports.handlers,

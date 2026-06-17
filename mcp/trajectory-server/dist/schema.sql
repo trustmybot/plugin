@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 15, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 16, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -219,7 +219,7 @@ INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
 -- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
 -- via swe-atomic-close.sh on every SWE completion, AND by composites for the
 -- bro-as-agent_run row (#2886): bro's per-task tokens become a first-class
--- citizen so skill_invocations + rule_invocations can FK to them. Bro rows
+-- citizen so skill_invocations can FK to them. Bro rows
 -- are inserted at task_create_batch (completed_at NULL until close) and
 -- finalized at bro_atomic_close — hence completed_at is nullable.
 CREATE TABLE IF NOT EXISTS agent_runs (
@@ -275,26 +275,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_num
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
 
--- Rules catalog (#2886). First-class registry for `.claude/rules/*.md`
--- documents. Severity captures enforcement weight — some rules are
--- advisory (suggestion only), some are warning (surface to bro on read),
--- some are blocking (deny the operation via a hook). Plugin ships no
--- built-in rules; the table is populated by project-local `rule_register`
--- calls or by an upcoming rules-scanner.
-CREATE TABLE IF NOT EXISTS rules (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT    NOT NULL UNIQUE,
-    description TEXT    NOT NULL,
-    file_path   TEXT    NOT NULL,
-    scope       TEXT    NOT NULL DEFAULT 'project-local'
-                  CHECK (scope IN ('global','template','project-local')),
-    severity    TEXT    NOT NULL DEFAULT 'advisory'
-                  CHECK (severity IN ('advisory','warning','blocking')),
-    status      TEXT    NOT NULL DEFAULT 'active',
-    created_at  TEXT    NOT NULL,
-    updated_at  TEXT    NOT NULL
-);
-
 -- Commands catalog (#2886). One row per slash command. The plugin ships
 -- 5 first-class commands (/scan, /onboard, /monitor, /roundtable, /tmb:agent-create); project-
 -- local commands land at `<project>/.claude/commands/<name>.md`.
@@ -320,8 +300,8 @@ INSERT OR IGNORE INTO commands (name, description, file_path, scope, args_schema
     ('roundtable',    'Multi-agent deliberation on a topic with checkbox/radio AUQ ratification.',                                                                                                                                                                            'commands/roundtable.md',    'global', '{"argument_hint":"<topic to deliberate>"}',     'active', datetime('now'), datetime('now')),
     ('agent-create', 'Create or copy an agent into the project .claude/agents/ directory. Routes to template-copy (Branch B) or from-scratch (Branch C) via tmb_agent-creator.',                                                                                           'commands/agent-create.md', 'global', '{"argument_hint":"<kebab-case agent name>"}', 'active', datetime('now'), datetime('now'));
 
--- Junction tables — the load-bearing bridge (#2886). One row per
--- skill / rule invocation. Bridges the catalog (skills, rules) to the
+-- Junction table — the load-bearing bridge (#2886). One row per
+-- skill invocation. Bridges the catalog (skills) to the
 -- agent_run that triggered it. Enables forward queries ("what did this
 -- agent_run touch") and reverse queries ("which agent_runs used skill X")
 -- with cheap indexes on both sides.
@@ -344,21 +324,6 @@ CREATE TABLE IF NOT EXISTS skill_invocations (
 CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_name);
 CREATE INDEX IF NOT EXISTS idx_skill_invocations_task  ON skill_invocations(task_id);
 CREATE INDEX IF NOT EXISTS idx_skill_invocations_agent_run ON skill_invocations(agent_run_id);
-
-CREATE TABLE IF NOT EXISTS rule_invocations (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    rule_name     TEXT    NOT NULL REFERENCES rules(name),
-    agent_name    TEXT    NOT NULL,
-    agent_run_id  INTEGER REFERENCES agent_runs(id),
-    task_id       INTEGER REFERENCES tasks(id),
-    applied_at    TEXT    NOT NULL,
-    outcome       TEXT    NOT NULL DEFAULT 'applied'
-                    CHECK (outcome IN ('applied','violated','skipped'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_rule_invocations_rule ON rule_invocations(rule_name);
-CREATE INDEX IF NOT EXISTS idx_rule_invocations_task ON rule_invocations(task_id);
-CREATE INDEX IF NOT EXISTS idx_rule_invocations_agent_run ON rule_invocations(agent_run_id);
 
 -- FTS5 virtual tables for keyword search (Phase 1 of #2905).
 -- content= tables shadow the source table so SQLite keeps them in sync
