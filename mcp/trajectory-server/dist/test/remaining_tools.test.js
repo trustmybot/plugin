@@ -238,26 +238,23 @@ describe('validationTools', () => {
     });
 });
 describe('skillTools', () => {
-    it('skill_register then skill_record_outcome updates effectiveness', async () => {
+    it('skill_register returns a row without the dropped effectiveness stat columns', async () => {
         const db = tempDB();
         const tools = skillTools(db);
-        await call(tools.handlers, 'skill_register', {
+        const result = await call(tools.handlers, 'skill_register', {
             agent: 'bro',
             name: 'my-skill',
             description: 'A test skill',
             file_path: 'skills/my-skill.md',
             trust_tier: 'agent',
         });
-        const result = await call(tools.handlers, 'skill_record_outcome', {
-            agent: 'bro',
-            name: 'my-skill',
-            success: true,
-        });
         const row = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-        assert.equal(row.uses, 1);
-        assert.equal(row.successes, 1);
-        assert.equal(row.effectiveness, 1.0);
+        assert.equal(row.name, 'my-skill');
+        assert.equal(row.status, 'draft');
+        for (const dead of ['uses', 'successes', 'effectiveness']) {
+            assert.ok(!(dead in row), `skill row must not expose dropped column ${dead}`);
+        }
         db.close();
     });
     it('skill_promote rejects invalid transition', async () => {

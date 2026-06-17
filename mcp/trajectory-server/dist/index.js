@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 17;
+var TARGET_SCHEMA_VERSION = 18;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21188,6 +21188,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 17 && toVersion >= 17) {
     migrateV16toV17(db2);
   }
+  if (fromVersion < 18 && toVersion >= 18) {
+    migrateV17toV18(db2);
+  }
 }
 function hasColumn(db2, table, column) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
@@ -21431,6 +21434,51 @@ function migrateV16toV17(db2) {
     } catch {
     }
     throw err18;
+  }
+}
+function migrateV17toV18(db2) {
+  if (!tableExists(db2, "skills") || !(hasColumn(db2, "skills", "uses") || hasColumn(db2, "skills", "successes") || hasColumn(db2, "skills", "effectiveness"))) {
+    return;
+  }
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    db2.exec("DROP TABLE IF EXISTS skills_new");
+    db2.exec(`
+      CREATE TABLE skills_new (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          name            TEXT    NOT NULL UNIQUE,
+          description     TEXT    NOT NULL,
+          file_path       TEXT    NOT NULL,
+          scope           TEXT    NOT NULL DEFAULT 'global'
+                            CHECK (scope IN ('global','template','project-local')),
+          trust_tier      TEXT    NOT NULL DEFAULT 'curated',
+          status          TEXT    NOT NULL DEFAULT 'active',
+          created_at      TEXT    NOT NULL,
+          updated_at      TEXT    NOT NULL
+      )
+    `);
+    db2.exec(`
+      INSERT INTO skills_new (id, name, description, file_path, scope, trust_tier, status, created_at, updated_at)
+      SELECT id, name, description, file_path, scope, trust_tier, status, created_at, updated_at FROM skills
+    `);
+    db2.exec("DROP TABLE skills");
+    db2.exec("ALTER TABLE skills_new RENAME TO skills");
+    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err18) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err18;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
   }
 }
 function migrateV7toV8(db2) {
@@ -25043,7 +25091,6 @@ function wrapHandler6(fn) {
   };
 }
 var VALID_SCOPES = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
-var VALID_INVOCATION_OUTCOMES = /* @__PURE__ */ new Set(["completed", "failed", "partial"]);
 function skillTools(db2) {
   const definitions = [
     {
@@ -25067,26 +25114,6 @@ function skillTools(db2) {
       }
     },
     {
-      name: "skill_record_invocation",
-      description: "Record one skill load \u2014 bridges the catalog (skills) to the agent_run that invoked it. Writes one row to skill_invocations. agent_run_id and task_id are optional (free-floating invocations during onboarding etc.).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          skill_name: { type: "string", description: "Must reference an existing skills.name." },
-          agent_name: { type: "string", description: "bro / swe / pr-reviewer / consultant name." },
-          agent_run_id: { type: "integer", description: "Optional agent_runs.id this invocation belongs to." },
-          task_id: { type: "integer", description: "Optional tasks.id when scoped to a specific task." },
-          outcome: {
-            type: "string",
-            enum: ["completed", "failed", "partial"],
-            description: "Defaults to completed."
-          }
-        },
-        required: ["agent", "skill_name", "agent_name"]
-      }
-    },
-    {
       name: "skill_invocations_list",
       description: "List skill_invocations rows. Bidirectional: filter by skill_name (which agent_runs used skill X?) or by agent_run_id/task_id (what did this run/task touch?).",
       inputSchema: {
@@ -25098,19 +25125,6 @@ function skillTools(db2) {
           task_id: { type: "integer" },
           limit: { type: "integer", description: "Default 200, max 1000." }
         }
-      }
-    },
-    {
-      name: "skill_record_outcome",
-      description: "Record a success or failure outcome for a skill, updating effectiveness.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          name: { type: "string" },
-          success: { type: "boolean" }
-        },
-        required: ["agent", "name", "success"]
       }
     },
     {
@@ -25166,40 +25180,6 @@ function skillTools(db2) {
       const row = db2.get("SELECT * FROM skills WHERE rowid = last_insert_rowid()");
       return ok6(row);
     }),
-    skill_record_invocation: wrapHandler6(async (args) => {
-      requireArg6(args, "agent");
-      const skillName = requireArg6(args, "skill_name");
-      const agentName = requireArg6(args, "agent_name");
-      const agentRunId = args["agent_run_id"] === void 0 || args["agent_run_id"] === null ? null : Number(args["agent_run_id"]);
-      const taskId = args["task_id"] === void 0 || args["task_id"] === null ? null : Number(args["task_id"]);
-      const outcome = args["outcome"] ?? "completed";
-      if (!VALID_INVOCATION_OUTCOMES.has(outcome)) {
-        throw new Error(
-          `Invalid outcome: "${outcome}". Allowed values: ${[...VALID_INVOCATION_OUTCOMES].join(", ")}`
-        );
-      }
-      if (agentRunId !== null && !Number.isInteger(agentRunId)) {
-        throw new Error("agent_run_id must be an integer when provided");
-      }
-      if (taskId !== null && !Number.isInteger(taskId)) {
-        throw new Error("task_id must be an integer when provided");
-      }
-      const skill = db2.get("SELECT name FROM skills WHERE name = ?", [skillName]);
-      if (!skill) {
-        throw new Error(`Skill not registered: ${skillName}`);
-      }
-      const now = nowISO();
-      db2.run(
-        `INSERT INTO skill_invocations
-           (skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [skillName, agentName, agentRunId, taskId, now, outcome]
-      );
-      const row = db2.get(
-        "SELECT * FROM skill_invocations WHERE rowid = last_insert_rowid()"
-      );
-      return ok6(row);
-    }),
     skill_invocations_list: wrapHandler6(async (args) => {
       requireArg6(args, "agent");
       const filters = [];
@@ -25228,30 +25208,6 @@ function skillTools(db2) {
         params
       );
       return ok6({ rows, count: rows.length });
-    }),
-    skill_record_outcome: wrapHandler6(async (args) => {
-      requireArg6(args, "agent");
-      const name = requireArg6(args, "name");
-      requireArg6(args, "success");
-      const success2 = args["success"];
-      const updated = db2.transaction(() => {
-        const skill = db2.get("SELECT * FROM skills WHERE name = ?", [name]);
-        if (!skill) {
-          throw new Error(`Skill not registered: ${name}`);
-        }
-        const now = nowISO();
-        const newUses = skill.uses + 1;
-        const newSuccesses = skill.successes + (success2 ? 1 : 0);
-        const newEffectiveness = newSuccesses / newUses;
-        db2.run(
-          `UPDATE skills
-           SET uses = ?, successes = ?, effectiveness = ?, updated_at = ?
-           WHERE name = ?`,
-          [newUses, newSuccesses, newEffectiveness, now, name]
-        );
-        return db2.get("SELECT * FROM skills WHERE name = ?", [name]);
-      });
-      return ok6(updated);
     }),
     skill_promote: wrapHandler6(async (args) => {
       requireArg6(args, "agent");
@@ -25636,9 +25592,6 @@ function reportTools(db2) {
         `SELECT * FROM audit WHERE issue_id = ? ORDER BY id ASC`,
         [issueId]
       );
-      const skillsUsed = db2.all(
-        `SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`
-      );
       lines.push("## Tasks");
       lines.push("");
       if (tasks.length === 0) {
@@ -25674,16 +25627,21 @@ function reportTools(db2) {
         }
       }
       lines.push("");
+      const skillsUsed = db2.all(
+        `SELECT skill_name, COUNT(*) AS invocations
+           FROM skill_invocations
+           GROUP BY skill_name
+           ORDER BY invocations DESC, skill_name ASC`
+      );
       lines.push("## Skill Usage Summary");
       lines.push("");
       if (skillsUsed.length === 0) {
         lines.push("_No skill usage recorded._");
       } else {
-        lines.push("| Skill | Uses | Successes | Effectiveness |");
-        lines.push("|-------|------|-----------|---------------|");
+        lines.push("| Skill | Invocations |");
+        lines.push("|-------|-------------|");
         for (const s of skillsUsed) {
-          const eff = s.effectiveness !== null ? s.effectiveness.toFixed(2) : "\u2014";
-          lines.push(`| ${s.skill_name} | ${s.uses} | ${s.successes} | ${eff} |`);
+          lines.push(`| ${s.skill_name} | ${s.invocations} |`);
         }
       }
       return ok8({ markdown: lines.join("\n"), mode: "detail" });

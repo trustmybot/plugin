@@ -89,9 +89,6 @@ CREATE TABLE IF NOT EXISTS skills (
                       CHECK (scope IN ('global','template','project-local')),
     trust_tier      TEXT    NOT NULL DEFAULT 'curated',
     status          TEXT    NOT NULL DEFAULT 'active',
-    uses            INTEGER NOT NULL DEFAULT 0,
-    successes       INTEGER NOT NULL DEFAULT 0,
-    effectiveness   REAL,
     created_at      TEXT    NOT NULL,
     updated_at      TEXT    NOT NULL
 );
@@ -181,7 +178,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 17, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 18, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
