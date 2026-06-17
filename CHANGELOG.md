@@ -4,6 +4,9 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Changed
+- **Unified the `skills` table into `cheatcodes`** (#101): one typed capability registry, reversing the earlier distinct-tables decision. `cheatcodes` gains an `origin` enum (`builtin` = plugin-shipped tmb_* skills, `installed` = cheatcodes acquired via the discover → vet → install pipeline), a `file_path` column (the SKILL.md location), and a `description` + `created_at`/`updated_at`; the install-scope and skill-placement enums collapse into one `scope` (`global` | `template` | `project-local`), with installed rows mapping `local → project-local`. CHECK constraints enforce the shape: a skill row carries `file_path`, an installed row carries `source_url`, a builtin row does not. The bundled tmb_* skills are re-seeded as `origin='builtin'` rows; `skill_register` / `skill_promote` / `skill_invocations_list`, the `skill-invocation-record.sh` hook, `cheatcode_install` / `cheatcode_uninstall` / `cheatcode_activate`, and the report's Skill Usage Summary all operate on the unified table (every tool name preserved). The FK-safe v18→v19 migration rebuilds `skill_invocations` to repoint its FK from `skills(name)` to `cheatcodes(name)`, folds the skills rows in, and drops `skills` — transactional, idempotent, and `foreign_key_check`-verified. Schema bumped to v19.
+
 ## v0.10.0-beta — 2026-06-17
 
 ### Added

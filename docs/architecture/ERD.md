@@ -1,18 +1,20 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 18`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 19`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
-21 tables in three groups (post-MR !166 #2886 catalog enrichment + schema v8 embedding cache):
+Tables fall in three groups (capability catalog unified into `cheatcodes` in #101; embedding cache from schema v8):
 
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `skills`, `agents`, `repos`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 
 The **world model** lives in a sibling kuzu graph database (`world-model.kuzu`), not in this SQLite file. See `docs/architecture/WORLD_MODEL.md`.
-| **Junctions** (catalog ↔ run) | `skill_invocations` | FK to both `skills` and `agent_runs` — bridges the catalog to per-run analytics |
+| **Junctions** (catalog ↔ run) | `skill_invocations` | FK to both `cheatcodes` and `agent_runs` — bridges the unified capability registry (#101) to per-run analytics |
+
+The `skills` table is gone (#101): builtin tmb_* skills are now `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the `origin='installed'` cheatcodes acquired via the install pipeline.
 
 The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json`; `scan_run` is the single scan-side surface.
 
@@ -43,11 +45,33 @@ erDiagram
 
     %% World model — see WORLD_MODEL.md — lives in sibling kuzu graph DB, not here
 
-    skills {
+    cheatcodes {
         INT  id PK
         TEXT name UK
+        TEXT kind "skill|mcp|plugin"
+        TEXT origin "builtin|installed"
+        TEXT description
+        TEXT source_url "NULL for builtin"
+        TEXT file_path "set for skill kind"
         TEXT trust_tier
+        TEXT scope "global|template|project-local"
         TEXT status
+    }
+
+    cheatcode_attachments {
+        INT  id PK
+        INT  cheatcode_id FK "→ cheatcodes.id CASCADE"
+        TEXT target
+        TEXT artifact
+    }
+
+    skill_invocations {
+        INT  id PK
+        TEXT skill_name FK "→ cheatcodes.name"
+        TEXT agent_name
+        INT  agent_run_id FK
+        INT  task_id FK
+        TEXT outcome "completed|failed|partial"
     }
 
     plugin_config {
@@ -198,6 +222,9 @@ erDiagram
 | `validation_attempts` | `task_id` | `tasks.id` | every validation attempt belongs to one task |
 | `agent_runs` | `task_id` | `tasks.id` | resource tracking per SWE spawn |
 | `agent_runs` | `issue_id` | `issues.id` | resource tracking scoped to issue |
+| `skill_invocations` | `skill_name` | `cheatcodes.name` | per-invocation history of a capability (#101); FK retargeted from the dropped `skills.name` |
+| `skill_invocations` | `agent_run_id` | `agent_runs.id` | which run fired the skill (nullable — onboarding has no run yet) |
+| `cheatcode_attachments` | `cheatcode_id` | `cheatcodes.id` | what an install wired, for exact uninstall (ON DELETE CASCADE) |
 
 ## Soft references (no FK, by convention)
 
@@ -212,11 +239,12 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `skills` | Registry of curated + agent-created skills. Looked up by name; per-invocation history lives in `skill_invocations`. |
+| `cheatcodes` | Unified capability registry (#101). One row per capability, split by `origin`: `'builtin'` = plugin-shipped tmb_* skills (was the `skills` table; `source_url` NULL, `file_path` set); `'installed'` = cheatcodes acquired via the discover → vet → install pipeline (`source_url` set). `kind` is `skill|mcp|plugin`; `scope` is the placement enum `global|template|project-local`. CHECKs enforce the shape (skill rows carry `file_path`, installed rows carry `source_url`, builtin rows do not). Per-invocation history lives in `skill_invocations`. |
+| `cheatcode_attachments` | One row per artifact an install wired (plugin manifest, MCP registration, proposed skill-frontmatter PR). FK to `cheatcodes.id` ON DELETE CASCADE so `cheatcode_uninstall` reverses exactly what was installed. |
 | `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). Carries per-repo branching config (`target_branch`, `branching_model`, `protected_branches`) added in v11 — guards resolve policy from the repos row for the command's git toplevel; unregistered repos are no-op'd. |
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `plugin_meta` | Schema + plugin version. Current `schema_version=11`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
+| `plugin_meta` | Schema + plugin version. Current `schema_version=19`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. |
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`). Used by `/monitor` flow — `pr_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments. UNIQUE index on `(pr_number, repo)`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
@@ -268,13 +296,13 @@ Before #2886 the `skills` table recorded only the **catalog** of available skill
 
 | New / changed | Shape | Why |
 |---|---|---|
-| `skills.scope` (column add) | `TEXT NOT NULL DEFAULT 'global' CHECK (scope IN ('global','template','project-local'))` | Match `agents.scope`. Distinguish schema-seeded `tmb_*` skills (global) from `.claude/skills/<name>/SKILL.md` (project-local). |
+| `cheatcodes.scope` | `TEXT NOT NULL DEFAULT 'project-local' CHECK (scope IN ('global','template','project-local'))` | Match `agents.scope`. Distinguish schema-seeded `tmb_*` skills (global) from `.claude/skills/<name>/SKILL.md` (project-local) and installed cheatcodes (project-local by default). |
 
 ### Junction tables — the load-bearing bridge
 
 | New | Shape | Why |
 |---|---|---|
-| `skill_invocations` | `(id, agent_run_id FK, task_id FK nullable, skill_name FK, invoked_at, outcome IN ('completed','failed','partial'))` indexed on `(skill_name)` + `(task_id)` | One row per skill load, written by the deterministic `scripts/hooks/skill-invocation-record.sh` PostToolUse hook. Closes the "agent didn't use skill it should have" detection loop. Per-invocation outcome enables real effectiveness analytics with full temporal granularity. |
+| `skill_invocations` | `(id, agent_run_id FK, task_id FK nullable, skill_name FK → cheatcodes(name), invoked_at, outcome IN ('completed','failed','partial'))` indexed on `(skill_name)` + `(task_id)` | One row per skill load, written by the deterministic `scripts/hooks/skill-invocation-record.sh` PostToolUse hook. Closes the "agent didn't use skill it should have" detection loop. Per-invocation outcome enables real effectiveness analytics with full temporal granularity. |
 
 Indexes on both `(skill_name)` and `(task_id)` make both query directions cheap: **forward** ("what did this run/task touch") and **reverse** ("which runs used skill X").
 
@@ -322,4 +350,4 @@ GROUP BY t.id, t.branch_id;
 
 ### Implementation status
 
-Landed in #2886. The schema additions (`skill_invocations` table + the `skills.scope` enrichment, with bundled `skills` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the deterministic `scripts/hooks/skill-invocation-record.sh` capture path, and the `skill_invocations_list` MCP reader.
+Landed in #2886; the catalog was unified into `cheatcodes` in #101. The `skill_invocations` table (FK to `cheatcodes(name)`) and the bundled tmb_* skill seed (now `origin='builtin'` rows in `cheatcodes`) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the deterministic `scripts/hooks/skill-invocation-record.sh` capture path, and the `skill_invocations_list` MCP reader.

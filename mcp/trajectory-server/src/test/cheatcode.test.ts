@@ -372,7 +372,7 @@ describe('cheatcode_install', () => {
       assert.equal(out['installed'], true);
 
       const codes = db.all<{ id: number; name: string; trust_tier: string; version: string; status: string }>(
-        `SELECT id, name, trust_tier, version, status FROM cheatcodes`,
+        `SELECT id, name, trust_tier, version, status FROM cheatcodes WHERE origin = 'installed'`,
       );
       assert.equal(codes.length, 1, 'exactly one cheatcodes row');
       assert.equal(codes[0].name, 'pdf-plugin');
@@ -392,7 +392,7 @@ describe('cheatcode_install', () => {
     }
   });
 
-  it('defaults scope to local and persists it on the cheatcodes row', async () => {
+  it('defaults install scope to local, persisting project-local on the unified row (#101)', async () => {
     const db = tempDB();
     const { path, cleanup } = withFixture(INSTALL_OK);
     process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
@@ -404,10 +404,11 @@ describe('cheatcode_install', () => {
       });
       assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
       const out = parse(r);
-      assert.equal(out['scope'], 'local', 'response echoes the default local scope');
+      assert.equal(out['scope'], 'project-local', 'response echoes the mapped placement scope');
 
-      const row = db.get<{ scope: string }>(`SELECT scope FROM cheatcodes LIMIT 1`);
-      assert.equal(row!.scope, 'local', 'persisted scope defaults to local');
+      const row = db.get<{ scope: string; origin: string }>(`SELECT scope, origin FROM cheatcodes WHERE origin = 'installed' LIMIT 1`);
+      assert.equal(row!.scope, 'project-local', 'local install maps to project-local placement');
+      assert.equal(row!.origin, 'installed', 'installed cheatcodes carry origin=installed');
     } finally {
       delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
       cleanup();
@@ -428,8 +429,8 @@ describe('cheatcode_install', () => {
       assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
       assert.equal(parse(r)['scope'], 'global');
 
-      const row = db.get<{ scope: string }>(`SELECT scope FROM cheatcodes LIMIT 1`);
-      assert.equal(row!.scope, 'global', 'persisted scope is global');
+      const row = db.get<{ scope: string }>(`SELECT scope FROM cheatcodes WHERE origin = 'installed' LIMIT 1`);
+      assert.equal(row!.scope, 'global', 'global install persists global placement');
     } finally {
       delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
       cleanup();
@@ -564,7 +565,7 @@ describe('cheatcode_install', () => {
       assert.equal(out2['idempotent'], true);
       assert.equal(out2['installed'], false);
 
-      const n = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes`);
+      const n = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'installed'`);
       assert.equal(n!.n, 1, 're-install did not duplicate the row');
       const an = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`);
       assert.equal(an!.n, 1, 're-install did not duplicate the attachment');
@@ -709,7 +710,7 @@ describe('cheatcode_uninstall', () => {
       source_url: 'https://github.com/x/pdf',
       tier: 1,
     });
-    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes`)!.n, 1);
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'installed'`)!.n, 1);
     assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`)!.n, 1);
 
     const { path, cleanup } = withFixture(UNINSTALL_OK);
@@ -722,7 +723,7 @@ describe('cheatcode_uninstall', () => {
       assert.equal(out['removed'], true);
       assert.equal(out['method'], 'marketplace');
 
-      assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes`)!.n, 0, 'cheatcodes row deleted');
+      assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'installed'`)!.n, 0, 'cheatcodes row deleted');
       assert.equal(
         db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`)!.n,
         0,

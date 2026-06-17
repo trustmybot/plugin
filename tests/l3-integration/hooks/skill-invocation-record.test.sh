@@ -65,9 +65,9 @@ assert_eq "0" "$count" "bypass env must skip the write"
 
 test_case "injection in skill name: unknown skill skipped, no SQL error"
 sqlite3 "$DB" "DELETE FROM skill_invocations;"
-_invoke "tmb_planning'; DROP TABLE skills;--"
-TABLE_OK=$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='skills';" 2>/dev/null || echo 0)
-assert_eq "1" "$TABLE_OK" "skills table must survive injection in skill name"
+_invoke "tmb_planning'; DROP TABLE cheatcodes;--"
+TABLE_OK=$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cheatcodes';" 2>/dev/null || echo 0)
+assert_eq "1" "$TABLE_OK" "cheatcodes table must survive injection in skill name"
 COUNT_INJ=$(sqlite3 "$DB" "SELECT COUNT(*) FROM skill_invocations;" 2>/dev/null || echo 0)
 assert_eq "0" "$COUNT_INJ" "injection-string skill not in catalog → no row written"
 

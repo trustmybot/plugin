@@ -53,11 +53,15 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 
 const VALID_SCOPES = new Set(['global', 'template', 'project-local']);
 
+// A builtin row in the unified cheatcodes registry (#101) — the shape
+// skill_register/skill_promote read back after writing.
 interface Skill {
   id: number;
   name: string;
+  kind: string;
+  origin: string;
   description: string;
-  file_path: string;
+  file_path: string | null;
   scope: string;
   trust_tier: string;
   status: string;
@@ -159,14 +163,16 @@ export function skillTools(db: TrajectoryDB): {
 
       const now = nowISO();
 
+      // Skills are origin='builtin' rows in the unified cheatcodes registry
+      // (#101): kind='skill', source_url NULL, installed_at mirrors created_at.
       db.run(
-        `INSERT INTO skills
-           (name, description, file_path, scope, trust_tier, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)`,
-        [name, description, filePath, scope, trustTier, now, now],
+        `INSERT INTO cheatcodes
+           (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at)
+         VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, 'draft', ?, ?, ?)`,
+        [name, description, filePath, scope, trustTier, now, now, now],
       );
 
-      const row = db.get<Skill>('SELECT * FROM skills WHERE rowid = last_insert_rowid()');
+      const row = db.get<Skill>('SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()');
       return ok(row);
     }),
 
@@ -207,7 +213,10 @@ export function skillTools(db: TrajectoryDB): {
       const fromStatus = requireArg(args, 'from_status') as string;
       const toStatus = requireArg(args, 'to_status') as string;
 
-      const skill = db.get<Skill>('SELECT * FROM skills WHERE name = ?', [name]);
+      const skill = db.get<Skill>(
+        `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
+        [name],
+      );
       if (!skill) {
         throw new Error(`Skill not registered: ${name}`);
       }
@@ -237,17 +246,20 @@ export function skillTools(db: TrajectoryDB): {
 
       if (isStatusTransition) {
         db.run(
-          `UPDATE skills SET status = ?, updated_at = ? WHERE name = ?`,
+          `UPDATE cheatcodes SET status = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
           [toStatus, now, name],
         );
       } else {
         db.run(
-          `UPDATE skills SET trust_tier = ?, updated_at = ? WHERE name = ?`,
+          `UPDATE cheatcodes SET trust_tier = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
           [toStatus, now, name],
         );
       }
 
-      const updated = db.get<Skill>('SELECT * FROM skills WHERE name = ?', [name]);
+      const updated = db.get<Skill>(
+        `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
+        [name],
+      );
       return ok(updated);
     }),
   };

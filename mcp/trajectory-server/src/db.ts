@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 18;
+const TARGET_SCHEMA_VERSION = 19;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -361,12 +361,17 @@ export type CheatcodeRow = {
   id: number;
   name: string;
   kind: 'skill' | 'mcp' | 'plugin';
-  source_url: string;
+  origin: 'builtin' | 'installed';
+  description: string;
+  source_url: string | null;
+  file_path: string | null;
   version: string | null;
   trust_tier: string | null;
-  scope: 'local' | 'global';
+  scope: 'global' | 'template' | 'project-local';
   status: string;
   installed_at: string;
+  created_at: string;
+  updated_at: string;
 };
 
 export type CheatcodeAttachmentRow = {
@@ -479,6 +484,9 @@ function runMigrations(
   }
   if (fromVersion < 18 && toVersion >= 18) {
     migrateV17toV18(db);
+  }
+  if (fromVersion < 19 && toVersion >= 19) {
+    migrateV18toV19(db);
   }
 }
 
@@ -848,6 +856,148 @@ function migrateV17toV18(db: DatabaseSync): void {
     if (violations.length > 0) {
       throw new Error(
         `migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`,
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+// Unify the skills table into cheatcodes (#101). One typed capability registry:
+// cheatcodes gains origin (builtin|installed) + file_path + description +
+// created_at/updated_at, the install scope enum (local,global) folds into the
+// skill placement enum (global,template,project-local) with local→project-local,
+// and the builtin/installed CHECKs are enforced. The dead `skills` table is
+// dropped after its rows migrate in as origin='builtin'.
+//
+// skill_invocations.skill_name FKs skills(name); we drop skills and reshape
+// cheatcodes, so the FK is repointed to cheatcodes(name) via a coordinated
+// rebuild. Per SQLite's table-rebuild guidance foreign_keys is toggled OFF
+// around the swap (it cannot change inside a transaction) and re-checked after.
+// Idempotent: a DB already at the unified shape (no skills table, cheatcodes has
+// origin) is left untouched.
+function migrateV18toV19(db: DatabaseSync): void {
+  const skillsPresent = tableExists(db, 'skills');
+  const cheatcodesUnified = tableExists(db, 'cheatcodes') && hasColumn(db, 'cheatcodes', 'origin');
+  // Already at the unified shape with nothing left to fold in → no-op.
+  if (cheatcodesUnified && !skillsPresent) {
+    return;
+  }
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    // (1) Bring cheatcodes to the unified shape. Two pre-v19 starting points:
+    //   - cheatcodes exists (pre-#101 install shape): rebuild it, mapping each
+    //     installed row's scope local→project-local / global→global. file_path
+    //     /description are absent pre-v19 so they take defaults / NULL; created_
+    //     at/updated_at adopt installed_at.
+    //   - cheatcodes absent (a DB seeded at v17 or earlier where the v13→v14
+    //     create never ran): create the unified table fresh — no rows to copy.
+    if (!cheatcodesUnified) {
+      // LINT-ALLOW: scratch table for the SQLite table-rebuild swap (#101).
+      db.exec('DROP TABLE IF EXISTS cheatcodes_new');
+      db.exec(`
+        CREATE TABLE cheatcodes_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT    NOT NULL UNIQUE,
+            kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+            origin       TEXT    NOT NULL DEFAULT 'installed' CHECK (origin IN ('builtin','installed')),
+            description  TEXT    NOT NULL DEFAULT '',
+            source_url   TEXT,
+            file_path    TEXT,
+            version      TEXT,
+            trust_tier   TEXT,
+            scope        TEXT    NOT NULL DEFAULT 'project-local'
+                           CHECK (scope IN ('global','template','project-local')),
+            status       TEXT    NOT NULL DEFAULT 'installed',
+            installed_at TEXT    NOT NULL,
+            created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            CHECK (kind != 'skill' OR file_path IS NOT NULL),
+            CHECK (origin != 'installed' OR source_url IS NOT NULL),
+            CHECK (origin != 'builtin' OR source_url IS NULL)
+        )
+      `);
+      if (tableExists(db, 'cheatcodes')) {
+        db.exec(`
+          INSERT INTO cheatcodes_new
+            (id, name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+          SELECT
+            id, name, kind, 'installed', '', source_url, NULL, version, trust_tier,
+            CASE scope WHEN 'local' THEN 'project-local' WHEN 'global' THEN 'global' ELSE 'project-local' END,
+            status, installed_at, installed_at, installed_at
+          FROM cheatcodes
+        `);
+        // LINT-ALLOW: table-rebuild swap — installed rows already copied (#101).
+        db.exec('DROP TABLE cheatcodes');
+      }
+      db.exec('ALTER TABLE cheatcodes_new RENAME TO cheatcodes');
+    }
+
+    // (2) Fold the skills rows in as origin='builtin' (kind='skill',
+    // source_url NULL per the builtin CHECK). installed_at adopts created_at.
+    if (tableExists(db, 'skills')) {
+      db.exec(`
+        INSERT OR IGNORE INTO cheatcodes
+          (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+        SELECT
+          name, 'skill', 'builtin', description, NULL, file_path, NULL, trust_tier, scope, status, created_at, created_at, updated_at
+        FROM skills
+      `);
+    }
+
+    // (3) Rebuild skill_invocations so its FK targets cheatcodes(name) instead
+    // of the dropped skills(name). Rows are copied verbatim. The agent_runs /
+    // tasks FKs are only declared when those parent tables already exist —
+    // migrations run before the final applySchema re-creates them, so on a DB
+    // seeded at v17 (which never had them) we keep the plain INTEGER columns
+    // that shape already used, matching pre-migration behaviour.
+    if (tableExists(db, 'skill_invocations')) {
+      const agentRunFk = tableExists(db, 'agent_runs') ? ' REFERENCES agent_runs(id)' : '';
+      const taskFk = tableExists(db, 'tasks') ? ' REFERENCES tasks(id)' : '';
+      // LINT-ALLOW: scratch table for the FK-repoint rebuild (#101).
+      db.exec('DROP TABLE IF EXISTS skill_invocations_new');
+      db.exec(`
+        CREATE TABLE skill_invocations_new (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_name    TEXT    NOT NULL REFERENCES cheatcodes(name),
+            agent_name    TEXT    NOT NULL,
+            agent_run_id  INTEGER${agentRunFk},
+            task_id       INTEGER${taskFk},
+            invoked_at    TEXT    NOT NULL,
+            outcome       TEXT    NOT NULL DEFAULT 'completed'
+                            CHECK (outcome IN ('completed','failed','partial'))
+        )
+      `);
+      db.exec(`
+        INSERT INTO skill_invocations_new (id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome)
+        SELECT id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome FROM skill_invocations
+      `);
+      // LINT-ALLOW: FK-repoint rebuild — rows already copied (#101).
+      db.exec('DROP TABLE skill_invocations');
+      db.exec('ALTER TABLE skill_invocations_new RENAME TO skill_invocations');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_name)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_skill_invocations_task  ON skill_invocations(task_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_skill_invocations_agent_run ON skill_invocations(agent_run_id)');
+    }
+
+    // (4) Drop the now-empty skills registry.
+    // LINT-ALLOW: v18→v19 migration retires the skills table, folded into cheatcodes (#101).
+    db.exec('DROP TABLE IF EXISTS skills');
+
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV18toV19: foreign_key_check found ${violations.length} dangling reference(s) after the skills→cheatcodes unification`,
       );
     }
     db.exec('COMMIT');
