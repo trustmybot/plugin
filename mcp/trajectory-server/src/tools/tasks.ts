@@ -10,22 +10,21 @@ import { resolve, dirname } from 'node:path';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-// Extract directories implied by a spec's `## Files` section. Mirrors
-// parseFilesDirs in composites.ts — kept here to avoid a circular import
-// (composites.ts imports BRANCH_ID_RE from tasks.ts).
-function specFileDirs(specBody: string): Set<string> {
+// Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
+// composites.ts — kept here to avoid a circular import (composites.ts imports
+// BRANCH_ID_RE from tasks.ts). `filesJson` is the tasks.files JSON column.
+function taskFileDirs(filesJson: string | null | undefined): Set<string> {
   const dirs = new Set<string>();
-  let inFiles = false;
-  for (const line of specBody.split('\n')) {
-    const h2 = line.match(/^##\s+(.+)/);
-    if (h2) {
-      inFiles = /^files\b/i.test(h2[1]!.trim());
-      continue;
-    }
-    if (!inFiles) continue;
-    const m = line.match(/^\s*[-*]\s+`?([^`\s—|]+)/);
-    if (!m) continue;
-    const path = m[1]!.replace(/[`,.;]+$/, '');
+  if (!filesJson) return dirs;
+  let files: unknown;
+  try {
+    files = JSON.parse(filesJson);
+  } catch {
+    return dirs;
+  }
+  if (!Array.isArray(files)) return dirs;
+  for (const path of files) {
+    if (typeof path !== 'string') continue;
     const slash = path.lastIndexOf('/');
     dirs.add(slash >= 0 ? path.slice(0, slash) : '');
   }
@@ -265,19 +264,19 @@ export function taskTools(db: TrajectoryDB): {
                   type: 'array',
                   items: { type: 'string' },
                   description:
-                    'Typed Rails (#673): scope-fence allowlist — the path-like strings SWE is ' +
-                    'allowed to edit for this task. The swe-scope-fence hook reads this column ' +
-                    'directly (no longer scrapes ## Files markdown). Non-empty array of paths. ' +
-                    'Persisted as a JSON array. An empty/omitted array disables scope enforcement.',
+                    'Typed Rails (#673): scope-fence allowlist — the authoritative list of path-like ' +
+                    'strings SWE is allowed to edit for this task. The swe-scope-fence hook reads this ' +
+                    'column directly. Non-empty array of paths. Persisted as a JSON array. An ' +
+                    'empty/omitted array disables scope enforcement.',
                 },
                 verification: {
                   type: 'array',
                   items: { type: 'string' },
                   description:
-                    'Typed Rails (#673): verification commands run by the swe-verification-gate hook ' +
-                    'in the task worktree before SWE may flip the task to completed (no longer scrapes ' +
-                    '## Verification markdown). Non-empty array of shell command strings. Persisted as ' +
-                    'a JSON array. An empty/omitted array disables verification enforcement.',
+                    'Typed Rails (#673): the authoritative verification commands run by the ' +
+                    'swe-verification-gate hook in the task worktree before SWE may flip the task to ' +
+                    'completed. Non-empty array of shell command strings. Persisted as a JSON array. ' +
+                    'An empty/omitted array disables verification enforcement.',
                 },
               },
               required: ['branch_id', 'description'],
@@ -345,7 +344,7 @@ export function taskTools(db: TrajectoryDB): {
           waive_spec_shape: {
             type: 'boolean',
             description:
-              'Bypass the spec-section shape gate (## Files/## Success Criteria/## Verification, ≤200 lines).',
+              'Bypass the spec-section shape gate (## Success Criteria, ≤200 lines).',
           },
           waive_spec_shape_reason: {
             type: 'string',
@@ -430,7 +429,7 @@ export function taskTools(db: TrajectoryDB): {
       const waiverReason = (args['waive_scope_gate_reason'] ?? '') as string;
 
       // --- Spec-section shape gate (MCP-level enforcement) ---
-      // Each spec_body must contain the three required H2 sections and be ≤200 lines.
+      // Each spec_body must contain the ## Success Criteria H2 section and be ≤200 lines.
       // Waivable with waive_spec_shape_reason (≥10 chars, audited).
       const specShapeWaived = args['waive_spec_shape'] === true;
       const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '') as string;
@@ -440,7 +439,7 @@ export function taskTools(db: TrajectoryDB): {
           return err('waive_spec_shape_reason must be a string ≥10 chars.');
         }
       } else {
-        const REQUIRED_H2 = ['## Files', '## Success Criteria', '## Verification'];
+        const REQUIRED_H2 = ['## Success Criteria'];
         for (const t of (args['tasks'] as TaskInput[])) {
           if (!t.spec_body) continue;
           const missing = REQUIRED_H2.filter(
@@ -459,8 +458,8 @@ export function taskTools(db: TrajectoryDB): {
                   error: 'spec_shape_violation',
                   message:
                     `Spec shape gate: task branch_id='${t.branch_id}' — ${parts.join('; ')}. ` +
-                    `Each spec_body must contain ## Files, ## Success Criteria, ## Verification (H2 headings) ` +
-                    `and be ≤200 lines. Add the missing sections or pass waive_spec_shape=true with ` +
+                    `Each spec_body must contain a ## Success Criteria (H2 heading) ` +
+                    `and be ≤200 lines. Add the missing section or pass waive_spec_shape=true with ` +
                     `waive_spec_shape_reason="<why>" (≥10 chars) for tasks without full specs.`,
                   branch_id: t.branch_id,
                   missing_sections: missing,
@@ -993,7 +992,7 @@ export function taskTools(db: TrajectoryDB): {
       });
 
       // --- Gate 6: Parallel-overlap field ---
-      // Compute pairwise ## Files-section overlap across the batch and return
+      // Compute pairwise files[] overlap across the batch and return
       // parallel_groups (safe to run concurrently) + overlapping_pairs.
       // Pure response enrichment — no gating, no error on overlap.
       const parallelGroups: number[][] = [];
@@ -1001,7 +1000,7 @@ export function taskTools(db: TrajectoryDB): {
       if (inserted.length > 1) {
         const taskFilePaths = inserted.map((t) => ({
           id: t.id,
-          paths: specFileDirs(t.spec_body ?? ''),
+          paths: taskFileDirs(t.files),
         }));
         const adjMatrix = new Map<number, Set<number>>();
         for (const t of taskFilePaths) adjMatrix.set(t.id, new Set());

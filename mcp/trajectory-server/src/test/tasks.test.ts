@@ -1525,7 +1525,7 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_create_batch spec-shape gate: rejects spec_body missing required H2 sections', async () => {
+  it('task_create_batch spec-shape gate: rejects spec_body missing ## Success Criteria', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -1540,16 +1540,41 @@ describe('taskTools', () => {
       tasks: [{
         branch_id: 'feat/shape-test',
         description: 'spec without required sections',
-        spec_body: '## Files\nsome files here\n\n## Description\nno success criteria or verification',
+        spec_body: '## Description\nno success criteria heading anywhere',
       }],
     });
 
-    assert.ok(result.isError, 'Expected spec-shape gate to reject spec missing sections');
+    assert.ok(result.isError, 'Expected spec-shape gate to reject spec missing ## Success Criteria');
     const data = parseResult(result);
     assert.equal(data.error, 'spec_shape_violation');
     assert.ok(data.missing_sections.includes('## Success Criteria'), 'Must list missing Success Criteria');
-    assert.ok(data.missing_sections.includes('## Verification'), 'Must list missing Verification');
     assert.ok(data.message.includes('waive_spec_shape=true'), 'Error must teach waiver path');
+
+    db.close();
+  });
+
+  it('task_create_batch spec-shape gate: accepts spec_body without ## Files/## Verification', async () => {
+    const db = tempDB();
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+      waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [{
+        branch_id: 'feat/no-files-section',
+        description: 'spec with only ## Success Criteria',
+        spec_body: '## Description\ndo the thing\n\n## Success Criteria\n- it works',
+        files: ['mcp/trajectory-server/src/tools/tasks.ts'],
+        verification: ['bun test'],
+      }],
+    });
+
+    assert.ok(!result.isError, `Expected no error for spec with only ## Success Criteria: ${JSON.stringify(parseResult(result))}`);
 
     db.close();
   });
@@ -1610,7 +1635,7 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_create_batch spec-shape gate: accepts spec with all three required H2 sections and ≤200 lines', async () => {
+  it('task_create_batch spec-shape gate: still accepts a spec that includes ## Files/## Verification (backward-compat)', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -1646,7 +1671,7 @@ describe('taskTools', () => {
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
-    const validSpec = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+    const validSpec = '## Success Criteria\n- pass';
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
@@ -1655,7 +1680,7 @@ describe('taskTools', () => {
       waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
       agent: 'bro',
       issue_id: String(issueId),
-      tasks: [{ branch_id: 'feat/parallel-single', description: 'single task', spec_body: validSpec }],
+      tasks: [{ branch_id: 'feat/parallel-single', description: 'single task', spec_body: validSpec, files: ['src/tools/tasks.ts'] }],
     });
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -1672,8 +1697,7 @@ describe('taskTools', () => {
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
-    const specA = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
-    const specB = '## Files\n- src/db/schema.sql\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+    const validSpec = '## Success Criteria\n- pass';
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
@@ -1683,8 +1707,8 @@ describe('taskTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       tasks: [
-        { branch_id: 'feat/parallel-a', description: 'task a', spec_body: specA },
-        { branch_id: 'feat/parallel-b', description: 'task b', spec_body: specB },
+        { branch_id: 'feat/parallel-a', description: 'task a', spec_body: validSpec, files: ['src/tools/tasks.ts'] },
+        { branch_id: 'feat/parallel-b', description: 'task b', spec_body: validSpec, files: ['src/db/schema.sql'] },
       ],
     });
 
@@ -1701,8 +1725,7 @@ describe('taskTools', () => {
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
-    const specA = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
-    const specB = '## Files\n- src/tools/agents.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+    const validSpec = '## Success Criteria\n- pass';
 
     const result = await call(tools.handlers, 'task_create_batch', {
       waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
@@ -1712,8 +1735,8 @@ describe('taskTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       tasks: [
-        { branch_id: 'feat/overlap-a', description: 'task a', spec_body: specA },
-        { branch_id: 'feat/overlap-b', description: 'task b', spec_body: specB },
+        { branch_id: 'feat/overlap-a', description: 'task a', spec_body: validSpec, files: ['src/tools/tasks.ts'] },
+        { branch_id: 'feat/overlap-b', description: 'task b', spec_body: validSpec, files: ['src/tools/agents.ts'] },
       ],
     });
 

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tempDB } from './helpers.js';
-import { compositeTools, parseFilesDirs } from '../tools/composites.js';
+import { compositeTools, filesToDirs } from '../tools/composites.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';
@@ -866,26 +866,22 @@ describe('intent_start + headless_intent_start non-duplication (#426)', () => {
         db.close();
     });
 });
-describe('parseFilesDirs (#300)', () => {
-    it('derives unique dirs from a spec ## Files section', () => {
-        const spec = [
-            '## Description', 'do a thing', '',
-            '## Files',
-            '- `src/api/handler.ts` — edit',
-            '- `src/api/util.ts` — add',
-            '- `docs/guide.md` — update',
-            '- `README.md` — touch',
-            '',
-            '## Success Criteria', '- `src/other.ts` must not be listed (wrong section)',
-        ].join('\n');
-        assert.deepEqual(parseFilesDirs(spec).sort(), ['', 'docs', 'src/api']);
+describe('filesToDirs (#300)', () => {
+    it('derives unique dirs from a typed files[] array', () => {
+        const files = [
+            'src/api/handler.ts',
+            'src/api/util.ts',
+            'docs/guide.md',
+            'README.md',
+        ];
+        assert.deepEqual(filesToDirs(files).sort(), ['', 'docs', 'src/api']);
     });
 });
 function seedTask(db, opts) {
     db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
      VALUES (1, 'brief test obj', 'd', 'open', datetime('now'), datetime('now'))`);
-    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, repo, created_at, updated_at)
-     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, 'abc123def', ?, datetime('now'), datetime('now'))`, [opts.spec, opts.repo ?? null]);
+    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, files, commit_sha, repo, created_at, updated_at)
+     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, ?, 'abc123def', ?, datetime('now'), datetime('now'))`, [opts.spec, JSON.stringify(opts.files ?? []), opts.repo ?? null]);
     const row = db.get('SELECT last_insert_rowid() AS id');
     db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
      VALUES (1, 'bro', 'decision', 'Use approach B', datetime('now'))`);
@@ -908,9 +904,9 @@ describe('task_brief (#300)', () => {
         assert.ok(disc.some((d) => d.kind === 'decision' && d.body === 'Use approach B'));
         db.close();
     });
-    it('populates scope_world_model from the spec dirs via the graph', async () => {
+    it('populates scope_world_model from the typed files[] dirs via the graph', async () => {
         const db = tempDB();
-        const id = seedTask(db, { repo: 'app', spec: SPEC });
+        const id = seedTask(db, { repo: 'app', spec: SPEC, files: ['src/api/handler.ts'] });
         // Stub graph: only allDirectoriesForRepo is exercised by task_brief.
         const stubGraph = {
             allDirectoriesForRepo: () => [

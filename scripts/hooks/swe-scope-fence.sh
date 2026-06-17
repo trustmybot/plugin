@@ -12,10 +12,9 @@
 #   - A listed path that IS a directory contributes that directory itself.
 #   - tests/ paths: always allowed when files[] lists any tests/ path's parent.
 #
-# Clean break (#673): the scope fence reads the typed `files` column only —
-# it does NOT scrape ## Files markdown from spec_body. A task with an empty
-# files[] array (e.g. pre-migration tasks, or bro omitting the field) skips
-# enforcement.
+# Typed Rails (#673): the scope fence reads the typed `files` column directly.
+# A task with an empty files[] array (e.g. pre-migration tasks, or bro omitting
+# the field) skips enforcement.
 #
 # Toolchain PATH (#673 audit): this hook performs only path-string comparison
 # (jq/dirname/sqlite via libs) — it never execs user toolchains, so the
@@ -98,7 +97,7 @@ while IFS= read -r path_token; do
   esac
 done <<< "$FILE_PATHS"
 
-# Clean break: empty typed files[] → skip enforcement (no markdown fallback).
+# Empty typed files[] → skip enforcement.
 if [ "${#ALLOWED_DIRS[@]}" -eq 0 ]; then
   jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed files[] — scope fence skipped. Ask bro to set the task'"'"'s files[] field (Typed Rails #673) to enforce edit scope."}}'
   exit 0
@@ -138,7 +137,7 @@ for allowed in "${ALLOWED_DIRS[@]}"; do
   esac
 done
 
-# Special case: if ## Files lists any tests/ parent, allow any tests/ path.
+# Special case: if files[] lists any tests/ parent, allow any tests/ path.
 if [ "$HAS_TESTS_DIR" = "yes" ]; then
   case "$REL_TARGET" in
     tests/*|tests) exit 0 ;;
