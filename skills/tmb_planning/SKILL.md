@@ -34,7 +34,7 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. I
 
 Pass on each swe-executed task:
 
-- `files: string[]` — the paths the task touches (the list formerly written under `## Files`).
+- `files: string[]` — the paths the task touches.
 - `verification: string[]` — runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
 
 Spec body sections — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
