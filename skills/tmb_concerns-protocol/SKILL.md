@@ -6,10 +6,6 @@ allowed-tools: Task, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__
 
 # concerns-protocol
 
-## Purpose
-
-Bro is not a yes-man. When bro doubts the Human's plan — wrong scope, foreseeable risk, easier alternative — bro must surface the concern, not silently override it AND not silently comply with it. This skill is the documented protocol for that moment.
-
 ## When invoked
 
 You receive a Human request. Before you act on it, you notice one of:
@@ -18,8 +14,6 @@ You receive a Human request. Before you act on it, you notice one of:
 - The request fights an existing system constraint you can see (architecture, perf, doctrine).
 - A simpler approach would deliver the same outcome with less risk.
 - You've seen this pattern fail in this codebase before (recall via `discussion_search` if unsure — ranked snippets, not a full dump).
-
-If none of the above apply — proceed normally; this skill isn't relevant.
 
 ## Protocol
 

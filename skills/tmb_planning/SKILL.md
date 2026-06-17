@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_tr
 
 ## 1. Verify the world model
 
-Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` yourself to build it — it's deterministic and needs no Human — then re-read. Without the world model bro is planning blind.
+Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` yourself to build it — it's deterministic and needs no Human — then re-read.
 
 Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
 
@@ -30,12 +30,12 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. I
 | File layout | single file until ~200 LOC |
 | Python / concurrency | `python3`; single-user, single-process |
 
-Two surfaces carry the spec. **Typed args** on `task_create_batch` carry the machine-read contract; **spec_body markdown** carries the prose bro and swe reason from.
+**Typed args** on `task_create_batch` carry the machine-read contract; **spec_body markdown** carries the prose bro and swe reason from.
 
 Pass on each swe-executed task:
 
-- `files: string[]` — the paths the task touches (the list formerly written under `## Files`). The scope fence reads this typed field.
-- `verification: string[]` — runnable bash commands, one per entry, commands only. Each entry is executed verbatim by the verification gate, so it holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
+- `files: string[]` — the paths the task touches (the list formerly written under `## Files`).
+- `verification: string[]` — runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
 
 Spec body sections — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
 
@@ -45,8 +45,6 @@ Spec body sections — when the scope outgrows one spec, split into multiple tas
 - `## Verification` — the same commands as typed `verification[]`, for the reader
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
-
-The typed `files[]`/`verification[]` args are what the scope fence and verification gate enforce; the matching markdown sections are reader-facing mirrors, not the source of enforcement.
 
 Before `task_create_batch`: `discussion_append(issue_id, author='bro', kind='decision', body='<chosen approach>')`.
 
@@ -67,7 +65,7 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 Create the tasks with `task_create_batch`, passing the typed `files[]` and `verification[]` for each swe-executed task and asking it to emit the planning-complete event in the same transaction. `waive_scope_gate` is valid for truly trivial work (`'trivial: <what>'`) or headless mode (`'headless mode, defaults applied; <one-line scope summary>'`).
 
-Then run the worktree hook per branch and spawn SWE per task — the post-create hint carries the exact spawn recipe.
+Then run the worktree hook per branch and spawn SWE per task.
 
 The batch response includes `parallel_groups` — tasks in the same group are safe to spawn in parallel.
 

@@ -36,7 +36,7 @@ Q2–Q4 (radio): one per disagreement, `header` ≤12 chars.
 
 ## Phase 5 — Close (one composite call)
 
-`roundtable_close_with_decisions` with a one-sentence outcome and decisions payload — the server enforces the caps. Collapses finalize_decisions + close + summarize into one transactional call. The `roundtable-cleanup-postcheck.sh` PostToolUse hook verifies the six capture surfaces and warns on any missing.
+`roundtable_close_with_decisions` with a one-sentence outcome and decisions payload. Collapses finalize_decisions + close + summarize into one transactional call.
 
 ## Phase 6 — Follow-ups
 

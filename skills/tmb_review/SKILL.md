@@ -6,9 +6,7 @@ allowed-tools: Task, Bash, mcp__plugin_tmb_trajectory-server, AskUserQuestion
 
 # Review
 
-Three review-related judgments live here. Mechanical pre-checks (lint
-pass, test pass, secrets regex, hardcoded-cred scan, file-count, push
-gate's signed-off check) run by hooks + CI before this skill loads.
+Three review-related judgments live here.
 
 ## A. PR-reviewer protocol (push gate, loaded by pr-reviewer)
 
@@ -91,7 +89,7 @@ Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local over
 
 Read pr-reviewer's first response line:
 - `MCP available: yes` — the reviewer wrote `validation_record` itself.
-- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the §A fallback script, which prepends the required feedback prefix itself. Either way the row must exist before you push.
+- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the §A fallback script, which prepends the required feedback prefix itself.
 
 ### Outcomes
 
@@ -104,7 +102,7 @@ Read pr-reviewer's first response line:
 
 ## D. PR/MR comment triage (bro, loaded by /monitor)
 
-`pr_comments_get` does the deterministic fetch + since-marker bookkeeping; comment rows are auto-persisted as discussion notes by `post-pr-comments-persist.sh` PostToolUse hook. This section is the judgment around what's task-worthy.
+`pr_comments_get` does the deterministic fetch + since-marker bookkeeping. This section is the judgment around what's task-worthy.
 
 ### Resolve the PR
 
@@ -139,7 +137,7 @@ For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact
 
 ## Code-quality criteria (qualitative reference)
 
-Mechanical patterns (bare except, f-string SQL, mutable default args, missing subprocess timeout, etc.) are flagged automatically by `scripts/hooks/code-quality-lint.sh`. This section is the qualitative pass.
+Mechanical patterns (bare except, f-string SQL, mutable default args, missing subprocess timeout, etc.) are caught mechanically. This section is the qualitative pass.
 
 **Error handling**: each external dependency failure mode named in the spec? Partial failures recoverable or full rollback? Errors diagnosable from logs alone?
 
