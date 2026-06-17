@@ -24,8 +24,7 @@ describe('TrajectoryDB', () => {
             'agent_runs',
             'pr_review_runs',
             'repos',
-            // #2886 capability catalog + junctions
-            'commands',
+            // #2886 capability catalog junction
             'skill_invocations',
             // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
             'discussions_fts',
@@ -43,7 +42,7 @@ describe('TrajectoryDB', () => {
         assert.deepEqual(actualNames, expectedSorted);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta should have a row');
-        assert.equal(meta.schema_version, 16);
+        assert.equal(meta.schema_version, 17);
         db.close();
     });
     it('run inserts a row into skills, get retrieves it, all lists multiple rows', () => {

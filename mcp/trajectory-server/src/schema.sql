@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 16, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 17, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -274,31 +274,6 @@ CREATE TABLE IF NOT EXISTS pr_review_runs (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
-
--- Commands catalog (#2886). One row per slash command. The plugin ships
--- 5 first-class commands (/scan, /onboard, /monitor, /roundtable, /tmb:agent-create); project-
--- local commands land at `<project>/.claude/commands/<name>.md`.
-CREATE TABLE IF NOT EXISTS commands (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT    NOT NULL UNIQUE,
-    description  TEXT    NOT NULL,
-    file_path    TEXT    NOT NULL,
-    scope        TEXT    NOT NULL DEFAULT 'global'
-                   CHECK (scope IN ('global','template','project-local')),
-    args_schema  TEXT    NOT NULL DEFAULT '{}',
-    status       TEXT    NOT NULL DEFAULT 'active',
-    created_at   TEXT    NOT NULL,
-    updated_at   TEXT    NOT NULL
-);
-
--- Seed the bundled slash commands so a fresh DB doesn't sit empty
--- (same pattern as agents + skills seeds above).
-INSERT OR IGNORE INTO commands (name, description, file_path, scope, args_schema, status, created_at, updated_at) VALUES
-    ('scan',       'Populate the kuzu world model (graph DB) by walking the session dir for git repos and pulling each dir''s README.md into a summary. Single phase — no background fill required for the primary navigation surface.', 'commands/scan.md',       'global', '{}',                                                          'active', datetime('now'), datetime('now')),
-    ('onboard',    'Configure or change identity, branching model, PR target, remotes, and issue-sync. Server-driven — bro orchestrates AskUserQuestion rounds; the MCP `onboard_*` tools own every if/else branch.',                                                       'commands/onboard.md',    'global', '{}',                                                          'active', datetime('now'), datetime('now')),
-    ('monitor',    'Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them.',                                                                                                                                                       'commands/monitor.md',    'global', '{"argument_hint":"<PR or MR number>"}',                       'active', datetime('now'), datetime('now')),
-    ('roundtable',    'Multi-agent deliberation on a topic with checkbox/radio AUQ ratification.',                                                                                                                                                                            'commands/roundtable.md',    'global', '{"argument_hint":"<topic to deliberate>"}',     'active', datetime('now'), datetime('now')),
-    ('agent-create', 'Create or copy an agent into the project .claude/agents/ directory. Routes to template-copy (Branch B) or from-scratch (Branch C) via tmb_agent-creator.',                                                                                           'commands/agent-create.md', 'global', '{"argument_hint":"<kebab-case agent name>"}', 'active', datetime('now'), datetime('now'));
 
 -- Junction table — the load-bearing bridge (#2886). One row per
 -- skill invocation. Bridges the catalog (skills) to the

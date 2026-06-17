@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
-import { commandTools } from '../tools/commands.js';
 import { skillTools } from '../tools/skills.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
@@ -25,47 +24,6 @@ function parseBatch(r: RawResult): Array<Record<string, unknown>> {
   const raw = JSON.parse(r.content[0]!.text);
   return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
 }
-
-describe('#2886 commands catalog', () => {
-  it('schema-seeds the 5 plugin-shipped slash commands', async () => {
-    const db = tempDB();
-    const tools = commandTools(db);
-    const res = await call(tools.handlers, 'command_list', { agent: 'bro' });
-    const names = parse(res).commands.map((c: { name: string }) => c.name).sort();
-    assert.deepEqual(names, ['agent-create', 'monitor', 'onboard', 'roundtable', 'scan']);
-    db.close();
-  });
-
-  it('command_register accepts project-local commands with valid args_schema JSON', async () => {
-    const db = tempDB();
-    const tools = commandTools(db);
-    const res = await call(tools.handlers, 'command_register', {
-      agent: 'bro',
-      name: 'deploy',
-      description: 'Trigger a deploy',
-      file_path: '.claude/commands/deploy.md',
-      args_schema: '{"argument_hint":"<env>"}',
-    });
-    assert.ok(!res.isError);
-    assert.equal(parse(res).args_schema, '{"argument_hint":"<env>"}');
-    db.close();
-  });
-
-  it('command_register rejects malformed args_schema JSON', async () => {
-    const db = tempDB();
-    const tools = commandTools(db);
-    const res = await call(tools.handlers, 'command_register', {
-      agent: 'bro',
-      name: 'broken',
-      description: 'd',
-      file_path: 'p',
-      args_schema: '{not json',
-    });
-    assert.ok(res.isError);
-    assert.match(parse(res).error, /args_schema must be a JSON string/);
-    db.close();
-  });
-});
 
 describe('#2886 skills.scope column', () => {
   it('seeded tmb_* skills have scope=global', async () => {

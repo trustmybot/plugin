@@ -9,7 +9,7 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 11`). P
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `skills`, `commands`, `agents`, `repos`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `skills`, `agents`, `repos`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 
 The **world model** lives in a sibling kuzu graph database (`world-model.kuzu`), not in this SQLite file. See `docs/architecture/WORLD_MODEL.md`.
 | **Junctions** (catalog ↔ run) | `skill_invocations` | FK to both `skills` and `agent_runs` — bridges the catalog to per-run analytics |
@@ -271,7 +271,6 @@ Before #2886 the `skills` table recorded only the **catalog** of available skill
 | New / changed | Shape | Why |
 |---|---|---|
 | `skills.scope` (column add) | `TEXT NOT NULL DEFAULT 'global' CHECK (scope IN ('global','template','project-local'))` | Match `agents.scope`. Distinguish schema-seeded `tmb_*` skills (global) from `.claude/skills/<name>/SKILL.md` (project-local). |
-| `commands` (new table) | name (UK), description, file_path, scope, args_schema (JSON), tags, status, invocations counter, created_by, timestamps | First-class catalog for slash commands (`/scan`, `/onboard`, `/monitor`, `/roundtable`). |
 
 ### Junction tables — the load-bearing bridge
 
@@ -325,4 +324,4 @@ GROUP BY t.id, t.branch_id;
 
 ### Implementation status
 
-Landed in #2886. The schema additions (`commands`, `skill_invocations` tables + the `skills.scope` enrichment, with bundled `skills` / `commands` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the skill-invocation capture path, and the MCP tool surfaces (`skill_record_invocation`, `command_register`, plus the `skill_invocations_list` reader).
+Landed in #2886. The schema additions (`skill_invocations` table + the `skills.scope` enrichment, with bundled `skills` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the skill-invocation capture path, and the MCP tool surfaces (`skill_record_invocation`, plus the `skill_invocations_list` reader).
