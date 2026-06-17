@@ -1,0 +1,5 @@
+{
+  "max_turns": 1,
+  "user_after_bro": [],
+  "terminal_pattern": "uninstalled|cheatcode_uninstall|removed|torn down|done|all set"
+}

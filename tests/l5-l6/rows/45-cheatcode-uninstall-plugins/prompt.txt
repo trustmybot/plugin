@@ -1,0 +1,1 @@
+@bro uninstall the feature-dev and code-review plugins. Don't ask questions.
