@@ -45,13 +45,6 @@ interface ValidationAttempt {
   created_at: string;
 }
 
-interface SkillUsage {
-  skill_name: string;
-  uses: number;
-  successes: number;
-  effectiveness: number | null;
-}
-
 export function reportTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -174,10 +167,6 @@ export function reportTools(db: TrajectoryDB): {
         [issueId],
       );
 
-      const skillsUsed = db.all<SkillUsage>(
-        `SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`,
-      );
-
       lines.push('## Tasks');
       lines.push('');
       if (tasks.length === 0) {
@@ -216,16 +205,22 @@ export function reportTools(db: TrajectoryDB): {
       }
       lines.push('');
 
+      const skillsUsed = db.all<{ skill_name: string; invocations: number }>(
+        `SELECT skill_name, COUNT(*) AS invocations
+           FROM skill_invocations
+           GROUP BY skill_name
+           ORDER BY invocations DESC, skill_name ASC`,
+      );
+
       lines.push('## Skill Usage Summary');
       lines.push('');
       if (skillsUsed.length === 0) {
         lines.push('_No skill usage recorded._');
       } else {
-        lines.push('| Skill | Uses | Successes | Effectiveness |');
-        lines.push('|-------|------|-----------|---------------|');
+        lines.push('| Skill | Invocations |');
+        lines.push('|-------|-------------|');
         for (const s of skillsUsed) {
-          const eff = s.effectiveness !== null ? s.effectiveness.toFixed(2) : '—';
-          lines.push(`| ${s.skill_name} | ${s.uses} | ${s.successes} | ${eff} |`);
+          lines.push(`| ${s.skill_name} | ${s.invocations} |`);
         }
       }
 

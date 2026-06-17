@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 describe('TrajectoryDB', () => {
-    it('opens an in-memory DB and verifies all 22 prod tables exist with schema_version=16 (world model in kuzu)', () => {
+    it('opens an in-memory DB and verifies all prod tables exist with schema_version=18 (world model in kuzu)', () => {
         const db = tempDB();
         const expectedTables = [
             'issues',
@@ -42,7 +42,7 @@ describe('TrajectoryDB', () => {
         assert.deepEqual(actualNames, expectedSorted);
         const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta should have a row');
-        assert.equal(meta.schema_version, 17);
+        assert.equal(meta.schema_version, 18);
         db.close();
     });
     it('run inserts a row into skills, get retrieves it, all lists multiple rows', () => {

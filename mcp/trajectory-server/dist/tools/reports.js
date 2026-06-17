@@ -118,7 +118,6 @@ export function reportTools(db) {
                 validationAttempts = db.all('SELECT * FROM validation_attempts WHERE task_id IN (' + placeholders + ') ORDER BY task_id ASC, attempt_n ASC', taskIds);
             }
             const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? ORDER BY id ASC`, [issueId]);
-            const skillsUsed = db.all(`SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`);
             lines.push('## Tasks');
             lines.push('');
             if (tasks.length === 0) {
@@ -157,17 +156,20 @@ export function reportTools(db) {
                 }
             }
             lines.push('');
+            const skillsUsed = db.all(`SELECT skill_name, COUNT(*) AS invocations
+           FROM skill_invocations
+           GROUP BY skill_name
+           ORDER BY invocations DESC, skill_name ASC`);
             lines.push('## Skill Usage Summary');
             lines.push('');
             if (skillsUsed.length === 0) {
                 lines.push('_No skill usage recorded._');
             }
             else {
-                lines.push('| Skill | Uses | Successes | Effectiveness |');
-                lines.push('|-------|------|-----------|---------------|');
+                lines.push('| Skill | Invocations |');
+                lines.push('|-------|-------------|');
                 for (const s of skillsUsed) {
-                    const eff = s.effectiveness !== null ? s.effectiveness.toFixed(2) : '—';
-                    lines.push(`| ${s.skill_name} | ${s.uses} | ${s.successes} | ${eff} |`);
+                    lines.push(`| ${s.skill_name} | ${s.invocations} |`);
                 }
             }
             return ok({ markdown: lines.join('\n'), mode: 'detail' });

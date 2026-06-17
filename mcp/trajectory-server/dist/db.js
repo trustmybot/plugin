@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 17;
+const TARGET_SCHEMA_VERSION = 18;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -400,6 +400,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 17 && toVersion >= 17) {
         migrateV16toV17(db);
     }
+    if (fromVersion < 18 && toVersion >= 18) {
+        migrateV17toV18(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -712,6 +715,67 @@ function migrateV16toV17(db) {
             // Original error wins.
         }
         throw err;
+    }
+}
+function migrateV17toV18(db) {
+    if (!tableExists(db, 'skills') ||
+        !(hasColumn(db, 'skills', 'uses') ||
+            hasColumn(db, 'skills', 'successes') ||
+            hasColumn(db, 'skills', 'effectiveness'))) {
+        return;
+    }
+    // Drop the dead skill effectiveness stats (#97 schema audit): the
+    // skills.uses/successes/effectiveness columns are 100% unpopulated, read only
+    // by reports.ts, and written only by the now-removed skill_record_outcome
+    // tool. Rebuild the skills table without them, preserving every other column
+    // (scope/trust_tier/status). The skill_invocations FK references skills(name)
+    // by value, so per SQLite's table-rebuild guidance foreign_keys is toggled
+    // OFF around the swap (it cannot change inside a transaction) and the FK is
+    // re-checked afterward. After the rename skills(name) still holds every
+    // referenced name, so the check passes.
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        // LINT-ALLOW: scratch table for SQLite-style column drop via rebuild.
+        db.exec('DROP TABLE IF EXISTS skills_new');
+        db.exec(`
+      CREATE TABLE skills_new (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          name            TEXT    NOT NULL UNIQUE,
+          description     TEXT    NOT NULL,
+          file_path       TEXT    NOT NULL,
+          scope           TEXT    NOT NULL DEFAULT 'global'
+                            CHECK (scope IN ('global','template','project-local')),
+          trust_tier      TEXT    NOT NULL DEFAULT 'curated',
+          status          TEXT    NOT NULL DEFAULT 'active',
+          created_at      TEXT    NOT NULL,
+          updated_at      TEXT    NOT NULL
+      )
+    `);
+        db.exec(`
+      INSERT INTO skills_new (id, name, description, file_path, scope, trust_tier, status, created_at, updated_at)
+      SELECT id, name, description, file_path, scope, trust_tier, status, created_at, updated_at FROM skills
+    `);
+        // LINT-ALLOW: column-drop rebuild — data already copied into skills_new.
+        db.exec('DROP TABLE skills');
+        db.exec('ALTER TABLE skills_new RENAME TO skills');
+        const violations = db.prepare('PRAGMA foreign_key_check').all();
+        if (violations.length > 0) {
+            throw new Error(`migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
     }
 }
 function migrateV7toV8(db) {

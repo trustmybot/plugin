@@ -37,7 +37,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list` |
 | Audit | `tools/audit.ts` | `audit_log`, `audit_log_list` |
 | Validation | `tools/validation.ts` | `validation_record`, `validation_history` |
-| Skills | `tools/skills.ts` | `skill_register` (now takes `scope`), `skill_record_outcome`, `skill_record_invocation`, `skill_invocations_list` |
+| Skills | `tools/skills.ts` | `skill_register` (takes `scope`), `skill_promote`, `skill_invocations_list` |
 | Reports | `tools/reports.ts` | `issue_report_md` |
 | Config | `tools/config.ts` | `config_get`, `config_set`, `config_list` |
 | Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |

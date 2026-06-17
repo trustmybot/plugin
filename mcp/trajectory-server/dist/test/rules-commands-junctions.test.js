@@ -40,27 +40,15 @@ describe('#2886 skills.scope column', () => {
     });
 });
 describe('#2886 skill_invocations junction', () => {
-    it('skill_record_invocation writes a junction row referencing skills.name + agent_runs.id', async () => {
-        const db = tempDB();
-        const skills = skillTools(db);
-        // Seed an agent_run row so we can FK to it.
-        db.run(`INSERT INTO agent_runs (agent_type, started_at, completed_at)
-       VALUES ('bro', datetime('now'), datetime('now'))`);
-        const runId = (db.get(`SELECT id FROM agent_runs LIMIT 1`)).id;
-        const res = await call(skills.handlers, 'skill_record_invocation', {
-            agent: 'bro',
-            skill_name: 'tmb_planning',
-            agent_name: 'bro',
-            agent_run_id: runId,
-            outcome: 'completed',
-        });
-        assert.ok(!res.isError);
-        const row = parse(res);
-        assert.equal(row.skill_name, 'tmb_planning');
-        assert.equal(row.agent_run_id, runId);
-        assert.equal(row.outcome, 'completed');
-        db.close();
-    });
+    // The deterministic scripts/hooks/skill-invocation-record.sh hook is the sole
+    // writer of skill_invocations; the honor-system skill_record_invocation tool
+    // was retired in #96. The reader (skill_invocations_list) stays, so these
+    // tests seed rows the way the hook does — a direct INSERT.
+    function recordInvocation(db, skillName, agentRunId, taskId = null, outcome = 'completed') {
+        db.run(`INSERT INTO skill_invocations
+         (skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome)
+       VALUES (?, 'bro', ?, ?, datetime('now'), ?)`, [skillName, agentRunId, taskId, outcome]);
+    }
     it('skill_invocations_list is bidirectional — by skill_name OR by agent_run_id/task_id', async () => {
         const db = tempDB();
         const skills = skillTools(db);
@@ -70,47 +58,13 @@ describe('#2886 skill_invocations junction', () => {
         const runs = db.all(`SELECT id FROM agent_runs ORDER BY id`);
         const [run1, run2] = runs.map((r) => r.id);
         // run1 used tmb_planning + tmb_review; run2 used only tmb_planning
-        for (const [run, skill] of [
-            [run1, 'tmb_planning'],
-            [run1, 'tmb_review'],
-            [run2, 'tmb_planning'],
-        ]) {
-            await call(skills.handlers, 'skill_record_invocation', {
-                agent: 'bro',
-                skill_name: skill,
-                agent_name: 'bro',
-                agent_run_id: run,
-            });
-        }
+        recordInvocation(db, 'tmb_planning', run1);
+        recordInvocation(db, 'tmb_review', run1);
+        recordInvocation(db, 'tmb_planning', run2);
         const byRun = parse(await call(skills.handlers, 'skill_invocations_list', { agent: 'bro', agent_run_id: run1 }));
         assert.equal(byRun.count, 2);
         const bySkill = parse(await call(skills.handlers, 'skill_invocations_list', { agent: 'bro', skill_name: 'tmb_planning' }));
         assert.equal(bySkill.count, 2);
-        db.close();
-    });
-    it('skill_record_invocation rejects unknown skill_name', async () => {
-        const db = tempDB();
-        const tools = skillTools(db);
-        const res = await call(tools.handlers, 'skill_record_invocation', {
-            agent: 'bro',
-            skill_name: 'does-not-exist',
-            agent_name: 'bro',
-        });
-        assert.ok(res.isError);
-        assert.match(parse(res).error, /Skill not registered/);
-        db.close();
-    });
-    it('skill_record_invocation rejects invalid outcome', async () => {
-        const db = tempDB();
-        const tools = skillTools(db);
-        const res = await call(tools.handlers, 'skill_record_invocation', {
-            agent: 'bro',
-            skill_name: 'tmb_planning',
-            agent_name: 'bro',
-            outcome: 'maybe',
-        });
-        assert.ok(res.isError);
-        assert.match(parse(res).error, /Invalid outcome/);
         db.close();
     });
 });

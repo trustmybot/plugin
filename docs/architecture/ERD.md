@@ -48,8 +48,6 @@ erDiagram
         TEXT name UK
         TEXT trust_tier
         TEXT status
-        INT  uses
-        REAL effectiveness
     }
 
     plugin_config {
@@ -214,7 +212,7 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `skills` | Registry of curated + agent-created skills with effectiveness stats (`uses`, `successes`, `effectiveness`). Looked up by name. |
+| `skills` | Registry of curated + agent-created skills. Looked up by name; per-invocation history lives in `skill_invocations`. |
 | `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). Carries per-repo branching config (`target_branch`, `branching_model`, `protected_branches`) added in v11 — guards resolve policy from the repos row for the command's git toplevel; unregistered repos are no-op'd. |
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
 | `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
@@ -262,7 +260,7 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 
 ## Capability catalog — junction-based (#2886, landed)
 
-Before #2886 the `skills` table recorded only the **catalog** of available skills + aggregate counters (`uses`, `successes`, `failures`), with no per-invocation history — which agent on which task invoked which skill — and slash commands had no table at all.
+Before #2886 the `skills` table recorded only the **catalog** of available skills, with no per-invocation history — which agent on which task invoked which skill.
 
 #2886 closed this gap with three table additions + one schema enrichment, designed as a **portable catalog** that's analytics-only in the Claude Code plugin (file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
 
@@ -276,7 +274,7 @@ Before #2886 the `skills` table recorded only the **catalog** of available skill
 
 | New | Shape | Why |
 |---|---|---|
-| `skill_invocations` | `(id, agent_run_id FK, task_id FK nullable, skill_name FK, invoked_at, outcome IN ('completed','failed','partial'))` indexed on `(skill_name)` + `(task_id)` | One row per skill load. Closes the "agent didn't use skill it should have" detection loop. Per-invocation outcome enables real effectiveness analytics (vs the current aggregate counters which lose temporal granularity). |
+| `skill_invocations` | `(id, agent_run_id FK, task_id FK nullable, skill_name FK, invoked_at, outcome IN ('completed','failed','partial'))` indexed on `(skill_name)` + `(task_id)` | One row per skill load, written by the deterministic `scripts/hooks/skill-invocation-record.sh` PostToolUse hook. Closes the "agent didn't use skill it should have" detection loop. Per-invocation outcome enables real effectiveness analytics with full temporal granularity. |
 
 Indexes on both `(skill_name)` and `(task_id)` make both query directions cheap: **forward** ("what did this run/task touch") and **reverse** ("which runs used skill X").
 
@@ -324,4 +322,4 @@ GROUP BY t.id, t.branch_id;
 
 ### Implementation status
 
-Landed in #2886. The schema additions (`skill_invocations` table + the `skills.scope` enrichment, with bundled `skills` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the skill-invocation capture path, and the MCP tool surfaces (`skill_record_invocation`, plus the `skill_invocations_list` reader).
+Landed in #2886. The schema additions (`skill_invocations` table + the `skills.scope` enrichment, with bundled `skills` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the deterministic `scripts/hooks/skill-invocation-record.sh` capture path, and the `skill_invocations_list` MCP reader.
