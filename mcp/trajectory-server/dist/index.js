@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 19;
+var TARGET_SCHEMA_VERSION = 20;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21193,6 +21193,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 19 && toVersion >= 19) {
     migrateV18toV19(db2);
+  }
+  if (fromVersion < 20 && toVersion >= 20) {
+    migrateV19toV20(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -21582,6 +21585,37 @@ function migrateV18toV19(db2) {
     throw err18;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV19toV20(db2) {
+  if (!tableExists(db2, "cheatcodes")) {
+    return;
+  }
+  db2.exec("BEGIN");
+  try {
+    db2.exec("DELETE FROM cheatcodes WHERE name = 'tmb_agent-creator' AND origin = 'builtin'");
+    db2.exec(`
+      INSERT OR IGNORE INTO cheatcodes
+        (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      VALUES
+        ('tmb_cheatcode', 'skill', 'builtin',
+         'When bro hits a wall \u2014 a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap \u2014 name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.',
+         NULL, 'skills/tmb_cheatcode/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now'))
+    `);
+    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV19toV20: foreign_key_check found ${violations.length} dangling reference(s) after the builtin-skill seed correction`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err18) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err18;
   }
 }
 function migrateV7toV8(db2) {

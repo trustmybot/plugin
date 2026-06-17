@@ -53,9 +53,20 @@ describe('schema — current table set, default values, constraints', () => {
         for (const kept of ['name', 'kind', 'origin', 'description', 'file_path', 'scope', 'trust_tier', 'status', 'source_url', 'created_at', 'updated_at']) {
             assert.ok(cols.includes(kept), `cheatcodes.${kept} must exist`);
         }
-        // The bundled tmb_* skills are seeded as origin='builtin' skill rows.
+        // The bundled tmb_* skills are seeded as origin='builtin' skill rows — the
+        // seed set must match the 8 shipped skills/<name>/ dirs exactly (#102).
         const builtins = db.all(`SELECT name, kind, file_path, source_url FROM cheatcodes WHERE origin = 'builtin' AND name LIKE 'tmb_%'`);
-        assert.ok(builtins.length >= 8, 'all bundled tmb_* skills must be seeded as builtin rows');
+        const names = builtins.map((b) => b.name).sort();
+        assert.deepEqual(names, [
+            'tmb_cheatcode',
+            'tmb_concerns-protocol',
+            'tmb_docs-conventions',
+            'tmb_planning',
+            'tmb_recovery',
+            'tmb_review',
+            'tmb_skill-creator',
+            'tmb_swe-checklist',
+        ], 'builtin-skill seed must equal the 8 shipped skills (tmb_cheatcode in, tmb_agent-creator out)');
         for (const b of builtins) {
             assert.equal(b.kind, 'skill', `${b.name} must be kind=skill`);
             assert.ok(b.file_path, `${b.name} must carry a file_path (skill CHECK)`);
@@ -80,11 +91,11 @@ describe('schema — current table set, default values, constraints', () => {
         }, /CHECK/i);
         db.close();
     });
-    it('fresh DB has schema_version = 19 in plugin_meta', () => {
+    it('fresh DB has schema_version = 20 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 19);
+        assert.equal(meta.schema_version, 20);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });
