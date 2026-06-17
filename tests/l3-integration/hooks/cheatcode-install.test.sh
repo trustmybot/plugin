@@ -117,6 +117,50 @@ assert_eq "true" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.installed')" "flat
 assert_eq "1.2.3" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.version')" "flat version"
 assert_eq "plugin" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.attachments[0].target')" "flat default attachment"
 
+# Env-unset default-path probe: when TMB_CHEATCODE_INSTALL_FIXTURE is unset/empty
+# the script falls back to "$PWD/.tmb-cheatcode-install-fixture.json" (the path the
+# row setup-l5.sh stages in the step's CWD) and uses it if present. Run from a CWD
+# that holds the default-named file, with the env var explicitly unset.
+PROBE_DIR="$WORKSPACE/probe"
+mkdir -p "$PROBE_DIR"
+cat > "$PROBE_DIR/.tmb-cheatcode-install-fixture.json" <<'JSON'
+{ "installed": true, "version": "9.9.9", "error": null,
+  "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] }
+JSON
+
+OUT_PROBE=$(cd "$PROBE_DIR" && env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
+
+test_case "env unset + default fixture file present → fixture used"
+assert_eq "true" "$(printf '%s' "$OUT_PROBE" | jq -r '.installed')" "probe installed"
+assert_eq "9.9.9" "$(printf '%s' "$OUT_PROBE" | jq -r '.version')" "probe version"
+assert_eq "swe" "$(printf '%s' "$OUT_PROBE" | jq -r '.attachments[0].target')" "probe attachment target"
+
+# Env-set still wins over the default file: with the env pointing at a DIFFERENT
+# fixture, the default file in CWD is ignored.
+WINS_FIXTURE="$WORKSPACE/wins.json"
+cat > "$WINS_FIXTURE" <<'JSON'
+{ "installed": true, "version": "1.1.1", "error": null }
+JSON
+
+OUT_WINS=$(cd "$PROBE_DIR" && TMB_CHEATCODE_INSTALL_FIXTURE="$WINS_FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
+
+test_case "env-set fixture wins over the default file in CWD"
+assert_eq "1.1.1" "$(printf '%s' "$OUT_WINS" | jq -r '.version')" "env wins version"
+
+# No env and no default file: the no-fixture path is unchanged. Use a skill kind
+# (which never calls the marketplace) from a CWD with no default file so the probe
+# misses and nothing is installed — fast and network-free.
+NOFIX_DIR="$WORKSPACE/nofix"
+mkdir -p "$NOFIX_DIR"
+OUT_NOFIX=$(cd "$NOFIX_DIR" && env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
+  --candidate '{"name":"pdf-skill","kind":"skill","source_url":"https://x.test/pdf-skill"}')
+
+test_case "no env + no default file → no-fixture path unchanged (not installed)"
+assert_eq "false" "$(printf '%s' "$OUT_NOFIX" | jq -r '.installed')" "no-fixture installed"
+assert_eq "skill-proposed-pr" "$(printf '%s' "$OUT_NOFIX" | jq -r '.method')" "no-fixture method"
+
 # Skill kind with no fixture: nothing installs at the marketplace; the
 # attachment is the proposed-PR payload only — never an automatic md write.
 OUT_SKILL=$(bash "$SCRIPT" \

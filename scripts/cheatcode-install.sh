@@ -18,9 +18,12 @@
 #
 # The marketplace call is abstracted behind TMB_CHEATCODE_INSTALL_FIXTURE: when
 # that env var points at a JSON file, the install result is read from it (the
-# test hook — no network). Otherwise the marketplace adapter below runs. Either
-# way the output shape is identical, so tests exercise the real assembly path on
-# stubbed input.
+# test hook — no network). When the env is unset/empty the script falls back to
+# the deterministic default path "$PWD/.tmb-cheatcode-install-fixture.json" and
+# uses it if present (so the L6 chain, whose runner cannot pass the env var into
+# the step, still reaches the staged fixture). Otherwise the marketplace adapter
+# below runs. Either way the output shape is identical, so tests exercise the real
+# assembly path on stubbed input.
 #
 # The marketplace adapter is best-effort: a short timeout, and on any failure
 # (network denied, missing CLI, non-zero exit) the install degrades to
@@ -150,15 +153,26 @@ marketplace_install() {
   jq -nc --arg v "$ver" '{installed: true, version: (if ($v | length) > 0 then $v else null end), error: null}'
 }
 
+# Resolve the fixture path. The env var wins when set. When it is unset/empty,
+# probe the deterministic default path "$PWD/.tmb-cheatcode-install-fixture.json"
+# (the path the row setup-l5.sh stages in the step's CWD) and use it if present —
+# this lets the L6 chain reach the fixture even though the runner's subshell
+# export of the env var never reaches the step's `claude -p`. When neither the env
+# nor the default file is present, the live / no-fixture path is unchanged.
+FIXTURE_PATH="${TMB_CHEATCODE_INSTALL_FIXTURE:-}"
+if [ -z "$FIXTURE_PATH" ] && [ -f "$PWD/.tmb-cheatcode-install-fixture.json" ]; then
+  FIXTURE_PATH="$PWD/.tmb-cheatcode-install-fixture.json"
+fi
+
 # Acquire the install result. Fixture path (test hook) takes precedence over any
 # live marketplace call so CI never touches the network.
 install_result='{"installed":false,"version":null,"error":null}'
-if [ -n "${TMB_CHEATCODE_INSTALL_FIXTURE:-}" ]; then
-  [ -f "$TMB_CHEATCODE_INSTALL_FIXTURE" ] || {
-    echo "{\"error\":\"fixture not found: $TMB_CHEATCODE_INSTALL_FIXTURE\"}" >&2
+if [ -n "$FIXTURE_PATH" ]; then
+  [ -f "$FIXTURE_PATH" ] || {
+    echo "{\"error\":\"fixture not found: $FIXTURE_PATH\"}" >&2
     exit 1
   }
-  fixture=$(cat "$TMB_CHEATCODE_INSTALL_FIXTURE")
+  fixture=$(cat "$FIXTURE_PATH")
   if ! printf '%s' "$fixture" | jq -e 'type == "object"' >/dev/null 2>&1; then
     echo '{"error":"fixture is not a JSON object"}' >&2
     exit 1
