@@ -4,7 +4,10 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v0.10.0-beta — 2026-06-17
+
 ### Added
+- **Cheatcode vet stage** (#658): `cheatcode_vet` gathers reputation + security-surface signals for a candidate and emits a deterministic trust tier (trusted / caution / untrusted / unknown) + one-line rationale + capability list — a reproducible classification of the signal set, never an install verdict. A code-executing candidate (ships hooks / MCP / scripts) is never classified `trusted` on popularity alone; failed or empty signals degrade to `unknown` and never crash. Network stubbed via `TMB_CHEATCODE_VET_FIXTURE` in CI.
 - **Cheatcode install stage + approval gate** (#659): `cheatcode_install` installs a vetted cheatcode (skill / MCP toolkit / plugin) via the marketplace-install path (no seeding), writing one `cheatcodes` row plus its `cheatcode_attachments` record(s) in a single transaction and emitting `cheatcode_install` / `cheatcode_installed` audit rows; re-installing the same candidate no-ops. Installs are human-approved, never silent — a PreToolUse gate (`cheatcode-install-approval.sh`) blocks the install until a per-candidate `cheatcode_approve` record exists and fails closed otherwise. A standalone-skill install never edits agent frontmatter: it returns a proposed-PR payload for the Human-reviewed prompt-surface change. New `cheatcodes` + `cheatcode_attachments` tables (schema v14). Discovery/install fixtures stub the marketplace via `TMB_CHEATCODE_INSTALL_FIXTURE` — no live network in CI.
 
 ### Fixed
