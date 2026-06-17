@@ -1,16 +1,27 @@
-// Headless enforcement shim (#57). Marketplace-installed plugin hooks do NOT
-// fire in headless `claude -p` (CC trust-dialog gap), so TMB's PreToolUse gates
-// are absent for headless marketplace users. USER settings.json hooks DO fire
-// headless. So /onboard writes the plugin's PreToolUse hooks into the user
-// settings.json with the ${CLAUDE_PLUGIN_ROOT} placeholder resolved to an
-// absolute path.
+// Headless enforcement shim (#57, #74/#680). Marketplace-installed plugin hooks
+// do NOT fire in headless `claude -p` (CC trust-dialog gap), so TMB's PreToolUse
+// gates are absent for headless marketplace users. USER settings.json hooks DO
+// fire headless. So /onboard writes the plugin's PreToolUse hooks into the user
+// settings.json.
+//
+// Version-agnostic resolver (#74/#680): writing the ${CLAUDE_PLUGIN_ROOT}
+// placeholder resolved to an absolute, version-PINNED cache path orphaned every
+// entry on the next plugin upgrade or cache-clean (CC does not expand
+// ${CLAUDE_PLUGIN_ROOT} in *user* settings.json hooks — only in plugin hooks).
+// Instead onboard materializes ONE stable resolver script at
+// ~/.claude/tmb-hooks/resolve-hook.sh (outside the versioned cache, so it never
+// orphans) and writes version-agnostic commands:
+//   bash <stable-resolver> --marketplace <mp> --hook <basename>
+// The resolver discovers the active tmb version at hook-fire time and execs the
+// real gate, forwarding stdin + argv untouched. A version bump no longer orphans
+// the hooks.
 //
 // Only PreToolUse entries are copied — PostToolUse/SessionStart/UserPromptSubmit/
 // Stop/SubagentStop would double-fire when the plugin hooks also run
 // interactively (e.g. duplicate audit events). PreToolUse gates are idempotent
 // under double-fire.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { serverLog } from '../logger.js';
 
@@ -26,7 +37,11 @@ interface HookGroup {
   hooks: HookCommand[];
 }
 
-const PLUGIN_ROOT_PLACEHOLDER = '${CLAUDE_PLUGIN_ROOT}';
+// Stable resolver location (outside the versioned cache so it never orphans).
+const STABLE_RESOLVER_DIR = ['.claude', 'tmb-hooks'];
+const STABLE_RESOLVER_NAME = 'resolve-hook.sh';
+// Canonical resolver authored in the plugin, relative to the plugin root.
+const CANONICAL_RESOLVER_REL = ['scripts', 'lib', 'resolve-headless-hook.sh'];
 
 // Every TMB-managed hook entry is stamped with `_tmb_managed: true`. The
 // idempotency purge keys on THIS field, never on a path substring: dev/worktree
@@ -60,6 +75,24 @@ function basename(command: string): string {
   return parts[parts.length - 1] ?? command;
 }
 
+// Hook script basename without the .sh extension — the value passed to the
+// resolver's --hook arg (it re-appends scripts/hooks/<name>.sh).
+function hookName(command: string): string {
+  return basename(command).replace(/\.sh$/, '');
+}
+
+// Derive the marketplace name from the plugin root path. CC installs land at
+// .../plugins/cache/<marketplace>/tmb/<version>, so the marketplace is the dir
+// two segments above the version dir. Returns null when the path doesn't match
+// (e.g. a non-cache install layout) so the caller can skip rather than guess.
+function deriveMarketplace(pluginRoot: string): string | null {
+  const segs = pluginRoot.split('/').filter((s) => s.length > 0);
+  const cacheIdx = segs.lastIndexOf('cache');
+  if (cacheIdx === -1 || cacheIdx + 1 >= segs.length) return null;
+  const mp = segs[cacheIdx + 1];
+  return mp && mp.length > 0 ? mp : null;
+}
+
 function readPreToolUseFromHooksJson(pluginRoot: string): HookGroup[] | null {
   const hooksJsonPath = join(pluginRoot, 'hooks', 'hooks.json');
   if (!existsSync(hooksJsonPath)) return null;
@@ -75,17 +108,18 @@ function readPreToolUseFromHooksJson(pluginRoot: string): HookGroup[] | null {
 }
 
 // Build fresh TMB-managed PreToolUse groups: drop advisory/allow-returning hooks
-// (so deny gates run first), substitute ${CLAUDE_PLUGIN_ROOT} with the absolute
-// plugin root, stamp every entry with the sentinel, and drop any matcher group
+// (so deny gates run first), rewrite each kept command to a version-agnostic
+// resolver invocation (`bash <stable-resolver> --marketplace <mp> --hook
+// <basename>`), stamp every entry with the sentinel, and drop any matcher group
 // left empty. hooks.json order is preserved within each matcher.
-function buildTmbGroups(pre: HookGroup[], pluginRoot: string): HookGroup[] {
+function buildTmbGroups(pre: HookGroup[], resolverPath: string, marketplace: string): HookGroup[] {
   const groups: HookGroup[] = [];
   for (const group of pre) {
     const hooks = (group.hooks ?? [])
       .filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename(h.command)))
       .map((h) => ({
         type: h.type,
-        command: h.command.split(PLUGIN_ROOT_PLACEHOLDER).join(pluginRoot),
+        command: `bash ${resolverPath} --marketplace ${marketplace} --hook ${hookName(h.command)}`,
         ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
         _tmb_managed: true,
       }));
@@ -96,6 +130,21 @@ function buildTmbGroups(pre: HookGroup[], pluginRoot: string): HookGroup[] {
     });
   }
   return groups;
+}
+
+// Materialize the stable resolver at ~/.claude/tmb-hooks/resolve-hook.sh from
+// the canonical copy authored in the plugin. Idempotent: always (re)writes the
+// current canonical contents and chmod +x. Returns the absolute resolver path,
+// or null if the canonical copy is missing.
+function materializeResolver(pluginRoot: string, homeDir: string): string | null {
+  const canonical = join(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  if (!existsSync(canonical)) return null;
+  const resolverDir = join(homeDir, ...STABLE_RESOLVER_DIR);
+  const resolverPath = join(resolverDir, STABLE_RESOLVER_NAME);
+  mkdirSync(resolverDir, { recursive: true });
+  writeFileSync(resolverPath, readFileSync(canonical, 'utf8'));
+  chmodSync(resolverPath, 0o755);
+  return resolverPath;
 }
 
 // Remove every prior TMB-managed entry by sentinel, dropping now-empty matcher
@@ -139,7 +188,21 @@ export function writeHeadlessEnforcementShim(opts: {
     return { written: false, reason };
   }
 
-  const tmbGroups = buildTmbGroups(pre, pluginRoot);
+  const marketplace = deriveMarketplace(pluginRoot);
+  if (!marketplace) {
+    const reason = 'cannot derive marketplace from plugin root';
+    serverLog({ event: 'onboard_hooks_shim_skip', reason });
+    return { written: false, reason };
+  }
+
+  const resolverPath = materializeResolver(pluginRoot, homeDir);
+  if (!resolverPath) {
+    const reason = 'canonical resolver script missing';
+    serverLog({ event: 'onboard_hooks_shim_skip', reason });
+    return { written: false, reason };
+  }
+
+  const tmbGroups = buildTmbGroups(pre, resolverPath, marketplace);
 
   const settingsDir = join(homeDir, '.claude');
   const settingsPath = join(settingsDir, 'settings.json');
