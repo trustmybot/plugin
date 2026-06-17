@@ -4,8 +4,13 @@
 # Installs ONE approved cheatcode (skill, MCP/toolkit, plugin) and reports what
 # was wired so the caller can record the install + attachment in the trajectory
 # DB. The install is the marketplace-install path ONLY — no seed/copy/--plugin-dir
-# (the benchmarks standing rule). The candidate identity is its source_url; the
-# kind decides the attachment surface (docs/architecture/CHEATCODES.md #677):
+# (the benchmarks standing rule). `claude plugin install` takes a plugin name or
+# a name@marketplace ref, NOT a git URL: a repo must first be registered as a
+# marketplace via `claude plugin marketplace add <url>`, then installed by its
+# resolved name. So the plugin path is two steps — register the source_url as a
+# marketplace, resolve its name, then install <name>@<marketplace>. The candidate
+# identity is its source_url; the kind decides the attachment surface
+# (docs/architecture/CHEATCODES.md #677):
 #
 #   plugin → marketplace install loads its skills/hooks/commands via the plugin
 #            manifest. attachment target 'plugin', no prompt-surface edit.
@@ -128,10 +133,54 @@ esac
 
 INSTALL_TIMEOUT=30
 
+# Map the script's local|global scope onto the CLI's user|project|local scope.
+# The CLI's `--scope` accepts user|project|local; the script's "global" is a
+# user-wide install (user) and "local" is project-scoped (project).
+cli_scope() {
+  case "$SCOPE" in
+    global) printf 'user' ;;
+    *)      printf 'project' ;;
+  esac
+}
+
+# Resolve the marketplace name registered for $src_url. First parse the
+# `marketplace add` output (it prints the name in single quotes, e.g.
+# "Marketplace 'superpowers-dev' …"); if that yields nothing, query
+# `marketplace list --json` and match the entry whose url/repo corresponds to
+# $src_url. Prints the resolved name (possibly empty) on stdout.
+resolve_marketplace_name() {
+  local add_out="$1" name=""
+  name=$(printf '%s' "$add_out" \
+    | grep -oiE "marketplace '[^']+'" | head -1 \
+    | sed -E "s/.*'([^']+)'.*/\1/" || true)
+  if [ -n "$name" ]; then
+    printf '%s' "$name"
+    return
+  fi
+  # Fall back to the marketplace list. Normalize $src_url to an owner/repo slug
+  # (strip scheme/host and a trailing .git) and match against each entry's repo
+  # or url. Whichever matches yields the registered marketplace name.
+  local list slug
+  list=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace list --json 2>/dev/null || true)
+  printf '%s' "$list" | jq -e 'type == "array"' >/dev/null 2>&1 || return
+  slug=$(printf '%s' "$src_url" | sed -E 's#^[a-z]+://[^/]+/##i; s#\.git$##')
+  printf '%s' "$list" | jq -r \
+    --arg url "$src_url" --arg slug "$slug" '
+      map(select(
+        (.url // "") == $url
+        or ((.url // "") | sub("\\.git$"; "")) == ($url | sub("\\.git$"; ""))
+        or (.repo // "") == $slug
+      ))
+      | (.[0].name // "")
+    ' 2>/dev/null || true
+}
+
 # Marketplace install adapter (plugin/MCP kinds). Best-effort: prints a JSON
 # object {installed, version, error}. On any failure it degrades to
 # installed=false with an error note and never crashes. The marketplace-install
-# path is the ONLY install surface — no seeding / --plugin-dir.
+# path is the ONLY install surface — no seeding / --plugin-dir. Two steps:
+# register $src_url as a marketplace, then install <cand_name>@<marketplace>
+# (falling back to bare <cand_name> when the marketplace name can't be resolved).
 marketplace_install() {
   # No marketplace CLI available → degrade soft. Live marketplace wiring is
   # gated behind the fixture in every tested path; an environment without the
@@ -140,8 +189,27 @@ marketplace_install() {
     jq -nc '{installed: false, version: null, error: "marketplace CLI unavailable"}'
     return
   fi
-  local out rc
-  out=$(timeout "$INSTALL_TIMEOUT" claude plugin install "$src_url" 2>/dev/null); rc=$?
+  local scope add_out rc
+  scope=$(cli_scope)
+  # Step 1: register the repo URL as a marketplace. Best-effort — on non-zero,
+  # degrade soft (never crash).
+  add_out=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace add "$src_url" --scope "$scope" 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    jq -nc --arg e "marketplace add failed (exit $rc)" \
+      '{installed: false, version: null, error: $e}'
+    return
+  fi
+  # Step 2: resolve the marketplace name and build the install ref. When the
+  # name can't be resolved, fall back to a bare candidate-name install.
+  local mkt ref
+  mkt=$(resolve_marketplace_name "$add_out")
+  if [ -n "$mkt" ]; then
+    ref="${cand_name}@${mkt}"
+  else
+    ref="$cand_name"
+  fi
+  local out
+  out=$(timeout "$INSTALL_TIMEOUT" claude plugin install "$ref" --scope "$scope" 2>/dev/null); rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc --arg e "marketplace install failed (exit $rc)" \
       '{installed: false, version: null, error: $e}'

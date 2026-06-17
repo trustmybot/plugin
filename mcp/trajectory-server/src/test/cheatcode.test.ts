@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,16 @@ const UNINSTALL_SCRIPT = join(
   '..',
   'scripts',
   'cheatcode-uninstall.sh',
+);
+
+const INSTALL_SCRIPT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  '..',
+  'scripts',
+  'cheatcode-install.sh',
 );
 
 // Run the script with a PATH that has jq/bash coreutils but NO `claude`, so the
@@ -387,6 +397,82 @@ describe('cheatcode_install', () => {
     writeFileSync(path, body);
     return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
   }
+
+  // Offline proof of the marketplace-ref fix (#108), un-fixtured per #109: run
+  // the REAL script with a stubbed `claude` on PATH that records every argv to a
+  // file. The script must register the source URL as a marketplace, then install
+  // by <name>@<marketplace> — and must NEVER pass the bare URL to `plugin install`.
+  it('marketplace install: registers the URL then installs name@marketplace, never the bare URL', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-stub-'));
+    const argvLog = join(dir, 'argv.log');
+    const fakeClaude = join(dir, 'claude');
+    // The stub records its argv (one call per line, args tab-joined) and emits a
+    // marketplace name on `marketplace add` so name resolution from the add
+    // output succeeds. Exits 0 for every invocation.
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/usr/bin/env bash',
+        `printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}`,
+        `if [ "$1" = "plugin" ] && [ "$2" = "marketplace" ] && [ "$3" = "add" ]; then`,
+        `  echo "Adding marketplace…Marketplace 'stub-mkt' added"`,
+        'fi',
+        'exit 0',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(fakeClaude, 0o755);
+    try {
+      const url = 'https://github.com/x/pdf-plugin.git';
+      const r = spawnSync(
+        'bash',
+        [
+          INSTALL_SCRIPT,
+          '--candidate',
+          JSON.stringify({ name: 'pdf-plugin', kind: 'plugin', source_url: url }),
+        ],
+        {
+          encoding: 'utf8',
+          // Prepend the stub dir so its `claude` shadows any real CLI, while
+          // keeping the inherited PATH so jq/timeout still resolve. No
+          // TMB_CHEATCODE_INSTALL_FIXTURE and a CWD with no default fixture file,
+          // so the live marketplace adapter actually runs against the stub.
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env['PATH'] ?? ''}`,
+            TMB_CHEATCODE_INSTALL_FIXTURE: '',
+          },
+          cwd: dir,
+        },
+      );
+      assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.installed, true, 'stubbed install reports installed');
+
+      const calls = readFileSync(argvLog, 'utf8').trim().split('\n');
+      const addCall = calls.find((c) => c.startsWith('plugin marketplace add '));
+      const installCall = calls.find((c) => /^plugin install /.test(c));
+      assert.ok(addCall, `expected a 'plugin marketplace add' call; calls:\n${calls.join('\n')}`);
+      assert.ok(addCall!.includes(url), `marketplace add carries the source URL: ${addCall}`);
+      assert.ok(installCall, `expected a 'plugin install' call; calls:\n${calls.join('\n')}`);
+      assert.ok(
+        installCall!.startsWith('plugin install pdf-plugin@'),
+        `install uses name@marketplace, got: ${installCall}`,
+      );
+      // The load-bearing invariant: the bare URL is NEVER passed to install.
+      assert.ok(
+        !calls.some((c) => c === `plugin install ${url}` || c.startsWith(`plugin install ${url} `)),
+        `no call installs the bare URL; calls:\n${calls.join('\n')}`,
+      );
+      // The add must precede the install.
+      assert.ok(
+        calls.indexOf(addCall!) < calls.indexOf(installCall!),
+        'marketplace add runs before install',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it('writes one cheatcodes row + its attachment row in a single transaction', async () => {
     const db = tempDB();
