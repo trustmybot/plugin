@@ -8,7 +8,7 @@
 
 **Expected behavior**:
 1. Bro globs `.claude/agents/`, finds `architect.md`
-2. Spawns architect via `Task`
+2. Spawns architect via `Agent`
 3. Architect writes `discussion_append(kind='analysis')`
 4. Bro relays the read to the Human
 

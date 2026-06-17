@@ -2,7 +2,7 @@
 # Lint: shipped skills/ dirs match the seeded builtin-skill catalog rows.
 #
 # Catches the one silent-failure seam between the capability catalog and disk
-# (post-#101, schema v19): the cheatcodes table is the FK target for
+# (post-#101, schema v20): the cheatcodes table is the FK target for
 # skill-invocation-record.sh. If a shipped skills/<name>/ has no seed row, its
 # invocations are silently dropped by that hook's FK check; if a seed row has no
 # shipped dir, it's a dangling catalog entry pointing at a missing SKILL.md.

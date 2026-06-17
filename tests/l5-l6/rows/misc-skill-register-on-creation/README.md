@@ -19,8 +19,8 @@
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | ≥1 row in `skills` with `scope = 'project-local'` (bro-authored via tmb_skill-creator, not the schema-seeded global ones) |
-| `outcome-coherence.json` | `skills WHERE scope = 'project-local'`: `>=1` |
+| `outcome.sql` | ≥1 row in `cheatcodes` with `kind = 'skill'` and `scope = 'project-local'` (bro-authored via tmb_skill-creator, not the schema-seeded global ones) |
+| `outcome-coherence.json` | `cheatcodes WHERE kind = 'skill' AND scope = 'project-local'`: `>=1` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `skill_register` |
 | `tools-forbidden.json` | none |
