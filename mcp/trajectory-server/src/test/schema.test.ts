@@ -7,7 +7,7 @@ import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 
 describe('schema — current table set, default values, constraints', () => {
-  it('fresh prod-mode DB contains 24 tables (no eval/debug, no directories post-v8 — world model in kuzu)', () => {
+  it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -15,7 +15,6 @@ describe('schema — current table set, default values, constraints', () => {
       'tasks',
       'audit',
       'validation_attempts',
-      'skills',
       'agents',
       'roundtables',
       'roundtable_votes',
@@ -47,30 +46,80 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('skills table has no dead effectiveness stat columns (v18)', () => {
+  it('skills table is gone — folded into cheatcodes (v19, #101)', () => {
+    const db = tempDB();
+
+    const row = db.get<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='skills'",
+    );
+    assert.equal(row, undefined, 'skills table must be absent — unified into cheatcodes');
+
+    db.close();
+  });
+
+  it('cheatcodes is the unified registry: origin/file_path/description cols + builtin tmb_* seed (v19, #101)', () => {
     const db = tempDB();
 
     const cols = db
-      .all<{ name: string }>('PRAGMA table_info(skills)')
+      .all<{ name: string }>('PRAGMA table_info(cheatcodes)')
       .map((c) => c.name);
-    for (const dead of ['uses', 'successes', 'effectiveness']) {
-      assert.ok(!cols.includes(dead), `skills.${dead} must be dropped`);
+    for (const kept of ['name', 'kind', 'origin', 'description', 'file_path', 'scope', 'trust_tier', 'status', 'source_url', 'created_at', 'updated_at']) {
+      assert.ok(cols.includes(kept), `cheatcodes.${kept} must exist`);
     }
-    for (const kept of ['name', 'description', 'file_path', 'scope', 'trust_tier', 'status']) {
-      assert.ok(cols.includes(kept), `skills.${kept} must survive`);
+
+    // The bundled tmb_* skills are seeded as origin='builtin' skill rows.
+    const builtins = db.all<{ name: string; kind: string; file_path: string | null; source_url: string | null }>(
+      `SELECT name, kind, file_path, source_url FROM cheatcodes WHERE origin = 'builtin' AND name LIKE 'tmb_%'`,
+    );
+    assert.ok(builtins.length >= 8, 'all bundled tmb_* skills must be seeded as builtin rows');
+    for (const b of builtins) {
+      assert.equal(b.kind, 'skill', `${b.name} must be kind=skill`);
+      assert.ok(b.file_path, `${b.name} must carry a file_path (skill CHECK)`);
+      assert.equal(b.source_url, null, `${b.name} must have NULL source_url (builtin CHECK)`);
     }
 
     db.close();
   });
 
-  it('fresh DB has schema_version = 18 in plugin_meta', () => {
+  it('cheatcodes CHECKs enforce the origin/kind shape (v19, #101)', () => {
+    const db = tempDB();
+    const now = '2026-01-01T00:00:00Z';
+
+    // skill kind without file_path is rejected.
+    assert.throws(() => {
+      db.run(
+        `INSERT INTO cheatcodes (name, kind, origin, source_url, installed_at) VALUES ('bad-skill', 'skill', 'installed', 'https://x/y', ?)`,
+        [now],
+      );
+    }, /CHECK/i);
+
+    // installed without source_url is rejected.
+    assert.throws(() => {
+      db.run(
+        `INSERT INTO cheatcodes (name, kind, origin, file_path, installed_at) VALUES ('bad-installed', 'plugin', 'installed', NULL, ?)`,
+        [now],
+      );
+    }, /CHECK/i);
+
+    // builtin with a source_url is rejected.
+    assert.throws(() => {
+      db.run(
+        `INSERT INTO cheatcodes (name, kind, origin, file_path, source_url, installed_at) VALUES ('bad-builtin', 'skill', 'builtin', 'f.md', 'https://x/y', ?)`,
+        [now],
+      );
+    }, /CHECK/i);
+
+    db.close();
+  });
+
+  it('fresh DB has schema_version = 19 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 18);
+    assert.equal(meta.schema_version, 19);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',
@@ -122,7 +171,7 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('cheatcodes table has scope column NOT NULL DEFAULT local (#659)', () => {
+  it('cheatcodes table has scope column NOT NULL DEFAULT project-local (#101)', () => {
     const db = tempDB();
 
     const cols = db.all<{ name: string; type: string; notnull: number; dflt_value: string | null }>(
@@ -132,7 +181,22 @@ describe('schema — current table set, default values, constraints', () => {
     assert.ok(col !== undefined, 'scope column must exist in cheatcodes');
     assert.equal(col.type.toUpperCase(), 'TEXT', 'scope must be TEXT');
     assert.equal(col.notnull, 1, 'scope must be NOT NULL');
-    assert.equal(col.dflt_value, "'local'", "scope default must be 'local'");
+    assert.equal(col.dflt_value, "'project-local'", "scope default must be 'project-local'");
+
+    db.close();
+  });
+
+  it('cheatcodes table has origin column NOT NULL DEFAULT installed (#101)', () => {
+    const db = tempDB();
+
+    const cols = db.all<{ name: string; type: string; notnull: number; dflt_value: string | null }>(
+      'PRAGMA table_info(cheatcodes)',
+    );
+    const col = cols.find((c) => c.name === 'origin');
+    assert.ok(col !== undefined, 'origin column must exist in cheatcodes');
+    assert.equal(col.type.toUpperCase(), 'TEXT', 'origin must be TEXT');
+    assert.equal(col.notnull, 1, 'origin must be NOT NULL');
+    assert.equal(col.dflt_value, "'installed'", "origin default must be 'installed'");
 
     db.close();
   });

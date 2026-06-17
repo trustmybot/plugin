@@ -8,7 +8,7 @@ import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=18 (world model in kuzu)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=19 (skills folded into cheatcodes #101; world model in kuzu)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -16,7 +16,6 @@ describe('TrajectoryDB', () => {
       'tasks',
       'audit',
       'validation_attempts',
-      'skills',
       'agents',
       'roundtables',
       'roundtable_votes',
@@ -51,28 +50,28 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 18);
+    assert.equal(meta.schema_version, 19);
 
     db.close();
   });
 
-  it('run inserts a row into skills, get retrieves it, all lists multiple rows', () => {
+  it('run inserts a builtin skill row into cheatcodes, get retrieves it, all lists multiple rows', () => {
     const db = tempDB();
     const now = nowISO();
 
     db.run(
-      `INSERT INTO skills (name, description, file_path, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      ['skill-a', 'Skill A', '/path/a.md', now, now],
+      `INSERT INTO cheatcodes (name, kind, origin, description, file_path, installed_at, created_at, updated_at)
+       VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, ?)`,
+      ['skill-a', 'Skill A', '/path/a.md', now, now, now],
     );
     db.run(
-      `INSERT INTO skills (name, description, file_path, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      ['skill-b', 'Skill B', '/path/b.md', now, now],
+      `INSERT INTO cheatcodes (name, kind, origin, description, file_path, installed_at, created_at, updated_at)
+       VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, ?)`,
+      ['skill-b', 'Skill B', '/path/b.md', now, now, now],
     );
 
     const single = db.get<{ name: string; description: string }>(
-      'SELECT name, description FROM skills WHERE name = ?',
+      'SELECT name, description FROM cheatcodes WHERE name = ?',
       ['skill-a'],
     );
     assert.ok(single !== undefined);
@@ -80,10 +79,10 @@ describe('TrajectoryDB', () => {
     assert.equal(single.description, 'Skill A');
 
     // Scope to the test's inserted rows — schema seeds bundled tmb_* skills
-    // (#2884) so the table is never empty on a fresh DB. Filter on the names
+    // (#101) so the table is never empty on a fresh DB. Filter on the names
     // this test wrote to keep the assertion local to the test's intent.
     const all = db.all<{ name: string }>(
-      "SELECT name FROM skills WHERE name IN ('skill-a','skill-b') ORDER BY name",
+      "SELECT name FROM cheatcodes WHERE name IN ('skill-a','skill-b') ORDER BY name",
     );
     assert.equal(all.length, 2);
     assert.equal(all[0].name, 'skill-a');
@@ -99,16 +98,16 @@ describe('TrajectoryDB', () => {
     assert.throws(() => {
       db.transaction(() => {
         db.run(
-          `INSERT INTO skills (name, description, file_path, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          ['rollback-skill', 'Should not persist', '/path/r.md', now, now],
+          `INSERT INTO cheatcodes (name, kind, origin, description, file_path, installed_at, created_at, updated_at)
+           VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, ?)`,
+          ['rollback-skill', 'Should not persist', '/path/r.md', now, now, now],
         );
         throw new Error('forced rollback');
       });
     }, /forced rollback/);
 
     const row = db.get<{ name: string }>(
-      'SELECT name FROM skills WHERE name = ?',
+      'SELECT name FROM cheatcodes WHERE name = ?',
       ['rollback-skill'],
     );
     assert.equal(row, undefined, 'rolled-back row must not be present');

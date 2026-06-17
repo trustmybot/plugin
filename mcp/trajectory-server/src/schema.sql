@@ -76,23 +76,6 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     UNIQUE(task_id, attempt_n)
 );
 
-CREATE TABLE IF NOT EXISTS skills (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    name            TEXT    NOT NULL UNIQUE,
-    description     TEXT    NOT NULL,
-    file_path       TEXT    NOT NULL,
-    -- scope mirrors agents.scope (#2886). 'global' = plugin-shipped `tmb_*`
-    -- skills in skills/<name>/SKILL.md; 'template' = `templates/skills/...`
-    -- copied per-project on demand; 'project-local' = `<project>/.claude/
-    -- skills/<name>/SKILL.md` authored by `tmb_skill-creator`.
-    scope           TEXT    NOT NULL DEFAULT 'global'
-                      CHECK (scope IN ('global','template','project-local')),
-    trust_tier      TEXT    NOT NULL DEFAULT 'curated',
-    status          TEXT    NOT NULL DEFAULT 'active',
-    created_at      TEXT    NOT NULL,
-    updated_at      TEXT    NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS agents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL UNIQUE,
@@ -111,21 +94,6 @@ INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
     ('cto',          'consultant', 'template', 'templates/agents/cto.md'),
     ('ceo',          'consultant', 'template', 'templates/agents/ceo.md'),
     ('pm',           'consultant', 'template', 'templates/agents/pm.md');
-
--- Schema-seed the bundled tmb_* skills (#2884). Without this seed the skills
--- table sits empty on every install — none of the shipped skills register
--- themselves at session start. Mirrors the `agents` seed pattern above.
--- Descriptions come from each SKILL.md's frontmatter (kept short — full
--- routing logic lives in the SKILL.md body, this row is just the index).
-INSERT OR IGNORE INTO skills (name, description, file_path, scope, trust_tier, status, created_at, updated_at) VALUES
-    ('tmb_planning',           'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_concerns-protocol',  'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_recovery',           'Bro''s response when something fails — AskUserQuestion errors / TMB_HEADLESS=1, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                  'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_review',             'Review surface — pr-reviewer''s qualitative phases at the push gate, bro''s PR/MR comment triage flow, and bro''s push-time orchestration.',                                                                 'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_swe-checklist',      'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_docs-conventions',   'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_skill-creator',      'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now')),
-    ('tmb_agent-creator',      'Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn.',                  'skills/tmb_agent-creator/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'));
 
 -- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
 -- discussion writes that don't belong to any user-created work issue. The
@@ -178,7 +146,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 18, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 19, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -273,7 +241,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(tas
 CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
 
 -- Junction table — the load-bearing bridge (#2886). One row per
--- skill invocation. Bridges the catalog (skills) to the
+-- skill invocation. Bridges the catalog (cheatcodes, #101) to the
 -- agent_run that triggered it. Enables forward queries ("what did this
 -- agent_run touch") and reverse queries ("which agent_runs used skill X")
 -- with cheap indexes on both sides.
@@ -284,7 +252,7 @@ CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
 -- agent_name is the fallback attribution.
 CREATE TABLE IF NOT EXISTS skill_invocations (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    skill_name    TEXT    NOT NULL REFERENCES skills(name),
+    skill_name    TEXT    NOT NULL REFERENCES cheatcodes(name),
     agent_name    TEXT    NOT NULL,
     agent_run_id  INTEGER REFERENCES agent_runs(id),
     task_id       INTEGER REFERENCES tasks(id),
@@ -358,28 +326,67 @@ CREATE TABLE IF NOT EXISTS audit_embeddings (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_id);
 
--- Cheatcodes catalog (#659). One row per installed cheatcode (skill, MCP
--- toolkit, or plugin) acquired via the discover → vet → install pipeline
--- (docs/architecture/CHEATCODES.md). cheatcode_install writes the row through
--- the marketplace-install path; cheatcode_uninstall (#676) reverses it. The
--- (name, source_url) pair is the candidate identity — re-installing the same
--- candidate no-ops (idempotent). trust_tier carries the cheatcode_vet (#658)
--- classification at install time; status tracks the lifecycle.
+-- Unified capability registry (#101). One typed table for every capability the
+-- project knows about, split by `origin`:
+--   origin='builtin'   — plugin-shipped tmb_* skills (was the `skills` table).
+--                        source_url IS NULL; file_path points at the SKILL.md.
+--   origin='installed' — cheatcodes acquired via the discover → vet → install
+--                        pipeline (#659, docs/architecture/CHEATCODES.md).
+--                        source_url IS NOT NULL (the candidate identity).
+-- cheatcode_install writes installed rows through the marketplace path;
+-- cheatcode_uninstall (#676) reverses them. skill_register/skill_promote operate
+-- on builtin rows. trust_tier carries the cheatcode_vet (#658) classification for
+-- installed rows and the curation tier for builtin ones; status tracks lifecycle.
 CREATE TABLE IF NOT EXISTS cheatcodes (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT    NOT NULL,
+    name         TEXT    NOT NULL UNIQUE,
     kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
-    source_url   TEXT    NOT NULL,
+    -- origin (#101): 'builtin' = plugin-shipped, 'installed' = acquired via the
+    -- cheatcode pipeline. Defaults to 'installed' so the install path's INSERT
+    -- (which never names origin) lands the right value.
+    origin       TEXT    NOT NULL DEFAULT 'installed' CHECK (origin IN ('builtin','installed')),
+    description  TEXT    NOT NULL DEFAULT '',
+    source_url   TEXT,
+    -- file_path (#101): the SKILL.md location for skill-kind capabilities.
+    -- Required for every skill row (builtin or skill-kind install); NULL for
+    -- mcp/plugin kinds.
+    file_path    TEXT,
     version      TEXT,
     trust_tier   TEXT,
-    -- scope (#659): where the install lands. 'local' = project-scoped install
-    -- (the default so bro never hits a global/local AskUserQuestion); 'global'
-    -- = user-wide install. Forwarded to scripts/cheatcode-install.sh as --scope.
-    scope        TEXT    NOT NULL DEFAULT 'local' CHECK (scope IN ('local','global')),
+    -- scope (#101): where the capability lives, unifying the install location
+    -- with the skill placement enum. 'global' = plugin-shipped / user-wide;
+    -- 'template' = templates/ copied per-project on demand; 'project-local' =
+    -- <project>/.claude/ authored locally. cheatcode_install maps its
+    -- local→project-local default; scripts/cheatcode-install.sh keeps the
+    -- local|global --scope vocabulary it forwards to the marketplace.
+    scope        TEXT    NOT NULL DEFAULT 'project-local'
+                   CHECK (scope IN ('global','template','project-local')),
     status       TEXT    NOT NULL DEFAULT 'installed',
     installed_at TEXT    NOT NULL,
-    UNIQUE(name, source_url)
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- A skill must record its file_path; an installed capability must carry its
+    -- source identity; a builtin must not (#101).
+    CHECK (kind != 'skill' OR file_path IS NOT NULL),
+    CHECK (origin != 'installed' OR source_url IS NOT NULL),
+    CHECK (origin != 'builtin' OR source_url IS NULL)
 );
+
+-- Schema-seed the bundled tmb_* skills (#2884, #101). Without this seed the
+-- registry sits empty of plugin skills on every install — none of the shipped
+-- skills register themselves at session start. Mirrors the `agents` seed above.
+-- Descriptions come from each SKILL.md's frontmatter (kept short — full routing
+-- logic lives in the SKILL.md body, this row is just the index). origin='builtin'
+-- and source_url omitted (NULL) per the builtin CHECK.
+INSERT OR IGNORE INTO cheatcodes (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at) VALUES
+    ('tmb_planning',           'skill', 'builtin', 'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
+    ('tmb_concerns-protocol',  'skill', 'builtin', 'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
+    ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors / TMB_HEADLESS=1, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                  'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
+    ('tmb_review',             'skill', 'builtin', 'Review surface — pr-reviewer''s qualitative phases at the push gate, bro''s PR/MR comment triage flow, and bro''s push-time orchestration.',                                                                 'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
+    ('tmb_swe-checklist',      'skill', 'builtin', 'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
+    ('tmb_docs-conventions',   'skill', 'builtin', 'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
+    ('tmb_skill-creator',      'skill', 'builtin', 'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
+    ('tmb_agent-creator',      'skill', 'builtin', 'Resolve a consultant ask: list the registry via agent_list, then either spawn an existing agent via Agent, copy a template + register + spawn, or create from-scratch + register + spawn.',                  'skills/tmb_agent-creator/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now'));
 
 -- Attachment records (#677). One row per artifact wired into the project by an
 -- install — the marketplace plugin manifest, an MCP server registration, or a

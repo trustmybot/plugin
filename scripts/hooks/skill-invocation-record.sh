@@ -3,8 +3,9 @@
 # the user (or an agent) invokes a Skill via the Skill tool. Closes the
 # "did this agent use the skill it should have" detection loop (#2886).
 #
-# Schema-side prereqs (MR B): skills table has the catalog row; agent_runs
-# has bro's open row for the current task; skill_invocations is the junction.
+# Schema-side prereqs (MR B): the cheatcodes registry has the builtin skill
+# catalog row (#101); agent_runs has bro's open row for the current task;
+# skill_invocations is the junction.
 #
 # Resolution:
 # - skill_name: from tool_input.skill (Skill tool's required arg)
@@ -44,19 +45,19 @@ HOOK_AGENT=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subage
 SKILL_NAME=$(echo "$INPUT" | jq -r '.tool_input.skill // ""' 2>/dev/null)
 [ -n "$SKILL_NAME" ] || exit 0
 # CC delivers skill names with a plugin prefix (e.g. "tmb:tmb_planning").
-# The skills catalog stores bare names ("tmb_planning"). Strip the prefix.
+# The cheatcodes catalog stores bare names ("tmb_planning"). Strip the prefix.
 SKILL_NAME="${SKILL_NAME#*:}"
 
 DB_PATH=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB_PATH" ] || exit 0
 [ -f "$DB_PATH" ] || exit 0
 
-# Confirm the skill exists in the catalog. If not, skip silently — this is
-# either an unrelated tool with the same name or a project-local skill
-# that hasn't been registered yet.
+# Confirm the skill exists in the catalog — a builtin skill row in the unified
+# cheatcodes registry (#101). If not, skip silently — this is either an
+# unrelated tool with the same name or a project-local skill not yet registered.
 SKILL_NAME_SQL=$(tmb_sql_quote "$SKILL_NAME")
 EXISTS=$(sqlite3 "$DB_PATH" \
-  "SELECT 1 FROM skills WHERE name = '${SKILL_NAME_SQL}' LIMIT 1;" 2>/dev/null)
+  "SELECT 1 FROM cheatcodes WHERE name = '${SKILL_NAME_SQL}' AND kind = 'skill' AND origin = 'builtin' LIMIT 1;" 2>/dev/null)
 [ "$EXISTS" = "1" ] || exit 0
 
 # Find the most recent open bro agent_run (if any) to attribute the

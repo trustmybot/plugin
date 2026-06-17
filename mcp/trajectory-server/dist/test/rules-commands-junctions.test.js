@@ -15,16 +15,18 @@ function parseBatch(r) {
     const raw = JSON.parse(r.content[0].text);
     return (raw.tasks ?? raw);
 }
-describe('#2886 skills.scope column', () => {
-    it('seeded tmb_* skills have scope=global', async () => {
+describe('#101 builtin skill scope in the unified cheatcodes registry', () => {
+    it('seeded tmb_* skills have origin=builtin scope=global', async () => {
         const db = tempDB();
-        const rows = db.all(`SELECT name, scope FROM skills WHERE name LIKE 'tmb_%'`);
+        const rows = db.all(`SELECT name, scope, origin FROM cheatcodes WHERE name LIKE 'tmb_%'`);
         assert.ok(rows.length > 0, 'expected schema-seeded tmb_* skills');
-        for (const r of rows)
+        for (const r of rows) {
+            assert.equal(r.origin, 'builtin', `${r.name} should be a builtin row`);
             assert.equal(r.scope, 'global', `${r.name} should be global-scoped`);
+        }
         db.close();
     });
-    it('skill_register defaults scope to project-local', async () => {
+    it('skill_register writes a builtin cheatcodes row defaulting scope to project-local', async () => {
         const db = tempDB();
         const tools = skillTools(db);
         await call(tools.handlers, 'skill_register', {
@@ -34,8 +36,10 @@ describe('#2886 skills.scope column', () => {
             file_path: '.claude/skills/my-local-skill/SKILL.md',
             trust_tier: 'agent',
         });
-        const row = db.get(`SELECT scope FROM skills WHERE name = 'my-local-skill'`);
+        const row = db.get(`SELECT scope, origin, kind FROM cheatcodes WHERE name = 'my-local-skill'`);
         assert.equal(row.scope, 'project-local');
+        assert.equal(row.origin, 'builtin');
+        assert.equal(row.kind, 'skill');
         db.close();
     });
 });

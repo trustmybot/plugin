@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 18;
+var TARGET_SCHEMA_VERSION = 19;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21191,6 +21191,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 18 && toVersion >= 18) {
     migrateV17toV18(db2);
   }
+  if (fromVersion < 19 && toVersion >= 19) {
+    migrateV18toV19(db2);
+  }
 }
 function hasColumn(db2, table, column) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
@@ -21468,6 +21471,106 @@ function migrateV17toV18(db2) {
     if (violations.length > 0) {
       throw new Error(
         `migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err18) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err18;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV18toV19(db2) {
+  const skillsPresent = tableExists(db2, "skills");
+  const cheatcodesUnified = tableExists(db2, "cheatcodes") && hasColumn(db2, "cheatcodes", "origin");
+  if (cheatcodesUnified && !skillsPresent) {
+    return;
+  }
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    if (!cheatcodesUnified) {
+      db2.exec("DROP TABLE IF EXISTS cheatcodes_new");
+      db2.exec(`
+        CREATE TABLE cheatcodes_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT    NOT NULL UNIQUE,
+            kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+            origin       TEXT    NOT NULL DEFAULT 'installed' CHECK (origin IN ('builtin','installed')),
+            description  TEXT    NOT NULL DEFAULT '',
+            source_url   TEXT,
+            file_path    TEXT,
+            version      TEXT,
+            trust_tier   TEXT,
+            scope        TEXT    NOT NULL DEFAULT 'project-local'
+                           CHECK (scope IN ('global','template','project-local')),
+            status       TEXT    NOT NULL DEFAULT 'installed',
+            installed_at TEXT    NOT NULL,
+            created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            CHECK (kind != 'skill' OR file_path IS NOT NULL),
+            CHECK (origin != 'installed' OR source_url IS NOT NULL),
+            CHECK (origin != 'builtin' OR source_url IS NULL)
+        )
+      `);
+      if (tableExists(db2, "cheatcodes")) {
+        db2.exec(`
+          INSERT INTO cheatcodes_new
+            (id, name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+          SELECT
+            id, name, kind, 'installed', '', source_url, NULL, version, trust_tier,
+            CASE scope WHEN 'local' THEN 'project-local' WHEN 'global' THEN 'global' ELSE 'project-local' END,
+            status, installed_at, installed_at, installed_at
+          FROM cheatcodes
+        `);
+        db2.exec("DROP TABLE cheatcodes");
+      }
+      db2.exec("ALTER TABLE cheatcodes_new RENAME TO cheatcodes");
+    }
+    if (tableExists(db2, "skills")) {
+      db2.exec(`
+        INSERT OR IGNORE INTO cheatcodes
+          (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+        SELECT
+          name, 'skill', 'builtin', description, NULL, file_path, NULL, trust_tier, scope, status, created_at, created_at, updated_at
+        FROM skills
+      `);
+    }
+    if (tableExists(db2, "skill_invocations")) {
+      const agentRunFk = tableExists(db2, "agent_runs") ? " REFERENCES agent_runs(id)" : "";
+      const taskFk = tableExists(db2, "tasks") ? " REFERENCES tasks(id)" : "";
+      db2.exec("DROP TABLE IF EXISTS skill_invocations_new");
+      db2.exec(`
+        CREATE TABLE skill_invocations_new (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_name    TEXT    NOT NULL REFERENCES cheatcodes(name),
+            agent_name    TEXT    NOT NULL,
+            agent_run_id  INTEGER${agentRunFk},
+            task_id       INTEGER${taskFk},
+            invoked_at    TEXT    NOT NULL,
+            outcome       TEXT    NOT NULL DEFAULT 'completed'
+                            CHECK (outcome IN ('completed','failed','partial'))
+        )
+      `);
+      db2.exec(`
+        INSERT INTO skill_invocations_new (id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome)
+        SELECT id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome FROM skill_invocations
+      `);
+      db2.exec("DROP TABLE skill_invocations");
+      db2.exec("ALTER TABLE skill_invocations_new RENAME TO skill_invocations");
+      db2.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_name)");
+      db2.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_task  ON skill_invocations(task_id)");
+      db2.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_agent_run ON skill_invocations(agent_run_id)");
+    }
+    db2.exec("DROP TABLE IF EXISTS skills");
+    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV18toV19: foreign_key_check found ${violations.length} dangling reference(s) after the skills\u2192cheatcodes unification`
       );
     }
     db2.exec("COMMIT");
@@ -25172,12 +25275,12 @@ function skillTools(db2) {
       }
       const now = nowISO();
       db2.run(
-        `INSERT INTO skills
-           (name, description, file_path, scope, trust_tier, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)`,
-        [name, description, filePath, scope, trustTier, now, now]
+        `INSERT INTO cheatcodes
+           (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at)
+         VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, 'draft', ?, ?, ?)`,
+        [name, description, filePath, scope, trustTier, now, now, now]
       );
-      const row = db2.get("SELECT * FROM skills WHERE rowid = last_insert_rowid()");
+      const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
       return ok6(row);
     }),
     skill_invocations_list: wrapHandler6(async (args) => {
@@ -25214,7 +25317,10 @@ function skillTools(db2) {
       const name = requireArg6(args, "name");
       const fromStatus = requireArg6(args, "from_status");
       const toStatus = requireArg6(args, "to_status");
-      const skill = db2.get("SELECT * FROM skills WHERE name = ?", [name]);
+      const skill = db2.get(
+        `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
+        [name]
+      );
       if (!skill) {
         throw new Error(`Skill not registered: ${name}`);
       }
@@ -25236,16 +25342,19 @@ function skillTools(db2) {
       const now = nowISO();
       if (isStatusTransition) {
         db2.run(
-          `UPDATE skills SET status = ?, updated_at = ? WHERE name = ?`,
+          `UPDATE cheatcodes SET status = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
           [toStatus, now, name]
         );
       } else {
         db2.run(
-          `UPDATE skills SET trust_tier = ?, updated_at = ? WHERE name = ?`,
+          `UPDATE cheatcodes SET trust_tier = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
           [toStatus, now, name]
         );
       }
-      const updated = db2.get("SELECT * FROM skills WHERE name = ?", [name]);
+      const updated = db2.get(
+        `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
+        [name]
+      );
       return ok6(updated);
     })
   };
@@ -29842,12 +29951,14 @@ function cheatcodeTools(db2) {
           scope,
           INSTALL_TIMEOUT_MS
         );
+        const placementScope = scope === "global" ? "global" : "project-local";
+        const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
           const res = db2.run(
-            `INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, scope, status, installed_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'installed', ?)`,
-            [name, kind, sourceUrl, out.version, trustTier, scope, installedAt]
+            `INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, version, trust_tier, scope, status, installed_at)
+             VALUES (?, ?, 'installed', ?, ?, ?, ?, ?, 'installed', ?)`,
+            [name, kind, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]
           );
           const id = Number(res.lastInsertRowid);
           for (const att of out.attachments) {
@@ -29890,7 +30001,7 @@ function cheatcodeTools(db2) {
           candidate: out.candidate,
           method: out.method,
           version: out.version,
-          scope,
+          scope: placementScope,
           attachments: out.attachments,
           // Skill-kind: the agent-frontmatter edit is a Human-reviewed PR, never
           // an automatic write — surface the proposed payload, write no md.
@@ -29921,7 +30032,7 @@ function cheatcodeTools(db2) {
         const candidate = {
           name: existing.name,
           kind: existing.kind,
-          source_url: existing.source_url
+          source_url: existing.source_url ?? ""
         };
         const reversal = await runUninstallWithScript(
           resolveUninstallScript(),

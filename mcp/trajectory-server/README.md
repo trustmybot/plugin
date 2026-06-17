@@ -37,7 +37,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list` |
 | Audit | `tools/audit.ts` | `audit_log`, `audit_log_list` |
 | Validation | `tools/validation.ts` | `validation_record`, `validation_history` |
-| Skills | `tools/skills.ts` | `skill_register` (takes `scope`), `skill_promote`, `skill_invocations_list` |
+| Skills (builtin rows in the unified `cheatcodes` registry, #101) | `tools/skills.ts` | `skill_register` (takes `scope`), `skill_promote`, `skill_invocations_list` |
 | Reports | `tools/reports.ts` | `issue_report_md` |
 | Config | `tools/config.ts` | `config_get`, `config_set`, `config_list` |
 | Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
@@ -60,6 +60,6 @@ where `<type>` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `pe
 
 ## Schema
 
-Current baseline: `TARGET_SCHEMA_VERSION = 8` (see `src/db.ts`). `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` semantics. On open, the stored `schema_version` is compared against `TARGET_SCHEMA_VERSION` via `db.ts:runMigrations`; if behind, a `.bak` snapshot is written before any migration runs, then migrations execute in sequence and `schema_version` is updated on success. Rollback is via the `.bak` file. Migration correctness is covered by `src/test/schema-upgrade.test.ts`.
+Current baseline: `TARGET_SCHEMA_VERSION = 19` (see `src/db.ts`). `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` semantics. On open, the stored `schema_version` is compared against `TARGET_SCHEMA_VERSION` via `db.ts:runMigrations`; if behind, a `.bak` snapshot is written before any migration runs, then migrations execute in sequence and `schema_version` is updated on success. Rollback is via the `.bak` file. Migration correctness is covered by `src/test/schema-upgrade.test.ts`.
 
 `plugin_meta` tracks `schema_version` + `plugin_version`. `plugin_version` is synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — fresh and existing DBs auto-update without a migration; the schema placeholder `'0.0.0'` applies only when `CLAUDE_PLUGIN_ROOT` is unset (e.g. test runs).

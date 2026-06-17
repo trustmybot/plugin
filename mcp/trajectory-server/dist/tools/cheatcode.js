@@ -539,12 +539,21 @@ export function cheatcodeTools(db) {
             if (typeof tier === 'number')
                 candidate.tier = tier;
             const out = await runInstallWithScript(resolveInstallScript(), candidate, scope, INSTALL_TIMEOUT_MS);
+            // The unified cheatcodes table (#101) carries the placement enum
+            // (global|template|project-local); the install scope's local maps to
+            // project-local. The script keeps its own local|global vocabulary.
+            const placementScope = scope === 'global' ? 'global' : 'project-local';
+            // skill-kind installs land a SKILL.md under the project; the unified
+            // CHECK requires every skill row to record its file_path (#101). The
+            // canonical project-local skill location is the proposed-PR target.
+            // mcp/plugin kinds keep file_path NULL.
+            const filePath = kind === 'skill' ? `.claude/skills/${name}/SKILL.md` : null;
             // One transaction: the cheatcodes row + every attachment row + both
-            // audit rows land together or not at all.
+            // audit rows land together or not at all. origin='installed' (#101).
             const installedAt = nowISO();
             const cheatcodeId = db.transaction(() => {
-                const res = db.run(`INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, scope, status, installed_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, sourceUrl, out.version, trustTier, scope, installedAt]);
+                const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, version, trust_tier, scope, status, installed_at)
+             VALUES (?, ?, 'installed', ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]);
                 const id = Number(res.lastInsertRowid);
                 for (const att of out.attachments) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
@@ -577,7 +586,7 @@ export function cheatcodeTools(db) {
                 candidate: out.candidate,
                 method: out.method,
                 version: out.version,
-                scope,
+                scope: placementScope,
                 attachments: out.attachments,
                 // Skill-kind: the agent-frontmatter edit is a Human-reviewed PR, never
                 // an automatic write — surface the proposed payload, write no md.
@@ -603,7 +612,7 @@ export function cheatcodeTools(db) {
             const candidate = {
                 name: existing.name,
                 kind: existing.kind,
-                source_url: existing.source_url,
+                source_url: existing.source_url ?? '',
             };
             const reversal = await runUninstallWithScript(resolveUninstallScript(), candidate, UNINSTALL_TIMEOUT_MS);
             // One transaction: every attachment row + the cheatcodes row + the
