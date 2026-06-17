@@ -10,7 +10,7 @@ If you need a new label and it's not below, ask in the PR. Adding a label is a d
 
 ---
 
-## Canonical list — 19 labels on GH, 14 on Linear (Linear has native priority field)
+## Canonical list — 25 labels on GH, 14 on Linear (Linear has native priority field)
 
 ### Type / kind (4)
 
@@ -49,15 +49,28 @@ New area labels are added when a genuinely new surface emerges. Adding one is a 
 
 GH has no priority field, so we keep them as labels. Linear has a native priority field — no labels needed there.
 
-### TMB-specific (3)
+### TMB-specific (7)
 
 | Label | Means |
 |---|---|
 | **Doctrine** | Design rule / contract change (CLAUDE.md, planning skills, agent prompts) |
 | **Discussion** | Open design question, no decided action yet |
 | **token-burn** | Issue or PR that caused or risks abnormally high token spend |
+| **architecture** | Architectural / structural design change |
+| **campaign** | Cross-issue auto-solve campaign tracker |
+| **design** | Design / ADR work |
+| **enforcement** | Enforcement substrate — hooks / guards |
 
 Adding any other TMB-specific label requires an entry in this table with a "why" justification.
+
+### Dependabot (2)
+
+Applied automatically by Dependabot on dependency-update PRs — not hand-applied by agents.
+
+| Label | Means |
+|---|---|
+| **dependencies** | Dependency-update PRs (Dependabot) |
+| **javascript** | PRs touching JavaScript dependencies (Dependabot) |
 
 ---
 
