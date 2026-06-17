@@ -1,6 +1,6 @@
 {
   "name": "@trustmybot/trajectory-server",
-  "version": "0.9.2-rc.2",
+  "version": "0.10.0-alpha",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
