@@ -30072,30 +30072,35 @@ function cheatcodeTools(db2) {
           UNINSTALL_TIMEOUT_MS
         );
         const uninstalledAt = nowISO();
+        const auditContent = JSON.stringify({
+          cheatcode_id: existing.id,
+          name: existing.name,
+          kind: existing.kind,
+          source_url: existing.source_url,
+          removed: reversal.removed,
+          method: reversal.method,
+          attachments,
+          error: reversal.error
+        });
+        const auditSummary = `Cheatcode uninstall: '${existing.name}' (kind=${existing.kind}, method=${reversal.method}, removed=${reversal.removed})`;
         db2.transaction(() => {
-          db2.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
-          db2.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
+          if (reversal.removed) {
+            db2.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
+            db2.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
+          } else {
+            db2.run(`UPDATE cheatcodes SET status = 'broken', updated_at = ? WHERE id = ?`, [
+              uninstalledAt,
+              existing.id
+            ]);
+          }
           db2.run(
             `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
              VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`,
-            [
-              `Cheatcode uninstalled: '${existing.name}' (kind=${existing.kind}, method=${reversal.method})`,
-              JSON.stringify({
-                cheatcode_id: existing.id,
-                name: existing.name,
-                kind: existing.kind,
-                source_url: existing.source_url,
-                removed: reversal.removed,
-                method: reversal.method,
-                attachments,
-                error: reversal.error
-              }),
-              uninstalledAt
-            ]
+            [auditSummary, auditContent, uninstalledAt]
           );
         });
         return ok17({
-          uninstalled: true,
+          uninstalled: reversal.removed,
           cheatcode_id: existing.id,
           name: existing.name,
           kind: existing.kind,

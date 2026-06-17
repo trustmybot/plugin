@@ -9,8 +9,9 @@
 # mirrors cheatcode-install.sh exactly:
 #
 #   plugin → marketplace uninstall removes its skills/hooks/commands via the
-#            plugin manifest. method 'marketplace'.
-#   mcp    → deregister the server (config). method 'mcp-deregister'.
+#            plugin manifest (claude plugin uninstall <name>). method 'marketplace'.
+#   mcp    → deregister the server from config (claude mcp remove <name>) — a
+#            distinct path from the plugin marketplace. method 'mcp-deregister'.
 #   skill  → a standalone skill's attachment is a proposed-PR record only; nothing
 #            was ever written to agent md, so there is nothing to reverse at the
 #            marketplace. method 'skill-proposed-pr-revert', removed=false.
@@ -96,6 +97,7 @@ else
 fi
 
 cand_kind=$(printf '%s' "$candidate" | jq -r '.kind')
+cand_name=$(printf '%s' "$candidate" | jq -r '.name')
 src_url=$(printf '%s' "$candidate" | jq -r '.source_url')
 
 [ -n "$src_url" ] || { echo '{"error":"candidate.source_url is required"}' >&2; exit 1; }
@@ -106,10 +108,10 @@ esac
 
 UNINSTALL_TIMEOUT=30
 
-# Marketplace uninstall adapter (plugin/MCP kinds). Best-effort: prints a JSON
-# object {removed, error}. On any failure it degrades to removed=false with an
-# error note and never crashes. The marketplace/plugin uninstall path is the
-# ONLY teardown surface — no manual file deletion.
+# Marketplace uninstall adapter (plugin kind). Best-effort: prints a JSON object
+# {removed, error}. On any failure it degrades to removed=false with an error note
+# and never crashes. The marketplace/plugin uninstall path is the ONLY teardown
+# surface — no manual file deletion.
 marketplace_uninstall() {
   # No marketplace CLI available → degrade soft. Live marketplace wiring is
   # gated behind the fixture in every tested path; an environment without the
@@ -118,10 +120,44 @@ marketplace_uninstall() {
     jq -nc '{removed: false, error: "marketplace CLI unavailable"}'
     return
   fi
+  # `claude plugin uninstall` expects a name[@marketplace] identity, not a bare
+  # git URL. Use the candidate name. A faithful name@marketplace identity is
+  # coupled to the install-side bare-URL fix (#108) — until install records one,
+  # no marketplace ref is recoverable here, so a bare name is the best-effort
+  # identity and a mismatch degrades to removed=false (surfaced honestly by the
+  # caller's honesty gate). Do NOT fabricate an identity install never recorded.
+  if [ -z "$cand_name" ]; then
+    jq -nc '{removed: false, error: "no plugin name recorded (faithful identity coupled to #108)"}'
+    return
+  fi
   local rc
-  timeout "$UNINSTALL_TIMEOUT" claude plugin uninstall "$src_url" >/dev/null 2>&1; rc=$?
+  timeout "$UNINSTALL_TIMEOUT" claude plugin uninstall "$cand_name" >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc --arg e "marketplace uninstall failed (exit $rc)" \
+      '{removed: false, error: $e}'
+    return
+  fi
+  jq -nc '{removed: true, error: null}'
+}
+
+# MCP deregister adapter (mcp kind). Removes the server from the Claude Code MCP
+# config via `claude mcp remove <name>` — the clean, atomic deregister path,
+# distinct from the plugin marketplace surface. Best-effort: degrades to
+# removed=false with an error note if the CLI is absent or exits non-zero, never
+# crashes.
+mcp_deregister() {
+  if ! command -v claude >/dev/null 2>&1; then
+    jq -nc '{removed: false, error: "mcp CLI unavailable"}'
+    return
+  fi
+  if [ -z "$cand_name" ]; then
+    jq -nc '{removed: false, error: "no mcp server name recorded (faithful identity coupled to #108)"}'
+    return
+  fi
+  local rc
+  timeout "$UNINSTALL_TIMEOUT" claude mcp remove "$cand_name" >/dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    jq -nc --arg e "mcp deregister failed (exit $rc)" \
       '{removed: false, error: $e}'
     return
   fi
@@ -156,8 +192,10 @@ if [ -n "$FIXTURE_PATH" ]; then
     removed: (.removed // false),
     error:   (.error // null)
   }')
-elif [ "$cand_kind" = "plugin" ] || [ "$cand_kind" = "mcp" ]; then
+elif [ "$cand_kind" = "plugin" ]; then
   uninstall_result=$(marketplace_uninstall)
+elif [ "$cand_kind" = "mcp" ]; then
+  uninstall_result=$(mcp_deregister)
 fi
 # skill kind with no fixture: the attachment was a proposed-PR record only, never
 # an automatic write, so there is nothing to reverse at the marketplace; the
