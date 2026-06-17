@@ -6,7 +6,7 @@ argument-hint: <kebab-case agent name> [optional consultant question]
 
 # /tmb:agent-create `<name>` [question]
 
-Explicit Human-typed (or hook-routed) entry point for agent creation + optional consultant spawn. User-created agents default to `kind='consultant'`.
+User-created agents default to `kind='consultant'`.
 
 ## Resolution
 
@@ -43,7 +43,3 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 
 After creation completes, emit (interactive only):
 > *Agent landed at `.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, run `/reload-plugins`.*
-
-## Routing from naturalistic prompts
-
-When a Human asks an expertise question without typing the slash, the `prompt-intent-hints.sh` hook injects a routing hint reminding bro to use `/tmb:agent-create <inferred-role>`.

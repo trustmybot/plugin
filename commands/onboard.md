@@ -38,17 +38,7 @@ Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, pro
 
 ## Step 5 — Confirm to the Human
 
-Render the `applied` payload back as a short summary:
-
-> Done. Settings updated:
-> - Project shape: `<local|remote>`
-> - Branching model: `<branching_model>`
-> - PR target: `<pr_target>`
-> - Protected branches: `<protected_branches.join(", ")>`
-> - Remotes: one line per `{ name } → { provider }`, or `none — local-only` if empty
-> - Issue sync: `<issue_sync>`
->
-> Tell me what you want to work on.
+Render the `applied` payload back as a short summary — project shape, branching model, PR target, protected branches, remotes, and issue sync — then close with "Tell me what you want to work on."
 
 ## Conflict handling
 

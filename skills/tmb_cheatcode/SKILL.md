@@ -6,8 +6,6 @@ allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, mcp__plugin_
 
 # cheatcode
 
-When a task leans on a capability the project plainly lacks and the ecosystem already ships it — a published skill, MCP toolkit, or plugin — reach for that instead of hand-rolling.
-
 ## Is the gap real?
 
 Check the request against the project's surface — world model, installed skills/MCP, CLAUDE.md. It's a cheatcode play when:

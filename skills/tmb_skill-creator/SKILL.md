@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Glob, Bash, AskUserQuestion, mcp__plugin_tmb_t
 
 # Skill Creator
 
-Add a new capability to a project's agents without editing their body. **Lego rule**: agent files are immutable identity; skills are additive capabilities. This skill is the only mechanism that extends a project agent — it appends to the agent's `skills:` array and leaves the body intact.
+Add a new capability to a project's agents without editing their body. **Lego rule**: agent files are immutable identity; skills are additive capabilities.
 
 ## When to invoke
 
@@ -71,5 +71,3 @@ Skill creation is interactive by definition. On `AskUserQuestion` error or `TMB_
 1. Halt immediately. Leave all files unwritten.
 2. Create a scoping issue via `issue_create`, then log `event_type='headless_creator_blocked'` naming the proposed skill.
 3. Surface: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively."
-
-A skill is a behavior change to the agent ecosystem. CI-time generation requires Human review before any file is written.

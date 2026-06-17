@@ -61,11 +61,11 @@ When any MCP call result has `is_error: true` or content includes `{"error": ...
 
 ## C. Trajectory-server unreachable
 
-Two distinct failure modes — `mcp-health-check.sh` writes `"mode":"A"` or `"mode":"B"` into `~/.claude/tmb/logs/mcp-health.log` and emits a mode-specific `additionalContext` warning so the surface message tells you which one you have.
+Two distinct failure modes — read the `additionalContext` warning from `mcp-health-check.sh` at session start to tell which one you have.
 
 ### C.1 — MCP absent this session (Mode A)
 
-The plugin's MCP server is missing from CC's resolved-plugin list — `/reload-plugins` and full quit + relaunch won't fix it because CC persists the cached config to disk. The `additionalContext` warning injected by `mcp-health-check.sh` at session start tells you if you're in Mode A.
+The plugin's MCP server is missing from CC's resolved-plugin list — `/reload-plugins` and full quit + relaunch won't fix it because CC persists the cached config to disk.
 
 <!-- LOAD-BEARING-SAFETY: halt-on-Mode-A is mandatory — state-writing tools are unreachable and silent degradation corrupts the audit trail -->
 **During the failure, bro halts.** State-writing tools are unreachable; halt to avoid corrupting the audit trail. Read-only sqlite3 fallback (`bro-sqlite-readonly.sh`) is still available for emergency reads.
@@ -78,7 +78,7 @@ Recovery escalation — try IN ORDER, stop at the first that brings MCP back:
 
 ### C.2 — MCP died mid-session (Mode B)
 
-The MCP child process was alive at session start but is now gone. Distinct from Mode A: CC's plugin list is correct; the process just needs to be re-spawned. The `additionalContext` from `mcp-health-check.sh` distinguishes Mode B from Mode A and from §B errors (forbidden/validation/constraint — those mean the server IS running and rejected bad input).
+The MCP child process was alive at session start but is now gone — CC's plugin list is correct; the process just needs to be re-spawned. (`forbidden`/`validation`/`constraint` errors are §B, not this — they mean the server IS running and rejected bad input.)
 
 **Read fallback:** `${CLAUDE_PLUGIN_ROOT}/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh <tool_name> [json_args]`. Run `--list` to see supported tools. Parse stdout as JSON — same shape as the corresponding MCP tool. Write tools are refused with a structured error; surface the refusal to the Human.
 
