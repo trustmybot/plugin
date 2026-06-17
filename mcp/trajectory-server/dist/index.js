@@ -1297,21 +1297,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err20 = gen.name("err");
+      const err19 = gen.name("err");
       gen.forRange("i", errsCount, names_1.default.errors, (i) => {
-        gen.const(err20, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
-        gen.if((0, codegen_1._)`${err20}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err20}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err20}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+        gen.const(err19, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
+        gen.if((0, codegen_1._)`${err19}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err19}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err19}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err20}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err20}.data`, data);
+          gen.assign((0, codegen_1._)`${err19}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err19}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err20 = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err20}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err20})`);
+      const err19 = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err19}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err19})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -7420,8 +7420,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err20) {
-        if (err20?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err19) {
+        if (err19?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 15;
+var TARGET_SCHEMA_VERSION = 16;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21029,16 +21029,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return out;
-    } catch (err20) {
+    } catch (err19) {
       sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err20 instanceof Error ? err20.message : String(err20)
+        error_message: err19 instanceof Error ? err19.message : String(err19)
       });
-      throw err20;
+      throw err19;
     }
   }
   get(sql, params) {
@@ -21055,16 +21055,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return row;
-    } catch (err20) {
+    } catch (err19) {
       sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err20 instanceof Error ? err20.message : String(err20)
+        error_message: err19 instanceof Error ? err19.message : String(err19)
       });
-      throw err20;
+      throw err19;
     }
   }
   all(sql, params) {
@@ -21081,16 +21081,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return rows;
-    } catch (err20) {
+    } catch (err19) {
       sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err20 instanceof Error ? err20.message : String(err20)
+        error_message: err19 instanceof Error ? err19.message : String(err19)
       });
-      throw err20;
+      throw err19;
     }
   }
   /**
@@ -21104,12 +21104,12 @@ var TrajectoryDB = class {
       const result = fn();
       this.db.exec("COMMIT");
       return result;
-    } catch (err20) {
+    } catch (err19) {
       try {
         this.db.exec("ROLLBACK");
       } catch {
       }
-      throw err20;
+      throw err19;
     }
   }
   close() {
@@ -21182,6 +21182,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   if (fromVersion < 15 && toVersion >= 15) {
     migrateV14toV15(db2);
   }
+  if (fromVersion < 16 && toVersion >= 16) {
+    migrateV15toV16(db2);
+  }
 }
 function hasColumn(db2, table, column) {
   const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
@@ -21230,12 +21233,12 @@ function migrateV8toV9(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV9toV10(db2) {
@@ -21247,12 +21250,12 @@ function migrateV9toV10(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV10toV11(db2) {
@@ -21303,12 +21306,12 @@ function migrateV10toV11(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV11toV12(db2) {
@@ -21320,12 +21323,12 @@ function migrateV11toV12(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV12toV13(db2) {
@@ -21340,12 +21343,12 @@ function migrateV12toV13(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV13toV14(db2) {
@@ -21377,12 +21380,12 @@ function migrateV13toV14(db2) {
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV14toV15(db2) {
@@ -21392,12 +21395,26 @@ function migrateV14toV15(db2) {
       db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
+  }
+}
+function migrateV15toV16(db2) {
+  db2.exec("BEGIN");
+  try {
+    db2.exec("DROP TABLE IF EXISTS rule_invocations");
+    db2.exec("DROP TABLE IF EXISTS rules");
+    db2.exec("COMMIT");
+  } catch (err19) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err19;
   }
 }
 function migrateV7toV8(db2) {
@@ -21413,12 +21430,12 @@ function migrateV7toV8(db2) {
     db2.exec("DROP TABLE IF EXISTS directories_fts");
     db2.exec("DROP TABLE IF EXISTS directories");
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV6toV7(db2) {
@@ -21433,12 +21450,12 @@ function migrateV6toV7(db2) {
     db2.exec("DROP TABLE IF EXISTS file_registry_fts");
     db2.exec("DROP TABLE IF EXISTS file_registry");
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV5toV6(db2) {
@@ -21472,12 +21489,12 @@ function migrateV5toV6(db2) {
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV4toV5(db2) {
@@ -21498,12 +21515,12 @@ function migrateV4toV5(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV3toV4(db2) {
@@ -21552,12 +21569,12 @@ function migrateV3toV4(db2) {
       `);
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV2toV3(db2) {
@@ -21654,12 +21671,12 @@ function migrateV2toV3(db2) {
       db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 function migrateV1toV2(db2) {
@@ -21839,12 +21856,12 @@ function migrateV1toV2(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err20) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err20;
+    throw err19;
   }
 }
 
@@ -25263,10 +25280,8 @@ function skillTools(db2) {
   return { definitions, handlers };
 }
 
-// src/tools/rules.ts
+// src/tools/commands.ts
 var VALID_SCOPES2 = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
-var VALID_SEVERITIES = /* @__PURE__ */ new Set(["advisory", "warning", "blocking"]);
-var VALID_INVOCATION_OUTCOMES2 = /* @__PURE__ */ new Set(["applied", "violated", "skipped"]);
 function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -25288,236 +25303,6 @@ function wrapHandler7(fn) {
       return await fn(args);
     } catch (e) {
       return err7(e.message);
-    }
-  };
-}
-function ruleTools(db2) {
-  const definitions = [
-    {
-      name: "rule_register",
-      description: "Register a project-local rule from .claude/rules/*.md. Severity: advisory = inform; warning = surface; blocking = hook denies the operation.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          name: { type: "string" },
-          description: { type: "string" },
-          file_path: { type: "string" },
-          scope: {
-            type: "string",
-            enum: ["global", "template", "project-local"],
-            description: "Defaults to project-local."
-          },
-          severity: {
-            type: "string",
-            enum: ["advisory", "warning", "blocking"],
-            description: "Defaults to advisory."
-          }
-        },
-        required: ["agent", "name", "description", "file_path"]
-      }
-    },
-    {
-      name: "rule_list",
-      description: "List registered rules, optionally filtered by scope or severity.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          scope: { type: "string", enum: ["global", "template", "project-local"] },
-          severity: { type: "string", enum: ["advisory", "warning", "blocking"] }
-        }
-      }
-    },
-    {
-      name: "rule_record_invocation",
-      description: "Record one rule application \u2014 bridges the catalog (rules) to the agent_run that applied it. Writes one row to rule_invocations. outcome=violated records a per-instance violation; outcome=applied is the clean case.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          rule_name: { type: "string" },
-          agent_name: { type: "string" },
-          agent_run_id: { type: "integer" },
-          task_id: { type: "integer" },
-          outcome: {
-            type: "string",
-            enum: ["applied", "violated", "skipped"],
-            description: "Defaults to applied."
-          }
-        },
-        required: ["agent", "rule_name", "agent_name"]
-      }
-    },
-    {
-      name: "rule_invocations_list",
-      description: "List rule_invocations rows. Bidirectional: filter by rule_name (who tripped rule X?) or by agent_run_id/task_id (which rules fired during this run?).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          rule_name: { type: "string" },
-          agent_run_id: { type: "integer" },
-          task_id: { type: "integer" },
-          outcome: { type: "string", enum: ["applied", "violated", "skipped"] },
-          limit: { type: "integer", description: "Default 200, max 1000." }
-        }
-      }
-    }
-  ];
-  const handlers = {
-    rule_register: wrapHandler7(async (args) => {
-      requireArg7(args, "agent");
-      const name = requireArg7(args, "name");
-      const description = requireArg7(args, "description");
-      const filePath = requireArg7(args, "file_path");
-      const scope = args["scope"] ?? "project-local";
-      const severity = args["severity"] ?? "advisory";
-      if (!VALID_SCOPES2.has(scope)) {
-        throw new Error(`Invalid scope: "${scope}". Allowed: ${[...VALID_SCOPES2].join(", ")}`);
-      }
-      if (!VALID_SEVERITIES.has(severity)) {
-        throw new Error(`Invalid severity: "${severity}". Allowed: ${[...VALID_SEVERITIES].join(", ")}`);
-      }
-      const now = nowISO();
-      db2.run(
-        `INSERT INTO rules
-           (name, description, file_path, scope, severity, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
-        [name, description, filePath, scope, severity, now, now]
-      );
-      const row = db2.get(
-        "SELECT * FROM rules WHERE rowid = last_insert_rowid()"
-      );
-      return ok7(row);
-    }),
-    rule_list: wrapHandler7(async (args) => {
-      requireArg7(args, "agent");
-      const filters = [];
-      const params = [];
-      const scope = args["scope"];
-      const severity = args["severity"];
-      if (typeof scope === "string") {
-        if (!VALID_SCOPES2.has(scope)) {
-          throw new Error(`Invalid scope filter: "${scope}".`);
-        }
-        filters.push("scope = ?");
-        params.push(scope);
-      }
-      if (typeof severity === "string") {
-        if (!VALID_SEVERITIES.has(severity)) {
-          throw new Error(`Invalid severity filter: "${severity}".`);
-        }
-        filters.push("severity = ?");
-        params.push(severity);
-      }
-      const where = filters.length > 0 ? "WHERE " + filters.join(" AND ") : "";
-      const rows = db2.all(
-        `SELECT id, name, description, file_path, scope, severity, status, created_at, updated_at
-           FROM rules
-           ${where}
-           ORDER BY name`,
-        params
-      );
-      return ok7({ rules: rows });
-    }),
-    rule_record_invocation: wrapHandler7(async (args) => {
-      requireArg7(args, "agent");
-      const ruleName = requireArg7(args, "rule_name");
-      const agentName = requireArg7(args, "agent_name");
-      const agentRunId = args["agent_run_id"] === void 0 || args["agent_run_id"] === null ? null : Number(args["agent_run_id"]);
-      const taskId = args["task_id"] === void 0 || args["task_id"] === null ? null : Number(args["task_id"]);
-      const outcome = args["outcome"] ?? "applied";
-      if (!VALID_INVOCATION_OUTCOMES2.has(outcome)) {
-        throw new Error(
-          `Invalid outcome: "${outcome}". Allowed: ${[...VALID_INVOCATION_OUTCOMES2].join(", ")}`
-        );
-      }
-      if (agentRunId !== null && !Number.isInteger(agentRunId)) {
-        throw new Error("agent_run_id must be an integer when provided");
-      }
-      if (taskId !== null && !Number.isInteger(taskId)) {
-        throw new Error("task_id must be an integer when provided");
-      }
-      const rule = db2.get("SELECT name FROM rules WHERE name = ?", [ruleName]);
-      if (!rule) {
-        throw new Error(`Rule not registered: ${ruleName}`);
-      }
-      const now = nowISO();
-      db2.run(
-        `INSERT INTO rule_invocations
-           (rule_name, agent_name, agent_run_id, task_id, applied_at, outcome)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [ruleName, agentName, agentRunId, taskId, now, outcome]
-      );
-      const row = db2.get(
-        "SELECT * FROM rule_invocations WHERE rowid = last_insert_rowid()"
-      );
-      return ok7(row);
-    }),
-    rule_invocations_list: wrapHandler7(async (args) => {
-      requireArg7(args, "agent");
-      const filters = [];
-      const params = [];
-      if (typeof args["rule_name"] === "string") {
-        filters.push("rule_name = ?");
-        params.push(args["rule_name"]);
-      }
-      if (args["agent_run_id"] !== void 0 && args["agent_run_id"] !== null) {
-        filters.push("agent_run_id = ?");
-        params.push(Number(args["agent_run_id"]));
-      }
-      if (args["task_id"] !== void 0 && args["task_id"] !== null) {
-        filters.push("task_id = ?");
-        params.push(Number(args["task_id"]));
-      }
-      if (typeof args["outcome"] === "string") {
-        if (!VALID_INVOCATION_OUTCOMES2.has(args["outcome"])) {
-          throw new Error(`Invalid outcome filter: "${args["outcome"]}".`);
-        }
-        filters.push("outcome = ?");
-        params.push(args["outcome"]);
-      }
-      const where = filters.length > 0 ? "WHERE " + filters.join(" AND ") : "";
-      const limit = Math.min(Math.max(1, Number(args["limit"] ?? 200)), 1e3);
-      params.push(limit);
-      const rows = db2.all(
-        `SELECT id, rule_name, agent_name, agent_run_id, task_id, applied_at, outcome
-           FROM rule_invocations
-           ${where}
-           ORDER BY id DESC
-           LIMIT ?`,
-        params
-      );
-      return ok7({ rows, count: rows.length });
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/commands.ts
-var VALID_SCOPES3 = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
-function ok8(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err8(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg8(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler8(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err8(e.message);
     }
   };
 }
@@ -25559,15 +25344,15 @@ function commandTools(db2) {
     }
   ];
   const handlers = {
-    command_register: wrapHandler8(async (args) => {
-      requireArg8(args, "agent");
-      const name = requireArg8(args, "name");
-      const description = requireArg8(args, "description");
-      const filePath = requireArg8(args, "file_path");
+    command_register: wrapHandler7(async (args) => {
+      requireArg7(args, "agent");
+      const name = requireArg7(args, "name");
+      const description = requireArg7(args, "description");
+      const filePath = requireArg7(args, "file_path");
       const scope = args["scope"] ?? "project-local";
       const argsSchema = args["args_schema"] ?? "{}";
-      if (!VALID_SCOPES3.has(scope)) {
-        throw new Error(`Invalid scope: "${scope}". Allowed: ${[...VALID_SCOPES3].join(", ")}`);
+      if (!VALID_SCOPES2.has(scope)) {
+        throw new Error(`Invalid scope: "${scope}". Allowed: ${[...VALID_SCOPES2].join(", ")}`);
       }
       try {
         JSON.parse(argsSchema);
@@ -25586,15 +25371,15 @@ function commandTools(db2) {
       const row = db2.get(
         "SELECT * FROM commands WHERE rowid = last_insert_rowid()"
       );
-      return ok8(row);
+      return ok7(row);
     }),
-    command_list: wrapHandler8(async (args) => {
-      requireArg8(args, "agent");
+    command_list: wrapHandler7(async (args) => {
+      requireArg7(args, "agent");
       const scope = args["scope"];
       const params = [];
       let where = "";
       if (typeof scope === "string") {
-        if (!VALID_SCOPES3.has(scope)) {
+        if (!VALID_SCOPES2.has(scope)) {
           throw new Error(`Invalid scope filter: "${scope}".`);
         }
         where = "WHERE scope = ?";
@@ -25607,7 +25392,7 @@ function commandTools(db2) {
            ORDER BY name`,
         params
       );
-      return ok8({ commands: rows });
+      return ok7({ commands: rows });
     })
   };
   return { definitions, handlers };
@@ -25617,32 +25402,32 @@ function commandTools(db2) {
 import { existsSync as existsSync2 } from "node:fs";
 import { dirname as dirname4, join as join6 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-function ok9(data) {
+function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err9(message) {
+function err8(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function requireArg9(args, name) {
+function requireArg8(args, name) {
   if (args[name] === void 0 || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
   }
   return args[name];
 }
-function wrapHandler9(fn) {
+function wrapHandler8(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err9(e.message);
+      return err8(e.message);
     }
   };
 }
 var VALID_KINDS = /* @__PURE__ */ new Set(["backbone", "consultant"]);
-var VALID_SCOPES4 = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
+var VALID_SCOPES3 = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
 var RESERVED_NAME = "bro";
 var BACKBONE_GLOBAL_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function resolvePluginRoot() {
@@ -25722,31 +25507,31 @@ function agentTools(db2, dbPath2 = "") {
     }
   ];
   const handlers = {
-    agent_list: wrapHandler9(async (args) => {
-      requireArg9(args, "agent");
+    agent_list: wrapHandler8(async (args) => {
+      requireArg8(args, "agent");
       const scope = args["scope"];
-      if (scope !== void 0 && !VALID_SCOPES4.has(scope)) {
+      if (scope !== void 0 && !VALID_SCOPES3.has(scope)) {
         throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES4].join(", ")}`
+          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES3].join(", ")}`
         );
       }
       const rows = scope ? db2.all("SELECT * FROM agents WHERE scope = ? ORDER BY name", [scope]) : db2.all("SELECT * FROM agents ORDER BY name");
-      return ok9({ agents: rows });
+      return ok8({ agents: rows });
     }),
-    agent_register: wrapHandler9(async (args) => {
-      requireArg9(args, "agent");
-      const name = requireArg9(args, "name");
-      const kind = requireArg9(args, "kind");
-      const scope = requireArg9(args, "scope");
-      const filePath = requireArg9(args, "file_path");
+    agent_register: wrapHandler8(async (args) => {
+      requireArg8(args, "agent");
+      const name = requireArg8(args, "name");
+      const kind = requireArg8(args, "kind");
+      const scope = requireArg8(args, "scope");
+      const filePath = requireArg8(args, "file_path");
       if (!VALID_KINDS.has(kind)) {
         throw new Error(
           `Invalid kind: "${kind}". Allowed values: ${[...VALID_KINDS].join(", ")}`
         );
       }
-      if (!VALID_SCOPES4.has(scope)) {
+      if (!VALID_SCOPES3.has(scope)) {
         throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES4].join(", ")}`
+          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES3].join(", ")}`
         );
       }
       if (name === RESERVED_NAME) {
@@ -25787,30 +25572,30 @@ function agentTools(db2, dbPath2 = "") {
           [String(args["agent"]), `Agent registered: ${name}`, contentJson]
         );
       }
-      return ok9(row);
+      return ok8(row);
     }),
     agent_resolve: requireRoles(
       "agent_resolve",
       ["bro"],
-      wrapHandler9(async (args) => {
-        requireArg9(args, "agent");
-        const name = requireArg9(args, "name");
+      wrapHandler8(async (args) => {
+        requireArg8(args, "agent");
+        const name = requireArg8(args, "name");
         validateAgentName(name);
         const workspaceRoot = resolveWorkspaceRoot(dbPath2);
         const targetPath = workspaceRoot ? join6(workspaceRoot, ".claude", "agents", `${name}.md`) : join6(".claude", "agents", `${name}.md`);
         if (workspaceRoot && existsSync2(targetPath)) {
-          return ok9({ mode: "collision", existing_path: targetPath });
+          return ok8({ mode: "collision", existing_path: targetPath });
         }
         const templatePath = join6(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
         if (existsSync2(templatePath)) {
-          return ok9({
+          return ok8({
             mode: "template-copy",
             source_path: templatePath,
             target_path: targetPath
           });
         }
         const scaffoldPath = join6(PLUGIN_ROOT, "templates", "agents", "template.md");
-        return ok9({
+        return ok8({
           mode: "from-scratch",
           scaffold_path: scaffoldPath,
           target_path: targetPath
@@ -25824,27 +25609,27 @@ function agentTools(db2, dbPath2 = "") {
 // src/tools/reports.ts
 import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
 import { dirname as dirname5, resolve as resolve2, sep } from "node:path";
-function ok10(data) {
+function ok9(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err10(message) {
+function err9(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function requireArg10(args, name) {
+function requireArg9(args, name) {
   if (args[name] === void 0 || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
   }
   return args[name];
 }
-function wrapHandler10(fn) {
+function wrapHandler9(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err10(e.message);
+      return err9(e.message);
     }
   };
 }
@@ -25885,9 +25670,9 @@ function reportTools(db2) {
     }
   ];
   const handlers = {
-    issue_report_md: wrapHandler10(async (args) => {
-      requireArg10(args, "agent");
-      const issueId = requireArg10(args, "issue_id");
+    issue_report_md: wrapHandler9(async (args) => {
+      requireArg9(args, "agent");
+      const issueId = requireArg9(args, "issue_id");
       const mode = args["mode"] ?? "summary";
       if (mode !== "summary" && mode !== "detail") {
         throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
@@ -25934,7 +25719,7 @@ function reportTools(db2) {
             lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
           }
         }
-        return ok10({ markdown: lines.join("\n"), mode: "summary" });
+        return ok9({ markdown: lines.join("\n"), mode: "summary" });
       }
       const tasks = db2.all(
         `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
@@ -26003,11 +25788,11 @@ function reportTools(db2) {
           lines.push(`| ${s.skill_name} | ${s.uses} | ${s.successes} | ${eff} |`);
         }
       }
-      return ok10({ markdown: lines.join("\n"), mode: "detail" });
+      return ok9({ markdown: lines.join("\n"), mode: "detail" });
     }),
-    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler10(async (args) => {
-      requireArg10(args, "agent");
-      const issueId = requireArg10(args, "issue_id");
+    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler9(async (args) => {
+      requireArg9(args, "agent");
+      const issueId = requireArg9(args, "issue_id");
       const rawOutputPath = args["output_path"];
       const issue2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!issue2) {
@@ -26094,28 +25879,28 @@ function reportTools(db2) {
       const markdown = lines.join("\n");
       mkdirSync3(dirname5(absPath), { recursive: true });
       writeFileSync(absPath, markdown, "utf8");
-      return ok10({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
+      return ok9({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
     }))
   };
   return { definitions, handlers };
 }
 
 // src/tools/config.ts
-function ok11(data) {
+function ok10(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err11(message) {
+function err10(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function wrapHandler11(fn) {
+function wrapHandler10(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err11(e.message);
+      return err10(e.message);
     }
   };
 }
@@ -26155,15 +25940,15 @@ function configTools(db2) {
     }
   ];
   const handlers = {
-    config_set: requireRoles("config_set", ["bro"], wrapHandler11(async (args) => {
+    config_set: requireRoles("config_set", ["bro"], wrapHandler10(async (args) => {
       const key = args["key"];
       if (typeof key !== "string" || !KEY_REGEX.test(key)) {
-        return err11(
+        return err10(
           `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
         );
       }
       if (args["value"] === void 0 || args["value"] === null) {
-        return err11("Missing required arg: value");
+        return err10("Missing required arg: value");
       }
       const rawValue = args["value"];
       if (typeof rawValue === "string") {
@@ -26172,7 +25957,7 @@ function configTools(db2) {
           try {
             const parsed = JSON.parse(trimmed);
             if (typeof parsed === "object" && parsed !== null) {
-              return err11(
+              return err10(
                 `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
               );
             }
@@ -26184,7 +25969,7 @@ function configTools(db2) {
       try {
         valueJson = JSON.stringify(rawValue);
       } catch {
-        return err11("config value not JSON-serializable");
+        return err10("config value not JSON-serializable");
       }
       db2.run(
         `INSERT INTO plugin_config (key, value_json)
@@ -26192,28 +25977,28 @@ function configTools(db2) {
          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
         [key, valueJson]
       );
-      return ok11({ key });
+      return ok10({ key });
     })),
-    config_get: wrapHandler11(async (args) => {
+    config_get: wrapHandler10(async (args) => {
       const key = args["key"];
       const row = db2.get(
         `SELECT key, value_json FROM plugin_config WHERE key = ?`,
         [key]
       );
       if (!row) {
-        return ok11(null);
+        return ok10(null);
       }
       let parsed;
       try {
         parsed = JSON.parse(row.value_json);
       } catch {
-        return err11(
+        return err10(
           `config key ${JSON.stringify(key)}: stored value is not valid JSON \u2014 raw: ${row.value_json.slice(0, 200)}`
         );
       }
-      return ok11(parsed);
+      return ok10(parsed);
     }),
-    config_list: wrapHandler11(async () => {
+    config_list: wrapHandler10(async () => {
       const rows = db2.all(
         `SELECT key, value_json FROM plugin_config ORDER BY key`
       );
@@ -26222,39 +26007,39 @@ function configTools(db2) {
         try {
           result[row.key] = JSON.parse(row.value_json);
         } catch {
-          return err11(
+          return err10(
             `config key ${JSON.stringify(row.key)}: stored value is not valid JSON \u2014 raw: ${row.value_json.slice(0, 200)}`
           );
         }
       }
-      return ok11(result);
+      return ok10(result);
     })
   };
   return { definitions, handlers };
 }
 
 // src/tools/branch_report_md.ts
-function ok12(data) {
+function ok11(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err12(message) {
+function err11(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function requireArg11(args, name) {
+function requireArg10(args, name) {
   if (args[name] === void 0 || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
   }
   return args[name];
 }
-function wrapHandler12(fn) {
+function wrapHandler11(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err12(e.message);
+      return err11(e.message);
     }
   };
 }
@@ -26283,10 +26068,10 @@ function branchReportMdTools(db2) {
     branch_report_md: requireRoles(
       "branch_report_md",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrapHandler12(async (args) => {
-        requireArg11(args, "agent");
-        const issueId = requireArg11(args, "issue_id");
-        const branchId = requireArg11(args, "branch_id");
+      wrapHandler11(async (args) => {
+        requireArg10(args, "agent");
+        const issueId = requireArg10(args, "issue_id");
+        const branchId = requireArg10(args, "branch_id");
         const mode = args["mode"] ?? "summary";
         if (mode !== "summary" && mode !== "detail") {
           throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
@@ -26344,7 +26129,7 @@ function branchReportMdTools(db2) {
               lines.push(`| ${e.created_at} | ${e.event_type} | ${e.from_node} | ${e.summary} |`);
             }
           }
-          return ok12({ markdown: lines.join("\n"), mode: "summary" });
+          return ok11({ markdown: lines.join("\n"), mode: "summary" });
         }
         const taskIds = tasks.map((t) => String(t.id));
         const placeholders = taskIds.map(() => "?").join(", ");
@@ -26390,7 +26175,7 @@ function branchReportMdTools(db2) {
             lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.agent} | ${v.verdict} | ${v.created_at} |`);
           }
         }
-        return ok12({ markdown: lines.join("\n"), mode: "detail" });
+        return ok11({ markdown: lines.join("\n"), mode: "detail" });
       })
     )
   };
@@ -26399,21 +26184,21 @@ function branchReportMdTools(db2) {
 
 // src/tools/stats.ts
 var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
-function ok13(data) {
+function ok12(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err13(message) {
+function err12(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function wrapHandler13(fn) {
+function wrapHandler12(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err13(e.message);
+      return err12(e.message);
     }
   };
 }
@@ -26443,7 +26228,7 @@ function statsTools(db2) {
     task_stats: requireRoles(
       "task_stats",
       [...ALLOWED_ROLES],
-      wrapHandler13(async (args) => {
+      wrapHandler12(async (args) => {
         normalizeAgent(args["agent"]);
         const rawTaskId = args["task_id"];
         const taskId = Number(rawTaskId);
@@ -26473,7 +26258,7 @@ function statsTools(db2) {
           "SELECT id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id",
           [taskId]
         );
-        return ok13({ task_id: taskId, aggregate, spawns });
+        return ok12({ task_id: taskId, aggregate, spawns });
       })
     )
   };
@@ -26481,27 +26266,27 @@ function statsTools(db2) {
 }
 
 // src/tools/roundtable.ts
-function ok14(data) {
+function ok13(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err14(message) {
+function err13(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function requireArg12(args, name) {
+function requireArg11(args, name) {
   if (args[name] === void 0 || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
   }
   return args[name];
 }
-function wrapHandler14(fn) {
+function wrapHandler13(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err14(e.message);
+      return err13(e.message);
     }
   };
 }
@@ -26660,11 +26445,11 @@ function roundtableTools(db2) {
     roundtable_create: requireRoles(
       "roundtable_create",
       ["bro"],
-      wrapHandler14(async (args) => {
+      wrapHandler13(async (args) => {
         normalizeAgent(args["agent"]);
-        const issueId = requireArg12(args, "issue_id");
-        const topic = requireArg12(args, "topic");
-        const expectedParticipants = requireArg12(args, "expected_participants");
+        const issueId = requireArg11(args, "issue_id");
+        const topic = requireArg11(args, "topic");
+        const expectedParticipants = requireArg11(args, "expected_participants");
         if (!topic.trim()) {
           throw new Error("topic must be a non-empty string");
         }
@@ -26737,17 +26522,17 @@ function roundtableTools(db2) {
             [row.id, slashAuditId]
           );
         }
-        return ok14({ roundtable_id: row.id, state: row.state });
+        return ok13({ roundtable_id: row.id, state: row.state });
       })
     ),
     roundtable_vote: requireRoles(
       "roundtable_vote",
       ["bro"],
-      wrapHandler14(async (args) => {
+      wrapHandler13(async (args) => {
         normalizeAgent(args["agent"]);
-        const roundtableId = requireArg12(args, "roundtable_id");
-        const participant = requireArg12(args, "participant");
-        const vote = requireArg12(args, "vote");
+        const roundtableId = requireArg11(args, "roundtable_id");
+        const participant = requireArg11(args, "participant");
+        const vote = requireArg11(args, "vote");
         const rationale = args["rationale"] ?? "";
         if (!participant.trim()) {
           throw new Error("participant must be a non-empty string");
@@ -26756,10 +26541,10 @@ function roundtableTools(db2) {
           throw new Error("vote must be a non-empty string");
         }
         if (vote.length > 60) {
-          return err14(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
+          return err13(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
         }
         if (rationale.length > 120) {
-          return err14(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
+          return err13(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
         }
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
@@ -26802,16 +26587,16 @@ function roundtableTools(db2) {
             }
           }
         }
-        return ok14({ vote_id: row.id, state: newState });
+        return ok13({ vote_id: row.id, state: newState });
       })
     ),
     roundtable_close: requireRoles(
       "roundtable_close",
       ["bro"],
-      wrapHandler14(async (args) => {
+      wrapHandler13(async (args) => {
         normalizeAgent(args["agent"]);
-        const roundtableId = requireArg12(args, "roundtable_id");
-        const outcome = requireArg12(args, "outcome");
+        const roundtableId = requireArg11(args, "roundtable_id");
+        const outcome = requireArg11(args, "outcome");
         const skip = args["skip"] ?? false;
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
@@ -26827,7 +26612,7 @@ function roundtableTools(db2) {
             [outcome, now2, roundtableId]
           );
           const updated2 = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-          return ok14({
+          return ok13({
             roundtable_id: updated2.id,
             state: updated2.state,
             closed_at: updated2.closed_at
@@ -26856,7 +26641,7 @@ function roundtableTools(db2) {
           [outcome, now, roundtableId]
         );
         const updated = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-        return ok14({
+        return ok13({
           roundtable_id: updated.id,
           state: updated.state,
           closed_at: updated.closed_at
@@ -26866,12 +26651,12 @@ function roundtableTools(db2) {
     roundtable_finalize_decisions: requireRoles(
       "roundtable_finalize_decisions",
       ["bro"],
-      wrapHandler14(async (args) => {
+      wrapHandler13(async (args) => {
         normalizeAgent(args["agent"]);
-        const roundtableId = requireArg12(args, "roundtable_id");
-        const ratified = requireArg12(args, "ratified");
-        const unratified = requireArg12(args, "unratified");
-        const resolutions = requireArg12(args, "resolutions");
+        const roundtableId = requireArg11(args, "roundtable_id");
+        const ratified = requireArg11(args, "ratified");
+        const unratified = requireArg11(args, "unratified");
+        const resolutions = requireArg11(args, "resolutions");
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -26937,7 +26722,7 @@ function roundtableTools(db2) {
             voteRowsWritten++;
           }
         });
-        return ok14({
+        return ok13({
           discussion_rows_written: discussionRowsWritten,
           vote_rows_written: voteRowsWritten,
           state: "awaiting_human"
@@ -26947,9 +26732,9 @@ function roundtableTools(db2) {
     roundtable_summarize: requireRoles(
       "roundtable_summarize",
       ["bro"],
-      wrapHandler14(async (args) => {
+      wrapHandler13(async (args) => {
         normalizeAgent(args["agent"]);
-        const roundtableId = requireArg12(args, "roundtable_id");
+        const roundtableId = requireArg11(args, "roundtable_id");
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -26980,7 +26765,7 @@ function roundtableTools(db2) {
         const disagreementsResolved = decisionRows.map((r) => ({
           decision_body: r.body
         }));
-        return ok14({
+        return ok13({
           topic: roundtable.topic,
           participants,
           agreements_ratified: answerRows,
@@ -26994,11 +26779,11 @@ function roundtableTools(db2) {
     roundtable_close_with_decisions: requireRoles(
       "roundtable_close_with_decisions",
       ["bro"],
-      wrapHandler14(async (args) => {
+      wrapHandler13(async (args) => {
         normalizeAgent(args["agent"]);
-        const roundtableId = requireArg12(args, "roundtable_id");
-        const outcome = requireArg12(args, "outcome");
-        const decisions = requireArg12(args, "decisions");
+        const roundtableId = requireArg11(args, "roundtable_id");
+        const outcome = requireArg11(args, "outcome");
+        const decisions = requireArg11(args, "decisions");
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -27092,7 +26877,7 @@ function roundtableTools(db2) {
         const disagreementsResolved = decisionRows.map((r) => ({
           decision_body: r.body
         }));
-        return ok14({
+        return ok13({
           roundtable_id: updated.id,
           state: updated.state,
           closed_at: updated.closed_at,
@@ -27141,10 +26926,10 @@ function buildBotPatterns(configOverride) {
 
 // src/tools/pr_comments.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
-function ok15(data) {
+function ok14(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err15(message) {
+function err14(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -27155,7 +26940,7 @@ function wrap(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err15(e.message);
+      return err14(e.message);
     }
   };
 }
@@ -27317,7 +27102,7 @@ function prCommentsTools(db2, _spawnFn) {
     pr_comments_get: requireRoles("pr_comments_get", ["bro"], wrap(async (args) => {
       const prNumber = Number(args["pr_number"]);
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
-        return err15("pr_number must be a positive integer");
+        return err14("pr_number must be a positive integer");
       }
       const repo = typeof args["repo"] === "string" ? args["repo"] : "";
       let since = typeof args["since"] === "string" ? args["since"] : void 0;
@@ -27340,7 +27125,7 @@ function prCommentsTools(db2, _spawnFn) {
         } else {
           const glabAvail = spawn3("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
           if (!glabAvail) {
-            return err15("Neither gh nor glab is installed/available; cannot fetch PR comments");
+            return err14("Neither gh nor glab is installed/available; cannot fetch PR comments");
           }
           backend = "glab";
         }
@@ -27361,7 +27146,7 @@ function prCommentsTools(db2, _spawnFn) {
       const botPatterns = buildBotPatterns(botsOverride);
       const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn3);
       if (!fetchResult) {
-        return err15("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
+        return err14("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
       }
       const now = nowISO();
       const lastCommentId = fetchResult.comments.length > 0 ? fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null : null;
@@ -27381,13 +27166,13 @@ function prCommentsTools(db2, _spawnFn) {
           [prNumber, repo, now, lastCommentId]
         );
       }
-      return ok15(fetchResult);
+      return ok14(fetchResult);
     })),
     pr_review_runs_list: requireRoles("pr_review_runs_list", ["bro"], async (args) => {
       const prFilter = args["pr_number"];
       const filterPrNumber = prFilter === void 0 || prFilter === null ? null : Number(prFilter);
       if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
-        return err15("pr_number must be a positive integer when provided");
+        return err14("pr_number must be a positive integer when provided");
       }
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
@@ -27398,7 +27183,7 @@ function prCommentsTools(db2, _spawnFn) {
           "SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs WHERE pr_number = ? ORDER BY repo",
           [filterPrNumber]
         );
-        return ok15({ rows: rows2, count: rows2.length });
+        return ok14({ rows: rows2, count: rows2.length });
       }
       const limit = Math.min(Math.max(1, limitArg), 500);
       let cursorFilter = "";
@@ -27423,7 +27208,7 @@ function prCommentsTools(db2, _spawnFn) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ id: last.id })).toString("base64") : void 0;
-      return ok15({ rows, count: rows.length, next_cursor });
+      return ok14({ rows, count: rows.length, next_cursor });
     })
   };
   return { definitions, handlers };
@@ -27450,10 +27235,10 @@ function parseFilesDirs(specBody) {
   }
   return [...dirs];
 }
-function ok16(data) {
+function ok15(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err16(message) {
+function err15(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -27464,7 +27249,7 @@ function wrap2(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err16(e.message);
+      return err15(e.message);
     }
   };
 }
@@ -27718,7 +27503,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
       ["bro", "swe", "pr-reviewer"],
       wrap2(async (args) => {
         const taskId = args["task_id"];
-        if (taskId === void 0 || taskId === null) return err16("task_id is required");
+        if (taskId === void 0 || taskId === null) return err15("task_id is required");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.commit_sha, t.repo,
                   i.objective
@@ -27726,7 +27511,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             WHERE t.id = ? LIMIT 1`,
           [taskId]
         );
-        if (!task) return err16(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         let repo = task.repo ?? "";
         if (!repo) {
           const cfg = db2.get(
@@ -27785,7 +27570,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             truncated: true
           };
         });
-        return ok16({
+        return ok15({
           task_id: task.id,
           issue_id: task.issue_id,
           branch_id: task.branch_id,
@@ -27807,18 +27592,18 @@ function compositeTools(db2, dbPath2, graph2 = null) {
       wrap2(async (args) => {
         const intent = args["intent"];
         if (typeof intent !== "string" || intent.trim().length === 0) {
-          return err16("intent must be a non-empty string");
+          return err15("intent must be a non-empty string");
         }
         const objective = args["objective"] ?? intent;
         const { prefix, confidence } = intentToType(intent);
         const slug = slugify2(objective) || slugify2(intent) || "task";
         const branchId = `${prefix}/${slug}`;
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err16(
+          return err15(
             `Derived branch_id "${branchId}" does not match the conventional regex. Pick a clearer objective and re-call.`
           );
         }
-        return ok16({ branch_id: branchId, confidence });
+        return ok15({ branch_id: branchId, confidence });
       })
     ),
     task_retry_batch: requireRoles(
@@ -27833,20 +27618,20 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const title = args["title"] ?? "";
         const repoOverride = args["repo"] ?? null;
         if (!BRANCH_ID_RE.test(newBranchId)) {
-          return err16(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
+          return err15(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
         }
         if (!spec || spec.length > SPEC_BODY_MAX_BYTES) {
-          return err16(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
+          return err15(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
         }
         if (!rationale || rationale.length > 200) {
-          return err16("retry_rationale must be 1..200 chars.");
+          return err15("retry_rationale must be 1..200 chars.");
         }
         if (repoOverride !== null) {
           if (repoOverride.includes("..")) {
-            return err16(`Invalid repo "${repoOverride}": must not contain "..".`);
+            return err15(`Invalid repo "${repoOverride}": must not contain "..".`);
           }
           if (repoOverride.startsWith("/")) {
-            return err16(`Invalid repo "${repoOverride}": must not start with "/".`);
+            return err15(`Invalid repo "${repoOverride}": must not start with "/".`);
           }
         }
         const failed = db2.get(
@@ -27854,14 +27639,14 @@ function compositeTools(db2, dbPath2, graph2 = null) {
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId]
         );
-        if (!failed) return err16(`No task with id=${failedTaskId}`);
+        if (!failed) return err15(`No task with id=${failedTaskId}`);
         if (failed.status !== "failed" && failed.status !== "escalated") {
-          return err16(
+          return err15(
             `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". task_retry_batch only operates on terminally-failed tasks.`
           );
         }
         if (failed.branch_id === newBranchId) {
-          return err16("new_branch_id must differ from the failed task's branch_id.");
+          return err15("new_branch_id must differ from the failed task's branch_id.");
         }
         {
           const RETRY_CAP = 3;
@@ -27881,7 +27666,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             depth++;
           }
           if (depth >= RETRY_CAP) {
-            return err16(
+            return err15(
               `retry limit reached (3) \u2014 escalate to Human. Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. Use discussion_append(kind='question') to involve the Human before retrying further.`
             );
           }
@@ -27937,7 +27722,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           );
           return newTask;
         });
-        return ok16({ task_id: result.id, branch_id: result.branch_id });
+        return ok15({ task_id: result.id, branch_id: result.branch_id });
       })
     ),
     headless_intent_start: requireRoles(
@@ -27949,10 +27734,10 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const intentVerbatim = args["intent_verbatim"];
         const fallbackSummary = args["fallback_summary"] ?? "headless mode: defaults applied";
         if (!issueId || typeof issueId !== "number") {
-          return err16("issue_id must be a number");
+          return err15("issue_id must be a number");
         }
         if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err16("intent_verbatim must be a non-empty string");
+          return err15("intent_verbatim must be a non-empty string");
         }
         const now = nowISO();
         let written = [];
@@ -27977,7 +27762,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             now
           );
         });
-        return ok16({ issue_id: issueId, branch_id: branchId, written: ["audit", ...written] });
+        return ok15({ issue_id: issueId, branch_id: branchId, written: ["audit", ...written] });
       })
     ),
     intent_start: requireRoles(
@@ -27988,16 +27773,16 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const intentVerbatim = args["intent_verbatim"];
         const branchId = args["branch_id"];
         if (!objective || objective.trim().length === 0) {
-          return err16("objective must be a non-empty string");
+          return err15("objective must be a non-empty string");
         }
         if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err16("intent_verbatim must be a non-empty string");
+          return err15("intent_verbatim must be a non-empty string");
         }
         if (!branchId || branchId.trim().length === 0) {
-          return err16("branch_id must be a non-empty string");
+          return err15("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err16(`branch_id "${branchId}" does not match the conventional format.`);
+          return err15(`branch_id "${branchId}" does not match the conventional format.`);
         }
         const now = nowISO();
         const result = db2.transaction(() => {
@@ -28032,7 +27817,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           );
           return { issue_id: issueId, branch_id: branchId };
         });
-        return ok16(result);
+        return ok15(result);
       })
     ),
     headless_fallback_record: requireRoles(
@@ -28043,13 +27828,13 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const chosenDefault = args["chosen_default"];
         const skill = args["skill"];
         if (!question || question.trim().length === 0) {
-          return err16("question must be a non-empty string");
+          return err15("question must be a non-empty string");
         }
         if (!chosenDefault || chosenDefault.trim().length === 0) {
-          return err16("chosen_default must be a non-empty string");
+          return err15("chosen_default must be a non-empty string");
         }
         if (!skill || skill.trim().length === 0) {
-          return err16("skill must be a non-empty string");
+          return err15("skill must be a non-empty string");
         }
         let issueId = args["issue_id"] ?? null;
         if (issueId === null) {
@@ -28075,7 +27860,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             [issueId, noteBody, now]
           );
         });
-        return ok16({ issue_id: issueId, written: ["audit", "note"] });
+        return ok15({ issue_id: issueId, written: ["audit", "note"] });
       })
     ),
     bro_verification_fail_record: requireRoles(
@@ -28085,21 +27870,21 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const taskId = args["task_id"];
         const whichCheck = args["which_check"];
         const details = args["details"];
-        if (!taskId) return err16("task_id is required");
+        if (!taskId) return err15("task_id is required");
         if (!whichCheck || whichCheck.trim().length === 0) {
-          return err16("which_check must be a non-empty string");
+          return err15("which_check must be a non-empty string");
         }
         if (!details || details.trim().length === 0) {
-          return err16("details must be a non-empty string");
+          return err15("details must be a non-empty string");
         }
         if (details.length > 500) {
-          return err16("details must be \u2264500 chars");
+          return err15("details must be \u2264500 chars");
         }
         const task = db2.get(
           "SELECT id, issue_id, branch_id FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err16(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         const summary = `${whichCheck} \u2014 ${details.slice(0, 160)}`;
         const now = nowISO();
         db2.transaction(() => {
@@ -28121,7 +27906,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             [task.issue_id, `Verification fail: ${summary}`, now]
           );
         });
-        return ok16({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
+        return ok15({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
       })
     ),
     pr_review_worktree: requireRoles(
@@ -28132,13 +27917,13 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const repoPath = args["repo_path"];
         const command = args["command"];
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err16("commit_sha must be a 7..40-char hex SHA");
+          return err15("commit_sha must be a 7..40-char hex SHA");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err16("repo_path must be an absolute path");
+          return err15("repo_path must be an absolute path");
         }
         if (!command || command.trim().length === 0) {
-          return err16("command must be a non-empty string");
+          return err15("command must be a non-empty string");
         }
         const wtPath = `/tmp/pr-review-${commitSha}`;
         let stdout = "";
@@ -28150,7 +27935,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             timeout: WORKTREE_TIMEOUT_MS
           });
         } catch (e) {
-          return err16(`worktree add failed: ${e.message}`);
+          return err15(`worktree add failed: ${e.message}`);
         }
         try {
           const result = execFileSync("bash", ["-c", command], {
@@ -28198,10 +27983,10 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const taskIds = args["task_ids"];
         const repoPath = args["repo_path"];
         if (!Array.isArray(taskIds) || taskIds.length === 0) {
-          return err16("task_ids must be a non-empty array");
+          return err15("task_ids must be a non-empty array");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err16("repo_path must be an absolute path");
+          return err15("repo_path must be an absolute path");
         }
         const results = [];
         for (const tid of taskIds) {
@@ -28239,26 +28024,26 @@ function compositeTools(db2, dbPath2, graph2 = null) {
       ["bro"],
       wrap2(async (args) => {
         const taskId = args["task_id"];
-        if (!taskId) return err16("Missing required arg: task_id");
+        if (!taskId) return err15("Missing required arg: task_id");
         const commitSha = (args["commit_sha"] ?? "").toLowerCase();
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err16("commit_sha must be a 7..40-char hex SHA.");
+          return err15("commit_sha must be a 7..40-char hex SHA.");
         }
         const verificationSummary = args["verification_summary"];
         if (verificationSummary === void 0 || verificationSummary === null) {
-          return err16("Missing required arg: verification_summary");
+          return err15("Missing required arg: verification_summary");
         }
         if (typeof verificationSummary !== "string") {
-          return err16("verification_summary must be a string");
+          return err15("verification_summary must be a string");
         }
         const closeIssueIfLast = args["close_issue_if_last_task"] === true;
         const task = db2.get(
           "SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err16(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         if (task.status !== "completed" && task.status !== "needs_validation") {
-          return err16(
+          return err15(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
           );
         }
@@ -28315,7 +28100,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         if (result.issue_closed) {
           await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
         }
-        return ok16(result);
+        return ok15(result);
       })
     )
   };
@@ -28481,10 +28266,10 @@ function resolvePluginRoot2() {
   }
   return null;
 }
-function ok17(data) {
+function ok16(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function wrapHandler15(fn) {
+function wrapHandler14(fn) {
   return async (args) => {
     try {
       return await fn(args);
@@ -28789,13 +28574,13 @@ function onboardTools(db2, dbPath2 = "") {
     onboard_state_get: requireRoles(
       "onboard_state_get",
       ["bro"],
-      wrapHandler15(async () => {
+      wrapHandler14(async () => {
         const git = probeGit(probeDir());
         const gh = probeCli("gh");
         const glab = probeCli("glab");
         const onboarded = readOnboardedFlag(db2);
         const first_run = !onboarded;
-        return ok17({
+        return ok16({
           first_run,
           current: {
             branching_model: readConfig(db2, "branching_model"),
@@ -28819,12 +28604,12 @@ function onboardTools(db2, dbPath2 = "") {
     onboard_get_questions: requireRoles(
       "onboard_get_questions",
       ["bro"],
-      wrapHandler15(async (args) => {
+      wrapHandler14(async (args) => {
         const shape = args["shape"];
         const round = args["round"];
         const git = probeGit(probeDir());
         if (round === "shape") {
-          return ok17({ questions: [shapeQuestion(git.origin_kind)] });
+          return ok16({ questions: [shapeQuestion(git.origin_kind)] });
         }
         const isReonboard = readOnboardedFlag(db2);
         const currentBranching = readConfig(db2, "branching_model");
@@ -28852,13 +28637,13 @@ function onboardTools(db2, dbPath2 = "") {
         } else {
           throw new Error(`unknown round '${String(round)}'`);
         }
-        return ok17({ questions });
+        return ok16({ questions });
       })
     ),
     onboard_apply: requireRoles(
       "onboard_apply",
       ["bro"],
-      wrapHandler15(async (args) => {
+      wrapHandler14(async (args) => {
         const shape = args["shape"];
         if (shape !== "local" && shape !== "remote") {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
@@ -28968,7 +28753,7 @@ function onboardTools(db2, dbPath2 = "") {
           writeHeadlessEnforcementShim({ pluginRoot: resolvePluginRoot2(), homeDir: os.homedir() });
         } catch {
         }
-        return ok17({
+        return ok16({
           ok: true,
           ...warning ? { warning } : {},
           applied: {
@@ -29193,10 +28978,10 @@ function resolveGraphDbPath(trajectoryDbPath) {
 }
 
 // src/tools/scan.ts
-function ok18(data) {
+function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err17(message) {
+function err16(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -29207,7 +28992,7 @@ function wrap3(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err17(e.message);
+      return err16(e.message);
     }
   };
 }
@@ -29582,7 +29367,7 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
         const rawSource = args["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
         if (!graph2 && graphOpenError2) {
-          return err17(
+          return err16(
             `graph_db_open_failed: ${graphOpenError2} \u2014 world model could not be opened this session (kuzu write-lock contention); restart the session to retry`
           );
         }
@@ -29590,14 +29375,14 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
         if (lockPath) {
           const existing2 = readLock(lockPath);
           if (existing2 && pidAlive(existing2.pid)) {
-            return err17(`scan already running (pid ${existing2.pid}, started ${existing2.started_at})`);
+            return err16(`scan already running (pid ${existing2.pid}, started ${existing2.started_at})`);
           }
           try {
             acquireLock(lockPath);
           } catch {
             const recheck = readLock(lockPath);
             if (recheck && pidAlive(recheck.pid)) {
-              return err17(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
+              return err16(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
             }
           }
         }
@@ -29653,7 +29438,7 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
             ["tmb_default_repo", JSON.stringify(defaultRepo)]
           );
         }
-        return ok18({
+        return ok17({
           session_dir: out.session_dir,
           scanned_at: out.scanned_at,
           repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
@@ -29668,7 +29453,7 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
       ["bro", "swe", "pr-reviewer"],
       wrap3(async () => {
         const rows = db2.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
-        return ok18({ repos: rows });
+        return ok17({ repos: rows });
       })
     )
   };
@@ -29680,10 +29465,10 @@ import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync7 } from "node:fs";
 import { dirname as dirname9, join as join10 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
-function ok19(data) {
+function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err18(message) {
+function err17(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -29694,7 +29479,7 @@ function wrap4(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err18(e.message);
+      return err17(e.message);
     }
   };
 }
@@ -30086,7 +29871,7 @@ function cheatcodeTools(db2) {
       ["bro"],
       wrap4(async (args) => {
         const query = args["capability_query"]?.trim();
-        if (!query) return err18("capability_query is required");
+        if (!query) return err17("capability_query is required");
         const rawKind = args["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
@@ -30104,7 +29889,7 @@ function cheatcodeTools(db2) {
             nowISO()
           ]
         );
-        return ok19({ query, kind, candidates: out.candidates });
+        return ok18({ query, kind, candidates: out.candidates });
       })
     ),
     cheatcode_vet: requireRoles(
@@ -30112,11 +29897,11 @@ function cheatcodeTools(db2) {
       ["bro"],
       wrap4(async (args) => {
         const raw = args["candidate"];
-        if (!raw || typeof raw !== "object") return err18("candidate is required");
+        if (!raw || typeof raw !== "object") return err17("candidate is required");
         const name = raw["name"]?.trim();
         const sourceUrl = raw["source_url"]?.trim();
-        if (!name) return err18("candidate.name is required");
-        if (!sourceUrl) return err18("candidate.source_url is required");
+        if (!name) return err17("candidate.name is required");
+        if (!sourceUrl) return err17("candidate.source_url is required");
         const rawKind = raw["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const tierVal = raw["tier"];
@@ -30141,7 +29926,7 @@ function cheatcodeTools(db2) {
             nowISO()
           ]
         );
-        return ok19(out);
+        return ok18(out);
       })
     ),
     cheatcode_approve: requireRoles(
@@ -30149,7 +29934,7 @@ function cheatcodeTools(db2) {
       ["bro"],
       wrap4(async (args) => {
         const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err18(parsed.error);
+        if ("error" in parsed) return err17(parsed.error);
         const { name, kind, sourceUrl } = parsed;
         db2.run(
           `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
@@ -30160,7 +29945,7 @@ function cheatcodeTools(db2) {
             nowISO()
           ]
         );
-        return ok19({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
+        return ok18({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
       })
     ),
     cheatcode_install: requireRoles(
@@ -30168,7 +29953,7 @@ function cheatcodeTools(db2) {
       ["bro"],
       wrap4(async (args) => {
         const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err18(parsed.error);
+        if ("error" in parsed) return err17(parsed.error);
         const { name, kind, sourceUrl, tier } = parsed;
         const trustTier = args["trust_tier"]?.trim() ?? null;
         const rawScope = args["scope"]?.trim();
@@ -30182,7 +29967,7 @@ function cheatcodeTools(db2) {
             `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
             [existing.id]
           );
-          return ok19({
+          return ok18({
             installed: false,
             idempotent: true,
             cheatcode: existing,
@@ -30243,7 +30028,7 @@ function cheatcodeTools(db2) {
           );
           return id;
         });
-        return ok19({
+        return ok18({
           installed: out.installed,
           cheatcode_id: cheatcodeId,
           candidate: out.candidate,
@@ -30264,14 +30049,14 @@ function cheatcodeTools(db2) {
       wrap4(async (args) => {
         const idVal = args["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err18("cheatcode_id is required (integer)");
+          return err17("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
         if (!existing) {
-          return ok19({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
+          return ok18({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
         }
         const attachments = db2.all(
           `SELECT id, target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
@@ -30310,7 +30095,7 @@ function cheatcodeTools(db2) {
             ]
           );
         });
-        return ok19({
+        return ok18({
           uninstalled: true,
           cheatcode_id: existing.id,
           name: existing.name,
@@ -30328,13 +30113,13 @@ function cheatcodeTools(db2) {
       wrap4(async (args) => {
         const idVal = args["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err18("cheatcode_id is required (integer)");
+          return err17("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
-        if (!existing) return err18(`no cheatcode with id ${idVal}`);
+        if (!existing) return err17(`no cheatcode with id ${idVal}`);
         const restartReason = {
           plugin: "plugin manifest (skills/hooks/commands) loads on the next claude -p cold start",
           mcp: "MCP server registers on the next claude -p cold start"
@@ -30355,7 +30140,7 @@ function cheatcodeTools(db2) {
             nowISO()
           ]
         );
-        return ok19({
+        return ok18({
           cheatcode_id: existing.id,
           name: existing.name,
           kind: existing.kind,
@@ -30370,10 +30155,10 @@ function cheatcodeTools(db2) {
 
 // src/tools/world-model.ts
 var WORLD_MODEL_GET_MAX_NODES = 500;
-function ok20(data) {
+function ok19(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err19(message) {
+function err18(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -30384,7 +30169,7 @@ function wrap5(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err19(e.message);
+      return err18(e.message);
     }
   };
 }
@@ -30502,20 +30287,20 @@ function worldModelTools(db2, graph2) {
         const depthArg = args["depth"];
         const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
         if (!graph2) {
-          return ok20({ repo, root: null, warning: "world-model-unavailable" });
+          return ok19({ repo, root: null, warning: "world-model-unavailable" });
         }
         const nodes = graph2.allDirectoriesForRepo(repo);
         if (nodes.length === 0) {
-          return ok20({ repo, root: null, warning: "world-model-empty" });
+          return ok19({ repo, root: null, warning: "world-model-empty" });
         }
         const rows = nodes;
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path2, depth, { nodeCounter });
         if (!tree) {
-          return ok20({ repo, root: null, warning: "path-not-found", path: path2 });
+          return ok19({ repo, root: null, warning: "path-not-found", path: path2 });
         }
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        return ok20({ repo, root: tree, ...truncated ? { truncated: true } : {} });
+        return ok19({ repo, root: tree, ...truncated ? { truncated: true } : {} });
       })
     ),
     world_model_search: requireRoles(
@@ -30523,7 +30308,7 @@ function worldModelTools(db2, graph2) {
       ["bro", "swe", "pr-reviewer"],
       wrap5(async (args) => {
         const query = args["query"];
-        if (!query || typeof query !== "string") return err19("query is required");
+        if (!query || typeof query !== "string") return err18("query is required");
         const mode = args["mode"] ?? "hybrid";
         const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
         let repo = args["repo"] ?? "";
@@ -30539,11 +30324,11 @@ function worldModelTools(db2, graph2) {
           }
         }
         if (!graph2) {
-          return ok20({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+          return ok19({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
         const hits = graph2.keywordSearchDirectories(repo, query, k);
         if (mode === "keyword") {
-          return ok20({
+          return ok19({
             results: hits.map((h) => ({
               repo: h.repo,
               path: h.path,
@@ -30557,14 +30342,14 @@ function worldModelTools(db2, graph2) {
           });
         }
         if (mode === "semantic") {
-          return ok20({
+          return ok19({
             results: [],
             total_matched: 0,
             warning: "semantic_unavailable",
             mode: "semantic"
           });
         }
-        return ok20({
+        return ok19({
           results: hits.map((h) => ({
             repo: h.repo,
             path: h.path,
@@ -30615,7 +30400,6 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
   const audit = auditTools(db2);
   const validation = validationTools(db2);
   const skills = skillTools(db2);
-  const rules = ruleTools(db2);
   const commands = commandTools(db2);
   const agents = agentTools(db2, dbPath2);
   const reports = reportTools(db2);
@@ -30636,7 +30420,6 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
     ...audit.definitions,
     ...validation.definitions,
     ...skills.definitions,
-    ...rules.definitions,
     ...commands.definitions,
     ...agents.definitions,
     ...reports.definitions,
@@ -30658,7 +30441,6 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
     ...audit.handlers,
     ...validation.handlers,
     ...skills.handlers,
-    ...rules.handlers,
     ...commands.handlers,
     ...agents.handlers,
     ...reports.handlers,
@@ -30782,10 +30564,10 @@ function shutdown(signal) {
   graph?.close();
   process.exit(0);
 }
-process.on("uncaughtException", (err20) => {
-  serverLogSync({ kind: "uncaughtException", error_message: err20.message, stack: err20.stack, pid: process.pid });
-  process.stderr.write(`uncaughtException: ${err20.message}
-${err20.stack ?? ""}
+process.on("uncaughtException", (err19) => {
+  serverLogSync({ kind: "uncaughtException", error_message: err19.message, stack: err19.stack, pid: process.pid });
+  process.stderr.write(`uncaughtException: ${err19.message}
+${err19.stack ?? ""}
 `);
   process.exit(1);
 });
@@ -30829,17 +30611,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   let result;
   try {
     result = await handler(args ?? {});
-  } catch (err20) {
+  } catch (err19) {
     const duration_ms2 = Math.round(performance2.now() - start);
     serverLog({
       kind: "tool_exit",
       tool: name,
       agent,
       is_error: true,
-      error_message: err20 instanceof Error ? err20.message : String(err20),
+      error_message: err19 instanceof Error ? err19.message : String(err19),
       duration_ms: duration_ms2
     });
-    throw err20;
+    throw err19;
   }
   const duration_ms = Math.round(performance2.now() - start);
   serverLog({

@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
-import { ruleTools } from '../tools/rules.js';
 import { commandTools } from '../tools/commands.js';
 import { skillTools } from '../tools/skills.js';
 import { taskTools } from '../tools/tasks.js';
@@ -17,88 +16,6 @@ function parseBatch(r) {
     const raw = JSON.parse(r.content[0].text);
     return (raw.tasks ?? raw);
 }
-describe('#2886 rules catalog', () => {
-    it('rule_register inserts with defaults (scope=project-local, severity=advisory)', async () => {
-        const db = tempDB();
-        const tools = ruleTools(db);
-        const res = await call(tools.handlers, 'rule_register', {
-            agent: 'bro',
-            name: 'no-shell-injection',
-            description: 'Subprocess calls must not pass untrusted input via shell=True',
-            file_path: '.claude/rules/no-shell-injection.md',
-        });
-        assert.ok(!res.isError);
-        const row = parse(res);
-        assert.equal(row.name, 'no-shell-injection');
-        assert.equal(row.scope, 'project-local');
-        assert.equal(row.severity, 'advisory');
-        assert.equal(row.status, 'active');
-        db.close();
-    });
-    it('rule_register honors explicit scope + severity', async () => {
-        const db = tempDB();
-        const tools = ruleTools(db);
-        const res = await call(tools.handlers, 'rule_register', {
-            agent: 'bro',
-            name: 'commit-msg-format',
-            description: 'Commit messages follow Conventional Commits',
-            file_path: '.claude/rules/commit-msg.md',
-            scope: 'project-local',
-            severity: 'blocking',
-        });
-        assert.ok(!res.isError);
-        const row = parse(res);
-        assert.equal(row.severity, 'blocking');
-        db.close();
-    });
-    it('rule_register rejects invalid scope or severity', async () => {
-        const db = tempDB();
-        const tools = ruleTools(db);
-        const bad = await call(tools.handlers, 'rule_register', {
-            agent: 'bro',
-            name: 'x',
-            description: 'd',
-            file_path: 'p',
-            scope: 'banana',
-        });
-        assert.ok(bad.isError);
-        assert.match(parse(bad).error, /Invalid scope/);
-        const bad2 = await call(tools.handlers, 'rule_register', {
-            agent: 'bro',
-            name: 'y',
-            description: 'd',
-            file_path: 'p',
-            severity: 'critical',
-        });
-        assert.ok(bad2.isError);
-        assert.match(parse(bad2).error, /Invalid severity/);
-        db.close();
-    });
-    it('rule_list filters by scope + severity', async () => {
-        const db = tempDB();
-        const tools = ruleTools(db);
-        for (const [name, severity] of [
-            ['a', 'advisory'],
-            ['b', 'warning'],
-            ['c', 'blocking'],
-        ]) {
-            await call(tools.handlers, 'rule_register', {
-                agent: 'bro',
-                name,
-                description: name,
-                file_path: `.claude/rules/${name}.md`,
-                severity,
-            });
-        }
-        const all = await call(tools.handlers, 'rule_list', { agent: 'bro' });
-        assert.equal(parse(all).rules.length, 3);
-        const blocking = await call(tools.handlers, 'rule_list', { agent: 'bro', severity: 'blocking' });
-        const rows = parse(blocking).rules;
-        assert.equal(rows.length, 1);
-        assert.equal(rows[0].name, 'c');
-        db.close();
-    });
-});
 describe('#2886 commands catalog', () => {
     it('schema-seeds the 5 plugin-shipped slash commands', async () => {
         const db = tempDB();
@@ -233,46 +150,6 @@ describe('#2886 skill_invocations junction', () => {
         });
         assert.ok(res.isError);
         assert.match(parse(res).error, /Invalid outcome/);
-        db.close();
-    });
-});
-describe('#2886 rule_invocations junction', () => {
-    it('rule_record_invocation writes a junction row', async () => {
-        const db = tempDB();
-        const rules = ruleTools(db);
-        await call(rules.handlers, 'rule_register', {
-            agent: 'bro',
-            name: 'no-shell-injection',
-            description: 'no untrusted shell input',
-            file_path: '.claude/rules/no-shell-injection.md',
-            severity: 'blocking',
-        });
-        const res = await call(rules.handlers, 'rule_record_invocation', {
-            agent: 'bro',
-            rule_name: 'no-shell-injection',
-            agent_name: 'swe',
-            outcome: 'violated',
-        });
-        assert.ok(!res.isError);
-        const row = parse(res);
-        assert.equal(row.rule_name, 'no-shell-injection');
-        assert.equal(row.outcome, 'violated');
-        db.close();
-    });
-    it('rule_invocations_list filters by outcome=violated', async () => {
-        const db = tempDB();
-        const rules = ruleTools(db);
-        await call(rules.handlers, 'rule_register', {
-            agent: 'bro', name: 'r', description: 'd', file_path: 'p', severity: 'advisory',
-        });
-        for (const outcome of ['applied', 'violated', 'skipped']) {
-            await call(rules.handlers, 'rule_record_invocation', {
-                agent: 'bro', rule_name: 'r', agent_name: 'bro', outcome,
-            });
-        }
-        const violated = parse(await call(rules.handlers, 'rule_invocations_list', { agent: 'bro', outcome: 'violated' }));
-        assert.equal(violated.count, 1);
-        assert.equal(violated.rows[0].outcome, 'violated');
         db.close();
     });
 });

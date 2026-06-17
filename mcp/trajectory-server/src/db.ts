@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 15;
+const TARGET_SCHEMA_VERSION = 16;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -471,6 +471,9 @@ function runMigrations(
   if (fromVersion < 15 && toVersion >= 15) {
     migrateV14toV15(db);
   }
+  if (fromVersion < 16 && toVersion >= 16) {
+    migrateV15toV16(db);
+  }
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -736,6 +739,27 @@ function migrateV14toV15(db: DatabaseSync): void {
     if (tableExists(db, 'cheatcodes') && !hasColumn(db, 'cheatcodes', 'scope')) {
       db.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+function migrateV15toV16(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    // Drop the dead rules + rule_invocations registry (#97 schema audit):
+    // honor-system-only, 0 rows everywhere, zero readers. Drop the child
+    // junction table first so the FK to rules(name) is gone before rules.
+    // LINT-ALLOW: v15→v16 migration retires the dead rules registry (#97 schema audit).
+    db.exec('DROP TABLE IF EXISTS rule_invocations');
+    // LINT-ALLOW: v15→v16 migration retires the dead rules registry (#97 schema audit).
+    db.exec('DROP TABLE IF EXISTS rules');
     db.exec('COMMIT');
   } catch (err) {
     try {

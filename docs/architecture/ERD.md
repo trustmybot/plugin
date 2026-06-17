@@ -9,10 +9,10 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 11`). P
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `skills`, `rules`, `commands`, `agents`, `repos`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `skills`, `commands`, `agents`, `repos`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 
 The **world model** lives in a sibling kuzu graph database (`world-model.kuzu`), not in this SQLite file. See `docs/architecture/WORLD_MODEL.md`.
-| **Junctions** (catalog ↔ run) | `skill_invocations`, `rule_invocations` | FK to both `skills`/`rules` and `agent_runs` — bridges the catalog to per-run analytics |
+| **Junctions** (catalog ↔ run) | `skill_invocations` | FK to both `skills` and `agent_runs` — bridges the catalog to per-run analytics |
 
 The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json`; `scan_run` is the single scan-side surface.
 
@@ -262,7 +262,7 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 
 ## Capability catalog — junction-based (#2886, landed)
 
-Before #2886 the `skills` table recorded only the **catalog** of available skills + aggregate counters (`uses`, `successes`, `failures`), with no per-invocation history — which agent on which task invoked which skill — and rules and slash commands had no table at all.
+Before #2886 the `skills` table recorded only the **catalog** of available skills + aggregate counters (`uses`, `successes`, `failures`), with no per-invocation history — which agent on which task invoked which skill — and slash commands had no table at all.
 
 #2886 closed this gap with three table additions + one schema enrichment, designed as a **portable catalog** that's analytics-only in the Claude Code plugin (file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
 
@@ -271,7 +271,6 @@ Before #2886 the `skills` table recorded only the **catalog** of available skill
 | New / changed | Shape | Why |
 |---|---|---|
 | `skills.scope` (column add) | `TEXT NOT NULL DEFAULT 'global' CHECK (scope IN ('global','template','project-local'))` | Match `agents.scope`. Distinguish schema-seeded `tmb_*` skills (global) from `.claude/skills/<name>/SKILL.md` (project-local). |
-| `rules` (new table) | name (UK), description, file_path, scope, severity (`advisory`/`warning`/`blocking`), tags, status, when_to_apply, invocations counter, violations counter, created_by, timestamps | First-class catalog for `.claude/rules/*.md`. Severity captures enforcement weight (some rules are advisory; some BLOCK). |
 | `commands` (new table) | name (UK), description, file_path, scope, args_schema (JSON), tags, status, invocations counter, created_by, timestamps | First-class catalog for slash commands (`/scan`, `/onboard`, `/monitor`, `/roundtable`). |
 
 ### Junction tables — the load-bearing bridge
@@ -279,13 +278,12 @@ Before #2886 the `skills` table recorded only the **catalog** of available skill
 | New | Shape | Why |
 |---|---|---|
 | `skill_invocations` | `(id, agent_run_id FK, task_id FK nullable, skill_name FK, invoked_at, outcome IN ('completed','failed','partial'))` indexed on `(skill_name)` + `(task_id)` | One row per skill load. Closes the "agent didn't use skill it should have" detection loop. Per-invocation outcome enables real effectiveness analytics (vs the current aggregate counters which lose temporal granularity). |
-| `rule_invocations` | `(id, agent_run_id FK, task_id FK nullable, rule_name FK, applied_at, outcome IN ('applied','violated','skipped'))` indexed on `(rule_name)` + `(task_id)` | Symmetric for rules. `outcome='violated'` is the per-instance record of rules getting tripped. |
 
-Indexes on both `(skill_name | rule_name)` and `(task_id)` make both query directions cheap: **forward** ("what did this run/task touch") and **reverse** ("which runs used skill X").
+Indexes on both `(skill_name)` and `(task_id)` make both query directions cheap: **forward** ("what did this run/task touch") and **reverse** ("which runs used skill X").
 
 ### Bro as a first-class agent_run
 
-Before #2886 `agent_runs` only captured **subagent spawns** (SWE, pr-reviewer, consultants). Bro itself — the main process — had no row, so bro's skill/rule invocations had no `agent_run_id` to attribute to, AND there was no record of bro's token cost per session/task.
+Before #2886 `agent_runs` only captured **subagent spawns** (SWE, pr-reviewer, consultants). Bro itself — the main process — had no row, so bro's skill invocations had no `agent_run_id` to attribute to, AND there was no record of bro's token cost per session/task.
 
 #2886 adds bro to `agent_runs` at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. Recorded by composites (`task_create_batch` opens the bro row, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
 
@@ -316,14 +314,6 @@ LEFT JOIN skill_invocations si
 LEFT JOIN agent_runs ar ON ar.id = si.agent_run_id AND ar.agent_type = 'bro'
 WHERE si.id IS NULL;
 
--- "Rule effectiveness: applied vs violated"
-SELECT rule_name,
-       SUM(CASE WHEN outcome='applied' THEN 1 ELSE 0 END) AS applied,
-       SUM(CASE WHEN outcome='violated' THEN 1 ELSE 0 END) AS violated
-FROM rule_invocations
-GROUP BY rule_name
-ORDER BY violated DESC;
-
 -- "Total task cost = bro planning + SWE execution"
 SELECT t.id, t.branch_id,
        SUM(CASE WHEN ar.agent_type = 'bro' THEN ar.tokens_total ELSE 0 END) AS bro_tokens,
@@ -335,4 +325,4 @@ GROUP BY t.id, t.branch_id;
 
 ### Implementation status
 
-Landed in #2886. The schema additions (`rules`, `commands`, `skill_invocations`, `rule_invocations` tables + the `skills.scope` enrichment, with bundled `skills` / `commands` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the skill-invocation capture path, and the MCP tool surfaces (`skill_record_invocation`, `rule_register` / `rule_record_invocation`, `command_register`, plus the `skill_invocations_list` / `rule_invocations_list` readers).
+Landed in #2886. The schema additions (`commands`, `skill_invocations` tables + the `skills.scope` enrichment, with bundled `skills` / `commands` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the skill-invocation capture path, and the MCP tool surfaces (`skill_record_invocation`, `command_register`, plus the `skill_invocations_list` reader).
