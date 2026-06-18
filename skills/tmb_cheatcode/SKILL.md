@@ -55,3 +55,5 @@ AskUserQuestion(
 ```
 
 Lead the chat with the rationale — what the cheatcode does, the tier and why, and the surface it would bring into the project — then let the Human make the call. The install itself is still a separate gate.
+
+When the install is FOR a specific agent — "install X for swe", "code-review for pr-reviewer" — pass that agent as `cheatcode_install`'s `target` so the consuming agent is materialized (`.claude/agents/<agent>.md` copied global→local with the skill added to its `skills:` header; `target=bro` materializes `.claude/CLAUDE.md` instead).

@@ -137,6 +137,7 @@ l5_run_claude() {
 #   6. coherence            — table-shape invariants (opt-in via outcome-coherence.json) — catches empty-table doctrine violations
 #   7. git                  — git-state invariants (opt-in via outcome-git.json) — catches base-branch contamination + worktree-on-wrong-branch
 #   8. usage                — skill/plugin usage from the stream-json run log (opt-in via outcome-usage.json) — replaces skill_invocations (#118/#119)
+#   9. materialized         — on-disk consuming-agent materialization (opt-in via outcome-materialized.json) — proves a targeted cheatcode install copied the agent md + skill header (#95)
 l5_score_flow() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local total_fail=0
@@ -149,6 +150,7 @@ l5_score_flow() {
   l5_score_coherence            "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_git                  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_usage                "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l5_score_materialized         "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
 
   return "$total_fail"
 }

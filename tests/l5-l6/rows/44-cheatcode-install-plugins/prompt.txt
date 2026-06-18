@@ -1,1 +1,1 @@
-@bro install the feature-dev and code-review plugins in local scope. Don't ask questions.
+@bro install feature-dev for swe and code-review for pr-reviewer in local scope. Don't ask questions.
