@@ -18,8 +18,15 @@ Everything between those two judgments is a tool call, not a checklist.
 | **Detect gap (#657)** | bro spots "task needs capability X I don't have" — grab a cheatcode (`tmb_cheatcode` skill) instead of grinding it out | — |
 | **Search/rank (#657)** | — | `cheatcode_search` composite MCP tool → forks `scripts/cheatcode-search.sh` (query tiered registries + parse + deterministic ranking), returns ranked candidates + records an audit row. One call, like `scan_run`→`scan.sh`. |
 | **Vet (#658)** | bro weighs "trustworthy enough?" + AskUserQuestion | `cheatcode_vet` tool gathers reputation/security **signals** atomically (stars, age, downloads, maintainer, license, install-surface); never decides. |
-| **Install (#659)** | — (approval is the human's, not bro's) | `cheatcode_install` composite (marketplace-install path, no seeding) + **PreToolUse approval gate**: install blocked unless an explicit human-approval record exists for that candidate (mech 3). Records install in trajectory DB. |
-| **Hot-load (#660)** | — | `cheatcode_activate` tool attempts in-session load; if CC requires a restart, returns a deterministic `restart_required` verdict and the skill surfaces `claude --resume` (TMB state is in trajectory checkpoints, so resume is safe). |
+| **Approve (#659)** | — (approval is the human's, not bro's) | `cheatcode_approve` records the per-candidate human approval (a `cheatcode_approved` audit row keyed by `source_url`). The install gate fails closed until this row exists. |
+| **Install + materialize (#659)** | — | `cheatcode_install` composite (marketplace-install path, no seeding) records the `cheatcodes` + attachment rows in one transaction. Blocked by a **PreToolUse approval gate** without a `cheatcode_approve` record (mech 3). For a skill, an optional `target=<bro\|swe\|pr-reviewer\|consultant>` **materializes** the consuming agent — copies the global agent md into the project `.claude/agents/<target>.md` (or `.claude/CLAUDE.md` for bro) and adds the skill to its `skills:` frontmatter, writing the user project only. Without a target a skill-kind install returns a proposed-PR payload and writes no agent md. |
+| **Hot-load (#660)** | — | `cheatcode_activate` returns a deterministic verdict: skill-kind attachments are usable in-session (activated); plugin/MCP kinds load on the next `claude -p` cold start, returning `restart_required` + a reason. |
+| **Inspect (#112/#113)** | — | `cheatcode_list` is the read-only registry surface — every builtin + installed capability with its `status` (`installed`/`active`/`broken`), `kind`, `origin`, `scope`, `trust_tier`. The "do the cheatcodes work / which are installed" check, distinct from the discovery pipeline. |
+| **Uninstall (#676)** | — (Human-confirmed) | `cheatcode_uninstall` reverses one install by `cheatcode_id` in a single transaction (see [Teardown](#teardown--uninstall-676)). Bro-proposed + Human-confirmed (AskUserQuestion), not PreToolUse-gated. |
+
+## Scan-side discovery (#124/#846)
+
+The discover→install pipeline is the *acquisition* path. A second, passive path keeps the registry honest: `scan_run` (`scripts/scan.sh`) reconciles **locally-present** capabilities into the `cheatcodes` table after its repo/file walk — project-local skills (`.claude/skills/<name>/SKILL.md`), enabled plugins (`claude plugin list`), and configured MCP servers (`claude mcp list`, with a `~/.claude.json` `mcpServers` fallback). Each capability not already tracked by `(name, kind)` is INSERTed with `origin='installed'`, `status='installed'`, and `source_url='scan_discovered'` (distinguishing it from pipeline-installed rows), emitting a `scan_discovered` audit row. This is a SQLite write into `cheatcodes` only — it does not touch the kuzu world model (which holds Directory nodes). Best-effort and bounded: the CLI calls run under a short timeout and a missing `claude` binary degrades to the skills-only walk.
 
 ## Why these boundaries (boundary test applied)
 
@@ -89,4 +96,4 @@ Each sub-issue ships with, before merge:
 
 ## Build order
 
-#657 (search ✅) → **#676 + #677 (lifecycle design, this doc)** → #658 (vet) → #659 (install + approval gate) → #660 (hot-load). #659 and #660 are blocked until the teardown contract and attachment semantics above are settled. Each stage lands its own tools/hooks + full test stack including its L5/L6 row before the next begins.
+The pipeline shipped in stage order, each stage landing its own tools/hooks + full test stack (L1–L6 row) before the next: #657 (search) → #676/#677 (teardown + attachment contract) → #658 (vet) → #659 (approve + install + approval gate) → #660 (hot-load). The scan-side discovery path (#124/#846) layered on top once the `cheatcodes` registry was the unified catalog (#101).
