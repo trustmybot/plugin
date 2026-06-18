@@ -16,9 +16,10 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | `skills` (registered via `skill_register`) | — |
 | 6 | Push gate / PR review | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `validation_attempts` | `git-push-guard` |
-| 7 | Scan + world-model refresh | First code-touching ask of session, `/scan`, OR `post-task-close-rescan.sh` hook fires after `bro_atomic_close` | bro (or hook in background) | `repos` (SQLite) + Directory nodes / CONTAINS edges (kuzu graph; summary preferentially from `<dir>/README.md`), `audit(event_type='deep_scan_completed')` | `post-task-close-rescan` |
+| 7 | Scan + world-model refresh | First code-touching ask of session when the graph is EMPTY (`source='bro_auto_initial'`), `/scan` (`user_manual`), OR `post-task-close-rescan.sh` after `bro_atomic_close` (`bro_auto_post_close`) | bro (or hook in background) | `repos` (SQLite) + Directory nodes / CONTAINS edges (kuzu graph; summary preferentially from `<dir>/README.md`) + `cheatcodes` (on-disk resources, `source_url='scan_discovered'`), `audit(event_type='deep_scan_completed'\|'scan_discovered')` | `post-task-close-rescan` |
 | 8 | SWE retry / escalation | Bro verification or pr-reviewer verdict='fail' | bro ↔ swe (↔ pr-reviewer at push) | `validation_attempts` (multiple), `discussions` | `task_retry_batch` composite |
 | 9 | Roundtable | Multi-consultant deliberation with AUQ ratification | bro orchestrates 2–4 consultants | `roundtables`, `roundtable_votes`, `discussions`, `audit` | `roundtable-auq-shape`, `roundtable-cleanup-postcheck` |
+| 10 | Cheatcode lifecycle | bro hits a capability wall, Human says "cheatcode", OR a proactive reuse-check before building | bro (Human approves install) | `cheatcodes`, `audit` | `cheatcode-install-approval`, `cheatcode-healthcheck`, `prompt-intent-hints` |
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
 | 33 | Multi-repo path discipline | Inner repos registered in `repos`; bro indexes them | bro | kuzu Directory nodes (repo-relative paths; `repo` property scopes to the right inner git repo) | — |
 | **C** | Consultant invocation | Human asks for second opinion | bro → consultant | `discussions(kind='analysis'/'concern')` | — |
@@ -187,21 +188,26 @@ sequenceDiagram
 
 ---
 
-## 7. Scan + architecture refresh
+## 7. Scan + world-model refresh
 
-`scan_run` is the single scan-side MCP tool. Triggered three ways:
+`scan_run` is the single scan-side MCP tool. It forks the deterministic `scripts/scan.sh`, then writes the **world-model graph**: a `Directory` node per tracked directory (summary preferentially from `<dir>/README.md`, else a structural fallback over file/subdir names; plus a file count), linked to its parent by a `CONTAINS` edge. See [`WORLD_MODEL.md`](./WORLD_MODEL.md); inner-repo path scoping is in [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
+
+Triggered four ways (the `source` value is verified against `scan.ts`):
 
 | Trigger | `source` value | Who fires |
 |---|---|---|
+| First code-touching ask when the graph is EMPTY | `bro_auto_initial` | Default when no `source` is passed; bro hits the `world-model-empty` gate (`tmb_planning` §1) and remediates |
 | User typed `/scan` | `user_manual` | The slash command body passes it |
 | `post-task-close-rescan.sh` hook on `bro_atomic_close` | `bro_auto_post_close` | Hook runs `scripts/maintenance/run-scan.mjs` in background |
-| Bro hits the registry-cold gate and remediates | `bro_auto_initial` | Default when no `source` is passed |
+| Bro decides to rescan mid-session | `bro_auto_post_change` | Bro passes it explicitly |
 
 `scan_run`'s `deep_scan_completed` audit row carries `content_json` with:
 
 - `source` (one of the four values above)
 - `structural_change` — true if the repos set OR top-level dir set differs from the previous scan
 - `repos_seen[]`, `top_dirs[]` — current snapshot of the project shape
+
+**Resource discovery (#124/#846).** The same scan ALSO reconciles on-disk capabilities into the `cheatcodes` table: project-local skills (`.claude/skills/<name>/SKILL.md`), enabled plugins (`claude plugin list`), and configured MCP servers (`claude mcp list`). Each resource not already tracked (matched on name+kind) is inserted as `origin='installed'`, `status='installed'`, `source_url='scan_discovered'` (distinguishing it from a pipeline install) and emits a `scan_discovered` audit row — so a cheatcode added out-of-band still becomes visible to the lifecycle flow below.
 
 
 ---
@@ -225,6 +231,28 @@ Multi-consultant deliberation. Bro orchestrates 2–4 consultants on a topic, th
 - `roundtable-auq-shape.sh` validates the ratification AUQ structure.
 - After Human picks: `roundtable_finalize_decisions` + `roundtable_summarize`.
 - `roundtable-cleanup-postcheck.sh` verifies the capture surface (audit + discussion rows) actually landed.
+
+---
+
+## 10. Cheatcode lifecycle
+
+Bro acquires a capability (skill, MCP toolkit, or plugin) on demand instead of grinding it out by hand. The mechanical pipeline is deterministic tools + hooks; only two judgments stay prose — "do I lack a capability this task needs?" and "is this candidate trustworthy enough?". The architecture-of-record is [`CHEATCODES.md`](./CHEATCODES.md); this is the flow brief.
+
+**Trigger** — any of:
+- bro hits a capability wall (a task plainly lacks a capability bro doesn't have);
+- the Human says "cheatcode" (`prompt-intent-hints.sh` nudges; bro reads the `cheatcodes` table / runs `cheatcode_search`);
+- a proactive reuse-check via `cheatcode_search` before building something from scratch.
+
+**Lifecycle:**
+
+- **Search** — `cheatcode_search` queries tiered public registries (forks `scripts/cheatcode-search.sh`), returns ranked candidates + an audit row.
+- **Vet** — `cheatcode_vet` gathers reputation/security signals atomically (stars, age, license, install-surface) and a deterministic `trust_tier`; it never decides.
+- **Approve** — `cheatcode_approve` records the per-candidate Human approval; the `cheatcode-install-approval.sh` PreToolUse gate fails closed without it.
+- **Install** — `cheatcode_install` installs via the marketplace/MCP path (no seed/copy), recording the install in the `cheatcodes` table.
+- **Materialize / attach** — plugin + MCP kinds attach automatically; a standalone skill is added to a consuming agent's `skills:` frontmatter as a **Human-reviewed prompt-surface PR**, never an automatic write.
+- **Activate** — `cheatcode_activate` hot-loads in-session, or returns `restart_required`.
+
+`cheatcode-healthcheck.sh` (SessionStart) reconciles each row's `status` against the real runtime (skill file on disk, MCP/plugin present + enabled) and emits a `cheatcode_healthcheck` audit row on drift. `cheatcode_uninstall` reverses an install via the same marketplace/MCP path (Human-confirmed, idempotent). `scan_run` discovers on-disk resources into the table (flow 7).
 
 ---
 
