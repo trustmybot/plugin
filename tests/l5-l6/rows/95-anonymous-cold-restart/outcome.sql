@@ -15,8 +15,10 @@ SELECT
   'config-keys-still-present (schema-seeded; got ' || COUNT(*) || ', expected ≥5)' AS description
 FROM plugin_config;
 
--- Bro must not write any audit events on a casual greeting.
+-- Bro reads, writes nothing on a casual greeting. The fixture seeds a
+-- deep_scan_completed audit row (world-model-warm proxy); bro must not add
+-- any NEW bro-authored audit events beyond it.
 SELECT
   CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS pass,
-  'no-audit-events (got ' || COUNT(*) || ', expected 0)' AS description
-FROM audit;
+  'no-new-bro-audit-events (got ' || COUNT(*) || ', expected 0)' AS description
+FROM audit WHERE from_node = 'bro' AND event_type <> 'deep_scan_completed';
