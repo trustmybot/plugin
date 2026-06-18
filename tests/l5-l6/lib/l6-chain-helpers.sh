@@ -158,6 +158,7 @@ l6c_score_step() {
   l5_score_coherence            "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
   l5_score_git                  "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
   l5_score_usage                "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
+  l5_score_materialized         "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
 
   return "$fails"
 }

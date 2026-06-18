@@ -16,6 +16,8 @@ set -uo pipefail
 
 # shellcheck source=tests/l5-l6/lib/assert-usage.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assert-usage.sh"
+# shellcheck source=tests/l5-l6/lib/assert-materialized.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assert-materialized.sh"
 
 # l5_record_score <db_path> <run_id> <flow> <scorer> <pass:0|1> <value> <explanation>
 l5_record_score() {
@@ -624,6 +626,58 @@ l5_score_usage() {
     return 0
   else
     l5_record_score "$db" "$run_id" "$flow" "usage" 0 "missing" "$missing"
+    return 1
+  fi
+}
+
+# l5_score_materialized <project_dir> <flow> <scorer_dir> <run_id>
+# Reads scorer_dir/outcome-materialized.json: a JSON array of (agent, skill)
+# pairs that a targeted cheatcode install must have materialized ON DISK this
+# row. Each pair is checked against the project's .claude/ via
+# tmb_materialized_on_disk — proving the agent md was copied global→local with
+# the skill in its skills: frontmatter (bro → CLAUDE.md reference), the
+# previously-faked half of L6 row 44 (#95).
+#
+# Schema:
+#   { "materialized": [ {"agent": "swe", "skill": "feature-dev"} ] }
+#
+# Opt-in: silently returns 0 when no outcome-materialized.json is present.
+l5_score_materialized() {
+  local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
+  local cfg="$scorer_dir/outcome-materialized.json"
+  local db="$project/.claude/tmb/trajectory.db"
+
+  [ -f "$cfg" ] || return 0
+
+  local pairs
+  pairs=$(jq -c '(.materialized // [])[]' "$cfg" 2>/dev/null)
+
+  local checked=0 missing=""
+  while IFS= read -r pair; do
+    [ -z "$pair" ] && continue
+    local agent skill
+    agent=$(jq -r '.agent // ""' <<< "$pair" 2>/dev/null)
+    skill=$(jq -r '.skill // ""' <<< "$pair" 2>/dev/null)
+    [ -z "$agent" ] && continue
+    [ -z "$skill" ] && continue
+    checked=$((checked + 1))
+    if tmb_materialized_on_disk "$project" "$agent" "$skill"; then
+      echo "  ✓ materialized: '$skill' into '$agent' (on disk)"
+    else
+      echo "  ✗ materialized: '$skill' not materialized into '$agent'" >&2
+      missing="${missing}; ${skill}→${agent}"
+    fi
+  done <<< "$pairs"
+
+  if [ "$checked" = "0" ]; then
+    return 0
+  fi
+
+  if [ -z "$missing" ]; then
+    l5_record_score "$db" "$run_id" "$flow" "materialized" 1 "${checked}" "all agents materialized"
+    return 0
+  else
+    l5_record_score "$db" "$run_id" "$flow" "materialized" 0 "missing" "$missing"
     return 1
   fi
 }
