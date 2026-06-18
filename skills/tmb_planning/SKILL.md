@@ -17,14 +17,17 @@ Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world
 With the world model in hand, before you commit to building — two quick questions (judgment, not a research project):
 
 1. **Is it actionable?** Well-defined, testable, in scope? If it's vague hand-waving, surface the gap via `tmb_concerns-protocol` (or an AUQ) and pin it down *before* authoring a spec.
-2. **Reuse or build?** Prefer reuse over reinventing — route by what could cover the ask:
-   - A published skill / MCP / plugin could plausibly cover it → this is a **cheatcode play**: load `tmb_cheatcode`, which runs the full search→vet→recommend→Human-approve→install lifecycle. Don't author a build spec for what a cheatcode would provide (`cheatcode_search` alone skips the vet/approve/install steps).
-   - It's a repeatable in-house **behavior** worth codifying (a convention or checklist) → that's `tmb_skill-creator`, not a build spec.
-   - Neither fits → it's a genuine build, continue to step 3.
+2. **Reuse or build?** Once the requirement is real and we'd build something, prefer reuse over reinventing — check two distinct axes before committing to from-scratch code:
+   - **Feature reuse** (a code dependency): does a public codebase / package / module / library already cover the work? Prefer depending on a maintained one over hand-rolling it. This is still a **build** — it flows on to step 3 — but the spec leans on the package (name it in the spec's Assumptions) instead of reimplementing it.
+   - **Cheatcode reuse** (an agent capability): would a reputable published skill / MCP / plugin provide the *capability* itself? Prefer grabbing it via the cheatcode flow over building that capability — load `tmb_cheatcode`, which runs the full search→vet→recommend→Human-approve→install lifecycle (`cheatcode_search` alone skips the vet/approve/install steps).
+   - **Codify** a repeatable in-house **behavior** worth keeping (a convention or checklist) → `tmb_skill-creator`, not a build spec.
+   - **From scratch**: none of the above fits → genuine build, continue to step 3.
+
+   The distinction is INSIDE vs ON the agent: a package is a dependency inside the code; a cheatcode is a capability added to an agent's toolkit.
 
 Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', kind='decision', body='<reuse X / build because …>')`.
 
-A reuse or codify outcome takes its own path — the `tmb_cheatcode` lifecycle or `tmb_skill-creator` — and does **not** proceed through the branch+spec+swe steps below; only a genuine build flows on to steps 3–6.
+Cheatcode reuse and codify take their own path — the `tmb_cheatcode` lifecycle or `tmb_skill-creator` — and do **not** proceed through the branch+spec+swe steps below. Feature reuse and from-scratch are both builds: they flow on to steps 3–6.
 
 ## 3. Propose a branch
 
