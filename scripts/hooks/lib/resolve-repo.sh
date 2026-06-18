@@ -11,6 +11,15 @@
 #                                 Prints empty when no row matches (unregistered repo).
 #   tmb_repo_is_registered <db> <git_root>
 #                               — exits 0 when a repos row with path=<git_root> exists, 1 otherwise.
+#   tmb_repo_path_by_name <db> <name>
+#                               — print repos.path for the row with name=<name>, or empty.
+#   tmb_repo_single_path <db>   — print repos.path when EXACTLY one repo is
+#                                 registered (single-repo fallback), else empty.
+#   tmb_repo_resolve_path <db> <name>
+#                               — print the absolute repo path for <name> via
+#                                 repos.path; when <name> is empty, fall back to
+#                                 the sole registered repo (single-repo). Empty
+#                                 when neither resolves.
 #
 # All functions never fail the caller (use || true / return 0 patterns).
 
@@ -59,4 +68,48 @@ tmb_repo_is_registered() {
     "SELECT COUNT(*) FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")';" \
     2>/dev/null || echo 0)
   [ "${count:-0}" -gt 0 ]
+}
+
+# tmb_repo_path_by_name <db> <name>
+# Prints repos.path for the row whose name matches <name>; empty when absent.
+tmb_repo_path_by_name() {
+  local db="$1"
+  local name="$2"
+  [ -f "$db" ] || return 0
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  [ -n "$name" ] || return 0
+  sqlite3 -readonly -cmd '.timeout 500' "$db" \
+    "SELECT path FROM repos WHERE name = '$(printf '%s' "$name" | sed "s/'/''/g")' LIMIT 1;" \
+    2>/dev/null | head -1 || true
+}
+
+# tmb_repo_single_path <db>
+# Prints repos.path when EXACTLY one repo is registered, else empty.
+# This is the single-repo fallback (matches the MCP resolveDefaultRepoPath).
+tmb_repo_single_path() {
+  local db="$1"
+  [ -f "$db" ] || return 0
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  local count
+  count=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
+    "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+  [ "${count:-0}" = "1" ] || return 0
+  sqlite3 -readonly -cmd '.timeout 500' "$db" \
+    "SELECT path FROM repos LIMIT 1;" 2>/dev/null | head -1 || true
+}
+
+# tmb_repo_resolve_path <db> <name>
+# Resolve the absolute repo path: by <name> via repos.path; when <name> is
+# empty, fall back to the sole registered repo (single-repo). Empty when neither.
+tmb_repo_resolve_path() {
+  local db="$1"
+  local name="$2"
+  local path=""
+  if [ -n "$name" ]; then
+    path=$(tmb_repo_path_by_name "$db" "$name")
+  fi
+  if [ -z "$path" ]; then
+    path=$(tmb_repo_single_path "$db")
+  fi
+  printf '%s' "$path"
 }

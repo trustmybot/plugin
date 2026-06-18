@@ -347,52 +347,56 @@ out=$(run_hook "$(input_with_agent 'Edit' 'src/foo.ts' 'bro')")
 assert_not_contains "$out" 'bashrc' "deny message must not mention bashrc"
 assert_contains "$out" 'non-isolated' "deny message mentions non-isolated mode"
 
-# ---- Managed-repo scope (#592): multi-repo workspace ----
-# The hook resolves the managed root from repos.path (path-keyed), so build a
-# repos row whose path is the managed repo's absolute location. tmb_default_repo
-# carries the repo NAME; repos.path carries the canonical absolute path.
+# ---- Managed-repo scope by REGISTRATION (#693): multi-repo workspace ----
+# Rule 1 now scopes by REGISTRATION: an absolute target is guarded iff its
+# git-root resolves to a `repos` row (matched by path). Build two REAL git repos
+# under the workspace — register only the managed one; the sibling is an
+# unregistered tree whose source edits are outside Rule 1 scope.
 WS_ROOT="$TMPDIR/ws"
-MANAGED_DB="$WS_ROOT/.claude/tmb/trajectory.db"
+MANAGED_REPO="$WS_ROOT/plugin"
+SIBLING_REPO="$WS_ROOT/benchmarks"
 mkdir -p "$WS_ROOT/.claude/tmb"
+git init -q -b main "$MANAGED_REPO"
+mkdir -p "$MANAGED_REPO/src"
+git init -q -b main "$SIBLING_REPO"
+mkdir -p "$SIBLING_REPO/src"
+MANAGED_ROOT=$(git -C "$MANAGED_REPO" rev-parse --show-toplevel)
+SIBLING_ROOT=$(git -C "$SIBLING_REPO" rev-parse --show-toplevel)
+
+MANAGED_DB="$WS_ROOT/.claude/tmb/trajectory.db"
 sqlite3 "$MANAGED_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);"
-sqlite3 "$MANAGED_DB" "INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '\"plugin\"');"
 sqlite3 "$MANAGED_DB" "CREATE TABLE repos(name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')), target_branch TEXT, branching_model TEXT, protected_branches TEXT);"
-sqlite3 "$MANAGED_DB" "INSERT INTO repos (name, path) VALUES ('plugin', '$WS_ROOT/plugin');"
+sqlite3 "$MANAGED_DB" "INSERT INTO repos (name, path) VALUES ('plugin', '$MANAGED_ROOT');"
 
 run_hook_db() {
   echo "$2" | env TRAJECTORY_DB_PATH="$1" bash "$HOOK" 2>&1 || true
 }
 
-test_case "managed repo scope + edit inside managed repo from main: BLOCK"
-out=$(run_hook_db "$MANAGED_DB" "$(input 'Edit' "$WS_ROOT/plugin/src/foo.ts" "$TRANSCRIPT_BRO")")
-assert_contains "$out" '"permissionDecision":"deny"' "source edit inside the managed repo still denied from main"
+test_case "registration scope + edit inside REGISTERED repo from main: BLOCK"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Edit' "$MANAGED_ROOT/src/foo.ts" "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "source edit inside the registered repo still denied from main"
 
-test_case "managed repo scope + edit in sibling repo from main: ALLOWED"
-out=$(run_hook_db "$MANAGED_DB" "$(input 'Edit' "$WS_ROOT/benchmarks/src/foo.ts" "$TRANSCRIPT_BRO")")
-assert_eq "" "$out" "sibling-repo source edit allowed — outside managed-repo scope"
+test_case "registration scope + edit in UNREGISTERED sibling repo from main: ALLOWED (no-op)"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Edit' "$SIBLING_ROOT/src/foo.ts" "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "unregistered sibling-repo source edit allowed — outside Rule 1 scope"
 
-test_case "single-repo project (empty tmb_default_repo) + src/foo.ts: BLOCK (whole tree guarded)"
-SINGLE_DB="$TMPDIR/single.db"
-sqlite3 "$SINGLE_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);"
-out=$(run_hook_db "$SINGLE_DB" "$(input 'Edit' '/some/project/src/foo.ts' "$TRANSCRIPT_BRO")")
-assert_contains "$out" '"permissionDecision":"deny"' "empty tmb_default_repo guards the whole tree as before"
+test_case "registration scope + target with no resolvable git-root: BLOCK (fail-closed)"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Edit' '/some/project/src/foo.ts' "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "target outside any git tree fails closed (guarded)"
 
-# ---- Single-repo-at-root: the git repo IS the workspace root ----
-# repos.path == workspace root, so the managed root resolves to the workspace
-# itself and source under it must be guarded. The old string-join (workspace +
-# name) computed one level too deep and leaked $WS/src/* as a "sibling" — this
-# is the regression the path-keyed lookup closes.
+test_case "single-repo-at-root: the git repo IS the registered root + src/foo.ts: BLOCK"
+# repos.path == the repo root, so the target's git-root resolves to a registered
+# row and source under it is guarded (the whole tree, since the lone repo is the
+# root). This is the single-repo project case.
 SR_ROOT="$TMPDIR/repo-at-root"
+mkdir -p "$SR_ROOT/.claude/tmb" "$SR_ROOT/src"
+git init -q -b main "$SR_ROOT"
+SR_REAL=$(git -C "$SR_ROOT" rev-parse --show-toplevel)
 SR_DB="$SR_ROOT/.claude/tmb/trajectory.db"
-mkdir -p "$SR_ROOT/.claude/tmb"
-SR_NAME=$(basename "$SR_ROOT")
 sqlite3 "$SR_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);"
-sqlite3 "$SR_DB" "INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '\"$SR_NAME\"');"
 sqlite3 "$SR_DB" "CREATE TABLE repos(name TEXT PRIMARY KEY, path TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')), target_branch TEXT, branching_model TEXT, protected_branches TEXT);"
-sqlite3 "$SR_DB" "INSERT INTO repos (name, path) VALUES ('$SR_NAME', '$SR_ROOT');"
-
-test_case "single-repo-at-root + src/foo.ts from main as bro: BLOCK (regression)"
-out=$(run_hook_db "$SR_DB" "$(input_with_agent 'Edit' "$SR_ROOT/src/foo.ts" 'bro')")
-assert_contains "$out" '"permissionDecision":"deny"' "source under the single repo-at-root is guarded, not leaked as a sibling"
+sqlite3 "$SR_DB" "INSERT INTO repos (name, path) VALUES ('$(basename "$SR_REAL")', '$SR_REAL');"
+out=$(run_hook_db "$SR_DB" "$(input_with_agent 'Edit' "$SR_REAL/src/foo.ts" 'bro')")
+assert_contains "$out" '"permissionDecision":"deny"' "source under the single registered repo-at-root is guarded"
 
 summarize

@@ -66,27 +66,18 @@ BRANCH_ID=$(sqlite3 "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=${SAFE_TASK
 [ -n "$BRANCH_ID" ] || exit 0
 
 TASK_REPO=$(sqlite3 "$DB_PATH" "SELECT repo FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null || true)
-if [ -z "$TASK_REPO" ]; then
-  TASK_REPO=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='tmb_default_repo';" 2>/dev/null || true)
-fi
 
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB_PATH")")")"
 if [ -n "$TASK_REPO" ]; then
-  # Prefer the absolute path recorded in the `repos` table (authoritative
-  # — set by /scan). Falls back to legacy workspace-join only when no
+  # Resolve the absolute path from the `repos` table (authoritative — set by
+  # /scan), matched by name. Falls back to legacy workspace-join only when no
   # matching repo row exists.
-  SAFE_TASK_REPO=$(tmb_sql_quote "$TASK_REPO")
-  REPO_ROOT=$(sqlite3 "$DB_PATH" "SELECT path FROM repos WHERE name='${SAFE_TASK_REPO}' LIMIT 1;" 2>/dev/null || true)
+  REPO_ROOT=$(tmb_repo_path_by_name "$DB_PATH" "$TASK_REPO")
   [ -z "$REPO_ROOT" ] && REPO_ROOT="$WORKSPACE_ROOT/$TASK_REPO"
 else
-  # Single-repo fallback when no default config.
-  REPO_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
-  if [ "$REPO_COUNT" = "1" ]; then
-    REPO_ROOT=$(sqlite3 "$DB_PATH" "SELECT path FROM repos LIMIT 1;" 2>/dev/null || true)
-    [ -z "$REPO_ROOT" ] && REPO_ROOT="$WORKSPACE_ROOT"
-  else
-    REPO_ROOT="$WORKSPACE_ROOT"
-  fi
+  # Single-repo fallback when task.repo is unset.
+  REPO_ROOT=$(tmb_repo_single_path "$DB_PATH")
+  [ -z "$REPO_ROOT" ] && REPO_ROOT="$WORKSPACE_ROOT"
 fi
 [ -d "$REPO_ROOT/.git" ] || exit 0
 
