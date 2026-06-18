@@ -473,6 +473,27 @@ function addSkillToAgentFrontmatter(content: string, skillName: string): string 
   return content.replace(fm, newFm);
 }
 
+// Remove `skillName` from the `skills:` frontmatter array of an agent md — the
+// inverse of addSkillToAgentFrontmatter. Idempotent: an absent entry (or no
+// skills: key, or no frontmatter) leaves the content unchanged; an empty result
+// renders as `skills: []`. Preserves the rest of the file verbatim.
+function removeSkillFromAgentFrontmatter(content: string, skillName: string): string {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) return content;
+  const fm = fmMatch[1];
+  const skillsLine = fm.match(/^skills:\s*\[(.*)\]\s*$/m);
+  if (!skillsLine) return content;
+  const entries = skillsLine[1]
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (!entries.includes(skillName)) return content; // idempotent
+  const remaining = entries.filter((s) => s !== skillName);
+  const rebuilt = `skills: [${remaining.join(', ')}]`;
+  const newFm = fm.replace(/^skills:\s*\[.*\]\s*$/m, rebuilt);
+  return content.replace(fm, newFm);
+}
+
 interface MaterializeResult {
   target: string;
   artifact: string;
@@ -526,6 +547,45 @@ function materializeConsumingAgent(
     artifact: `agent-md:.claude/agents/${target}.md`,
     path: localAgentMd,
   };
+}
+
+// Reverse the materialized prompt surface for an uninstalled skill — the inverse
+// of materializeConsumingAgent. Edits the SAME project files materialize wrote:
+//   agent-md:<rel>  → remove skillName from that file's skills: header
+//   claude-md:<rel> → remove the materialized reference line bro added
+// Fail-soft: a missing project root / missing file / absent entry is a no-op,
+// never throws (uninstall stays idempotent). Only runs on a successful teardown.
+function dematerializeAttachment(
+  dbPath: string,
+  artifact: string,
+  skillName: string,
+): void {
+  const projectRoot = projectRootFromDbPath(dbPath);
+  if (!projectRoot) return;
+
+  if (artifact.startsWith('agent-md:')) {
+    const rel = artifact.slice('agent-md:'.length);
+    const filePath = join(projectRoot, rel);
+    if (!existsSync(filePath)) return;
+    const content = readFileSync(filePath, 'utf8');
+    const updated = removeSkillFromAgentFrontmatter(content, skillName);
+    if (updated !== content) writeFileSync(filePath, updated);
+    return;
+  }
+
+  if (artifact.startsWith('claude-md:')) {
+    const rel = artifact.slice('claude-md:'.length);
+    const filePath = join(projectRoot, rel);
+    if (!existsSync(filePath)) return;
+    const reference = `Installed skill: ${skillName} — load it when its capability is needed.`;
+    const body = readFileSync(filePath, 'utf8');
+    if (!body.includes(reference)) return;
+    const updated = body
+      .split('\n')
+      .filter((line) => line !== reference)
+      .join('\n');
+    writeFileSync(filePath, updated);
+  }
 }
 
 export function cheatcodeTools(db: TrajectoryDB): {
@@ -602,7 +662,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
     {
       name: 'cheatcode_install',
       description:
-        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default — pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo; without target a skill-kind install returns a proposed-PR payload and writes no agent md.',
+        'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default — pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -802,6 +862,17 @@ export function cheatcodeTools(db: TrajectoryDB): {
         // Optional consuming agent to materialize the prompt surface for.
         const target = (args['target'] as string | undefined)?.trim() || null;
 
+        // Orphan guard: a skill must attach to ≥1 agent to be reachable. Without
+        // a target it would install unattached — an orphan no agent ever loads.
+        // Hard-reject before any install runs so no orphan row is ever written.
+        // mcp/plugin are exempt: their registration/script attachment IS the
+        // binding, so a no-target install is still wired in.
+        if (kind === 'skill' && !target) {
+          return err(
+            "a skill install requires a target agent (bro|swe|pr-reviewer|consultant) so it attaches to ≥1 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>.",
+          );
+        }
+
         // Idempotent re-install: the (name, source_url) pair is the candidate
         // identity. If it is already installed, no-op — never duplicate the row
         // or re-run the marketplace install.
@@ -937,9 +1008,9 @@ export function cheatcodeTools(db: TrajectoryDB): {
           materialized: materialized
             ? { target: materialized.target, artifact: materialized.artifact, path: materialized.path }
             : null,
-          // Skill-kind without a target: the agent-frontmatter edit is a
-          // Human-reviewed PR, never an automatic write — surface the proposed
-          // payload, write no md.
+          // Skill installs carry the install script's proposed agent-frontmatter
+          // PR payload alongside the materialized surface — the canonical
+          // upstream contribution, distinct from the project-local materialize.
           proposed_pr: out.proposed_pr,
           error: out.error,
         });
@@ -1004,6 +1075,16 @@ export function cheatcodeTools(db: TrajectoryDB): {
         // One transaction: row delete (or status flip) + audit row land together.
         db.transaction(() => {
           if (reversal.removed) {
+            // Reverse the Lego edit: de-materialize each prompt-surface
+            // attachment (remove the name from the consuming agent's skills:
+            // header / drop bro's CLAUDE.md reference line) before the row
+            // deletes. Fail-soft per attachment so a missing file never blocks
+            // the teardown. Skipped on the broken-flip path below (surface kept).
+            for (const att of attachments) {
+              if (att.artifact.startsWith('agent-md:') || att.artifact.startsWith('claude-md:')) {
+                dematerializeAttachment(db.dbPath, att.artifact, existing.name);
+              }
+            }
             db.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
             db.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
           } else {
