@@ -1,6 +1,6 @@
 ---
 name: tmb_planning
-description: Bro's code-touching flow — verify world model, propose branch, write spec, dispatch SWE, verify on return, atomic-close. Loaded on the first code-touching ask of a session.
+description: Bro's code-touching flow — verify world model, triage the requirement (reuse vs build), propose branch, write spec, dispatch SWE, verify on return, atomic-close. Loaded on the first code-touching ask of a session.
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_trajectory-server
 ---
 
@@ -17,9 +17,14 @@ Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world
 With the world model in hand, before you commit to building — two quick questions (judgment, not a research project):
 
 1. **Is it actionable?** Well-defined, testable, in scope? If it's vague hand-waving, surface the gap via `tmb_concerns-protocol` (or an AUQ) and pin it down *before* authoring a spec.
-2. **Does something already do this?** If an existing package or installed capability could plausibly cover it, run `cheatcode_search` for ranked candidates before specing a build-from-scratch — prefer reuse over reinventing.
+2. **Reuse or build?** Prefer reuse over reinventing — route by what could cover the ask:
+   - A published skill / MCP / plugin could plausibly cover it → this is a **cheatcode play**: load `tmb_cheatcode`, which runs the full search→vet→recommend→Human-approve→install lifecycle. Don't author a build spec for what a cheatcode would provide (`cheatcode_search` alone skips the vet/approve/install steps).
+   - It's a repeatable in-house **behavior** worth codifying (a convention or checklist) → that's `tmb_skill-creator`, not a build spec.
+   - Neither fits → it's a genuine build, continue to step 3.
 
 Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', kind='decision', body='<reuse X / build because …>')`.
+
+A reuse or codify outcome takes its own path — the `tmb_cheatcode` lifecycle or `tmb_skill-creator` — and does **not** proceed through the branch+spec+swe steps below; only a genuine build flows on to steps 3–6.
 
 ## 3. Propose a branch
 
