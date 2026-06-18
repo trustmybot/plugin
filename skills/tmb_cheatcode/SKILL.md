@@ -32,15 +32,13 @@ Tier+relevance order is an input, not the verdict — you hold the actual requir
 
 ## Vet before recommending
 
-A search rank says "this fits the task." It says nothing about whether the thing is safe to pull into the project. So once you've landed on a pick, vet it before you put it in front of the Human:
+Once you've landed on a pick, vet it before putting it in front of the Human:
 
 `cheatcode_vet(agent='bro', candidate=<the pick>)`
 
-Pass the candidate straight through — the same `{name, kind, source_url, tier}` shape `cheatcode_search` handed you. One call gathers reputation and security-surface signals, classifies a deterministic `trust_tier` (`trusted`, `caution`, `untrusted`, `unknown`), names the `capabilities[]` it ships, and records the audit row.
+Pass the candidate straight through — the same `{name, kind, source_url, tier}` shape `cheatcode_search` handed you. One call returns a deterministic `trust_tier` (`trusted`, `caution`, `untrusted`, `unknown`), the `capabilities[]` it ships, and the audit row.
 
-Read the result the way the tool means it: the `trust_tier` is a reproducible read of the signals, not a clearance. You still own "trustworthy enough to install?" — weigh the tier alongside what the cheatcode actually does and what it would touch in this project. A `trusted` tier on a tiny utility is an easy yes; the same tier on something that runs code in your tree still deserves a second look. The `capabilities[]` list is where the real weight lives: a cheatcode that ships hooks, an MCP server, or scripts executes inside your project, so treat code-execution, network, and filesystem-write surface as the thing the Human is really approving.
-
-When the signals come back thin — `unknown` tier, no maintainer, an offline gather — say that plainly. "I couldn't establish reputation for this one" is a finding the Human needs, not a blank to paper over. Vetting earns trust by being honest about what it couldn't confirm.
+The `trust_tier` is a reproducible read of the signals; the install judgment is still yours. Weigh the tier against what the cheatcode would touch — `capabilities[]` carries the real weight, since a cheatcode shipping hooks, an MCP server, or scripts executes inside your project. If the signals come back thin (`unknown`, no maintainer, offline gather), say so plainly; an unconfirmed reputation is a finding the Human needs.
 
 A `trusted`, low-surface pick you can simply recommend, with the tier and rationale in your reasoning. Anything in `caution`, anything carrying a real capability surface, or any tier you'd hesitate to vouch for — bring it to the Human as a decision rather than a recommendation:
 
@@ -54,6 +52,6 @@ AskUserQuestion(
 )
 ```
 
-Lead the chat with the rationale — what the cheatcode does, the tier and why, and the surface it would bring into the project — then let the Human make the call. The install itself is still a separate gate.
+Lead the chat with the rationale — what the cheatcode does, its tier, and the surface it brings — then let the Human call it.
 
 When the install is FOR a specific agent — "install X for swe", "code-review for pr-reviewer" — pass that agent as `cheatcode_install`'s `target` so the consuming agent is materialized (`.claude/agents/<agent>.md` copied global→local with the skill added to its `skills:` header; `target=bro` materializes `.claude/CLAUDE.md` instead).
