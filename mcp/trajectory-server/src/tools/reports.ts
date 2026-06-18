@@ -205,25 +205,6 @@ export function reportTools(db: TrajectoryDB): {
       }
       lines.push('');
 
-      const skillsUsed = db.all<{ skill_name: string; invocations: number }>(
-        `SELECT skill_name, COUNT(*) AS invocations
-           FROM skill_invocations
-           GROUP BY skill_name
-           ORDER BY invocations DESC, skill_name ASC`,
-      );
-
-      lines.push('## Skill Usage Summary');
-      lines.push('');
-      if (skillsUsed.length === 0) {
-        lines.push('_No skill usage recorded._');
-      } else {
-        lines.push('| Skill | Invocations |');
-        lines.push('|-------|-------------|');
-        for (const s of skillsUsed) {
-          lines.push(`| ${s.skill_name} | ${s.invocations} |`);
-        }
-      }
-
       return ok({ markdown: lines.join('\n'), mode: 'detail' });
     }),
 

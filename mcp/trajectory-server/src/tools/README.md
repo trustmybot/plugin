@@ -13,7 +13,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Validation | `validation.ts` | `validation_record`, `validation_history` |
 | Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_review_worktree`, `reap_and_review_prep`, `task_retry_batch`, `headless_intent_start`, `headless_fallback_record` |
 | Agents | `agents.ts` | `agent_register`, `agent_list`, `agent_resolve` |
-| Skills | `skills.ts` | `skill_register`, `skill_promote`, `skill_invocations_list` |
+| Skills | `skills.ts` | `skill_register`, `skill_promote` |
 | Cheatcodes | `cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall` |
 | Roundtable | `roundtable.ts` | `roundtable_create`, `roundtable_vote`, `roundtable_summarize`, `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_close_with_decisions` |
 | PR comments | `pr_comments.ts` | `pr_comments_get`, `pr_review_runs_list` |

@@ -32,7 +32,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **config**: `config_get`, `config_list`, `config_set`
 - **scan**: `scan_run`, `repos_list`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
-- **skills** (builtin rows in the unified `cheatcodes` registry, #101): `skill_register`, `skill_promote`, `skill_invocations_list`
+- **skills** (builtin rows in the unified `cheatcodes` registry, #101): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`
 - **composites**: `branch_id_propose`, `task_retry_batch`, `task_brief`, `bro_atomic_close`, `bro_verification_fail_record`, `headless_intent_start`, `pr_review_worktree`, `reap_and_review_prep`
 - **audit**: `audit_log`, `audit_log_list`, `audit_search`
@@ -103,7 +103,6 @@ Runtime location: `plugin/commands/<name>.md`.
 | `roundtable-cleanup-postcheck.sh` | PostToolUse roundtable_close | Verify capture surface on close |
 | `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
 | `post-task-create-spawn-hint.sh` | PostToolUse task_create_batch | Remind bro to spawn SWE after task batch |
-| `skill-invocation-record.sh` | PostToolUse Skill | Record skill invocation in trajectory DB |
 | `swe-atomic-close.sh` | SubagentStop | Auto-close pending SWE task; capture agent_runs metrics |
 | `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |
 | `post-pr-comments-persist.sh` | PostToolUse pr_comments_get | Auto-persist returned PR comments as discussion rows |

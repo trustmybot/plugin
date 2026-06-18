@@ -17,7 +17,7 @@ AUQ / roundtable / cheatcode: `askuserquestion-length-lint.sh`, `auq-headless-de
 Lint: `naming-lint.sh`, `code-quality-lint.sh`, `debug-trajectory.sh`.
 
 ### PostToolUse — reactions after a tool succeeds
-`cleanup-worktree-on-task-close.sh`, `post-task-close-rescan.sh`, `post-atomic-close-readme.sh`, `post-task-create-spawn-hint.sh`, `skill-invocation-record.sh`, `post-pr-comments-persist.sh`, `roundtable-cleanup-postcheck.sh`, `attribution-footer.sh`.
+`cleanup-worktree-on-task-close.sh`, `post-task-close-rescan.sh`, `post-atomic-close-readme.sh`, `post-task-create-spawn-hint.sh`, `post-pr-comments-persist.sh`, `roundtable-cleanup-postcheck.sh`, `attribution-footer.sh`.
 
 ### Stop / SubagentStop / WorktreeCreate
 `bro-turn-usage.sh` (Stop), `swe-atomic-close.sh` + `consultant-persistence-gate.sh` (SubagentStop), `worktree-create.sh` (WorktreeCreate).
