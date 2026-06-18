@@ -2,7 +2,7 @@
 
 **Scenario under test:** the user onboarded but `/scan` never ran (no `deep_scan_completed` audit row). User asks for a code change ("make a todo CLI"). Bro must run `/scan` (or `scan_run` directly) BEFORE `task_create_batch` — the world-model-cold gate enforces this server-side, and the test verifies bro responds correctly instead of waiving silently.
 
-The row also asserts the **skill-invocation hook attribution** (`skill_invocations` rows for `tmb_*` skills + at least one `agent_runs` row for `agent_type='bro'`) — folded in from the (now-retired) step 14 since these signals naturally land on any chain step that invokes tmb skills, and step 04 is the first such step.
+The row also asserts **bro's skill usage** (bro invoked `tmb_planning` this turn + at least one `agent_runs` row for `agent_type='bro'`) — folded in from the (now-retired) step 14 since these signals naturally land on any chain step that invokes tmb skills, and step 04 is the first such step. Skill usage is read from the stream-json run log via the `usage` scorer (`outcome-usage.json`), not the retiring `skill_invocations` table (#118/#119).
 
 The prompt is a natural full-feature ask, so bro typically also dispatches SWE + atomic-closes in the same turn — that's not exclusive with step 05 (which adds a feature on top); step 05's assertion just measures its own dispatch + close round trip.
 
@@ -23,11 +23,12 @@ The prompt is a natural full-feature ask, so bro typically also dispatches SWE +
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `deep_scan_completed` audit row (proxy for kuzu graph warm); `tasks` ≥1; `repos` ≥1; `skill_invocations` (`tmb_*`) ≥1; `agent_runs` (`agent_type='bro'`) ≥1 |
+| `outcome.sql` | `deep_scan_completed` audit row (proxy for kuzu graph warm); `tasks` ≥1; `repos` ≥1; `agent_runs` (`agent_type='bro'`) ≥1 |
 | `outcome-coherence.json` | matching row counts |
+| `outcome-usage.json` | bro invoked `tmb_planning` (from the stream-json run log) |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `scan_run`, `task_create_batch` |
 | `tools-forbidden.json` | (none) |
 | `cost-budget.json` | Soft 200K / 900s |
 
-**Failure modes captured:** (a) bro waives the gate via `waive_registry_gate=true` instead of running `scan_run` → the `deep_scan_completed` audit check fails; (b) the `skill-invocation-record.sh` PostToolUse hook (#2886) regressed and stops attributing tmb skill invocations → `skill_invocations` assertion fails.
+**Failure modes captured:** (a) bro waives the gate via `waive_registry_gate=true` instead of running `scan_run` → the `deep_scan_completed` audit check fails; (b) bro skips the planning chain and never loads `tmb_planning` → the `usage` scorer fails on the run log.
