@@ -23164,6 +23164,22 @@ function validateIssueLabels(labels) {
   }
   return `missing_required_labels: issue_create requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
 }
+var DEDUP_THRESHOLD = 0.6;
+function normalizeObjective(text) {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 0);
+}
+function objectiveSimilarity(a, b) {
+  const setA = new Set(normalizeObjective(a));
+  const setB = new Set(normalizeObjective(b));
+  if (setA.size === 0 && setB.size === 0) return 1;
+  let intersection2 = 0;
+  for (const t of setA) {
+    if (setB.has(t)) intersection2 += 1;
+  }
+  const union2 = setA.size + setB.size - intersection2;
+  if (union2 === 0) return 0;
+  return intersection2 / union2;
+}
 function decodeIssue(row) {
   return { ...row };
 }
@@ -23255,7 +23271,8 @@ function issueTools(db2, dbPath2 = "") {
           objective: { type: "string", description: "Short one-liner summary" },
           description: { type: "string", description: "Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation." },
           labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label (Priority: Urgent|High|Medium|Low) AND at least one classification label (Bug, Feature, Improvement, Docs, Install, Workflow, MCP, Hooks, Roundtable, Multi-platform, Performance, Tests, architecture, enforcement, design, campaign, token-burn, Doctrine, Discussion). Extra labels are allowed. Applied to the remote issue." },
-          milestone: { type: "string", description: 'Optional milestone name (e.g. "v0.10.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' }
+          milestone: { type: "string", description: 'Optional milestone name (e.g. "v0.10.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
+          allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." }
         },
         required: ["agent", "objective", "labels"]
       }
@@ -23383,6 +23400,27 @@ function issueTools(db2, dbPath2 = "") {
       const labelError = validateIssueLabels(labels);
       if (labelError !== null) {
         return err2(labelError);
+      }
+      const allowDuplicate = args["allow_duplicate"] ?? false;
+      if (!allowDuplicate) {
+        const openIssues = db2.all(
+          `SELECT id, objective FROM issues WHERE status = 'open'`
+        );
+        let best = null;
+        for (const candidate of openIssues) {
+          const similarity = objectiveSimilarity(objective, candidate.objective);
+          if (best === null || similarity > best.similarity) {
+            best = { id: candidate.id, objective: candidate.objective, similarity };
+          }
+        }
+        if (best !== null && best.similarity >= DEDUP_THRESHOLD) {
+          return ok2({
+            duplicate: true,
+            duplicate_of: best.id,
+            matched_objective: best.objective,
+            similarity: best.similarity
+          });
+        }
       }
       const milestone = args["milestone"] ?? null;
       const spawnFn = args["_spawnFn"] ?? void 0;
