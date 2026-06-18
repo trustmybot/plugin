@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import type { WorldModelGraph, DirectoryNode } from '../graph-db.js';
+import { resolveDefaultRepo } from '../utils/repo-paths.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -116,7 +117,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
           repo: {
             type: 'string',
             description:
-              'Repo name (matches `repos.name`). Defaults to `tmb_default_repo` from plugin_config.',
+              'Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects.',
           },
           path: {
             type: 'string',
@@ -153,7 +154,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
           repo: {
             type: 'string',
             description:
-              'Optional — restrict to one repo. Defaults to `tmb_default_repo` from plugin_config.',
+              'Optional — restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects.',
           },
           k: {
             type: 'number',
@@ -172,16 +173,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
       wrap(async (args) => {
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
-          const cfg = db.get<{ value_json: string }>(
-            "SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'",
-          );
-          if (cfg?.value_json) {
-            try {
-              repo = JSON.parse(cfg.value_json) as string;
-            } catch {
-              // leave empty
-            }
-          }
+          repo = resolveDefaultRepo(db)?.name ?? '';
         }
 
         const path = (args['path'] as string | undefined) ?? '';
@@ -221,16 +213,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
 
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
-          const cfg = db.get<{ value_json: string }>(
-            "SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'",
-          );
-          if (cfg?.value_json) {
-            try {
-              repo = JSON.parse(cfg.value_json) as string;
-            } catch {
-              // empty
-            }
-          }
+          repo = resolveDefaultRepo(db)?.name ?? '';
         }
 
         if (!graph) {

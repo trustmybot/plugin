@@ -9,6 +9,7 @@ import type { SpawnFn } from '../sync/issue_sync.js';
 import type { WorldModelGraph } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveDefaultIssueId } from './discussions.js';
+import { resolveDefaultRepo } from '../utils/repo-paths.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
 
@@ -499,19 +500,11 @@ export function compositeTools(
         );
         if (!task) return err(`No task with id=${taskId}`);
 
-        // Resolve repo: task.repo, else tmb_default_repo from config.
+        // Resolve repo: task.repo, else the single-repo fallback (path-keyed
+        // resolution — empty in multi-repo projects, which scope by task.repo).
         let repo = task.repo ?? '';
         if (!repo) {
-          const cfg = db.get<{ value_json: string }>(
-            "SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'",
-          );
-          if (cfg?.value_json) {
-            try {
-              repo = JSON.parse(cfg.value_json) as string;
-            } catch {
-              // leave empty
-            }
-          }
+          repo = resolveDefaultRepo(db)?.name ?? '';
         }
 
         // Scope: the dirs the task's typed files[] touch, resolved in the world model.

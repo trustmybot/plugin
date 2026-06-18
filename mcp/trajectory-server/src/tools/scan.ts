@@ -191,8 +191,8 @@ function isDeprioritizedRepo(name: string, path: string): boolean {
   return false;
 }
 
-// Pick the repo whose path encloses (or equals) the scan session_dir. This is
-// the cwd-aware default for `tmb_default_repo`. Resolution order:
+// Pick the repo whose path encloses (or equals) the scan session_dir — the
+// cwd-aware preferred repo for audit/diagnostic logging. Resolution order:
 //   1. cwd-enclosing repo (session_dir is inside the repo root)
 //   2. largest ordinary working repo by file_count (deprioritized: version-named
 //      or bench/marketplace-pathed repos lose to any ordinary candidate)
@@ -643,34 +643,6 @@ export function scanTools(
             nowISO(),
           ],
         );
-
-        // Set tmb_default_repo on first scan. Resolution order: cwd-enclosing
-        // repo → largest repo by file_count → repos[0]. A guessed default
-        // (no enclosing repo) emits an audit row so a wrong guess is visible.
-        const existing = db.get<{ value_json: string }>(
-          `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
-        );
-        if (!existing && out.repos.length > 0) {
-          const defaultRepo = preferredDefaultRepo(
-            out.repos,
-            sessionDir,
-            (chosen, candidates) => {
-              db.run(
-                `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-                 VALUES (-1, NULL, 'bro', 'default_repo_guessed', ?, ?, ?)`,
-                [
-                  `tmb_default_repo guessed as '${chosen}' (no enclosing repo) — largest by file_count among ${candidates.length} candidates`,
-                  JSON.stringify({ chosen, candidates, session_dir: sessionDir }),
-                  nowISO(),
-                ],
-              );
-            },
-          );
-          db.run(
-            `INSERT INTO plugin_config (key, value_json) VALUES (?, ?)`,
-            ['tmb_default_repo', JSON.stringify(defaultRepo)],
-          );
-        }
 
         return ok({
           session_dir: out.session_dir,

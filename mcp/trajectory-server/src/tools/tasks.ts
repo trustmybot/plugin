@@ -7,6 +7,7 @@ import { serverLog } from '../logger.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
+import { resolveDefaultRepo } from '../utils/repo-paths.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -677,21 +678,10 @@ export function taskTools(db: TrajectoryDB): {
       }
 
       // Resolve the default repo once for all tasks so the branch-existence
-      // check can fire even when task.repo is omitted. (#360)
-      const defaultRepoRow = db.get<{ value_json: string }>(
-        `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
-      );
-      let defaultRepoValue: string | null = null;
-      if (defaultRepoRow?.value_json) {
-        try {
-          const parsed = JSON.parse(defaultRepoRow.value_json) as unknown;
-          if (typeof parsed === 'string' && parsed.length > 0) {
-            defaultRepoValue = parsed;
-          }
-        } catch {
-          // malformed config row — leave null
-        }
-      }
+      // check can fire even when task.repo is omitted. (#360) Path-keyed
+      // resolution: the single-repo fallback names the sole registered repo;
+      // multi-repo projects must pass task.repo explicitly (else null).
+      const defaultRepoValue: string | null = resolveDefaultRepo(db)?.name ?? null;
 
       // Pre-transaction: format-validate then branch-ensure against the
       // resolved repo (explicit > default). Order matters: bad format should

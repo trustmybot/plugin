@@ -22685,36 +22685,21 @@ function discussionTools(db2) {
 }
 
 // src/utils/repo-paths.ts
-import { dirname as dirname2, join as join4 } from "node:path";
-function resolveDefaultRepoPath(db2, dbPath2) {
-  return resolveDefaultRepo(db2, dbPath2)?.path;
+function resolveDefaultRepoPath(db2) {
+  return resolveDefaultRepo(db2)?.path;
 }
-function resolveDefaultRepo(db2, dbPath2) {
-  if (!dbPath2) return void 0;
-  const row = db2.get(
-    `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`
-  );
-  const singleRepoFallback = () => {
-    const repos = db2.all(
-      `SELECT name, path FROM repos`
+function resolveDefaultRepo(db2, name) {
+  if (name) {
+    const repoRow = db2.get(
+      `SELECT path FROM repos WHERE name = ?`,
+      [name]
     );
-    return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
-  };
-  if (!row?.value_json) return singleRepoFallback();
-  let defaultRepo;
-  try {
-    defaultRepo = JSON.parse(row.value_json);
-  } catch {
-    return singleRepoFallback();
+    return repoRow?.path ? { name, path: repoRow.path } : void 0;
   }
-  if (typeof defaultRepo !== "string" || defaultRepo.length === 0) return singleRepoFallback();
-  const repoRow = db2.get(
-    `SELECT path FROM repos WHERE name = ?`,
-    [defaultRepo]
+  const repos = db2.all(
+    `SELECT name, path FROM repos`
   );
-  if (repoRow?.path) return { name: defaultRepo, path: repoRow.path };
-  const workspaceRoot = dirname2(dirname2(dirname2(dbPath2)));
-  return { name: defaultRepo, path: join4(workspaceRoot, defaultRepo) };
+  return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
 }
 
 // src/sync/backend.ts
@@ -22825,19 +22810,19 @@ function resolveBackend(configValue, hasSpawnFn = false) {
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join5 } from "node:path";
+import { join as join4 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join5(homedir4(), ".claude", resolvePluginName(process.env), "logs");
+  return join4(homedir4(), ".claude", resolvePluginName(process.env), "logs");
 }
 var logDir2 = resolveLogDir();
-var syncLogPath = join5(logDir2, "issue-sync.log");
+var syncLogPath = join4(logDir2, "issue-sync.log");
 try {
   mkdirSync2(logDir2, { recursive: true });
 } catch {
 }
 function syncLog(entry) {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join5(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
+  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join4(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
   try {
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
     appendFileSync2(currentLogPath, line);
@@ -23207,8 +23192,8 @@ function wrapHandler2(fn) {
     }
   };
 }
-function resolveSpawnCwd(db2, dbPath2) {
-  return resolveDefaultRepoPath(db2, dbPath2);
+function resolveSpawnCwd(db2, _dbPath) {
+  return resolveDefaultRepoPath(db2);
 }
 function resolveRemoteUrl(db2, backend) {
   const row = db2.get(
@@ -23910,7 +23895,7 @@ function issueTools(db2, dbPath2 = "") {
 
 // src/tools/tasks.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { resolve, dirname as dirname3 } from "node:path";
+import { resolve, dirname as dirname2 } from "node:path";
 function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
   if (!filesJson) return dirs;
@@ -24397,20 +24382,8 @@ function taskTools(db2) {
           };
         }
       }
-      const defaultRepoRow = db2.get(
-        `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`
-      );
-      let defaultRepoValue = null;
-      if (defaultRepoRow?.value_json) {
-        try {
-          const parsed = JSON.parse(defaultRepoRow.value_json);
-          if (typeof parsed === "string" && parsed.length > 0) {
-            defaultRepoValue = parsed;
-          }
-        } catch {
-        }
-      }
-      const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname3(db2.dbPath);
+      const defaultRepoValue = resolveDefaultRepo(db2)?.name ?? null;
+      const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname2(db2.dbPath);
       const autocreatedAudits = [];
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error("Missing required arg: branch_id");
@@ -25487,7 +25460,7 @@ function skillTools(db2) {
 
 // src/tools/agents.ts
 import { existsSync as existsSync2 } from "node:fs";
-import { dirname as dirname4, join as join6 } from "node:path";
+import { dirname as dirname3, join as join5 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -25519,15 +25492,15 @@ var RESERVED_NAME = "bro";
 var BACKBONE_GLOBAL_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function resolvePluginRoot() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync2(join6(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname4(fileURLToPath2(import.meta.url));
+  if (env && existsSync2(join5(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname3(fileURLToPath2(import.meta.url));
   for (; ; ) {
-    if (existsSync2(join6(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname4(dir);
+    if (existsSync2(join5(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname3(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return env ?? dirname4(fileURLToPath2(import.meta.url));
+  return env ?? dirname3(fileURLToPath2(import.meta.url));
 }
 var PLUGIN_ROOT = resolvePluginRoot();
 function resolveWorkspaceRoot(dbPath2) {
@@ -25669,11 +25642,11 @@ function agentTools(db2, dbPath2 = "") {
         const name = requireArg7(args, "name");
         validateAgentName(name);
         const workspaceRoot = resolveWorkspaceRoot(dbPath2);
-        const targetPath = workspaceRoot ? join6(workspaceRoot, ".claude", "agents", `${name}.md`) : join6(".claude", "agents", `${name}.md`);
+        const targetPath = workspaceRoot ? join5(workspaceRoot, ".claude", "agents", `${name}.md`) : join5(".claude", "agents", `${name}.md`);
         if (workspaceRoot && existsSync2(targetPath)) {
           return ok7({ mode: "collision", existing_path: targetPath });
         }
-        const templatePath = join6(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
+        const templatePath = join5(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
         if (existsSync2(templatePath)) {
           return ok7({
             mode: "template-copy",
@@ -25681,7 +25654,7 @@ function agentTools(db2, dbPath2 = "") {
             target_path: targetPath
           });
         }
-        const scaffoldPath = join6(PLUGIN_ROOT, "templates", "agents", "template.md");
+        const scaffoldPath = join5(PLUGIN_ROOT, "templates", "agents", "template.md");
         return ok7({
           mode: "from-scratch",
           scaffold_path: scaffoldPath,
@@ -25695,7 +25668,7 @@ function agentTools(db2, dbPath2 = "") {
 
 // src/tools/reports.ts
 import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
-import { dirname as dirname5, resolve as resolve2, sep } from "node:path";
+import { dirname as dirname4, resolve as resolve2, sep } from "node:path";
 function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -25949,7 +25922,7 @@ function reportTools(db2) {
         }
       }
       const markdown = lines.join("\n");
-      mkdirSync3(dirname5(absPath), { recursive: true });
+      mkdirSync3(dirname4(absPath), { recursive: true });
       writeFileSync(absPath, markdown, "utf8");
       return ok8({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
     }))
@@ -27658,15 +27631,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         if (!task) return err14(`No task with id=${taskId}`);
         let repo = task.repo ?? "";
         if (!repo) {
-          const cfg = db2.get(
-            "SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'"
-          );
-          if (cfg?.value_json) {
-            try {
-              repo = JSON.parse(cfg.value_json);
-            } catch {
-            }
-          }
+          repo = resolveDefaultRepo(db2)?.name ?? "";
         }
         const dirs = filesToDirs(parseTaskFiles(task.files));
         let scope_world_model = [];
@@ -28293,12 +28258,12 @@ function compositeTools(db2, dbPath2, graph2 = null) {
 import { spawnSync as spawnSync5 } from "node:child_process";
 import { existsSync as existsSync4 } from "node:fs";
 import os from "node:os";
-import { dirname as dirname6, join as join8 } from "node:path";
+import { dirname as dirname5, join as join7 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
 import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync3, chmodSync } from "node:fs";
-import { join as join7 } from "node:path";
+import { join as join6 } from "node:path";
 var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
 var STABLE_RESOLVER_NAME = "resolve-hook.sh";
 var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-headless-hook.sh"];
@@ -28326,7 +28291,7 @@ function deriveMarketplace(pluginRoot) {
   return mp && mp.length > 0 ? mp : null;
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join7(pluginRoot, "hooks", "hooks.json");
+  const hooksJsonPath = join6(pluginRoot, "hooks", "hooks.json");
   if (!existsSync3(hooksJsonPath)) return null;
   let parsed;
   try {
@@ -28356,10 +28321,10 @@ function buildTmbGroups(pre, resolverPath, marketplace) {
   return groups;
 }
 function materializeResolver(pluginRoot, homeDir) {
-  const canonical = join7(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  const canonical = join6(pluginRoot, ...CANONICAL_RESOLVER_REL);
   if (!existsSync3(canonical)) return null;
-  const resolverDir = join7(homeDir, ...STABLE_RESOLVER_DIR);
-  const resolverPath = join7(resolverDir, STABLE_RESOLVER_NAME);
+  const resolverDir = join6(homeDir, ...STABLE_RESOLVER_DIR);
+  const resolverPath = join6(resolverDir, STABLE_RESOLVER_NAME);
   mkdirSync4(resolverDir, { recursive: true });
   writeFileSync2(resolverPath, readFileSync2(canonical, "utf8"));
   chmodSync(resolverPath, 493);
@@ -28405,8 +28370,8 @@ function writeHeadlessEnforcementShim(opts) {
     return { written: false, reason };
   }
   const tmbGroups = buildTmbGroups(pre, resolverPath, marketplace);
-  const settingsDir = join7(homeDir, ".claude");
-  const settingsPath = join7(settingsDir, "settings.json");
+  const settingsDir = join6(homeDir, ".claude");
+  const settingsPath = join6(settingsDir, "settings.json");
   let settings = {};
   if (existsSync3(settingsPath)) {
     try {
@@ -28438,11 +28403,11 @@ function writeHeadlessEnforcementShim(opts) {
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync4(join8(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname6(fileURLToPath3(import.meta.url));
+  if (env && existsSync4(join7(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname5(fileURLToPath3(import.meta.url));
   for (; ; ) {
-    if (existsSync4(join8(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname6(dir);
+    if (existsSync4(join7(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname5(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -28747,7 +28712,7 @@ function onboardTools(db2, dbPath2 = "") {
     }
   ];
   const probeDir = () => {
-    const fromDefaultRepo = resolveDefaultRepoPath(db2, dbPath2 ?? "");
+    const fromDefaultRepo = resolveDefaultRepoPath(db2);
     if (fromDefaultRepo) return fromDefaultRepo;
     const workspaceRoot = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
     return workspaceRoot || process.cwd();
@@ -28957,13 +28922,13 @@ function onboardTools(db2, dbPath2 = "") {
 // src/tools/scan.ts
 import { spawn } from "node:child_process";
 import { existsSync as existsSync6, readFileSync as readFileSync3, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
-import { dirname as dirname8, join as join9 } from "node:path";
+import { dirname as dirname7, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
 import { mkdirSync as mkdirSync5, existsSync as existsSync5 } from "node:fs";
-import { dirname as dirname7 } from "node:path";
+import { dirname as dirname6 } from "node:path";
 function single(result) {
   return Array.isArray(result) ? result[0] : result;
 }
@@ -28981,8 +28946,8 @@ var WorldModelGraph = class _WorldModelGraph {
   db;
   conn;
   constructor(dbPath2) {
-    if (dbPath2 !== ":memory:" && !existsSync5(dirname7(dbPath2))) {
-      mkdirSync5(dirname7(dbPath2), { recursive: true });
+    if (dbPath2 !== ":memory:" && !existsSync5(dirname6(dbPath2))) {
+      mkdirSync5(dirname6(dbPath2), { recursive: true });
     }
     const req = createRequire(import.meta.url);
     const kuzu = req("kuzu");
@@ -29179,15 +29144,15 @@ function wrap3(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname8(fileURLToPath4(import.meta.url));
+  const here = dirname7(fileURLToPath4(import.meta.url));
   const candidates = [
-    join9(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join9(here, "..", "..", "..", "scripts", "scan.sh")
+    join8(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join8(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync6(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join9(pluginRoot, "scripts", "scan.sh");
+    const c = join8(pluginRoot, "scripts", "scan.sh");
     if (existsSync6(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
@@ -29279,29 +29244,6 @@ function detectStructuralChange(db2, currentRepos, currentTopDirs) {
   for (const d of currentTopDirs) if (!prevDirs.has(d)) return true;
   return false;
 }
-function isDeprioritizedRepo(name, path2) {
-  if (/^v[0-9]+\.[0-9]+/.test(name)) return true;
-  if (path2.includes("/bench-worktrees/") || path2.includes("/marketplace")) return true;
-  return false;
-}
-function preferredDefaultRepo(repos, sessionDir, onGuessed) {
-  if (repos.length === 0) return "";
-  const norm = (p) => p.replace(/\/+$/, "");
-  const sd = norm(sessionDir);
-  const enclosing = repos.find((r) => {
-    const rp = norm(r.path);
-    return sd === rp || sd.startsWith(rp + "/");
-  });
-  if (enclosing) return enclosing.name;
-  const withCounts = repos.map((r) => ({ name: r.name, path: r.path, file_count: r.file_count ?? 0 }));
-  const ordinary = withCounts.filter((r) => !isDeprioritizedRepo(r.name, r.path));
-  const pool = ordinary.length > 0 ? ordinary : withCounts;
-  const largest = pool.reduce((best, cur) => cur.file_count > best.file_count ? cur : best);
-  const chosen = largest.file_count > 0 ? largest.name : repos[0].name;
-  const candidatesForAudit = withCounts.map(({ name, file_count }) => ({ name, file_count }));
-  onGuessed?.(chosen, candidatesForAudit);
-  return chosen;
-}
 var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
@@ -29337,23 +29279,23 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
   const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join11 = (names) => {
+  const join10 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
   if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join11(fileNames.slice().sort())})`);
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join10(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join11(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join10(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join9(absDirPath, candidate);
+    const readmePath = join8(absDirPath, candidate);
     if (!existsSync6(readmePath)) continue;
     try {
       const raw = readFileSync3(readmePath, "utf8");
@@ -29381,7 +29323,7 @@ function persistDirectoriesGraph(graph2, out, now) {
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join9(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join8(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
@@ -29553,11 +29495,11 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
             `graph_db_open_failed: ${graphOpenError2} \u2014 world model could not be opened this session (kuzu write-lock contention); restart the session to retry`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join9(dirname8(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join8(dirname7(dbPath2), "scan.lock") : "";
         if (lockPath) {
-          const existing2 = readLock(lockPath);
-          if (existing2 && pidAlive(existing2.pid)) {
-            return err15(`scan already running (pid ${existing2.pid}, started ${existing2.started_at})`);
+          const existing = readLock(lockPath);
+          if (existing && pidAlive(existing.pid)) {
+            return err15(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
           }
           try {
             acquireLock(lockPath);
@@ -29596,30 +29538,6 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
             nowISO()
           ]
         );
-        const existing = db2.get(
-          `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`
-        );
-        if (!existing && out.repos.length > 0) {
-          const defaultRepo = preferredDefaultRepo(
-            out.repos,
-            sessionDir,
-            (chosen, candidates) => {
-              db2.run(
-                `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-                 VALUES (-1, NULL, 'bro', 'default_repo_guessed', ?, ?, ?)`,
-                [
-                  `tmb_default_repo guessed as '${chosen}' (no enclosing repo) \u2014 largest by file_count among ${candidates.length} candidates`,
-                  JSON.stringify({ chosen, candidates, session_dir: sessionDir }),
-                  nowISO()
-                ]
-              );
-            }
-          );
-          db2.run(
-            `INSERT INTO plugin_config (key, value_json) VALUES (?, ?)`,
-            ["tmb_default_repo", JSON.stringify(defaultRepo)]
-          );
-        }
         return ok16({
           session_dir: out.session_dir,
           scanned_at: out.scanned_at,
@@ -29645,7 +29563,7 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync4, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname9, join as join10, sep as sep2 } from "node:path";
+import { dirname as dirname8, join as join9, sep as sep2 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -29666,15 +29584,15 @@ function wrap4(fn) {
   };
 }
 function resolveScriptsFile(name) {
-  const here = dirname9(fileURLToPath5(import.meta.url));
+  const here = dirname8(fileURLToPath5(import.meta.url));
   const candidates = [
-    join10(here, "..", "..", "..", "..", "scripts", name),
-    join10(here, "..", "..", "..", "scripts", name)
+    join9(here, "..", "..", "..", "..", "scripts", name),
+    join9(here, "..", "..", "..", "scripts", name)
   ];
   for (const c of candidates) if (existsSync7(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join10(pluginRoot, "scripts", name);
+    const c = join9(pluginRoot, "scripts", name);
     if (existsSync7(c)) return c;
   }
   throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
@@ -29930,11 +29848,11 @@ function projectRootFromDbPath(dbPath2) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join10(pluginRoot, "agents", `${target}.md`);
+    const c2 = join9(pluginRoot, "agents", `${target}.md`);
     if (existsSync7(c2)) return c2;
   }
-  const here = dirname9(fileURLToPath5(import.meta.url));
-  const c = join10(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  const here = dirname8(fileURLToPath5(import.meta.url));
+  const c = join9(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync7(c)) return c;
   return null;
 }
@@ -29964,9 +29882,9 @@ skills: [${skillName}]`;
 function materializeConsumingAgent(dbPath2, target, skillName) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join10(projectRoot, ".claude");
+  const claudeDir = join9(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join10(claudeDir, "CLAUDE.md");
+    const claudeMd = join9(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${skillName} \u2014 load it when its capability is needed.`;
     let body = existsSync7(claudeMd) ? readFileSync4(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
@@ -29979,7 +29897,7 @@ function materializeConsumingAgent(dbPath2, target, skillName) {
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join10(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join9(claudeDir, "agents", `${target}.md`);
   let content;
   if (existsSync7(localAgentMd)) {
     content = readFileSync4(localAgentMd, "utf8");
@@ -29989,7 +29907,7 @@ function materializeConsumingAgent(dbPath2, target, skillName) {
     content = readFileSync4(globalAgentMd, "utf8");
   }
   const updated = addSkillToAgentFrontmatter(content, skillName);
-  mkdirSync6(dirname9(localAgentMd), { recursive: true });
+  mkdirSync6(dirname8(localAgentMd), { recursive: true });
   writeFileSync4(localAgentMd, updated);
   return {
     target,
@@ -30554,7 +30472,7 @@ function worldModelTools(db2, graph2) {
           agent: { type: "string" },
           repo: {
             type: "string",
-            description: "Repo name (matches `repos.name`). Defaults to `tmb_default_repo` from plugin_config."
+            description: "Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects."
           },
           path: {
             type: "string",
@@ -30586,7 +30504,7 @@ function worldModelTools(db2, graph2) {
           },
           repo: {
             type: "string",
-            description: "Optional \u2014 restrict to one repo. Defaults to `tmb_default_repo` from plugin_config."
+            description: "Optional \u2014 restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects."
           },
           k: {
             type: "number",
@@ -30604,15 +30522,7 @@ function worldModelTools(db2, graph2) {
       wrap5(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
-          const cfg = db2.get(
-            "SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'"
-          );
-          if (cfg?.value_json) {
-            try {
-              repo = JSON.parse(cfg.value_json);
-            } catch {
-            }
-          }
+          repo = resolveDefaultRepo(db2)?.name ?? "";
         }
         const path2 = args["path"] ?? "";
         const depthArg = args["depth"];
@@ -30644,15 +30554,7 @@ function worldModelTools(db2, graph2) {
         const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
         let repo = args["repo"] ?? "";
         if (!repo) {
-          const cfg = db2.get(
-            "SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'"
-          );
-          if (cfg?.value_json) {
-            try {
-              repo = JSON.parse(cfg.value_json);
-            } catch {
-            }
-          }
+          repo = resolveDefaultRepo(db2)?.name ?? "";
         }
         if (!graph2) {
           return ok18({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });

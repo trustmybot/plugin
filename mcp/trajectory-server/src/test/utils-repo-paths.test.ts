@@ -1,57 +1,63 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
-import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
+import { resolveDefaultRepo, resolveDefaultRepoPath } from '../utils/repo-paths.js';
 
-describe('resolveDefaultRepoPath', () => {
-  it('workspace pattern: resolves dbPath to project root via tmb_default_repo', () => {
+describe('resolveDefaultRepoPath — single-repo fallback', () => {
+  it('exactly one repos row: resolves to that row path verbatim', () => {
     const db = tempDB();
-    db.run(
-      `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"plugin"')`,
-    );
-    const result = resolveDefaultRepoPath(db, '/foo/bar/baz/.claude/tmb/trajectory.db');
-    assert.equal(result, '/foo/bar/baz/plugin');
+    db.run(`INSERT INTO repos (name, path) VALUES ('plugin', '/abs/path/to/plugin')`);
+    assert.equal(resolveDefaultRepoPath(db), '/abs/path/to/plugin');
     db.close();
   });
 
-  it('single-repo fallback: no tmb_default_repo config returns undefined', () => {
+  it('no repos rows: returns undefined', () => {
     const db = tempDB();
-    const result = resolveDefaultRepoPath(db, '/foo/bar/baz/.claude/tmb/trajectory.db');
-    assert.equal(result, undefined);
+    assert.equal(resolveDefaultRepoPath(db), undefined);
     db.close();
   });
 
-  it('empty dbPath returns undefined', () => {
+  it('multiple repos rows + no explicit selector: returns undefined', () => {
     const db = tempDB();
-    db.run(
-      `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"plugin"')`,
-    );
-    const result = resolveDefaultRepoPath(db, '');
-    assert.equal(result, undefined);
+    db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('b', '/ws/b')`);
+    assert.equal(resolveDefaultRepoPath(db), undefined);
     db.close();
   });
 
-  it('malformed value_json returns undefined (catches JSON parse error)', () => {
+  it('ignores a stale tmb_default_repo config key (read-tolerant deprecation)', () => {
     const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('b', '/ws/b')`);
     db.run(
-      `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', 'plugin')`,
+      `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"a"')`,
     );
-    const result = resolveDefaultRepoPath(db, '/foo/bar/baz/.claude/tmb/trajectory.db');
-    assert.equal(result, undefined);
+    // The config key is no longer read; multi-repo still resolves to undefined.
+    assert.equal(resolveDefaultRepoPath(db), undefined);
+    db.close();
+  });
+});
+
+describe('resolveDefaultRepo — explicit name lookup', () => {
+  it('returns {name, path} from repos.path for a matching name', () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('b', '/ws/b')`);
+    assert.deepEqual(resolveDefaultRepo(db, 'b'), { name: 'b', path: '/ws/b' });
     db.close();
   });
 
-  it('single-repo: returns repos.path verbatim when the row exists', () => {
+  it('unknown explicit name: returns undefined (no synthesis)', () => {
     const db = tempDB();
-    db.run(
-      `INSERT INTO repos (name, path) VALUES ('my-repo', '/abs/path/to/my-repo')`,
-    );
-    db.run(
-      `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"my-repo"')`,
-    );
-    const result = resolveDefaultRepoPath(db, '/elsewhere/.claude/tmb/trajectory.db');
-    // repos.path wins over the workspace synthesis — this is the bug fix.
-    assert.equal(result, '/abs/path/to/my-repo');
+    db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a')`);
+    assert.equal(resolveDefaultRepo(db, 'missing'), undefined);
+    db.close();
+  });
+
+  it('single-repo fallback returns the sole row with its name', () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('solo', '/ws/solo')`);
+    assert.deepEqual(resolveDefaultRepo(db), { name: 'solo', path: '/ws/solo' });
     db.close();
   });
 });
