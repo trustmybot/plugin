@@ -314,6 +314,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/clean-merged-branch.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/close-issue-on-merge.sh",
+            "timeout": 15
           }
         ]
       }
