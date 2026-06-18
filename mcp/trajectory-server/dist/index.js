@@ -29879,6 +29879,19 @@ ${content}`;
 skills: [${skillName}]`;
   return content.replace(fm, newFm);
 }
+function removeSkillFromAgentFrontmatter(content, skillName) {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) return content;
+  const fm = fmMatch[1];
+  const skillsLine = fm.match(/^skills:\s*\[(.*)\]\s*$/m);
+  if (!skillsLine) return content;
+  const entries = skillsLine[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (!entries.includes(skillName)) return content;
+  const remaining = entries.filter((s) => s !== skillName);
+  const rebuilt = `skills: [${remaining.join(", ")}]`;
+  const newFm = fm.replace(/^skills:\s*\[.*\]\s*$/m, rebuilt);
+  return content.replace(fm, newFm);
+}
 function materializeConsumingAgent(dbPath2, target, skillName) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
@@ -29914,6 +29927,29 @@ function materializeConsumingAgent(dbPath2, target, skillName) {
     artifact: `agent-md:.claude/agents/${target}.md`,
     path: localAgentMd
   };
+}
+function dematerializeAttachment(dbPath2, artifact, skillName) {
+  const projectRoot = projectRootFromDbPath(dbPath2);
+  if (!projectRoot) return;
+  if (artifact.startsWith("agent-md:")) {
+    const rel = artifact.slice("agent-md:".length);
+    const filePath = join9(projectRoot, rel);
+    if (!existsSync7(filePath)) return;
+    const content = readFileSync4(filePath, "utf8");
+    const updated = removeSkillFromAgentFrontmatter(content, skillName);
+    if (updated !== content) writeFileSync4(filePath, updated);
+    return;
+  }
+  if (artifact.startsWith("claude-md:")) {
+    const rel = artifact.slice("claude-md:".length);
+    const filePath = join9(projectRoot, rel);
+    if (!existsSync7(filePath)) return;
+    const reference = `Installed skill: ${skillName} \u2014 load it when its capability is needed.`;
+    const body = readFileSync4(filePath, "utf8");
+    if (!body.includes(reference)) return;
+    const updated = body.split("\n").filter((line) => line !== reference).join("\n");
+    writeFileSync4(filePath, updated);
+  }
 }
 function cheatcodeTools(db2) {
   const definitions = [
@@ -29982,7 +30018,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default \u2014 pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo; without target a skill-kind install returns a proposed-PR payload and writes no agent md.",
+      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default \u2014 pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
       inputSchema: {
         type: "object",
         properties: {
@@ -30161,6 +30197,11 @@ function cheatcodeTools(db2) {
         const rawScope = args["scope"]?.trim();
         const scope = rawScope === "global" ? "global" : "local";
         const target = args["target"]?.trim() || null;
+        if (kind === "skill" && !target) {
+          return err16(
+            "a skill install requires a target agent (bro|swe|pr-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
+          );
+        }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
           [name, sourceUrl]
@@ -30254,9 +30295,9 @@ function cheatcodeTools(db2) {
           // .claude/agents/<target>.md or .claude/CLAUDE.md written in the user
           // project). null when no target, or when the surface couldn't resolve.
           materialized: materialized ? { target: materialized.target, artifact: materialized.artifact, path: materialized.path } : null,
-          // Skill-kind without a target: the agent-frontmatter edit is a
-          // Human-reviewed PR, never an automatic write — surface the proposed
-          // payload, write no md.
+          // Skill installs carry the install script's proposed agent-frontmatter
+          // PR payload alongside the materialized surface — the canonical
+          // upstream contribution, distinct from the project-local materialize.
           proposed_pr: out.proposed_pr,
           error: out.error
         });
@@ -30305,6 +30346,11 @@ function cheatcodeTools(db2) {
         const auditSummary = `Cheatcode uninstall: '${existing.name}' (kind=${existing.kind}, method=${reversal.method}, removed=${reversal.removed})`;
         db2.transaction(() => {
           if (reversal.removed) {
+            for (const att of attachments) {
+              if (att.artifact.startsWith("agent-md:") || att.artifact.startsWith("claude-md:")) {
+                dematerializeAttachment(db2.dbPath, att.artifact, existing.name);
+              }
+            }
             db2.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
             db2.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
           } else {
