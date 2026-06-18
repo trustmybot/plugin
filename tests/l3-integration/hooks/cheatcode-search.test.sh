@@ -73,5 +73,85 @@ rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on missing --query"; fi
 
+# ---------------------------------------------------------------------------
+# Un-fixtured live path (#109): run WITHOUT TMB_CHEATCODE_SEARCH_FIXTURE, but
+# with the registry fetch (curl) stubbed by a fake `curl` on PATH that returns
+# canned per-registry JSON. This drives the REAL adapters (mcp-official tier 1,
+# pulsemcp tier 2) AND the real dedupe + tier+relevance RANKING — a regression in
+# either the adapter parse or the ranking fails here, not just behind a fixture.
+# The canned pulsemcp (tier 2) candidate is strictly MORE relevant than the
+# mcp-official (tier 1) one, so tier dominance is what keeps official on top.
+# ---------------------------------------------------------------------------
+STUBDIR="$WORKSPACE/stub-bin"
+mkdir -p "$STUBDIR"
+
+cat > "$STUBDIR/curl" <<'STUB'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do url="$a"; done
+case "$url" in
+  *registry.modelcontextprotocol.io*)
+    cat <<'JSON'
+{ "servers": [
+  { "server": { "name": "official-pdf",
+                "description": "pdf tooling",
+                "repository": { "url": "https://github.com/mcp/official-pdf" } } } ] }
+JSON
+    ;;
+  *raw.githubusercontent.com*)
+    printf '%s\n' '{ "plugins": [] }'
+    ;;
+  *api.pulsemcp.com*)
+    cat <<'JSON'
+{ "servers": [
+  { "name": "curated-pdf",
+    "description": "extract pdf table data from documents",
+    "source_code_url": "https://github.com/curated/curated-pdf" } ] }
+JSON
+    ;;
+  *)
+    exit 22
+    ;;
+esac
+STUB
+chmod +x "$STUBDIR/curl"
+
+run_search_live() {
+  # Explicitly UNSET the fixture so the live (stubbed-curl) adapter path runs.
+  PATH="$STUBDIR:$PATH" env -u TMB_CHEATCODE_SEARCH_FIXTURE bash "$SCRIPT" "$@"
+}
+
+OUT_LIVE=$(run_search_live --query "pdf table extraction" --kind any)
+
+test_case "live path output is valid JSON"
+if printf '%s' "$OUT_LIVE" | jq -e . >/dev/null 2>&1; then _pass; else _fail "not JSON: $OUT_LIVE"; fi
+
+test_case "live path: real adapters yield both registries' candidates"
+names=$(printf '%s' "$OUT_LIVE" | jq -r '[.candidates[].name] | sort | join(",")')
+assert_eq "curated-pdf,official-pdf" "$names" "live candidate names"
+
+test_case "live path: tier-1 official ranks first despite tier-2 curated being more relevant"
+assert_eq "official-pdf" "$(printf '%s' "$OUT_LIVE" | jq -r '.candidates[0].name')" "live top candidate"
+
+test_case "live path: ranked by score descending"
+sorted=$(printf '%s' "$OUT_LIVE" | jq -r '[.candidates[].score] == ([.candidates[].score] | sort | reverse)')
+assert_eq "true" "$sorted" "live score order"
+
+test_case "live path: tiers come from the real adapters (official=1, curated=2)"
+otier=$(printf '%s' "$OUT_LIVE" | jq -r '.candidates[] | select(.name=="official-pdf") | .signals.tier')
+ctier=$(printf '%s' "$OUT_LIVE" | jq -r '.candidates[] | select(.name=="curated-pdf") | .signals.tier')
+assert_eq "1" "$otier" "official tier"
+assert_eq "2" "$ctier" "curated tier"
+
+test_case "live path: curated (tier 2) has higher relevance than official (tier 1)"
+orel=$(printf '%s' "$OUT_LIVE" | jq -r '.candidates[] | select(.name=="official-pdf") | .signals.relevance')
+crel=$(printf '%s' "$OUT_LIVE" | jq -r '.candidates[] | select(.name=="curated-pdf") | .signals.relevance')
+if [ "$crel" -gt "$orel" ]; then _pass; else _fail "expected curated relevance ($crel) > official ($orel)"; fi
+
+test_case "live path: kind filter (mcp) keeps only mcp-kind candidates"
+OUT_LIVE_MCP=$(run_search_live --query "pdf table extraction" --kind mcp)
+nonmcp=$(printf '%s' "$OUT_LIVE_MCP" | jq '[.candidates[] | select(.kind != "mcp")] | length')
+assert_eq "0" "$nonmcp" "live non-mcp filtered out"
+
 summarize
 printf "PASS cheatcode-search\n"

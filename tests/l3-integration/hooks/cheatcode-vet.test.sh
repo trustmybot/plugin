@@ -108,5 +108,84 @@ rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on missing candidate"; fi
 
+# ---------------------------------------------------------------------------
+# Un-fixtured live path (#109): run WITHOUT TMB_CHEATCODE_VET_FIXTURE, but with
+# the external signal source (curl → GitHub REST) stubbed by a fake `curl` on
+# PATH that returns canned repo/contents JSON. This exercises the REAL adapter
+# (owner_repo derivation + fetch + JSON parse) AND the real tier classification
+# end-to-end — a regression in either fails here, not just behind the fixture.
+# ---------------------------------------------------------------------------
+STUBDIR="$WORKSPACE/stub-bin"
+mkdir -p "$STUBDIR"
+
+# Fake curl: the requested URL is always the last argument. The script asks for
+#   .../repos/<owner>/<repo>            → a repo object
+#   .../repos/<owner>/<repo>/contents   → an array of {name} entries
+# Canned bodies live under $STUB_GH_DIR, keyed by owner/repo, so one fake curl
+# serves multiple repos by reading per-repo files the test drops in.
+cat > "$STUBDIR/curl" <<'STUB'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do url="$a"; done
+slug=$(printf '%s' "$url" | sed -nE 's#^https?://api\.github\.com/repos/([^/]+)/([^/]+)(/contents)?/?$#\1/\2#p')
+suffix=$(printf '%s' "$url" | sed -nE 's#.*/repos/[^/]+/[^/]+(/contents)?/?$#\1#p')
+base="${STUB_GH_DIR:?STUB_GH_DIR unset}/$(printf '%s' "$slug" | tr '/' '_')"
+if [ "$suffix" = "/contents" ]; then
+  [ -f "$base.contents.json" ] && cat "$base.contents.json" || exit 22
+else
+  [ -f "$base.repo.json" ] && cat "$base.repo.json" || exit 22
+fi
+STUB
+chmod +x "$STUBDIR/curl"
+
+STUB_GH_DIR="$WORKSPACE/gh"
+mkdir -p "$STUB_GH_DIR"
+export STUB_GH_DIR
+
+# High-signal repo (popular, fresh, no exec surface) → trusted via the live path.
+PUSHED_FRESH=$(date -u -v-30d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)
+cat > "$STUB_GH_DIR/anthropics_live-pdf.repo.json" <<JSON
+{ "stargazers_count": 2500, "forks_count": 120, "pushed_at": "$PUSHED_FRESH",
+  "archived": false, "license": { "spdx_id": "MIT" },
+  "owner": { "login": "anthropics", "type": "Organization" } }
+JSON
+cat > "$STUB_GH_DIR/anthropics_live-pdf.contents.json" <<'JSON'
+[ { "name": "README.md" }, { "name": "LICENSE" }, { "name": "src" } ]
+JSON
+
+# Thin repo (few stars, ships hooks → exec surface) → caution via the live path.
+cat > "$STUB_GH_DIR/someorg_live-thin.repo.json" <<JSON
+{ "stargazers_count": 3, "forks_count": 0, "pushed_at": "$PUSHED_FRESH",
+  "archived": false, "license": null,
+  "owner": { "login": "someorg", "type": "Organization" } }
+JSON
+cat > "$STUB_GH_DIR/someorg_live-thin.contents.json" <<'JSON'
+[ { "name": "README.md" }, { "name": "hooks" } ]
+JSON
+
+run_vet_live() {
+  # Explicitly UNSET the fixture so the live (stubbed-curl) path runs.
+  PATH="$STUBDIR:$PATH" env -u TMB_CHEATCODE_VET_FIXTURE bash "$SCRIPT" "$@"
+}
+
+# No registry tier on the candidate: trusted MUST come from the live-fetched
+# stars+freshness (>=500 stars, pushed within 365d, no exec surface), not a
+# tier-1 short-circuit. This pins the real popularity-based classification path.
+test_case "live path (stubbed curl): high-signal repo → trusted (stars-driven, no registry tier)"
+OUT_LIVE_HI=$(run_vet_live --candidate '{"name":"live-pdf","kind":"skill","source_url":"https://github.com/anthropics/live-pdf"}')
+assert_eq "trusted" "$(printf '%s' "$OUT_LIVE_HI" | jq -r '.trust_tier')" "live high-signal tier"
+
+test_case "live path carries the real fetched reputation (stars from stubbed repo JSON)"
+assert_eq "2500" "$(printf '%s' "$OUT_LIVE_HI" | jq -r '.signals.reputation.stars')" "live stars"
+
+test_case "live path (stubbed curl): thin repo shipping hooks → caution (exec surface)"
+OUT_LIVE_THIN=$(run_vet_live --candidate '{"name":"live-thin","kind":"skill","source_url":"https://github.com/someorg/live-thin"}')
+assert_eq "caution" "$(printf '%s' "$OUT_LIVE_THIN" | jq -r '.trust_tier')" "live thin tier"
+assert_eq "true" "$(printf '%s' "$OUT_LIVE_THIN" | jq -r '.signals.security_surface.code_execution')" "live exec surface"
+
+test_case "live path: non-github source (no stub hit) → unknown (honesty, never crashes)"
+OUT_LIVE_NONE=$(run_vet_live --candidate '{"name":"mystery","kind":"skill","source_url":"https://gitlab.com/x/y"}')
+assert_eq "unknown" "$(printf '%s' "$OUT_LIVE_NONE" | jq -r '.trust_tier')" "live non-github tier"
+
 summarize
 printf "PASS cheatcode-vet\n"
