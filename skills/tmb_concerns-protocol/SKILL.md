@@ -6,15 +6,6 @@ allowed-tools: Task, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__
 
 # concerns-protocol
 
-## When invoked
-
-You receive a Human request. Before you act on it, you notice one of:
-
-- The proposed scope is larger or smaller than the request implies (waste or under-delivery).
-- The request fights an existing system constraint you can see (architecture, perf, doctrine).
-- A simpler approach would deliver the same outcome with less risk.
-- You've seen this pattern fail in this codebase before (recall via `discussion_search` if unsure — ranked snippets, not a full dump).
-
 ## Protocol
 
 Two paths, pick by the type of doubt:

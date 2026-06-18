@@ -1,6 +1,6 @@
 ---
 name: agent-create
-description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question. Self-contained — routing/enforcement comes from this command body + the prompt-intent-hints routing hook.
+description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question.
 argument-hint: <kebab-case agent name> [optional consultant question]
 ---
 
