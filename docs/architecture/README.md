@@ -9,6 +9,7 @@ Design rationale for how the TMB plugin is built — the schema, the workflow ga
 | [`RESPONSIBILITIES.md`](./RESPONSIBILITIES.md) | The role × tool matrix — what each shipped agent is actually instructed to do, plus server-enforced boundaries |
 | [`GIT.md`](./GIT.md) | Where each actor's git state lives across a task lifecycle; the local-is-canonical invariant |
 | [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md) | Path-keyed repo resolution — how an operation's path identifies its repo via the `repos` table; registration-based guard scoping; per-repo `protected_branches` |
+| [`HEADLESS_ENFORCEMENT.md`](./HEADLESS_ENFORCEMENT.md) | Why CC doesn't fire marketplace plugin hooks under `claude -p` — enforced headless bro requires a `--plugin-dir` sideload; marketplace-headless is explicitly unenforced; the L5/L6 caveat |
 | [`WORLD_MODEL.md`](./WORLD_MODEL.md) | The kuzu world-model graph — bro's queryable project map, built by `scan_run` |
 | [`TYPED_RAILS.md`](./TYPED_RAILS.md) | Promoting enforced fields (`files`, `verification`) from markdown to typed schema columns |
 | [`CHEATCODES.md`](./CHEATCODES.md) | The discover → vet → install → hot-load pipeline for acquiring skills, MCP toolkits, and plugins on demand |
