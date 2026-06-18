@@ -17,7 +17,6 @@ Review the diff for this task against the brief's typed `files[]`, `## Success C
 - Scope: changed files match the typed `files[]`.
 - Success criteria are met by the diff (not just claimed).
 - Atomic-close discipline (#W4): task status was `completed` before bro flipped it to `closed`.
-- No manual edits to `docs/trustmybot/architecture/auto/`.
 
 Sign off: `validation_record(agent='pr-reviewer', task_id, attempt_n, verdict='pass'|'fail', feedback)`. Server enforces — only pr-reviewer can call this.
 

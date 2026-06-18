@@ -17,7 +17,6 @@ Review the diff for this task against the brief's typed `files[]`, `## Success C
 - Scope: changed files match the typed `files[]`.
 - Success criteria are met by the diff (not just claimed).
 - Atomic-close discipline (#W4): task status was `completed` before bro flipped it to `closed`.
-- No manual edits to `docs/trustmybot/architecture/auto/`.
 
 
 Return to bro. Bro reports outcome to the Human; on pass the push proceeds, on fail bro re-spawns swe with feedback.
