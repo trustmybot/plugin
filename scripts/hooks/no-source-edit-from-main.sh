@@ -14,10 +14,10 @@
 #   - Normalized agent role == 'swe' (non-isolated SWE running in main checkout)
 #   Enforcement surfaces (scripts/hooks/, hooks/hooks.json) are ALWAYS denied from
 #   main, even for swe — they sit above the swe permit and are never re-opened.
-#   Managed-repo scope: in a multi-repo workspace Rule 1 only guards the managed
-#   product repo (plugin_config tmb_default_repo); absolute targets in sibling
-#   repos are allowed. Empty/'.' tmb_default_repo guards the whole tree (the
-#   normal single-repo user project).
+#   Managed-repo scope: in a multi-repo workspace Rule 1 only guards a REGISTERED
+#   product repo; absolute targets whose git-root is an unregistered sibling repo
+#   are allowed. A single-repo project's sole registered repo IS the root, so the
+#   whole tree is guarded.
 #
 # Rule 2 — Bash write-form targeting a prompt surface from main checkout:
 #   Denied for every agent identity (bro, subagent, swe, unknown) when outside a
@@ -34,6 +34,8 @@ set -uo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh
 . "$PLUGIN_ROOT/scripts/hooks/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$PLUGIN_ROOT/scripts/hooks/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
@@ -211,54 +213,27 @@ case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
 esac
 
-# Managed-repo scope (#592): in a multi-repo workspace, Rule 1 must only guard
-# the managed product repo (plugin_config tmb_default_repo), not its siblings.
-# tmb_default_repo is the repo NAME, so the managed root is resolved by a
-# path-keyed lookup against repos.path (the canonical absolute path set by scan)
-# rather than string-joining the workspace root with the name — that join
-# mis-scopes single-repo-at-root layouts (where the git repo IS the workspace
-# root) one level too deep, leaking the whole tree as a "sibling". Both the
-# resolved MANAGED_ROOT and the absolute target are realpath-normalized before
-# the enclosure test (handles /tmp->/private/tmp symlinks and trailing slashes).
-# Fail-closed: if the repos.path lookup is empty (repo name not found), the whole
-# tree is guarded — the same as an empty/'.' tmb_default_repo (single-repo user
-# project). Only a resolved MANAGED_ROOT plus a target outside it allows a
-# sibling-repo edit.
-_realpath() {
-  if command -v realpath >/dev/null 2>&1; then
-    realpath -m "$1" 2>/dev/null || printf '%s' "$1"
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null || printf '%s' "$1"
-  else
-    printf '%s' "$1"
-  fi
-}
-DEFAULT_REPO=""
-if command -v sqlite3 >/dev/null 2>&1; then
-  DEFAULT_REPO=$(sqlite3 -readonly -cmd '.timeout 500' "$DB_PATH" \
-    "SELECT json_extract(value_json, '\$') FROM plugin_config WHERE key='tmb_default_repo' LIMIT 1;" \
-    2>/dev/null || true)
-fi
-if [ -n "$DEFAULT_REPO" ] && [ "$DEFAULT_REPO" != "." ]; then
-  case "$TARGET" in
-    /*)
-      MANAGED_ROOT=""
-      if command -v sqlite3 >/dev/null 2>&1; then
-        MANAGED_ROOT=$(sqlite3 -readonly -cmd '.timeout 500' "$DB_PATH" \
-          "SELECT path FROM repos WHERE name='$(printf '%s' "$DEFAULT_REPO" | sed "s/'/''/g")' LIMIT 1;" \
-          2>/dev/null || true)
+# Managed-repo scope by REGISTRATION (#693, ADR: path-keyed repo resolution):
+# in a multi-repo workspace Rule 1 must only guard a REGISTERED product repo,
+# not its siblings. Resolve the target's git-root and enforce iff that root is a
+# `repos` row (matched by path); an absolute target whose git-root is an
+# unregistered sibling tree is outside Rule 1 scope (exit 0). A target with no
+# resolvable git-root (or a single-repo project whose sole repo IS the root) is
+# guarded as before — registration of the lone repo covers the whole tree.
+case "$TARGET" in
+  /*)
+    TARGET_DIR=$(dirname "$TARGET")
+    # Only consult registration when the target's directory actually exists —
+    # otherwise tmb_repo_git_root falls back to $PWD (the hook's cwd) and would
+    # mis-scope. A target whose parent dir is absent fails closed (guarded).
+    if command -v sqlite3 >/dev/null 2>&1 && [ -d "$TARGET_DIR" ]; then
+      TARGET_GIT_ROOT=$(tmb_repo_git_root "$TARGET_DIR")
+      if [ -n "$TARGET_GIT_ROOT" ] && ! tmb_repo_is_registered "$DB_PATH" "$TARGET_GIT_ROOT"; then
+        exit 0                          # unregistered sibling repo — outside Rule 1 scope
       fi
-      if [ -n "$MANAGED_ROOT" ]; then
-        MANAGED_ROOT=$(_realpath "$MANAGED_ROOT")
-        TARGET_REAL=$(_realpath "$TARGET")
-        case "$TARGET_REAL" in
-          "$MANAGED_ROOT"/*) : ;;       # inside the managed repo — keep guarding
-          *) exit 0 ;;                  # sibling repo — outside Rule 1 scope
-        esac
-      fi
-      ;;
-  esac
-fi
+    fi
+    ;;
+esac
 
 # Enforcement surfaces: deny before any allowlist entry is evaluated.
 # No pattern — including *.md or docs/ — can re-open these paths from

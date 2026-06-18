@@ -12,6 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=lib/normalize-role.sh
 . "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=lib/resolve-repo.sh
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 if [ "${TMB_ALLOW_BRANCH_MISMATCH:-0}" = "1" ]; then
   exit 0
@@ -39,16 +41,11 @@ REPO=$(echo "$ROW" | cut -d'|' -f2)
 
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB")")")"
 
-if [ -z "$REPO" ]; then
-  REPO=$(sqlite3 "$DB" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='tmb_default_repo';" 2>/dev/null || true)
-fi
-
 if [ -n "$REPO" ]; then
-  # Prefer the absolute path recorded in the `repos` table (authoritative
-  # — set by /scan). Falls back to the legacy workspace-join only when
+  # Resolve the absolute path from the `repos` table (authoritative — set by
+  # /scan), matched by name. Falls back to the legacy workspace-join only when
   # no matching repo row exists (e.g. pre-scan or non-workspace layout).
-  SAFE_REPO=$(tmb_sql_quote "$REPO")
-  REPO_ABS=$(sqlite3 "$DB" "SELECT path FROM repos WHERE name='${SAFE_REPO}' LIMIT 1;" 2>/dev/null || true)
+  REPO_ABS=$(tmb_repo_path_by_name "$DB" "$REPO")
   if [ -z "$REPO_ABS" ]; then
     REPO_ABS="$WORKSPACE_ROOT/$REPO"
   fi
@@ -58,17 +55,14 @@ if [ -n "$REPO" ]; then
     exit 0
   fi
 else
-  # No explicit repo + no default config. Single-repo fallback: if the
-  # repos table has exactly one entry, use it (matches the
-  # resolveDefaultRepo MCP-side fallback for single-repo projects).
-  REPO_ABS=$(sqlite3 "$DB" "SELECT path FROM repos LIMIT 2;" 2>/dev/null | head -1 || true)
-  REPO_COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
-  if [ "$REPO_COUNT" != "1" ] || [ -z "$REPO_ABS" ]; then
-    REPO_ABS="$WORKSPACE_ROOT"
-  fi
+  # No explicit task.repo. Single-repo fallback: if the repos table has exactly
+  # one entry, use it (matches the resolveDefaultRepoPath MCP-side fallback for
+  # single-repo projects). Otherwise fall back to the workspace root.
+  REPO_ABS=$(tmb_repo_single_path "$DB")
+  [ -n "$REPO_ABS" ] || REPO_ABS="$WORKSPACE_ROOT"
   if [ ! -d "$REPO_ABS/.git" ]; then
     jq -nc --arg id "$TASK_ID" \
-      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: cannot resolve repo for task "+$id+". tasks.repo IS NULL and tmb_default_repo config is unset. Set via `config_set tmb_default_repo <inner>` for multi-repo workspaces.")}}'
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: cannot resolve repo for task "+$id+". tasks.repo IS NULL and no single registered repo could be resolved. For a multi-repo workspace, set the task'"'"'s repo (task_create repo=<name>) so it maps to a repos row.")}}'
     exit 0
   fi
 fi

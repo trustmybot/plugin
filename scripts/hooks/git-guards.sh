@@ -104,32 +104,14 @@ _CMD_CWD=$(cmd_cwd "$CMD")
 _GIT_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
 _DB=$(tmb_db_path 2>/dev/null || true)
 
-# --- Managed-repo scope (#631, mirrors #592) ---
+# --- Managed-repo scope by REGISTRATION (#693, ADR: path-keyed repo resolution) ---
 # In a multi-repo workspace these guards (Rule 1 PR-target, Rule 2
-# no-direct-commit, Rule 4 branch-from-pr_target) must only fire for the managed
+# no-direct-commit, Rule 4 branch-from-pr_target) must only fire for a REGISTERED
 # product repo, not its siblings (e.g. marketplace-rc, which is main-only and has
-# no dev branch). The DB lives at <workspace_root>/.claude/<plugin>/trajectory.db,
-# so the workspace root is three levels above _DB and the managed repo is
-# <workspace_root>/<tmb_default_repo>. When the command's git root is outside that
-# subtree it belongs to a sibling repo — the guards no-op (exit 0). When
-# tmb_default_repo is empty or '.' (the normal single-repo user project), the gate
-# is inert and the whole tree is guarded as before.
-if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite && [ -n "$_GIT_ROOT" ]; then
-  _DEFAULT_REPO=$(tmb_config_get "tmb_default_repo" "$_DB")
-  if [ -n "$_DEFAULT_REPO" ] && [ "$_DEFAULT_REPO" != "." ]; then
-    _WORKSPACE_ROOT=$(dirname "$(dirname "$(dirname "$_DB")")")
-    _MANAGED_ROOT="$_WORKSPACE_ROOT/$_DEFAULT_REPO"
-    # Canonicalize the managed root so it compares equal to git's already-
-    # canonical _GIT_ROOT (e.g. /tmp vs /private/tmp on macOS).
-    if [ -d "$_MANAGED_ROOT" ]; then
-      _MANAGED_ROOT=$(cd "$_MANAGED_ROOT" 2>/dev/null && pwd -P || echo "$_MANAGED_ROOT")
-    fi
-    if [ "$_GIT_ROOT" != "$_MANAGED_ROOT" ]; then
-      exit 0
-    fi
-  fi
-fi
-
+# no dev branch). A git op is enforced iff its git-root resolves to a `repos` row
+# (matched by path); when the command's git root is an unregistered sibling tree
+# the guards no-op (exit 0). For single-repo user projects the sole repo IS the
+# registered root (recorded by /scan), so the whole tree is guarded as before.
 if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite && [ -n "$_GIT_ROOT" ]; then
   if ! tmb_repo_is_registered "$_DB" "$_GIT_ROOT"; then
     exit 0

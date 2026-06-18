@@ -105,7 +105,7 @@ out=$(run_hook "$(input 'mcp__plugin_tmb-rc_trajectory-server__task_update_statu
 [ ! -d "$REPO/.claude/worktrees/bar" ] || { echo "FAIL: rc-channel match didn't fire"; exit 1; }
 echo "  rc-channel tool name handled"
 
-test_case "TMB workspace shape: workspace-rooted DB + tasks.repo=null + tmb_default_repo='plugin' → worktree removed"
+test_case "TMB workspace shape: workspace-rooted DB + tasks.repo=null + single-repo fallback → worktree removed"
 WORKSPACE_TMP=$(mktemp -d -t tmb-ws-XXXX)
 INNER="$WORKSPACE_TMP/plugin"
 mkdir -p "$INNER"
@@ -116,6 +116,7 @@ git -C "$INNER" config user.name t
 echo init > "$INNER/README.md"
 git -C "$INNER" add .
 git -C "$INNER" commit -qm init
+INNER_ROOT=$(git -C "$INNER" rev-parse --show-toplevel)
 WS_DB="$WORKSPACE_TMP/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WS_DB")"
 sqlite3 "$WS_DB" "
@@ -123,8 +124,8 @@ sqlite3 "$WS_DB" "
   INSERT INTO tasks (id, branch_id, repo, status) VALUES (20, 'fix/ws-test', NULL, 'completed');
 "
 sqlite3 "$WS_DB" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT, updated_at TEXT);
-  INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '\"plugin\"', datetime('now'));
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, protected_branches TEXT);
+  INSERT INTO repos (name, path) VALUES ('plugin', '$INNER_ROOT');
 "
 git -C "$INNER" branch fix/ws-test HEAD
 git -C "$INNER" worktree add -q "$WORKSPACE_TMP/.claude/worktrees/ws-test" fix/ws-test

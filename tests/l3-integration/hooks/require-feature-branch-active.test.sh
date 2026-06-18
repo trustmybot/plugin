@@ -138,7 +138,7 @@ out=$(
 assert_not_contains "$out" '"permissionDecision":"deny"' "bypass env var must suppress block even on mismatch"
 cleanup
 
-test_case "TMB workspace shape: tasks.repo=null + tmb_default_repo='plugin' + branch exists → passes"
+test_case "TMB workspace shape: tasks.repo=null + single-repo fallback (one registered repo) + branch exists → passes"
 WORKSPACE=$(mktemp -d -t tmb-workspace-XXXX)
 INNER_REPO="$WORKSPACE/plugin"
 mkdir -p "$INNER_REPO"
@@ -151,12 +151,12 @@ mkdir -p "$INNER_REPO"
   git add README.md
   git commit -qm "init"
 )
+INNER_ROOT=$(git -C "$INNER_REPO" rev-parse --show-toplevel)
 WS_DB="$WORKSPACE/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WS_DB")"
 sqlite3 "$WS_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 sqlite3 "$WS_DB" "
-  INSERT OR REPLACE INTO plugin_config (key, value_json)
-    VALUES ('tmb_default_repo', '\"plugin\"');
+  INSERT INTO repos (name, path) VALUES ('plugin', '$INNER_ROOT');
   INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
   INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
@@ -165,14 +165,15 @@ sqlite3 "$WS_DB" "
 REPO_PATH="$INNER_REPO"
 payload=$(make_payload "swe" "task_id=10 You are SWE.")
 out=$(run_hook "$payload" "$WS_DB")
-assert_not_contains "$out" '"permissionDecision":"deny"' "TMB workspace shape with default_repo set + branch exists must not block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "single-repo fallback + branch exists must not block"
 rm -rf "$WORKSPACE"
 REPO_PATH=""
 
-test_case "TMB workspace shape: tasks.repo=null + tmb_default_repo unset → blocks with clear error"
+test_case "TMB workspace shape: tasks.repo=null + no single-repo fallback (two repos) + no .git at workspace root → blocks with clear error"
 WORKSPACE=$(mktemp -d -t tmb-workspace-XXXX)
 INNER_REPO="$WORKSPACE/plugin"
-mkdir -p "$INNER_REPO"
+SIBLING_REPO="$WORKSPACE/sibling"
+mkdir -p "$INNER_REPO" "$SIBLING_REPO"
 (
   cd "$INNER_REPO" || exit 1
   git init -q -b "fix/1-foo"
@@ -182,10 +183,23 @@ mkdir -p "$INNER_REPO"
   git add README.md
   git commit -qm "init"
 )
+(
+  cd "$SIBLING_REPO" || exit 1
+  git init -q -b main
+  git config user.email "test@example.com"
+  git config user.name "Test"
+  echo "init" > README.md
+  git add README.md
+  git commit -qm "init"
+)
+INNER_ROOT=$(git -C "$INNER_REPO" rev-parse --show-toplevel)
+SIBLING_ROOT=$(git -C "$SIBLING_REPO" rev-parse --show-toplevel)
 WS_DB="$WORKSPACE/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WS_DB")"
 sqlite3 "$WS_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 sqlite3 "$WS_DB" "
+  INSERT INTO repos (name, path) VALUES ('plugin', '$INNER_ROOT');
+  INSERT INTO repos (name, path) VALUES ('sibling', '$SIBLING_ROOT');
   INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
   INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, repo, created_at, updated_at)
@@ -194,9 +208,10 @@ sqlite3 "$WS_DB" "
 REPO_PATH="$WORKSPACE"
 payload=$(make_payload "swe" "task_id=11 You are SWE.")
 out=$(run_hook "$payload" "$WS_DB")
-assert_contains "$out" '"permissionDecision":"deny"' "TMB workspace with no default_repo and no .git at workspace root must block"
-assert_contains "$out" "tmb_default_repo" "block message must mention tmb_default_repo config key"
-assert_contains "$out" "config_set" "block message must suggest config_set remedy"
+assert_contains "$out" '"permissionDecision":"deny"' "multi-repo with no task.repo and no .git at workspace root must block"
+assert_contains "$out" "tasks.repo IS NULL" "block message must explain the unresolved-repo cause"
+assert_contains "$out" "task_create repo" "block message must suggest setting the task's repo"
+assert_not_contains "$out" "tmb_default_repo" "block message must NOT mention the retired tmb_default_repo key"
 rm -rf "$WORKSPACE"
 REPO_PATH=""
 

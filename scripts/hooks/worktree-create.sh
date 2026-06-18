@@ -9,13 +9,13 @@
 # trajectory DB to find tasks.repo.
 #
 # Repo resolution order:
-#   1. tasks.repo (matched by branch)
-#   2. tmb_default_repo (plugin_config) — used when CWD is not a git repo
+#   1. tasks.repo (matched by branch) → repos.path
+#   2. single-repo fallback (repos.path when exactly one repo is registered)
 #   3. WORKSPACE_ROOT — fallback for single-repo layouts where workspace IS the repo
 #
 # No-match (branch not in tasks table):
 #   Create the worktree in the resolution-order repo (tasks.repo unavailable →
-#   tmb_default_repo → workspace root), creating the branch if it does not exist.
+#   single-repo fallback → workspace root), creating the branch if it does not exist.
 #
 # DB-absent (non-TMB project):
 #   Create under <cwd>/.claude/worktrees/<sanitized-branch> from the cwd repo.
@@ -40,6 +40,8 @@ set -uo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$PLUGIN_ROOT/scripts/hooks/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 
@@ -101,39 +103,19 @@ TASK_COUNT=$(sqlite3 "$DB_PATH" \
   2>/dev/null || echo 0)
 
 if [ "$TASK_COUNT" = "0" ]; then
-  # No matching task — create in the default-repo resolution order
-  DEFAULT_REPO=$(tmb_config_get "tmb_default_repo" "$DB_PATH" 2>/dev/null || true)
-  if [ -n "$DEFAULT_REPO" ]; then
-    case "$DEFAULT_REPO" in
-      /*) REPO_ABS="$DEFAULT_REPO" ;;
-      *)  REPO_ABS="$WORKSPACE_ROOT/$DEFAULT_REPO" ;;
-    esac
-  else
-    REPO_ABS="$WORKSPACE_ROOT"
-  fi
+  # No matching task — single-repo fallback (repos.path), else workspace root.
+  REPO_ABS=$(tmb_repo_single_path "$DB_PATH" 2>/dev/null || true)
+  [ -n "$REPO_ABS" ] || REPO_ABS="$WORKSPACE_ROOT"
   WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
 else
   REPO=$(sqlite3 "$DB_PATH" \
     "SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='$SAFE_BRANCH' LIMIT 1;" \
     2>/dev/null || true)
 
-  DEFAULT_REPO=""
-  if [ -n "$REPO" ]; then
-    case "$REPO" in
-      /*) REPO_ABS="$REPO" ;;
-      *)  REPO_ABS="$WORKSPACE_ROOT/$REPO" ;;
-    esac
-  else
-    DEFAULT_REPO=$(tmb_config_get "tmb_default_repo" "$DB_PATH" 2>/dev/null || true)
-    if [ -n "$DEFAULT_REPO" ]; then
-      case "$DEFAULT_REPO" in
-        /*) REPO_ABS="$DEFAULT_REPO" ;;
-        *)  REPO_ABS="$WORKSPACE_ROOT/$DEFAULT_REPO" ;;
-      esac
-    else
-      REPO_ABS="$WORKSPACE_ROOT"
-    fi
-  fi
+  # Resolve tasks.repo (a repo name) via repos.path; when it is unset, fall back
+  # to the sole registered repo (single-repo), else the workspace root.
+  REPO_ABS=$(tmb_repo_resolve_path "$DB_PATH" "$REPO" 2>/dev/null || true)
+  [ -n "$REPO_ABS" ] || REPO_ABS="$WORKSPACE_ROOT"
 
   WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
 fi
