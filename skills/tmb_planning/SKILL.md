@@ -12,22 +12,22 @@ Before anything: `world_model_get(depth=2)`. Returns the project's directory tre
 
 Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
 
-## 2. Propose a branch
+## 2. Triage the requirement
 
-When a remote is configured, ask the Human which branch to base the new feature branch on — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. Choosing `pr_target` means check it out and bring it up to date with the remote; any other choice means switch and leave it as-is.
-
-Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. Create the git branch locally afterward.
-
-## 0. Triage the requirement
-
-Before specing any code-touching ask, two quick questions — judgment, not a research project:
+With the world model in hand, before you commit to building — two quick questions (judgment, not a research project):
 
 1. **Is it actionable?** Well-defined, testable, in scope? If it's vague hand-waving, surface the gap via `tmb_concerns-protocol` (or an AUQ) and pin it down *before* authoring a spec.
 2. **Does something already do this?** If an existing package or installed capability could plausibly cover it, run `cheatcode_search` for ranked candidates before specing a build-from-scratch — prefer reuse over reinventing.
 
 Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', kind='decision', body='<reuse X / build because …>')`.
 
-## 3. Author the spec
+## 3. Propose a branch
+
+When a remote is configured, ask the Human which branch to base the new feature branch on — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. Choosing `pr_target` means check it out and bring it up to date with the remote; any other choice means switch and leave it as-is.
+
+Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. Create the git branch locally afterward.
+
+## 4. Author the spec
 
 Pick conservative defaults; name them in `## Description` Assumptions bullets. If the project already uses a different tool, match the project — convention wins over default.
 
@@ -68,7 +68,7 @@ When the change does any of the following, co-author an ADR at `docs/trustmybot/
 
 Blast-radius (external side effects only): default config is the safe state (opt-in); tests run against `:memory:` only; spec requires a pre-merge `bash tests/run-all.sh` yielding zero external mutations.
 
-## 4. Spawn SWE
+## 5. Spawn SWE
 
 Create the tasks with `task_create_batch`, passing the typed `files[]` and `verification[]` for each swe-executed task and asking it to emit the planning-complete event in the same transaction.
 
@@ -76,7 +76,7 @@ Then run the worktree hook per branch and spawn SWE per task.
 
 The batch response includes `parallel_groups` — tasks in the same group are safe to spawn in parallel.
 
-## 5. Verify on SWE return + atomic close
+## 6. Verify on SWE return + atomic close
 
 After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff` of the commit) and judge it against the spec on four counts:
 
@@ -91,4 +91,4 @@ If any of the four checks fails, record it with `bro_verification_fail_record` (
 
 ## Headless overrides (TMB_HEADLESS=1)
 
-`tmb_recovery` §A carries the headless protocol and the per-skill defaults. The one planning-specific mechanic: after `branch_id_propose`, call `headless_intent_start` instead of `intent_start` — it writes the issue, intent, and note atomically and won't duplicate an existing intent — then proceed to step 0.
+`tmb_recovery` §A carries the headless protocol and the per-skill defaults. The one planning-specific mechanic: after `branch_id_propose`, call `headless_intent_start` instead of `intent_start` — it writes the issue, intent, and note atomically and won't duplicate an existing intent — then proceed to step 4.
