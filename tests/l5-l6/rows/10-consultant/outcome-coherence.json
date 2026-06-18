@@ -1,5 +1,5 @@
 {
   "expected_writes": {
-    "audit WHERE event_type = 'tmb_agent_created'": ">=1"
+    "audit WHERE event_type = 'consultant_spawn_nudged'": ">=1"
   }
 }

@@ -47,6 +47,26 @@ emit_context() {
   exit 0
 }
 
+# Write a deterministic audit row recording that the consultant-spawn nudge
+# fired. Gates the 10-consultant L6 row on the enforcement mechanism (this row)
+# rather than bro's non-deterministic compliance with the advisory nudge.
+# Fail-open: DB/sqlite3 absent → silent skip; never blocks or crashes the hook.
+audit_consultant_spawn_nudged() {
+  local detail="$1"
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  local db
+  db=$(tmb_db_path 2>/dev/null || true)
+  [ -n "$db" ] || return 0
+  [ -f "$db" ] || return 0
+  local safe_detail
+  safe_detail=$(tmb_sql_quote "$(printf '%s' "$detail" | head -c 200)")
+  sqlite3 "$db" >/dev/null 2>&1 <<SQL || true
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'consultant-spawn-enforcement', 'consultant_spawn_nudged',
+        'Consultant-spawn nudge emitted: ${safe_detail}', '{}', datetime('now'));
+SQL
+}
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -180,9 +200,11 @@ EOF
   fi
 
   if [ -n "$NAMED_ROLE" ]; then
+    audit_consultant_spawn_nudged "named-role ${NAMED_ROLE}"
     CTX="[tmb consultant-spawn enforcement] The user's prompt names the \`${NAMED_ROLE}\` role. Invoke \`/tmb:agent-create ${NAMED_ROLE} <one-line restatement of the user question>\` — the command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant in the same call. Bare \`Agent(subagent_type='${NAMED_ROLE}')\` without the command bypasses the registry; do NOT take that shortcut."
     emit_context "$CTX"
   elif [ -n "$DOMAIN" ]; then
+    audit_consultant_spawn_nudged "domain ${DOMAIN}"
     CTX="[tmb consultant-spawn enforcement] The user's prompt looks like a \`${DOMAIN}\` judgment call. Invoke \`/tmb:agent-create <role> <one-line restatement>\` with the role that fits this domain (architect / cto / pm / legal-reviewer / a custom from-scratch role). The slash command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant. Answering directly from general knowledge bypasses the consultant gate."
     emit_context "$CTX"
   fi
