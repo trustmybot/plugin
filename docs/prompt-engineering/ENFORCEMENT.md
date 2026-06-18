@@ -17,6 +17,8 @@ How TMB doctrine is enforced at runtime — what is structurally guaranteed by c
 
 **Doctrine: prefer the hardest layer that fits.** Promote a constraint up the stack as soon as the soft layer below misses it.
 
+> **Headless caveat.** Layer 2 (hooks) does not fire under a **marketplace-installed** plugin driven by `claude -p` — CC loads the MCP server, agents, and skills but leaves the hooks inert. Marketplace-headless bro therefore runs at Layer 6 (prompt-adherence) only; the Layer-1/4 MCP and schema gates still hold. Enforced headless runs (L5/L6, benchmarks, CI) sideload via `--plugin-dir`, which fires hooks. See [`HEADLESS_ENFORCEMENT.md`](../architecture/HEADLESS_ENFORCEMENT.md).
+
 ## Coverage matrix
 
 The "Layer" column names the **strongest currently deployed** for each interaction. `Layer 6 only` means prompt-only — relies on LLM compliance.
@@ -43,7 +45,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Roundtable state machine | 1 | server rejects state-transition violations |
 | Welcome banner phrasing | 6 only | CLAUDE.md |
 | Decision-audit row required on every `task_create_batch` | 1 | `mcp/.../tools/tasks.ts` decision_gate |
-| ADR-required hint (architectural intent → advisory injection) | 3 | `scripts/hooks/adr-required-hint.sh` |
+| ADR-required hint (architectural intent → advisory injection) | 5 | `scripts/hooks/prompt-intent-hints.sh` (UserPromptSubmit injection) |
 | Verify-context check before answering | 6 only | CLAUDE.md |
 | Voice / tone | 6 only | CLAUDE.md |
 
@@ -58,6 +60,8 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Scope-limited `tools:` keeps SWE off bro-only MCP writes | 1 + 3 | server `requireRoles` + `agents/swe.md` `tools:` list |
 | MCP calls include `agent: 'swe'`, scope-restricted | 1 | server middleware |
 | Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing pr-reviewer-only tools |
+| Verification gate — SWE `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree; denies on any non-zero exit | 2 | `scripts/hooks/swe-verification-gate.sh` |
+| Worktree created at the canonical slug path at swe-spawn time (headless `claude -p` skips the native WorktreeCreate tool) | 2 | `scripts/hooks/ensure-swe-worktree.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
 | Task spec compliance (only edits `## Files`) | 6 only | `agents/swe.md` |
 
 ### pr-reviewer
@@ -85,11 +89,13 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Force-push to protected branches blocked | 2 | `scripts/hooks/git-guards.sh` |
 | Direct commits to `dev`/`main` outside the dev→main PR flow blocked | 2 | `scripts/hooks/git-guards.sh` |
 | Push gate (see pr-reviewer) | 2 | `scripts/hooks/git-push-guard.sh` |
+| Remote-write text citing a LOCAL issue id whose remote `iid` differs blocked (a bare `#N` resolves to the wrong remote issue) | 2 | `scripts/hooks/remote-id-guard.sh` |
+| Issue a merged PR resolved auto-closed (local row + remote twin) on a successful `gh pr merge` / `glab mr merge` | 4 | `scripts/hooks/close-issue-on-merge.sh` |
 | Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `scripts/hooks/naming-lint.sh` |
 | Conventional-commit subject format | 2 | `scripts/hooks/commit-msg-lint.sh` |
 | Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `scripts/hooks/code-quality-lint.sh` |
 | Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` (reports world-model `cold`/`warm`; bulk population belongs to `/scan`) |
-| Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/consultant-spawn-required.sh` |
+| Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/prompt-intent-hints.sh` |
 | Roundtable capture-surface verification on `roundtable_close` | 2 | `scripts/hooks/roundtable-cleanup-postcheck.sh` |
 | Bro task-close atomic invariants (audit + status + issue close in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:bro_atomic_close` |
 | SWE retry composite (rationale + new task + audit in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:task_retry_batch` |
@@ -119,3 +125,4 @@ Research basis: pink elephant problem (arxiv 2503.22395), NeQA inverse scaling (
 
 - [`FLOWS.md`](../architecture/FLOWS.md) — workflows; cross-references which hook fires when in each flow.
 - [`ERD.md`](../architecture/ERD.md) — schema; the role-by-tool matrix at the bottom is the source of truth for Layer 1's coverage.
+- [`HEADLESS_ENFORCEMENT.md`](../architecture/HEADLESS_ENFORCEMENT.md) — why Layer 2 is inert under marketplace-headless, and the `--plugin-dir` sideload that restores it.

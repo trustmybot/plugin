@@ -188,4 +188,3 @@ The swe.md file once carried a "load task_brief before proceeding" instruction. 
 - `plugin/docs/architecture/RESPONSIBILITIES.md` — agent layer model + role boundaries
 - `plugin/docs/prompt-engineering/ENFORCEMENT.md` — hook + MCP enforcement matrix
 - `plugin/docs/architecture/UI.md` — interactive UI primitives (AskUserQuestion modes)
-- `plugin/docs/architecture/RESPONSIBILITIES.md` — agent layer model + role boundaries
