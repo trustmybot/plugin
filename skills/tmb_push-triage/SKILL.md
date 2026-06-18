@@ -73,7 +73,7 @@ Skip as informational when:
 
 Treat as task-worthy when the comment names a concrete change request (`should be`, `please change`, `consider X over Y`, ends with `?`), or contains a code suggestion fence.
 
-Group task-worthy comments by file or shared concept; one task per group. Flag tasks that touch any seeded ADR directory (e.g. `docs/architecture/`), DB schema files (e.g. `*.sql`), agent/plugin config directories (e.g. `agents/`, `skills/`, plugin manifest files), or public API surfaces as `(arch-impact)`.
+Group task-worthy comments by file or shared concept; one task per group. Flag tasks that touch DB schema files (e.g. `schema/*.sql`), public API surfaces, or config directories (e.g. `agents/`, `skills/`, plugin manifest files) as `(arch-impact)`.
 
 ### Dispatch
 

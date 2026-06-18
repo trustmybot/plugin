@@ -60,11 +60,12 @@ describe('schema — current table set, default values, constraints', () => {
             'tmb_concerns-protocol',
             'tmb_docs-conventions',
             'tmb_planning',
+            'tmb_push-triage',
             'tmb_recovery',
             'tmb_review',
             'tmb_skill-creator',
             'tmb_swe-checklist',
-        ], 'builtin-skill seed must equal the 8 shipped skills (tmb_cheatcode in, tmb_agent-creator out)');
+        ], 'builtin-skill seed must equal the 9 shipped skills (tmb_cheatcode in, tmb_agent-creator out)');
         for (const b of builtins) {
             assert.equal(b.kind, 'skill', `${b.name} must be kind=skill`);
             assert.ok(b.file_path, `${b.name} must carry a file_path (skill CHECK)`);

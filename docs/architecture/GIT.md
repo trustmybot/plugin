@@ -130,7 +130,7 @@ plugin/
 ```text
 plugin/
 ├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)
-├── skills/tmb_review/SKILL.md                        # push-gate orchestration + review phases
+├── skills/tmb_push-triage/SKILL.md                   # bro push-gate orchestration
 ├── scripts/hooks/
 │   ├── git-push-guard.sh                             # blocks push without pass verdicts
 │   ├── branch-up-to-date-with-remote.sh              # verifies local branch is current
@@ -145,7 +145,8 @@ plugin/
 ```text
 plugin/
 ├── agents/pr-reviewer.md                             # pr-reviewer subagent
-├── skills/tmb_review/SKILL.md                        # reviewer phases + bro push-gate orchestration
+├── skills/tmb_review/SKILL.md                        # pr-reviewer diff-level review protocol
+├── skills/tmb_push-triage/SKILL.md                   # bro push-gate orchestration
 ├── scripts/hooks/git-push-guard.sh                   # final enforcement before origin push
 └── mcp/trajectory-server/src/
     ├── tools/validation.ts                           # validation_record (verdict write)

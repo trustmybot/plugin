@@ -212,7 +212,7 @@ Any work done since the upgrade is lost — the rollback restores the DB to the 
 
 ## Project-local pr-reviewer override (optional)
 
-The plugin ships one global pr-reviewer; it is the recommended reviewer. Claude Code resolves agents by name, so a project-local agent at `.claude/agents/pr-reviewer.md` shadows the plugin-global one when a project needs custom review behavior. A project-local agent may declare `mcpServers: [trajectory-server]` in its frontmatter (plugin-global agents cannot) — the entry must match a key in your project's `.mcp.json` (added during onboard). Without MCP tools the reviewer falls back to the honor-system sqlite3 path (§B path 2 in `tmb_review`); both paths produce valid verdicts.
+The plugin ships one global pr-reviewer; it is the recommended reviewer. Claude Code resolves agents by name, so a project-local agent at `.claude/agents/pr-reviewer.md` shadows the plugin-global one when a project needs custom review behavior. A project-local agent may declare `mcpServers: [trajectory-server]` in its frontmatter (plugin-global agents cannot) — the entry must match a key in your project's `.mcp.json` (added during onboard). Without MCP tools the reviewer falls back to the honor-system sqlite3 path (the fallback script in `tmb_review`); both paths produce valid verdicts.
 
 ### Verifying MCP is wired up
 
