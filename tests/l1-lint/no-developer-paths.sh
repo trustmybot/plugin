@@ -4,7 +4,7 @@
 #           leaking personal machine paths into the repo.
 #
 # Scans: README.md, CONTRIBUTING.md, CODEX.md, CURSOR.md, GEMINI.md, CLAUDE.md,
-#        SECURITY.md, docs/, tests/manual/, agents/, skills/, commands/, templates/.
+#        SECURITY.md, docs/, agents/, skills/, commands/, templates/.
 #
 # Allowlist (excluded): tests/l1-lint/fixtures/, tests/l5-l6/fixtures/,
 #                       templates/docs-trustmybot/snapshots/, CHANGELOG.md.
@@ -82,7 +82,6 @@ SCAN_TARGETS=(
   CLAUDE.md
   SECURITY.md
   docs
-  tests/manual
   agents
   skills
   commands

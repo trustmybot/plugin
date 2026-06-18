@@ -70,7 +70,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 **Phase C — rc**
 6. Tag `vX.Y.Z-rc.N` on `dev`, push. The tag-triggered CI release-gate (L1–L4 + L6 + L0) is **re-confirmation**, not the gate. Fast-forward the `rc` branch to the tag.
 7. **Publish to the rc channel**: in `trustmybot/marketplace-rc`, edit `.claude-plugin/marketplace.json` → `plugins[].source.ref` to the new rc tag and push. Installs of `tmb@trustmybot-rc` now serve the rc.
-8. The CI release-gate (L1–L4 + L6 + L0) is the gate; a manual `tmb@trustmybot-rc` marketplace install against [`tests/manual/scenarios.md`](tests/manual/scenarios.md) is an **optional spot-check** for UX scenarios the automated layer can't model (e.g. interactive AskUserQuestion responses) — handy when a change touches install, schema, or doctrine.
+8. The CI release-gate (L1–L4 + L6 + L0) is the gate — the automated layers are the sole sign-off; a green gate on the exact tree you tag is the license.
 
 **Phase D — stable**
 9. Final bump PR (`X.Y.Z`) → `dev`.
@@ -85,7 +85,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 - Self-documenting code; prefer deletion over addition; match the file's existing patterns. TypeScript for the MCP server, Bash for hooks. Emoji + Conventional Commit messages.
 - Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → `tests/l3-integration/hooks/*.test.sh`; new enforcement → a lint in `tests/l1-lint/`.
-- Prompt / skill / doc changes have no automated test — walk [`tests/manual/scenarios.md`](tests/manual/scenarios.md) before opening the PR.
+- Prompt / skill / doc changes have no automated test — they rely on the CI release-gate (L0–L6) and PR review for sign-off.
 
 ## Pre-PR checklist
 
