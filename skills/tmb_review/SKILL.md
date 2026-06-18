@@ -1,12 +1,10 @@
 ---
 name: tmb_review
-description: Review surface — pr-reviewer's qualitative phases at the push gate, bro's PR/MR comment triage flow, and bro's push-time orchestration. Loaded by pr-reviewer when scoring a task's commit, and by bro when the push hook blocks or the Human asks for review-before-push or PR comment monitoring. Self-contained — code-quality criteria + living patterns + AUQ shapes inline.
+description: Review surface — pr-reviewer's qualitative phases at the push gate, bro's PR/MR comment triage flow, and bro's push-time orchestration. Loaded by pr-reviewer when scoring a task's commit, and by bro when the push hook blocks or the Human asks for review-before-push or PR comment monitoring.
 allowed-tools: Task, Bash, mcp__plugin_tmb_trajectory-server, AskUserQuestion
 ---
 
 # Review
-
-Three review-related judgments live here.
 
 ## A. PR-reviewer protocol (push gate, loaded by pr-reviewer)
 
@@ -56,7 +54,7 @@ Public-API change reflected in user docs / type defs? Breaking change flagged in
 
 ### Writing the validation_attempts row — YOU write it yourself
 
-After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Which path you take depends on your tool list. If `validation_record` is available, call it — the schema enforces the shape — and open your feedback with `'MCP available: yes'`. If your tools are only Read + Bash, write the row through the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` (`--help` shows the argument shape).
+After producing a verdict, YOU (the pr-reviewer subagent) write the `validation_attempts` row directly, using the spawn prompt's `attempt_n`. Your reply opens with the MCP self-test line per `agents/pr-reviewer.md` (the canonical contract); the availability it reports decides the write path. If `validation_record` is available, call it — the schema enforces the shape. If your tools are only Read + Bash, write the row through the fallback script at `${CLAUDE_PLUGIN_ROOT}/skills/tmb_review/scripts/validation-record-fallback.sh` (`--help` shows the argument shape).
 
 <!-- LOAD-BEARING-SAFETY: never delegate writing this row to bro. Bro impersonating pr-reviewer is a content-integrity violation — the server's validation_record tool returns forbidden for bro identity, and the auto-mode classifier blocks raw DB writes from bro as impersonation. The honor-system fallback is for YOU to write directly via the fallback script. -->
 
@@ -87,14 +85,14 @@ This loads when the push guard blocks unsigned commits, or when the Human asks t
 
 Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local override). Tasks are independent; spawn in parallel where possible.
 
-Read pr-reviewer's first response line:
-- `MCP available: yes` — the reviewer wrote `validation_record` itself.
-- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the §A fallback script, which prepends the required feedback prefix itself.
+Read pr-reviewer's first response line — its MCP self-test, the canonical contract in `agents/pr-reviewer.md`:
+- availability `yes` — the reviewer wrote `validation_record` itself.
+- availability `no` — the reviewer wrote the row through the §A fallback script, which prepends the required feedback prefix itself.
 
 ### Outcomes
 
 - All-pass → `git push origin <feature>`, then `gh pr create` / `glab mr create`, surface URL. After merge, run post-merge cleanup below.
-- Any fail → surface verbatim. AUQ: `"PR-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"` options: `[Spawn SWE to fix | Abort push]`. Headless default: **Abort push**.
+- Any fail → surface verbatim. AUQ: `"PR-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"` options: `[Spawn SWE to fix | Abort push]`. No Human → `tmb_recovery` §A default.
 
 ### Post-merge cleanup
 
