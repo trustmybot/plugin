@@ -3,7 +3,7 @@
 --
 -- Scope: bro installs BOTH the feature-dev and code-review plugins in local
 -- scope. The deterministic proof is (a) two cheatcode_installed audit rows,
--- (b) the two cheatcodes rows (feature-dev + code-review) written scope='local',
+-- (b) the two cheatcodes rows (feature-dev + code-review) written scope='project-local',
 -- and (c) the per-agent attachment records — feature-dev → swe, code-review →
 -- pr-reviewer. Marketplace results are stubbed via TMB_CHEATCODE_INSTALL_FIXTURE;
 -- the install/attachment SHAPE is covered by L2/L3, the per-candidate routing
@@ -19,9 +19,9 @@ UNION ALL
 
 SELECT
   CASE WHEN COUNT(*) >= 2 THEN 1 ELSE 0 END AS pass,
-  'two-cheatcodes-rows-scope-local (got ' || COUNT(*) || ')' AS description
+  'two-cheatcodes-rows-scope-project-local (got ' || COUNT(*) || ')' AS description
 FROM cheatcodes
-WHERE scope = 'local'
+WHERE scope = 'project-local'
 
 UNION ALL
 
