@@ -8,7 +8,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **World model graph DB** — kuzu at `<project>/.claude/<plugin-name>/world-model.kuzu/`. Holds bro's project mental picture: Directory nodes + CONTAINS edges (more node/edge types in follow-up slices). Sibling file to the trajectory DB. See `docs/architecture/WORLD_MODEL.md`.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **Issue milestone** — `issues.milestone` column (nullable `TEXT`, added at schema v22). A release/grouping label bound directly to the issue row; there is no separate milestones table. See `docs/architecture/ERD.md`.
-- **ADRs** — `docs/trustmybot/architecture/manual/decisions/N-*.md`, hand-curated.
+- **Architectural decisions** — recorded as `kind=decision` discussions in the trajectory DB.
 - **Snapshots** — `docs/trustmybot/snapshots/<issue_id>.md`, generated via `issue_snapshot_md`.
 
 ## Other docs

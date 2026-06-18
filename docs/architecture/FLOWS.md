@@ -12,7 +12,7 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 |---|---|---|---|---|---|
 | 1 | First contact | `onboard_state_get().first_run === true` (i.e. `plugin_config('onboarded')` absent) | bro | `plugin_config`, `audit` | `activation-routine` (auto-fire trigger) |
 | 2 | **Code-touching task** (canonical) | Code change ask | bro → swe; pr-reviewer at push | `issues`, `tasks`, `discussions`, `audit` (+ `validation_attempts` at push) | `require-task-spec`, `git-push-guard`, `git-guards`, `cleanup-worktree-on-task-close` |
-| 3 | Architectural change | Touches `docs/trustmybot/architecture/`, schema, public API, external side effects | bro authors ADR + decision audit, then standard SWE flow | + `discussions(kind='decision')`; ADR file lands at `docs/trustmybot/architecture/manual/decisions/N-*.md` | `adr-required-hint`, universal `decision_gate` on `task_create_batch` |
+| 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a `kind=decision` discussion + blast-radius, then standard SWE flow | + `discussions(kind='decision')` | universal `decision_gate` on `task_create_batch` |
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
 | 5 | Skill creation | Recurring pattern needs encoding | bro | `skills` (registered via `skill_register`) | — |
 | 6 | Push gate / PR review | `git push` to protected branch | bro → pr-reviewer (one per unsigned task, parallel) | `validation_attempts` | `git-push-guard` |
@@ -120,11 +120,9 @@ sequenceDiagram
 
 ## 3. Architectural change (Δ vs flow 2)
 
-Same chain as flow 2, plus: before `task_create_batch`, bro co-authors an ADR and applies the blast-radius checklist. The universal decision gate still requires a `kind='decision'` row regardless of flow.
+Same chain as flow 2, plus: before `task_create_batch`, bro records a `kind=decision` discussion and applies the blast-radius checklist. The universal decision gate requires a `kind='decision'` row regardless of flow.
 
-- Skills: `tmb_planning` triggers the architectural ceremony when the change touches `docs/trustmybot/architecture/`, schema, public API, or has external side effects (see SKILL.md §"Architectural changes").
-- Hook: `adr-required-hint.sh` (UserPromptSubmit) detects architectural intent (`switch to clerk`, `migrate to postgres`, etc.) and injects an advisory pointing at the ADR template + the blast-radius checklist.
-- ADR file lands at `docs/trustmybot/architecture/manual/decisions/N-*.md` (template: `templates/docs-trustmybot/architecture/manual/decisions/0001-example.md`).
+- Skills: `tmb_planning` triggers the architectural ceremony when the change introduces a new boundary/module, touches schema or public API, or has external side effects (see SKILL.md §"Architectural changes").
 - For human-driven deliberation, the user enters Claude Code's native plan mode (Shift+Tab) — bro doesn't run a bespoke Q+A loop. The `kind='decision'` row captures the outcome.
 - Bro's V1/V2/V3 verification after SWE returns is unchanged — never skipped, even for architectural changes.
 
