@@ -107,8 +107,8 @@ function wrapHandler(fn) {
         }
     };
 }
-function resolveSpawnCwd(db, dbPath) {
-    return resolveDefaultRepoPath(db, dbPath);
+function resolveSpawnCwd(db, _dbPath) {
+    return resolveDefaultRepoPath(db);
 }
 function resolveRemoteUrl(db, backend) {
     const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'remotes'`);

@@ -1,4 +1,5 @@
 import { requireRoles } from '../middleware/agent-scope.js';
+import { resolveDefaultRepo } from '../utils/repo-paths.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -83,7 +84,7 @@ export function worldModelTools(db, graph) {
                     agent: { type: 'string' },
                     repo: {
                         type: 'string',
-                        description: 'Repo name (matches `repos.name`). Defaults to `tmb_default_repo` from plugin_config.',
+                        description: 'Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects.',
                     },
                     path: {
                         type: 'string',
@@ -115,7 +116,7 @@ export function worldModelTools(db, graph) {
                     },
                     repo: {
                         type: 'string',
-                        description: 'Optional — restrict to one repo. Defaults to `tmb_default_repo` from plugin_config.',
+                        description: 'Optional — restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects.',
                     },
                     k: {
                         type: 'number',
@@ -130,15 +131,7 @@ export function worldModelTools(db, graph) {
         world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
             let repo = args['repo'] ?? '';
             if (!repo) {
-                const cfg = db.get("SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'");
-                if (cfg?.value_json) {
-                    try {
-                        repo = JSON.parse(cfg.value_json);
-                    }
-                    catch {
-                        // leave empty
-                    }
-                }
+                repo = resolveDefaultRepo(db)?.name ?? '';
             }
             const path = args['path'] ?? '';
             const depthArg = args['depth'];
@@ -167,15 +160,7 @@ export function worldModelTools(db, graph) {
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
             let repo = args['repo'] ?? '';
             if (!repo) {
-                const cfg = db.get("SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'");
-                if (cfg?.value_json) {
-                    try {
-                        repo = JSON.parse(cfg.value_json);
-                    }
-                    catch {
-                        // empty
-                    }
-                }
+                repo = resolveDefaultRepo(db)?.name ?? '';
             }
             if (!graph) {
                 return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });

@@ -469,10 +469,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
   // so the stripped workspace path is not a git repo at all (#675) — git
   // probes there report in_git:false and detect no remotes, persisting blank
   // remote URLs that silently disable issue-sync. Prefer the authoritative
-  // repo path from tmb_default_repo; fall back to the legacy workspace-root
-  // derivation only when it can't be resolved.
+  // single-repo path (path-keyed resolution); fall back to the legacy
+  // workspace-root derivation only when it can't be resolved.
   const probeDir = (): string => {
-    const fromDefaultRepo = resolveDefaultRepoPath(db, dbPath ?? '');
+    const fromDefaultRepo = resolveDefaultRepoPath(db);
     if (fromDefaultRepo) return fromDefaultRepo;
     const workspaceRoot = dbPath
       ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '')

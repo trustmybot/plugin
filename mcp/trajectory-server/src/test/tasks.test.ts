@@ -1208,15 +1208,15 @@ describe('taskTools', () => {
     db.close();
   });
 
-  it('task_create_batch defaults repo to tmb_default_repo config when task.repo omitted', async () => {
+  it('task_create_batch defaults repo to the sole registered repo when task.repo omitted (single-repo fallback)', async () => {
     const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-gate');
     try {
       spawnSync('git', ['-C', repoName, 'branch', 'feat/default-repo-test'], { stdio: 'pipe' });
 
       const db = tempDB();
       db.run(
-        `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`,
-        [JSON.stringify(repoName)],
+        `INSERT INTO repos (name, path) VALUES (?, ?)`,
+        [repoName, join(process.cwd(), repoName)],
       );
       const issueId = await createIssue(db);
       const tools = taskTools(db);
@@ -1232,7 +1232,7 @@ describe('taskTools', () => {
       });
       const inserted = parseBatch(result);
       assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-      assert.equal(inserted[0].repo, repoName, 'repo should default to tmb_default_repo config value');
+      assert.equal(inserted[0].repo, repoName, 'repo should default to the sole registered repo');
 
       db.close();
     } finally {
@@ -1240,14 +1240,37 @@ describe('taskTools', () => {
     }
   });
 
-  it('task_create_batch auto-creates branch via default-repo when missing from tmb_default_repo (#529)', async () => {
+  it('task_create_batch defaults repo to null when task.repo omitted and multiple repos are registered', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('b', '/ws/b')`);
+    const issueId = await createIssue(db);
+    const tools = taskTools(db);
+
+    const result = await call(tools.handlers, 'task_create_batch', {
+      waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+      waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+      agent: 'bro',
+      issue_id: String(issueId),
+      tasks: [
+        { branch_id: 'feat/multi-repo-no-default', description: 'No repo, multi-repo' },
+      ],
+    });
+    const inserted = parseBatch(result);
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+    assert.equal(inserted[0].repo, null, 'multi-repo with no explicit repo resolves to null');
+
+    db.close();
+  });
+
+  it('task_create_batch auto-creates branch via the sole registered repo when the branch is missing (#529)', async () => {
     const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-autocreate');
     try {
       const repoDir = join(process.cwd(), repoName);
       const db = tempDB();
       db.run(
-        `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`,
-        [JSON.stringify(repoDir)],
+        `INSERT INTO repos (name, path) VALUES (?, ?)`,
+        [repoDir, repoDir],
       );
       const issueId = await createIssue(db);
       const tools = taskTools(db);
@@ -1277,7 +1300,7 @@ describe('taskTools', () => {
     }
   });
 
-  it('task_create_batch defaults repo to null when task.repo omitted and tmb_default_repo not set', async () => {
+  it('task_create_batch defaults repo to null when task.repo omitted and no repos are registered', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const tools = taskTools(db);
@@ -1288,12 +1311,12 @@ describe('taskTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       tasks: [
-        { branch_id: 'feat/null-repo-back-compat', description: 'No repo, no config' },
+        { branch_id: 'feat/null-repo-back-compat', description: 'No repo, no registered repos' },
       ],
     });
     const inserted = parseBatch(result);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-    assert.equal(inserted[0].repo, null, 'repo should be null when no config and no task.repo');
+    assert.equal(inserted[0].repo, null, 'repo should be null when no repos registered and no task.repo');
 
     db.close();
   });

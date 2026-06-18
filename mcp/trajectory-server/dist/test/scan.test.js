@@ -71,64 +71,18 @@ describe('scan_run — workspace discovery + persistence', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('sets tmb_default_repo on first scan if not already configured', async () => {
+    it('does NOT write a tmb_default_repo config key on scan (path-keyed resolution)', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-default-'));
         try {
-            mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
+            mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
+            mkRepo(ws, 'repo-c', { 'a.txt': 'a\n', 'b.txt': 'b\n' });
             const db = tempDB();
             const tools = scanTools(db, null);
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
             const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg, 'tmb_default_repo should be set');
-            assert.equal(cfg.value_json, "\"repo-c\"");
-            db.close();
-        }
-        finally {
-            rmSync(ws, { recursive: true, force: true });
-        }
-    });
-    // #2885: workspace-pattern with multiple sibling repos. Old behaviour picked
-    // repos[0] alphabetically, so a user launching from ~/Git/GitHub/TMB/plugin
-    // got tmb_default_repo='repo-a' just because it sorted first. New
-    // behaviour: prefer the repo whose path encloses session_dir.
-    it('prefers the cwd-enclosing repo as tmb_default_repo, not alphabetical-first (#2885)', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'scan-prefer-'));
-        try {
-            // Three sibling repos. Alphabetical-first is 'repo-a' (placeholder names — must be sorted alphabetically to test the bug correctly).
-            mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
-            mkRepo(ws, 'repo-b', { 'README.md': 'm\n' });
-            mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
-            const db = tempDB();
-            const tools = scanTools(db, null);
-            // Scan from inside the 'repo-c' subdir — user clearly working there.
-            await call(tools.handlers, 'scan_run', {
-                agent: 'bro',
-                session_dir: join(ws, 'repo-c'),
-            });
-            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg, 'tmb_default_repo should be set');
-            assert.equal(cfg.value_json, '"repo-c"', 'cwd-enclosing repo wins over alphabetical-first');
-            db.close();
-        }
-        finally {
-            rmSync(ws, { recursive: true, force: true });
-        }
-    });
-    it('picks largest-by-file-count when session_dir encloses no repo (#316)', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'scan-fallback-'));
-        try {
-            // repo-a has 1 file, repo-c has 3 files → repo-c wins despite sorting later.
-            mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
-            mkRepo(ws, 'repo-c', { 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n' });
-            const db = tempDB();
-            const tools = scanTools(db, null);
-            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg);
-            assert.equal(cfg.value_json, '"repo-c"', 'largest repo wins over alphabetical-first');
-            // A default_repo_guessed audit row must exist.
-            const audit = db.get(`SELECT event_type FROM audit WHERE event_type='default_repo_guessed' ORDER BY id DESC LIMIT 1`);
-            assert.ok(audit, 'default_repo_guessed audit row should be emitted when guessing');
+            assert.equal(cfg, undefined, 'scan must not auto-set tmb_default_repo');
+            const audit = db.get(`SELECT event_type FROM audit WHERE event_type='default_repo_guessed' LIMIT 1`);
+            assert.equal(audit, undefined, 'no default_repo_guessed audit row is emitted');
             db.close();
         }
         finally {
@@ -339,50 +293,9 @@ describe('preferredDefaultRepo — unit', () => {
         assert.equal(guesses.length, 1, 'onGuessed still fires when falling back to deprioritized');
     });
 });
-describe('scan_run default-repo ranking (#474)', () => {
-    it('version-named largest repo loses to a smaller ordinary working repo', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'scan-rank-ver-'));
-        try {
-            // Simulate a plugins cache with a version-named release copy next to the working repo.
-            const cacheDir = join(ws, 'cache');
-            mkdirSync(cacheDir, { recursive: true });
-            // v0.7.1-rc.1 has more files (973 vs 969) but should lose due to version name.
-            mkRepo(cacheDir, 'v0.7.1-rc.1', Object.fromEntries(Array.from({ length: 4 }, (_, i) => [`f${i}.ts`, `// ${i}\n`])));
-            mkRepo(ws, 'plugin', { 'src/a.ts': 'x\n', 'src/b.ts': 'y\n', 'src/c.ts': 'z\n' });
-            const db = tempDB();
-            const tools = scanTools(db, null);
-            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg, 'tmb_default_repo should be set');
-            assert.equal(cfg.value_json, '"plugin"', 'ordinary repo wins over version-named copy');
-            const audit = db.get(`SELECT event_type FROM audit WHERE event_type='default_repo_guessed' ORDER BY id DESC LIMIT 1`);
-            assert.ok(audit, 'default_repo_guessed audit row emitted when heuristic fires');
-            db.close();
-        }
-        finally {
-            rmSync(ws, { recursive: true, force: true });
-        }
-    });
-    it('bench-worktrees path deprioritized below ordinary repos', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'scan-rank-bench-'));
-        try {
-            const benchDir = join(ws, 'bench-worktrees');
-            mkdirSync(benchDir, { recursive: true });
-            mkRepo(benchDir, 'run-1', { 'a.ts': 'x\n', 'b.ts': 'y\n', 'c.ts': 'z\n' });
-            mkRepo(ws, 'plugin', { 'README.md': 'p\n' });
-            const db = tempDB();
-            const tools = scanTools(db, null);
-            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg);
-            assert.equal(cfg.value_json, '"plugin"', 'bench-worktrees repo deprioritized');
-            db.close();
-        }
-        finally {
-            rmSync(ws, { recursive: true, force: true });
-        }
-    });
-});
+// Repo-ranking heuristics live in the preferredDefaultRepo unit block above —
+// scan_run no longer writes tmb_default_repo, so the ranking is exercised at the
+// pure-function level (#474), not through the scan handler + plugin_config.
 describe('scan_run lock contention + release (#339)', () => {
     function mkRepo(parent, name) {
         const root = join(parent, name);

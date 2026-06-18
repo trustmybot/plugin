@@ -128,8 +128,8 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
-function resolveSpawnCwd(db: TrajectoryDB, dbPath: string): string | undefined {
-  return resolveDefaultRepoPath(db, dbPath);
+function resolveSpawnCwd(db: TrajectoryDB, _dbPath: string): string | undefined {
+  return resolveDefaultRepoPath(db);
 }
 
 function resolveRemoteUrl(db: TrajectoryDB, backend: 'gh' | 'glab'): string | null {

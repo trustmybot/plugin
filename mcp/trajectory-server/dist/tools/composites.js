@@ -4,6 +4,7 @@ import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { syncIssueCloseRemotes } from './issues.js';
 import { resolveDefaultIssueId } from './discussions.js';
+import { resolveDefaultRepo } from '../utils/repo-paths.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
 // entry is a path; its dirname is the directory ('' = repo root). task_brief
@@ -408,18 +409,11 @@ export function compositeTools(db, dbPath, graph = null) {
             WHERE t.id = ? LIMIT 1`, [taskId]);
             if (!task)
                 return err(`No task with id=${taskId}`);
-            // Resolve repo: task.repo, else tmb_default_repo from config.
+            // Resolve repo: task.repo, else the single-repo fallback (path-keyed
+            // resolution — empty in multi-repo projects, which scope by task.repo).
             let repo = task.repo ?? '';
             if (!repo) {
-                const cfg = db.get("SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'");
-                if (cfg?.value_json) {
-                    try {
-                        repo = JSON.parse(cfg.value_json);
-                    }
-                    catch {
-                        // leave empty
-                    }
-                }
+                repo = resolveDefaultRepo(db)?.name ?? '';
             }
             // Scope: the dirs the task's typed files[] touch, resolved in the world model.
             const dirs = filesToDirs(parseTaskFiles(task.files));
