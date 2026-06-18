@@ -93,14 +93,6 @@ STACKS=$(echo "$STACKS" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 OPEN_ISSUES=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM issues WHERE status='open';" 2>/dev/null || echo 0)
 PENDING_TASKS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running');" 2>/dev/null || echo 0)
 
-# Hand-curated arch docs detection (cheap; one find).
-HAS_ARCH_DOCS="no"
-if find docs/architecture -maxdepth 2 -type f -name '*.md' 2>/dev/null | head -1 | grep -q .; then
-  HAS_ARCH_DOCS="yes"
-elif find docs/trustmybot/architecture -maxdepth 2 -type f -name '*.md' 2>/dev/null | head -1 | grep -q .; then
-  HAS_ARCH_DOCS="yes"
-fi
-
 # World model status (cold vs warm). The world model lives in the kuzu graph
 # (ADR 0002), not SQLite — so the warm/cold proxy is the deep_scan_completed
 # audit event (the same signal the registry-cold gate uses): present ⇒ a scan
@@ -129,7 +121,7 @@ fi
 LAST_5=$(printf '%s' "$LAST_5_RAW" | head -5 | sed 's/^/  /')
 
 # Assemble the inventory block.
-# STABLE fields first (same across sessions): dirs, stacks, arch docs, world model state.
+# STABLE fields first (same across sessions): dirs, stacks, world model state.
 # VOLATILE fields last (change per session/turn): branch, counts, commits.
 # This order maximises CC prompt-cache reuse — cache breaks at the first byte-difference.
 COLD_SUFFIX=""
@@ -149,7 +141,6 @@ INVENTORY=$(cat <<EOF
 Plugin version:    ${PLUGIN_VERSION_LINE}
 Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
-Architecture docs: ${HAS_ARCH_DOCS}
 World model:       ${WORLD_MODEL_STATE} (kuzu graph; ${SOURCE_FILE_COUNT} source files)
 Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty paths)
 Open issues:       ${OPEN_ISSUES}
