@@ -37,14 +37,14 @@ SQL
   ISSUE_ID=$(sqlite3 "$DB" "SELECT last_insert_rowid();")
 fi
 
-# Insert the kind='decision' discussion mirroring step 08's ADR body.
+# Insert the kind='decision' discussion mirroring step 08's decision body.
 sqlite3 "$DB" <<SQL
 INSERT INTO discussions (issue_id, author, kind, body, created_at)
 VALUES (
   $ISSUE_ID,
   'bro',
   'decision',
-  'Decision: extract storage into a backend interface (StorageBackend ABC) with a JsonFileBackend default implementation. Factory function selects backend at runtime. Rationale: (1) decouples command handlers from persistence detail; (2) makes SQLite swap-in a targeted change; (3) preserves back-compat for existing ~/.todo-cli/todos.json files via JsonFileBackend. ADR: docs/trustmybot/architecture/manual/decisions/001-storage-backend-interface.md',
+  'Decision: extract storage into a backend interface (StorageBackend ABC) with a JsonFileBackend default implementation. Factory function selects backend at runtime. Rationale: (1) decouples command handlers from persistence detail; (2) makes SQLite swap-in a targeted change; (3) preserves back-compat for existing ~/.todo-cli/todos.json files via JsonFileBackend.',
   datetime('now', '-1 hour')
 );
 SQL

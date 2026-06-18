@@ -169,7 +169,6 @@ assert_contains "$EMPTY_RESULT" '"count":0' "empty fetch returns zero comments"
 test_case "arch-impact heuristic flags schema.sql changes"
 ARCH_PATHS=(
   "mcp/trajectory-server/src/schema.sql"
-  "docs/trustmybot/architecture/auto/overview.md"
   ".claude-plugin/plugin.json"
   "templates/agents/new-agent.md"
   "agents/custom.md"
@@ -183,7 +182,7 @@ NON_ARCH_PATHS=(
 
 is_arch_impact() {
   local path="$1"
-  echo "$path" | grep -qE '(docs/trustmybot/architecture/auto/|mcp/trajectory-server/src/schema\.sql|\.claude-plugin/plugin\.json|templates/agents/|^agents/)' && return 0
+  echo "$path" | grep -qE '(mcp/trajectory-server/src/schema\.sql|\.claude-plugin/plugin\.json|templates/agents/|^agents/)' && return 0
   return 1
 }
 

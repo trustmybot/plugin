@@ -22,7 +22,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
     objective: 'Migrate auth from session-cookie to JWT',
-    description: 'Cross-cutting refactor; touches docs/trustmybot/architecture/.',
+    description: 'Cross-cutting refactor; touches the auth module across handlers.',
   });
   assert.equal(issue.ok, true);
   const issueId = issue.data.id;

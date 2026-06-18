@@ -93,7 +93,7 @@ test('bro (planner) — difficult-task flow: issue + ADR-style discussion thread
 
   // Multi-round alignment loop — bro surfaces concerns to the Human.
   const questions = [
-    { kind: 'note', body: 'Triage: difficult — touches docs/trustmybot/architecture/.' },
+    { kind: 'note', body: 'Difficult — cross-cutting change touching the auth module.' },
     { kind: 'question', body: 'Is OIDC fine, or do you need SAML compat?' },
     { kind: 'answer', body: 'OIDC only is fine.' },
     { kind: 'decision', body: 'Going with OIDC. New module at src/auth/.' },
