@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 33-multirepo-commit L5 isolation: builds the multi-repo workspace fixture.
-# Configures tmb_default_repo='api', creates api/ and app/ sibling git repos.
+# Creates api/ and app/ sibling git repos and registers both via the `repos`
+# table (path-keyed resolution — see docs/architecture/REPO_RESOLUTION.md).
 # README per inner repo lets scan_run populate the kuzu world model with
 # README-derived summaries when bro runs /scan.
 set -uo pipefail
@@ -8,9 +9,6 @@ set -uo pipefail
 PROJECT="$1"
 # shellcheck disable=SC2034
 SCENARIO_DIR="$2"
-
-sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
-  "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '\"api\"');"
 
 mkdir -p "$PROJECT/api"
 (
@@ -50,3 +48,15 @@ export const hello = () => 'world';
 TS
   git add . && git commit -qm "seed: app initial"
 ) >/dev/null
+
+# Register both inner repos by path (path-keyed resolution).
+# api carries a per-repo protected_branches value to exercise the per-repo
+# authoritative model; app omits it (falls back to the global config).
+API_PATH=$(cd "$PROJECT/api" && pwd -P)
+APP_PATH=$(cd "$PROJECT/app" && pwd -P)
+sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
+INSERT OR REPLACE INTO repos (name, path, protected_branches)
+VALUES ('api', '$API_PATH', '["main"]');
+INSERT OR REPLACE INTO repos (name, path)
+VALUES ('app', '$APP_PATH');
+SQL
