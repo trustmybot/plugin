@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
-import { issueTools } from '../tools/issues.js';
+import { issueTools, objectiveSimilarity } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
 import { makeSpawnFn } from './sync-issue.test.js';
 
@@ -1099,6 +1099,128 @@ describe('issueTools — milestone (#83/#763)', () => {
     const mIdx = createCall.args.indexOf('--milestone');
     assert.ok(mIdx >= 0, 'gh create must include --milestone');
     assert.equal(createCall.args[mIdx + 1], 'v0.10.0');
+
+    db.close();
+  });
+});
+
+describe('issue_create dedup (#91/#775)', () => {
+  it('objectiveSimilarity is a deterministic pure function pinning threshold behavior', () => {
+    // Identical (ignoring case/punctuation) → 1.
+    assert.equal(objectiveSimilarity('Fix the parser bug', 'fix the parser bug!'), 1);
+    // Disjoint token sets → 0.
+    assert.equal(objectiveSimilarity('apples oranges', 'rockets planets'), 0);
+    // Token-set Jaccard: {a,b,c} vs {a,b,c,d} → 3/4 = 0.75 (>= 0.6).
+    assert.equal(objectiveSimilarity('alpha beta gamma', 'alpha beta gamma delta'), 0.75);
+    // {a,b} vs {a,b,c,d,e} → 2/5 = 0.4 (< 0.6).
+    assert.equal(objectiveSimilarity('alpha beta', 'alpha beta gamma delta epsilon'), 0.4);
+  });
+
+  it('a closely-matching objective returns duplicate:true and does NOT insert', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const first = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    const firstIssue = parseResult(first);
+    assert.ok(!first.isError);
+
+    const dup = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add a dedup pre-check to issue_create!',
+      labels: VALID_LABELS,
+    });
+    const dupResult = parseResult(dup);
+    assert.ok(!dup.isError);
+    assert.equal(dupResult.duplicate, true);
+    assert.equal(dupResult.duplicate_of, firstIssue.id);
+    assert.equal(dupResult.matched_objective, 'Add dedup pre-check to issue_create');
+    assert.ok(dupResult.similarity >= 0.6);
+
+    const count = db.get<{ n: number }>('SELECT COUNT(*) as n FROM issues WHERE id > 0');
+    assert.equal(count?.n, 1, 'duplicate must not have inserted a second row');
+
+    db.close();
+  });
+
+  it('allow_duplicate:true bypasses the check and creates normally', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const first = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    assert.ok(!first.isError);
+
+    const second = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+      allow_duplicate: true,
+    });
+    const secondIssue = parseResult(second);
+    assert.ok(!second.isError);
+    assert.ok(!('duplicate' in secondIssue), 'allow_duplicate must create, not report a duplicate');
+    assert.equal(secondIssue.status, 'open');
+
+    const count = db.get<{ n: number }>('SELECT COUNT(*) as n FROM issues WHERE id > 0');
+    assert.equal(count?.n, 2, 'allow_duplicate must insert a second row');
+
+    db.close();
+  });
+
+  it('a clearly-distinct objective creates normally (no false positive)', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const first = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    assert.ok(!first.isError);
+
+    const distinct = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Upgrade the kuzu world-model graph schema migration',
+      labels: VALID_LABELS,
+    });
+    const distinctIssue = parseResult(distinct);
+    assert.ok(!distinct.isError);
+    assert.ok(!('duplicate' in distinctIssue), 'distinct objective must not be flagged a duplicate');
+    assert.equal(distinctIssue.status, 'open');
+
+    const count = db.get<{ n: number }>('SELECT COUNT(*) as n FROM issues WHERE id > 0');
+    assert.equal(count?.n, 2, 'distinct objective must insert a second row');
+
+    db.close();
+  });
+
+  it('a closed issue does not block a matching objective', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const first = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    const firstIssue = parseResult(first);
+    await call(tools.handlers, 'issue_close', { agent: 'bro', issue_id: String(firstIssue.id) });
+
+    const reopened = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    const reopenedIssue = parseResult(reopened);
+    assert.ok(!reopened.isError);
+    assert.ok(!('duplicate' in reopenedIssue), 'a closed match must not block a new open issue');
 
     db.close();
   });

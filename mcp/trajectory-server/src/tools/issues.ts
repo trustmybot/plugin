@@ -64,6 +64,36 @@ function validateIssueLabels(labels: string[]): string | null {
   return `missing_required_labels: issue_create requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
 }
 
+// Dedup pre-check (#91/#775): before inserting, compare the new objective
+// against every OPEN issue's objective with a deterministic token-set Jaccard
+// overlap. A normalized-equal or high-overlap match is treated as a likely
+// duplicate so bro can link/override instead of forking a second issue.
+const DEDUP_THRESHOLD = 0.6;
+
+// Normalize: lowercase, strip punctuation, collapse whitespace, tokenize.
+export function normalizeObjective(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+}
+
+// Token-set Jaccard similarity (|A∩B| / |A∪B|). Deterministic, pure. Two
+// empty token sets are treated as identical (similarity 1).
+export function objectiveSimilarity(a: string, b: string): number {
+  const setA = new Set(normalizeObjective(a));
+  const setB = new Set(normalizeObjective(b));
+  if (setA.size === 0 && setB.size === 0) return 1;
+  let intersection = 0;
+  for (const t of setA) {
+    if (setB.has(t)) intersection += 1;
+  }
+  const union = setA.size + setB.size - intersection;
+  if (union === 0) return 0;
+  return intersection / union;
+}
+
 // Sync paths pass labels through to the remote (GitLab / GitHub) via
 // syncIssueCreate, but they aren't persisted in the local issues table.
 function decodeIssue(row: IssueRow): Issue {
@@ -180,6 +210,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
           labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label (Priority: Urgent|High|Medium|Low) AND at least one classification label (Bug, Feature, Improvement, Docs, Install, Workflow, MCP, Hooks, Roundtable, Multi-platform, Performance, Tests, architecture, enforcement, design, campaign, token-burn, Doctrine, Discussion). Extra labels are allowed. Applied to the remote issue.' },
           milestone: { type: 'string', description: 'Optional milestone name (e.g. "v0.10.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
+          allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
         },
         required: ['agent', 'objective', 'labels'],
       },
@@ -311,6 +342,31 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       const labelError = validateIssueLabels(labels);
       if (labelError !== null) {
         return err(labelError);
+      }
+      // Dedup pre-check (#91/#775): unless explicitly overridden, refuse to
+      // fork a second open issue for objective-equivalent work. Deterministic
+      // token-set Jaccard against every OPEN issue; the best match at/above the
+      // threshold (or a normalized-equal objective) short-circuits the insert.
+      const allowDuplicate = (args['allow_duplicate'] as boolean | undefined) ?? false;
+      if (!allowDuplicate) {
+        const openIssues = db.all<{ id: number; objective: string }>(
+          `SELECT id, objective FROM issues WHERE status = 'open'`,
+        );
+        let best: { id: number; objective: string; similarity: number } | null = null;
+        for (const candidate of openIssues) {
+          const similarity = objectiveSimilarity(objective, candidate.objective);
+          if (best === null || similarity > best.similarity) {
+            best = { id: candidate.id, objective: candidate.objective, similarity };
+          }
+        }
+        if (best !== null && best.similarity >= DEDUP_THRESHOLD) {
+          return ok({
+            duplicate: true,
+            duplicate_of: best.id,
+            matched_objective: best.objective,
+            similarity: best.similarity,
+          });
+        }
       }
       // milestone: optional; persisted locally AND passed to remote sync (#83/#763).
       const milestone = (args['milestone'] as string | undefined) ?? null;
