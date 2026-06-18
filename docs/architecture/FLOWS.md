@@ -236,23 +236,60 @@ Multi-consultant deliberation. Bro orchestrates 2–4 consultants on a topic, th
 
 ## 10. Cheatcode lifecycle
 
-Bro acquires a capability (skill, MCP toolkit, or plugin) on demand instead of grinding it out by hand. The mechanical pipeline is deterministic tools + hooks; only two judgments stay prose — "do I lack a capability this task needs?" and "is this candidate trustworthy enough?". The architecture-of-record is [`CHEATCODES.md`](./CHEATCODES.md); this is the flow brief.
+Bro acquires a capability (skill, MCP toolkit, or plugin) on demand instead of grinding it out by hand. The mechanical pipeline is deterministic tools + hooks; only the judgments stay prose — "do I lack a capability this task needs?", "is this candidate trustworthy?", and "which agent consumes it?". Architecture-of-record: [`CHEATCODES.md`](./CHEATCODES.md). This is the full lifecycle.
 
-**Trigger** — any of:
-- bro hits a capability wall (a task plainly lacks a capability bro doesn't have);
-- the Human says "cheatcode" (`prompt-intent-hints.sh` nudges; bro reads the `cheatcodes` table / runs `cheatcode_search`);
-- a proactive reuse-check via `cheatcode_search` before building something from scratch.
+```mermaid
+flowchart TD
+  T{{Trigger}} -->|capability wall / Human says cheatcode / proactive reuse-check| SEARCH[cheatcode_search\nranked candidates + audit]
+  SEARCH -->|none fit| BUILD[Build it instead:\ntmb_skill-creator or write from scratch]
+  SEARCH -->|candidate| VET[cheatcode_vet\ntrust_tier + capabilities; never decides]
+  VET --> APPROVE{cheatcode_approve\nHuman AUQ}
+  APPROVE -->|rejected| STOP[Stop: no install]
+  APPROVE -->|approved — PreToolUse gate now open| TARGET{Decide consuming agent}
+  TARGET -->|Human named it| HAST[target = named agent]
+  TARGET -->|infer by domain| INFER[coding/test/refactor/debug → swe\nreview/quality → pr-reviewer\norchestration/routing → bro\nconsultant-domain → that consultant]
+  TARGET -->|ambiguous| ASK[AskUserQuestion: which agent?]
+  TARGET -->|pure MCP/plugin server tool,\nno agent surface| NOTGT[no target needed — registration IS attachment]
+  HAST --> INSTALL
+  INFER --> INSTALL
+  ASK --> INSTALL
+  NOTGT --> INSTALL
+  INSTALL[cheatcode_install\nmarketplace/MCP path, no seed/copy\nidempotent on name+source_url\none txn: cheatcodes row + attachments + audit]
+  INSTALL -->|kind=skill or skill-contributing plugin, target set| MAT{Materialize / attach — LEGO}
+  INSTALL -->|kind=mcp/pure-server plugin| AUTOATT[registration IS attachment\nscript attachment rows recorded — never an orphan]
+  INSTALL -->|kind=skill, NO target| UNATT[⚠ orphan — skill bound to no agent;\nDEFECT to eliminate, not a valid path;\nmust resolve a target before install]
+  MAT -->|target=bro| CMD[copy → project .claude/CLAUDE.md reference]
+  MAT -->|target=other| AMD[copy global agents/&lt;target&gt;.md → .claude/agents/&lt;target&gt;.md if absent\n+ add name to skills: header — idempotent]
+  CMD --> ACT
+  AMD --> ACT
+  AUTOATT --> ACT
+  ACT{cheatcode_activate}
+  ACT -->|skill| LIVE[usable in-session — activated]
+  ACT -->|mcp/plugin| RESTART[restart_required — loads next cold start]
+  LIVE --> USE[Consuming agent carries the skill in its header → invokes it]
+  RESTART --> USE
+  USE --> HEALTH[SessionStart cheatcode-healthcheck.sh\nreconcile status vs runtime; audit on drift]
+  HEALTH --> SCANP[scan_run also discovers on-disk resources\n→ cheatcodes table, source_url='scan_discovered']
+  USE -.no longer needed.-> UNINST{cheatcode_uninstall\nHuman-confirmed AUQ}
+  UNINST -->|teardown removed| REV[reverse via marketplace/MCP path\n+ DELETE cheatcodes & attachment rows\n+ de-materialize the skills: header entry ⚠\n+ audit]
+  UNINST -->|teardown failed — honesty gate #114| BROKEN[keep row, status → broken, audit;\nreport uninstalled:false]
+  UNINST -->|absent / partial| NOOP[idempotent no-op]
+```
 
-**Lifecycle:**
+**Phase by phase:**
+- **Trigger** — bro hits a capability wall, the Human says "cheatcode" (`prompt-intent-hints.sh` nudges), or a proactive reuse-check before building from scratch.
+- **Search** — `cheatcode_search` (forks `scripts/cheatcode-search.sh`) returns ranked candidates + an audit row. No candidate fits → build it (`tmb_skill-creator` or from scratch).
+- **Vet** — `cheatcode_vet` gathers reputation/security signals + a deterministic `trust_tier` and `capabilities[]`; it reports, never decides.
+- **Approve** — `cheatcode_approve` records the per-candidate Human approval; `cheatcode-install-approval.sh` (PreToolUse) fails closed without it. Rejected → stop.
+- **Decide consuming agent** — `target` is optional as an *input* (the Human may not name one), but for a skill it is **mandatory as an output**: a skill install MUST end attached to ≥1 agent's markdown, or it is an **orphan** — installed but bound to nothing, hence unusable. So deciding the consuming agent is mandatory for skills: if the Human named the agent, use it; otherwise bro **resolves one before install** — infer from the cheatcode's domain (coding/test/refactor/debug → `swe`; code-review/quality → `pr-reviewer`; orchestration/routing → `bro`; a consultant domain → that consultant), and ask via AskUserQuestion only when genuinely ambiguous. Exception: a kind=mcp server (or a pure-server plugin) needs no target — its `claude mcp add` registration **is** its attachment, its tools are callable by any agent, so it carries no `skills:` header entry and is **not** an orphan. The mandatory-output-attachment rule applies specifically to skills and skill-contributing plugins.
+- **Install** — `cheatcode_install` installs via the marketplace/MCP path (no seed/copy), idempotent on (name, source_url); one transaction records the `cheatcodes` row + every `cheatcode_attachments` row + the `cheatcode_install`/`cheatcode_installed` audit rows. `scope` defaults to project-local.
+- **Materialize / attach (LEGO)** — for a skill or skill-contributing plugin, the install writes the consuming agent's prompt surface IN THE USER PROJECT (never the plugin repo): `target=bro` → a `.claude/CLAUDE.md` reference; any other target → copy the global `agents/<target>.md` into `.claude/agents/<target>.md` (if absent) and add the cheatcode name to its `skills:` frontmatter array — idempotent, the Lego edit. This attachment is mandatory output: a skill with no target lands as an **orphan** — installed but unattached, and not usable until a target is resolved (a defect to eliminate, not a supported path). A kind=mcp server (or pure-server plugin) is exempt: its registration is its attachment, so it needs no `skills:` entry and is never an orphan.
+- **Activate** — `cheatcode_activate`: a skill is usable in-session; an MCP/plugin returns `restart_required` (loads on the next cold start).
+- **Use** — the consuming agent now carries the cheatcode in its `skills:` header and invokes it like any skill.
+- **Reconcile** — `cheatcode-healthcheck.sh` (SessionStart) checks each row's `status` against the real runtime (skill file on disk, MCP/plugin present + enabled) and audits drift. `scan_run` (flow 7) discovers on-disk resources into the table (`source_url='scan_discovered'`).
+- **Uninstall** — `cheatcode_uninstall` (Human-confirmed AUQ; not PreToolUse-gated) reverses each attachment via the marketplace/MCP path, de-materializes the `skills:` header entry, and deletes the `cheatcodes` + `cheatcode_attachments` rows in one transaction. The honesty gate (#114) keeps the row and flips `status → broken` (reporting `uninstalled:false`) when a teardown fails rather than claiming a clean removal. Absent/partial → idempotent no-op.
 
-- **Search** — `cheatcode_search` queries tiered public registries (forks `scripts/cheatcode-search.sh`), returns ranked candidates + an audit row.
-- **Vet** — `cheatcode_vet` gathers reputation/security signals atomically (stars, age, license, install-surface) and a deterministic `trust_tier`; it never decides.
-- **Approve** — `cheatcode_approve` records the per-candidate Human approval; the `cheatcode-install-approval.sh` PreToolUse gate fails closed without it.
-- **Install** — `cheatcode_install` installs via the marketplace/MCP path (no seed/copy), recording the install in the `cheatcodes` table.
-- **Materialize / attach** — plugin + MCP kinds attach automatically; a standalone skill is added to a consuming agent's `skills:` frontmatter as a **Human-reviewed prompt-surface PR**, never an automatic write.
-- **Activate** — `cheatcode_activate` hot-loads in-session, or returns `restart_required`.
-
-`cheatcode-healthcheck.sh` (SessionStart) reconciles each row's `status` against the real runtime (skill file on disk, MCP/plugin present + enabled) and emits a `cheatcode_healthcheck` audit row on drift. `cheatcode_uninstall` reverses an install via the same marketplace/MCP path (Human-confirmed, idempotent). `scan_run` discovers on-disk resources into the table (flow 7).
+**Known gaps (⚠ in the diagram — tracked under #766):** (1) `target` is mandatory output for skills, but `cheatcode_install` currently permits an **orphan skill** (no attachment) — a defect to fix so a skill install always ends bound to ≥1 agent (the mcp/pure-server registration-is-attachment path is exempt); (2) `cheatcode_uninstall` does not yet remove the materialized `skills:` header entry, leaving a dangling reference. Both are being smoothed so every step runs cleanly.
 
 ---
 
