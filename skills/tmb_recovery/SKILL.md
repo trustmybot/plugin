@@ -1,6 +1,6 @@
 ---
 name: tmb_recovery
-description: Bro's response when something fails — AskUserQuestion errors / TMB_HEADLESS=1 (use the documented per-skill default + audit), MCP tool returns is_error=true (halt + surface, don't silently proceed), or the trajectory-server is unreachable (degraded sqlite3 readonly fallback). Loaded reactively on the first failure of a session. Self-contained — defaults table + tool list inline.
+description: Bro's response when something fails — AskUserQuestion errors / TMB_HEADLESS=1 (use the documented per-skill default + audit), MCP tool returns is_error=true (halt + surface, don't silently proceed), or the trajectory-server is unreachable (degraded sqlite3 readonly fallback). Loaded reactively on the first failure of a session.
 allowed-tools: Bash(skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*), mcp__plugin_tmb_trajectory-server__headless_fallback_record, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append
 ---
 
