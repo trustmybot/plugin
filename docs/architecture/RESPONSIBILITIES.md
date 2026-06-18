@@ -46,7 +46,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 
 1. `session-start-prescan.sh` (auto hook — inventory) → decide
 2. `branch_id_propose` MCP composite (open MCP issue + propose `branch_id`)
-3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + ADR when the change touches `docs/architecture/`, schema, public API, or external side effects)
+3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + ADR when the change touches `docs/trustmybot/architecture/`, schema, public API, or external side effects)
 4. **bro pre-creates the task branch** from `origin/<pr_target>` — `git fetch origin && git branch <task.branch_id> origin/<pr_target>`
 5. `task_create_batch(emit_planning_complete=true)` + spawn SWE [batched]
 6. SWE returns

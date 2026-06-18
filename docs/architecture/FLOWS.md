@@ -257,7 +257,7 @@ flowchart TD
   INSTALL[cheatcode_install\nmarketplace/MCP path, no seed/copy\nidempotent on name+source_url\none txn: cheatcodes row + attachments + audit]
   INSTALL -->|kind=skill or skill-contributing plugin, target set| MAT{Materialize / attach — LEGO}
   INSTALL -->|kind=mcp/pure-server plugin| AUTOATT[registration IS attachment\nscript attachment rows recorded — never an orphan]
-  INSTALL -->|kind=skill, NO target| UNATT[⚠ orphan — skill bound to no agent;\nDEFECT to eliminate, not a valid path;\nmust resolve a target before install]
+  INSTALL -->|kind=skill, NO target| UNATT[hard-rejected (#883) — no resolved target,\nno install; orphan can't occur]
   MAT -->|target=bro| CMD[copy → project .claude/CLAUDE.md reference]
   MAT -->|target=other| AMD[copy global agents/&lt;target&gt;.md → .claude/agents/&lt;target&gt;.md if absent\n+ add name to skills: header — idempotent]
   CMD --> ACT
@@ -271,7 +271,7 @@ flowchart TD
   USE --> HEALTH[SessionStart cheatcode-healthcheck.sh\nreconcile status vs runtime; audit on drift]
   HEALTH --> SCANP[scan_run also discovers on-disk resources\n→ cheatcodes table, source_url='scan_discovered']
   USE -.no longer needed.-> UNINST{cheatcode_uninstall\nHuman-confirmed AUQ}
-  UNINST -->|teardown removed| REV[reverse via marketplace/MCP path\n+ DELETE cheatcodes & attachment rows\n+ de-materialize the skills: header entry ⚠\n+ audit]
+  UNINST -->|teardown removed| REV[reverse via marketplace/MCP path\n+ DELETE cheatcodes & attachment rows\n+ de-materialize the skills: header entry\n+ audit]
   UNINST -->|teardown failed — honesty gate #114| BROKEN[keep row, status → broken, audit;\nreport uninstalled:false]
   UNINST -->|absent / partial| NOOP[idempotent no-op]
 ```
@@ -289,7 +289,7 @@ flowchart TD
 - **Reconcile** — `cheatcode-healthcheck.sh` (SessionStart) checks each row's `status` against the real runtime (skill file on disk, MCP/plugin present + enabled) and audits drift. `scan_run` (flow 7) discovers on-disk resources into the table (`source_url='scan_discovered'`).
 - **Uninstall** — `cheatcode_uninstall` (Human-confirmed AUQ; not PreToolUse-gated) reverses each attachment via the marketplace/MCP path, de-materializes the `skills:` header entry, and deletes the `cheatcodes` + `cheatcode_attachments` rows in one transaction. The honesty gate (#114) keeps the row and flips `status → broken` (reporting `uninstalled:false`) when a teardown fails rather than claiming a clean removal. Absent/partial → idempotent no-op.
 
-**Known gaps (⚠ in the diagram — tracked under #766):** (1) `target` is mandatory output for skills, but `cheatcode_install` currently permits an **orphan skill** (no attachment) — a defect to fix so a skill install always ends bound to ≥1 agent (the mcp/pure-server registration-is-attachment path is exempt); (2) `cheatcode_uninstall` does not yet remove the materialized `skills:` header entry, leaving a dangling reference. Both are being smoothed so every step runs cleanly.
+**Enforcement (#883):** (1) a skill install is **hard-rejected** without a resolved target — no orphan can land (the mcp/pure-server registration-is-attachment path needs no target and is exempt); (2) `cheatcode_uninstall` de-materializes the `skills:` header entry so no dangling reference remains. Both are enforced.
 
 ---
 
