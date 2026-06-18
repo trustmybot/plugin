@@ -86,6 +86,9 @@ ALLOWED_DIRS=()
 HAS_TESTS_DIR=""
 
 while IFS= read -r path_token; do
+  # Strip a single trailing slash so a dir token like "tests/" maps to "tests"
+  # instead of collapsing to "." via dirname. Skips empty lines and a bare "/".
+  path_token="${path_token%/}"
   [ -n "$path_token" ] || continue
   case "$path_token" in
     */*) dir=$(dirname "$path_token") ;;

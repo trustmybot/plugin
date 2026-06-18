@@ -38,6 +38,7 @@ FILES_WITH_FILES='["scripts/hooks/my-hook.sh","tests/l3-integration/hooks/my-hoo
 FILES_MULTIDIR='["src/api/handler.ts","src/lib/util.ts","tests/unit/handler.test.ts"]'
 FILES_EMPTY='[]'
 FILES_ROOT_FILE='["Makefile"]'
+FILES_TRAILING_SLASH='["tests/"]'
 
 sqlite3 "$DB" "
   CREATE TABLE issues (
@@ -62,6 +63,7 @@ sqlite3 "$DB" "
   INSERT INTO tasks VALUES (2, 1, 'feat/task-beta', 'running', '', 0, '$FILES_MULTIDIR');
   INSERT INTO tasks VALUES (3, 1, 'feat/task-nofiles', 'running', '', 0, '$FILES_EMPTY');
   INSERT INTO tasks VALUES (5, 1, 'feat/task-rootfile', 'running', '', 0, '$FILES_ROOT_FILE');
+  INSERT INTO tasks VALUES (6, 1, 'feat/task-trailingslash', 'running', '', 0, '$FILES_TRAILING_SLASH');
 "
 
 run_hook() {
@@ -198,6 +200,21 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "editing the exact root
 test_case "root-file: editing a different root file is denied"
 out=$(run_hook "$WT_ROOTFILE" "$(make_edit_input "package.json")")
 assert_contains "$out" '"permissionDecision":"deny"' "editing a different root file should be denied"
+
+# ===========================================================================
+# Trailing-slash files[] token → normalized to the dir (no '.' collapse)
+# ===========================================================================
+
+WT_TRAILINGSLASH="$WT_ROOT/task-trailingslash"
+mkdir -p "$WT_TRAILINGSLASH"
+
+test_case "trailing-slash: token 'tests/' allows an in-scope edit under tests/"
+out=$(run_hook "$WT_TRAILINGSLASH" "$(make_edit_input "tests/l3-integration/hooks/x.test.sh")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "trailing-slash 'tests/' should resolve to dir 'tests' and allow in-scope edits"
+
+test_case "trailing-slash: token 'tests/' still denies an out-of-scope edit"
+out=$(run_hook "$WT_TRAILINGSLASH" "$(make_edit_input "src/api/handler.ts")")
+assert_contains "$out" '"permissionDecision":"deny"' "trailing-slash 'tests/' should still deny edits outside tests/"
 
 # ===========================================================================
 # Non-worktree PWD → hook is inactive (not in SWE worktree context)
