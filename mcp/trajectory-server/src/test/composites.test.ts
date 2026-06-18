@@ -94,6 +94,7 @@ describe('task_retry_batch', () => {
     const audit = auditTools(db);
 
     const issueResult = parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'composite retry test',
       description: 'desc',
@@ -175,6 +176,7 @@ describe('task_retry_batch', () => {
     const audit = auditTools(db);
 
     const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'test', description: 'x',
     }))['id']));
     await call(discussions.handlers, 'discussion_append', {
@@ -213,6 +215,7 @@ describe('task_retry_batch', () => {
     const audit = auditTools(db);
 
     const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'repo override test', description: 'x',
     }))['id']));
     await call(discussions.handlers, 'discussion_append', {
@@ -291,6 +294,7 @@ describe('task_retry_batch', () => {
     const audit = auditTools(db);
 
     const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'retry cap test', description: 'x',
     }))['id']));
     await call(discussions.handlers, 'discussion_append', {
@@ -357,6 +361,7 @@ describe('bro_atomic_close', () => {
     const audit = auditTools(db);
 
     const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'test', description: 'x',
     }))['id']));
     await call(discussions.handlers, 'discussion_append', {
@@ -444,6 +449,7 @@ describe('bro_atomic_close', () => {
 
     try {
       const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro', objective: 'closed_at regression', description: 'x',
       }))['id']));
 
@@ -517,6 +523,7 @@ describe('bro_atomic_close', () => {
 
     try {
       const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro', objective: 'remote close mirror', description: 'x',
       }))['id']));
       // Simulate an issue already synced to a GitHub remote (iid 42).
@@ -566,6 +573,7 @@ describe('headless_intent_start', () => {
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
     const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'headless test', description: 'x',
     }))['id']));
 
@@ -622,6 +630,7 @@ describe('bro_verification_fail_record', () => {
     const audit = auditTools(db);
 
     const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'fail record test', description: 'x',
     }))['id']));
     await call(discussions.handlers, 'discussion_append', {
@@ -881,6 +890,7 @@ describe('headless_fallback_record (#426)', () => {
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
     const issueId = Number((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'headless fallback target', description: 'x',
     }))['id']));
 
@@ -936,8 +946,9 @@ describe('headless_fallback_record (#426)', () => {
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
-    await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'issue A', description: 'x' });
+    await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'issue A', description: 'x' });
     const issueB = Number((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'issue B', description: 'x',
     }))['id']));
 
@@ -962,6 +973,7 @@ describe('headless_fallback_record (#426)', () => {
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
     const issueId = Number((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro', objective: 'rollback test', description: 'x',
     }))['id']));
 

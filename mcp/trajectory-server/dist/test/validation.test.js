@@ -19,6 +19,7 @@ async function call(handlers, name, args) {
 async function createIssue(db) {
     const issues = issueTools(db);
     const result = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'Validation test carrier issue',
     });

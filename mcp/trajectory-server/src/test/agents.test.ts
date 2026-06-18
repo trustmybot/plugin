@@ -251,7 +251,7 @@ describe('agent_register reserved name gate', () => {
 describe('audit_log requireRoles guard', () => {
   async function createIssueId(db: ReturnType<typeof tempDB>): Promise<number> {
     const issues = issueTools(db);
-    const result = await (issues.handlers['issue_create']!({ agent: 'bro', objective: 'audit test' })) as RawResult;
+    const result = await (issues.handlers['issue_create']!({ agent: 'bro', objective: 'audit test', labels: ['Bug', 'Priority: High'] })) as RawResult;
     return JSON.parse(result.content[0].text).id as number;
   }
 

@@ -23114,6 +23114,42 @@ async function syncIssueClose(opts) {
 }
 
 // src/tools/issues.ts
+var PRIORITY_LABEL_RE = /^Priority: (Urgent|High|Medium|Low)$/;
+var CLASSIFICATION_LABELS = [
+  "Bug",
+  "Feature",
+  "Improvement",
+  "Docs",
+  "Install",
+  "Workflow",
+  "MCP",
+  "Hooks",
+  "Roundtable",
+  "Multi-platform",
+  "Performance",
+  "Tests",
+  "architecture",
+  "enforcement",
+  "design",
+  "campaign",
+  "token-burn",
+  "Doctrine",
+  "Discussion"
+];
+var CLASSIFICATION_LABEL_SET = new Set(CLASSIFICATION_LABELS);
+function validateIssueLabels(labels) {
+  const hasPriority = labels.some((l) => PRIORITY_LABEL_RE.test(l));
+  const hasClassification = labels.some((l) => CLASSIFICATION_LABEL_SET.has(l));
+  if (hasPriority && hasClassification) return null;
+  const missing = [];
+  if (!hasClassification) {
+    missing.push(`a classification label (one of: ${CLASSIFICATION_LABELS.join(", ")})`);
+  }
+  if (!hasPriority) {
+    missing.push("a priority label (one of: Priority: Urgent, Priority: High, Priority: Medium, Priority: Low)");
+  }
+  return `missing_required_labels: issue_create requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
+}
 function decodeIssue(row) {
   return { ...row };
 }
@@ -23204,9 +23240,9 @@ function issueTools(db2, dbPath2 = "") {
           agent: { type: "string", description: "Caller agent name" },
           objective: { type: "string", description: "Short one-liner summary" },
           description: { type: "string", description: "Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation." },
-          labels: { type: "array", items: { type: "string" }, description: "Optional labels to apply to the remote issue." }
+          labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label (Priority: Urgent|High|Medium|Low) AND at least one classification label (Bug, Feature, Improvement, Docs, Install, Workflow, MCP, Hooks, Roundtable, Multi-platform, Performance, Tests, architecture, enforcement, design, campaign, token-burn, Doctrine, Discussion). Extra labels are allowed. Applied to the remote issue." }
         },
-        required: ["agent", "objective"]
+        required: ["agent", "objective", "labels"]
       }
     },
     {
@@ -23329,6 +23365,10 @@ function issueTools(db2, dbPath2 = "") {
       const objective = args["objective"];
       const description = args["description"] ?? "";
       const labels = args["labels"] ?? [];
+      const labelError = validateIssueLabels(labels);
+      if (labelError !== null) {
+        return err2(labelError);
+      }
       const spawnFn = args["_spawnFn"] ?? void 0;
       const now = nowISO();
       db2.run(

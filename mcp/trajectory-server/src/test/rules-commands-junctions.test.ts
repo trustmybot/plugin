@@ -65,7 +65,7 @@ describe('#2886 bro-as-agent_run composite', () => {
     const issues = issueTools(db);
     const tasks = taskTools(db);
 
-    const issue = parse(await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'O' }));
+    const issue = parse(await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'O' }));
     const batch = parseBatch(await call(tasks.handlers, 'task_create_batch', {
       agent: 'bro',
       issue_id: String(issue.id),
@@ -97,7 +97,7 @@ describe('#2886 bro-as-agent_run composite', () => {
     const tasks = taskTools(db);
     const composites = compositeTools(db, '');
 
-    const issue = parse(await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'O' }));
+    const issue = parse(await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'O' }));
     const batch = parseBatch(await call(tasks.handlers, 'task_create_batch', {
       agent: 'bro',
       issue_id: String(issue.id),

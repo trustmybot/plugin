@@ -32,6 +32,7 @@ function parseBatch(result: RawResult): Array<Record<string, unknown>> {
 async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
+    labels: ['Bug', 'Priority: High'],
     agent: 'bro',
     objective: 'Branch report test issue',
   });

@@ -4,6 +4,9 @@ import { tempDB } from './helpers.js';
 import { issueTools } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
 import { makeSpawnFn } from './sync-issue.test.js';
+// Mandatory tagging (#93/#777): a valid issue_create must carry one
+// classification + one priority label. Shared so existing cases stay valid.
+const VALID_LABELS = ['Bug', 'Priority: High'];
 async function call(handlers, name, args) {
     const handler = handlers[name];
     assert.ok(handler, `Handler not found: ${name}`);
@@ -19,6 +22,7 @@ describe('issueTools', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Build feature X',
+            labels: VALID_LABELS,
             description: '# Requirements\n- Do X',
         });
         const created = parseResult(createResult);
@@ -42,6 +46,7 @@ describe('issueTools', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Test redaction',
+            labels: VALID_LABELS,
             description: 'secret description',
         });
         const created = parseResult(createResult);
@@ -62,6 +67,7 @@ describe('issueTools', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Resume test',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         await call(tTools.handlers, 'task_create_batch', {
@@ -91,6 +97,7 @@ describe('issueTools', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Close test',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         const closeResult = await call(tools.handlers, 'issue_close', {
@@ -112,6 +119,7 @@ describe('issueTools', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Phase test',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         await call(tTools.handlers, 'task_create_batch', {
@@ -160,6 +168,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'tri-source gh create',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([{
                     status: 0,
                     stdout: 'https://github.com/owner/repo/issues/77\n',
@@ -191,6 +200,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'tri-source glab create',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([{
                     status: 0,
                     stdout: 'https://gitlab.com/owner/repo/-/issues/55\n',
@@ -216,6 +226,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'tri-source close gh',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         db.run(`UPDATE issues SET gh_iid = 101, remote_iid = 101, remote_kind = 'github' WHERE id = ?`, [issue.id]);
@@ -235,6 +246,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'tri-source close gl',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         db.run(`UPDATE issues SET gl_iid = 202, remote_iid = 202, remote_kind = 'gitlab' WHERE id = ?`, [issue.id]);
@@ -262,6 +274,7 @@ describe('issueTools — remote sync', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Test off sync',
+            labels: VALID_LABELS,
         });
         const created = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
@@ -281,6 +294,7 @@ describe('issueTools — remote sync', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Test gh sync failure fallback',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated gh auth error' }]),
         });
         const created = parseResult(result);
@@ -302,6 +316,7 @@ describe('issueTools — remote sync', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Test glab sync failure fallback',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated glab auth error' }]),
         });
         const created = parseResult(result);
@@ -323,6 +338,7 @@ describe('issueTools — remote sync', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Test auto with no remote',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated no-remote failure' }]),
         });
         const created = parseResult(result);
@@ -337,6 +353,7 @@ describe('issueTools — remote sync', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Close without remote',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         const closeResult = await call(tools.handlers, 'issue_close', {
@@ -354,6 +371,7 @@ describe('issueTools — remote sync', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Close with remote',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         db.run(`UPDATE issues SET remote_iid = 99, remote_kind = 'github' WHERE id = ?`, [issue.id]);
@@ -392,6 +410,7 @@ describe('issueTools — remote sync', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'updated_at regression',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([{
                     status: 0,
                     stdout: 'https://github.com/owner/repo/issues/42\n',
@@ -423,6 +442,7 @@ describe('issueTools — remote sync', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Retry test off',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         const retryResult = await call(tools.handlers, 'issue_sync_retry', {
@@ -440,6 +460,7 @@ describe('issueTools — remote sync', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Phase regression test issue',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         assert.ok(!createResult.isError);
@@ -462,6 +483,7 @@ describe('issueTools — remote sync', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Phase tasks regression test',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         assert.ok(!createResult.isError);
@@ -484,6 +506,7 @@ describe('issueTools — remote sync', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Closed-task phase regression test',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         assert.ok(!createResult.isError);
@@ -506,6 +529,7 @@ describe('issueTools — remote sync', () => {
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'Zero-task phase null-check test',
+            labels: VALID_LABELS,
         });
         const issue = parseResult(createResult);
         assert.ok(!createResult.isError);
@@ -536,6 +560,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'blank URL sync skip test',
+            labels: VALID_LABELS,
             _spawnFn: noCallSpawn,
         });
         const issue = parseResult(result);
@@ -558,6 +583,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'verify_failed PR test',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([
                 {
                     status: 0,
@@ -586,7 +612,7 @@ describe('issue_link (#336)', () => {
     it('records gh_iid for a manually-mirrored issue', async () => {
         const db = tempDB();
         const tools = issueTools(db);
-        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'manual mirror' });
+        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'manual mirror', labels: VALID_LABELS });
         const issue = parseResult(createResult);
         const linkResult = await call(tools.handlers, 'issue_link', {
             agent: 'bro',
@@ -608,7 +634,7 @@ describe('issue_link (#336)', () => {
     it('rejects double-link without force=true', async () => {
         const db = tempDB();
         const tools = issueTools(db);
-        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'double link test' });
+        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'double link test', labels: VALID_LABELS });
         const issue = parseResult(createResult);
         await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 42 });
         const second = await call(tools.handlers, 'issue_link', {
@@ -622,7 +648,7 @@ describe('issue_link (#336)', () => {
     it('allows overwrite with force=true', async () => {
         const db = tempDB();
         const tools = issueTools(db);
-        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'force link test' });
+        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'force link test', labels: VALID_LABELS });
         const issue = parseResult(createResult);
         await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 42 });
         const overwrite = await call(tools.handlers, 'issue_link', {
@@ -636,7 +662,7 @@ describe('issue_link (#336)', () => {
     it('emits issue_linked audit row on success', async () => {
         const db = tempDB();
         const tools = issueTools(db);
-        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'audit test' });
+        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'audit test', labels: VALID_LABELS });
         const issue = parseResult(createResult);
         await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'gitlab', iid: 77 });
         const auditRow = db.get(`SELECT event_type, summary FROM audit WHERE issue_id = ? AND event_type = 'issue_linked'`, [issue.id]);
@@ -648,7 +674,7 @@ describe('issue_link (#336)', () => {
     it('rejects swe caller', async () => {
         const db = tempDB();
         const tools = issueTools(db);
-        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'role guard test' });
+        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'role guard test', labels: VALID_LABELS });
         const issue = parseResult(createResult);
         const result = await call(tools.handlers, 'issue_link', {
             agent: 'swe', issue_id: String(issue.id), backend: 'github', iid: 10,
@@ -666,6 +692,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'already synced test',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([
                 { status: 1, stdout: '', stderr: 'simulated gh create failure' },
                 { status: 1, stdout: '', stderr: 'simulated glab create failure' },
@@ -692,6 +719,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
         const createResult = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
             objective: 'partial sync gh done',
+            labels: VALID_LABELS,
             _spawnFn: makeSpawnFn([
                 { status: 1, stdout: '', stderr: 'simulated gh create failure' },
                 { status: 1, stdout: '', stderr: 'simulated glab create failure' },
@@ -717,12 +745,68 @@ describe('issue_create sync_skipped audit marker (#336)', () => {
     it('writes sync_skipped audit row when issue_sync=off', async () => {
         const db = tempDB();
         const tools = issueTools(db);
-        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'off sync test' });
+        const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'off sync test', labels: VALID_LABELS });
         const issue = parseResult(createResult);
         assert.ok(!createResult.isError);
         const auditRow = db.get(`SELECT event_type FROM audit WHERE issue_id = ? AND event_type = 'sync_skipped'`, [issue.id]);
         assert.ok(auditRow, 'sync_skipped audit row must exist when issue_sync=off');
         assert.equal(auditRow.event_type, 'sync_skipped');
+        db.close();
+    });
+});
+describe('issue_create mandatory tagging (#93/#777)', () => {
+    it('accepts a classification + priority label', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'tagged correctly',
+            labels: ['Feature', 'Priority: Medium'],
+        });
+        const issue = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+        assert.equal(issue.objective, 'tagged correctly');
+        assert.equal(issue.status, 'open');
+        db.close();
+    });
+    it('rejects when no priority label is present', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'missing priority',
+            labels: ['Bug'],
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'must reject when no priority label');
+        assert.match(data.error, /missing_required_labels/);
+        assert.match(data.error, /priority label/);
+        db.close();
+    });
+    it('rejects when only a priority label and no classification', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'missing classification',
+            labels: ['Priority: High'],
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'must reject when no classification label');
+        assert.match(data.error, /missing_required_labels/);
+        assert.match(data.error, /classification label/);
+        db.close();
+    });
+    it('rejects when labels arg is omitted entirely', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'no labels at all',
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'must reject when labels omitted (fail closed)');
+        assert.match(data.error, /missing_required_labels/);
         db.close();
     });
 });
