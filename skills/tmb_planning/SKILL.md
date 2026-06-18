@@ -37,15 +37,15 @@ Get a name from `branch_id_propose` (pass the Human's verbatim intent and a shor
 
 ## 4. Author the spec
 
-Pick conservative defaults; name them in `## Description` Assumptions bullets. If the project already uses a different tool, match the project — convention wins over default.
+Pick conservative defaults; name them in `## Description` Assumptions bullets. The repo wins: match what the project already uses before reaching for anything new.
 
-| Dimension | Default |
+| Dimension | Principle |
 |---|---|
-| Python CLI / test | `argparse` / `unittest` (stdlib); match `pytest` if project uses it |
-| Node test | `node:test` (stdlib); match `vitest` / `jest` if project uses them |
-| Storage | `~/.<app>/<file>.json` (personal); match project pattern |
-| File layout | single file until ~200 LOC |
-| Python / concurrency | `python3`; single-user, single-process |
+| Dependencies | Prefer the project's existing conventions and the language's standard library over adding a new dependency |
+| Test runner | Match the repo's existing test runner and layout; don't introduce a second one |
+| Storage / IO | Match the project's established pattern (location, format, lifecycle); pick the smallest thing that fits |
+| File layout | Single file until it grows enough to warrant splitting; follow the repo's module structure |
+| Scope of execution | Assume the simplest runtime that satisfies the requirement (e.g. single-user, single-process) unless the spec says otherwise |
 
 **Typed args** on `task_create_batch` carry the machine-read contract; **spec_body markdown** carries the prose bro and swe reason from.
 
@@ -65,9 +65,8 @@ Before `task_create_batch`: `discussion_append(issue_id, author='bro', kind='dec
 
 ### Architectural changes
 
-When the change does any of the following, co-author an ADR at `docs/trustmybot/architecture/manual/decisions/N-*.md` and apply the blast-radius check:
+When the change does any of the following, record it as a `kind='decision'` discussion — `discussion_append(issue_id, author='bro', kind='decision', body='<decision + rationale>')` — and apply the blast-radius check. The trajectory IS the record; there's no separate document to author:
 
-- Touches `docs/trustmybot/architecture/` directly
 - Introduces a new service boundary or top-level module
 - Modifies a public API surface
 - Commits to a strategic stack choice (auth provider, production DB, retention policy)
