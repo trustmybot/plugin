@@ -161,7 +161,7 @@ describe('schema — current table set, default values, constraints', () => {
         assert.equal(fk.to, 'id');
         db.close();
     });
-    it('plugin_config has the 5 schema-seeded default policy keys on init', () => {
+    it('plugin_config has the 7 schema-seeded default policy keys on init', () => {
         const db = tempDB();
         const rows = db.all("SELECT key, value_json FROM plugin_config ORDER BY key");
         // node:sqlite returns rows as null-prototype objects; map to plain objects
@@ -169,6 +169,8 @@ describe('schema — current table set, default values, constraints', () => {
         const plain = rows.map((r) => ({ key: r.key, value_json: r.value_json }));
         assert.deepEqual(plain, [
             { key: 'branching_model', value_json: '"github-flow"' },
+            { key: 'issue_classification_labels', value_json: '["Bug","Feature","Improvement","Docs","Test","Chore"]' },
+            { key: 'issue_priority_labels', value_json: '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]' },
             { key: 'issue_sync', value_json: '"off"' },
             { key: 'pr_target', value_json: '"main"' },
             { key: 'protected_branches', value_json: '["main"]' },

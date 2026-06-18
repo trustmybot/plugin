@@ -176,7 +176,9 @@ INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
     ('pr_target',          '"main"'),
     ('protected_branches', '["main"]'),
     ('remotes',            '[]'),
-    ('issue_sync',         '"off"');
+    ('issue_sync',         '"off"'),
+    ('issue_classification_labels', '["Bug","Feature","Improvement","Docs","Test","Chore"]'),
+    ('issue_priority_labels',       '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]');
 
 -- The "onboarded" marker lives in plugin_config now (#2876). The legacy
 -- identity table was a single-row marker with no columns of meaning —

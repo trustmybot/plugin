@@ -1018,6 +1018,99 @@ describe('issue_create mandatory tagging (#93/#777)', () => {
 
     db.close();
   });
+
+  it('accepts the generic default classification + priority labels when config is unset', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    for (const classification of ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore']) {
+      const result = await call(tools.handlers, 'issue_create', {
+        agent: 'bro',
+        objective: `generic ${classification}`,
+        labels: [classification, 'Priority: Low'],
+      });
+      assert.ok(!result.isError, `default classification ${classification} must be accepted`);
+    }
+
+    db.close();
+  });
+
+  it('rejects a TMB-specific legacy label that is no longer in the generic default', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'legacy doctrine label',
+      labels: ['Doctrine', 'Priority: High'],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Doctrine is no longer a shipped default classification');
+    assert.match(data.error, /missing_required_labels/);
+    assert.match(data.error, /classification label/);
+
+    db.close();
+  });
+
+  it('honors a project-configured classification set via plugin_config', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+    const cfg = configTools(db);
+
+    await call(cfg.handlers, 'config_set', {
+      agent: 'bro',
+      key: 'issue_classification_labels',
+      value: ['Doctrine', 'Roundtable'],
+    });
+
+    const accepted = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'configured classification accepted',
+      labels: ['Doctrine', 'Priority: High'],
+    });
+    assert.ok(!accepted.isError, 'configured classification label must be accepted');
+
+    const rejected = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'default classification rejected once overridden',
+      labels: ['Bug', 'Priority: High'],
+    });
+    const data = parseResult(rejected);
+    assert.ok(rejected.isError, 'Bug is not in the configured set, so it must be rejected');
+    assert.match(data.error, /Doctrine, Roundtable/);
+
+    db.close();
+  });
+
+  it('honors a project-configured priority set via plugin_config', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+    const cfg = configTools(db);
+
+    await call(cfg.handlers, 'config_set', {
+      agent: 'bro',
+      key: 'issue_priority_labels',
+      value: ['P0', 'P1', 'P2'],
+    });
+
+    const accepted = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'configured priority accepted',
+      labels: ['Bug', 'P1'],
+    });
+    assert.ok(!accepted.isError, 'configured priority label must be accepted');
+
+    const rejected = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'default priority rejected once overridden',
+      labels: ['Bug', 'Priority: High'],
+    });
+    const data = parseResult(rejected);
+    assert.ok(rejected.isError, 'Priority: High is not in the configured set, so it must be rejected');
+    assert.match(data.error, /P0, P1, P2/);
+
+    db.close();
+  });
 });
 
 describe('issueTools — milestone (#83/#763)', () => {
