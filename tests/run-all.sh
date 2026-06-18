@@ -11,7 +11,6 @@
 #   L5 — Per-row eval (real CC)          → bash tests/l5-l6/run-l5.sh (token required)
 #   L6 — Multi-turn chain (real CC)      → bash tests/l5-l6/run-l6-chain.sh (token required)
 #   Release canary                       → tests/l0-install/release-canary.Dockerfile (CI-only, RC tags)
-#   Manual smoke (fallback)              → tests/manual/scenarios.md (human-walked)
 
 set -uo pipefail
 
