@@ -15,21 +15,28 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# Step out of the plugin checkout before any git work so a stray bare git call
+# can never touch the caller's branch, then assert the move stuck. Every commit
+# below targets its sandbox via `git -C "$REPO"`; this is belt-and-suspenders.
+cd "$TMPDIR"
+assert_not_in_plugin_repo "$PLUGIN_ROOT"
+
 # ---- Fixture: bare git remote (plays the role of origin) -----------------
 REMOTE="$TMPDIR/remote.git"
 git init -q --bare "$REMOTE"
 
 # ---- Fixture: main repo (bro's checkout) + detached-HEAD worktree --------
+# Every git write targets the sandbox via `git -C "$REPO"` so cwd never leaks
+# the bootstrap commit onto the caller's branch.
 REPO="$TMPDIR/repo"
 git init -q -b dev "$REPO"
-cd "$REPO"
-git config user.email t@t.io
-git config user.name t
-git remote add origin "$REMOTE"
-echo init > README.md
-git add .
-git commit -qm init
-git push -q origin dev
+git -C "$REPO" config user.email t@t.io
+git -C "$REPO" config user.name t
+git -C "$REPO" remote add origin "$REMOTE"
+echo init > "$REPO/README.md"
+git -C "$REPO" add .
+git -C "$REPO" commit -qm init
+git -C "$REPO" push -q origin dev
 
 DB="$REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$DB")"
@@ -85,13 +92,13 @@ export TRAJECTORY_DB_PATH="$DB"
 # the branch ref so SWE's commits advance it directly.
 # Slug = everything after the last '/' in branch_id.
 WT_PATH="$REPO/.claude/worktrees/test-branch"
-git branch fix/test-branch HEAD
-git worktree add -q "$WT_PATH" fix/test-branch
+git -C "$REPO" branch fix/test-branch HEAD
+git -C "$REPO" worktree add -q "$WT_PATH" fix/test-branch
 
 # Worktree for task 44 (needs_validation, slug = nv-branch).
 WT_NV_PATH="$REPO/.claude/worktrees/nv-branch"
-git branch fix/nv-branch HEAD
-git worktree add -q "$WT_NV_PATH" fix/nv-branch
+git -C "$REPO" branch fix/nv-branch HEAD
+git -C "$REPO" worktree add -q "$WT_NV_PATH" fix/nv-branch
 
 swe_input() {
   jq -n '{subagent_type: "swe"}'
