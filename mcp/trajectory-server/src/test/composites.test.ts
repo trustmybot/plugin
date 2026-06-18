@@ -566,6 +566,121 @@ describe('bro_atomic_close', () => {
   });
 });
 
+describe('task_recover', () => {
+  async function seedPendingTask(): Promise<{
+    db: TrajectoryDB;
+    composites: ReturnType<typeof compositeTools>;
+    tasks: ReturnType<typeof taskTools>;
+    issueId: string;
+    taskId: string;
+  }> {
+    const db = tempDB();
+    const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const tasks = taskTools(db);
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const discussions = discussionTools(db);
+    const audit = auditTools(db);
+
+    const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
+      agent: 'bro', objective: 'recover test', description: 'x',
+    }))['id']));
+    await call(discussions.handlers, 'discussion_append', {
+      agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+    });
+    await call(audit.handlers, 'audit_log', {
+      agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+      from_node: 'bro', branch_id: 'fix/recover', summary: 's',
+    });
+    const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+      agent: 'bro', issue_id: issueId,
+      waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+      waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+      tasks: [{ branch_id: 'fix/recover', description: 'd', spec_body: 's' }],
+    }));
+    const taskId = String(created[0]!.id);
+    return { db, composites, tasks, issueId, taskId };
+  }
+
+  it('recover-with-commit: advances a pending task to closed + writes task_recovered + bro_verification_pass', async () => {
+    const { db, composites, taskId } = await seedPendingTask();
+
+    const r = await call(composites.handlers, 'task_recover', {
+      agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'verified independently',
+    });
+    assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+    const out = parse(r);
+    assert.equal(out['recovered'], true);
+    assert.equal(out['action'], 'closed');
+    assert.equal(out['commit_sha'], 'abc1234');
+
+    const row = db.get<{ status: string; commit_sha: string | null }>(
+      'SELECT status, commit_sha FROM tasks WHERE id = ?', [taskId],
+    );
+    assert.equal(row!.status, 'closed');
+    assert.equal(row!.commit_sha, 'abc1234');
+
+    const recovered = db.get<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_recovered'",
+    );
+    assert.equal(recovered!.c, 1);
+    const pass = db.get<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM audit WHERE event_type = 'bro_verification_pass'",
+    );
+    assert.equal(pass!.c, 1);
+  });
+
+  it('idempotent-already-closed: re-call on a closed task returns a no-op naming the status', async () => {
+    const { db, composites, taskId } = await seedPendingTask();
+
+    const first = parse(await call(composites.handlers, 'task_recover', {
+      agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
+    }));
+    assert.equal(first['recovered'], true);
+
+    const r = await call(composites.handlers, 'task_recover', {
+      agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
+    });
+    assert.ok(!r.isError, 'idempotent re-call must not error');
+    const out = parse(r);
+    assert.equal(out['recovered'], false);
+    assert.equal(out['action'], 'noop');
+    assert.equal(out['status'], 'closed');
+
+    // No duplicate audit rows on re-call.
+    const recovered = db.get<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_recovered'",
+    );
+    assert.equal(recovered!.c, 1);
+  });
+
+  it('re-dispatch-no-commit: pending with no commit returns re-dispatch without changing status', async () => {
+    const { db, composites, taskId } = await seedPendingTask();
+
+    const r = await call(composites.handlers, 'task_recover', {
+      agent: 'bro', task_id: taskId,
+    });
+    assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+    const out = parse(r);
+    assert.equal(out['recovered'], false);
+    assert.equal(out['action'], 're-dispatch');
+    assert.match(out['reason'] as string, /re-dispatch SWE/);
+
+    const row = db.get<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [taskId]);
+    assert.equal(row!.status, 'pending', 'status must be unchanged');
+  });
+
+  it('rejects non-bro caller', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'task_recover', {
+      agent: 'swe', task_id: '1', commit_sha: 'abc1234',
+    });
+    assert.equal(r.isError, true);
+    assert.equal(parse(r)['error'], 'forbidden');
+  });
+});
+
 describe('headless_intent_start', () => {
   it('writes audit + note + intent in one transaction', async () => {
     const db = tempDB();

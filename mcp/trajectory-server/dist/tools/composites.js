@@ -102,6 +102,51 @@ function insertIntentAndNote(db, issueId, intentVerbatim, noteLine, now) {
     }
     return written;
 }
+// Shared close path for bro_atomic_close + task_recover: in the caller's
+// transaction, advance a task to closed (writing bro_verification_pass +
+// finalizing the bro agent_run row) and optionally close the parent issue when
+// this was its last open task. Returns whether the issue was closed so the
+// caller can mirror the close to the remote after the transaction commits.
+function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast) {
+    // 1. bro_verification_pass audit row.
+    db.run(`INSERT INTO audit
+       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+     VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`, [
+        task.issue_id,
+        task.branch_id,
+        verificationSummary.slice(0, 200),
+        JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
+        now,
+    ]);
+    // 2. flip task to closed.
+    db.run(`UPDATE tasks
+        SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
+      WHERE id=?`, [commitSha, now, now, task.id]);
+    // 3. Bro-as-agent_run (#2886): finalize the bro row opened by
+    // task_create_batch. Only update the row that hasn't been completed yet
+    // (idempotent on re-close).
+    db.run(`UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = COALESCE(
+              (strftime('%s', ?) - strftime('%s', started_at)) * 1000,
+              0
+            )
+      WHERE task_id = ?
+        AND agent_type = 'bro'
+        AND completed_at IS NULL`, [now, now, task.id]);
+    // 4. optional issue_close — only when this was the last open/active task.
+    let issueClosed = false;
+    if (closeIssueIfLast) {
+        const remaining = db.get(`SELECT COUNT(*) AS c FROM tasks
+        WHERE issue_id = ?
+          AND status NOT IN ('closed', 'failed', 'escalated')`, [task.issue_id]);
+        if ((remaining?.c ?? 0) === 0) {
+            db.run(`UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`, [now, now, task.issue_id]);
+            issueClosed = true;
+        }
+    }
+    return { issue_closed: issueClosed };
+}
 export function compositeTools(db, dbPath, graph = null) {
     const definitions = [
         {
@@ -303,6 +348,36 @@ export function compositeTools(db, dbPath, graph = null) {
                     },
                 },
                 required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
+            },
+        },
+        {
+            name: 'task_recover',
+            description: 'Bro task-recovery composite — deterministic path for a SWE task left stuck `pending` (or ' +
+                '`completed`) carrying a commit after the executor died on maxTurns/hook-block. In one ' +
+                'transaction: already-closed / non-recoverable status → idempotent no-op naming the status; ' +
+                'pending|completed WITH commit_sha → writes task_recovered + bro_verification_pass audit rows, ' +
+                'advances the task to closed, optionally closes the parent issue when it is the last open task; ' +
+                'pending with NO commit_sha → returns a re-dispatch directive without changing status.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    task_id: { type: 'string' },
+                    commit_sha: {
+                        type: 'string',
+                        description: 'Optional 7..40-char hex SHA of the recovered work. Required to advance to closed.',
+                    },
+                    verification_summary: {
+                        type: 'string',
+                        description: "Free-text — lands in the bro_verification_pass audit row on recovery.",
+                    },
+                    close_issue_if_last_task: {
+                        type: 'boolean',
+                        description: 'When true and this is the issue\'s last open task, also close the issue in the ' +
+                            'same transaction.',
+                    },
+                },
+                required: ['agent', 'task_id'],
             },
         },
         {
@@ -800,46 +875,8 @@ export function compositeTools(db, dbPath, graph = null) {
             }
             const now = nowISO();
             const result = db.transaction(() => {
-                // 1. bro_verification_pass audit row.
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`, [
-                    task.issue_id,
-                    task.branch_id,
-                    verificationSummary.slice(0, 200),
-                    JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
-                    now,
-                ]);
-                // 2. flip task to closed.
-                db.run(`UPDATE tasks
-                SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
-              WHERE id=?`, [commitSha, now, now, task.id]);
-                // 3. Bro-as-agent_run (#2886): finalize the bro row opened by
-                // task_create_batch. duration_ms is the wall-clock between started_at
-                // and now; tokens stay at 0 here — a follow-up hook will accumulate
-                // them from the transcript_path. Only update the row that hasn't
-                // been completed yet (idempotent on re-close).
-                db.run(`UPDATE agent_runs
-                SET completed_at = ?,
-                    duration_ms = COALESCE(
-                      (strftime('%s', ?) - strftime('%s', started_at)) * 1000,
-                      0
-                    )
-              WHERE task_id = ?
-                AND agent_type = 'bro'
-                AND completed_at IS NULL`, [now, now, task.id]);
-                // 4. optional issue_close — only when this was the last open/active task.
-                let issueClosed = false;
-                if (closeIssueIfLast) {
-                    const remaining = db.get(`SELECT COUNT(*) AS c FROM tasks
-                WHERE issue_id = ?
-                  AND status NOT IN ('closed', 'failed', 'escalated')`, [task.issue_id]);
-                    if ((remaining?.c ?? 0) === 0) {
-                        db.run(`UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`, [now, now, task.issue_id]);
-                        issueClosed = true;
-                    }
-                }
-                return { task_id: task.id, issue_closed: issueClosed };
+                const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
+                return { task_id: task.id, issue_closed };
             });
             // Mirror the close to the linked remote(s) — same path issue_close
             // uses — so closing the last task via the composite doesn't leave the
@@ -850,6 +887,74 @@ export function compositeTools(db, dbPath, graph = null) {
                 await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn']);
             }
             return ok(result);
+        })),
+        task_recover: requireRoles('task_recover', ['bro'], wrap(async (args) => {
+            const taskId = args['task_id'];
+            if (!taskId)
+                return err('Missing required arg: task_id');
+            const commitArg = args['commit_sha'];
+            let commitSha = null;
+            if (commitArg !== undefined && commitArg !== null && commitArg !== '') {
+                if (typeof commitArg !== 'string')
+                    return err('commit_sha must be a string');
+                const lowered = commitArg.toLowerCase();
+                if (!/^[0-9a-f]{7,40}$/.test(lowered)) {
+                    return err('commit_sha must be a 7..40-char hex SHA.');
+                }
+                commitSha = lowered;
+            }
+            const verificationSummary = typeof args['verification_summary'] === 'string'
+                ? args['verification_summary']
+                : `task_recover: stuck-pending recovery for task ${taskId}`;
+            const closeIssueIfLast = args['close_issue_if_last_task'] === true;
+            const task = db.get('SELECT id, issue_id, branch_id, status FROM tasks WHERE id = ? LIMIT 1', [taskId]);
+            if (!task)
+                return err(`No task with id=${taskId}`);
+            // Idempotent: already-closed (or any non-recoverable status) → no-op
+            // naming the status. Never throws on an already-recovered task.
+            if (task.status !== 'pending' && task.status !== 'completed') {
+                return ok({
+                    recovered: false,
+                    action: 'noop',
+                    task_id: task.id,
+                    status: task.status,
+                    reason: `task is "${task.status}" — not in a recoverable (pending/completed) state`,
+                });
+            }
+            // Pending with no commit: the work isn't there to recover — directive.
+            if (!commitSha) {
+                return ok({
+                    recovered: false,
+                    action: 're-dispatch',
+                    task_id: task.id,
+                    reason: 'no commit on a pending task — re-dispatch SWE',
+                });
+            }
+            const now = nowISO();
+            const result = db.transaction(() => {
+                // task_recovered audit row — records the deterministic recovery.
+                db.run(`INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'task_recovered', ?, ?, ?)`, [
+                    task.issue_id,
+                    task.branch_id,
+                    `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
+                    JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
+                    now,
+                ]);
+                const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
+                return { task_id: task.id, issue_closed };
+            });
+            if (result.issue_closed) {
+                await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn']);
+            }
+            return ok({
+                recovered: true,
+                action: 'closed',
+                task_id: task.id,
+                commit_sha: commitSha,
+                issue_closed: result.issue_closed,
+            });
         })),
     };
     return { definitions, handlers };
