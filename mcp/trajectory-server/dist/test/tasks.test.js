@@ -1,20 +1,26 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
 import { auditTools } from '../tools/audit.js';
-function makeGitSubdir(name) {
-    const dir = join(process.cwd(), name);
-    mkdirSync(dir, { recursive: true });
-    spawnSync('git', ['init'], { cwd: dir, stdio: 'pipe' });
-    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, stdio: 'pipe' });
-    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, stdio: 'pipe' });
-    spawnSync('git', ['commit', '--allow-empty', '-m', 'init'], { cwd: dir, stdio: 'pipe' });
-    return { name, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+// Each git fixture is its OWN sandbox under the OS temp dir — never inside the
+// plugin tree / ambient cwd — so no git op can ever drift onto the caller's
+// branch. `dir` is the absolute sandbox; every git op below targets it via
+// `-C dir` or `cwd: dir`. `name` is the directory basename, kept for tests that
+// register a repo by name.
+function makeGitSubdir(label) {
+    const dir = mkdtempSync(join(tmpdir(), `tmb-${label}-`));
+    const name = dir.slice(dir.lastIndexOf('/') + 1);
+    spawnSync('git', ['-C', dir, 'init'], { stdio: 'pipe' });
+    spawnSync('git', ['-C', dir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' });
+    spawnSync('git', ['-C', dir, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
+    spawnSync('git', ['-C', dir, 'commit', '--allow-empty', '-m', 'init'], { stdio: 'pipe' });
+    return { name, dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 async function call(handlers, name, args) {
     return (await handlers[name](args));
@@ -876,11 +882,11 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch accepts task when branch exists in explicit repo (#102)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-branch-exists');
+        const { name, dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-branch-exists');
         try {
-            const repoDir = join(process.cwd(), name);
-            spawnSync('git', ['branch', 'feat/my-feature'], { cwd: repoDir, stdio: 'pipe' });
+            spawnSync('git', ['-C', repoDir, 'branch', 'feat/my-feature'], { stdio: 'pipe' });
             const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, [name, repoDir]);
             const issueId = await createIssue(db);
             const tools = taskTools(db);
             const result = await call(tools.handlers, 'task_create_batch', {
@@ -907,9 +913,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch auto-creates branch when missing from explicit repo (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-branch-missing');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-branch-missing');
         try {
-            const repoDir = join(process.cwd(), name);
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-missing', repoDir]);
             const issueId = await createIssue(db);
@@ -942,12 +947,10 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch uses subdir repo for branch ensure, auto-creates in repoB (#529)', async () => {
-        const { name: repoA, cleanup: cleanupA } = makeGitSubdir('test-git-fixture-repo-a');
-        const { name: repoB, cleanup: cleanupB } = makeGitSubdir('test-git-fixture-repo-b');
+        const { dir: repoADir, cleanup: cleanupA } = makeGitSubdir('test-git-fixture-repo-a');
+        const { dir: repoBDir, cleanup: cleanupB } = makeGitSubdir('test-git-fixture-repo-b');
         try {
-            const repoADir = join(process.cwd(), repoA);
-            const repoBDir = join(process.cwd(), repoB);
-            spawnSync('git', ['branch', 'feat/exists-in-a-only'], { cwd: repoADir, stdio: 'pipe' });
+            spawnSync('git', ['-C', repoADir, 'branch', 'feat/exists-in-a-only'], { stdio: 'pipe' });
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['repo-a', repoADir]);
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['repo-b', repoBDir]);
@@ -1025,11 +1028,11 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch defaults repo to the sole registered repo when task.repo omitted (single-repo fallback)', async () => {
-        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-gate');
+        const { name: repoName, dir: repoDir, cleanup } = makeGitSubdir('test-default-repo-gate');
         try {
-            spawnSync('git', ['-C', repoName, 'branch', 'feat/default-repo-test'], { stdio: 'pipe' });
+            spawnSync('git', ['-C', repoDir, 'branch', 'feat/default-repo-test'], { stdio: 'pipe' });
             const db = tempDB();
-            db.run(`INSERT INTO repos (name, path) VALUES (?, ?)`, [repoName, join(process.cwd(), repoName)]);
+            db.run(`INSERT INTO repos (name, path) VALUES (?, ?)`, [repoName, repoDir]);
             const issueId = await createIssue(db);
             const tools = taskTools(db);
             const result = await call(tools.handlers, 'task_create_batch', {
@@ -1071,9 +1074,8 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch auto-creates branch via the sole registered repo when the branch is missing (#529)', async () => {
-        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-autocreate');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-default-repo-autocreate');
         try {
-            const repoDir = join(process.cwd(), repoName);
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path) VALUES (?, ?)`, [repoDir, repoDir]);
             const issueId = await createIssue(db);
@@ -1496,9 +1498,8 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch resolves repo via repos.path when repos.name differs from directory basename (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-repos-table');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-repos-table');
         try {
-            const repoDir = join(process.cwd(), name);
             spawnSync('git', ['-C', repoDir, 'branch', 'feat/repos-table-test'], { stdio: 'pipe' });
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['plugin', repoDir]);
@@ -1523,9 +1524,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch auto-creates branch from parent_branch_id and emits tmb_branch_autocreated audit (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-parent');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-parent');
         try {
-            const repoDir = join(process.cwd(), name);
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-from-parent', repoDir]);
             const issueId = await createIssue(db);
@@ -1558,9 +1558,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch auto-creates branch from HEAD when parent_branch_id does not exist in repo (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-head');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-head');
         try {
-            const repoDir = join(process.cwd(), name);
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-from-head', repoDir]);
             const issueId = await createIssue(db);
@@ -1593,9 +1592,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch does not mutate git or emit audit when branch already exists (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-already-exists');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-already-exists');
         try {
-            const repoDir = join(process.cwd(), name);
             spawnSync('git', ['-C', repoDir, 'branch', 'feat/already-there'], { stdio: 'pipe' });
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-already-exists', repoDir]);
@@ -1620,10 +1618,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch warn-skips branch ensure when repo path is not a git repository (#529)', async () => {
-        const { mkdirSync: _mk, rmSync: _rm } = await import('node:fs');
-        const nonGitDir = join(process.cwd(), 'test-non-git-fixture-529');
+        const nonGitDir = mkdtempSync(join(tmpdir(), 'tmb-test-non-git-fixture-529-'));
         try {
-            _mk(nonGitDir, { recursive: true });
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-non-git', nonGitDir]);
             const issueId = await createIssue(db);
@@ -1641,7 +1637,7 @@ describe('taskTools', () => {
             db.close();
         }
         finally {
-            _rm(nonGitDir, { recursive: true, force: true });
+            rmSync(nonGitDir, { recursive: true, force: true });
         }
     });
 });
