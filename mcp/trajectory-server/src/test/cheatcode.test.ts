@@ -1125,6 +1125,73 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
     }
   });
 
+  it('kind=plugin target=swe materializes project .claude/agents/swe.md with the cheatcode in skills: (idempotent, plugin repo untouched)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const cand = { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' };
+      const r = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: cand,
+        target: 'swe',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized for plugin-kind');
+      const body = readFileSync(localSwe, 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      assert.ok(
+        skills.split(',').map((s) => s.trim()).includes('feature-dev'),
+        `feature-dev in skills: frontmatter, got: ${skills}`,
+      );
+      assert.ok(/^name:\s*swe\s*$/m.test(fm), 'frontmatter name preserved');
+      assert.ok(body.includes('SWE — Executor'), 'body preserved from the global copy');
+
+      const mat = out['materialized'] as { target: string; artifact: string; path: string } | null;
+      assert.ok(mat, 'materialized reported in result for plugin-kind');
+      assert.equal(mat!.target, 'swe');
+      assert.equal(mat!.artifact, 'agent-md:.claude/agents/swe.md');
+      assert.equal(mat!.path, localSwe);
+
+      const att = db.get<{ artifact: string }>(
+        `SELECT artifact FROM cheatcode_attachments WHERE target = 'swe' AND artifact LIKE 'agent-md:%'`,
+      );
+      assert.ok(att, 'attachment row records the materialization');
+      assert.equal(att!.artifact, 'agent-md:.claude/agents/swe.md');
+
+      // Re-install no-ops and never clobbers a human customization.
+      const customized = body + '\n<!-- human customization -->\n';
+      writeFileSync(localSwe, customized);
+      const r2 = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: cand,
+        target: 'swe',
+      });
+      assert.equal(parse(r2)['idempotent'], true, 're-install no-ops');
+      const after = readFileSync(localSwe, 'utf8');
+      assert.equal(after, customized, 'customized file not clobbered on re-install');
+      const afterSkills = after.match(/^---\n([\s\S]*?)\n---/)![1].match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      const occurrences = afterSkills.split(',').map((s) => s.trim()).filter((s) => s === 'feature-dev');
+      assert.equal(occurrences.length, 1, 'no duplicate feature-dev entry');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
   it('no target: a skill install writes no agent md (proposed-PR path unchanged)', async () => {
     const prev = process.env['CLAUDE_PLUGIN_ROOT'];
     process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
