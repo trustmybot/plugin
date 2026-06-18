@@ -46,7 +46,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 
 1. `session-start-prescan.sh` (auto hook — inventory) → decide
 2. `branch_id_propose` MCP composite (open MCP issue + propose `branch_id`)
-3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + ADR when the change touches `docs/trustmybot/architecture/`, schema, public API, or external side effects)
+3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + ADR when the change touches `docs/architecture/`, schema, public API, or external side effects)
 4. **bro pre-creates the task branch** from `origin/<pr_target>` — `git fetch origin && git branch <task.branch_id> origin/<pr_target>`
 5. `task_create_batch(emit_planning_complete=true)` + spawn SWE [batched]
 6. SWE returns
@@ -116,7 +116,7 @@ Batch in one response:
 - `task_get` (all agents)
 - `task_update_status` for `completed`/`failed` (bro owns `closed`)
 - `audit_log`
-- `discussion_append` for `kind='note'/'concern'`
+- `discussion_append` for `kind='note'`
 
 ### Hooks fired against SWE actions
 
@@ -183,7 +183,7 @@ Templates in `templates/agents/<name>.md`, instantiated per-project on demand vi
 
 Consultants **cannot write workflow state**: `task_create_batch`, `task_update_status`, `issue_create`, `issue_close`, `validation_record` all return `forbidden`.
 
-They **can write analyses**: `discussion_append(kind='analysis'|'concern')`, `audit_log`. Architect specifically also gets `issue_snapshot_md`.
+They **can write analyses**: `discussion_append(kind='analysis')`, `audit_log`. Architect specifically also gets `issue_snapshot_md`.
 
 ### Spawn pattern
 
@@ -204,5 +204,5 @@ Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireR
 | `validation_record` | | | ✓ | |
 | `world_model_get` / `world_model_search` | ✓ | ✓ | ✓ | |
 | `onboard_*` (state_get/get_questions/apply) | ✓ | | | |
-| `discussion_append` | any kind | note/concern | any | analysis/concern |
+| `discussion_append` | any kind | note | any | analysis |
 | `audit_log`, `task_get` | ✓ | ✓ | ✓ | ✓ |

@@ -13,7 +13,7 @@ Tables fall in three groups (capability catalog unified into `cheatcodes` in #10
 
 The **world model** lives in a sibling kuzu graph database (`world-model.kuzu`), not in this SQLite file. See `docs/architecture/WORLD_MODEL.md`.
 
-The `skills` table is gone (#101): builtin tmb_* skills are now `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the `origin='installed'` cheatcodes acquired via the install pipeline. Skill/plugin usage is no longer recorded in the trajectory DB (#118) — verification moved to the stream-json session log.
+The `skills` table folded into `cheatcodes` (#101): builtin tmb_* skills are `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the `origin='installed'` cheatcodes acquired via the install pipeline. Skill/plugin usage isn't recorded in the trajectory DB (#118) — verification lives in the stream-json session log.
 
 The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json`; `scan_run` is the single scan-side surface.
 
@@ -54,9 +54,10 @@ erDiagram
         TEXT description
         TEXT source_url "NULL for builtin"
         TEXT file_path "set for skill kind"
+        TEXT version
         TEXT trust_tier
         TEXT scope "global|template|project-local"
-        TEXT status
+        TEXT status "installed|active|broken"
     }
 
     cheatcode_attachments {
@@ -234,7 +235,7 @@ erDiagram
 | `cheatcode_attachments` | One row per artifact an install wired (plugin manifest, MCP registration, proposed skill-frontmatter PR). FK to `cheatcodes.id` ON DELETE CASCADE so `cheatcode_uninstall` reverses exactly what was installed. |
 | `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). Carries per-repo branching config (`target_branch`, `branching_model`, `protected_branches`) — this row is the **per-repo source of truth**: guards resolve policy path-keyed from the matched `repos` row for the command's git toplevel, and unregistered repos are no-op'd. The matching global `plugin_config` keys (`target_branch`, `branching_model`, `protected_branches`) are a fallback used only when the resolved repo row carries no per-repo value. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md). |
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
-| `plugin_config` | KV for plugin settings (PR target, issue_sync, remotes, onboarded marker). The branch-policy keys (`branching_model`, `protected_branches`, `target_branch`) live here as a **deprecated fallback** — the per-repo `repos` row is authoritative and these are consulted only when the matched repo carries no per-repo value (see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
+| `plugin_config` | KV for plugin settings (PR target, issue_sync, remotes, onboarded marker). The branch-policy keys (`branching_model`, `protected_branches`, `target_branch`) live here as a **global fallback** — the per-repo `repos` row is authoritative and these are consulted only when the matched repo carries no per-repo value (see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
 | `plugin_meta` | Schema + plugin version. Current `schema_version=22`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. |
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`). Used by `/monitor` flow — `pr_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments. UNIQUE index on `(pr_number, repo)`. |
@@ -260,7 +261,7 @@ erDiagram
 - **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `audit_log`, `scan_run` (writes `repos` SQLite + Directory nodes / CONTAINS edges in kuzu, `deep_scan_completed` audit). Reads the world model via `world_model_get` / `world_model_search` (kuzu queries) as the cold-start navigation surface. Also reads `validation_history` to drive the retry loop (flow 8).
 - **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_log` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, or close tasks. Reads the world model when scoping unfamiliar parts of the codebase.
 - **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, subagent_session_id)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call.
-- **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis'|'concern')` to record their position. Server-rejected on `task_create_batch`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
+- **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis')` to record their position. Server-rejected on `task_create_batch`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
 
 The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is structurally enforced by `requireRoles` middleware inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles`, `AgentRole` type, and the role-by-tool matrix).
 
@@ -277,23 +278,19 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 
 `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`. Forward migrations run automatically in `db.ts` via `runMigrations` — one `migrateVNtoVN+1` function per version step. A `.bak` snapshot is taken before migration. See `src/test/schema-upgrade.test.ts` for per-step round-trip tests.
 
-## Capability catalog — junction-based (#2886, landed)
+## Capability catalog + per-agent cost
 
-Before #2886 the `skills` table recorded only the **catalog** of available skills, with no per-invocation history — which agent on which task invoked which skill.
+The `cheatcodes` table is the unified capability catalog (#101): a **portable catalog** that's analytics-only in the Claude Code plugin (the file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
 
-#2886 closed this gap with three table additions + one schema enrichment, designed as a **portable catalog** that's analytics-only in the Claude Code plugin (file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
+### Catalog shape
 
-### Catalog tables
-
-| New / changed | Shape | Why |
+| Column | Shape | Why |
 |---|---|---|
 | `cheatcodes.scope` | `TEXT NOT NULL DEFAULT 'project-local' CHECK (scope IN ('global','template','project-local'))` | Match `agents.scope`. Distinguish schema-seeded `tmb_*` skills (global) from `.claude/skills/<name>/SKILL.md` (project-local) and installed cheatcodes (project-local by default). |
 
 ### Bro as a first-class agent_run
 
-Before #2886 `agent_runs` only captured **subagent spawns** (SWE, pr-reviewer, consultants). Bro itself — the main process — had no row, so there was no record of bro's token cost per session/task.
-
-#2886 adds bro to `agent_runs` at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. Recorded by composites (`task_create_batch` opens the bro row, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
+`agent_runs` captures **subagent spawns** (SWE, pr-reviewer, consultants) *and* bro itself — the main process — at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. The bro row is recorded by composites (`task_create_batch` opens it, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
 
 ### How this serves both runtimes
 
@@ -318,4 +315,4 @@ GROUP BY t.id, t.branch_id;
 
 ### Implementation status
 
-Landed in #2886; the catalog was unified into `cheatcodes` in #101. The bundled tmb_* skill seed (now `origin='builtin'` rows in `cheatcodes`) is in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Skill/plugin usage recording was retired in #118 (the `skill_invocations` junction, its writer hook, and its MCP reader removed; v21 drops the table) — verification moved to the stream-json session log. The bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`) still tracks per-task token cost.
+The catalog is unified into `cheatcodes` (#101). The bundled tmb_* skill seed (`origin='builtin'` rows in `cheatcodes`) is in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Skill/plugin usage verification lives in the stream-json session log (#118), not a DB junction table. The bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`) tracks per-task token cost.

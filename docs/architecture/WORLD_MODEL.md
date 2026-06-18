@@ -33,6 +33,8 @@ Follow-up slices (post-v0.7) add `File`, `Symbol`, `IMPORTS`, `CALLS`, `DEFINES`
 
 Re-running `scan_run` is summary-preserving via MERGE — existing nodes update structural fields and refresh README-derived summaries.
 
+`scan_run` also has one SQLite side effect outside the graph: a resource-discovery pass (#124/#846) reconciles locally-present capabilities — project-local skills, enabled plugins, configured MCP servers — into the trajectory DB's `cheatcodes` table (`origin='installed'`, `source_url='scan_discovered'`). That write lands in SQLite, not kuzu; the graph itself stays Directory-nodes-only. See [`CHEATCODES.md`](./CHEATCODES.md).
+
 ## Concurrency
 
 kuzu is **single-writer**: only one process may hold the database's write lock, so a `scan_run` can collide with another opener (e.g. the SessionStart prescan warming the graph). `src/graph-db.ts` opens with bounded exponential backoff — up to 8 attempts starting at 50 ms — retrying only on a write-lock error and rethrowing any non-lock error (missing binary, corrupt file) immediately. When the retries exhaust, the open surfaces as `graph_db_open_failed`, and `scan_run` reports that distinct error rather than a phantom "scan already running" — restart the session to retry (#590/591).
