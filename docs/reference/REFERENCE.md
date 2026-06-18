@@ -7,6 +7,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. Holds the workflow audit: issues, tasks, discussions, audit, validation, plugin metadata. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. Project-local, gitignored, per-developer.
 - **World model graph DB** — kuzu at `<project>/.claude/<plugin-name>/world-model.kuzu/`. Holds bro's project mental picture: Directory nodes + CONTAINS edges (more node/edge types in follow-up slices). Sibling file to the trajectory DB. See `docs/architecture/WORLD_MODEL.md`.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
+- **Issue milestone** — `issues.milestone` column (nullable `TEXT`, v22 / #83). A release/grouping label bound directly to the issue row; there is no separate milestones table. See `docs/architecture/ERD.md`.
 - **ADRs** — `docs/trustmybot/architecture/manual/decisions/N-*.md`, hand-curated.
 - **Snapshots** — `docs/trustmybot/snapshots/<issue_id>.md`, generated via `issue_snapshot_md`.
 
@@ -110,4 +111,4 @@ Runtime location: `plugin/commands/<name>.md`.
 | `pr-reviewer-spawn-prompt-shape.sh` | PreToolUse Agent | Enforce §C discipline: spawn prompt must contain bare anchors, no prior-verdict shortcuts |
 | `search-grounding-hint.sh` | UserPromptSubmit | Inject hint toward *_search tools on retrieval questions |
 
-## Schema state — see ERD.md for full table list (schema v19)
+## Schema state — see ERD.md for full table list (schema v22)

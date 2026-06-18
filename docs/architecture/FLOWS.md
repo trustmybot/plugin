@@ -113,6 +113,7 @@ sequenceDiagram
 - `require-task-spec.sh` blocks SWE spawn unless `tasks` row has `status IN (pending, open)` AND non-empty `spec_body`.
 - `no-worktree-branch-create.sh` blocks `-b/-B/--create-branch/--detach` — bro pre-creates the branch; the worktree attaches to it directly.
 - `git-push-guard.sh` blocks the eventual push if any pushed commit's task lacks a passing `validation_attempts` row.
+- `swe-verification-gate.sh` fires on SWE's `task_update_status(completed)`: it runs the task's typed `verification[]` commands in the task worktree and denies if any fail. When no worktree resolves (e.g. SWE ran in the main checkout), it does NOT fail open — it runs verification in the active checkout (the git toplevel, falling back to PWD), and if no runnable checkout resolves at all it denies rather than skip (#82). An empty `verification[]` skips the gate with a warning; a `waive_verification_gate_reason` (≥10 chars) waives it with an audit row.
 
 ---
 
