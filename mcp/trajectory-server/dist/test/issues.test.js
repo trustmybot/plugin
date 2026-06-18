@@ -810,4 +810,69 @@ describe('issue_create mandatory tagging (#93/#777)', () => {
         db.close();
     });
 });
+describe('issueTools — milestone (#83/#763)', () => {
+    it('issue_create persists the milestone on the row', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'milestone-bound issue',
+            labels: VALID_LABELS,
+            milestone: 'v0.10.0',
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        assert.equal(created.milestone, 'v0.10.0', 'milestone returned on created issue');
+        const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.milestone, 'v0.10.0', 'milestone persisted on the row');
+        db.close();
+    });
+    it('issue_create without milestone leaves it NULL', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'no milestone issue',
+            labels: VALID_LABELS,
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.milestone, null, 'milestone NULL when omitted');
+        db.close();
+    });
+    it('issue_create passes the milestone to the gh sync command', async () => {
+        const db = tempDB();
+        const cfgTools = configTools(db);
+        await call(cfgTools.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_sync',
+            value: 'gh',
+        });
+        const tools = issueTools(db);
+        const calls = [];
+        const spawnFn = (cmd, args) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":7,"url":"https://github.com/owner/repo/issues/7"}', stderr: '' };
+            }
+            return { status: 0, stdout: 'https://github.com/owner/repo/issues/7\n', stderr: '' };
+        };
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'sync milestone to gh',
+            labels: VALID_LABELS,
+            milestone: 'v0.10.0',
+            _spawnFn: spawnFn,
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        const createCall = calls.find((c) => c.args[1] === 'create');
+        assert.ok(createCall !== undefined, 'gh issue create must have been called');
+        const mIdx = createCall.args.indexOf('--milestone');
+        assert.ok(mIdx >= 0, 'gh create must include --milestone');
+        assert.equal(createCall.args[mIdx + 1], 'v0.10.0');
+        db.close();
+    });
+});
 //# sourceMappingURL=issues.test.js.map

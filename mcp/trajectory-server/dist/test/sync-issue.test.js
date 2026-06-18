@@ -211,6 +211,71 @@ describe('syncIssueCreate', () => {
         assert.ok(ghCall.args.includes('bug'));
         assert.ok(ghCall.args.includes('feature'));
     });
+    it('passes milestone as a --milestone argument for gh (#83/#763)', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args, _opts) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":1,"url":"https://github.com/owner/repo/issues/1"}', stderr: '' };
+            }
+            return { status: 0, stdout: 'https://github.com/owner/repo/issues/1\n', stderr: '' };
+        };
+        await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            milestone: 'v0.10.0',
+            _backend: 'gh',
+            _spawnFn: spawnFn,
+        });
+        const ghCall = calls[0];
+        assert.ok(ghCall !== undefined);
+        assert.equal(ghCall.cmd, 'gh');
+        const mIdx = ghCall.args.indexOf('--milestone');
+        assert.ok(mIdx >= 0, 'gh create must include --milestone');
+        assert.equal(ghCall.args[mIdx + 1], 'v0.10.0');
+    });
+    it('passes milestone as a --milestone argument for glab (#83/#763)', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args, _opts) => {
+            calls.push({ cmd, args });
+            return { status: 0, stdout: 'https://gitlab.com/owner/repo/-/issues/1\n', stderr: '' };
+        };
+        await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            milestone: 'v0.10.0',
+            _backend: 'glab',
+            _spawnFn: spawnFn,
+        });
+        const glabCall = calls[0];
+        assert.ok(glabCall !== undefined);
+        assert.equal(glabCall.cmd, 'glab');
+        const mIdx = glabCall.args.indexOf('--milestone');
+        assert.ok(mIdx >= 0, 'glab create must include --milestone');
+        assert.equal(glabCall.args[mIdx + 1], 'v0.10.0');
+    });
+    it('omits --milestone when no milestone is given (#83/#763)', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args, _opts) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":1,"url":"https://github.com/owner/repo/issues/1"}', stderr: '' };
+            }
+            return { status: 0, stdout: 'https://github.com/owner/repo/issues/1\n', stderr: '' };
+        };
+        await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            _backend: 'gh',
+            _spawnFn: spawnFn,
+        });
+        const ghCall = calls[0];
+        assert.ok(ghCall !== undefined);
+        assert.ok(!ghCall.args.includes('--milestone'), 'no --milestone when milestone omitted');
+    });
     it('rejects iid from incidental #N in stdout; only the created-URL iid is used (#314)', async () => {
         const spawnFn = makeSpawnFn([
             {

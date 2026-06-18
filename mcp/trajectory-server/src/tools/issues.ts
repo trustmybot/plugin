@@ -179,6 +179,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           objective: { type: 'string', description: 'Short one-liner summary' },
           description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
           labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label (Priority: Urgent|High|Medium|Low) AND at least one classification label (Bug, Feature, Improvement, Docs, Install, Workflow, MCP, Hooks, Roundtable, Multi-platform, Performance, Tests, architecture, enforcement, design, campaign, token-burn, Doctrine, Discussion). Extra labels are allowed. Applied to the remote issue.' },
+          milestone: { type: 'string', description: 'Optional milestone name (e.g. "v0.10.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
         },
         required: ['agent', 'objective', 'labels'],
       },
@@ -311,14 +312,16 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       if (labelError !== null) {
         return err(labelError);
       }
+      // milestone: optional; persisted locally AND passed to remote sync (#83/#763).
+      const milestone = (args['milestone'] as string | undefined) ?? null;
       // _spawnFn: test-only injection point; not in inputSchema
       const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
       const now = nowISO();
 
       db.run(
-        `INSERT INTO issues (objective, description, status, created_at, updated_at)
-         VALUES (?, ?, 'open', ?, ?)`,
-        [objective, description, now, now],
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone)
+         VALUES (?, ?, 'open', ?, ?, ?)`,
+        [objective, description, now, now, milestone],
       );
 
       const rowId = db.get<{ id: number }>(
@@ -369,6 +372,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                       title: objective,
                       body: description,
                       labels,
+                      milestone: milestone ?? undefined,
                       _backend: 'gh',
                       _spawnFn: spawnFn,
                       _cwd: syncCwd,
@@ -381,6 +385,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                       title: objective,
                       body: description,
                       labels,
+                      milestone: milestone ?? undefined,
                       _backend: 'glab',
                       _spawnFn: spawnFn,
                       _cwd: syncCwd,
@@ -447,6 +452,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                 title: objective,
                 body: description,
                 labels,
+                milestone: milestone ?? undefined,
                 _backend: backend,
                 _spawnFn: spawnFn,
                 _cwd: syncCwd,

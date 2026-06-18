@@ -133,6 +133,7 @@ export interface SyncIssueCreateOpts {
   title: string;
   body: string;
   labels?: string[];
+  milestone?: string;
   _spawnFn?: SpawnFn;
   _cwd?: string;
   _remoteUrl?: string;
@@ -162,7 +163,7 @@ async function createOnBackend(
   opts: SyncIssueCreateOpts,
   spawnFn: SpawnFn,
 ): Promise<SyncResult | SyncFailure> {
-  const { title, body, labels = [] } = opts;
+  const { title, body, labels = [], milestone } = opts;
   const kind = backend === 'gh' ? 'github' : 'gitlab';
   const spawnOpts: SpawnSyncOptions = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
   if (opts._cwd) {
@@ -177,11 +178,17 @@ async function createOnBackend(
     for (const label of labels) {
       args.push('--label', label);
     }
+    if (milestone) {
+      args.push('--milestone', milestone);
+    }
   } else {
     cmd = 'glab';
     args = ['issue', 'create', '--title', title, '--description', body];
     for (const label of labels) {
       args.push('--label', label);
+    }
+    if (milestone) {
+      args.push('--milestone', milestone);
     }
   }
 

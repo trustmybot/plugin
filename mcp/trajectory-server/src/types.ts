@@ -10,6 +10,7 @@ export interface Issue {
   remote_kind?: 'github' | 'gitlab' | null;
   gh_iid?: number | null;
   gl_iid?: number | null;
+  milestone?: string | null;
 }
 
 export interface IssueRow {
@@ -24,6 +25,7 @@ export interface IssueRow {
   remote_kind: 'github' | 'gitlab' | null;
   gh_iid: number | null;
   gl_iid: number | null;
+  milestone: string | null;
 }
 
 export interface Task {
