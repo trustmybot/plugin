@@ -109,7 +109,7 @@ function isFailure(r) {
     return r.ok === false;
 }
 async function createOnBackend(backend, opts, spawnFn) {
-    const { title, body, labels = [] } = opts;
+    const { title, body, labels = [], milestone } = opts;
     const kind = backend === 'gh' ? 'github' : 'gitlab';
     const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
     if (opts._cwd) {
@@ -123,12 +123,18 @@ async function createOnBackend(backend, opts, spawnFn) {
         for (const label of labels) {
             args.push('--label', label);
         }
+        if (milestone) {
+            args.push('--milestone', milestone);
+        }
     }
     else {
         cmd = 'glab';
         args = ['issue', 'create', '--title', title, '--description', body];
         for (const label of labels) {
             args.push('--label', label);
+        }
+        if (milestone) {
+            args.push('--milestone', milestone);
         }
     }
     try {

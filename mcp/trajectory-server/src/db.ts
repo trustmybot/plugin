@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 21;
+const TARGET_SCHEMA_VERSION = 22;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -539,6 +539,9 @@ function runMigrations(
   }
   if (fromVersion < 21 && toVersion >= 21) {
     migrateV20toV21(db);
+  }
+  if (fromVersion < 22 && toVersion >= 22) {
+    migrateV21toV22(db);
   }
 }
 
@@ -1110,6 +1113,15 @@ function migrateV19toV20(db: DatabaseSync): void {
 // cheatcodes(name), so dropping it leaves no dangling references in other tables.
 function migrateV20toV21(db: DatabaseSync): void {
   db.exec('DROP TABLE IF EXISTS skill_invocations');
+}
+
+function migrateV21toV22(db: DatabaseSync): void {
+  // #83/#763 — bind issues to a milestone. Nullable, append-only; existing
+  // rows get NULL (no backfill). tableExists handles partial-seed fixtures
+  // and hasColumn guards an idempotent re-run.
+  if (tableExists(db, 'issues') && !hasColumn(db, 'issues', 'milestone')) {
+    db.exec('ALTER TABLE issues ADD COLUMN milestone TEXT');
+  }
 }
 
 function migrateV7toV8(db: DatabaseSync): void {

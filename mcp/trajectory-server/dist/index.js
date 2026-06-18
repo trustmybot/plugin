@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 21;
+var TARGET_SCHEMA_VERSION = 22;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21230,6 +21230,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 21 && toVersion >= 21) {
     migrateV20toV21(db2);
+  }
+  if (fromVersion < 22 && toVersion >= 22) {
+    migrateV21toV22(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -21654,6 +21657,11 @@ function migrateV19toV20(db2) {
 }
 function migrateV20toV21(db2) {
   db2.exec("DROP TABLE IF EXISTS skill_invocations");
+}
+function migrateV21toV22(db2) {
+  if (tableExists(db2, "issues") && !hasColumn(db2, "issues", "milestone")) {
+    db2.exec("ALTER TABLE issues ADD COLUMN milestone TEXT");
+  }
 }
 function migrateV7toV8(db2) {
   db2.exec("BEGIN");
@@ -22911,7 +22919,7 @@ function isFailure(r) {
   return r.ok === false;
 }
 async function createOnBackend(backend, opts, spawnFn) {
-  const { title, body, labels = [] } = opts;
+  const { title, body, labels = [], milestone } = opts;
   const kind = backend === "gh" ? "github" : "gitlab";
   const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
   if (opts._cwd) {
@@ -22925,11 +22933,17 @@ async function createOnBackend(backend, opts, spawnFn) {
     for (const label of labels) {
       args.push("--label", label);
     }
+    if (milestone) {
+      args.push("--milestone", milestone);
+    }
   } else {
     cmd = "glab";
     args = ["issue", "create", "--title", title, "--description", body];
     for (const label of labels) {
       args.push("--label", label);
+    }
+    if (milestone) {
+      args.push("--milestone", milestone);
     }
   }
   try {
@@ -23240,7 +23254,8 @@ function issueTools(db2, dbPath2 = "") {
           agent: { type: "string", description: "Caller agent name" },
           objective: { type: "string", description: "Short one-liner summary" },
           description: { type: "string", description: "Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation." },
-          labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label (Priority: Urgent|High|Medium|Low) AND at least one classification label (Bug, Feature, Improvement, Docs, Install, Workflow, MCP, Hooks, Roundtable, Multi-platform, Performance, Tests, architecture, enforcement, design, campaign, token-burn, Doctrine, Discussion). Extra labels are allowed. Applied to the remote issue." }
+          labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label (Priority: Urgent|High|Medium|Low) AND at least one classification label (Bug, Feature, Improvement, Docs, Install, Workflow, MCP, Hooks, Roundtable, Multi-platform, Performance, Tests, architecture, enforcement, design, campaign, token-burn, Doctrine, Discussion). Extra labels are allowed. Applied to the remote issue." },
+          milestone: { type: "string", description: 'Optional milestone name (e.g. "v0.10.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' }
         },
         required: ["agent", "objective", "labels"]
       }
@@ -23369,12 +23384,13 @@ function issueTools(db2, dbPath2 = "") {
       if (labelError !== null) {
         return err2(labelError);
       }
+      const milestone = args["milestone"] ?? null;
       const spawnFn = args["_spawnFn"] ?? void 0;
       const now = nowISO();
       db2.run(
-        `INSERT INTO issues (objective, description, status, created_at, updated_at)
-         VALUES (?, ?, 'open', ?, ?)`,
-        [objective, description, now, now]
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone)
+         VALUES (?, ?, 'open', ?, ?, ?)`,
+        [objective, description, now, now, milestone]
       );
       const rowId = db2.get(
         `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -23414,6 +23430,7 @@ function issueTools(db2, dbPath2 = "") {
                   title: objective,
                   body: description,
                   labels,
+                  milestone: milestone ?? void 0,
                   _backend: "gh",
                   _spawnFn: spawnFn,
                   _cwd: syncCwd,
@@ -23424,6 +23441,7 @@ function issueTools(db2, dbPath2 = "") {
                   title: objective,
                   body: description,
                   labels,
+                  milestone: milestone ?? void 0,
                   _backend: "glab",
                   _spawnFn: spawnFn,
                   _cwd: syncCwd,
@@ -23486,6 +23504,7 @@ function issueTools(db2, dbPath2 = "") {
                 title: objective,
                 body: description,
                 labels,
+                milestone: milestone ?? void 0,
                 _backend: backend,
                 _spawnFn: spawnFn,
                 _cwd: syncCwd,
