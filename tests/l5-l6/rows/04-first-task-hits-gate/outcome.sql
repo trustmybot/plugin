@@ -21,16 +21,9 @@ SELECT
   'repos populated by scan (got ' || COUNT(*) || ', expected >=1)' AS description
 FROM repos;
 
--- Folded from the (now-retired) step 14: the Skill PostToolUse hook
--- (#2886) must record at least one tmb_* skill invocation for the bro
--- agent_run that fired this turn. Bro loads `tmb_planning` and
--- `tmb:agent-create`-adjacent skills during the planning chain, so by
--- the end of this row the hook should have written rows.
-SELECT
-  CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'skill_invocations tmb_* rows (got ' || COUNT(*) || ', expected >=1) — folded from retired step 14' AS description
-FROM skill_invocations
-WHERE skill_name LIKE 'tmb_%';
+-- bro's `tmb_planning` usage for this row is asserted from the stream-json
+-- run log via the `usage` scorer (outcome-usage.json), not skill_invocations
+-- — that table is retiring (#118/#119).
 
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,

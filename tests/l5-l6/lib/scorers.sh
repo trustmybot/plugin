@@ -14,6 +14,9 @@
 
 set -uo pipefail
 
+# shellcheck source=tests/l5-l6/lib/assert-usage.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assert-usage.sh"
+
 # l5_record_score <db_path> <run_id> <flow> <scorer> <pass:0|1> <value> <explanation>
 l5_record_score() {
   local db="$1" run_id="$2" flow="$3" scorer="$4" pass="$5" value="$6" explanation="$7"
@@ -566,4 +569,61 @@ l5_score_git() {
     "" \
     "$([ "$fail" = "0" ] && echo "$checked check(s) passed" || echo "$fail of $checked check(s) failed")"
   return "$fail"
+}
+
+# l5_score_usage <project_dir> <flow> <scorer_dir> <run_id>
+# Reads scorer_dir/outcome-usage.json: a JSON array of skill/plugin names that
+# bro must have invoked this row. Each name is checked against the per-row
+# stream-json run log ($project/trajectory.jsonl) via tmb_usage_in_log — the
+# log-based replacement for the (retiring, #118) skill_invocations table.
+#
+# Schema:
+#   { "skills_used": ["tmb_planning", "tmb:tmb_review"] }
+#
+# KNOWN LIMITATION — subagent (swe) skills. swe runs in its own CC session
+# whose stream-json is not merged into bro's run log, so a skill swe loads
+# leaves no signal here. Only assert bro-side skills with this scorer (see
+# assert-usage.sh).
+#
+# Opt-in: silently returns 0 when no outcome-usage.json is present.
+l5_score_usage() {
+  local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
+  local cfg="$scorer_dir/outcome-usage.json"
+  local db="$project/.claude/tmb/trajectory.db"
+  local run_log="$project/trajectory.jsonl"
+
+  [ -f "$cfg" ] || return 0
+
+  if [ ! -f "$run_log" ]; then
+    echo "  ✗ usage: $run_log not found (runner must produce stream-json)" >&2
+    l5_record_score "$db" "$run_id" "$flow" "usage" 0 "no-log" "trajectory.jsonl missing"
+    return 1
+  fi
+
+  local names
+  names=$(jq -r '(.skills_used // [])[]' "$cfg" 2>/dev/null)
+
+  local checked=0 missing=""
+  while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    checked=$((checked + 1))
+    if tmb_usage_in_log "$run_log" "$name"; then
+      echo "  ✓ usage: '$name' invoked (run log)"
+    else
+      echo "  ✗ usage: '$name' not found in run log" >&2
+      missing="${missing}; $name"
+    fi
+  done <<< "$names"
+
+  if [ "$checked" = "0" ]; then
+    return 0
+  fi
+
+  if [ -z "$missing" ]; then
+    l5_record_score "$db" "$run_id" "$flow" "usage" 1 "${checked}" "all skills used"
+    return 0
+  else
+    l5_record_score "$db" "$run_id" "$flow" "usage" 0 "missing" "$missing"
+    return 1
+  fi
 }
