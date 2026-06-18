@@ -39,12 +39,15 @@ function parseBatch(result: RawResult): Array<Record<string, unknown>> {
   return (raw.tasks ?? raw) as Array<Record<string, unknown>>;
 }
 
-async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
+async function createIssue(
+  db: ReturnType<typeof tempDB>,
+  objective = 'Test issue',
+): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
     labels: ['Bug', 'Priority: High'],
     agent: 'bro',
-    objective: 'Test issue',
+    objective,
   });
   const data = parseResult(result);
   return data.id as number;
@@ -1121,8 +1124,8 @@ describe('taskTools', () => {
       db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['repo-b', repoBDir]);
       const tools = taskTools(db);
 
-      const issueIdA = await createIssue(db);
-      const issueIdB = await createIssue(db);
+      const issueIdA = await createIssue(db, 'Subdir repo A branch ensure');
+      const issueIdB = await createIssue(db, 'Subdir repo B auto-create branch');
 
       const acceptedResult = await call(tools.handlers, 'task_create_batch', {
         waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
