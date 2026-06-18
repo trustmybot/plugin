@@ -152,11 +152,26 @@ if [ -z "$WT_PATH" ]; then
   fi
 fi
 
+# Fail-closed fallback: when verification[] is non-empty but no worktree
+# resolves (e.g. SWE ran in the main checkout), do NOT skip. Run the
+# verification commands in the active checkout — the repo root via
+# `git rev-parse --show-toplevel`, falling back to PWD — and deny if any
+# command fails. If no runnable checkout resolves at all, deny rather than
+# fail open. (#694/#82)
+RAN_IN_ACTIVE_CHECKOUT=""
 if [ -z "$WT_PATH" ] || [ ! -d "$WT_PATH" ]; then
-  MISSING_AT="${WT_PATH:-${WS_ROOT:-?}/.claude/worktrees/${SLUG}}"
-  jq -nc --arg wt "$MISSING_AT" \
-    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":("TMB: verification gate skipped — worktree not found at " + $wt)}}'
-  exit 0
+  ACTIVE_DIR=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -z "$ACTIVE_DIR" ] || [ ! -d "$ACTIVE_DIR" ]; then
+    ACTIVE_DIR=$(pwd 2>/dev/null || true)
+  fi
+  if [ -z "$ACTIVE_DIR" ] || [ ! -d "$ACTIVE_DIR" ]; then
+    MISSING_AT="${WT_PATH:-${WS_ROOT:-?}/.claude/worktrees/${SLUG}}"
+    jq -nc --arg wt "$MISSING_AT" \
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification gate could not find the task worktree at " + $wt + " and no active checkout resolved — refusing to fail open with non-empty verification[]. Run SWE in a registered worktree or set a waiver.")}}'
+    exit 0
+  fi
+  WT_PATH="$ACTIVE_DIR"
+  RAN_IN_ACTIVE_CHECKOUT="$ACTIVE_DIR"
 fi
 
 # Resolve the user's real toolchain PATH so verification commands invoking
@@ -204,11 +219,15 @@ while IFS= read -r line; do
 done <<< "$VERIFICATION_BLOCK"
 
 if [ -n "$FAILED_CMD" ]; then
-  jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" '
+  WHERE_NOTE=""
+  if [ -n "$RAN_IN_ACTIVE_CHECKOUT" ]; then
+    WHERE_NOTE=$'\n(verification ran in the active checkout '"$RAN_IN_ACTIVE_CHECKOUT"$' — no task worktree was found)'
+  fi
+  jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" --arg where "$WHERE_NOTE" '
     {"hookSpecificOutput":{
       "hookEventName":"PreToolUse",
       "permissionDecision":"deny",
-      "denyReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out)
+      "denyReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out + $where)
     }}
   '
   exit 0
