@@ -4,6 +4,49 @@ import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-s
 import { resolveBackend, detectPreferred } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
+// Mandatory issue tagging (#93/#777): every issue must carry one priority tag
+// AND one classification tag. Both sets are the single source of truth — the
+// validation and the error message read from these consts only.
+const PRIORITY_LABEL_RE = /^Priority: (Urgent|High|Medium|Low)$/;
+const CLASSIFICATION_LABELS = [
+    'Bug',
+    'Feature',
+    'Improvement',
+    'Docs',
+    'Install',
+    'Workflow',
+    'MCP',
+    'Hooks',
+    'Roundtable',
+    'Multi-platform',
+    'Performance',
+    'Tests',
+    'architecture',
+    'enforcement',
+    'design',
+    'campaign',
+    'token-burn',
+    'Doctrine',
+    'Discussion',
+];
+const CLASSIFICATION_LABEL_SET = new Set(CLASSIFICATION_LABELS);
+// Fail closed: reject unless the labels arg satisfies BOTH required categories.
+// Returns a named error string listing what is missing and the valid options,
+// or null when the labels are valid. Extra labels (in neither set) are allowed.
+function validateIssueLabels(labels) {
+    const hasPriority = labels.some((l) => PRIORITY_LABEL_RE.test(l));
+    const hasClassification = labels.some((l) => CLASSIFICATION_LABEL_SET.has(l));
+    if (hasPriority && hasClassification)
+        return null;
+    const missing = [];
+    if (!hasClassification) {
+        missing.push(`a classification label (one of: ${CLASSIFICATION_LABELS.join(', ')})`);
+    }
+    if (!hasPriority) {
+        missing.push('a priority label (one of: Priority: Urgent, Priority: High, Priority: Medium, Priority: Low)');
+    }
+    return `missing_required_labels: issue_create requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
+}
 // Sync paths pass labels through to the remote (GitLab / GitHub) via
 // syncIssueCreate, but they aren't persisted in the local issues table.
 function decodeIssue(row) {
@@ -102,9 +145,9 @@ export function issueTools(db, dbPath = '') {
                     agent: { type: 'string', description: 'Caller agent name' },
                     objective: { type: 'string', description: 'Short one-liner summary' },
                     description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
-                    labels: { type: 'array', items: { type: 'string' }, description: 'Optional labels to apply to the remote issue.' },
+                    labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label (Priority: Urgent|High|Medium|Low) AND at least one classification label (Bug, Feature, Improvement, Docs, Install, Workflow, MCP, Hooks, Roundtable, Multi-platform, Performance, Tests, architecture, enforcement, design, campaign, token-burn, Doctrine, Discussion). Extra labels are allowed. Applied to the remote issue.' },
                 },
-                required: ['agent', 'objective'],
+                required: ['agent', 'objective', 'labels'],
             },
         },
         {
@@ -228,6 +271,11 @@ export function issueTools(db, dbPath = '') {
             const description = args['description'] ?? '';
             // labels: pass-through to remote sync; not persisted locally after #179.
             const labels = args['labels'] ?? [];
+            // Mandatory tagging (#93/#777): fail closed before any insert/sync.
+            const labelError = validateIssueLabels(labels);
+            if (labelError !== null) {
+                return err(labelError);
+            }
             // _spawnFn: test-only injection point; not in inputSchema
             const spawnFn = args['_spawnFn'] ?? undefined;
             const now = nowISO();

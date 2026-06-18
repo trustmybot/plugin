@@ -20,6 +20,7 @@ function parseBatch(result) {
 async function createIssue(db) {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'Test issue',
     });

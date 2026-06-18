@@ -60,6 +60,7 @@ describe('discussions + snapshot integration', () => {
   it('step 1: creates an issue', async () => {
     const issues = issueTools(db);
     const result = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'discussion integration test issue',
       description: '# Goals\n- Prove the tools work',
@@ -441,6 +442,7 @@ describe('discussion_append verified_human gate (#145)', () => {
     }
 
     const result = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'verified_human gate test issue',
       description: 'Isolated issue for gate tests.',
@@ -543,6 +545,7 @@ describe('discussion_append body size cap (#219)', () => {
     db = tempDB();
     const issues = issueTools(db);
     const result = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'body size cap test issue',
       description: 'Isolated issue for body cap tests.',
@@ -596,8 +599,8 @@ describe('discussion_append default issue_id resolution (#506)', () => {
     const issues = issueTools(localDb);
     const disc = discussionTools(localDb);
 
-    const r1 = await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'older issue' });
-    await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'newer issue' });
+    const r1 = await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'older issue' });
+    await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'newer issue' });
     const newerIssue = parseResult(await call(issues.handlers, 'issue_list', { agent: 'bro' }) as RawResult);
     const newerIssueId = String(Math.max(...(newerIssue as Array<{ id: number }>).map((x) => x.id)));
 
@@ -637,7 +640,7 @@ describe('discussion_append default issue_id resolution (#506)', () => {
     const issues = issueTools(localDb);
     const disc = discussionTools(localDb);
 
-    await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'explicit issue' });
+    await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'explicit issue' });
     const issueList = parseResult(await call(issues.handlers, 'issue_list', { agent: 'bro' }) as RawResult) as Array<{ id: number }>;
     const firstId = String(issueList[0].id);
 
@@ -663,6 +666,7 @@ describe('issue_get_with_discussions swe redaction (#344)', () => {
     const disc = discussionTools(localDb);
 
     const createResult = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'Redaction test issue',
       description: 'TOP SECRET: this description must be hidden from swe.',
@@ -690,6 +694,7 @@ describe('issue_get_with_discussions swe redaction (#344)', () => {
     const disc = discussionTools(localDb);
 
     const createResult = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'Redaction test for bro',
       description: 'Full description visible to bro.',
@@ -716,6 +721,7 @@ describe('discussion_append awaits embedAndStore (#537)', () => {
     const disc = discussionTools(localDb);
 
     const issueResult = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'embed-await test issue',
     });
@@ -749,6 +755,7 @@ describe('discussion_append awaits embedAndStore (#537)', () => {
     const disc = discussionTools(localDb);
 
     const issueResult = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'embed-failure test issue',
     });

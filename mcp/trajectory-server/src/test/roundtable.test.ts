@@ -40,6 +40,7 @@ describe('roundtable tools', () => {
 
     const issues = issueTools(db);
     const result = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'roundtable test carrier issue',
       description: '# Roundtable test',
@@ -161,6 +162,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'human-vote-collecting-test',
         description: '',
@@ -192,6 +194,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'auto-flip-test',
         description: '',
@@ -230,6 +233,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'vote-closed-test',
         description: '',
@@ -358,6 +362,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'close-collecting-test',
         description: '',
@@ -386,6 +391,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'close-awaiting-no-human-vote-test',
         description: '',
@@ -421,6 +427,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'skip-close-test',
         description: '',
@@ -451,6 +458,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'happy-close-test',
         description: '',
@@ -546,6 +554,7 @@ describe('roundtable tools', () => {
       const issues = issueTools(db);
 
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'finalize-test carrier',
         description: '',
@@ -569,6 +578,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro', objective: 'finalize-collecting-test', description: '',
       });
       const liid = parseResult(issueResult).id;
@@ -637,6 +647,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro', objective: 'rollback-test', description: '',
       });
       const liid = parseResult(issueResult).id;
@@ -696,6 +707,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(db);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro', objective: 'summarize-test carrier', description: '',
       });
       const localIssueId = parseResult(issueResult).id;
@@ -768,6 +780,7 @@ describe('roundtable tools', () => {
 
       const issues = issueTools(localDb);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'multi-roundtable fence test',
       });
@@ -913,6 +926,7 @@ describe('roundtable tools', () => {
       const localDb = tempDB();
       const issues = issueTools(localDb);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'gate expiry test',
       });
@@ -940,6 +954,7 @@ describe('roundtable tools', () => {
       );
       const issues = issueTools(localDb);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'gate expiry test',
       });
@@ -967,6 +982,7 @@ describe('roundtable tools', () => {
       );
       const issues = issueTools(localDb);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'single-use test',
       });
@@ -1004,6 +1020,7 @@ describe('roundtable tools', () => {
       );
       const issues = issueTools(localDb);
       const issueResult = await call(issues.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'stamp test',
       });

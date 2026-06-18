@@ -33,6 +33,7 @@ function parseBatch(result: RawResult): Array<Record<string, unknown>> {
 async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
+    labels: ['Bug', 'Priority: High'],
     agent: 'bro',
     objective: 'Compaction test issue',
   });
@@ -192,6 +193,7 @@ describe('issue_get_with_discussions compact default (#210)', () => {
     const db = tempDB();
     const issues = issueTools(db);
     const createResult = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
       agent: 'bro',
       objective: 'Redaction compact test',
       description: 'SECRET: must be redacted from swe',

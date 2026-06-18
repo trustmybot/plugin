@@ -30,6 +30,7 @@ async function call(
 async function createIssue(db: TrajectoryDB): Promise<number> {
   const issues = issueTools(db);
   const result = await call(issues.handlers, 'issue_create', {
+    labels: ['Bug', 'Priority: High'],
     agent: 'bro',
     objective: 'Validation test carrier issue',
   });
