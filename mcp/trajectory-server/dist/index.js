@@ -20894,6 +20894,20 @@ function resolvePluginName(env = process.env) {
   }
   return "tmb";
 }
+function resolvePluginVersion(env = process.env) {
+  const root = env["CLAUDE_PLUGIN_ROOT"];
+  if (!root) return null;
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join2(root, ".claude-plugin", "plugin.json"), "utf8")
+    );
+    if (typeof manifest.version === "string" && manifest.version.length > 0) {
+      return manifest.version;
+    }
+  } catch {
+  }
+  return null;
+}
 function resolveDbPath(opts) {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
@@ -20937,6 +20951,7 @@ var TrajectoryDB = class {
     this.db.exec("PRAGMA busy_timeout = 5000");
     this.legacyNoPluginMeta = this.applySchema();
     this.syncPluginVersion();
+    this.syncBuiltinVersions();
   }
   applySchema() {
     const schemaDir = dirname(fileURLToPath(import.meta.url));
@@ -21011,6 +21026,22 @@ var TrajectoryDB = class {
       );
       if (typeof manifest.version !== "string" || manifest.version.length === 0) return;
       this.db.prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`).run(manifest.version);
+    } catch {
+    }
+  }
+  /**
+   * Backfill the builtin cheatcodes' `version` to the plugin version (#111).
+   * The schema-seed (schema.sql) and the v19→v20 migration both insert builtin
+   * skill rows with version NULL — the SKILL.md body is the source of truth, but
+   * the registry row should still record which plugin version shipped it so
+   * cheatcode_list surfaces a version for every row. Runs every startup against
+   * the resolved plugin version; a no-op when the version is unresolvable.
+   */
+  syncBuiltinVersions(env = process.env) {
+    const version2 = resolvePluginVersion(env);
+    if (!version2) return;
+    try {
+      this.db.prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`).run(version2);
     } catch {
     }
   }
@@ -29860,6 +29891,27 @@ function cheatcodeTools(db2) {
         },
         required: ["agent", "cheatcode_id"]
       }
+    },
+    {
+      name: "cheatcode_list",
+      description: 'Read-only inspect of the installed cheatcode registry (the cheatcodes table) \u2014 every builtin + installed capability the project knows about, ordered by id. Returns id, name, kind, origin, source_url, version, trust_tier, scope, status, description per row. This is the inspect surface for "do the cheatcodes work / which cheatcodes are installed", distinct from the discovery pipeline (cheatcode_search \u2192 vet \u2192 install). Optionally filter by kind or status.',
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          kind: {
+            type: "string",
+            enum: ["skill", "mcp", "plugin"],
+            description: "Filter to one cheatcode kind. Omit for all kinds."
+          },
+          status: {
+            type: "string",
+            enum: ["installed", "active", "broken"],
+            description: "Filter to one lifecycle status. Omit for all statuses."
+          }
+        },
+        required: ["agent"]
+      }
     }
   ];
   const handlers = {
@@ -29985,12 +30037,13 @@ function cheatcodeTools(db2) {
         );
         const placementScope = scope === "global" ? "global" : "project-local";
         const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
+        const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
           const res = db2.run(
-            `INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, version, trust_tier, scope, status, installed_at)
-             VALUES (?, ?, 'installed', ?, ?, ?, ?, ?, 'installed', ?)`,
-            [name, kind, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]
+            `INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
+             VALUES (?, ?, 'installed', ?, ?, ?, ?, ?, ?, 'installed', ?)`,
+            [name, kind, description, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]
           );
           const id = Number(res.lastInsertRowid);
           for (const att of out.attachments) {
@@ -30151,6 +30204,31 @@ function cheatcodeTools(db2) {
           status: verdict.status,
           reason: verdict.reason
         });
+      })
+    ),
+    cheatcode_list: requireRoles(
+      "cheatcode_list",
+      ["bro"],
+      wrap4(async (args) => {
+        const rawKind = args["kind"]?.trim();
+        const rawStatus = args["status"]?.trim();
+        const where = [];
+        const params = [];
+        if (rawKind) {
+          where.push("kind = ?");
+          params.push(rawKind);
+        }
+        if (rawStatus) {
+          where.push("status = ?");
+          params.push(rawStatus);
+        }
+        const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+        const rows = db2.all(
+          `SELECT id, name, kind, origin, source_url, version, trust_tier, scope, status, description
+             FROM cheatcodes ${clause} ORDER BY id`,
+          params
+        );
+        return ok17({ cheatcodes: rows });
       })
     )
   };

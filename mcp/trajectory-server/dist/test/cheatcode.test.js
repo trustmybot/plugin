@@ -6,7 +6,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
+import { TrajectoryDB } from '../db.js';
 import { cheatcodeTools } from '../tools/cheatcode.js';
+// The plugin root on disk — four levels up from dist/test, the same walk the
+// tool's script resolution uses. Carries .claude-plugin/plugin.json, whose
+// version the builtin-version backfill (#111) reads.
+const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 // The real cheatcode-uninstall.sh on disk — same resolution the tool uses
 // (dist/test → ../../../../scripts). Run directly so the mcp-deregister branch
 // is exercised on the real dispatch, not a fixtured shortcut.
@@ -908,6 +913,101 @@ describe('cheatcode_activate', () => {
         const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'swe', cheatcode_id: 1 });
         assert.equal(r.isError, true);
         assert.equal(parse(r)['error'], 'forbidden');
+    });
+});
+const INSTALL_OK_LIST = JSON.stringify({ installed: true, version: '1.2.3' });
+describe('cheatcode_list', () => {
+    function withFixture(body) {
+        const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-list-'));
+        const path = join(dir, 'install.json');
+        writeFileSync(path, body);
+        return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+    }
+    it('returns the cheatcodes table rows ordered by id, including the seeded builtins', async () => {
+        const db = tempDB();
+        const tools = cheatcodeTools(db);
+        const r = await call(tools.handlers, 'cheatcode_list', { agent: 'bro' });
+        assert.notEqual(r.isError, true, `list errored: ${r.content[0]?.text}`);
+        const rows = parse(r)['cheatcodes'];
+        assert.ok(rows.length >= 1, 'at least the builtin skills are listed');
+        assert.ok(rows.some((c) => c.name === 'tmb_cheatcode' && c.origin === 'builtin'));
+        for (let i = 1; i < rows.length; i++) {
+            assert.ok(rows[i - 1].id <= rows[i].id, `id order violated at index ${i}`);
+        }
+    });
+    it('surfaces an installed plugin row with its version, status, and description', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK_LIST);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+                trust_tier: 'trusted',
+            });
+            const r = await call(tools.handlers, 'cheatcode_list', { agent: 'bro' });
+            const rows = parse(r)['cheatcodes'];
+            const installed = rows.find((c) => c.name === 'pdf-plugin');
+            assert.ok(installed, 'installed plugin row is listed');
+            assert.equal(installed.origin, 'installed');
+            assert.equal(installed.version, '1.2.3');
+            assert.equal(installed.status, 'installed');
+            assert.ok(installed.description.length > 0, 'description is non-empty');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('filters by kind and by status', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK_LIST);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+            });
+            const byKind = parse(await call(tools.handlers, 'cheatcode_list', { agent: 'bro', kind: 'plugin' }))['cheatcodes'];
+            assert.ok(byKind.length >= 1, 'at least one plugin row');
+            assert.ok(byKind.every((c) => c.kind === 'plugin'), 'only plugin kind returned');
+            const byStatus = parse(await call(tools.handlers, 'cheatcode_list', { agent: 'bro', status: 'installed' }))['cheatcodes'];
+            assert.ok(byStatus.every((c) => c.status === 'installed'), 'only installed status returned');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('rejects a non-bro caller', async () => {
+        const db = tempDB();
+        const tools = cheatcodeTools(db);
+        const r = await call(tools.handlers, 'cheatcode_list', { agent: 'swe' });
+        assert.equal(r.isError, true);
+        assert.equal(parse(r)['error'], 'forbidden');
+    });
+});
+describe('builtin cheatcode version backfill (#111)', () => {
+    it('stamps every builtin row with the plugin version when CLAUDE_PLUGIN_ROOT resolves', () => {
+        const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+        process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+        try {
+            const db = new TrajectoryDB(':memory:');
+            const expected = JSON.parse(readFileSync(join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).version;
+            const builtins = db.all(`SELECT name, version FROM cheatcodes WHERE origin = 'builtin'`);
+            assert.ok(builtins.length >= 1, 'builtin rows seeded');
+            for (const row of builtins) {
+                assert.equal(row.version, expected, `${row.name} carries the plugin version`);
+            }
+        }
+        finally {
+            if (prev === undefined)
+                delete process.env['CLAUDE_PLUGIN_ROOT'];
+            else
+                process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+        }
     });
 });
 //# sourceMappingURL=cheatcode.test.js.map

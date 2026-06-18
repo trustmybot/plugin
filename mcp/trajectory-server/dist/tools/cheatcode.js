@@ -436,6 +436,27 @@ export function cheatcodeTools(db) {
                 required: ['agent', 'cheatcode_id'],
             },
         },
+        {
+            name: 'cheatcode_list',
+            description: 'Read-only inspect of the installed cheatcode registry (the cheatcodes table) — every builtin + installed capability the project knows about, ordered by id. Returns id, name, kind, origin, source_url, version, trust_tier, scope, status, description per row. This is the inspect surface for "do the cheatcodes work / which cheatcodes are installed", distinct from the discovery pipeline (cheatcode_search → vet → install). Optionally filter by kind or status.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                    kind: {
+                        type: 'string',
+                        enum: ['skill', 'mcp', 'plugin'],
+                        description: 'Filter to one cheatcode kind. Omit for all kinds.',
+                    },
+                    status: {
+                        type: 'string',
+                        enum: ['installed', 'active', 'broken'],
+                        description: 'Filter to one lifecycle status. Omit for all statuses.',
+                    },
+                },
+                required: ['agent'],
+            },
+        },
     ];
     const handlers = {
         cheatcode_search: requireRoles('cheatcode_search', ['bro'], wrap(async (args) => {
@@ -548,12 +569,19 @@ export function cheatcodeTools(db) {
             // canonical project-local skill location is the proposed-PR target.
             // mcp/plugin kinds keep file_path NULL.
             const filePath = kind === 'skill' ? `.claude/skills/${name}/SKILL.md` : null;
+            // A non-empty description keeps installed rows legible in cheatcode_list
+            // (#111) — the registry default is '' which reads as a blank row. Derive
+            // it from the candidate name + kind, enriched with the trust_tier when
+            // vetting recorded one.
+            const description = trustTier
+                ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})`
+                : `${kind} cheatcode '${name}' (installed)`;
             // One transaction: the cheatcodes row + every attachment row + both
             // audit rows land together or not at all. origin='installed' (#101).
             const installedAt = nowISO();
             const cheatcodeId = db.transaction(() => {
-                const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, version, trust_tier, scope, status, installed_at)
-             VALUES (?, ?, 'installed', ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]);
+                const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
+             VALUES (?, ?, 'installed', ?, ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, description, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]);
                 const id = Number(res.lastInsertRowid);
                 for (const att of out.attachments) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
@@ -696,6 +724,24 @@ export function cheatcodeTools(db) {
                 status: verdict.status,
                 reason: verdict.reason,
             });
+        })),
+        cheatcode_list: requireRoles('cheatcode_list', ['bro'], wrap(async (args) => {
+            const rawKind = args['kind']?.trim();
+            const rawStatus = args['status']?.trim();
+            const where = [];
+            const params = [];
+            if (rawKind) {
+                where.push('kind = ?');
+                params.push(rawKind);
+            }
+            if (rawStatus) {
+                where.push('status = ?');
+                params.push(rawStatus);
+            }
+            const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+            const rows = db.all(`SELECT id, name, kind, origin, source_url, version, trust_tier, scope, status, description
+             FROM cheatcodes ${clause} ORDER BY id`, params);
+            return ok({ cheatcodes: rows });
         })),
     };
     return { definitions, handlers };

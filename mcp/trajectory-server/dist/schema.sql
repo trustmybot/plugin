@@ -361,6 +361,11 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
     -- local|global --scope vocabulary it forwards to the marketplace.
     scope        TEXT    NOT NULL DEFAULT 'project-local'
                    CHECK (scope IN ('global','template','project-local')),
+    -- status (#112): the install lifecycle. 'installed' = recorded but not
+    -- confirmed loaded (new installs land here); 'active' = loaded/usable
+    -- (builtin skills seed here); 'broken' = recorded but failed (e.g. an
+    -- uninstall whose teardown left the artifact on disk). No CHECK — runtime
+    -- reconciliation to active/broken is the health-check (#113).
     status       TEXT    NOT NULL DEFAULT 'installed',
     installed_at TEXT    NOT NULL,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),

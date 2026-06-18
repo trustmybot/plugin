@@ -1,10 +1,14 @@
 ---
 name: tmb_cheatcode
 description: When bro hits a wall — a task leans on a capability the project plainly lacks — and an existing published skill, MCP toolkit, or plugin would close the gap better than hand-rolled code. Bro names the gap, calls cheatcode_search for ranked candidates, judges which best fits this task and codebase, and recommends it for the Human to approve. Loaded when grabbing an external cheatcode beats grinding the capability out from scratch.
-allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, mcp__plugin_tmb_trajectory-server__cheatcode_vet, AskUserQuestion
+allowed-tools: mcp__plugin_tmb_trajectory-server__cheatcode_search, mcp__plugin_tmb_trajectory-server__cheatcode_vet, mcp__plugin_tmb_trajectory-server__cheatcode_list, AskUserQuestion
 ---
 
 # cheatcode
+
+## Already installed?
+
+When the Human refers to "cheatcode(s)" directly — "do the cheatcodes work", "which cheatcodes are installed", "is X already a cheatcode" — inspect the installed registry first with `cheatcode_list(agent='bro')` (the `cheatcodes` table). That's the read surface for what's on hand; it's distinct from the discovery pipeline below (search → vet → install), which is for closing a gap that nothing installed covers.
 
 ## Is the gap real?
 

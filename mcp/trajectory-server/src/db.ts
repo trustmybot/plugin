@@ -38,6 +38,27 @@ export function resolvePluginName(env: NodeJS.ProcessEnv = process.env): string 
 }
 
 /**
+ * Resolve the plugin version from CLAUDE_PLUGIN_ROOT's manifest. Returns null
+ * when the env is unset or the manifest is unreadable / carries no version —
+ * the builtin-version backfill (#111) then leaves the column unchanged.
+ */
+export function resolvePluginVersion(env: NodeJS.ProcessEnv = process.env): string | null {
+  const root = env['CLAUDE_PLUGIN_ROOT'];
+  if (!root) return null;
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'),
+    );
+    if (typeof manifest.version === 'string' && manifest.version.length > 0) {
+      return manifest.version;
+    }
+  } catch {
+    // Fall through to null below.
+  }
+  return null;
+}
+
+/**
  * Resolve the trajectory DB path.
  *
  * 1. Explicit `TRAJECTORY_DB_PATH` env override wins. Power-user / CI use.
@@ -115,6 +136,7 @@ export class TrajectoryDB {
     this.db.exec('PRAGMA busy_timeout = 5000');
     this.legacyNoPluginMeta = this.applySchema();
     this.syncPluginVersion();
+    this.syncBuiltinVersions();
   }
 
   private applySchema(): boolean {
@@ -228,6 +250,26 @@ export class TrajectoryDB {
         .run(manifest.version);
     } catch {
       // Silent skip — leave existing value unchanged.
+    }
+  }
+
+  /**
+   * Backfill the builtin cheatcodes' `version` to the plugin version (#111).
+   * The schema-seed (schema.sql) and the v19→v20 migration both insert builtin
+   * skill rows with version NULL — the SKILL.md body is the source of truth, but
+   * the registry row should still record which plugin version shipped it so
+   * cheatcode_list surfaces a version for every row. Runs every startup against
+   * the resolved plugin version; a no-op when the version is unresolvable.
+   */
+  private syncBuiltinVersions(env: NodeJS.ProcessEnv = process.env): void {
+    const version = resolvePluginVersion(env);
+    if (!version) return;
+    try {
+      this.db
+        .prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`)
+        .run(version);
+    } catch {
+      // Silent skip — a DB without the cheatcodes table leaves builtins untouched.
     }
   }
 
@@ -368,7 +410,11 @@ export type CheatcodeRow = {
   version: string | null;
   trust_tier: string | null;
   scope: 'global' | 'template' | 'project-local';
-  status: string;
+  // Lifecycle (#112): 'installed' = recorded but not confirmed loaded;
+  // 'active' = loaded/usable (builtins seed here); 'broken' = recorded but
+  // failed (e.g. a teardown that left the artifact on disk). No CHECK on the
+  // column — runtime reconciliation to active/broken is the health-check (#113).
+  status: 'installed' | 'active' | 'broken';
   installed_at: string;
   created_at: string;
   updated_at: string;
