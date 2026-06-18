@@ -283,16 +283,6 @@
         ]
       },
       {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/skill-invocation-record.sh",
-            "timeout": 3
-          }
-        ]
-      },
-      {
         "matcher": "mcp__.*trajectory-server__pr_comments_get",
         "hooks": [
           {

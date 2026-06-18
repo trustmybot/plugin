@@ -95,21 +95,6 @@ export function skillTools(db: TrajectoryDB): {
       },
     },
     {
-      name: 'skill_invocations_list',
-      description:
-        'List skill_invocations rows. Bidirectional: filter by skill_name (which agent_runs used skill X?) or by agent_run_id/task_id (what did this run/task touch?).',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          agent: { type: 'string' },
-          skill_name: { type: 'string' },
-          agent_run_id: { type: 'integer' },
-          task_id: { type: 'integer' },
-          limit: { type: 'integer', description: 'Default 200, max 1000.' },
-        },
-      },
-    },
-    {
       name: 'skill_promote',
       description: 'Promote or deprecate a skill status or trust_tier.',
       inputSchema: {
@@ -174,37 +159,6 @@ export function skillTools(db: TrajectoryDB): {
 
       const row = db.get<Skill>('SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()');
       return ok(row);
-    }),
-
-    skill_invocations_list: wrapHandler(async (args) => {
-      requireArg(args, 'agent');
-      const filters: string[] = [];
-      const params: unknown[] = [];
-      if (typeof args['skill_name'] === 'string') {
-        filters.push('skill_name = ?');
-        params.push(args['skill_name']);
-      }
-      if (args['agent_run_id'] !== undefined && args['agent_run_id'] !== null) {
-        filters.push('agent_run_id = ?');
-        params.push(Number(args['agent_run_id']));
-      }
-      if (args['task_id'] !== undefined && args['task_id'] !== null) {
-        filters.push('task_id = ?');
-        params.push(Number(args['task_id']));
-      }
-      const where = filters.length > 0 ? 'WHERE ' + filters.join(' AND ') : '';
-      const limit = Math.min(Math.max(1, Number(args['limit'] ?? 200)), 1000);
-      params.push(limit);
-
-      const rows = db.all<Record<string, unknown>>(
-        `SELECT id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome
-           FROM skill_invocations
-           ${where}
-           ORDER BY id DESC
-           LIMIT ?`,
-        params,
-      );
-      return ok({ rows, count: rows.length });
     }),
 
     skill_promote: wrapHandler(async (args) => {

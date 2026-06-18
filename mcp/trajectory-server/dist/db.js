@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 20;
+const TARGET_SCHEMA_VERSION = 21;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -450,6 +450,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 20 && toVersion >= 20) {
         migrateV19toV20(db);
+    }
+    if (fromVersion < 21 && toVersion >= 21) {
+        migrateV20toV21(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -1000,6 +1003,13 @@ function migrateV19toV20(db) {
         }
         throw err;
     }
+}
+// v20→v21: retire skill_invocations (#118). TMB no longer records skill/plugin/
+// cheatcode usage in the trajectory DB — verification moved to the stream-json
+// log. Drop the table outright; no replacement. Its only FK referenced
+// cheatcodes(name), so dropping it leaves no dangling references in other tables.
+function migrateV20toV21(db) {
+    db.exec('DROP TABLE IF EXISTS skill_invocations');
 }
 function migrateV7toV8(db) {
     db.exec('BEGIN');

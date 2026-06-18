@@ -59,55 +59,6 @@ describe('#101 builtin skill scope in the unified cheatcodes registry', () => {
   });
 });
 
-describe('#2886 skill_invocations junction', () => {
-  // The deterministic scripts/hooks/skill-invocation-record.sh hook is the sole
-  // writer of skill_invocations; the honor-system skill_record_invocation tool
-  // was retired in #96. The reader (skill_invocations_list) stays, so these
-  // tests seed rows the way the hook does — a direct INSERT.
-  function recordInvocation(
-    db: ReturnType<typeof tempDB>,
-    skillName: string,
-    agentRunId: number | null,
-    taskId: number | null = null,
-    outcome = 'completed',
-  ): void {
-    db.run(
-      `INSERT INTO skill_invocations
-         (skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome)
-       VALUES (?, 'bro', ?, ?, datetime('now'), ?)`,
-      [skillName, agentRunId, taskId, outcome],
-    );
-  }
-
-  it('skill_invocations_list is bidirectional — by skill_name OR by agent_run_id/task_id', async () => {
-    const db = tempDB();
-    const skills = skillTools(db);
-    db.run(
-      `INSERT INTO agent_runs (agent_type, started_at, completed_at)
-       VALUES ('bro', datetime('now'), datetime('now')),
-              ('bro', datetime('now'), datetime('now'))`,
-    );
-    const runs = db.all<{ id: number }>(`SELECT id FROM agent_runs ORDER BY id`);
-    const [run1, run2] = runs.map((r) => r.id);
-
-    // run1 used tmb_planning + tmb_review; run2 used only tmb_planning
-    recordInvocation(db, 'tmb_planning', run1!);
-    recordInvocation(db, 'tmb_review', run1!);
-    recordInvocation(db, 'tmb_planning', run2!);
-
-    const byRun = parse(
-      await call(skills.handlers, 'skill_invocations_list', { agent: 'bro', agent_run_id: run1 }),
-    );
-    assert.equal(byRun.count, 2);
-
-    const bySkill = parse(
-      await call(skills.handlers, 'skill_invocations_list', { agent: 'bro', skill_name: 'tmb_planning' }),
-    );
-    assert.equal(bySkill.count, 2);
-    db.close();
-  });
-});
-
 describe('#2886 bro-as-agent_run composite', () => {
   it('task_create_batch opens a bro agent_run per task (completed_at NULL until close)', async () => {
     const db = tempDB();

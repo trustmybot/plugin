@@ -425,7 +425,7 @@ describe('issue_report_md summary mode (#210)', () => {
         assert.ok(!md.includes('Audit event 1'), 'Event 1 must NOT be in summary');
         db.close();
     });
-    it('detail mode: returns full Tasks + Validation + Audit + Skills sections', async () => {
+    it('detail mode: returns full Tasks + Validation + Audit sections', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         await createTask(db, issueId);
@@ -450,7 +450,6 @@ describe('issue_report_md summary mode (#210)', () => {
         assert.ok(md.includes('## Tasks'), 'Detail must have Tasks section');
         assert.ok(md.includes('## Validation History'), 'Detail must have Validation History section');
         assert.ok(md.includes('## Audit Event Timeline'), 'Detail must have Audit Event Timeline section');
-        assert.ok(md.includes('## Skill Usage Summary'), 'Detail must have Skill Usage section');
         assert.ok(md.includes('Detail mode audit entry'), 'Audit entry must appear in detail report');
         db.close();
     });

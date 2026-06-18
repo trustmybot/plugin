@@ -156,22 +156,6 @@ export function reportTools(db) {
                 }
             }
             lines.push('');
-            const skillsUsed = db.all(`SELECT skill_name, COUNT(*) AS invocations
-           FROM skill_invocations
-           GROUP BY skill_name
-           ORDER BY invocations DESC, skill_name ASC`);
-            lines.push('## Skill Usage Summary');
-            lines.push('');
-            if (skillsUsed.length === 0) {
-                lines.push('_No skill usage recorded._');
-            }
-            else {
-                lines.push('| Skill | Invocations |');
-                lines.push('|-------|-------------|');
-                for (const s of skillsUsed) {
-                    lines.push(`| ${s.skill_name} | ${s.invocations} |`);
-                }
-            }
             return ok({ markdown: lines.join('\n'), mode: 'detail' });
         }),
         issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'pr-reviewer'], wrapHandler(async (args) => {

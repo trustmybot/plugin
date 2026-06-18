@@ -24,8 +24,6 @@ describe('schema — current table set, default values, constraints', () => {
       'agent_runs',
       'pr_review_runs',
       'repos',
-      // #2886 capability catalog junction
-      'skill_invocations',
       // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
       'discussions_fts',
       'audit_fts',
@@ -127,14 +125,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 20 in plugin_meta', () => {
+  it('fresh DB has schema_version = 21 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 20);
+    assert.equal(meta.schema_version, 21);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

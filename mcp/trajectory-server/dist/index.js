@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 20;
+var TARGET_SCHEMA_VERSION = 21;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21227,6 +21227,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 20 && toVersion >= 20) {
     migrateV19toV20(db2);
+  }
+  if (fromVersion < 21 && toVersion >= 21) {
+    migrateV20toV21(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -21648,6 +21651,9 @@ function migrateV19toV20(db2) {
     }
     throw err18;
   }
+}
+function migrateV20toV21(db2) {
+  db2.exec("DROP TABLE IF EXISTS skill_invocations");
 }
 function migrateV7toV8(db2) {
   db2.exec("BEGIN");
@@ -25281,20 +25287,6 @@ function skillTools(db2) {
       }
     },
     {
-      name: "skill_invocations_list",
-      description: "List skill_invocations rows. Bidirectional: filter by skill_name (which agent_runs used skill X?) or by agent_run_id/task_id (what did this run/task touch?).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          skill_name: { type: "string" },
-          agent_run_id: { type: "integer" },
-          task_id: { type: "integer" },
-          limit: { type: "integer", description: "Default 200, max 1000." }
-        }
-      }
-    },
-    {
       name: "skill_promote",
       description: "Promote or deprecate a skill status or trust_tier.",
       inputSchema: {
@@ -25346,35 +25338,6 @@ function skillTools(db2) {
       );
       const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
       return ok6(row);
-    }),
-    skill_invocations_list: wrapHandler6(async (args) => {
-      requireArg6(args, "agent");
-      const filters = [];
-      const params = [];
-      if (typeof args["skill_name"] === "string") {
-        filters.push("skill_name = ?");
-        params.push(args["skill_name"]);
-      }
-      if (args["agent_run_id"] !== void 0 && args["agent_run_id"] !== null) {
-        filters.push("agent_run_id = ?");
-        params.push(Number(args["agent_run_id"]));
-      }
-      if (args["task_id"] !== void 0 && args["task_id"] !== null) {
-        filters.push("task_id = ?");
-        params.push(Number(args["task_id"]));
-      }
-      const where = filters.length > 0 ? "WHERE " + filters.join(" AND ") : "";
-      const limit = Math.min(Math.max(1, Number(args["limit"] ?? 200)), 1e3);
-      params.push(limit);
-      const rows = db2.all(
-        `SELECT id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome
-           FROM skill_invocations
-           ${where}
-           ORDER BY id DESC
-           LIMIT ?`,
-        params
-      );
-      return ok6({ rows, count: rows.length });
     }),
     skill_promote: wrapHandler6(async (args) => {
       requireArg6(args, "agent");
@@ -25800,23 +25763,6 @@ function reportTools(db2) {
         }
       }
       lines.push("");
-      const skillsUsed = db2.all(
-        `SELECT skill_name, COUNT(*) AS invocations
-           FROM skill_invocations
-           GROUP BY skill_name
-           ORDER BY invocations DESC, skill_name ASC`
-      );
-      lines.push("## Skill Usage Summary");
-      lines.push("");
-      if (skillsUsed.length === 0) {
-        lines.push("_No skill usage recorded._");
-      } else {
-        lines.push("| Skill | Invocations |");
-        lines.push("|-------|-------------|");
-        for (const s of skillsUsed) {
-          lines.push(`| ${s.skill_name} | ${s.invocations} |`);
-        }
-      }
       return ok8({ markdown: lines.join("\n"), mode: "detail" });
     }),
     issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler8(async (args) => {

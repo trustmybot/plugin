@@ -552,7 +552,6 @@ describe('reportTools', () => {
     assert.ok(data.markdown.includes('## Tasks'), 'Missing Tasks section');
     assert.ok(data.markdown.includes('## Validation History'), 'Missing Validation History section');
     assert.ok(data.markdown.includes('## Audit Event Timeline'), 'Missing Audit Event Timeline section');
-    assert.ok(data.markdown.includes('## Skill Usage Summary'), 'Missing Skill Usage section');
     assert.ok(data.markdown.includes('SWE began work'), 'Audit event missing from report');
 
     db.close();

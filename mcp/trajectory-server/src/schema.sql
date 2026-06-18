@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 20, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 21, '0.0.0');
 
 -- repos table: written by /scan. One row per discovered git repo under the
 -- session dir. Kuzu world-model Directory nodes reference repos.name as their
@@ -184,7 +184,7 @@ INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
 -- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
 -- via swe-atomic-close.sh on every SWE completion, AND by composites for the
 -- bro-as-agent_run row (#2886): bro's per-task tokens become a first-class
--- citizen so skill_invocations can FK to them. Bro rows
+-- citizen. Bro rows
 -- are inserted at task_create_batch (completed_at NULL until close) and
 -- finalized at bro_atomic_close — hence completed_at is nullable.
 CREATE TABLE IF NOT EXISTS agent_runs (
@@ -239,31 +239,6 @@ CREATE TABLE IF NOT EXISTS pr_review_runs (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
-
--- Junction table — the load-bearing bridge (#2886). One row per
--- skill invocation. Bridges the catalog (cheatcodes, #101) to the
--- agent_run that triggered it. Enables forward queries ("what did this
--- agent_run touch") and reverse queries ("which agent_runs used skill X")
--- with cheap indexes on both sides.
---
--- agent_run_id is nullable: a Skill can fire during a session that has no
--- tracked agent_run yet (e.g., bro firing tmb_planning during onboarding
--- before the first task_create_batch creates a bro row). In that case
--- agent_name is the fallback attribution.
-CREATE TABLE IF NOT EXISTS skill_invocations (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    skill_name    TEXT    NOT NULL REFERENCES cheatcodes(name),
-    agent_name    TEXT    NOT NULL,
-    agent_run_id  INTEGER REFERENCES agent_runs(id),
-    task_id       INTEGER REFERENCES tasks(id),
-    invoked_at    TEXT    NOT NULL,
-    outcome       TEXT    NOT NULL DEFAULT 'completed'
-                    CHECK (outcome IN ('completed','failed','partial'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_name);
-CREATE INDEX IF NOT EXISTS idx_skill_invocations_task  ON skill_invocations(task_id);
-CREATE INDEX IF NOT EXISTS idx_skill_invocations_agent_run ON skill_invocations(agent_run_id);
 
 -- FTS5 virtual tables for keyword search (Phase 1 of #2905).
 -- content= tables shadow the source table so SQLite keeps them in sync
