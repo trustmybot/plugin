@@ -62,8 +62,9 @@ l5_preserve_trajectory() {
 # Shared header injected before every test prompt. The "Don't call AUQ"
 # instruction is the cheap first line of defense against AUQ firing in
 # tests (the auq-headless-deny.sh PreToolUse hook is the second). Skips
-# the SDK + API-key cost we'd otherwise need to answer AUQ programmatically;
-# AUQ rendering / option labels are exercised separately in manual smoke.
+# the SDK + API-key cost we'd otherwise need to answer AUQ programmatically.
+# AUQ rendering / option labels aren't exercised here — that surface is
+# covered by the L1 auq-shape lint + the auq-headless-deny hook.
 _l5_test_prompt_prefix() {
   cat <<'EOF'
 [TEST MODE] Do not call AskUserQuestion. Apply documented defaults from skills/CLAUDE.md and continue; when a skill's documented behavior is to hold for the Human (e.g. concerns-protocol Path A), recording the note and holding IS the documented default — do not push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose.
