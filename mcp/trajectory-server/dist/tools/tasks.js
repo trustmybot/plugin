@@ -544,8 +544,8 @@ export function taskTools(db) {
             // task_create_batch. Replaces the older simple/difficult triage gate +
             // decision-when-difficult gate combo. The audit trail is uniformly useful
             // — for trivial work the decision body can be one short sentence; for
-            // architectural work it's bro's planned rationale (and a sibling ADR
-            // file lands under docs/trustmybot/architecture/manual/decisions/).
+            // architectural work it's bro's planned rationale recorded as a
+            // kind='decision' discussion (discussion_append).
             const decisionGateWaived = args['waive_decision_gate'] === true;
             const decisionGateWaiverReason = (args['waive_decision_gate_reason'] ?? '');
             if (decisionGateWaived) {
@@ -566,7 +566,7 @@ export function taskTools(db) {
                                     error: 'decision_gate_violation',
                                     message: `Decision gate: issue ${issueId} has zero kind='decision' discussions. ` +
                                         `tmb_planning mandates discussion_append(kind='decision', body='<chosen approach: what, why, trade-offs>') ` +
-                                        `before task_create_batch. For architectural changes also author an ADR at docs/trustmybot/architecture/manual/decisions/. ` +
+                                        `before task_create_batch. For architectural changes, record the decision + rationale as a kind=decision discussion (discussion_append). ` +
                                         `For trivial waives, pass waive_decision_gate=true with waive_decision_gate_reason="<why>".`,
                                     issue_id: issueId,
                                 }),
