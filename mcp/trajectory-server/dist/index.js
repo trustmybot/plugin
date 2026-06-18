@@ -6799,7 +6799,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync6, readFileSync as readFileSync4 } from "node:fs";
+import { mkdirSync as mkdirSync7, readFileSync as readFileSync5 } from "node:fs";
 import { performance as performance2 } from "node:perf_hooks";
 
 // ../../node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -29436,8 +29436,8 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync7 } from "node:fs";
-import { dirname as dirname9, join as join10 } from "node:path";
+import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname9, join as join10, sep as sep2 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -29712,6 +29712,83 @@ function parseInstallCandidate(raw) {
     tier: typeof tierVal === "number" ? tierVal : void 0
   };
 }
+function projectRootFromDbPath(dbPath2) {
+  if (!dbPath2 || dbPath2 === ":memory:") return null;
+  const segments = dbPath2.split(sep2);
+  const idx = segments.indexOf(".claude");
+  if (idx <= 0) return null;
+  return segments.slice(0, idx).join(sep2) || sep2;
+}
+function resolveGlobalAgentMd(target) {
+  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
+  if (pluginRoot) {
+    const c2 = join10(pluginRoot, "agents", `${target}.md`);
+    if (existsSync7(c2)) return c2;
+  }
+  const here = dirname9(fileURLToPath5(import.meta.url));
+  const c = join10(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  if (existsSync7(c)) return c;
+  return null;
+}
+function addSkillToAgentFrontmatter(content, skillName) {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) {
+    return `---
+skills: [${skillName}]
+---
+
+${content}`;
+  }
+  const fm = fmMatch[1];
+  const skillsLine = fm.match(/^skills:\s*\[(.*)\]\s*$/m);
+  if (skillsLine) {
+    const entries = skillsLine[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    if (entries.includes(skillName)) return content;
+    entries.push(skillName);
+    const rebuilt = `skills: [${entries.join(", ")}]`;
+    const newFm2 = fm.replace(/^skills:\s*\[.*\]\s*$/m, rebuilt);
+    return content.replace(fm, newFm2);
+  }
+  const newFm = `${fm}
+skills: [${skillName}]`;
+  return content.replace(fm, newFm);
+}
+function materializeConsumingAgent(dbPath2, target, skillName) {
+  const projectRoot = projectRootFromDbPath(dbPath2);
+  if (!projectRoot) return null;
+  const claudeDir = join10(projectRoot, ".claude");
+  if (target === "bro") {
+    const claudeMd = join10(claudeDir, "CLAUDE.md");
+    const reference = `Installed skill: ${skillName} \u2014 load it when its capability is needed.`;
+    let body = existsSync7(claudeMd) ? readFileSync4(claudeMd, "utf8") : "";
+    if (!body.includes(reference)) {
+      const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
+      body = body.length === 0 ? `${reference}
+` : `${body}${prefix}${reference}
+`;
+      mkdirSync6(claudeDir, { recursive: true });
+      writeFileSync4(claudeMd, body);
+    }
+    return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
+  }
+  const localAgentMd = join10(claudeDir, "agents", `${target}.md`);
+  let content;
+  if (existsSync7(localAgentMd)) {
+    content = readFileSync4(localAgentMd, "utf8");
+  } else {
+    const globalAgentMd = resolveGlobalAgentMd(target);
+    if (!globalAgentMd) return null;
+    content = readFileSync4(globalAgentMd, "utf8");
+  }
+  const updated = addSkillToAgentFrontmatter(content, skillName);
+  mkdirSync6(dirname9(localAgentMd), { recursive: true });
+  writeFileSync4(localAgentMd, updated);
+  return {
+    target,
+    artifact: `agent-md:.claude/agents/${target}.md`,
+    path: localAgentMd
+  };
+}
 function cheatcodeTools(db2) {
   const definitions = [
     {
@@ -29779,7 +29856,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default \u2014 pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Skill-kind returns a proposed-PR payload, never writes agent md.",
+      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default \u2014 pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo; without target a skill-kind install returns a proposed-PR payload and writes no agent md.",
       inputSchema: {
         type: "object",
         properties: {
@@ -29803,6 +29880,10 @@ function cheatcodeTools(db2) {
             type: "string",
             enum: ["local", "global"],
             description: "Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row."
+          },
+          target: {
+            type: "string",
+            description: "The consuming agent to materialize for a skill: bro | swe | pr-reviewer | a consultant name. For a non-bro target the install copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter; target=bro materializes the project .claude/CLAUDE.md. Idempotent; writes the user project only. Omit to skip materialization."
           }
         },
         required: ["agent", "candidate"]
@@ -29953,6 +30034,7 @@ function cheatcodeTools(db2) {
         const trustTier = args["trust_tier"]?.trim() ?? null;
         const rawScope = args["scope"]?.trim();
         const scope = rawScope === "global" ? "global" : "local";
+        const target = args["target"]?.trim() || null;
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
           [name, sourceUrl]
@@ -29984,6 +30066,7 @@ function cheatcodeTools(db2) {
         const placementScope = scope === "global" ? "global" : "project-local";
         const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
         const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
+        const materialized = target && kind === "skill" ? materializeConsumingAgent(db2.dbPath, target, name) : null;
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
           const res = db2.run(
@@ -29997,6 +30080,13 @@ function cheatcodeTools(db2) {
               `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`,
               [id, att.target, att.artifact, installedAt]
+            );
+          }
+          if (materialized) {
+            db2.run(
+              `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
+               VALUES (?, ?, ?, ?)`,
+              [id, materialized.target, materialized.artifact, installedAt]
             );
           }
           db2.run(
@@ -30034,8 +30124,13 @@ function cheatcodeTools(db2) {
           version: out.version,
           scope: placementScope,
           attachments: out.attachments,
-          // Skill-kind: the agent-frontmatter edit is a Human-reviewed PR, never
-          // an automatic write — surface the proposed payload, write no md.
+          // When a target was named, the materialized prompt-surface path (the
+          // .claude/agents/<target>.md or .claude/CLAUDE.md written in the user
+          // project). null when no target, or when the surface couldn't resolve.
+          materialized: materialized ? { target: materialized.target, artifact: materialized.artifact, path: materialized.path } : null,
+          // Skill-kind without a target: the agent-frontmatter edit is a
+          // Human-reviewed PR, never an automatic write — surface the proposed
+          // payload, write no md.
           proposed_pr: out.proposed_pr,
           error: out.error
         });
@@ -30519,14 +30614,14 @@ async function startBackfill(db2) {
 // src/index.ts
 var dbPath = resolveDbPath();
 if (dbPath !== ":memory:") {
-  mkdirSync6(path.dirname(dbPath), { recursive: true });
+  mkdirSync7(path.dirname(dbPath), { recursive: true });
 }
 var db = new TrajectoryDB(dbPath);
 function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync4(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync5(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";

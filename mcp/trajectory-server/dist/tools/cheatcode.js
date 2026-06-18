@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
@@ -310,6 +310,111 @@ function parseInstallCandidate(raw) {
         tier: typeof tierVal === 'number' ? tierVal : undefined,
     };
 }
+// The consuming-agent prompt surface lives on an agent md (swe / pr-reviewer /
+// a consultant) for everyone but bro, whose surface is CLAUDE.md. A non-bro
+// target materializes the agent md global→local + a skills: entry; bro
+// materializes a project-local CLAUDE.md reference.
+// Derive the PROJECT ROOT (the dir that owns .claude/) from the trajectory DB
+// path. The DB lives at <root>/.claude/<plugin>/trajectory.db, so the root is
+// the parent of the first `.claude` segment. Returns null for an in-memory DB
+// or a path with no `.claude` segment (e.g. a bespoke TRAJECTORY_DB_PATH).
+function projectRootFromDbPath(dbPath) {
+    if (!dbPath || dbPath === ':memory:')
+        return null;
+    const segments = dbPath.split(sep);
+    const idx = segments.indexOf('.claude');
+    if (idx <= 0)
+        return null;
+    return segments.slice(0, idx).join(sep) || sep;
+}
+// Resolve the GLOBAL agent md the install copies from. The plugin ships its
+// agents at ${CLAUDE_PLUGIN_ROOT}/agents/<target>.md; fall back to the on-disk
+// layout four levels up from this compiled module (mirrors resolveScriptsFile).
+function resolveGlobalAgentMd(target) {
+    const pluginRoot = process.env['CLAUDE_PLUGIN_ROOT'];
+    if (pluginRoot) {
+        const c = join(pluginRoot, 'agents', `${target}.md`);
+        if (existsSync(c))
+            return c;
+    }
+    const here = dirname(fileURLToPath(import.meta.url));
+    const c = join(here, '..', '..', '..', '..', 'agents', `${target}.md`);
+    if (existsSync(c))
+        return c;
+    return null;
+}
+// Add `skillName` to the `skills:` frontmatter array of an agent md, idempotently.
+// Creates the skills: key (inside the leading --- frontmatter block) when absent,
+// never duplicates an existing entry, and preserves the rest of the file verbatim.
+function addSkillToAgentFrontmatter(content, skillName) {
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!fmMatch) {
+        // No frontmatter — prepend a minimal block carrying the skill.
+        return `---\nskills: [${skillName}]\n---\n\n${content}`;
+    }
+    const fm = fmMatch[1];
+    const skillsLine = fm.match(/^skills:\s*\[(.*)\]\s*$/m);
+    if (skillsLine) {
+        const entries = skillsLine[1]
+            .split(',')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        if (entries.includes(skillName))
+            return content; // idempotent
+        entries.push(skillName);
+        const rebuilt = `skills: [${entries.join(', ')}]`;
+        const newFm = fm.replace(/^skills:\s*\[.*\]\s*$/m, rebuilt);
+        return content.replace(fm, newFm);
+    }
+    // No skills: key — append one to the end of the frontmatter block.
+    const newFm = `${fm}\nskills: [${skillName}]`;
+    return content.replace(fm, newFm);
+}
+// Materialize the consuming-agent prompt surface for an installed skill. This is
+// an install action against the USER PROJECT's .claude/ (like /tmb:agent-create)
+// — it NEVER writes into the plugin's shipped agents/ or the plugin's CLAUDE.md.
+// Idempotent: re-install adds no duplicate skill entry / CLAUDE.md line and never
+// clobbers a customized file (edits in place). Returns null when it can't resolve
+// a project root or the global source.
+function materializeConsumingAgent(dbPath, target, skillName) {
+    const projectRoot = projectRootFromDbPath(dbPath);
+    if (!projectRoot)
+        return null;
+    const claudeDir = join(projectRoot, '.claude');
+    if (target === 'bro') {
+        // bro's surface is the project-local CLAUDE.md, not an agent md.
+        const claudeMd = join(claudeDir, 'CLAUDE.md');
+        const reference = `Installed skill: ${skillName} — load it when its capability is needed.`;
+        let body = existsSync(claudeMd) ? readFileSync(claudeMd, 'utf8') : '';
+        if (!body.includes(reference)) {
+            const prefix = body.length === 0 || body.endsWith('\n') ? '' : '\n';
+            body = body.length === 0 ? `${reference}\n` : `${body}${prefix}${reference}\n`;
+            mkdirSync(claudeDir, { recursive: true });
+            writeFileSync(claudeMd, body);
+        }
+        return { target: 'bro', artifact: 'claude-md:.claude/CLAUDE.md', path: claudeMd };
+    }
+    const localAgentMd = join(claudeDir, 'agents', `${target}.md`);
+    let content;
+    if (existsSync(localAgentMd)) {
+        // Never clobber a customized local agent — edit it in place.
+        content = readFileSync(localAgentMd, 'utf8');
+    }
+    else {
+        const globalAgentMd = resolveGlobalAgentMd(target);
+        if (!globalAgentMd)
+            return null;
+        content = readFileSync(globalAgentMd, 'utf8');
+    }
+    const updated = addSkillToAgentFrontmatter(content, skillName);
+    mkdirSync(dirname(localAgentMd), { recursive: true });
+    writeFileSync(localAgentMd, updated);
+    return {
+        target,
+        artifact: `agent-md:.claude/agents/${target}.md`,
+        path: localAgentMd,
+    };
+}
 export function cheatcodeTools(db) {
     const definitions = [
         {
@@ -377,7 +482,7 @@ export function cheatcodeTools(db) {
         },
         {
             name: 'cheatcode_install',
-            description: 'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default — pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Skill-kind returns a proposed-PR payload, never writes agent md.',
+            description: 'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default — pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo; without target a skill-kind install returns a proposed-PR payload and writes no agent md.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -401,6 +506,10 @@ export function cheatcodeTools(db) {
                         type: 'string',
                         enum: ['local', 'global'],
                         description: 'Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row.',
+                    },
+                    target: {
+                        type: 'string',
+                        description: 'The consuming agent to materialize for a skill: bro | swe | pr-reviewer | a consultant name. For a non-bro target the install copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter; target=bro materializes the project .claude/CLAUDE.md. Idempotent; writes the user project only. Omit to skip materialization.',
                     },
                 },
                 required: ['agent', 'candidate'],
@@ -539,6 +648,8 @@ export function cheatcodeTools(db) {
             // Default local so bro never hits a global/local AskUserQuestion.
             const rawScope = args['scope']?.trim();
             const scope = rawScope === 'global' ? 'global' : 'local';
+            // Optional consuming agent to materialize the prompt surface for.
+            const target = args['target']?.trim() || null;
             // Idempotent re-install: the (name, source_url) pair is the candidate
             // identity. If it is already installed, no-op — never duplicate the row
             // or re-run the marketplace install.
@@ -576,6 +687,13 @@ export function cheatcodeTools(db) {
             const description = trustTier
                 ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})`
                 : `${kind} cheatcode '${name}' (installed)`;
+            // When a target is named for a skill, materialize the consuming agent's
+            // prompt surface in the USER PROJECT's .claude/ (copy global agent md →
+            // local + skills: entry, or bro's CLAUDE.md) — never the plugin repo.
+            // The written path becomes an attachment row + is surfaced in the result.
+            const materialized = target && kind === 'skill'
+                ? materializeConsumingAgent(db.dbPath, target, name)
+                : null;
             // One transaction: the cheatcodes row + every attachment row + both
             // audit rows land together or not at all. origin='installed' (#101).
             const installedAt = nowISO();
@@ -586,6 +704,12 @@ export function cheatcodeTools(db) {
                 for (const att of out.attachments) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`, [id, att.target, att.artifact, installedAt]);
+                }
+                // The materialized prompt surface is its own attachment row, keyed by
+                // the consuming agent + the written artifact (agent-md / claude-md).
+                if (materialized) {
+                    db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
+               VALUES (?, ?, ?, ?)`, [id, materialized.target, materialized.artifact, installedAt]);
                 }
                 db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
              VALUES (-1, NULL, 'bro', 'cheatcode_install', ?, ?, ?)`, [
@@ -616,8 +740,15 @@ export function cheatcodeTools(db) {
                 version: out.version,
                 scope: placementScope,
                 attachments: out.attachments,
-                // Skill-kind: the agent-frontmatter edit is a Human-reviewed PR, never
-                // an automatic write — surface the proposed payload, write no md.
+                // When a target was named, the materialized prompt-surface path (the
+                // .claude/agents/<target>.md or .claude/CLAUDE.md written in the user
+                // project). null when no target, or when the surface couldn't resolve.
+                materialized: materialized
+                    ? { target: materialized.target, artifact: materialized.artifact, path: materialized.path }
+                    : null,
+                // Skill-kind without a target: the agent-frontmatter edit is a
+                // Human-reviewed PR, never an automatic write — surface the proposed
+                // payload, write no md.
                 proposed_pr: out.proposed_pr,
                 error: out.error,
             });

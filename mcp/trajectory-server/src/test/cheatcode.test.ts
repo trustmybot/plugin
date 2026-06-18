@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -796,6 +796,263 @@ describe('cheatcode_install', () => {
     assert.equal(r.isError, true);
     const out = parse(r);
     assert.equal(out['error'], 'forbidden');
+  });
+});
+
+// The shipped global agent md the plugin copies global→local at materialize
+// time. These must exist in the plugin repo for the copy to resolve.
+const GLOBAL_SWE_MD = join(PLUGIN_ROOT, 'agents', 'swe.md');
+const GLOBAL_PR_MD = join(PLUGIN_ROOT, 'agents', 'pr-reviewer.md');
+
+// A standalone-skill install fixture: no marketplace attachment, the
+// materialization is the consuming-agent edit. installed:false mirrors the
+// skill-proposed-pr path but the target drives the agent-md write.
+const INSTALL_SKILL_OK = JSON.stringify({ installed: false, version: null });
+
+describe('cheatcode_install materializes the consuming agent (#115)', () => {
+  // A temp PROJECT dir whose trajectory DB lives at <root>/.claude/tmb/trajectory.db
+  // — exactly the on-disk layout projectRootFromDbPath() walks. The DB path is
+  // what the materializer derives the project root from, so it MUST be on disk
+  // under a real .claude/ (not :memory:).
+  function tempProject(): { root: string; db: TrajectoryDB; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-project-'));
+    const dbDir = join(root, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const db = new TrajectoryDB(join(dbDir, 'trajectory.db'));
+    db.run(
+      `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+       VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'test fixture', '{}', datetime('now'))`,
+    );
+    return { root, db, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+
+  function withFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-mat-fixture-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  // Snapshot the plugin's own shipped surfaces so every test can assert the
+  // materialization NEVER wrote into the plugin repo (it edits the user project).
+  function pluginRepoSnapshot(): { sweMd: string; prMd: string; claudeMd: string | null } {
+    const claudeMdPath = join(PLUGIN_ROOT, 'CLAUDE.md');
+    return {
+      sweMd: readFileSync(GLOBAL_SWE_MD, 'utf8'),
+      prMd: readFileSync(GLOBAL_PR_MD, 'utf8'),
+      claudeMd: existsSync(claudeMdPath) ? readFileSync(claudeMdPath, 'utf8') : null,
+    };
+  }
+
+  function assertPluginRepoUntouched(before: ReturnType<typeof pluginRepoSnapshot>): void {
+    const after = pluginRepoSnapshot();
+    assert.equal(after.sweMd, before.sweMd, 'plugin agents/swe.md untouched');
+    assert.equal(after.prMd, before.prMd, 'plugin agents/pr-reviewer.md untouched');
+    assert.equal(after.claudeMd, before.claudeMd, 'plugin CLAUDE.md untouched');
+  }
+
+  it('target=swe copies global swe.md into project .claude/agents and adds the skill to its skills: frontmatter', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'swe',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized');
+      const body = readFileSync(localSwe, 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      assert.ok(
+        skills.split(',').map((s) => s.trim()).includes('pdf-skill'),
+        `pdf-skill in skills: frontmatter, got: ${skills}`,
+      );
+      // The copy preserved the rest of the agent (its persona body + name field).
+      assert.ok(/^name:\s*swe\s*$/m.test(fm), 'frontmatter name preserved');
+      assert.ok(body.includes('SWE — Executor'), 'body preserved from the global copy');
+
+      // The result + attachment row report the materialized path.
+      const mat = out['materialized'] as { target: string; artifact: string; path: string } | null;
+      assert.ok(mat, 'materialized reported in result');
+      assert.equal(mat!.target, 'swe');
+      assert.equal(mat!.artifact, 'agent-md:.claude/agents/swe.md');
+      assert.equal(mat!.path, localSwe);
+
+      const att = db.get<{ target: string; artifact: string }>(
+        `SELECT target, artifact FROM cheatcode_attachments WHERE target = 'swe'`,
+      );
+      assert.ok(att, 'attachment row records the materialization');
+      assert.equal(att!.artifact, 'agent-md:.claude/agents/swe.md');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('re-install with target=swe is idempotent — no duplicate skills entry, no clobber', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    try {
+      const tools = cheatcodeTools(db);
+      const cand = { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' };
+      await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate: cand, target: 'swe' });
+
+      // Customize the materialized file, then re-install: the second call must
+      // no-op (idempotent install) and never clobber the customization.
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      const customized = readFileSync(localSwe, 'utf8') + '\n<!-- human customization -->\n';
+      writeFileSync(localSwe, customized);
+
+      const r2 = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: cand,
+        target: 'swe',
+      });
+      assert.equal(parse(r2)['idempotent'], true, 're-install no-ops');
+
+      const after = readFileSync(localSwe, 'utf8');
+      assert.equal(after, customized, 'customized file not clobbered on re-install');
+      const fm = after.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      const occurrences = skills.split(',').map((s) => s.trim()).filter((s) => s === 'pdf-skill');
+      assert.equal(occurrences.length, 1, 'no duplicate pdf-skill entry');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('idempotent skills edit even on a pre-existing local agent md (edit in place, no global copy)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    try {
+      // A pre-existing, customized local pr-reviewer.md without the skill.
+      const localPr = join(root, '.claude', 'agents');
+      mkdirSync(localPr, { recursive: true });
+      const seeded = '---\nname: pr-reviewer\nskills: [tmb_review]\n---\n\n# custom body\n';
+      writeFileSync(join(localPr, 'pr-reviewer.md'), seeded);
+
+      const tools = cheatcodeTools(db);
+      await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'sec-skill', kind: 'skill', source_url: 'https://github.com/x/sec-skill' },
+        target: 'pr-reviewer',
+      });
+      const body = readFileSync(join(localPr, 'pr-reviewer.md'), 'utf8');
+      assert.ok(body.includes('# custom body'), 'edited the existing local file in place');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(skills.includes('tmb_review'), 'preserved the original skill');
+      assert.ok(skills.includes('sec-skill'), 'added the new skill');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('target=bro materializes the project .claude/CLAUDE.md referencing the skill (idempotent)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'bro',
+      });
+      const out = parse(r);
+      const claudeMd = join(root, '.claude', 'CLAUDE.md');
+      assert.ok(existsSync(claudeMd), 'project .claude/CLAUDE.md materialized');
+      const body = readFileSync(claudeMd, 'utf8');
+      assert.ok(body.includes('pdf-skill'), 'CLAUDE.md references the installed skill');
+
+      const mat = out['materialized'] as { target: string; artifact: string } | null;
+      assert.ok(mat, 'materialized reported');
+      assert.equal(mat!.target, 'bro');
+      assert.equal(mat!.artifact, 'claude-md:.claude/CLAUDE.md');
+
+      const att = db.get<{ artifact: string }>(
+        `SELECT artifact FROM cheatcode_attachments WHERE target = 'bro'`,
+      );
+      assert.ok(att, 'bro materialization attachment row recorded');
+      assert.equal(att!.artifact, 'claude-md:.claude/CLAUDE.md');
+
+      // A second install of the same skill must not duplicate the reference line.
+      const before = body;
+      // Reset the (name, source_url) idempotency by installing a second skill
+      // referencing bro to prove de-dup of the SAME line: re-run via a fresh
+      // tools call on the same db — install is idempotent so the line is stable.
+      const r2 = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'bro',
+      });
+      assert.equal(parse(r2)['idempotent'], true);
+      assert.equal(readFileSync(claudeMd, 'utf8'), before, 'no duplicate CLAUDE.md line on re-install');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('no target: a skill install writes no agent md (proposed-PR path unchanged)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+      });
+      const out = parse(r);
+      assert.equal(out['materialized'], null, 'no materialization without a target');
+      assert.ok(out['proposed_pr'], 'proposed_pr still returned for an untargeted skill');
+      assert.ok(!existsSync(join(root, '.claude', 'agents')), 'no agent md written');
+      assert.ok(!existsSync(join(root, '.claude', 'CLAUDE.md')), 'no CLAUDE.md written');
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      cleanup();
+    }
   });
 });
 
