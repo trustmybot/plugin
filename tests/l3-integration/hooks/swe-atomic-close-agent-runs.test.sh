@@ -20,15 +20,22 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# Step out of the plugin checkout before any git work so a stray bare git call
+# can never touch the caller's branch, then assert the move stuck. Every commit
+# below targets its sandbox via `git -C "$REPO"`; this is belt-and-suspenders.
+cd "$TMPDIR"
+assert_not_in_plugin_repo "$PLUGIN_ROOT"
+
 # ---- Fixture: repo + two attached worktrees for two same-batch tasks -----
+# Every git write targets the sandbox via `git -C "$REPO"` so cwd never leaks
+# the bootstrap commit onto the caller's branch.
 REPO="$TMPDIR/repo"
 git init -q -b dev "$REPO"
-cd "$REPO"
-git config user.email t@t.io
-git config user.name t
-echo init > README.md
-git add .
-git commit -qm init
+git -C "$REPO" config user.email t@t.io
+git -C "$REPO" config user.name t
+echo init > "$REPO/README.md"
+git -C "$REPO" add .
+git -C "$REPO" commit -qm init
 
 DB="$REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$DB")"
