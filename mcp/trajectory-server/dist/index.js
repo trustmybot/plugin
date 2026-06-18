@@ -30066,7 +30066,7 @@ function cheatcodeTools(db2) {
         const placementScope = scope === "global" ? "global" : "project-local";
         const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
         const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
-        const materialized = target && kind === "skill" ? materializeConsumingAgent(db2.dbPath, target, name) : null;
+        const materialized = target && (kind === "skill" || kind === "plugin") ? materializeConsumingAgent(db2.dbPath, target, name) : null;
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
           const res = db2.run(

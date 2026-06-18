@@ -687,11 +687,13 @@ export function cheatcodeTools(db) {
             const description = trustTier
                 ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})`
                 : `${kind} cheatcode '${name}' (installed)`;
-            // When a target is named for a skill, materialize the consuming agent's
-            // prompt surface in the USER PROJECT's .claude/ (copy global agent md →
-            // local + skills: entry, or bro's CLAUDE.md) — never the plugin repo.
+            // When a target is named for a skill OR a plugin, materialize the
+            // consuming agent's prompt surface in the USER PROJECT's .claude/ (copy
+            // global agent md → local + skills: entry, or bro's CLAUDE.md) — never
+            // the plugin repo. A plugin installed FOR an agent contributes its
+            // cheatcode name to that agent's skills: header, same as a skill.
             // The written path becomes an attachment row + is surfaced in the result.
-            const materialized = target && kind === 'skill'
+            const materialized = target && (kind === 'skill' || kind === 'plugin')
                 ? materializeConsumingAgent(db.dbPath, target, name)
                 : null;
             // One transaction: the cheatcodes row + every attachment row + both
