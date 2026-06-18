@@ -486,6 +486,100 @@ describe('cheatcode_install', () => {
     }
   });
 
+  // Offline proof of the mcp dispatch split (#120): an mcp-kind repo has no
+  // marketplace manifest, so it must route to `claude mcp add` (mcp_register),
+  // NEVER to `plugin marketplace add` / `plugin install`. Run the REAL script
+  // with a stubbed `claude` on PATH that records every argv; whether the add
+  // succeeds or soft-degrades, the load-bearing invariant is that no plugin
+  // marketplace call is made for the mcp kind.
+  it('mcp kind routes to claude mcp add, never plugin marketplace add/install', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-stub-mcp-'));
+    const argvLog = join(dir, 'argv.log');
+    const fakeClaude = join(dir, 'claude');
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/usr/bin/env bash',
+        `printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}`,
+        'exit 0',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(fakeClaude, 0o755);
+    try {
+      const url = 'https://github.com/x/pdf-mcp.git';
+      const r = spawnSync(
+        'bash',
+        [
+          INSTALL_SCRIPT,
+          '--candidate',
+          JSON.stringify({ name: 'pdf-mcp', kind: 'mcp', source_url: url }),
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env['PATH'] ?? ''}`,
+            TMB_CHEATCODE_INSTALL_FIXTURE: '',
+          },
+          cwd: dir,
+        },
+      );
+      assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.method, 'mcp-register', 'mcp kind emits the mcp-register method');
+
+      const calls = readFileSync(argvLog, 'utf8').trim().split('\n').filter(Boolean);
+      // The add is attempted via `claude mcp add` (or, had the CLI been absent, a
+      // clean soft-degrade — but here the stub is present so the add fires).
+      assert.ok(
+        calls.some((c) => c.startsWith('mcp add ')),
+        `expected a 'claude mcp add' call; calls:\n${calls.join('\n')}`,
+      );
+      // The load-bearing invariant: mcp kind NEVER touches the plugin marketplace.
+      assert.ok(
+        !calls.some((c) => c.startsWith('plugin marketplace add ') || /^plugin install /.test(c)),
+        `mcp kind must not call plugin marketplace add/install; calls:\n${calls.join('\n')}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Soft-degrade proof: no `claude` CLI on PATH, mcp kind, no fixture. The script
+  // must not crash — it reports a clean not-installed result with a follow-up note.
+  it('mcp kind soft-degrades when the claude CLI is absent', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-mcp-degrade-'));
+    // A PATH carrying only the dirs that hold jq/bash coreutils, minus any claude.
+    const minimalPath = (process.env['PATH'] ?? '')
+      .split(':')
+      .filter((p) => !existsSync(join(p, 'claude')))
+      .join(':');
+    try {
+      const r = spawnSync(
+        'bash',
+        [
+          INSTALL_SCRIPT,
+          '--candidate',
+          JSON.stringify({ name: 'pdf-mcp', kind: 'mcp', source_url: 'https://github.com/x/pdf-mcp.git' }),
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, PATH: minimalPath, TMB_CHEATCODE_INSTALL_FIXTURE: '' },
+          cwd: dir,
+        },
+      );
+      assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.method, 'mcp-register');
+      assert.equal(out.installed, false, 'no CLI → not installed');
+      assert.equal(out.version, null);
+      assert.ok(out.error && /run-command|follow-up/i.test(out.error), `degrade note: ${out.error}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('writes one cheatcodes row + its attachment row in a single transaction', async () => {
     const db = tempDB();
     const { path, cleanup } = withFixture(INSTALL_OK);

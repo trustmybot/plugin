@@ -221,6 +221,32 @@ marketplace_install() {
   jq -nc --arg v "$ver" '{installed: true, version: (if ($v | length) > 0 then $v else null end), error: null}'
 }
 
+# MCP register adapter (mcp kind). Adds the server to the Claude Code MCP config
+# via `claude mcp add <name> ...`, mirroring the uninstall side's mcp_deregister
+# (`claude mcp remove`). Best-effort: prints {installed, version, error} and
+# degrades to installed=false with an error note if the CLI is absent or the add
+# fails, never crashes. NOTE: a faithful MCP add needs the server's run-command
+# (e.g. `uvx --from git+<url> <name> start-mcp-server`), which the cheatcode
+# record (name + source_url only) does not carry — full run-command resolution is
+# a follow-up (needs reading the repo's mcp config).
+mcp_register() {
+  if ! command -v claude >/dev/null 2>&1; then
+    jq -nc '{installed: false, version: null, error: "mcp add needs a run-command (source_url only) — see follow-up"}'
+    return
+  fi
+  if [ -z "$cand_name" ]; then
+    jq -nc '{installed: false, version: null, error: "mcp add needs a run-command (source_url only) — see follow-up"}'
+    return
+  fi
+  local rc
+  timeout "$INSTALL_TIMEOUT" claude mcp add "$cand_name" "$src_url" >/dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    jq -nc '{installed: false, version: null, error: "mcp add needs a run-command (source_url only) — see follow-up"}'
+    return
+  fi
+  jq -nc '{installed: true, version: null, error: null}'
+}
+
 # Resolve the fixture path. The env var wins when set. When it is unset/empty,
 # probe the deterministic default path "$PWD/.tmb-cheatcode-install-fixture.json"
 # (the path the row setup-l5.sh stages in the step's CWD) and use it if present —
@@ -260,8 +286,10 @@ if [ -n "$FIXTURE_PATH" ]; then
     error:       (.error // null),
     attachments: (if (.attachments | type) == "array" then .attachments else null end)
   }')
-elif [ "$cand_kind" = "plugin" ] || [ "$cand_kind" = "mcp" ]; then
+elif [ "$cand_kind" = "plugin" ]; then
   install_result=$(marketplace_install)
+elif [ "$cand_kind" = "mcp" ]; then
+  install_result=$(mcp_register)
 fi
 # skill kind with no fixture: nothing is installed at the marketplace; the
 # attachment is the proposed-PR payload only, so install_result stays the
