@@ -23,6 +23,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
     agent: 'bro',
     objective: 'Migrate auth from session-cookie to JWT',
     description: 'Cross-cutting refactor; touches the auth module across handlers.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
   const issueId = issue.data.id;
@@ -116,6 +117,7 @@ test('Flow 3 negative — task creation WITHOUT scope-gate Q+A is rejected', asy
 
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'Difficult thing', description: 'd',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 

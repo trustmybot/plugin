@@ -16,6 +16,7 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
     agent: 'bro',
     objective: 'Implement hello-world endpoint',
     description: 'Full spec: add /hello returning 200 OK with {msg:"hello"}.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true, `issue_create: ${JSON.stringify(issue)}`);
   const issueId = issue.data.id;
@@ -87,6 +88,7 @@ test('bro (planner) — difficult-task flow: issue + ADR-style discussion thread
     agent: 'bro',
     objective: 'Introduce new auth module',
     description: 'Refactor session handling into its own module with OIDC support.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
   const issueId = issue.data.id;
