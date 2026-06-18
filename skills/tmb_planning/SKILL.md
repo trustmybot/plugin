@@ -18,6 +18,15 @@ When a remote is configured, ask the Human which branch to base the new feature 
 
 Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. Create the git branch locally afterward.
 
+## 0. Triage the requirement
+
+Before specing any code-touching ask, two quick questions — judgment, not a research project:
+
+1. **Is it actionable?** Well-defined, testable, in scope? If it's vague hand-waving, surface the gap via `tmb_concerns-protocol` (or an AUQ) and pin it down *before* authoring a spec.
+2. **Does something already do this?** If an existing package or installed capability could plausibly cover it, run `cheatcode_search` for ranked candidates before specing a build-from-scratch — prefer reuse over reinventing.
+
+Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', kind='decision', body='<reuse X / build because …>')`.
+
 ## 3. Author the spec
 
 Pick conservative defaults; name them in `## Description` Assumptions bullets. If the project already uses a different tool, match the project — convention wins over default.
@@ -61,7 +70,7 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 ## 4. Spawn SWE
 
-Create the tasks with `task_create_batch`, passing the typed `files[]` and `verification[]` for each swe-executed task and asking it to emit the planning-complete event in the same transaction. `waive_scope_gate` is valid for truly trivial work (`'trivial: <what>'`) or headless mode (`'headless mode, defaults applied; <one-line scope summary>'`).
+Create the tasks with `task_create_batch`, passing the typed `files[]` and `verification[]` for each swe-executed task and asking it to emit the planning-complete event in the same transaction.
 
 Then run the worktree hook per branch and spawn SWE per task.
 
@@ -72,7 +81,7 @@ The batch response includes `parallel_groups` — tasks in the same group are sa
 After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff` of the commit) and judge it against the spec on four counts:
 
 1. Changed files match the typed `files[]` — nothing surprising outside scope.
-2. The typed `verification[]` commands pass when re-run verbatim inside the SWE worktree. Run these BEFORE you close — the cleanup hook removes the worktree on close, taking the working tree with it.
+2. The typed `verification[]` commands pass when re-run verbatim inside the SWE worktree.
 3. Each `## Success Criteria` bullet is visibly met by the diff.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
@@ -82,4 +91,4 @@ If any of the four checks fails, record it with `bro_verification_fail_record` (
 
 ## Headless overrides (TMB_HEADLESS=1)
 
-No Human in the loop — skip AUQs, apply the documented defaults (see `tmb_recovery` §A per-skill defaults table), and record the fallback. After `branch_id_propose`, call `headless_intent_start` — it writes the issue, intent, and note atomically and won't duplicate an intent that already exists — then proceed to step 3.
+`tmb_recovery` §A carries the headless protocol and the per-skill defaults. The one planning-specific mechanic: after `branch_id_propose`, call `headless_intent_start` instead of `intent_start` — it writes the issue, intent, and note atomically and won't duplicate an existing intent — then proceed to step 0.
