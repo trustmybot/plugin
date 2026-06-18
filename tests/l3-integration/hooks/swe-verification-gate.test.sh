@@ -298,4 +298,29 @@ if [ -n "$TOOL" ]; then
   assert_contains "$out" "verification failed" "deny reason should say verification failed"
 fi
 
+# ---- No worktree + non-empty verification[]: fail CLOSED (no silent skip) ----
+# When the task's worktree can't be resolved but verification[] is non-empty,
+# the gate must NOT fail open (exit 0 with a "skipped" note). It runs the
+# commands in the active checkout and denies on failure; if nothing can run it
+# denies. Either way it must never emit the silent-skip advisory. (#694/#82)
+test_case "no worktree + non-empty verification[]: must not fail open (no silent skip)"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (40, 1, 'feat/no-worktree-pass', 'pending', '', '[\"echo active-checkout-ok\"]');
+"
+# Deliberately do NOT create \$WT_ROOT/no-worktree-pass. Run from a real git
+# checkout (this repo) so the active-checkout fallback has a run dir.
+ACTIVE_CHECKOUT=$(git -C "$PLUGIN_ROOT" rev-parse --show-toplevel 2>/dev/null || echo "$PLUGIN_ROOT")
+out=$(cd "$ACTIVE_CHECKOUT" && run_hook "$(make_input swe completed 40)")
+assert_not_contains "$out" "verification gate skipped" "no-worktree gate must not emit the silent-skip note"
+assert_not_contains "$out" '"permissionDecision":"deny"' "passing command in active checkout should allow (ran, not skipped)"
+
+test_case "no worktree + non-empty verification[] with failing command: DENIED (fail closed)"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (41, 1, 'feat/no-worktree-fail', 'pending', '', '[\"exit 1\"]');
+"
+out=$(cd "$ACTIVE_CHECKOUT" && run_hook "$(make_input swe completed 41)")
+assert_not_contains "$out" "verification gate skipped" "no-worktree failing gate must not silently skip"
+assert_contains "$out" '"permissionDecision":"deny"' "failing command with no worktree must DENY (fail closed)"
+assert_contains "$out" "verification failed" "deny reason should say verification failed"
+
 summarize
