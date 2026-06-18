@@ -60,7 +60,7 @@ Server enforces valid transitions: `collecting → awaiting_human → closed | s
 | `github` | TMB | GitHub (github.com or GHE) |
 | `gitlab` | TMB | GitLab (gitlab.com or self-hosted) |
 
-Mirrors `plugin_config.remotes[].provider` (see [`plugin_config.remotes[].provider`](#plugin_configremotesprovider---git-host-provider-per-remote)). Only these two values supported for issue sync (#132). Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
+Mirrors `plugin_config.remotes[].provider` (see [`plugin_config.remotes[].provider`](#plugin_configremotesprovider---git-host-provider-per-remote)). Only these two values are supported for issue sync. Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
 
 ### `discussions.kind` — narrative kind in issue discussions
 
@@ -70,7 +70,6 @@ Mirrors `plugin_config.remotes[].provider` (see [`plugin_config.remotes[].provid
 | `note` | TMB | Bro's running narrative (planning, triage, status) |
 | `question` | TMB | Open question raised by an agent or the Human |
 | `answer` | TMB | Resolution to a `question` |
-| `concern` | TMB | An agent's surfaced concern about the plan |
 | `analysis` | TMB | Consultant's structured analysis on a topic |
 | `decision` | TMB | Bro's architectural decision record (narrative form) |
 
@@ -105,29 +104,48 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
 
-### `skills.trust_tier` — skill provenance
+### `cheatcodes.kind` — capability kind in the unified registry
 
 | Value | Meaning |
 |---|---|
-| `curated` | Plugin-shipped or hand-reviewed |
-| `agent` | Agent-created via `tmb_skill-creator` |
+| `skill` | A SKILL.md capability (builtin `tmb_*` or installed) |
+| `mcp` | An MCP server toolkit |
+| `plugin` | A full plugin |
 
-**TMB-specific** — these are TMB's skill governance tiers.
+Schema enforces via `CHECK(kind IN ('skill','mcp','plugin'))`. The `cheatcodes` table is the single typed registry for every capability the project knows about.
 
-### `skills.status` — skill lifecycle
+### `cheatcodes.origin` — provenance of the capability
 
-| Value | Source | Meaning |
-|---|---|---|
-| `draft` | TMB | Created but not yet validated |
-| `pending_review` | TMB | Awaiting human review before activation |
-| `active` | TMB | Discoverable + invocable |
-| `deprecated` | TMB | Skill exists but must not be used in new code; prefer `active` |
+| Value | Meaning |
+|---|---|
+| `builtin` | Plugin-shipped `tmb_*` capability; `source_url` is NULL |
+| `installed` | Acquired via the discover → vet → install pipeline; `source_url` carries the candidate identity |
 
-Inspired by typical lifecycle states; not from a single named convention.
+Schema enforces via `CHECK(origin IN ('builtin','installed'))`, plus paired `CHECK`s: `installed` rows require `source_url`, `builtin` rows forbid it.
+
+### `cheatcodes.scope` — where the capability lives
+
+| Value | Meaning |
+|---|---|
+| `global` | Plugin-shipped / user-wide |
+| `template` | `templates/` copied per-project on demand |
+| `project-local` | `<project>/.claude/` authored locally |
+
+Schema enforces via `CHECK(scope IN ('global','template','project-local'))`. The `agents.scope` column uses the same three-value vocabulary.
+
+### `cheatcodes.status` — install lifecycle
+
+| Value | Meaning |
+|---|---|
+| `installed` | Recorded but not confirmed loaded (new installs land here) |
+| `active` | Loaded / usable (builtin skills seed here) |
+| `broken` | Recorded but failed (e.g. an uninstall whose teardown left the artifact on disk) |
+
+No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the health-check's job. `trust_tier` is free-form text carrying the vet classification for installed rows and the curation tier (`curated`) for builtin ones.
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `2`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration script in `db.ts:runMigrations`.
+Currently `22`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
 
 ### `agent_runs.agent_type` (open enum)
 
