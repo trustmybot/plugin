@@ -17,4 +17,4 @@ Domain experts (security, performance, legal, and the like) are not shipped here
 
 ## How it fits
 
-These definitions are the executor and gate halves of bro's code-touching flow: bro writes a spec, dispatches `swe` to implement it, then `pr-reviewer` signs off before anything is pushed. The frontmatter tool allow-lists keep each role scoped to what it needs, and the attached skills carry the step-by-step procedures so the persona prompts stay short. Behavior is exercised by the L5/L6 chain under `tests/l5-l6/`.
+These definitions are the executor and gate halves of bro's code-touching flow: bro writes a spec, dispatches `swe` to implement it, then `pr-reviewer` signs off before anything is pushed. The frontmatter tool allow-lists keep each role scoped to what it needs, and the attached skills carry the step-by-step procedures so the persona prompts stay short.

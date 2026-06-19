@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # PreToolUse lint on Bash for `git commit -m <msg>`. Validates the
-# Conventional-Commits-with-emoji format that the retired
-# tmb_git-conventions skill described:
+# Conventional-Commits-with-emoji format:
 #
 #   <emoji> <type>(<optional-scope>): <one-line description>
 #
 # Allowed types: feat, fix, refactor, docs, test, perf, chore, build,
-#                ci, style, revert, schema (TMB-specific for DDL changes).
+#                ci, style, revert.
 #
 # Soft-warn via `additionalContext` — does not block the commit. Bypass:
 # TMB_SKIP_COMMIT_MSG_LINT=1, or run a real `commit-msg` git hook for
@@ -54,7 +53,7 @@ VIOLATION=""
 # Conventional Commits with emoji prefix: <emoji> <type>(<scope>)?: <subject>.
 # Emoji-detection is byte-based (any UTF-8 multi-byte sequence at offset 0)
 # rather than regex-ranged so macOS grep doesn't choke on locale ranges.
-TYPES='feat|fix|refactor|docs|test|perf|chore|build|ci|style|revert|schema'
+TYPES='feat|fix|refactor|docs|test|perf|chore|build|ci|style|revert'
 
 PREFIX=$(printf '%s' "$FIRST_LINE" | awk '{print $1}')
 REST=$(printf '%s' "$FIRST_LINE" | awk '{$1=""; sub(/^[[:space:]]+/, ""); print}')

@@ -73,7 +73,7 @@ When the change does any of the following, record it as a `kind='decision'` disc
 - Names multiple unrelated surfaces in one task
 - Has external side effects (network, billing, message-sending, writes outside the worktree)
 
-Blast-radius (external side effects only): default config is the safe state (opt-in); tests run against `:memory:` only; spec requires a pre-merge `bash tests/run-all.sh` yielding zero external mutations.
+Blast-radius (external side effects only): default config is the safe state (opt-in); the task's own `verification[]` must prove zero external mutations before the change can merge.
 
 ## 5. Spawn SWE
 
