@@ -17,6 +17,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 - **Split `tmb_review`** (#898): `tmb_review` is now pr-reviewer's diff-level push-gate review only — narrowed `allowed-tools` (no `AskUserQuestion`/`Task`), the five review phases collapsed to a tight diff-vs-spec check. `agents/pr-reviewer.md` drops the dead bro-only `pr_comments_get` grant.
 - **Label validation is fail-closed against the configured/default set** (#900) rather than a hardcoded list; the milestone-example and tool-description copy were genericized.
 - Raised the MCP tool-description byte budget to absorb v0.10.0 growth (the real token-trim is tracked in #771).
+- **Trimmed verbose MCP tool-description strings** (#88): the `waive_*` gate args and the multi-line tool/arg descriptions in `tasks.ts` + `composites.ts` (loaded into the model's context every turn) are now one tight sentence each — dropping rationale narration and issue-number citations while preserving the enforced contract. No validation, enum, required/optional, default, or arg-name change.
 
 ### Removed
 - **The `docs/trustmybot/architecture/` markdown-ADR design** (#889): a pre-world-model pattern of writing architecture docs into the user's project. Architectural decisions are now `kind='decision'` discussions in the trajectory DB; the template tree and all references were deleted. `docs/trustmybot/snapshots/` (PR-review handoff) is kept.

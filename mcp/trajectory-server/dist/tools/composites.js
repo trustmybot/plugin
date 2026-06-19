@@ -152,9 +152,7 @@ export function compositeTools(db, dbPath, graph = null) {
     const definitions = [
         {
             name: 'branch_id_propose',
-            description: 'Heuristic-only branch_id derivation: takes free-text intent + objective, returns ' +
-                '{ branch_id, confidence }. Pure function — no DB writes. Bro confirms with ' +
-                'Human via AskUserQuestion before persisting.',
+            description: 'Heuristic-only branch_id derivation from free-text intent + objective, returning { branch_id, confidence }; pure, no DB writes.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -209,10 +207,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'headless_intent_start',
-            description: 'Headless fast-path composite — collapses the 3-call sequence that always follows ' +
-                'issue_create in headless mode (headless_fallback audit_log + fallback note + intent ' +
-                'discussion_append) into one atomic DB write. Eliminates compound-failure risk on the ' +
-                'headless path where AUQ errors are impossible to recover from interactively.',
+            description: 'Headless fast-path composite — atomically writes the headless_fallback audit_log + fallback note + intent discussion that follow issue_create in headless mode.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -246,9 +241,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'headless_fallback_record',
-            description: 'Headless fallback composite — atomically writes audit_log(headless_fallback) + ' +
-                'discussion_append(note) in one DB write. issue_id defaults to the most recent open issue ' +
-                'or -1. Args: question (skipped AUQ), chosen_default (applied value), skill (caller).',
+            description: 'Headless fallback composite — atomically writes audit_log(headless_fallback) + discussion_append(note); issue_id defaults to the most recent open issue or -1.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -263,10 +256,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'bro_verification_fail_record',
-            description: 'V3-fail composite — collapses the 2-call sequence (audit_log + discussion_append) ' +
-                'that bro must emit when a verification check fails into one atomic DB write. ' +
-                'Prevents the common drop-last-call failure mode where the note lands but the audit ' +
-                'row is skipped (or vice versa), leaving the trajectory in a partial state.',
+            description: 'V3-fail composite — atomically writes the audit_log + discussion_append that bro emits when a verification check fails.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -286,10 +276,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'pr_review_worktree',
-            description: 'PR-review worktree composite — creates a per-SHA worktree at /tmp/pr-review-<sha>, ' +
-                'runs a caller-supplied verification command inside it, then removes the worktree ' +
-                'atomically. Collapses the 4-step setup/verify/teardown sequence from the worktree discipline in tmb_review ' +
-                'into one call, eliminating the compound-failure risk of stranded worktrees.',
+            description: 'PR-review worktree composite — creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -309,8 +296,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'reap_and_review_prep',
-            description: 'Commit-reap composite — for each task, fetches detached HEAD from its worktree into the main checkout under branch_id. ' +
-                'Returns { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn. Collapses the per-task fetch loop from the push-gate orchestration in tmb_push-triage.',
+            description: 'Commit-reap composite — fetches each task\'s worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -353,12 +339,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'task_recover',
-            description: 'Bro task-recovery composite — deterministic path for a SWE task left stuck `pending` (or ' +
-                '`completed`) carrying a commit after the executor died on maxTurns/hook-block. In one ' +
-                'transaction: already-closed / non-recoverable status → idempotent no-op naming the status; ' +
-                'pending|completed WITH commit_sha → writes task_recovered + bro_verification_pass audit rows, ' +
-                'advances the task to closed, optionally closes the parent issue when it is the last open task; ' +
-                'pending with NO commit_sha → returns a re-dispatch directive without changing status.',
+            description: 'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -383,11 +364,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'task_brief',
-            description: "Full context bundle for one task in a single call — swe's only context read. " +
-                'Joins the trajectory DB (task row, spec_body, the task issue\'s discussion thread) ' +
-                "with the kuzu world model (each directory the task's typed files[] touch, plus its " +
-                "children's summaries). Lets swe receive scope instead of orchestrating task_get + " +
-                'world_model_get + discussion_search itself.',
+            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch.",
             inputSchema: {
                 type: 'object',
                 properties: {
