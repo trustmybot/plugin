@@ -31175,6 +31175,25 @@ async function startBackfill(db2) {
   })().catch((e) => console.error("[embeddings] backfill error:", e));
 }
 
+// src/shutdown.ts
+function createShutdown(deps) {
+  let shuttingDown = false;
+  return function shutdown2(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    deps.log(signal);
+    deps.closeDb();
+    deps.closeGraph();
+    deps.exit(0);
+  };
+}
+function installShutdownHandlers(shutdown2, proc, stdin) {
+  proc.on("SIGINT", () => shutdown2("SIGINT"));
+  proc.on("SIGTERM", () => shutdown2("SIGTERM"));
+  stdin.on("end", () => shutdown2("stdin-eof"));
+  stdin.on("close", () => shutdown2("stdin-close"));
+}
+
 // src/index.ts
 var dbPath = resolveDbPath();
 if (dbPath !== ":memory:") {
@@ -31239,15 +31258,13 @@ function maybeRecordTrajectory(toolName, args, result) {
   } catch {
   }
 }
-var shuttingDown = false;
-function shutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  serverLogSync({ kind: "shutdown", signal, pid: process.pid });
-  db.close();
-  graph?.close();
-  process.exit(0);
-}
+var shutdown = createShutdown({
+  closeDb: () => db.close(),
+  closeGraph: () => graph?.close(),
+  log: (signal) => serverLogSync({ kind: "shutdown", signal, pid: process.pid }),
+  exit: (code) => process.exit(code),
+  pid: process.pid
+});
 process.on("uncaughtException", (err18) => {
   serverLogSync({ kind: "uncaughtException", error_message: err18.message, stack: err18.stack, pid: process.pid });
   process.stderr.write(`uncaughtException: ${err18.message}
@@ -31318,8 +31335,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   maybeRecordTrajectory(name, args, result);
   return result;
 });
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+installShutdownHandlers(shutdown, process, process.stdin);
 var transport = new StdioServerTransport();
 await server.connect(transport);
 serverLog({

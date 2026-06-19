@@ -13,6 +13,7 @@ import { serverLog, serverLogSync } from './logger.js';
 import { startBackfill } from './embeddings/backfill.js';
 import { embed } from './embeddings/model.js';
 import { WorldModelGraph, resolveGraphDbPath, isKuzuLockError } from './graph-db.js';
+import { createShutdown, installShutdownHandlers } from './shutdown.js';
 
 const dbPath = resolveDbPath();
 if (dbPath !== ':memory:') {
@@ -107,16 +108,13 @@ function maybeRecordTrajectory(
   }
 }
 
-let shuttingDown = false;
-
-function shutdown(signal: string): void {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  serverLogSync({ kind: 'shutdown', signal, pid: process.pid });
-  db.close();
-  graph?.close();
-  process.exit(0);
-}
+const shutdown = createShutdown({
+  closeDb: () => db.close(),
+  closeGraph: () => graph?.close(),
+  log: (signal) => serverLogSync({ kind: 'shutdown', signal, pid: process.pid }),
+  exit: (code) => process.exit(code),
+  pid: process.pid,
+});
 
 process.on('uncaughtException', (err: Error) => {
   serverLogSync({ kind: 'uncaughtException', error_message: err.message, stack: err.stack, pid: process.pid });
@@ -192,8 +190,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   return result;
 });
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+installShutdownHandlers(shutdown, process, process.stdin);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
