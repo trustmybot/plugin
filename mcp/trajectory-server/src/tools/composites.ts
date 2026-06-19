@@ -4,12 +4,12 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
-import { syncIssueCloseRemotes } from './issues.js';
+import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import type { WorldModelGraph } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveDefaultIssueId } from './discussions.js';
-import { resolveDefaultRepo } from '../utils/repo-paths.js';
+import { resolveDefaultRepo, resolveRepoForSync } from '../utils/repo-paths.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
 
@@ -815,11 +815,16 @@ export function compositeTools(
         }
 
         const now = nowISO();
+        // Default the milestone from `tmb_active_milestone` (#154), mirroring
+        // issue_create. Resolve the sole-repo first so the FK milestones row is
+        // upserted under the right repo before the issues insert.
+        const issueRepo = resolveRepoForSync(db, null)?.name ?? null;
+        const milestone = resolveDefaultMilestone(db, null, issueRepo);
         const result = db.transaction(() => {
           db.run(
-            `INSERT INTO issues (objective, description, status, created_at, updated_at)
-             VALUES (?, '', 'open', ?, ?)`,
-            [objective, now, now],
+            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
+             VALUES (?, '', 'open', ?, ?, ?, ?)`,
+            [objective, now, now, milestone, issueRepo],
           );
           const row = db.get<{ id: number }>(
             `SELECT id FROM issues WHERE rowid = last_insert_rowid()`,

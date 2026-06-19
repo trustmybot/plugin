@@ -2,9 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
-import { syncIssueCloseRemotes } from './issues.js';
+import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
 import { resolveDefaultIssueId } from './discussions.js';
-import { resolveDefaultRepo } from '../utils/repo-paths.js';
+import { resolveDefaultRepo, resolveRepoForSync } from '../utils/repo-paths.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
 // entry is a path; its dirname is the directory ('' = repo root). task_brief
@@ -631,9 +631,14 @@ export function compositeTools(db, dbPath, graph = null) {
                 return err(`branch_id "${branchId}" does not match the conventional format.`);
             }
             const now = nowISO();
+            // Default the milestone from `tmb_active_milestone` (#154), mirroring
+            // issue_create. Resolve the sole-repo first so the FK milestones row is
+            // upserted under the right repo before the issues insert.
+            const issueRepo = resolveRepoForSync(db, null)?.name ?? null;
+            const milestone = resolveDefaultMilestone(db, null, issueRepo);
             const result = db.transaction(() => {
-                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at)
-             VALUES (?, '', 'open', ?, ?)`, [objective, now, now]);
+                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
+             VALUES (?, '', 'open', ?, ?, ?, ?)`, [objective, now, now, milestone, issueRepo]);
                 const row = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
                 if (!row)
                     throw new Error('intent_start: failed to retrieve inserted issue');

@@ -23481,6 +23481,30 @@ function validateIssueLabels(db2, labels) {
   }
   return `missing_required_labels: issue_create requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
 }
+function resolveDefaultMilestone(db2, explicitMilestone, repo) {
+  if (explicitMilestone !== null && explicitMilestone !== "") {
+    return explicitMilestone;
+  }
+  const row = db2.get(
+    `SELECT value_json FROM plugin_config WHERE key = 'tmb_active_milestone'`
+  );
+  if (!row) return null;
+  let active;
+  try {
+    active = JSON.parse(row.value_json);
+  } catch {
+    return null;
+  }
+  if (typeof active !== "string" || active.length === 0) return null;
+  if (repo !== null) {
+    db2.run(
+      `INSERT INTO milestones (name, repo) VALUES (?, ?)
+       ON CONFLICT(name, repo) DO NOTHING`,
+      [active, repo]
+    );
+  }
+  return active;
+}
 var DEDUP_THRESHOLD = 0.6;
 function normalizeObjective(text) {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 0);
@@ -23743,9 +23767,10 @@ function issueTools(db2, dbPath2 = "") {
           });
         }
       }
-      const milestone = args["milestone"] ?? null;
       const explicitRepo = args["repo"] ?? null;
       const issueRepo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
+      const explicitMilestone = args["milestone"] ?? null;
+      const milestone = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
       const spawnFn = args["_spawnFn"] ?? void 0;
       const now = nowISO();
       db2.run(
@@ -28254,11 +28279,13 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           return err14(`branch_id "${branchId}" does not match the conventional format.`);
         }
         const now = nowISO();
+        const issueRepo = resolveRepoForSync(db2, null)?.name ?? null;
+        const milestone = resolveDefaultMilestone(db2, null, issueRepo);
         const result = db2.transaction(() => {
           db2.run(
-            `INSERT INTO issues (objective, description, status, created_at, updated_at)
-             VALUES (?, '', 'open', ?, ?)`,
-            [objective, now, now]
+            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
+             VALUES (?, '', 'open', ?, ?, ?, ?)`,
+            [objective, now, now, milestone, issueRepo]
           );
           const row = db2.get(
             `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
