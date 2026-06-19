@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTree } from '../tools/world-model.js';
+import { buildTree } from '../tools/world_model.js';
 import { WorldModelGraph, type DirectoryNode } from '../graph-db.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs';
@@ -155,7 +155,7 @@ describe('pruneDirectories + rename regression (#342)', () => {
       execFileSync('git', ['commit', '-qm', 'init'], { cwd: repoRoot });
 
       // Delegate the kuzu-heavy portion to a child process.
-      // import.meta.url is dist/test/world-model.test.js; dist/ is one level up.
+      // import.meta.url is dist/test/world_model.test.js; dist/ is one level up.
       const distRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
       const script = `
 import { TrajectoryDB } from '${distRoot}/db.js';

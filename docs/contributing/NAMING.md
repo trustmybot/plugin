@@ -26,6 +26,12 @@ A split stem — the v0.10.0 `cheatcode` skill shipping over a `resource_search`
 
 The stem names the *feature*, not a *domain word*. Generic uses (e.g. "resource" for per-spawn resource tracking, "3rd party" for the pr-reviewer) are not the feature and never get renamed. Scope any rename to the feature's identifiers — never a blanket `s/<word>/<stem>/`.
 
+## Intentional exceptions
+
+A stem doesn't need every surface — only the ones the feature actually has. A missing surface is not a violation when the feature is deliberately API-only.
+
+- **`onboard`** is tools-only by design: `onboard_state_get` / `onboard_get_questions` / `onboard_apply` in `src/tools/onboard.ts`, driven by the `/onboard` command. There is no forked `scripts/onboard-*.sh` because the ceremony is pure MCP — the tool API is the only surface. Don't add one to "complete the pattern".
+
 ## Choosing a stem
 
 Short, memorable, one concept. A vivid name (`cheatcode`) beats a generic one (`resource`): unique, greppable, and it sticks. Avoid words already used generically in the codebase.

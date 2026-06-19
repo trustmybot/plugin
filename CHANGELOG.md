@@ -14,6 +14,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 - **Comprehensive cheatcode lifecycle diagram** in `docs/architecture/FLOWS.md` (search → vet → approve → install → materialize → activate → use → healthcheck → uninstall).
 
 ### Changed
+- **One-stem naming alignment for `world_model`** (#68): renamed `src/tools/world-model.ts` → `src/tools/world_model.ts` (and its test) so the module file matches the existing `world_model_*` tool stem; updated the `index.ts` import and the doc references. The on-disk `world-model.kuzu` graph filename and the `world-model-*` warning strings are unchanged (data file / English compound, not the feature stem). Documented in `docs/contributing/NAMING.md` that `onboard` is intentionally tools-only (no forked `scripts/onboard-*.sh`) — the MCP API is its only surface by design.
 - **Split `tmb_review`** (#898): `tmb_review` is now pr-reviewer's diff-level push-gate review only — narrowed `allowed-tools` (no `AskUserQuestion`/`Task`), the five review phases collapsed to a tight diff-vs-spec check. `agents/pr-reviewer.md` drops the dead bro-only `pr_comments_get` grant.
 - **Label validation is fail-closed against the configured/default set** (#900) rather than a hardcoded list; the milestone-example and tool-description copy were genericized.
 - Raised the MCP tool-description byte budget to absorb v0.10.0 growth (the real token-trim is tracked in #771).

@@ -30856,7 +30856,7 @@ function cheatcodeTools(db2) {
   return { definitions, handlers };
 }
 
-// src/tools/world-model.ts
+// src/tools/world_model.ts
 var WORLD_MODEL_GET_MAX_NODES = 500;
 function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
