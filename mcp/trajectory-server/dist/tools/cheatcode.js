@@ -286,6 +286,19 @@ const resolveUninstallScript = () => resolveScriptsFile('cheatcode-uninstall.sh'
 const UNINSTALL_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
 const INSTALLABLE_KINDS = new Set(['skill', 'mcp', 'plugin']);
 const VALID_KINDS = new Set(['skill', 'mcp', 'plugin', 'any']);
+// Derive the provenance enum (#152) from the install source. A marketplace ref
+// is a `<name>@<marketplace>` token or a marketplace-relative `./` path — never
+// a raw URL. Everything else (an https/git@ repo URL) is an external source the
+// install registered as a marketplace first. Lifecycle never lives in origin.
+function deriveOrigin(sourceUrl) {
+    const url = sourceUrl.trim();
+    if (url.startsWith('./'))
+        return 'marketplace';
+    const isUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^[^@\s]+@[^:\s]+:/.test(url);
+    if (!isUrl && url.includes('@'))
+        return 'marketplace';
+    return 'external';
+}
 // Parse + validate a candidate for install/approve. Unlike search/vet, install
 // requires a concrete installable kind — 'any' is rejected.
 function parseInstallCandidate(raw) {
@@ -739,6 +752,15 @@ export function cheatcodeTools(db) {
             if (typeof tier === 'number')
                 candidate.tier = tier;
             const out = await runInstallWithScript(resolveInstallScript(), candidate, scope, INSTALL_TIMEOUT_MS);
+            // No-phantom-row guard (#148): a plugin/mcp install that the marketplace
+            // path could not complete (installed=false WITH an error note) leaves
+            // nothing wired — recording a cheatcodes row would be a phantom the
+            // registry then reports as present. Roll back: skip the row, surface the
+            // failure. A skill install legitimately reports installed=false (its
+            // surface is the proposed PR, not a marketplace install), so it is exempt.
+            if (kind !== 'skill' && out.installed === false && out.error) {
+                return err(`cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`);
+            }
             // The unified cheatcodes table (#101) carries the placement enum
             // (global|template|project-local); the install scope's local maps to
             // project-local. The script keeps its own local|global vocabulary.
@@ -764,12 +786,16 @@ export function cheatcodeTools(db) {
             const materialized = target && (kind === 'skill' || kind === 'plugin')
                 ? materializeConsumingAgent(db.dbPath, target, name)
                 : null;
+            // Provenance, derived from the source (#152): a marketplace ref →
+            // 'marketplace'; a raw external repo URL → 'external'. Never a lifecycle
+            // word — the install lifecycle lives in `status`.
+            const origin = deriveOrigin(sourceUrl);
             // One transaction: the cheatcodes row + every attachment row + both
-            // audit rows land together or not at all. origin='installed' (#101).
+            // audit rows land together or not at all.
             const installedAt = nowISO();
             const cheatcodeId = db.transaction(() => {
                 const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
-             VALUES (?, ?, 'installed', ?, ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, description, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]);
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, origin, description, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]);
                 const id = Number(res.lastInsertRowid);
                 for (const att of out.attachments) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
@@ -916,23 +942,41 @@ export function cheatcodeTools(db) {
             const verdict = existing.kind === 'skill'
                 ? { status: 'activated', reason: null }
                 : { status: 'restart_required', reason: restartReason[existing.kind] };
-            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`, [
-                `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) → ${verdict.status}`,
-                JSON.stringify({
-                    cheatcode_id: existing.id,
-                    name: existing.name,
-                    kind: existing.kind,
-                    status: verdict.status,
-                    reason: verdict.reason,
-                }),
-                nowISO(),
-            ]);
+            // Reconcile the row's lifecycle status (#151). A skill confirmed loaded
+            // (activated) advances installed→active. plugin/MCP kinds stay 'installed'
+            // until the next cold start picks them up — restart_required is not yet
+            // active, so the row keeps its status. The row-status flip + the audit row
+            // land in one transaction.
+            const activatedAt = nowISO();
+            const rowStatus = verdict.status === 'activated' ? 'active' : null;
+            db.transaction(() => {
+                if (rowStatus) {
+                    db.run(`UPDATE cheatcodes SET status = ?, updated_at = ? WHERE id = ?`, [
+                        rowStatus,
+                        activatedAt,
+                        existing.id,
+                    ]);
+                }
+                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`, [
+                    `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) → ${verdict.status}`,
+                    JSON.stringify({
+                        cheatcode_id: existing.id,
+                        name: existing.name,
+                        kind: existing.kind,
+                        status: verdict.status,
+                        row_status: rowStatus ?? existing.status,
+                        reason: verdict.reason,
+                    }),
+                    activatedAt,
+                ]);
+            });
             return ok({
                 cheatcode_id: existing.id,
                 name: existing.name,
                 kind: existing.kind,
                 status: verdict.status,
+                row_status: rowStatus ?? existing.status,
                 reason: verdict.reason,
             });
         })),

@@ -478,7 +478,7 @@ describe('cheatcode_install', () => {
             assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
             const out = parse(r);
             assert.equal(out['installed'], true);
-            const codes = db.all(`SELECT id, name, trust_tier, version, status FROM cheatcodes WHERE origin = 'installed'`);
+            const codes = db.all(`SELECT id, name, trust_tier, version, status FROM cheatcodes WHERE origin != 'builtin'`);
             assert.equal(codes.length, 1, 'exactly one cheatcodes row');
             assert.equal(codes[0].name, 'pdf-plugin');
             assert.equal(codes[0].trust_tier, 'trusted');
@@ -507,9 +507,9 @@ describe('cheatcode_install', () => {
             assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
             const out = parse(r);
             assert.equal(out['scope'], 'project-local', 'response echoes the mapped placement scope');
-            const row = db.get(`SELECT scope, origin FROM cheatcodes WHERE origin = 'installed' LIMIT 1`);
+            const row = db.get(`SELECT scope, origin FROM cheatcodes WHERE origin != 'builtin' LIMIT 1`);
             assert.equal(row.scope, 'project-local', 'local install maps to project-local placement');
-            assert.equal(row.origin, 'installed', 'installed cheatcodes carry origin=installed');
+            assert.equal(row.origin, 'external', 'a raw repo-URL install carries origin=external (#152)');
         }
         finally {
             delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
@@ -529,7 +529,7 @@ describe('cheatcode_install', () => {
             });
             assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
             assert.equal(parse(r)['scope'], 'global');
-            const row = db.get(`SELECT scope FROM cheatcodes WHERE origin = 'installed' LIMIT 1`);
+            const row = db.get(`SELECT scope FROM cheatcodes WHERE origin != 'builtin' LIMIT 1`);
             assert.equal(row.scope, 'global', 'global install persists global placement');
         }
         finally {
@@ -641,7 +641,7 @@ describe('cheatcode_install', () => {
             const out2 = parse(r2);
             assert.equal(out2['idempotent'], true);
             assert.equal(out2['installed'], false);
-            const n = db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'installed'`);
+            const n = db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`);
             assert.equal(n.n, 1, 're-install did not duplicate the row');
             const an = db.get(`SELECT COUNT(*) AS n FROM cheatcode_attachments`);
             assert.equal(an.n, 1, 're-install did not duplicate the attachment');
@@ -653,7 +653,7 @@ describe('cheatcode_install', () => {
     });
     it('orphan guard: a skill install with no target is hard-rejected before any row is written', async () => {
         const db = tempDB();
-        const before = db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'installed'`).n;
+        const before = db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`).n;
         const tools = cheatcodeTools(db);
         const r = await call(tools.handlers, 'cheatcode_install', {
             agent: 'bro',
@@ -663,7 +663,7 @@ describe('cheatcode_install', () => {
         const out = parse(r);
         assert.match(out['error'], /target agent/, 'error names the missing target requirement');
         // No row, no attachment — the orphan never reaches the install.
-        assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'installed'`).n, before, 'no cheatcodes row written for a rejected orphan');
+        assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`).n, before, 'no cheatcodes row written for a rejected orphan');
         assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcode_attachments`).n, 0, 'no attachment row written for a rejected orphan');
         // No install audit row either — the script never forked.
         assert.equal(db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_install'`).n, 0, 'no install audit row for a rejected orphan');
@@ -751,6 +751,47 @@ describe('cheatcode_install', () => {
         assert.equal(r.isError, true);
         const out = parse(r);
         assert.equal(out['error'], 'forbidden');
+    });
+    it('derives origin=marketplace from a marketplace-ref source (#152)', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                // A <name>@<marketplace> ref — not a raw URL — is a marketplace source.
+                candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'pdf-plugin@some-marketplace' },
+            });
+            assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+            const row = db.get(`SELECT origin FROM cheatcodes WHERE name = 'pdf-plugin' LIMIT 1`);
+            assert.equal(row.origin, 'marketplace', 'a marketplace ref derives origin=marketplace');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('does not record a phantom row when a plugin install fails (#148)', async () => {
+        const db = tempDB();
+        // A plugin install the marketplace path could not complete: installed=false
+        // WITH an error note. The handler must surface the failure and write no row.
+        const { path, cleanup } = withFixture(JSON.stringify({ installed: false, version: null, error: 'marketplace add failed (exit 1)' }));
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            const r = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'broken-plugin', kind: 'plugin', source_url: 'https://github.com/x/broken' },
+            });
+            assert.equal(r.isError, true, 'a failed plugin install is surfaced as an error');
+            const n = db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE name = 'broken-plugin'`);
+            assert.equal(n.n, 0, 'no phantom installed=false row is recorded');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
     });
 });
 // The shipped global agent md the plugin copies global→local at materialize
@@ -1087,7 +1128,7 @@ describe('cheatcode_uninstall', () => {
             source_url: 'https://github.com/x/pdf',
             tier: 1,
         });
-        assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'installed'`).n, 1);
+        assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`).n, 1);
         assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcode_attachments`).n, 1);
         const { path, cleanup } = withFixture(UNINSTALL_OK);
         process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = path;
@@ -1098,7 +1139,7 @@ describe('cheatcode_uninstall', () => {
             assert.equal(out['uninstalled'], true);
             assert.equal(out['removed'], true);
             assert.equal(out['method'], 'marketplace');
-            assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'installed'`).n, 0, 'cheatcodes row deleted');
+            assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`).n, 0, 'cheatcodes row deleted');
             assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcode_attachments`).n, 0, 'attachment row deleted');
             const audit = db.get(`SELECT content_json FROM audit WHERE event_type = 'cheatcode_uninstalled' ORDER BY id DESC LIMIT 1`);
             assert.ok(audit, 'cheatcode_uninstalled audit row exists');
@@ -1414,11 +1455,18 @@ describe('cheatcode_activate', () => {
             target: 'swe',
         });
         const id = parse(r0)['cheatcode_id'];
+        // The row starts at status='installed' (recorded, not yet confirmed loaded).
+        const before = db.get(`SELECT status FROM cheatcodes WHERE id = ?`, [id]);
+        assert.equal(before.status, 'installed', 'a fresh install lands at status=installed');
         const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
         assert.notEqual(r.isError, true, `activate errored: ${r.content[0]?.text}`);
         const out = parse(r);
         assert.equal(out['status'], 'activated');
         assert.equal(out['reason'], null);
+        // (#151) activate advances a confirmed-loaded skill installed → active.
+        assert.equal(out['row_status'], 'active');
+        const after = db.get(`SELECT status FROM cheatcodes WHERE id = ?`, [id]);
+        assert.equal(after.status, 'active', 'a skill activate reconciles the row to status=active');
     });
     it('returns restart_required + a reason for a plugin-kind cheatcode', async () => {
         const db = tempDB();
@@ -1432,6 +1480,10 @@ describe('cheatcode_activate', () => {
         assert.notEqual(r.isError, true, `activate errored: ${r.content[0]?.text}`);
         const out = parse(r);
         assert.equal(out['status'], 'restart_required');
+        // (#151) a plugin needs a cold start to load — the row stays 'installed'.
+        assert.equal(out['row_status'], 'installed');
+        const after = db.get(`SELECT status FROM cheatcodes WHERE id = ?`, [id]);
+        assert.equal(after.status, 'installed', 'a plugin activate keeps status=installed until restart');
         assert.ok(typeof out['reason'] === 'string' && out['reason'].length > 0, 'reason present');
     });
     it('returns restart_required + a reason for an mcp-kind cheatcode', async () => {
@@ -1512,7 +1564,7 @@ describe('cheatcode_list', () => {
             const rows = parse(r)['cheatcodes'];
             const installed = rows.find((c) => c.name === 'pdf-plugin');
             assert.ok(installed, 'installed plugin row is listed');
-            assert.equal(installed.origin, 'installed');
+            assert.equal(installed.origin, 'external');
             assert.equal(installed.version, '1.2.3');
             assert.equal(installed.status, 'installed');
             assert.ok(installed.description.length > 0, 'description is non-empty');

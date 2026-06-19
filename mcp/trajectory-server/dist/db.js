@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 23;
+const TARGET_SCHEMA_VERSION = 24;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -459,6 +459,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 23 && toVersion >= 23) {
         migrateV22toV23(db);
+    }
+    if (fromVersion < 24 && toVersion >= 24) {
+        migrateV23toV24(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -1272,6 +1275,105 @@ function migrateV22toV23(db) {
         }
         catch {
             // Original error wins.
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v23→v24: cheatcode registry data-integrity (#150) + origin provenance (#152).
+//
+//   (#150) Delete the rows the scan-ingest leaked. scripts/scan.sh used to
+//     line-split human-formatted `claude plugin list` stdout, inserting header
+//     words (Installed/Version/Scope/Status/Location), the ❯ glyph, and
+//     tokenized fragments as fake cheatcodes rows (all source_url='scan_discovered').
+//     A real plugin/mcp name matches ^[A-Za-z0-9._-]+$; anything else under
+//     'scan_discovered' is garbage and is deleted. The known header words pass
+//     the charset gate, so they are denylisted explicitly.
+//   (#152) origin becomes a provenance enum builtin|marketplace|external (was
+//     builtin|installed). The cheatcodes table is rebuilt with the new CHECK and
+//     every non-builtin row's origin is backfilled: typescript-lsp /
+//     mcp-server-dev / plugin-dev → marketplace; superpowers → external; any
+//     other acquired row is classified by its source_url shape (a <name>@<mkt>
+//     ref or a ./marketplace-relative path → marketplace, else external).
+//
+// Idempotent: a DB already at the new shape (origin CHECK admits 'marketplace')
+// skips the rebuild; the garbage delete is a no-op once the rows are gone.
+function migrateV23toV24(db) {
+    if (!tableExists(db, 'cheatcodes'))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        // (#150) Drop the scan-ingest garbage before the rebuild copies rows over.
+        // Charset gate + header-word denylist. Builtins (origin='builtin') are never
+        // 'scan_discovered', so this only touches leaked acquired rows.
+        db.exec(`
+      DELETE FROM cheatcodes
+       WHERE source_url = 'scan_discovered'
+         AND (
+           name GLOB '*[^A-Za-z0-9._-]*'
+           OR name IN ('Installed','Version','Scope','Status','Location','Name','Source','Enabled')
+         )
+    `);
+        // (#152) Rebuild cheatcodes with the provenance enum CHECK. SQLite cannot
+        // ALTER a CHECK, so copy through a scratch table, mapping origin in the SELECT.
+        // LINT-ALLOW: scratch table for the SQLite CHECK-rebuild swap (#152).
+        db.exec('DROP TABLE IF EXISTS cheatcodes_new');
+        db.exec(`
+      CREATE TABLE cheatcodes_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL UNIQUE,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+          updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL)
+      )
+    `);
+        db.exec(`
+      INSERT INTO cheatcodes_new
+        (id, name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      SELECT
+        id, name, kind,
+        CASE
+          WHEN origin = 'builtin' THEN 'builtin'
+          WHEN name IN ('typescript-lsp','mcp-server-dev','plugin-dev') THEN 'marketplace'
+          WHEN name = 'superpowers' THEN 'external'
+          WHEN source_url LIKE '%@%' AND source_url NOT LIKE '%://%' AND source_url NOT LIKE '%@%:%' THEN 'marketplace'
+          WHEN source_url LIKE './%' THEN 'marketplace'
+          ELSE 'external'
+        END,
+        description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at
+      FROM cheatcodes
+    `);
+        // LINT-ALLOW: CHECK-rebuild swap — rows already copied (#152).
+        db.exec('DROP TABLE cheatcodes');
+        db.exec('ALTER TABLE cheatcodes_new RENAME TO cheatcodes');
+        const violations = db.prepare('PRAGMA foreign_key_check').all();
+        if (violations.length > 0) {
+            throw new Error(`migrateV23toV24: foreign_key_check found ${violations.length} dangling reference(s) after the cheatcodes rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
         }
         throw err;
     }

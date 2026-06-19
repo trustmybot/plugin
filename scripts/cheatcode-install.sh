@@ -143,6 +143,42 @@ cli_scope() {
   esac
 }
 
+# Detect whether $src_url already resolves inside a REGISTERED marketplace, so
+# the install can skip `marketplace add` entirely (#148). Two cases resolve:
+#   1. a marketplace-relative ref — `./plugins/...` or `<name>@<marketplace>` —
+#      which names a marketplace directly, never an external repo to add;
+#   2. a raw repo URL/slug already present in `marketplace list --json` (matched
+#      on url or owner/repo slug).
+# Prints the resolved marketplace name on stdout (empty when it must be added).
+resolve_registered_marketplace() {
+  # A name@marketplace ref carries the marketplace after the '@' (and is not a
+  # scp-style git remote like git@host:path). A ./ path is marketplace-relative.
+  case "$src_url" in
+    ./*)
+      # marketplace-relative path — the marketplace is the current project's
+      # registered one; let the bare-name install resolve it (no add needed).
+      printf '' ; return ;;
+  esac
+  if printf '%s' "$src_url" | grep -qE '^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$'; then
+    printf '%s' "$src_url" | sed -E 's/^[^@]+@//'
+    return
+  fi
+  command -v claude >/dev/null 2>&1 || { printf '' ; return; }
+  local list slug
+  list=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace list --json 2>/dev/null || true)
+  printf '%s' "$list" | jq -e 'type == "array"' >/dev/null 2>&1 || { printf '' ; return; }
+  slug=$(printf '%s' "$src_url" | sed -E 's#^[a-z]+://[^/]+/##i; s#\.git$##')
+  printf '%s' "$list" | jq -r \
+    --arg url "$src_url" --arg slug "$slug" '
+      map(select(
+        (.url // "") == $url
+        or ((.url // "") | sub("\\.git$"; "")) == ($url | sub("\\.git$"; ""))
+        or (.repo // "") == $slug
+      ))
+      | (.[0].name // "")
+    ' 2>/dev/null || true
+}
+
 # Resolve the marketplace name registered for $src_url. First parse the
 # `marketplace add` output (it prints the name in single quotes, e.g.
 # "Marketplace 'superpowers-dev' …"); if that yields nothing, query
@@ -189,20 +225,25 @@ marketplace_install() {
     jq -nc '{installed: false, version: null, error: "marketplace CLI unavailable"}'
     return
   fi
-  local scope add_out rc
+  local scope add_out rc mkt ref
   scope=$(cli_scope)
-  # Step 1: register the repo URL as a marketplace. Best-effort — on non-zero,
-  # degrade soft (never crash).
-  add_out=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace add "$src_url" --scope "$scope" 2>&1); rc=$?
-  if [ "$rc" -ne 0 ]; then
-    jq -nc --arg e "marketplace add failed (exit $rc)" \
-      '{installed: false, version: null, error: $e}'
-    return
+  # Step 1: register the repo URL as a marketplace — UNLESS it already resolves
+  # inside a registered one (#148). A marketplace-relative ref / a name@mkt ref /
+  # a repo already in `marketplace list` skips the add and installs directly;
+  # only a genuine external repo URL is added. Best-effort — on add failure,
+  # degrade soft (never crash) so the caller can roll back the phantom row.
+  mkt=$(resolve_registered_marketplace)
+  if [ -z "$mkt" ]; then
+    add_out=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace add "$src_url" --scope "$scope" 2>&1); rc=$?
+    if [ "$rc" -ne 0 ]; then
+      jq -nc --arg e "marketplace add failed (exit $rc)" \
+        '{installed: false, version: null, error: $e}'
+      return
+    fi
+    mkt=$(resolve_marketplace_name "$add_out")
   fi
-  # Step 2: resolve the marketplace name and build the install ref. When the
-  # name can't be resolved, fall back to a bare candidate-name install.
-  local mkt ref
-  mkt=$(resolve_marketplace_name "$add_out")
+  # Step 2: build the install ref from the resolved marketplace name. When it
+  # can't be resolved, fall back to a bare candidate-name install.
   if [ -n "$mkt" ]; then
     ref="${cand_name}@${mkt}"
   else

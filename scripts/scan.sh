@@ -235,9 +235,17 @@ done < <(discover_repos)
 # After the repo/file walk, reconcile locally-present resources into the
 # cheatcodes table: project-local skills, enabled plugins, configured MCP
 # servers. Each discovered resource not already tracked (name+kind) is
-# INSERTed (origin=installed, status=installed, source_url='scan_discovered'
-# so it is distinguishable from pipeline-installed) and a scan_discovered
-# audit row is emitted. Already-tracked rows are left to the #113 health-check.
+# INSERTed and a scan_discovered audit row is emitted. Already-tracked rows are
+# left to the #113 health-check.
+#
+# Ingest is JSON-only (#150): plugins come from `claude plugin list --json` and
+# MCP servers from each plugin entry's `mcpServers` object (plus a
+# ~/.claude.json fallback) — NEVER from line-splitting human-formatted CLI
+# stdout, which leaked header words (Installed/Version/Scope/Status/Location),
+# the ❯ glyph, and tokenized fragments as fake rows. Every candidate name is
+# validated against ^[A-Za-z0-9._-]+$ before insert; a plugin's <name>@<mkt> id
+# yields origin=marketplace with source_url=<the ref>. A plugin's enabled flag
+# maps to status (enabled→active, else installed).
 #
 # Non-load-bearing: this never alters stdout (the world-model JSON below is
 # unchanged) and never fails the scan — every step is guarded and best-effort.
@@ -271,14 +279,32 @@ discover_resources() {
   local now
   now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
 
+  # A valid plugin/mcp/skill name is the marketplace identifier charset. Reject
+  # anything else BEFORE the insert — this is the #150 guard that stops header
+  # words / glyphs / tokenized fragments from ever becoming a cheatcodes row.
+  _valid_name() {
+    case "$1" in
+      ''|*[!A-Za-z0-9._-]*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
+
   # INSERT one discovered resource if it is not already a cheatcodes row
   # (matched on name+kind). Emits a scan_discovered audit row on insert.
+  #   $1 kind   skill|mcp|plugin
+  #   $2 name   validated against _valid_name (charset gate)
+  #   $3 file_path  SKILL.md for skills, '' otherwise
+  #   $4 origin     marketplace|external (provenance, never a lifecycle word)
+  #   $5 source_url the candidate identity (e.g. <name>@<mkt>); '' → 'scan_discovered'
+  #   $6 status     active|installed
   _register() {
-    local kind="$1" name="$2" file_path="$3"
-    [ -n "$name" ] || return 0
-    local safe_name safe_kind
+    local kind="$1" name="$2" file_path="$3" origin="${4:-external}" source_url="${5:-}" status="${6:-installed}"
+    _valid_name "$name" || return 0
+    local safe_name safe_kind safe_origin safe_status
     safe_name=$(tmb_sql_quote "$name")
     safe_kind=$(tmb_sql_quote "$kind")
+    safe_origin=$(tmb_sql_quote "$origin")
+    safe_status=$(tmb_sql_quote "$status")
 
     local existing
     existing=$(tmb_sqlite_ro "$db" "
@@ -286,17 +312,21 @@ discover_resources() {
        WHERE name = '$safe_name' AND kind = '$safe_kind' LIMIT 1;")
     [ -n "$existing" ] && return 0
 
+    [ -n "$source_url" ] || source_url="scan_discovered"
+    local safe_url
+    safe_url=$(tmb_sql_quote "$source_url")
+
     local fp_sql="NULL"
     if [ -n "$file_path" ]; then
       fp_sql="'$(tmb_sql_quote "$file_path")'"
     fi
     local content_json
-    content_json=$(printf '{"name":"%s","kind":"%s","source":"scan_discovered"}' \
-      "$safe_name" "$safe_kind")
+    content_json=$(printf '{"name":"%s","kind":"%s","origin":"%s","source":"%s"}' \
+      "$safe_name" "$safe_kind" "$safe_origin" "$safe_url")
 
     sqlite3 "$db" <<SQL 2>/dev/null || true
 INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, scope, status, installed_at, created_at, updated_at)
-VALUES ('$safe_name', '$safe_kind', 'installed', 'scan_discovered', $fp_sql, 'project-local', 'installed', '$now', '$now', '$now');
+VALUES ('$safe_name', '$safe_kind', '$safe_origin', '$safe_url', $fp_sql, 'project-local', '$safe_status', '$now', '$now', '$now');
 INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
 VALUES (-1, '', 'scan',
         'scan_discovered',
@@ -305,7 +335,9 @@ VALUES (-1, '', 'scan',
 SQL
   }
 
-  # skills — project-local .claude/skills/<name>/SKILL.md.
+  # skills — project-local .claude/skills/<name>/SKILL.md. Builtin-shipped, so
+  # origin=builtin is wrong (those carry source_url NULL via the builtin CHECK);
+  # a locally-authored skill is a project resource recorded as external.
   local skills_dir="$SESSION_DIR/.claude/skills"
   if [ -d "$skills_dir" ]; then
     local skill_md
@@ -313,36 +345,47 @@ SQL
       [ -n "$skill_md" ] || continue
       local sname
       sname=$(basename "$(dirname "$skill_md")")
-      _register skill "$sname" ".claude/skills/$sname/SKILL.md"
+      _register skill "$sname" ".claude/skills/$sname/SKILL.md" external "skill:$sname" active
     done < <(find "$skills_dir" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | sort)
   fi
 
-  # plugins + mcp — only when the claude CLI is available.
+  # plugins + mcp — JSON-only ingest (#150). Parse `claude plugin list --json`
+  # with jq; never line-split human-formatted stdout. Each entry's `id` is
+  # <name>@<marketplace> → origin=marketplace, source_url=<the ref>, status from
+  # `enabled`. Each entry's `mcpServers` object names the MCP servers a plugin
+  # registers.
   if command -v claude >/dev/null 2>&1; then
-    local plugin_list mcp_list
-    plugin_list=$(_run_bounded claude plugin list)
-    mcp_list=$(_run_bounded claude mcp list)
+    local plugin_json
+    plugin_json=$(_run_bounded claude plugin list --json)
+    if printf '%s' "$plugin_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+      # plugins: one TSV line per entry → name<TAB>ref<TAB>status. jq splits the
+      # id on '@' and maps enabled→active/installed; the shell loop validates +
+      # inserts. A blank name (malformed id) is dropped by _valid_name.
+      local pline pname pref pstatus
+      while IFS=$'\t' read -r pname pref pstatus; do
+        [ -n "$pname" ] || continue
+        _register plugin "$pname" "" marketplace "$pref" "$pstatus"
+      done < <(printf '%s' "$plugin_json" | jq -r '
+        .[]? | [ ((.id // "") | split("@")[0]),
+                 (.id // ""),
+                 (if .enabled == true then "active" else "installed" end) ]
+        | @tsv' 2>/dev/null)
 
-    # plugins: each non-empty line's first token is the plugin name.
-    local pname
-    while IFS= read -r pname; do
-      pname=$(printf '%s' "$pname" | awk '{print $1}' | sed 's/[:@].*$//')
-      [ -n "$pname" ] && _register plugin "$pname" ""
-    done < <(printf '%s\n' "$plugin_list")
-
-    # mcp: `claude mcp list` prints "name: ..." per server.
-    local mname
-    while IFS= read -r mname; do
-      mname=$(printf '%s' "$mname" | sed -n 's/^\([A-Za-z0-9._-]\{1,\}\):.*$/\1/p')
-      [ -n "$mname" ] && _register mcp "$mname" ""
-    done < <(printf '%s\n' "$mcp_list")
+      # mcp servers contributed by each plugin's mcpServers object.
+      local mname
+      while IFS= read -r mname; do
+        [ -n "$mname" ] || continue
+        _register mcp "$mname" "" marketplace "mcp:$mname" active
+      done < <(printf '%s' "$plugin_json" | jq -r '
+        .[]?.mcpServers? // {} | keys[]?' 2>/dev/null | sort -u)
+    fi
   fi
 
-  # mcp fallback — ~/.claude.json mcpServers keys (covers a stale CLI).
+  # mcp fallback — ~/.claude.json mcpServers keys (covers a stale/absent CLI).
   if [ -f "$HOME/.claude.json" ]; then
     local jkey
     while IFS= read -r jkey; do
-      [ -n "$jkey" ] && _register mcp "$jkey" ""
+      [ -n "$jkey" ] && _register mcp "$jkey" "" external "mcp:$jkey" active
     done < <(jq -r '.mcpServers // {} | keys[]' "$HOME/.claude.json" 2>/dev/null || true)
   fi
 

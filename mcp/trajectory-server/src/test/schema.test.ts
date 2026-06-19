@@ -104,15 +104,23 @@ describe('schema — current table set, default values, constraints', () => {
     // skill kind without file_path is rejected.
     assert.throws(() => {
       db.run(
-        `INSERT INTO cheatcodes (name, kind, origin, source_url, installed_at) VALUES ('bad-skill', 'skill', 'installed', 'https://x/y', ?)`,
+        `INSERT INTO cheatcodes (name, kind, origin, source_url, installed_at) VALUES ('bad-skill', 'skill', 'external', 'https://x/y', ?)`,
         [now],
       );
     }, /CHECK/i);
 
-    // installed without source_url is rejected.
+    // a non-builtin (marketplace|external) without source_url is rejected.
     assert.throws(() => {
       db.run(
-        `INSERT INTO cheatcodes (name, kind, origin, file_path, installed_at) VALUES ('bad-installed', 'plugin', 'installed', NULL, ?)`,
+        `INSERT INTO cheatcodes (name, kind, origin, file_path, installed_at) VALUES ('bad-installed', 'plugin', 'external', NULL, ?)`,
+        [now],
+      );
+    }, /CHECK/i);
+
+    // the retired 'installed' origin is rejected by the provenance CHECK (#152).
+    assert.throws(() => {
+      db.run(
+        `INSERT INTO cheatcodes (name, kind, origin, source_url, installed_at) VALUES ('bad-origin', 'plugin', 'installed', 'https://x/y', ?)`,
         [now],
       );
     }, /CHECK/i);
@@ -128,14 +136,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 23 in plugin_meta', () => {
+  it('fresh DB has schema_version = 24 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 23);
+    assert.equal(meta.schema_version, 24);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',
@@ -202,7 +210,7 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('cheatcodes table has origin column NOT NULL DEFAULT installed (#101)', () => {
+  it('cheatcodes table has origin column NOT NULL DEFAULT external (#152)', () => {
     const db = tempDB();
 
     const cols = db.all<{ name: string; type: string; notnull: number; dflt_value: string | null }>(
@@ -212,7 +220,7 @@ describe('schema — current table set, default values, constraints', () => {
     assert.ok(col !== undefined, 'origin column must exist in cheatcodes');
     assert.equal(col.type.toUpperCase(), 'TEXT', 'origin must be TEXT');
     assert.equal(col.notnull, 1, 'origin must be NOT NULL');
-    assert.equal(col.dflt_value, "'installed'", "origin default must be 'installed'");
+    assert.equal(col.dflt_value, "'external'", "origin default must be 'external'");
 
     db.close();
   });
