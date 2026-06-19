@@ -736,6 +736,90 @@ describe('headless_intent_start', () => {
   });
 });
 
+describe('intent_start — active-milestone default (#154)', () => {
+  function setActiveMilestone(db: ReturnType<typeof tempDB>, value: string): void {
+    db.run(
+      `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_active_milestone', ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+      [JSON.stringify(value)],
+    );
+  }
+
+  it('defaults the created issue milestone from tmb_active_milestone', async () => {
+    const db = tempDB();
+    setActiveMilestone(db, 'v0.10.0');
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'intent default milestone',
+      intent_verbatim: 'do the thing',
+      branch_id: 'feat/intent-default-ms',
+    });
+    assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+    const issueId = parse(r)['issue_id'];
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [issueId],
+    );
+    assert.equal(row?.milestone, 'v0.10.0', 'intent_start applies the config default');
+
+    db.close();
+  });
+
+  it('stays NULL when tmb_active_milestone is unset', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'intent no milestone',
+      intent_verbatim: 'do the thing',
+      branch_id: 'feat/intent-no-ms',
+    });
+    assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+    const issueId = parse(r)['issue_id'];
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [issueId],
+    );
+    assert.equal(row?.milestone, null, 'unset config → null');
+
+    db.close();
+  });
+
+  it('upserts the FK milestones row for the sole repo', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    setActiveMilestone(db, 'v0.10.0');
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'intent default milestone fk',
+      intent_verbatim: 'do the thing',
+      branch_id: 'feat/intent-default-ms-fk',
+    });
+    assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+    const issueId = parse(r)['issue_id'];
+
+    const row = db.get<{ milestone: string | null; repo: string | null }>(
+      'SELECT milestone, repo FROM issues WHERE id = ?',
+      [issueId],
+    );
+    assert.equal(row?.milestone, 'v0.10.0');
+    assert.equal(row?.repo, 'app');
+    const ms = db.get<{ name: string }>(
+      `SELECT name FROM milestones WHERE name = 'v0.10.0' AND repo = 'app'`,
+    );
+    assert.ok(ms, 'milestones row upserted so the FK insert succeeds');
+
+    db.close();
+  });
+});
+
 describe('bro_verification_fail_record', () => {
   it('writes audit + note in one transaction', async () => {
     const db = tempDB();

@@ -970,6 +970,76 @@ describe('issueTools — milestone (#83/#763)', () => {
         db.close();
     });
 });
+describe('issueTools — active-milestone default (#154)', () => {
+    function setActiveMilestone(db, value) {
+        db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('tmb_active_milestone', ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [JSON.stringify(value)]);
+    }
+    it('defaults milestone from tmb_active_milestone when omitted', async () => {
+        const db = tempDB();
+        setActiveMilestone(db, 'v0.10.0');
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'omitted milestone defaults from config',
+            labels: VALID_LABELS,
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.milestone, 'v0.10.0', 'config-driven default applied');
+        db.close();
+    });
+    it('explicit milestone arg overrides the config default', async () => {
+        const db = tempDB();
+        setActiveMilestone(db, 'v0.10.0');
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'explicit milestone wins over config',
+            labels: VALID_LABELS,
+            milestone: 'v0.11.0',
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.milestone, 'v0.11.0', 'explicit arg wins');
+        db.close();
+    });
+    it('stays NULL when neither the arg nor the config is set', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'no default no arg stays null',
+            labels: VALID_LABELS,
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.milestone, null, 'unset config + unset arg → null');
+        db.close();
+    });
+    it('upserts the FK milestones row for the issue repo when defaulting', async () => {
+        const db = tempDB();
+        registerSoleRepo(db);
+        setActiveMilestone(db, 'v0.10.0');
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'defaulted milestone with FK repo',
+            labels: VALID_LABELS,
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        const row = db.get('SELECT milestone, repo FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.milestone, 'v0.10.0');
+        assert.equal(row?.repo, 'app');
+        const ms = db.get(`SELECT name, repo FROM milestones WHERE name = 'v0.10.0' AND repo = 'app'`);
+        assert.ok(ms, 'milestones row upserted for the FK insert');
+        db.close();
+    });
+});
 describe('issue_create dedup (#91/#775)', () => {
     it('objectiveSimilarity is a deterministic pure function pinning threshold behavior', () => {
         // Identical (ignoring case/punctuation) → 1.

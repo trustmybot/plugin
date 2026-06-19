@@ -77,6 +77,40 @@ function validateIssueLabels(db, labels) {
     }
     return `missing_required_labels: issue_create requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
 }
+// Active-milestone default (#154): when issue_create / intent_start omit the
+// milestone, fall back to the project-wide `tmb_active_milestone` config so
+// issues bind to the open release without bro having to remember. An explicit
+// (non-empty) milestone arg always wins; when neither is set the result stays
+// null (honors #763's no-forced-binding). The repos-centric migration made
+// issues.milestone an FK into milestones(name, repo) — so when a defaulted
+// milestone has no row for the issue's repo, upsert one (repo non-null) before
+// the issues insert, or the FK would reject it. With a null repo the composite
+// (milestone, repo) FK is not enforced, so no upsert is needed.
+export function resolveDefaultMilestone(db, explicitMilestone, repo) {
+    if (explicitMilestone !== null && explicitMilestone !== '') {
+        return explicitMilestone;
+    }
+    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_active_milestone'`);
+    if (!row)
+        return null;
+    let active;
+    try {
+        active = JSON.parse(row.value_json);
+    }
+    catch {
+        return null;
+    }
+    if (typeof active !== 'string' || active.length === 0)
+        return null;
+    // FK (milestone, repo) -> milestones(name, repo): upsert the milestones row so
+    // the issues insert doesn't violate it. Only meaningful when repo is non-null
+    // (milestones.repo is NOT NULL and FKs the repos table).
+    if (repo !== null) {
+        db.run(`INSERT INTO milestones (name, repo) VALUES (?, ?)
+       ON CONFLICT(name, repo) DO NOTHING`, [active, repo]);
+    }
+    return active;
+}
 // Dedup pre-check (#91/#775): before inserting, compare the new objective
 // against every OPEN issue's objective with a deterministic token-set Jaccard
 // overlap. A normalized-equal or high-overlap match is treated as a likely
@@ -370,13 +404,16 @@ export function issueTools(db, dbPath = '') {
                     });
                 }
             }
-            // milestone: optional; persisted locally AND passed to remote sync (#83/#763).
-            const milestone = args['milestone'] ?? null;
             // repo (#155): explicit arg, else the sole/managed repo when exactly one
             // repos row exists. Null for an ambiguous multi-repo install with no
             // selector — the FK is nullable so the insert still succeeds.
             const explicitRepo = args['repo'] ?? null;
             const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
+            // milestone: optional; persisted locally AND passed to remote sync
+            // (#83/#763). Defaults to the `tmb_active_milestone` config when omitted,
+            // upserting the FK milestones row for the issue's repo (#154).
+            const explicitMilestone = args['milestone'] ?? null;
+            const milestone = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
             // _spawnFn: test-only injection point; not in inputSchema
             const spawnFn = args['_spawnFn'] ?? undefined;
             const now = nowISO();
