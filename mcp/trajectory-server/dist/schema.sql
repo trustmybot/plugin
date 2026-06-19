@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 23, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 24, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -339,12 +339,16 @@ CREATE TABLE IF NOT EXISTS audit_embeddings (
 CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_id);
 
 -- Unified capability registry (#101). One typed table for every capability the
--- project knows about, split by `origin`:
---   origin='builtin'   — plugin-shipped tmb_* skills (was the `skills` table).
---                        source_url IS NULL; file_path points at the SKILL.md.
---   origin='installed' — cheatcodes acquired via the discover → vet → install
---                        pipeline (#659, docs/architecture/CHEATCODES.md).
---                        source_url IS NOT NULL (the candidate identity).
+-- project knows about, split by `origin` — a provenance enum, NOT a lifecycle:
+--   origin='builtin'     — plugin-shipped tmb_* skills (was the `skills` table).
+--                          source_url IS NULL; file_path points at the SKILL.md.
+--   origin='marketplace' — acquired from a registered Claude Code marketplace
+--                          (source_url is the <name>@<marketplace> ref or a
+--                          marketplace-relative path). source_url IS NOT NULL.
+--   origin='external'    — acquired from a raw external repo URL (a git URL the
+--                          install registered as a marketplace first). The
+--                          install lifecycle lives in `status`, never `origin`.
+--                          source_url IS NOT NULL (the candidate identity).
 -- cheatcode_install writes installed rows through the marketplace path;
 -- cheatcode_uninstall (#676) reverses them. skill_register/skill_promote operate
 -- on builtin rows. trust_tier carries the cheatcode_vet (#658) classification for
@@ -353,10 +357,11 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL UNIQUE,
     kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
-    -- origin (#101): 'builtin' = plugin-shipped, 'installed' = acquired via the
-    -- cheatcode pipeline. Defaults to 'installed' so the install path's INSERT
-    -- (which never names origin) lands the right value.
-    origin       TEXT    NOT NULL DEFAULT 'installed' CHECK (origin IN ('builtin','installed')),
+    -- origin (#101, #152): provenance, not lifecycle. 'builtin' = plugin-shipped;
+    -- 'marketplace' = from a registered marketplace ref; 'external' = from a raw
+    -- external repo URL. The install path sets the value explicitly from the
+    -- source; 'external' is the default for a bare acquired row.
+    origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
     description  TEXT    NOT NULL DEFAULT '',
     source_url   TEXT,
     -- file_path (#101): the SKILL.md location for skill-kind capabilities.
@@ -382,10 +387,10 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
     installed_at TEXT    NOT NULL,
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-    -- A skill must record its file_path; an installed capability must carry its
-    -- source identity; a builtin must not (#101).
+    -- A skill must record its file_path; an acquired capability (marketplace or
+    -- external) must carry its source identity; a builtin must not (#101, #152).
     CHECK (kind != 'skill' OR file_path IS NOT NULL),
-    CHECK (origin != 'installed' OR source_url IS NOT NULL),
+    CHECK (origin = 'builtin' OR source_url IS NOT NULL),
     CHECK (origin != 'builtin' OR source_url IS NULL)
 );
 

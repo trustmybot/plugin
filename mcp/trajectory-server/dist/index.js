@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 23;
+var TARGET_SCHEMA_VERSION = 24;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21236,6 +21236,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 23 && toVersion >= 23) {
     migrateV22toV23(db2);
+  }
+  if (fromVersion < 24 && toVersion >= 24) {
+    migrateV23toV24(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -21847,6 +21850,77 @@ function migrateV22toV23(db2) {
     if (violations.length > 0) {
       throw new Error(
         `migrateV22toV23: foreign_key_check found ${violations.length} dangling reference(s) after the repos-centric migration`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err18) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err18;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV23toV24(db2) {
+  if (!tableExists(db2, "cheatcodes")) return;
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    db2.exec(`
+      DELETE FROM cheatcodes
+       WHERE source_url = 'scan_discovered'
+         AND (
+           name GLOB '*[^A-Za-z0-9._-]*'
+           OR name IN ('Installed','Version','Scope','Status','Location','Name','Source','Enabled')
+         )
+    `);
+    db2.exec("DROP TABLE IF EXISTS cheatcodes_new");
+    db2.exec(`
+      CREATE TABLE cheatcodes_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL UNIQUE,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+          updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL)
+      )
+    `);
+    db2.exec(`
+      INSERT INTO cheatcodes_new
+        (id, name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      SELECT
+        id, name, kind,
+        CASE
+          WHEN origin = 'builtin' THEN 'builtin'
+          WHEN name IN ('typescript-lsp','mcp-server-dev','plugin-dev') THEN 'marketplace'
+          WHEN name = 'superpowers' THEN 'external'
+          WHEN source_url LIKE '%@%' AND source_url NOT LIKE '%://%' AND source_url NOT LIKE '%@%:%' THEN 'marketplace'
+          WHEN source_url LIKE './%' THEN 'marketplace'
+          ELSE 'external'
+        END,
+        description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at
+      FROM cheatcodes
+    `);
+    db2.exec("DROP TABLE cheatcodes");
+    db2.exec("ALTER TABLE cheatcodes_new RENAME TO cheatcodes");
+    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV23toV24: foreign_key_check found ${violations.length} dangling reference(s) after the cheatcodes rebuild`
       );
     }
     db2.exec("COMMIT");
@@ -30105,6 +30179,13 @@ var resolveUninstallScript = () => resolveScriptsFile("cheatcode-uninstall.sh");
 var UNINSTALL_TIMEOUT_MS = 60 * 1e3;
 var INSTALLABLE_KINDS = /* @__PURE__ */ new Set(["skill", "mcp", "plugin"]);
 var VALID_KINDS2 = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
+function deriveOrigin(sourceUrl) {
+  const url2 = sourceUrl.trim();
+  if (url2.startsWith("./")) return "marketplace";
+  const isUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(url2) || /^[^@\s]+@[^:\s]+:/.test(url2);
+  if (!isUrl && url2.includes("@")) return "marketplace";
+  return "external";
+}
 function parseInstallCandidate(raw) {
   if (!raw || typeof raw !== "object") return { error: "candidate is required" };
   const obj = raw;
@@ -30516,16 +30597,22 @@ function cheatcodeTools(db2) {
           scope,
           INSTALL_TIMEOUT_MS
         );
+        if (kind !== "skill" && out.installed === false && out.error) {
+          return err16(
+            `cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`
+          );
+        }
         const placementScope = scope === "global" ? "global" : "project-local";
         const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
         const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
         const materialized = target && (kind === "skill" || kind === "plugin") ? materializeConsumingAgent(db2.dbPath, target, name) : null;
+        const origin = deriveOrigin(sourceUrl);
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
           const res = db2.run(
             `INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
-             VALUES (?, ?, 'installed', ?, ?, ?, ?, ?, ?, 'installed', ?)`,
-            [name, kind, description, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?)`,
+            [name, kind, origin, description, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]
           );
           const id = Number(res.lastInsertRowid);
           for (const att of out.attachments) {
@@ -30681,26 +30768,39 @@ function cheatcodeTools(db2) {
           mcp: "MCP server registers on the next claude -p cold start"
         };
         const verdict = existing.kind === "skill" ? { status: "activated", reason: null } : { status: "restart_required", reason: restartReason[existing.kind] };
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`,
-          [
-            `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) \u2192 ${verdict.status}`,
-            JSON.stringify({
-              cheatcode_id: existing.id,
-              name: existing.name,
-              kind: existing.kind,
-              status: verdict.status,
-              reason: verdict.reason
-            }),
-            nowISO()
-          ]
-        );
+        const activatedAt = nowISO();
+        const rowStatus = verdict.status === "activated" ? "active" : null;
+        db2.transaction(() => {
+          if (rowStatus) {
+            db2.run(`UPDATE cheatcodes SET status = ?, updated_at = ? WHERE id = ?`, [
+              rowStatus,
+              activatedAt,
+              existing.id
+            ]);
+          }
+          db2.run(
+            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`,
+            [
+              `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) \u2192 ${verdict.status}`,
+              JSON.stringify({
+                cheatcode_id: existing.id,
+                name: existing.name,
+                kind: existing.kind,
+                status: verdict.status,
+                row_status: rowStatus ?? existing.status,
+                reason: verdict.reason
+              }),
+              activatedAt
+            ]
+          );
+        });
         return ok17({
           cheatcode_id: existing.id,
           name: existing.name,
           kind: existing.kind,
           status: verdict.status,
+          row_status: rowStatus ?? existing.status,
           reason: verdict.reason
         });
       })
