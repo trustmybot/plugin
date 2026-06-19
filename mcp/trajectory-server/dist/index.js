@@ -28468,14 +28468,36 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             continue;
           }
           const slug = task.branch_id.replace(/^[^/]+\//, "");
+          if (task.commit_sha) {
+            try {
+              const refSha = execFileSync(
+                "git",
+                ["-C", repoPath, "rev-parse", "--verify", `refs/heads/${task.branch_id}`],
+                { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
+              ).toString().trim();
+              if (refSha.toLowerCase().startsWith(task.commit_sha.toLowerCase())) {
+                results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: true });
+                continue;
+              }
+            } catch {
+            }
+          }
           const wtPath = `${repoPath}/.claude/worktrees/${slug}`;
           try {
+            let targetSha = task.commit_sha ?? "";
+            if (!targetSha) {
+              targetSha = execFileSync(
+                "git",
+                ["-C", wtPath, "rev-parse", "HEAD"],
+                { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
+              ).toString().trim();
+            }
             execFileSync(
               "git",
-              ["-C", repoPath, "fetch", wtPath, `HEAD:${task.branch_id}`],
+              ["-C", repoPath, "update-ref", `refs/heads/${task.branch_id}`, targetSha],
               { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
             );
-            results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: true });
+            results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha ?? targetSha, reaped: true });
           } catch (e) {
             results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: false, error: e.message });
           }

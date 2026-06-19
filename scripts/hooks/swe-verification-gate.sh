@@ -41,6 +41,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
 # shellcheck source=scripts/hooks/lib/resolve-workspace.sh disable=SC1091
 . "$SCRIPT_DIR/lib/resolve-workspace.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh disable=SC1091
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 # shellcheck source=scripts/hooks/lib/resolve-toolchain-path.sh disable=SC1091
 . "$SCRIPT_DIR/lib/resolve-toolchain-path.sh"
 
@@ -110,6 +112,8 @@ VERIFICATION_JSON=$(tmb_sqlite_ro "$DB" \
   "SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
 BRANCH_ID=$(tmb_sqlite_ro "$DB" \
   "SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
+TASK_REPO=$(tmb_sqlite_ro "$DB" \
+  "SELECT COALESCE(repo, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
 
 if [ -z "$BRANCH_ID" ]; then
   exit 0
@@ -128,50 +132,57 @@ fi
 # Extract the SLUG from branch_id (last path component) to locate worktree.
 SLUG="${BRANCH_ID##*/}"
 
-# Resolve workspace root via shared lib (dirname×3 of DB).
-# This handles workspace-above-repo layouts (repo at <ws>/plugin,
-# worktrees at <ws>/.claude/worktrees/<slug>) where a PWD walk-up from
-# inside the repo would land on the repo root instead of the workspace root.
+# Resolve the worktree base from the TASK'S REPO, not the workspace root.
+# ensure-swe-worktree.sh creates the worktree at <repoRoot>/.claude/worktrees/
+# <slug>, where repoRoot = tasks.repo → repos.path (else single-repo fallback,
+# else workspace root). A workspace-rooted guess (<ws>/.claude/worktrees/<slug>)
+# is wrong in the plugin-subdir layout (repo at <ws>/plugin) and let the gate
+# silently skip — a safety hole. Resolve the same way the creating hook does.
 WS_ROOT=$(tmb_workspace_root "$DB" || true)
 
+REPO_ROOT=""
+if [ -n "$TASK_REPO" ]; then
+  REPO_ROOT=$(tmb_repo_path_by_name "$DB" "$TASK_REPO")
+  [ -n "$REPO_ROOT" ] || REPO_ROOT="${WS_ROOT}/${TASK_REPO}"
+else
+  REPO_ROOT=$(tmb_repo_single_path "$DB")
+  [ -n "$REPO_ROOT" ] || REPO_ROOT="$WS_ROOT"
+fi
+
 WT_PATH=""
-if [ -n "$WS_ROOT" ] && [ -d "${WS_ROOT}/.claude/worktrees/${SLUG}" ]; then
-  WT_PATH="${WS_ROOT}/.claude/worktrees/${SLUG}"
+if [ -n "$REPO_ROOT" ] && [ -d "${REPO_ROOT}/.claude/worktrees/${SLUG}" ]; then
+  WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
 fi
 
 # Sentinel fallback: subagents that inherit cwd=~ and lack env vars use the
-# active-workspace sentinel written by the plugin at launch time.
+# active-workspace sentinel written by the plugin at launch time. The sentinel
+# names the workspace root; the worktree still hangs off the repo subdir, so
+# join the resolved TASK_REPO (single-repo: the workspace root is the repo).
 if [ -z "$WT_PATH" ]; then
   _PLUGIN_NAME=$(tmb_resolve_plugin_name)
   SENTINEL="${HOME}/.claude/${_PLUGIN_NAME}-active-workspace"
   if [ -f "$SENTINEL" ]; then
     WS=$(head -1 "$SENTINEL" 2>/dev/null || true)
-    if [ -n "$WS" ] && [ -d "$WS/.claude/worktrees/${SLUG}" ]; then
-      WT_PATH="${WS}/.claude/worktrees/${SLUG}"
+    if [ -n "$WS" ]; then
+      for cand in "${WS}/${TASK_REPO}" "$WS"; do
+        if [ -n "$cand" ] && [ -d "${cand}/.claude/worktrees/${SLUG}" ]; then
+          WT_PATH="${cand}/.claude/worktrees/${SLUG}"
+          break
+        fi
+      done
     fi
   fi
 fi
 
-# Fail-closed fallback: when verification[] is non-empty but no worktree
-# resolves (e.g. SWE ran in the main checkout), do NOT skip. Run the
-# verification commands in the active checkout — the repo root via
-# `git rev-parse --show-toplevel`, falling back to PWD — and deny if any
-# command fails. If no runnable checkout resolves at all, deny rather than
-# fail open. (#694/#82)
-RAN_IN_ACTIVE_CHECKOUT=""
+# Fail CLOSED: when verification[] is non-empty but the task worktree cannot be
+# located, DENY with a named remediation — never skip. The silent skip was a
+# safety hole: it let tasks atomic-close without the gate enforcing
+# verification[]. (#156)
 if [ -z "$WT_PATH" ] || [ ! -d "$WT_PATH" ]; then
-  ACTIVE_DIR=$(git rev-parse --show-toplevel 2>/dev/null || true)
-  if [ -z "$ACTIVE_DIR" ] || [ ! -d "$ACTIVE_DIR" ]; then
-    ACTIVE_DIR=$(pwd 2>/dev/null || true)
-  fi
-  if [ -z "$ACTIVE_DIR" ] || [ ! -d "$ACTIVE_DIR" ]; then
-    MISSING_AT="${WT_PATH:-${WS_ROOT:-?}/.claude/worktrees/${SLUG}}"
-    jq -nc --arg wt "$MISSING_AT" \
-      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification gate could not find the task worktree at " + $wt + " and no active checkout resolved — refusing to fail open with non-empty verification[]. Run SWE in a registered worktree or set a waiver.")}}'
-    exit 0
-  fi
-  WT_PATH="$ACTIVE_DIR"
-  RAN_IN_ACTIVE_CHECKOUT="$ACTIVE_DIR"
+  MISSING_AT="${REPO_ROOT:-${WS_ROOT:-?}}/.claude/worktrees/${SLUG}"
+  jq -nc --arg wt "$MISSING_AT" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification gate could not locate the task worktree at " + $wt + " — refusing to fail open with non-empty verification[]. Ensure SWE ran in its registered worktree (ensure-swe-worktree creates it under <repoRoot>/.claude/worktrees/<slug>), verify the task'"'"'s repo maps to the correct repos.path, or set waive_verification_gate_reason.")}}'
+  exit 0
 fi
 
 # Resolve the user's real toolchain PATH so verification commands invoking
@@ -219,15 +230,11 @@ while IFS= read -r line; do
 done <<< "$VERIFICATION_BLOCK"
 
 if [ -n "$FAILED_CMD" ]; then
-  WHERE_NOTE=""
-  if [ -n "$RAN_IN_ACTIVE_CHECKOUT" ]; then
-    WHERE_NOTE=$'\n(verification ran in the active checkout '"$RAN_IN_ACTIVE_CHECKOUT"$' — no task worktree was found)'
-  fi
-  jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" --arg where "$WHERE_NOTE" '
+  jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" '
     {"hookSpecificOutput":{
       "hookEventName":"PreToolUse",
       "permissionDecision":"deny",
-      "denyReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out + $where)
+      "denyReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out)
     }}
   '
   exit 0

@@ -907,6 +907,109 @@ describe('reap_and_review_prep', () => {
     assert.equal(out.reaped[0]!.task_id, '99999', 'raw tid preserved, not NaN');
     assert.match(out.reaped[0]!.error, /No task/);
   });
+
+  it('no-ops (no fetch) when the branch ref already resolves to the commit_sha in the main checkout (#156)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'reap-noop-'));
+    const repoRoot = join(ws, 'app');
+    mkdirSync(repoRoot, { recursive: true });
+    const git = (cwd: string, ...a: string[]) =>
+      execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    try {
+      git(repoRoot, 'init', '-q', '-b', 'main');
+      git(repoRoot, 'config', 'user.email', 't@t.t');
+      git(repoRoot, 'config', 'user.name', 't');
+      writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+      git(repoRoot, 'add', '.');
+      git(repoRoot, 'commit', '-q', '-m', 'base');
+      // Create the feature branch ref pointing at a real commit in the MAIN
+      // checkout — as if SWE's commit had already landed on the shared ref.
+      git(repoRoot, 'branch', 'fix/already-reaped');
+      const sha = git(repoRoot, 'rev-parse', 'refs/heads/fix/already-reaped');
+
+      const db = tempDB();
+      db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+      db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+      db.run(
+        `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, repo, created_at, updated_at)
+         VALUES (1, 'fix/already-reaped', 't', 'd', 'completed', 's', ?, 'app', datetime('now'), datetime('now'))`,
+        [sha],
+      );
+      const taskId = String(db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id);
+
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+      const r = await call(composites.handlers, 'reap_and_review_prep', {
+        agent: 'bro', task_ids: [taskId], repo_path: repoRoot,
+      });
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      const out = parse(r) as { all_reaped: boolean; reaped: Array<{ reaped: boolean; commit_sha: string }> };
+      assert.equal(out.all_reaped, true);
+      assert.equal(out.reaped[0]!.reaped, true);
+      // The ref still points at the same SHA — the no-op did not move it, and no
+      // worktree existed to fetch from (it would have errored if it tried).
+      assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/fix/already-reaped'), sha);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('reaps from a linked worktree under the REPO root via update-ref (worktree .git is a file, not a remote) (#156)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'reap-wt-'));
+    const repoRoot = join(ws, 'app');
+    mkdirSync(repoRoot, { recursive: true });
+    const git = (cwd: string, ...a: string[]) =>
+      execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    try {
+      git(repoRoot, 'init', '-q', '-b', 'main');
+      git(repoRoot, 'config', 'user.email', 't@t.t');
+      git(repoRoot, 'config', 'user.name', 't');
+      writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+      git(repoRoot, 'add', '.');
+      git(repoRoot, 'commit', '-q', '-m', 'base');
+
+      // Create the feature branch + a linked worktree UNDER THE REPO ROOT, then
+      // commit inside the worktree (the commit only lives on the worktree's
+      // branch ref). The main checkout has NO such ref yet.
+      const slug = 'wt-feature';
+      const branch = `fix/${slug}`;
+      const wtPath = join(repoRoot, '.claude', 'worktrees', slug);
+      git(repoRoot, 'worktree', 'add', '-q', '-b', branch, wtPath, 'main');
+      writeFileSync(join(wtPath, 'b.txt'), 'two\n');
+      git(wtPath, 'add', '.');
+      git(wtPath, 'commit', '-q', '-m', 'swe work');
+      const sha = git(wtPath, 'rev-parse', 'HEAD');
+
+      // Detach the worktree's branch so the main checkout's branch ref is the
+      // only place the reap can set it — and prove update-ref (not fetch-from-
+      // worktree) is what makes the SHA visible on refs/heads/<branch>.
+      git(wtPath, 'checkout', '-q', '--detach');
+      git(repoRoot, 'branch', '-q', '-D', branch);
+
+      const db = tempDB();
+      db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+      db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+      db.run(
+        `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, repo, created_at, updated_at)
+         VALUES (1, ?, 't', 'd', 'completed', 's', ?, 'app', datetime('now'), datetime('now'))`,
+        [branch, sha],
+      );
+      const taskId = String(db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id);
+
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+      const r = await call(composites.handlers, 'reap_and_review_prep', {
+        agent: 'bro', task_ids: [taskId], repo_path: repoRoot,
+      });
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      const out = parse(r) as { all_reaped: boolean; reaped: Array<{ reaped: boolean }> };
+      assert.equal(out.all_reaped, true);
+      assert.equal(out.reaped[0]!.reaped, true);
+      // The branch ref now resolves to the worktree commit in the main checkout.
+      assert.equal(git(repoRoot, 'rev-parse', `refs/heads/${branch}`), sha);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 
