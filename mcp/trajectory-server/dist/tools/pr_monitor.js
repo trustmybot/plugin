@@ -153,11 +153,11 @@ function resolveComments(backend, prNumber, repo, since, botPatterns, spawnFn) {
     return (fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ??
         fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn));
 }
-export function prCommentsTools(db, _spawnFn) {
+export function prMonitorTools(db, _spawnFn) {
     const spawn = _spawnFn ?? defaultSpawnFn;
     const definitions = [
         {
-            name: 'pr_comments_get',
+            name: 'pr_monitor_comments_get',
             description: 'Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state.',
             inputSchema: {
                 type: 'object',
@@ -179,8 +179,8 @@ export function prCommentsTools(db, _spawnFn) {
             },
         },
         {
-            name: 'pr_review_runs_list',
-            description: 'List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_comments_get.',
+            name: 'pr_monitor_runs_list',
+            description: 'List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_monitor_comments_get.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -196,7 +196,7 @@ export function prCommentsTools(db, _spawnFn) {
         },
     ];
     const handlers = {
-        pr_comments_get: requireRoles('pr_comments_get', ['bro'], wrap(async (args) => {
+        pr_monitor_comments_get: requireRoles('pr_monitor_comments_get', ['bro'], wrap(async (args) => {
             const prNumber = Number(args['pr_number']);
             if (!Number.isInteger(prNumber) || prNumber <= 0) {
                 return err('pr_number must be a positive integer');
@@ -266,7 +266,7 @@ export function prCommentsTools(db, _spawnFn) {
             }
             return ok(fetchResult);
         })),
-        pr_review_runs_list: requireRoles('pr_review_runs_list', ['bro'], async (args) => {
+        pr_monitor_runs_list: requireRoles('pr_monitor_runs_list', ['bro'], async (args) => {
             const prFilter = args['pr_number'];
             const filterPrNumber = prFilter === undefined || prFilter === null ? null : Number(prFilter);
             if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
@@ -313,4 +313,4 @@ export function prCommentsTools(db, _spawnFn) {
     };
     return { definitions, handlers };
 }
-//# sourceMappingURL=pr_comments.js.map
+//# sourceMappingURL=pr_monitor.js.map

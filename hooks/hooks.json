@@ -293,7 +293,7 @@
         ]
       },
       {
-        "matcher": "mcp__.*trajectory-server__pr_comments_get",
+        "matcher": "mcp__.*trajectory-server__pr_monitor_comments_get",
         "hooks": [
           {
             "type": "command",

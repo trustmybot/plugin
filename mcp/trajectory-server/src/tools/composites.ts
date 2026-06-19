@@ -341,7 +341,7 @@ export function compositeTools(
       },
     },
     {
-      name: 'pr_review_worktree',
+      name: 'pr_monitor_worktree',
       description:
         'PR-review worktree composite — creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically.',
       inputSchema: {
@@ -960,8 +960,8 @@ export function compositeTools(
       }),
     ),
 
-    pr_review_worktree: requireRoles(
-      'pr_review_worktree',
+    pr_monitor_worktree: requireRoles(
+      'pr_monitor_worktree',
       ['pr-reviewer'],
       wrap(async (args) => {
         const commitSha = ((args['commit_sha'] as string) ?? '').toLowerCase();

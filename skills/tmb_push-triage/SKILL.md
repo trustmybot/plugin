@@ -48,7 +48,7 @@ Read pr-reviewer's first response line:
 
 ## C. PR/MR comment triage (loaded by /monitor)
 
-`pr_comments_get` does the deterministic fetch + since-marker bookkeeping. This section is the judgment around what's task-worthy.
+`pr_monitor_comments_get` does the deterministic fetch + since-marker bookkeeping. This section is the judgment around what's task-worthy.
 
 ### Resolve the PR
 
@@ -60,7 +60,7 @@ Empty result → ask the Human which PR/MR number to monitor (free-text answer).
 
 ### Fetch
 
-Call `pr_comments_get` with the PR number.
+Call `pr_monitor_comments_get` with the PR number.
 
 Carrier: look up the issue via `tasks.branch_id` for the current branch. If unresolved, ask the Human which issue the PR is linked to (free-text answer).
 

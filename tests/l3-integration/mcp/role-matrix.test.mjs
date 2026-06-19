@@ -228,19 +228,19 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
   assert.equal(ok.ok, true, `pr-reviewer should record; got ${JSON.stringify(ok)}`);
 });
 
-// pr_review_runs_list — read-side companion to pr_comments_get's cursor
+// pr_monitor_runs_list — read-side companion to pr_monitor_comments_get's cursor
 // wire-up. Bro-only diagnostic surface; other roles must be forbidden.
-test('pr_review_runs_list — bro allowed, others forbidden', async (t) => {
+test('pr_monitor_runs_list — bro allowed, others forbidden', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
   for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
-    const res = await call(client, 'pr_review_runs_list', { agent: wrongRole });
-    assert.equal(res.ok, false, `${wrongRole} must be forbidden from pr_review_runs_list`);
+    const res = await call(client, 'pr_monitor_runs_list', { agent: wrongRole });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from pr_monitor_runs_list`);
     assert.equal(res.error?.error, 'forbidden');
   }
 
-  const ok = await call(client, 'pr_review_runs_list', { agent: 'bro' });
+  const ok = await call(client, 'pr_monitor_runs_list', { agent: 'bro' });
   assert.equal(ok.ok, true, `bro should be allowed; got ${JSON.stringify(ok)}`);
   assert.equal(ok.data.count, 0, 'fresh DB has no cursors yet');
 });

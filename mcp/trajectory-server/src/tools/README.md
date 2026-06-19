@@ -11,12 +11,12 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Discussions | `discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
 | Audit | `audit.ts` | `audit_log`, `audit_log_list`, `audit_search` |
 | Validation | `validation.ts` | `validation_record`, `validation_history` |
-| Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `task_recover`, `bro_verification_fail_record`, `pr_review_worktree`, `reap_and_review_prep`, `task_retry_batch`, `headless_intent_start`, `headless_fallback_record` |
+| Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `task_recover`, `bro_verification_fail_record`, `pr_monitor_worktree`, `reap_and_review_prep`, `task_retry_batch`, `headless_intent_start`, `headless_fallback_record` |
 | Agents | `agents.ts` | `agent_register`, `agent_list`, `agent_resolve` |
 | Skills | `skills.ts` | `skill_register`, `skill_promote` |
 | Cheatcodes | `cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall` |
 | Roundtable | `roundtable.ts` | `roundtable_create`, `roundtable_vote`, `roundtable_summarize`, `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_close_with_decisions` |
-| PR comments | `pr_comments.ts` | `pr_comments_get`, `pr_review_runs_list` |
+| PR monitor | `pr_monitor.ts` | `pr_monitor_comments_get`, `pr_monitor_runs_list` |
 | Reports | `reports.ts` | `issue_report_md`, `issue_snapshot_md` |
 | Branch report | `branch_report_md.ts` | `branch_report_md` |
 | Stats | `stats.ts` | `task_stats` |

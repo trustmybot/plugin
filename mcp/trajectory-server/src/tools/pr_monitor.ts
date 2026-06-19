@@ -246,7 +246,7 @@ function resolveComments(
   );
 }
 
-export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
+export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -254,7 +254,7 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
 
   const definitions: Tool[] = [
     {
-      name: 'pr_comments_get',
+      name: 'pr_monitor_comments_get',
       description:
         'Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state.',
       inputSchema: {
@@ -277,9 +277,9 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
       },
     },
     {
-      name: 'pr_review_runs_list',
+      name: 'pr_monitor_runs_list',
       description:
-        'List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_comments_get.',
+        'List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_monitor_comments_get.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -296,7 +296,7 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
   ];
 
   const handlers: Record<string, Fn> = {
-    pr_comments_get: requireRoles('pr_comments_get', ['bro'], wrap(async (args) => {
+    pr_monitor_comments_get: requireRoles('pr_monitor_comments_get', ['bro'], wrap(async (args) => {
       const prNumber = Number(args['pr_number']);
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
         return err('pr_number must be a positive integer');
@@ -388,7 +388,7 @@ export function prCommentsTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
       return ok(fetchResult);
     })),
 
-    pr_review_runs_list: requireRoles('pr_review_runs_list', ['bro'], async (args) => {
+    pr_monitor_runs_list: requireRoles('pr_monitor_runs_list', ['bro'], async (args) => {
       const prFilter = args['pr_number'];
       const filterPrNumber =
         prFilter === undefined || prFilter === null ? null : Number(prFilter);

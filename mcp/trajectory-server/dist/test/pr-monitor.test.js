@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
-import { prCommentsTools } from '../tools/pr_comments.js';
+import { prMonitorTools } from '../tools/pr_monitor.js';
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
@@ -65,12 +65,12 @@ const GLAB_SAMPLE = JSON.stringify({
         },
     ],
 });
-describe('pr_comments_get — GitHub backend', () => {
+describe('pr_monitor_comments_get — GitHub backend', () => {
     it('returns structured comments from gh pr view output', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
-        const result = (await tools.handlers['pr_comments_get']({
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
+        const result = (await tools.handlers['pr_monitor_comments_get']({
             agent: 'bro',
             pr_number: 5,
         }));
@@ -95,8 +95,8 @@ describe('pr_comments_get — GitHub backend', () => {
     it('filters comments by since timestamp', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
-        const result = (await tools.handlers['pr_comments_get']({
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
+        const result = (await tools.handlers['pr_monitor_comments_get']({
             agent: 'bro',
             pr_number: 5,
             since: '2024-01-15T11:30:00Z',
@@ -110,8 +110,8 @@ describe('pr_comments_get — GitHub backend', () => {
     it('returns error when gh command fails', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([{ status: 1, stdout: '', stderr: 'auth error' }]));
-        const result = (await tools.handlers['pr_comments_get']({
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 1, stdout: '', stderr: 'auth error' }]));
+        const result = (await tools.handlers['pr_monitor_comments_get']({
             agent: 'bro',
             pr_number: 5,
         }));
@@ -123,8 +123,8 @@ describe('pr_comments_get — GitHub backend', () => {
     it('writes a pr_review_runs row on success (upsert by (pr_number, repo))', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
-        await tools.handlers['pr_comments_get']({
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
+        await tools.handlers['pr_monitor_comments_get']({
             agent: 'bro',
             pr_number: 7,
             repo: 'owner/repo',
@@ -140,20 +140,20 @@ describe('pr_comments_get — GitHub backend', () => {
     it('upserts by (pr_number, repo): re-fetching the same PR overwrites the existing row', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([
+        const tools = prMonitorTools(db, makeSpawnFn([
             { status: 0, stdout: GH_SAMPLE, stderr: '' },
             { status: 0, stdout: GH_SAMPLE, stderr: '' },
         ]));
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 8, repo: 'owner/repo' });
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 8, repo: 'owner/repo' });
+        await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 8, repo: 'owner/repo' });
+        await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 8, repo: 'owner/repo' });
         const rows = db.all(`SELECT id FROM pr_review_runs WHERE pr_number = 8 AND repo = ?`, ['owner/repo']);
         assert.equal(rows.length, 1, 'UPSERT must keep exactly one row per (pr_number, repo)');
         db.close();
     });
     it('rejects non-bro callers', async () => {
         const db = tempDB();
-        const tools = prCommentsTools(db, makeSpawnFn([]));
-        const result = (await tools.handlers['pr_comments_get']({
+        const tools = prMonitorTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_monitor_comments_get']({
             agent: 'swe',
             pr_number: 5,
         }));
@@ -192,10 +192,10 @@ describe('pr_comments_get — GitHub backend', () => {
             ],
             reviews: [],
         });
-        const tools = prCommentsTools(db, makeSpawnFn([
+        const tools = prMonitorTools(db, makeSpawnFn([
             { status: 0, stdout: MIXED_SAMPLE, stderr: '' },
         ]));
-        const result = (await tools.handlers['pr_comments_get']({
+        const result = (await tools.handlers['pr_monitor_comments_get']({
             agent: 'bro',
             pr_number: 9,
             repo: 'owner/repo',
@@ -217,12 +217,12 @@ describe('pr_comments_get — GitHub backend', () => {
     it('isolates the cursor by (pr_number, repo) — different repos do not share state', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([
+        const tools = prMonitorTools(db, makeSpawnFn([
             { status: 0, stdout: GH_SAMPLE, stderr: '' },
             { status: 0, stdout: GH_SAMPLE, stderr: '' },
         ]));
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 42, repo: 'org/repo-a' });
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 42, repo: 'org/repo-b' });
+        await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 42, repo: 'org/repo-a' });
+        await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 42, repo: 'org/repo-b' });
         const rows = db.all(`SELECT repo FROM pr_review_runs WHERE pr_number = 42 ORDER BY repo`);
         assert.equal(rows.length, 2, 'Each (pr_number, repo) gets its own cursor row');
         assert.equal(rows[0].repo, 'org/repo-a');
@@ -230,7 +230,7 @@ describe('pr_comments_get — GitHub backend', () => {
         db.close();
     });
 });
-describe('pr_comments_get — GitLab backend', () => {
+describe('pr_monitor_comments_get — GitLab backend', () => {
     let savedEnv;
     before(() => {
         savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
@@ -247,8 +247,8 @@ describe('pr_comments_get — GitLab backend', () => {
     it('returns structured comments from glab mr view output', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GLAB_SAMPLE, stderr: '' }]));
-        const result = (await tools.handlers['pr_comments_get']({
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GLAB_SAMPLE, stderr: '' }]));
+        const result = (await tools.handlers['pr_monitor_comments_get']({
             agent: 'bro',
             pr_number: 3,
         }));
@@ -270,8 +270,8 @@ describe('pr_comments_get — GitLab backend', () => {
     it('filters GitLab comments by since timestamp', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GLAB_SAMPLE, stderr: '' }]));
-        const result = (await tools.handlers['pr_comments_get']({
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GLAB_SAMPLE, stderr: '' }]));
+        const result = (await tools.handlers['pr_monitor_comments_get']({
             agent: 'bro',
             pr_number: 3,
             since: '2024-01-20T09:30:00Z',
@@ -282,15 +282,15 @@ describe('pr_comments_get — GitLab backend', () => {
         db.close();
     });
 });
-describe('pr_comments_get — issue_sync=off', () => {
+describe('pr_monitor_comments_get — issue_sync=off', () => {
     it('works when issue_sync=off (independent of issue-sync config)', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"off"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([
+        const tools = prMonitorTools(db, makeSpawnFn([
             { status: 0, stdout: '', stderr: '' },
             { status: 0, stdout: GH_SAMPLE, stderr: '' },
         ]));
-        const result = (await tools.handlers['pr_comments_get']({
+        const result = (await tools.handlers['pr_monitor_comments_get']({
             agent: 'bro',
             pr_number: 20,
         }));
@@ -308,23 +308,23 @@ describe('pr_review_runs table state capture', () => {
     it('records last_comment_id from final comment', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        const tools = prCommentsTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 10 });
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
+        await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 10 });
         const row = db.get(`SELECT last_comment_id FROM pr_review_runs WHERE pr_number = 10`);
         assert.ok(row, 'Row should exist');
         assert.equal(row.last_comment_id, 'rc1', 'last_comment_id should be the last comment id');
         db.close();
     });
 });
-describe('pr_review_runs_list', () => {
+describe('pr_monitor_runs_list', () => {
     it('returns all cursors in order when called without a filter', async () => {
         const db = tempDB();
         db.run(`INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id) VALUES
          (3, 'org/b', '2024-01-02T00:00:00Z', 'b3'),
          (3, 'org/a', '2024-01-01T00:00:00Z', 'a3'),
          (1, 'org/a', '2024-01-03T00:00:00Z', 'a1')`);
-        const tools = prCommentsTools(db, makeSpawnFn([]));
-        const result = (await tools.handlers['pr_review_runs_list']({ agent: 'bro' }));
+        const tools = prMonitorTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_monitor_runs_list']({ agent: 'bro' }));
         assert.ok(!result.isError, JSON.stringify(parseResult(result)));
         const data = parseResult(result);
         assert.equal(data.count, 3);
@@ -342,8 +342,8 @@ describe('pr_review_runs_list', () => {
          (5, 'org/a', '2024-01-01T00:00:00Z', 'a5'),
          (5, 'org/b', '2024-01-02T00:00:00Z', 'b5'),
          (6, 'org/a', '2024-01-03T00:00:00Z', 'a6')`);
-        const tools = prCommentsTools(db, makeSpawnFn([]));
-        const result = (await tools.handlers['pr_review_runs_list']({
+        const tools = prMonitorTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_monitor_runs_list']({
             agent: 'bro',
             pr_number: 5,
         }));
@@ -356,8 +356,8 @@ describe('pr_review_runs_list', () => {
     });
     it('returns empty array when no cursors exist', async () => {
         const db = tempDB();
-        const tools = prCommentsTools(db, makeSpawnFn([]));
-        const result = (await tools.handlers['pr_review_runs_list']({ agent: 'bro' }));
+        const tools = prMonitorTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_monitor_runs_list']({ agent: 'bro' }));
         const data = parseResult(result);
         assert.equal(data.count, 0);
         assert.deepEqual(data.rows, []);
@@ -365,8 +365,8 @@ describe('pr_review_runs_list', () => {
     });
     it('rejects non-bro callers', async () => {
         const db = tempDB();
-        const tools = prCommentsTools(db, makeSpawnFn([]));
-        const result = (await tools.handlers['pr_review_runs_list']({
+        const tools = prMonitorTools(db, makeSpawnFn([]));
+        const result = (await tools.handlers['pr_monitor_runs_list']({
             agent: 'swe',
         }));
         assert.ok(result.isError);
@@ -374,7 +374,7 @@ describe('pr_review_runs_list', () => {
         db.close();
     });
 });
-describe('pr_comments_get — repo threading (#362)', () => {
+describe('pr_monitor_comments_get — repo threading (#362)', () => {
     function makeCapturingSpawnFn(responses) {
         const calls = [];
         let index = 0;
@@ -390,8 +390,8 @@ describe('pr_comments_get — repo threading (#362)', () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
         const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
-        const tools = prCommentsTools(db, spawnFn);
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 5, repo: 'owner/my-repo' });
+        const tools = prMonitorTools(db, spawnFn);
+        await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 5, repo: 'owner/my-repo' });
         const ghCall = calls.find((c) => c.cmd === 'gh');
         assert.ok(ghCall, 'gh should be called');
         assert.ok(ghCall.args.includes('-R'), 'args should include -R flag');
@@ -404,8 +404,8 @@ describe('pr_comments_get — repo threading (#362)', () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
         const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
-        const tools = prCommentsTools(db, spawnFn);
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 5 });
+        const tools = prMonitorTools(db, spawnFn);
+        await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 5 });
         const ghCall = calls.find((c) => c.cmd === 'gh');
         assert.ok(ghCall, 'gh should be called');
         assert.ok(!ghCall.args.includes('-R'), 'args should NOT include -R flag when repo is omitted');
@@ -415,8 +415,8 @@ describe('pr_comments_get — repo threading (#362)', () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
         const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GLAB_SAMPLE, stderr: '' }]);
-        const tools = prCommentsTools(db, spawnFn);
-        await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 3, repo: 'group/project' });
+        const tools = prMonitorTools(db, spawnFn);
+        await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 3, repo: 'group/project' });
         const glabCall = calls.find((c) => c.cmd === 'glab');
         assert.ok(glabCall, 'glab should be called');
         assert.ok(glabCall.args.includes('-R'), 'args should include -R flag');
@@ -424,4 +424,4 @@ describe('pr_comments_get — repo threading (#362)', () => {
         db.close();
     });
 });
-//# sourceMappingURL=pr-comments.test.js.map
+//# sourceMappingURL=pr-monitor.test.js.map

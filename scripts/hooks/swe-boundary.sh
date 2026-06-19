@@ -296,7 +296,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
       fi
     fi
     if [ "$_PB_ALLOWED" != "yes" ]; then
-      jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync). Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_review_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed."}}'
+      jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync). Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed."}}'
       exit 0
     fi
   fi
