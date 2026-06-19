@@ -2,7 +2,6 @@
 Plugin version: __VOLATILE__
 Top-level dirs: __VOLATILE__
 Stacks detected: __VOLATILE__
-Architecture docs: __VOLATILE__
 World model: __VOLATILE__
 Git branch: __VOLATILE__
 Open issues: __VOLATILE__

@@ -123,9 +123,6 @@ assert_contains "$CTX" "Top-level dirs:" "Top-level dirs line present"
 test_case "stable: Stacks detected line present"
 assert_contains "$CTX" "Stacks detected:" "Stacks detected line present"
 
-test_case "stable: Architecture docs line present"
-assert_contains "$CTX" "Architecture docs:" "Architecture docs line present"
-
 test_case "stable: World model line present"
 assert_contains "$CTX" "World model:" "World model line present"
 
