@@ -12,12 +12,12 @@ A practical test: if a paragraph in a core prompt teaches a specialized techniqu
 
 ## 2. Two review perspectives
 
-The workflow has two review gates, and they look at different things.
+The workflow has two review gates. Both read the diff line by line — what differs is the context each brings to it, and what that context does to what they catch.
 
 - **bro reviews at the SYSTEM level.** The question bro answers is "does this change fit the whole system?" — does it belong in this milestone, does it respect the role boundaries, does it ripple into surfaces the spec didn't name, is it the right shape of work at all.
 - **pr-reviewer reviews at the DIFF level.** The question pr-reviewer answers is "is this diff correct against its spec?" — does every named file and success criterion have a concrete change, does the verification pass, is anything out of scope.
 
-The two perspectives are complementary by design. bro can approve the intent of a change it would never read line by line; pr-reviewer can verify a diff is faithful without re-litigating whether the work should have been done. Neither gate substitutes for the other.
+The two perspectives are complementary because of a context asymmetry. bro carries the full picture — the plan, the decisions, the prior turns — which is what makes the system-fit call possible; but that same context biases bro toward expecting correctness, so bro can read a line for what it was *meant* to do and wave a real low-level bug through. pr-reviewer arrives with fresh memory and little of the big picture, and that freshness is the point: reading the diff cold, unprimed by intent, is what gives it the better odds of catching the local bug bro rationalizes past. Neither substitutes for the other — bro's context catches scope and ripple problems pr-reviewer can't see; pr-reviewer's fresh eyes catch correctness bugs bro's context hides.
 
 ## 3. Dev-vs-user-runtime boundary
 
