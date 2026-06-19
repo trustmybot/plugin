@@ -132,6 +132,7 @@ rm -rf "$_stub_dir"
 
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/l3-integration/mcp/run.sh"
 run_step "L3 integration: hook script tests"                         bash "$HERE/l3-integration/hooks/run.sh"
+run_step "L3 integration: deterministic health-check (scripts/health.sh)"  bash "$HERE/l3-integration/health.test.sh"
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
