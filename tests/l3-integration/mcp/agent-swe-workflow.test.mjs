@@ -18,6 +18,7 @@ async function seedIssueAndTask(client) {
     agent: 'bro',
     objective: 'task for swe',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
   const batch = await call(client, 'task_create_batch', {

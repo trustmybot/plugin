@@ -16,6 +16,7 @@ async function seedIssue(client) {
     agent: 'bro',
     objective: 'search-tools test fixture',
     description: 'fixture for search integration tests',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(r.ok, true, `seed issue: ${JSON.stringify(r)}`);
   return r.data.id;

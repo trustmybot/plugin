@@ -24,6 +24,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   // Setup: 2 closed tasks ready to push (simulating Flow 2 already ran twice)
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'Two things', description: 'd',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -106,7 +107,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd' });
+  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const issueId = issue.data.id;
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro', issue_id: issueId,

@@ -39,6 +39,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
     agent: 'bro',
     objective: 'Verify role enforcement',
     description: 'Confirm validation_record rejects non-pr-reviewer callers.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
 
@@ -93,6 +94,7 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
     agent: 'bro',
     objective: 'Verify bro_verification_pass audit event',
     description: 'Bro must record its task-gate verdict in audit, not in validation_attempts.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 

@@ -9,6 +9,7 @@ import { startClient, call } from './harness.mjs';
 async function seedCompletedTask(client) {
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'pr test', description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
   const batch = await call(client, 'task_create_batch', {

@@ -58,7 +58,7 @@ test('issue_snapshot_md — bro & pr-reviewer only; consultants forbidden', asyn
   t.after(async () => { await close(); });
 
   // Seed an issue so the handler has something to snapshot.
-  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'x', description: 'y' });
+  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'x', description: 'y', labels: ['Feature', 'Priority: Medium'] });
   assert.equal(seed.ok, true, `seed issue: ${JSON.stringify(seed)}`);
   const issueId = seed.data.id;
 
@@ -76,7 +76,7 @@ test('discussion_append — workflow agents (bro/architect) can append questions
   t.after(async () => { await close(); });
 
   // Seed: architect creates an issue.
-  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'x', description: 'y' });
+  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'x', description: 'y', labels: ['Feature', 'Priority: Medium'] });
   assert.equal(issue.ok, true, `seed: ${JSON.stringify(issue)}`);
   const issueId = issue.data.id;
 
@@ -102,13 +102,13 @@ test('issue_create — bro only; architect/swe/pr-reviewer all forbidden', async
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const ok = await call(client, 'issue_create', { agent: 'bro', objective: 'planner test', description: 'd' });
+  const ok = await call(client, 'issue_create', { agent: 'bro', objective: 'planner test', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   assert.equal(ok.ok, true, `bro should create issue; got ${JSON.stringify(ok)}`);
 
   // Architect normalizes to 'consultant' role; first-class roles keep their literal name.
   const expectedRole = (n) => (n === 'architect' ? 'consultant' : n);
   for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
-    const res = await call(client, 'issue_create', { agent: wrongRole, objective: 'x', description: 'y' });
+    const res = await call(client, 'issue_create', { agent: wrongRole, objective: 'x', description: 'y', labels: ['Feature', 'Priority: Medium'] });
     assert.equal(res.ok, false, `${wrongRole} must be forbidden from issue_create`);
     assert.equal(res.error?.error, 'forbidden');
     assert.equal(res.error?.caller_role, expectedRole(wrongRole));
@@ -119,7 +119,7 @@ test('issue_close — bro only; architect/swe/pr-reviewer all forbidden', async 
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 's', description: 'd' });
+  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 's', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const issueId = seed.data.id;
 
   for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
@@ -133,7 +133,7 @@ test('task_create_batch — bro only; architect/swe/pr-reviewer all forbidden', 
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd' });
+  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const issueId = seed.data.id;
   const taskInput = {
     waive_scope_gate: true,
@@ -169,7 +169,7 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd' });
+  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro',
     waive_scope_gate: true, waive_scope_gate_reason: 'role-matrix test seed',
@@ -200,7 +200,7 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd' });
+  const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro',
     waive_scope_gate: true, waive_scope_gate_reason: 'role-matrix test seed',

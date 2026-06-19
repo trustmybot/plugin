@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { startClient, call } from '../l3-integration/mcp/harness.mjs';
 
 async function setupClosedTask(client, branch, sha) {
-  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd' });
+  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const issueId = issue.data.id;
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro', issue_id: issueId,
