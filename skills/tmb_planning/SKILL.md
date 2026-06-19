@@ -83,6 +83,15 @@ Then run the worktree hook per branch and spawn SWE per task.
 
 The batch response includes `parallel_groups` — tasks in the same group are safe to spawn in parallel.
 
+### Spawning SWE
+
+The Agent PreToolUse gates enforce a spawn contract — get all four right or the first spawn is denied:
+
+- The spawn prompt MUST contain the literal `task_id=<N>` — a bare `task_id 5` without `=` fails the gate.
+- Pre-create the feature branch before spawning: `git -C <repo> branch <branch> origin/<base>`. Required even when the task-create branch gate was waived — waiving the DB gate doesn't create the git ref.
+- The task must be `pending`/`open` with a non-empty `spec_body`.
+- The worktree is auto-created by the spawn hook — don't `EnterWorktree` manually.
+
 ## 6. Verify on SWE return + atomic close
 
 After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff` of the commit) and judge it against the spec on four counts:
