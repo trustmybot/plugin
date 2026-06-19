@@ -87,15 +87,56 @@ has_word() {
 # ---------------------------------------------------------------------------
 # 0. cheatcode-install — installing a NAMED external capability.
 #    Fires when the prompt installs a plugin/skill/mcp/cheatcode (the capability
-#    noun appears with 'install'), OR requests 'in (local|global) scope'.
-#    Anchored on the capability noun so dependency installs (npm/pip/bun install,
-#    'install dependencies') never match. Checked before consultant-spawn so an
-#    install directive routes to the cheatcode pipeline, NOT agent-create — while
-#    a bare role name (no install/capability noun) still falls through to
-#    consultant-spawn.
+#    noun appears with 'install'), OR requests 'in (local|global) scope', OR
+#    installs/adds a capability TARGETED AT a known agent ("install <X> for swe",
+#    "add <X> to bro"). A capability ON an agent is the cheatcode-reuse path, so
+#    that target form routes to tmb_cheatcode (not tmb_planning, the build flow).
+#    Anchored on the capability noun / agent target so dependency installs
+#    (npm/pip/bun install, 'install dependencies') never match. Checked before
+#    consultant-spawn so an install directive routes to the cheatcode pipeline,
+#    NOT agent-create — while a bare role name (no install verb) still falls
+#    through to consultant-spawn.
 # ---------------------------------------------------------------------------
 if [ "${TMB_DISABLE_CHEATCODE_INSTALL_HINT:-0}" != "1" ]; then
   cheatcode_install_match=""
+
+  # capability-on-agent: an install/add verb whose target is a known agent name
+  # ("for|to <agent>"), where agent ∈ {swe, pr-reviewer, bro} plus any active
+  # consultant role from the registry. This is the cheatcode-reuse path — a
+  # capability attached to an agent — so it loads tmb_cheatcode. Dependency
+  # installs never match: "for the build" / "to get the deps" carry no agent name.
+  capability_on_agent=""
+  case "$LOWER" in
+    *install*|*" add "*|"add "*)
+      AGENT_TARGETS="swe pr-reviewer bro"
+      DB=$(tmb_db_path 2>/dev/null || true)
+      if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
+        CONSULTANT_ROLES=$(sqlite3 "$DB" \
+          "SELECT name FROM agents WHERE kind='consultant' AND status='active';" \
+          2>/dev/null || true)
+        while IFS= read -r role; do
+          [ -n "$role" ] || continue
+          AGENT_TARGETS="$AGENT_TARGETS $(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
+        done <<EOF
+$CONSULTANT_ROLES
+EOF
+      fi
+      for agent in $AGENT_TARGETS; do
+        case "$LOWER" in
+          *"for ${agent}"*|*"to ${agent}"*)
+            capability_on_agent="$agent"
+            break
+            ;;
+        esac
+      done
+      ;;
+  esac
+
+  if [ -n "$capability_on_agent" ]; then
+    CTX="[tmb cheatcode-routing] This installs a capability ONTO the \`${capability_on_agent}\` agent — that is the cheatcode-reuse path. Load \`tmb_cheatcode\`: search/vet/approve the capability (cheatcode_search → cheatcode_approve) then materialize it onto the agent. This is capability reuse, so it routes through the cheatcode pipeline rather than the build flow."
+    emit_context "$CTX"
+  fi
+
   case "$LOWER" in
     *"in local scope"*|*"in global scope"*)
       cheatcode_install_match="in scope"
