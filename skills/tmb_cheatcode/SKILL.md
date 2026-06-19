@@ -54,4 +54,12 @@ AskUserQuestion(
 
 Lead the chat with the rationale — what the cheatcode does, its tier, and the surface it brings — then let the Human call it.
 
-When the install is FOR a specific agent — "install X for swe", "code-review for pr-reviewer" — pass that agent as `cheatcode_install`'s `target` so the consuming agent is materialized (`.claude/agents/<agent>.md` copied global→local with the skill added to its `skills:` header; `target=bro` materializes `.claude/CLAUDE.md` instead).
+## Decide the consuming agent
+
+`target` is the agent that will USE the cheatcode, and for a **skill** the target is mandatory — `cheatcode_install` rejects a targetless skill, so resolve it BEFORE install.
+
+If the Human named the agent — "install X for swe", "code-review for pr-reviewer" — use it. Otherwise infer from the cheatcode's domain: coding / test / refactor / debug → `swe`; code-review / quality → `pr-reviewer`; orchestration / routing / planning → `bro`; a consultant's domain → that consultant. Reach for AskUserQuestion only when it's genuinely ambiguous.
+
+Pass it as `cheatcode_install(..., target=<agent>)` — the install materializes that agent's prompt surface (mechanism in FLOWS flow 10). The one exception is a `kind=mcp` server (or pure-server plugin) — its registration is the attachment, callable by any agent, so it needs no target.
+
+The full lifecycle (search → vet → approve → install → materialize → activate) lives in [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md) flow 10.
