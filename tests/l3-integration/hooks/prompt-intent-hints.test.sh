@@ -86,6 +86,34 @@ assert_not_contains "$out" "cheatcode-install routing" "bare role must not hit c
 assert_contains "$out" "consultant-spawn enforcement" "bare role still routes to agent-create"
 
 # ---------------------------------------------------------------------------
+# cheatcode-routing: install/add a capability TARGETED AT a known agent
+# ("install <X> for swe", "add <X> to bro") → load tmb_cheatcode, not planning
+# ---------------------------------------------------------------------------
+
+test_case "cheatcode-routing: 'install <X> for swe and pr-reviewer' fires cheatcode cue"
+out=$(run_hook "install typescript-lsp for swe and pr-reviewer")
+assert_contains "$out" "cheatcode-routing" "capability-on-agent install must fire"
+assert_contains "$out" "tmb_cheatcode" "CTX must point to tmb_cheatcode skill"
+
+test_case "cheatcode-routing: 'add <X> to bro' fires cheatcode cue"
+out=$(run_hook "add a web-search tool to bro")
+assert_contains "$out" "cheatcode-routing" "add-to-agent must fire"
+assert_contains "$out" "tmb_cheatcode" "CTX must point to tmb_cheatcode skill"
+
+test_case "cheatcode-routing: positive cue does not name a 'don't use planning' clause"
+out=$(run_hook "install ripgrep for swe")
+assert_contains "$out" "cheatcode-routing" "capability-on-agent must fire"
+assert_not_contains "$out" "planning" "positive disambiguation only — no negative planning clause"
+
+test_case "cheatcode-routing: plain dependency install does NOT fire cheatcode cue"
+out=$(run_hook "npm install to get the deps for the build")
+assert_not_contains "$out" "cheatcode-routing" "dependency install (no agent target) must not fire"
+
+test_case "cheatcode-routing: 'install dependencies' does NOT fire cheatcode cue"
+out=$(run_hook "install dependencies before running the build")
+assert_not_contains "$out" "cheatcode-routing" "install dependencies must not fire"
+
+# ---------------------------------------------------------------------------
 # consultant-spawn: domain keyword + advisory shape required
 # ---------------------------------------------------------------------------
 
