@@ -12,6 +12,8 @@
 | `tmb_default_repo` | string | any relative path (no `..`, no leading `/`) — e.g. `"plugin"`, `"repos/backend"` | unset | `task_create_batch` (MCP), `require-feature-branch-active.sh`, `cleanup-worktree-on-task-close.sh` | bro via `config_set tmb_default_repo <inner>` |
 | `onboarded` | boolean (JSON) | `true` | unset until `/onboard` completes | `activation-routine.sh` (banner), `onboard.ts:onboard_state_get` | `onboard_apply` (writes `true` on first successful run); `db.ts:migrateV1toV2` (forward-migrates legacy `identity` marker) |
 | `pr_review_bots` | string[] (JSON) | array of bot login patterns | unset (falls back to `DEFAULT_BOT_PATTERNS` in `pr_comments.ts`) | `pr_comments_get` — merged with `DEFAULT_BOT_PATTERNS` for bot-comment filtering | bro via `config_set pr_review_bots '[\"bot-login\"]'` |
+| `issue_classification_labels` | string[] (JSON) | array of classification label names | `["Bug","Feature","Improvement","Docs","Test","Chore"]` (schema-seeded generic default) | `issue_create` → `validateIssueLabels` (mandatory-tagging check) | project owner via `config_set issue_classification_labels '[...]'` |
+| `issue_priority_labels` | string[] (JSON) | array of priority label names | `["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]` (schema-seeded generic default) | `issue_create` → `validateIssueLabels` (mandatory-tagging check) | project owner via `config_set issue_priority_labels '[...]'` |
 
 ## 2. Default Derivation
 
@@ -29,7 +31,7 @@ Additional keys can be added to `plugin_config` without schema migration; the ta
 
 ## 4. Reading-the-Config Policy
 
-The five schema-seeded keys (`branching_model`, `pr_target`, `protected_branches`, `remotes`, `issue_sync`) are present in every properly-initialised DB via `INSERT OR IGNORE`. Readers MUST treat a missing seeded key as "DB corruption or pre-seed install — trigger `/onboard`" — NOT as "silently default". Silent defaults hide configuration drift. Dynamic keys (`onboarded`, `pr_review_bots`, `tmb_default_repo`) may legitimately be absent until the triggering operation runs; readers of such keys must handle `NULL`/absent gracefully.
+The schema-seeded keys (`branching_model`, `pr_target`, `protected_branches`, `remotes`, `issue_sync`, `issue_classification_labels`, `issue_priority_labels`) are present in every properly-initialised DB via `INSERT OR IGNORE`. Readers of the policy keys MUST treat a missing seeded key as "DB corruption or pre-seed install — trigger `/onboard`" — NOT as "silently default". Silent defaults hide configuration drift. The label-taxonomy keys are the deliberate exception: `validateIssueLabels` falls back to the generic default in code when the key is unset or malformed, so a pre-seed or label-less project can still create issues. Dynamic keys (`onboarded`, `pr_review_bots`, `tmb_default_repo`) may legitimately be absent until the triggering operation runs; readers of such keys must handle `NULL`/absent gracefully.
 
 ## 5. `tmb_default_repo` — Multi-repo workspace support
 

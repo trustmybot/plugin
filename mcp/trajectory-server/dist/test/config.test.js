@@ -92,6 +92,8 @@ describe('configTools', () => {
         assert.ok(!result.isError);
         assert.deepEqual(parseResult(result), {
             branching_model: 'github-flow',
+            issue_classification_labels: ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore'],
+            issue_priority_labels: ['Priority: Urgent', 'Priority: High', 'Priority: Medium', 'Priority: Low'],
             issue_sync: 'off',
             pr_target: 'main',
             protected_branches: ['main'],
@@ -108,6 +110,8 @@ describe('configTools', () => {
         assert.deepEqual(parseResult(result), {
             alpha: 'one',
             branching_model: 'github-flow',
+            issue_classification_labels: ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore'],
+            issue_priority_labels: ['Priority: Urgent', 'Priority: High', 'Priority: Medium', 'Priority: Low'],
             issue_sync: 'off',
             pr_target: 'main',
             protected_branches: ['main'],
@@ -128,6 +132,8 @@ describe('configTools', () => {
             beta: 2,
             branching_model: 'github-flow',
             gamma: 3,
+            issue_classification_labels: ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore'],
+            issue_priority_labels: ['Priority: Urgent', 'Priority: High', 'Priority: Medium', 'Priority: Low'],
             issue_sync: 'off',
             pr_target: 'main',
             protected_branches: ['main'],

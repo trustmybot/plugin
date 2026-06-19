@@ -19,47 +19,85 @@ type SpawnFn = (
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 // Mandatory issue tagging (#93/#777): every issue must carry one priority tag
-// AND one classification tag. Both sets are the single source of truth — the
-// validation and the error message read from these consts only.
-const PRIORITY_LABEL_RE = /^Priority: (Urgent|High|Medium|Low)$/;
+// AND one classification tag. The valid sets are configurable per project via
+// plugin_config (issue_classification_labels / issue_priority_labels); when
+// unset, a small GENERIC default applies. Validation stays fail-closed — only
+// the *contents* of the valid sets are project-specific, not the requirement.
 
-const CLASSIFICATION_LABELS = [
+// Generic, project-agnostic default. A project (incl. TMB itself) overrides
+// these via config_set issue_classification_labels / issue_priority_labels.
+const DEFAULT_CLASSIFICATION_LABELS: readonly string[] = [
   'Bug',
   'Feature',
   'Improvement',
   'Docs',
-  'Install',
-  'Workflow',
-  'MCP',
-  'Hooks',
-  'Roundtable',
-  'Multi-platform',
-  'Performance',
-  'Tests',
-  'architecture',
-  'enforcement',
-  'design',
-  'campaign',
-  'token-burn',
-  'Doctrine',
-  'Discussion',
-] as const;
-const CLASSIFICATION_LABEL_SET: ReadonlySet<string> = new Set(CLASSIFICATION_LABELS);
+  'Test',
+  'Chore',
+];
+const DEFAULT_PRIORITY_LABELS: readonly string[] = [
+  'Priority: Urgent',
+  'Priority: High',
+  'Priority: Medium',
+  'Priority: Low',
+];
 
-// Fail closed: reject unless the labels arg satisfies BOTH required categories.
+// Read a string[] config key from plugin_config; returns null when unset or
+// malformed so the caller can fall back to the generic default.
+function readStringArrayConfig(db: TrajectoryDB, key: string): string[] | null {
+  const row = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [key],
+  );
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.value_json) as unknown;
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every((v) => typeof v === 'string')
+    ) {
+      return parsed as string[];
+    }
+  } catch {
+    // malformed config row — fall through to the generic default
+  }
+  return null;
+}
+
+// Resolve the configured (or generic-default) classification + priority sets
+// for the active project. The validator matches a label against the resolved
+// sets by exact membership.
+function resolveLabelTaxonomy(db: TrajectoryDB): {
+  classification: string[];
+  priorityLabels: string[];
+} {
+  const classification = readStringArrayConfig(db, 'issue_classification_labels') ?? [
+    ...DEFAULT_CLASSIFICATION_LABELS,
+  ];
+  const priorityLabels = readStringArrayConfig(db, 'issue_priority_labels') ?? [
+    ...DEFAULT_PRIORITY_LABELS,
+  ];
+  return { classification, priorityLabels };
+}
+
+// Fail closed: reject unless the labels arg satisfies BOTH required categories,
+// checked against the project's configured (or generic-default) taxonomy.
 // Returns a named error string listing what is missing and the valid options,
 // or null when the labels are valid. Extra labels (in neither set) are allowed.
-function validateIssueLabels(labels: string[]): string | null {
-  const hasPriority = labels.some((l) => PRIORITY_LABEL_RE.test(l));
-  const hasClassification = labels.some((l) => CLASSIFICATION_LABEL_SET.has(l));
+function validateIssueLabels(db: TrajectoryDB, labels: string[]): string | null {
+  const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+  const classificationSet = new Set(classification);
+  const prioritySet = new Set(priorityLabels);
+  const hasPriority = labels.some((l) => prioritySet.has(l));
+  const hasClassification = labels.some((l) => classificationSet.has(l));
   if (hasPriority && hasClassification) return null;
 
   const missing: string[] = [];
   if (!hasClassification) {
-    missing.push(`a classification label (one of: ${CLASSIFICATION_LABELS.join(', ')})`);
+    missing.push(`a classification label (one of: ${classification.join(', ')})`);
   }
   if (!hasPriority) {
-    missing.push('a priority label (one of: Priority: Urgent, Priority: High, Priority: Medium, Priority: Low)');
+    missing.push(`a priority label (one of: ${priorityLabels.join(', ')})`);
   }
   return `missing_required_labels: issue_create requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
 }
@@ -208,8 +246,8 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           agent: { type: 'string', description: 'Caller agent name' },
           objective: { type: 'string', description: 'Short one-liner summary' },
           description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
-          labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label (Priority: Urgent|High|Medium|Low) AND at least one classification label (Bug, Feature, Improvement, Docs, Install, Workflow, MCP, Hooks, Roundtable, Multi-platform, Performance, Tests, architecture, enforcement, design, campaign, token-burn, Doctrine, Discussion). Extra labels are allowed. Applied to the remote issue.' },
-          milestone: { type: 'string', description: 'Optional milestone name (e.g. "v0.10.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
+          labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue.' },
+          milestone: { type: 'string', description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
           allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
         },
         required: ['agent', 'objective', 'labels'],
@@ -339,7 +377,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       // labels: pass-through to remote sync; not persisted locally after #179.
       const labels = (args['labels'] as string[] | undefined) ?? [];
       // Mandatory tagging (#93/#777): fail closed before any insert/sync.
-      const labelError = validateIssueLabels(labels);
+      const labelError = validateIssueLabels(db, labels);
       if (labelError !== null) {
         return err(labelError);
       }
