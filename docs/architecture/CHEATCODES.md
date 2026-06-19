@@ -76,11 +76,12 @@ Hot-load (#660) loads a cheatcode into the session; *attachment* decides which a
 
 | Kind | Attachment | Prompt-surface? |
 |---|---|---|
-| **plugin** | marketplace install loads its skills/hooks/commands via the plugin manifest — available without editing any agent | no — automatable |
-| **MCP toolkit** | register the server (config) + role-route which agents may call the new tools (mechanisms 1/6) | no — automatable behind the install approval gate |
+| **plugin (skill-contributing)** | marketplace install loads its skills/hooks/commands via the plugin manifest — available without editing any agent *for an unrestricted agent*. Installed FOR a restricted agent (a `target`), the cheatcode name is added to that agent's `skills:` so its allowlist can load the skill. | only the optional per-agent `skills:` entry — written to the user project, not the plugin repo |
+| **plugin (tool-contributing)** | a plugin that provides a built-in TOOL (an LSP plugin provides `LSP`, detected from its cache manifest `.claude-plugin/plugin.json` — an `lsp` declaration ⇒ `LSP`, a manifest `tools` list = the provided set) grants that tool to the consuming agent's `tools:` allowlist (+ project enablement). Writing the cheatcode name to `skills:` would be inert. | the per-agent `tools:` grant — written to the user project |
+| **MCP toolkit** | register the server (config); the server's tools register globally, callable by any agent — no per-agent grant | no — automatable behind the install approval gate |
 | **standalone skill** | must be added to a consuming agent's `skills:` frontmatter array | **yes** — the pipeline *proposes* the edit as a Human-reviewed PR, never an automatic write |
 
-Default-prefer **plugin / MCP** kinds, which attach without touching prompt-surface. A standalone-skill cheatcode is allowed, but its attachment is a Human-reviewed prompt-surface change like any other — the pipeline opens the PR, it does not self-merge.
+Default-prefer **plugin / MCP** kinds. An MCP toolkit's tools register globally; a skill-contributing plugin loads its skills via the manifest (available without editing any agent for an unrestricted agent — a restricted agent gets a `skills:` entry). A tool-contributing plugin grants its tool to the consuming agent's `tools:` allowlist. A standalone-skill cheatcode is allowed, but its attachment is a Human-reviewed prompt-surface change like any other — the pipeline opens the PR, it does not self-merge.
 
 Every attachment writes an **attachment record** to the trajectory DB (kind, target agent/role, artifact) so `cheatcode_uninstall` can reverse exactly what was wired.
 

@@ -1271,6 +1271,198 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
     }
   });
 
+  // Stage a plugin cache manifest (.claude-plugin/plugin.json) and point the
+  // tool-detection override at it, so detectProvidedTools reads it without a
+  // real installed-plugins registry.
+  function withManifest(manifest: Record<string, unknown>): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-manifest-'));
+    const path = join(dir, 'plugin.json');
+    writeFileSync(path, JSON.stringify(manifest));
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it('kind=plugin providing a built-in tool (lsp) grants it to the agent tools: allowlist and writes no skills: entry (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    // An LSP-shaped manifest: an `lsp` declaration ⇒ the plugin provides `LSP`.
+    const mf = withManifest({ name: 'pyright-lsp', lsp: { command: 'pyright' } });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'pyright-lsp', kind: 'plugin', source_url: 'https://github.com/x/pyright-lsp' },
+        target: 'swe',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized');
+      const body = readFileSync(localSwe, 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+
+      // The provided tool lands in tools: (comma-separated string, not a [] array).
+      const toolsEntries = fm.match(/^tools:\s*(.*)$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(toolsEntries.includes('LSP'), `LSP granted in tools:, got: ${fm.match(/^tools:\s*(.*)$/m)![1]}`);
+      // The cheatcode name is NOT written to skills: — that entry would be inert.
+      const skillsLine = fm.match(/^skills:\s*\[(.*)\]\s*$/m);
+      const skillsEntries = skillsLine ? skillsLine[1].split(',').map((s) => s.trim()) : [];
+      assert.ok(!skillsEntries.includes('pyright-lsp'), `pyright-lsp must NOT be in skills:, got: ${skillsLine?.[1] ?? '(none)'}`);
+      // The original allowlist tools are preserved.
+      assert.ok(toolsEntries.includes('Read') && toolsEntries.includes('Bash'), 'original tools preserved');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('kind=plugin with a manifest tools[] list grants every listed tool to tools:, none to skills: (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const mf = withManifest({ name: 'multi-tool', tools: ['Alpha', 'Beta'] });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    try {
+      const tools = cheatcodeTools(db);
+      await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'multi-tool', kind: 'plugin', source_url: 'https://github.com/x/multi-tool' },
+        target: 'swe',
+      });
+      const body = readFileSync(join(root, '.claude', 'agents', 'swe.md'), 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const toolsEntries = fm.match(/^tools:\s*(.*)$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(toolsEntries.includes('Alpha') && toolsEntries.includes('Beta'), 'both manifest tools granted');
+      assert.ok(!fm.includes('multi-tool'), 'cheatcode name not written into the frontmatter');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('kind=plugin with no provided tool in its manifest keeps the skills: path (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    // A skill-contributing plugin manifest: neither `lsp` nor `tools`.
+    const mf = withManifest({ name: 'feature-dev', description: 'workflow skills' });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    try {
+      const tools = cheatcodeTools(db);
+      await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
+        target: 'swe',
+      });
+      const body = readFileSync(join(root, '.claude', 'agents', 'swe.md'), 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(skills.includes('feature-dev'), 'skill-contributing plugin lands in skills:');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('a standalone skill still lands in skills:, never tools: (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    // A manifest override is present but kind=skill never consults it.
+    const mf = withManifest({ name: 'pdf-skill', lsp: { command: 'x' } });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    try {
+      const tools = cheatcodeTools(db);
+      await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'swe',
+      });
+      const body = readFileSync(join(root, '.claude', 'agents', 'swe.md'), 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(skills.includes('pdf-skill'), 'standalone skill lands in skills:');
+      const toolsEntries = fm.match(/^tools:\s*(.*)$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(!toolsEntries.includes('pdf-skill') && !toolsEntries.includes('LSP'), 'skill never granted as a tool');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('uninstalling a tool-contributing plugin removes its tool grant from tools: (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const mf = withManifest({ name: 'pyright-lsp', lsp: { command: 'pyright' } });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    const unfxDir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-unfx-'));
+    const unfx = join(unfxDir, 'uninstall.json');
+    writeFileSync(unfx, JSON.stringify({ removed: true, error: null }));
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = unfx;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'pyright-lsp', kind: 'plugin', source_url: 'https://github.com/x/pyright-lsp' },
+        target: 'swe',
+      });
+      const id = parse(r)['cheatcode_id'] as number;
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(readFileSync(localSwe, 'utf8').includes('LSP'), 'LSP granted before uninstall');
+
+      await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      const after = readFileSync(localSwe, 'utf8');
+      const toolsEntries = after.match(/^tools:\s*(.*)$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(!toolsEntries.includes('LSP'), 'LSP grant removed on uninstall');
+      assert.ok(toolsEntries.includes('Read'), 'original tools preserved through uninstall');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      rmSync(unfxDir, { recursive: true, force: true });
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
   it('no target: a skill install is rejected and writes no agent md (orphan guard)', async () => {
     const prev = process.env['CLAUDE_PLUGIN_ROOT'];
     process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
