@@ -1078,15 +1078,55 @@ export function compositeTools(
             continue;
           }
           const slug = task.branch_id.replace(/^[^/]+\//, '');
-          const wtPath = `${repoPath}/.claude/worktrees/${slug}`;
 
+          // (a) No-op when the branch ref already resolves in the MAIN checkout
+          // to the task's commit_sha. SWE commits land on the branch ref, which
+          // — because a linked worktree shares the main repo's object store and
+          // ref namespace — is already visible here. No fetch needed. (#156)
+          if (task.commit_sha) {
+            try {
+              const refSha = execFileSync(
+                'git',
+                ['-C', repoPath, 'rev-parse', '--verify', `refs/heads/${task.branch_id}`],
+                { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 },
+              )
+                .toString()
+                .trim();
+              if (refSha.toLowerCase().startsWith(task.commit_sha.toLowerCase())) {
+                results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: true });
+                continue;
+              }
+            } catch {
+              // Branch ref absent / unresolvable in the main checkout — fall
+              // through to the worktree-rooted reap below.
+            }
+          }
+
+          // (b) Resolve the worktree path UNDER THE REPO ROOT (not the workspace
+          // root) — that is where ensure-swe-worktree.sh creates it. A worktree's
+          // `.git` is a file (a gitdir pointer), not a fetchable remote, so do
+          // NOT fetch from it: the worktree shares the main repo's object store,
+          // so the commit is already present here. When commit_sha is known,
+          // point the branch ref at it directly (update-ref); otherwise read the
+          // worktree's detached HEAD and set the ref to that. (#156)
+          const wtPath = `${repoPath}/.claude/worktrees/${slug}`;
           try {
+            let targetSha = task.commit_sha ?? '';
+            if (!targetSha) {
+              targetSha = execFileSync(
+                'git',
+                ['-C', wtPath, 'rev-parse', 'HEAD'],
+                { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 },
+              )
+                .toString()
+                .trim();
+            }
             execFileSync(
               'git',
-              ['-C', repoPath, 'fetch', wtPath, `HEAD:${task.branch_id}`],
+              ['-C', repoPath, 'update-ref', `refs/heads/${task.branch_id}`, targetSha],
               { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 },
             );
-            results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: true });
+            results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha ?? targetSha, reaped: true });
           } catch (e) {
             results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: false, error: (e as Error).message });
           }
