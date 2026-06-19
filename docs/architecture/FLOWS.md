@@ -317,4 +317,4 @@ Human types `/tmb:agent-create <ask>` OR a naturalistic question matching `/tmb:
 
 ## M. Monitor PR comments
 
-`/monitor <PR_number>` slash command. Bro fetches the PR's review comments via `pr_comments_get`, triages actionable ones, files them as new `issues` + `tasks`, and dispatches SWE per ratified comment batch. Run state lives in `pr_review_runs` so re-runs of the same PR start from the last fetched comment ID.
+`/monitor <PR_number>` slash command. Bro fetches the PR's review comments via `pr_monitor_comments_get`, triages actionable ones, files them as new `issues` + `tasks`, and dispatches SWE per ratified comment batch. Run state lives in `pr_review_runs` so re-runs of the same PR start from the last fetched comment ID.

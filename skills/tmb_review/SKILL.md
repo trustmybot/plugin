@@ -1,7 +1,7 @@
 ---
 name: tmb_review
 description: PR-reviewer's diff-level push-gate review — check this task's diff against its spec, then write the validation_record verdict that gates the push. Loaded by pr-reviewer when reviewing a committed task. Self-contained.
-allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__pr_review_worktree, mcp__plugin_tmb_trajectory-server__validation_record
+allowed-tools: Bash, mcp__plugin_tmb_trajectory-server__pr_monitor_worktree, mcp__plugin_tmb_trajectory-server__validation_record
 ---
 
 # PR-reviewer protocol (push gate)
@@ -12,7 +12,7 @@ Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, and the ch
 
 The parent CC session's main checkout may be on ANY branch. Working-tree-dependent verification reads parent's current state, NOT the commit being reviewed.
 
-For working-tree-dependent verification use `pr_review_worktree` with the workspace root — the directory holding `.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
+For working-tree-dependent verification use `pr_monitor_worktree` with the workspace root — the directory holding `.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
 
 Sha-based git ops (`git show <sha>`, `git diff <sha>~1..<sha>`, `git ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
 

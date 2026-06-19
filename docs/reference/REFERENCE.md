@@ -27,7 +27,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **stats**: `task_stats`
 - **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `discussion_search`, `issue_get_with_discussions`
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_close_with_decisions`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
-- **pr_comments**: `pr_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS), `pr_review_runs_list`
+- **pr_monitor**: `pr_monitor_comments_get` (gh + glab backends; bot detection via DEFAULT_BOT_PATTERNS), `pr_monitor_runs_list`
 - **validation**: `validation_record` (subagent_session_id required when agent='pr-reviewer'), `validation_history`
 - **world model** (bro's directory-level memory): `world_model_get` (annotated dir tree), `world_model_search` (keyword / semantic / hybrid)
 - **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
@@ -37,7 +37,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
-- **composites**: `intent_start`, `branch_id_propose`, `task_brief`, `task_retry_batch`, `task_recover`, `bro_atomic_close`, `bro_verification_fail_record`, `headless_intent_start`, `headless_fallback_record`, `pr_review_worktree`, `reap_and_review_prep`
+- **composites**: `intent_start`, `branch_id_propose`, `task_brief`, `task_retry_batch`, `task_recover`, `bro_atomic_close`, `bro_verification_fail_record`, `headless_intent_start`, `headless_fallback_record`, `pr_monitor_worktree`, `reap_and_review_prep`
 - **audit**: `audit_log`, `audit_log_list`, `audit_search`
 
 ## Slash commands
@@ -110,7 +110,7 @@ Runtime location: `plugin/commands/<name>.md`.
 | `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
 | `post-atomic-close-readme.sh` | PostToolUse bro_atomic_close | Refresh directory README summaries after close |
 | `post-task-create-spawn-hint.sh` | PostToolUse task_create_batch | Remind bro to spawn SWE after task batch |
-| `post-pr-comments-persist.sh` | PostToolUse pr_comments_get | Auto-persist returned PR comments as discussion rows |
+| `post-pr-comments-persist.sh` | PostToolUse pr_monitor_comments_get | Auto-persist returned PR comments as discussion rows |
 | `attribution-footer.sh` | PostToolUse Bash | Append co-author / session attribution to commits |
 | `clean-merged-branch.sh` | PostToolUse Bash | Prune local branches once their PR merges |
 | `close-issue-on-merge.sh` | PostToolUse Bash | Close the local issue when its PR merges |

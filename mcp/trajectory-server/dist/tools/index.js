@@ -10,7 +10,7 @@ import { configTools } from './config.js';
 import { branchReportMdTools } from './branch_report_md.js';
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
-import { prCommentsTools } from './pr_comments.js';
+import { prMonitorTools } from './pr_monitor.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
@@ -53,7 +53,7 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
     const branchReport = branchReportMdTools(db);
     const stats = statsTools(db);
     const roundtable = roundtableTools(db);
-    const prComments = prCommentsTools(db);
+    const prMonitor = prMonitorTools(db);
     const composites = compositeTools(db, dbPath, graph);
     const onboard = onboardTools(db, dbPath);
     const scan = scanTools(db, graph, dbPath, graphOpenError);
@@ -72,7 +72,7 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
         ...branchReport.definitions,
         ...stats.definitions,
         ...roundtable.definitions,
-        ...prComments.definitions,
+        ...prMonitor.definitions,
         ...composites.definitions,
         ...onboard.definitions,
         ...scan.definitions,
@@ -92,7 +92,7 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
         ...branchReport.handlers,
         ...stats.handlers,
         ...roundtable.handlers,
-        ...prComments.handlers,
+        ...prMonitor.handlers,
         ...composites.handlers,
         ...onboard.handlers,
         ...scan.handlers,

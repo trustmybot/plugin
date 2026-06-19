@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# PostToolUse hook on pr_comments_get. Persists each returned comment as a
+# PostToolUse hook on pr_monitor_comments_get. Persists each returned comment as a
 # discussion_append row automatically, so bro doesn't need to loop through
 # and call discussion_append for each comment manually.
 #
-# Doctrine: "After A, also do B" — the discussion_append after pr_comments_get
+# Doctrine: "After A, also do B" — the discussion_append after pr_monitor_comments_get
 # is a fixed side-effect with no judgment component. PostToolUse is the right
 # mechanism (DETERMINISM.md mech 4).
 #
-# Output shape expected from pr_comments_get:
+# Output shape expected from pr_monitor_comments_get:
 #   { "comments": [ { "number": N, "author": "...", "body": "...", "pr_number": N, "is_resolved": bool } ] }
 #
 # This hook writes a discussion row per comment using sqlite3 directly (the
@@ -32,7 +32,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
-echo "$TOOL_NAME" | grep -q 'pr_comments_get' || exit 0
+echo "$TOOL_NAME" | grep -q 'pr_monitor_comments_get' || exit 0
 
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] || exit 0

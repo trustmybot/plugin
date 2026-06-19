@@ -27354,7 +27354,7 @@ function buildBotPatterns(configOverride) {
   return [...DEFAULT_BOT_PATTERNS, ...extras];
 }
 
-// src/tools/pr_comments.ts
+// src/tools/pr_monitor.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
 function ok13(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -27486,11 +27486,11 @@ function resolveComments(backend, prNumber, repo, since, botPatterns, spawnFn) {
   }
   return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ?? fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn);
 }
-function prCommentsTools(db2, _spawnFn) {
+function prMonitorTools(db2, _spawnFn) {
   const spawn3 = _spawnFn ?? defaultSpawnFn2;
   const definitions = [
     {
-      name: "pr_comments_get",
+      name: "pr_monitor_comments_get",
       description: "Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state.",
       inputSchema: {
         type: "object",
@@ -27512,8 +27512,8 @@ function prCommentsTools(db2, _spawnFn) {
       }
     },
     {
-      name: "pr_review_runs_list",
-      description: "List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_comments_get.",
+      name: "pr_monitor_runs_list",
+      description: "List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_monitor_comments_get.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27529,7 +27529,7 @@ function prCommentsTools(db2, _spawnFn) {
     }
   ];
   const handlers = {
-    pr_comments_get: requireRoles("pr_comments_get", ["bro"], wrap(async (args) => {
+    pr_monitor_comments_get: requireRoles("pr_monitor_comments_get", ["bro"], wrap(async (args) => {
       const prNumber = Number(args["pr_number"]);
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
         return err13("pr_number must be a positive integer");
@@ -27598,7 +27598,7 @@ function prCommentsTools(db2, _spawnFn) {
       }
       return ok13(fetchResult);
     })),
-    pr_review_runs_list: requireRoles("pr_review_runs_list", ["bro"], async (args) => {
+    pr_monitor_runs_list: requireRoles("pr_monitor_runs_list", ["bro"], async (args) => {
       const prFilter = args["pr_number"];
       const filterPrNumber = prFilter === void 0 || prFilter === null ? null : Number(prFilter);
       if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
@@ -27902,7 +27902,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
       }
     },
     {
-      name: "pr_review_worktree",
+      name: "pr_monitor_worktree",
       description: "PR-review worktree composite \u2014 creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically.",
       inputSchema: {
         type: "object",
@@ -28405,8 +28405,8 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         return ok14({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
       })
     ),
-    pr_review_worktree: requireRoles(
-      "pr_review_worktree",
+    pr_monitor_worktree: requireRoles(
+      "pr_monitor_worktree",
       ["pr-reviewer"],
       wrap2(async (args) => {
         const commitSha = (args["commit_sha"] ?? "").toLowerCase();
@@ -31120,7 +31120,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
   const branchReport = branchReportMdTools(db2);
   const stats = statsTools(db2);
   const roundtable = roundtableTools(db2);
-  const prComments = prCommentsTools(db2);
+  const prMonitor = prMonitorTools(db2);
   const composites = compositeTools(db2, dbPath2, graph2);
   const onboard = onboardTools(db2, dbPath2);
   const scan = scanTools(db2, graph2, dbPath2, graphOpenError2);
@@ -31139,7 +31139,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
     ...branchReport.definitions,
     ...stats.definitions,
     ...roundtable.definitions,
-    ...prComments.definitions,
+    ...prMonitor.definitions,
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
@@ -31159,7 +31159,7 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
     ...branchReport.handlers,
     ...stats.handlers,
     ...roundtable.handlers,
-    ...prComments.handlers,
+    ...prMonitor.handlers,
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,

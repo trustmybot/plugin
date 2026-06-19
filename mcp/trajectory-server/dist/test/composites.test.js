@@ -747,11 +747,11 @@ describe('bro_verification_fail_record', () => {
         assert.match(parse(r)['error'], /No task/);
     });
 });
-describe('pr_review_worktree', () => {
+describe('pr_monitor_worktree', () => {
     it('rejects non-pr-reviewer caller', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'pr_review_worktree', {
+        const r = await call(composites.handlers, 'pr_monitor_worktree', {
             agent: 'bro', commit_sha: 'abc1234', repo_path: '/tmp', command: 'echo ok',
         });
         assert.equal(r.isError, true);
@@ -760,7 +760,7 @@ describe('pr_review_worktree', () => {
     it('rejects malformed commit_sha', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'pr_review_worktree', {
+        const r = await call(composites.handlers, 'pr_monitor_worktree', {
             agent: 'pr-reviewer', commit_sha: 'not-a-sha', repo_path: '/tmp', command: 'echo ok',
         });
         assert.equal(r.isError, true);
@@ -769,7 +769,7 @@ describe('pr_review_worktree', () => {
     it('rejects relative repo_path', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'pr_review_worktree', {
+        const r = await call(composites.handlers, 'pr_monitor_worktree', {
             agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: 'relative/path', command: 'echo ok',
         });
         assert.equal(r.isError, true);
@@ -778,7 +778,7 @@ describe('pr_review_worktree', () => {
     it('rejects empty command', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'pr_review_worktree', {
+        const r = await call(composites.handlers, 'pr_monitor_worktree', {
             agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: '/tmp', command: '   ',
         });
         assert.equal(r.isError, true);

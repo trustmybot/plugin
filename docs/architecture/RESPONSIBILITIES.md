@@ -64,7 +64,7 @@ Bro is the only agent allowed to call:
 - `issue_create`, `issue_close`, `issue_resume`
 - `discussion_append` for `kind='intent'`
 - `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
-- `pr_comments_get` (shared with pr-reviewer)
+- `pr_monitor_comments_get` (shared with pr-reviewer)
 - `issue_sync_retry`
 - `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (write `plugin_config('onboarded')` and the related policy keys)
 - `scan_run` (single scan-side tool)
@@ -159,7 +159,7 @@ For each task, diff against the spec's `## Files`, `## Success Criteria`, `## Ve
 
 - `validation_record` — pr-reviewer is the **only** writer
 - `issue_snapshot_md` (shared with consultants)
-- `pr_comments_get` (shared with bro)
+- `pr_monitor_comments_get` (shared with bro)
 - `audit_log`, `discussion_append`
 
 ### Hooks fired against pr-reviewer actions
