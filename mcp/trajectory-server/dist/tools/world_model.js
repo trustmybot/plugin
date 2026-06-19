@@ -210,4 +210,4 @@ export function worldModelTools(db, graph) {
     };
     return { definitions, handlers };
 }
-//# sourceMappingURL=world-model.js.map
+//# sourceMappingURL=world_model.js.map
