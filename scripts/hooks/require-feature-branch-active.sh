@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Hook: Block SWE agent spawn when the task's branch_id does not yet exist.
-# Per docs/architecture/GIT.md, bro pre-creates <feature> without checking it
-# out (the main checkout stays on <base>; SWE's worktree owns the branch ref).
-# This gate verifies the branch exists before the worktree attaches to it.
+# bro pre-creates <feature> without checking it out (the main checkout stays
+# on <base>; SWE's worktree owns the branch ref). This gate verifies the
+# branch exists before the worktree attaches to it.
 #
 # Bypass: TMB_ALLOW_BRANCH_MISMATCH=1 (emergency hotfix scenarios).
 set -uo pipefail
@@ -67,11 +67,11 @@ else
   fi
 fi
 
-# Per GIT.md the prerequisite is that <feature> EXISTS (bro pre-created it),
-# not that the main checkout is on it — the main checkout stays on <base>.
+# The prerequisite is that <feature> EXISTS (bro pre-created it), not that the
+# main checkout is on it — the main checkout stays on <base>.
 if ! git -C "$REPO_ABS" show-ref --verify --quiet "refs/heads/$EXPECTED"; then
   jq -nc --arg id "$TASK_ID" --arg branch "$EXPECTED" --arg repo "$REPO_ABS" \
-    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: SWE spawn for task "+$id+" needs branch "+$branch+" to exist first — bro pre-creates it (\"git -C "+$repo+" branch "+$branch+" origin/<base>\") and stays on <base>; SWE'\''s worktree owns the branch. See docs/architecture/GIT.md.")}}'
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: SWE spawn for task "+$id+" needs branch "+$branch+" to exist first — bro pre-creates it (\"git -C "+$repo+" branch "+$branch+" origin/<base>\") and stays on <base>; SWE'\''s worktree owns the branch.")}}'
   exit 0
 fi
 

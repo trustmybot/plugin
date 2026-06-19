@@ -4,6 +4,7 @@ Design rationale for how the TMB plugin is built — the schema, the workflow ga
 
 | File | Purpose |
 |---|---|
+| [`PHILOSOPHY.md`](./PHILOSOPHY.md) | The design principles behind the plugin — minimal prompts with cheatcode add-ons, the two review perspectives, and the dev-vs-user-runtime boundary |
 | [`ERD.md`](./ERD.md) | Trajectory DB entity-relationship diagram — the SQLite schema, table groups, and where the DB lives on disk |
 | [`FLOWS.md`](./FLOWS.md) | The Human → bro → SWE decision chain and the two gates (bro = task gate, pr-reviewer = push gate) |
 | [`RESPONSIBILITIES.md`](./RESPONSIBILITIES.md) | The role × tool matrix — what each shipped agent is actually instructed to do, plus server-enforced boundaries |

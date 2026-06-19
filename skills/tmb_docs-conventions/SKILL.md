@@ -5,7 +5,7 @@ description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workfl
 
 # Docs Conventions — Editing Discipline
 
-Link integrity is gated at L1; this skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
+Link integrity is checked by lint/CI; this skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
 
 ## Docs-update expectation
 
