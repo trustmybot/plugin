@@ -208,6 +208,7 @@ describe('task_retry_batch', () => {
 
   it('#474: repo override lands on the new task; omitted repo inherits from failed task', async () => {
     const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('plugin', '/tmp/plugin')`);
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
     const tasks = taskTools(db);
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -1178,6 +1179,9 @@ describe('filesToDirs (#300)', () => {
 });
 
 function seedTask(db: TrajectoryDB, opts: { repo?: string | null; spec: string; files?: string[] }): number {
+  if (opts.repo) {
+    db.run(`INSERT OR IGNORE INTO repos (name, path) VALUES (?, ?)`, [opts.repo, `/tmp/${opts.repo}`]);
+  }
   db.run(
     `INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
      VALUES (1, 'brief test obj', 'd', 'open', datetime('now'), datetime('now'))`,

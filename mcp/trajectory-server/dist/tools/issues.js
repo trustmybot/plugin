@@ -1,8 +1,8 @@
-import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
+import { resolveRepoForSync } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend, detectPreferred } from '../sync/backend.js';
-import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
+import { syncIssueCreate, syncIssueClose, isSyncFailure, repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
 // Mandatory issue tagging (#93/#777): every issue must carry one priority tag
 // AND one classification tag. The valid sets are configurable per project via
@@ -137,19 +137,21 @@ function wrapHandler(fn) {
         }
     };
 }
-function resolveSpawnCwd(db, _dbPath) {
-    return resolveDefaultRepoPath(db);
-}
-function resolveRemoteUrl(db, backend) {
-    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'remotes'`);
-    if (!row)
+function resolveIssueSyncContext(db, repoName) {
+    const resolved = resolveRepoForSync(db, repoName);
+    if (!resolved)
         return null;
-    const remotes = JSON.parse(row.value_json);
-    const provider = backend === 'gh' ? 'github' : 'gitlab';
-    const entry = remotes.find((r) => r.provider === provider);
-    if (!entry)
-        return null;
-    return entry.url;
+    return {
+        repoName: resolved.name,
+        cwd: resolved.path,
+        remoteFor(backend) {
+            const provider = backend === 'gh' ? 'github' : 'gitlab';
+            const entry = resolved.remotes.find((r) => r.provider === provider);
+            if (!entry)
+                return null;
+            return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
+        },
+    };
 }
 // Fire the remote (GitHub/GitLab) issue-close for whatever remotes the row is
 // linked to. The local `issues.status='closed'` UPDATE is the caller's
@@ -158,8 +160,12 @@ function resolveRemoteUrl(db, backend) {
 // `issue_close` and `bro_atomic_close` so the composite can't drift the remote
 // open while closing locally (#277).
 export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
-    const remoteRow = db.get(`SELECT remote_iid, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?`, [issueId]);
-    const closeCwd = resolveSpawnCwd(db, dbPath);
+    const remoteRow = db.get(`SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`, [issueId]);
+    // Issue-scoped sync (#155/#146): resolve cwd + per-backend repo slug from the
+    // issue's repo. When unresolvable, fall back to no explicit cwd/slug — a
+    // best-effort close must not throw (the local close already happened).
+    const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
+    const closeCwd = closeCtx?.cwd;
     const closeTargets = [];
     if (remoteRow?.gh_iid != null) {
         closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
@@ -174,10 +180,12 @@ export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
         closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
     }
     for (const target of closeTargets) {
+        const closeSlug = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined;
         const closeResult = await syncIssueClose({
             remote_iid: target.remote_iid,
             remote_kind: target.remote_kind,
             _cwd: closeCwd,
+            _repoSlug: closeSlug,
             _spawnFn: spawnFn,
         });
         if (!closeResult.ok) {
@@ -207,6 +215,7 @@ export function issueTools(db, dbPath = '') {
                     description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
                     labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue.' },
                     milestone: { type: 'string', description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
+                    repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo\'s remotes). Defaults to the sole/managed repo when exactly one repos row exists.' },
                     allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
                 },
                 required: ['agent', 'objective', 'labels'],
@@ -363,11 +372,16 @@ export function issueTools(db, dbPath = '') {
             }
             // milestone: optional; persisted locally AND passed to remote sync (#83/#763).
             const milestone = args['milestone'] ?? null;
+            // repo (#155): explicit arg, else the sole/managed repo when exactly one
+            // repos row exists. Null for an ambiguous multi-repo install with no
+            // selector — the FK is nullable so the insert still succeeds.
+            const explicitRepo = args['repo'] ?? null;
+            const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
             // _spawnFn: test-only injection point; not in inputSchema
             const spawnFn = args['_spawnFn'] ?? undefined;
             const now = nowISO();
-            db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone)
-         VALUES (?, ?, 'open', ?, ?, ?)`, [objective, description, now, now, milestone]);
+            db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
+         VALUES (?, ?, 'open', ?, ?, ?, ?)`, [objective, description, now, now, milestone, issueRepo]);
             const rowId = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
             if (!rowId) {
                 throw new Error('issue_create: failed to retrieve inserted row');
@@ -386,12 +400,36 @@ export function issueTools(db, dbPath = '') {
                     serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
                 }
                 else if (backend !== 'off') {
-                    const syncCwd = resolveSpawnCwd(db, dbPath);
+                    // Issue-scoped sync (#155/#146): resolve cwd + per-backend remote
+                    // from the issue's repo. Unresolvable repo while sync is on → named
+                    // error rather than a silent process.cwd() sync.
+                    const syncCtx = resolveIssueSyncContext(db, issueRepo);
+                    if (syncCtx === null) {
+                        serverLog({ event: 'issue_sync_skip', reason: 'unresolvable_repo', issueId, repo: issueRepo, backend });
+                        syncDiagnostic = {
+                            sync_failed: true,
+                            reason: 'unresolvable_repo',
+                            repo: issueRepo,
+                            backend,
+                            hint: issueRepo
+                                ? `issue repo "${issueRepo}" has no matching repos row — run /scan or pass a valid repo.`
+                                : 'multiple repos registered and no issue repo selected — pass repo= on issue_create.',
+                        };
+                        const row = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
+                        const issue = decodeIssue(row);
+                        const redacted = redactIssue(issue, agent, { include_description: true });
+                        const payload = { ...redacted };
+                        payload._sync = syncDiagnostic;
+                        return ok(payload);
+                    }
+                    const syncCwd = syncCtx.cwd;
                     if (backend === 'both') {
-                        const ghRemoteUrl = resolveRemoteUrl(db, 'gh');
-                        const glRemoteUrl = resolveRemoteUrl(db, 'glab');
-                        const ghBlank = ghRemoteUrl === '';
-                        const glBlank = glRemoteUrl === '';
+                        const ghRemote = syncCtx.remoteFor('gh');
+                        const glRemote = syncCtx.remoteFor('glab');
+                        const ghRemoteUrl = ghRemote?.url ?? null;
+                        const glRemoteUrl = glRemote?.url ?? null;
+                        const ghBlank = !ghRemoteUrl;
+                        const glBlank = !glRemoteUrl;
                         if (ghBlank && glBlank) {
                             serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
                             syncDiagnostic = {
@@ -414,6 +452,7 @@ export function issueTools(db, dbPath = '') {
                                         _spawnFn: spawnFn,
                                         _cwd: syncCwd,
                                         _remoteUrl: ghRemoteUrl ?? undefined,
+                                        _repoSlug: ghRemote?.slug ?? undefined,
                                     })
                                     : Promise.resolve({ ok: false, reason: 'no_backend', backend: 'gh', message: 'blank remote URL for gh' }),
                                 !glBlank
@@ -427,6 +466,7 @@ export function issueTools(db, dbPath = '') {
                                         _spawnFn: spawnFn,
                                         _cwd: syncCwd,
                                         _remoteUrl: glRemoteUrl ?? undefined,
+                                        _repoSlug: glRemote?.slug ?? undefined,
                                     })
                                     : Promise.resolve({ ok: false, reason: 'no_backend', backend: 'glab', message: 'blank remote URL for glab' }),
                             ]);
@@ -475,8 +515,9 @@ export function issueTools(db, dbPath = '') {
                         }
                     }
                     else {
-                        const remoteUrl = resolveRemoteUrl(db, backend);
-                        if (remoteUrl === '') {
+                        const remote = syncCtx.remoteFor(backend);
+                        const remoteUrl = remote?.url ?? null;
+                        if (!remoteUrl) {
                             serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
                             syncDiagnostic = {
                                 sync_skipped: true,
@@ -496,6 +537,7 @@ export function issueTools(db, dbPath = '') {
                                 _spawnFn: spawnFn,
                                 _cwd: syncCwd,
                                 _remoteUrl: remoteUrl ?? undefined,
+                                _repoSlug: remote?.slug ?? undefined,
                             });
                             if (!isSyncFailure(syncResult)) {
                                 const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
@@ -701,8 +743,21 @@ export function issueTools(db, dbPath = '') {
                 return ok({ skipped: true, reason: 'no remote backend configured' });
             }
             const issue = decodeIssue(row);
+            // Issue-scoped sync (#155/#146): resolve cwd + per-backend slug from the
+            // issue's repo. Null when unresolvable — surface a named error.
+            const retryCtx = resolveIssueSyncContext(db, row.repo ?? null);
+            if (retryCtx === null) {
+                return ok({
+                    skipped: true,
+                    reason: 'unresolvable_repo',
+                    repo: row.repo ?? null,
+                    hint: row.repo
+                        ? `issue repo "${row.repo}" has no matching repos row.`
+                        : 'multiple repos registered and no issue repo selected.',
+                });
+            }
             if (row.status === 'closed') {
-                const retryCwd = resolveSpawnCwd(db, dbPath);
+                const retryCwd = retryCtx.cwd;
                 const retryTargets = [];
                 if (row.gh_iid != null) {
                     retryTargets.push({ remote_iid: row.gh_iid, remote_kind: 'github' });
@@ -726,6 +781,7 @@ export function issueTools(db, dbPath = '') {
                         remote_kind: target.remote_kind,
                         _spawnFn: spawnFn,
                         _cwd: retryCwd,
+                        _repoSlug: retryCtx.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined,
                     });
                     if (!closeResult.ok) {
                         closeErrors.push({
@@ -744,9 +800,9 @@ export function issueTools(db, dbPath = '') {
                 return ok({ action: 'close', success: false, errors: closeErrors });
             }
             // Only retry backends whose iid column is NULL — mirrors the close path's
-            // resolution (issues.ts:616-626). Prevents duplicate remote creates when
-            // one backend already succeeded in a prior attempt.
-            const retryCwd = resolveSpawnCwd(db, dbPath);
+            // resolution. Prevents duplicate remote creates when one backend already
+            // succeeded in a prior attempt.
+            const retryCwd = retryCtx.cwd;
             const createTargets = [];
             if (backend === 'gh' || backend === 'both') {
                 if (row.gh_iid == null && !(row.remote_kind === 'github' && row.remote_iid != null)) {
@@ -764,6 +820,7 @@ export function issueTools(db, dbPath = '') {
             const createErrors = [];
             let lastSuccess = null;
             for (const target of createTargets) {
+                const retryRemote = retryCtx.remoteFor(target);
                 const syncResult = await syncIssueCreate({
                     issueId: row.id,
                     title: issue.objective,
@@ -772,6 +829,8 @@ export function issueTools(db, dbPath = '') {
                     _backend: target,
                     _spawnFn: spawnFn,
                     _cwd: retryCwd,
+                    _remoteUrl: retryRemote?.url ?? undefined,
+                    _repoSlug: retryRemote?.slug ?? undefined,
                 });
                 if (!isSyncFailure(syncResult)) {
                     lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };

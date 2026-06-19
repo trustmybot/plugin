@@ -25,6 +25,23 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+// Issue-scoped sync (#155/#146) resolves the issue's repo to a `repos` row and
+// reads that row's `remotes` to pick the explicit gh --repo / glab -R target.
+// Register a single repo so the sole-repo fallback resolves and the remotes are
+// available; with exactly one repos row the issue inherits it at create time.
+function registerSoleRepo(
+  db: ReturnType<typeof tempDB>,
+  remotes: Array<{ name?: string; provider: string; url: string }> = [
+    { name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' },
+    { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' },
+  ],
+): void {
+  db.run(
+    `INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`,
+    [JSON.stringify(remotes)],
+  );
+}
+
 describe('issueTools', () => {
   it('create then get returns the created issue', async () => {
     const db = tempDB();
@@ -193,6 +210,7 @@ describe('issueTools', () => {
 describe('issueTools — gh_iid + gl_iid tri-source', () => {
   it('issue_create with issue_sync=gh populates gh_iid from remote', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
@@ -232,6 +250,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
 
   it('issue_create with issue_sync=glab populates gl_iid from remote', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
@@ -491,6 +510,7 @@ describe('issueTools — remote sync', () => {
 
   it('issue_create with successful sync bumps updated_at (regression: Bug 2)', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
@@ -575,7 +595,7 @@ describe('issueTools — remote sync', () => {
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', 0, '', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', 0, '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -606,12 +626,12 @@ describe('issueTools — remote sync', () => {
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', 0, '', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', 0, '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', 0, '', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', 0, '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -640,7 +660,7 @@ describe('issueTools — remote sync', () => {
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', 0, '', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', 0, '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -686,16 +706,13 @@ describe('issueTools — remote sync', () => {
 describe('issueTools — issue-sync hardening (#314)', () => {
   it('blank remote URL in remotes config → sync skipped with diagnostic', async () => {
     const db = tempDB();
+    registerSoleRepo(db, [{ name: 'origin', provider: 'github', url: '' }]);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
       key: 'issue_sync',
       value: 'gh',
     });
-    db.run(
-      `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('remotes', ?)`,
-      [JSON.stringify([{ name: 'origin', provider: 'github', url: '' }])],
-    );
     const tools = issueTools(db);
 
     const noCallSpawn = makeSpawnFn([]);
@@ -717,6 +734,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
 
   it('read-back returns PR url → no gh_iid persisted, diagnostic surfaced (#314)', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
@@ -866,6 +884,7 @@ describe('issue_link (#336)', () => {
 describe('issue_sync_retry — partial create only missing backend (#345)', () => {
   it('returns already_synced when all backends have iids set', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
     const tools = issueTools(db);
@@ -898,6 +917,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
 
   it('gh_iid preserved after retry when gh already synced', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
     const tools = issueTools(db);
@@ -1160,6 +1180,8 @@ describe('issueTools — milestone (#83/#763)', () => {
 
   it('issue_create passes the milestone to the gh sync command', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',

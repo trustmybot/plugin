@@ -1,6 +1,37 @@
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 
+-- repos table: written by /scan. One row per discovered git repo under the
+-- session dir. Kuzu world-model Directory nodes reference repos.name as their
+-- root; this SQLite table is the deterministic precursor to the kuzu writes.
+-- repos(name) is the FK hub for the repos-centric schema (#155): every work
+-- table carries a repo column referencing it. Declared early so the work-table
+-- FKs below resolve at fresh-DB CREATE time.
+CREATE TABLE IF NOT EXISTS repos (
+    name              TEXT PRIMARY KEY,
+    path              TEXT    NOT NULL,
+    file_count        INTEGER NOT NULL DEFAULT 0,
+    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    target_branch     TEXT,
+    branching_model   TEXT,
+    protected_branches TEXT,
+    -- remotes (#155): per-repo remote list, drained from the global
+    -- plugin_config('remotes'). JSON array of {name, provider, url}. The
+    -- issue-scoped sync path reads this to pick the explicit gh --repo / glab -R
+    -- for the issue's repo rather than process.cwd().
+    remotes           TEXT
+);
+
+-- milestones table (#155): GitHub-style per-repo milestones. issues.milestone
+-- is an FK into this table. PK is (name, repo) so the same milestone name can
+-- exist independently per repo.
+CREATE TABLE IF NOT EXISTS milestones (
+    name   TEXT NOT NULL,
+    repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
+    state  TEXT NOT NULL DEFAULT 'open',
+    PRIMARY KEY (name, repo)
+);
+
 CREATE TABLE IF NOT EXISTS issues (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     objective         TEXT    NOT NULL,
@@ -13,7 +44,12 @@ CREATE TABLE IF NOT EXISTS issues (
     remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
     gh_iid            INTEGER,
     gl_iid            INTEGER,
-    milestone         TEXT
+    -- repo (#155): the repo this issue belongs to. Nullable for single-repo
+    -- installs (no repos row yet at issue-create time). FK to repos(name).
+    repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+    -- milestone (#155): FK into milestones(name, repo). Nullable.
+    milestone         TEXT,
+    FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -27,7 +63,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     attempts          INTEGER NOT NULL DEFAULT 0,
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
-    repo              TEXT,
+    -- repo (#155): formalized as an FK to repos(name). Nullable for single-repo
+    -- CC (no repos row yet). Relative path string (e.g. "plugin", "repos/backend").
+    repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     -- prompt_bearing: 1 when this task intentionally modifies agent/skill/command
     -- prompt-surface files. When 0 (default), the swe-boundary hook denies writes
     -- to agents/, skills/*/SKILL.md, commands/, templates/, and *.md identity files.
@@ -55,6 +93,9 @@ CREATE TABLE IF NOT EXISTS audit (
     event_type   TEXT    NOT NULL,
     summary      TEXT    NOT NULL,
     content_json TEXT    NOT NULL DEFAULT '{}',
+    -- repo (#155): the repo this audit event belongs to, FK to repos(name).
+    -- Nullable; backfilled from the parent issue's repo on migration.
+    repo         TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     created_at   TEXT    NOT NULL
 );
 
@@ -73,6 +114,8 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
         feedback = ''
     ),
     subagent_session_id TEXT,
+    -- repo (#155): FK to repos(name); backfilled from the parent task's repo.
+    repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     created_at          TEXT    NOT NULL,
     UNIQUE(task_id, attempt_n)
 );
@@ -135,6 +178,8 @@ CREATE TABLE IF NOT EXISTS discussions (
     author         TEXT    NOT NULL,
     kind           TEXT    NOT NULL DEFAULT 'note',
     body           TEXT    NOT NULL,
+    -- repo (#155): FK to repos(name); backfilled from the parent issue's repo.
+    repo           TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     created_at     TEXT    NOT NULL
 );
 
@@ -147,20 +192,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 22, '0.0.0');
-
--- repos table: written by /scan. One row per discovered git repo under the
--- session dir. Kuzu world-model Directory nodes reference repos.name as their
--- root; this SQLite table is the deterministic precursor to the kuzu writes.
-CREATE TABLE IF NOT EXISTS repos (
-    name              TEXT PRIMARY KEY,
-    path              TEXT    NOT NULL,
-    file_count        INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-    target_branch     TEXT,
-    branching_model   TEXT,
-    protected_branches TEXT
-);
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 23, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -209,7 +241,9 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     duration_ms          INTEGER NOT NULL DEFAULT 0,
     started_at           TEXT,
     completed_at         TEXT,
-    usage_baseline_json  TEXT
+    usage_baseline_json  TEXT,
+    -- repo (#155): FK to repos(name); backfilled from the parent task/issue repo.
+    repo                 TEXT    REFERENCES repos(name) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);

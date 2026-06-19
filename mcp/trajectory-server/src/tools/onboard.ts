@@ -698,9 +698,12 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           writeConfig(db, 'remotes', remotes);
           writeConfig(db, 'issue_sync', issue_sync);
 
+          // Mirror policy onto every repos row, including the per-repo remotes
+          // drained out of the global plugin_config (#155). Issue-scoped sync
+          // reads repos.remotes; the global key is kept only for back-compat.
           db.run(
-            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?`,
-            [pr_target, branching_model, JSON.stringify(protected_branches)],
+            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ?`,
+            [pr_target, branching_model, JSON.stringify(protected_branches), JSON.stringify(remotes)],
           );
         });
 

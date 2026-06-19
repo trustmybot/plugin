@@ -105,6 +105,17 @@ async function readBackVerify(backend, iid, spawnFn, spawnOpts) {
         return { ok: false, reason: 'read_back_error' };
     }
 }
+// Extract the `owner/repo` slug (the `--repo` / `-R` argument value) from a
+// configured remote URL, including the host so gh/glab target the exact repo
+// rather than inferring it from process.cwd(). Returns null when the URL can't
+// be parsed (the caller then omits the flag and falls back to _cwd).
+export function repoSlugFromRemoteUrl(remoteUrl) {
+    const parsed = extractRemoteHostAndRepo(remoteUrl);
+    if (!parsed)
+        return null;
+    const repoPath = parsed.repoPath.replace(/\.git$/, '');
+    return `${parsed.host}/${repoPath}`;
+}
 function isFailure(r) {
     return r.ok === false;
 }
@@ -120,6 +131,9 @@ async function createOnBackend(backend, opts, spawnFn) {
     if (backend === 'gh') {
         cmd = 'gh';
         args = ['issue', 'create', '--title', title, '--body', body];
+        if (opts._repoSlug) {
+            args.push('--repo', opts._repoSlug);
+        }
         for (const label of labels) {
             args.push('--label', label);
         }
@@ -130,6 +144,9 @@ async function createOnBackend(backend, opts, spawnFn) {
     else {
         cmd = 'glab';
         args = ['issue', 'create', '--title', title, '--description', body];
+        if (opts._repoSlug) {
+            args.push('-R', opts._repoSlug);
+        }
         for (const label of labels) {
             args.push('--label', label);
         }
@@ -285,10 +302,16 @@ export async function syncIssueClose(opts) {
     if (remote_kind === 'github') {
         cmd = 'gh';
         args = ['issue', 'close', String(remote_iid)];
+        if (opts._repoSlug) {
+            args.push('--repo', opts._repoSlug);
+        }
     }
     else {
         cmd = 'glab';
         args = ['issue', 'close', String(remote_iid)];
+        if (opts._repoSlug) {
+            args.push('-R', opts._repoSlug);
+        }
     }
     try {
         const result = spawnFn(cmd, args, spawnOpts);

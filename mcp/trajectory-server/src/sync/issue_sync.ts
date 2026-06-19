@@ -128,6 +128,17 @@ async function readBackVerify(
   }
 }
 
+// Extract the `owner/repo` slug (the `--repo` / `-R` argument value) from a
+// configured remote URL, including the host so gh/glab target the exact repo
+// rather than inferring it from process.cwd(). Returns null when the URL can't
+// be parsed (the caller then omits the flag and falls back to _cwd).
+export function repoSlugFromRemoteUrl(remoteUrl: string): string | null {
+  const parsed = extractRemoteHostAndRepo(remoteUrl);
+  if (!parsed) return null;
+  const repoPath = parsed.repoPath.replace(/\.git$/, '');
+  return `${parsed.host}/${repoPath}`;
+}
+
 export interface SyncIssueCreateOpts {
   issueId: number;
   title: string;
@@ -137,6 +148,10 @@ export interface SyncIssueCreateOpts {
   _spawnFn?: SpawnFn;
   _cwd?: string;
   _remoteUrl?: string;
+  // Explicit gh `--repo` / glab `-R` target (owner/repo, optionally host-
+  // qualified), derived from the issue's repo remotes (#155/#146). When set the
+  // create/close commands target this repo explicitly rather than process.cwd().
+  _repoSlug?: string;
 }
 
 export interface SyncResult {
@@ -175,6 +190,9 @@ async function createOnBackend(
   if (backend === 'gh') {
     cmd = 'gh';
     args = ['issue', 'create', '--title', title, '--body', body];
+    if (opts._repoSlug) {
+      args.push('--repo', opts._repoSlug);
+    }
     for (const label of labels) {
       args.push('--label', label);
     }
@@ -184,6 +202,9 @@ async function createOnBackend(
   } else {
     cmd = 'glab';
     args = ['issue', 'create', '--title', title, '--description', body];
+    if (opts._repoSlug) {
+      args.push('-R', opts._repoSlug);
+    }
     for (const label of labels) {
       args.push('--label', label);
     }
@@ -344,6 +365,9 @@ export interface SyncIssueCloseOpts {
   remote_kind: 'github' | 'gitlab';
   _spawnFn?: SpawnFn;
   _cwd?: string;
+  // Explicit gh `--repo` / glab `-R` target derived from the issue's repo
+  // remotes (#155/#146) — target the exact repo, never process.cwd().
+  _repoSlug?: string;
 }
 
 export interface SyncCloseResult {
@@ -368,9 +392,15 @@ export async function syncIssueClose(opts: SyncIssueCloseOpts): Promise<SyncClos
   if (remote_kind === 'github') {
     cmd = 'gh';
     args = ['issue', 'close', String(remote_iid)];
+    if (opts._repoSlug) {
+      args.push('--repo', opts._repoSlug);
+    }
   } else {
     cmd = 'glab';
     args = ['issue', 'close', String(remote_iid)];
+    if (opts._repoSlug) {
+      args.push('-R', opts._repoSlug);
+    }
   }
 
   try {

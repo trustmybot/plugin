@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 22;
+var TARGET_SCHEMA_VERSION = 23;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21233,6 +21233,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 22 && toVersion >= 22) {
     migrateV21toV22(db2);
+  }
+  if (fromVersion < 23 && toVersion >= 23) {
+    migrateV22toV23(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -21661,6 +21664,200 @@ function migrateV20toV21(db2) {
 function migrateV21toV22(db2) {
   if (tableExists(db2, "issues") && !hasColumn(db2, "issues", "milestone")) {
     db2.exec("ALTER TABLE issues ADD COLUMN milestone TEXT");
+  }
+}
+function migrateV22toV23(db2) {
+  const soleRepo = () => {
+    if (!tableExists(db2, "repos")) return null;
+    const rows = db2.prepare("SELECT name FROM repos").all();
+    return rows.length === 1 ? rows[0].name : null;
+  };
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    if (tableExists(db2, "repos")) {
+      if (!hasColumn(db2, "repos", "remotes")) {
+        db2.exec("ALTER TABLE repos ADD COLUMN remotes TEXT");
+      }
+      if (tableExists(db2, "plugin_config")) {
+        const remotesRow = db2.prepare("SELECT value_json FROM plugin_config WHERE key = 'remotes'").get();
+        if (remotesRow?.value_json) {
+          db2.prepare("UPDATE repos SET remotes = ? WHERE remotes IS NULL").run(
+            remotesRow.value_json
+          );
+        }
+      }
+    }
+    const sole = soleRepo();
+    db2.exec(`
+      CREATE TABLE IF NOT EXISTS milestones (
+          name   TEXT NOT NULL,
+          repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
+          state  TEXT NOT NULL DEFAULT 'open',
+          PRIMARY KEY (name, repo)
+      )
+    `);
+    if (tableExists(db2, "issues") && hasColumn(db2, "issues", "milestone")) {
+      const issuesHasRepo = hasColumn(db2, "issues", "repo");
+      if (!issuesHasRepo) {
+        db2.exec("ALTER TABLE issues ADD COLUMN repo TEXT");
+      }
+      if (sole !== null) {
+        db2.prepare("UPDATE issues SET repo = ? WHERE repo IS NULL AND id <> -1").run(sole);
+      }
+      db2.exec(`
+        INSERT OR IGNORE INTO milestones (name, repo, state)
+        SELECT DISTINCT milestone, repo, 'open'
+          FROM issues
+         WHERE milestone IS NOT NULL AND repo IS NOT NULL
+      `);
+      db2.exec("DROP TABLE IF EXISTS issues_new");
+      db2.exec(`
+        CREATE TABLE issues_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            objective         TEXT    NOT NULL,
+            description       TEXT    NOT NULL DEFAULT '',
+            status            TEXT    NOT NULL DEFAULT 'open',
+            created_at        TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            closed_at         TEXT,
+            remote_iid        INTEGER,
+            remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+            gh_iid            INTEGER,
+            gl_iid            INTEGER,
+            repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+            milestone         TEXT,
+            FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
+        )
+      `);
+      const issueCol = (name, expr = name) => hasColumn(db2, "issues", name) ? expr : `NULL AS ${name}`;
+      db2.exec(`
+        INSERT INTO issues_new
+          (id, objective, description, status, created_at, updated_at, closed_at,
+           remote_iid, remote_kind, gh_iid, gl_iid, repo, milestone)
+        SELECT
+           id, objective, description, status, created_at, updated_at,
+           ${issueCol("closed_at")},
+           ${issueCol("remote_iid")}, ${issueCol("remote_kind")},
+           ${issueCol("gh_iid")}, ${issueCol("gl_iid")},
+           repo, milestone
+          FROM issues
+      `);
+      db2.exec("DROP TABLE issues");
+      db2.exec("ALTER TABLE issues_new RENAME TO issues");
+    }
+    if (tableExists(db2, "tasks") && hasColumn(db2, "tasks", "repo")) {
+      db2.exec("DROP TABLE IF EXISTS tasks_new");
+      db2.exec(`
+        CREATE TABLE tasks_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_id          INTEGER NOT NULL REFERENCES issues(id),
+            branch_id         TEXT    NOT NULL,
+            parent_branch_id  TEXT,
+            title             TEXT    NOT NULL DEFAULT '',
+            description       TEXT    NOT NULL,
+            status            TEXT    NOT NULL DEFAULT 'pending',
+            attempts          INTEGER NOT NULL DEFAULT 0,
+            spec_body         TEXT    NOT NULL DEFAULT '',
+            commit_sha        TEXT,
+            repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+            prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+            files             TEXT    NOT NULL DEFAULT '[]',
+            verification      TEXT    NOT NULL DEFAULT '[]',
+            created_at        TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            completed_at      TEXT
+        )
+      `);
+      const taskCol = (name, fallback) => hasColumn(db2, "tasks", name) ? name : `${fallback} AS ${name}`;
+      db2.exec(`
+        INSERT INTO tasks_new
+          (id, issue_id, branch_id, parent_branch_id, title, description, status,
+           attempts, spec_body, commit_sha, repo, prompt_bearing, files,
+           verification, created_at, updated_at, completed_at)
+        SELECT
+           id, issue_id, branch_id,
+           ${taskCol("parent_branch_id", "NULL")},
+           ${taskCol("title", "''")},
+           description, status, attempts,
+           ${taskCol("spec_body", "''")},
+           ${taskCol("commit_sha", "NULL")},
+           repo,
+           ${taskCol("prompt_bearing", "0")},
+           ${taskCol("files", "'[]'")},
+           ${taskCol("verification", "'[]'")},
+           created_at, updated_at,
+           ${taskCol("completed_at", "NULL")}
+          FROM tasks
+      `);
+      db2.exec("DROP TABLE tasks");
+      db2.exec("ALTER TABLE tasks_new RENAME TO tasks");
+      db2.exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)"
+      );
+    }
+    if (tableExists(db2, "discussions") && !hasColumn(db2, "discussions", "repo")) {
+      db2.exec("ALTER TABLE discussions ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
+      if (tableExists(db2, "issues")) {
+        db2.exec(`
+          UPDATE discussions
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = discussions.issue_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+    if (tableExists(db2, "audit") && !hasColumn(db2, "audit", "repo")) {
+      db2.exec("ALTER TABLE audit ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
+      if (tableExists(db2, "issues")) {
+        db2.exec(`
+          UPDATE audit
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = audit.issue_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+    if (tableExists(db2, "agent_runs") && !hasColumn(db2, "agent_runs", "repo")) {
+      db2.exec("ALTER TABLE agent_runs ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
+      if (tableExists(db2, "tasks")) {
+        db2.exec(`
+          UPDATE agent_runs
+             SET repo = (SELECT t.repo FROM tasks t WHERE t.id = agent_runs.task_id)
+           WHERE repo IS NULL AND task_id IS NOT NULL
+        `);
+      }
+      if (tableExists(db2, "issues")) {
+        db2.exec(`
+          UPDATE agent_runs
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = agent_runs.issue_id)
+           WHERE repo IS NULL AND issue_id IS NOT NULL
+        `);
+      }
+    }
+    if (tableExists(db2, "validation_attempts") && !hasColumn(db2, "validation_attempts", "repo")) {
+      db2.exec("ALTER TABLE validation_attempts ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
+      if (tableExists(db2, "tasks")) {
+        db2.exec(`
+          UPDATE validation_attempts
+             SET repo = (SELECT t.repo FROM tasks t WHERE t.id = validation_attempts.task_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV22toV23: foreign_key_check found ${violations.length} dangling reference(s) after the repos-centric migration`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err18) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err18;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
   }
 }
 function migrateV7toV8(db2) {
@@ -22688,6 +22885,31 @@ function discussionTools(db2) {
 function resolveDefaultRepoPath(db2) {
   return resolveDefaultRepo(db2)?.path;
 }
+function resolveRepoForSync(db2, repoName) {
+  const decodeRemotes = (raw) => {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+    }
+    return [];
+  };
+  if (repoName) {
+    const row = db2.get(
+      `SELECT name, path, remotes FROM repos WHERE name = ?`,
+      [repoName]
+    );
+    if (!row) return null;
+    return { name: row.name, path: row.path, remotes: decodeRemotes(row.remotes) };
+  }
+  const rows = db2.all(
+    `SELECT name, path, remotes FROM repos`
+  );
+  if (rows.length !== 1) return null;
+  const sole = rows[0];
+  return { name: sole.name, path: sole.path, remotes: decodeRemotes(sole.remotes) };
+}
 function resolveDefaultRepo(db2, name) {
   if (name) {
     const repoRow = db2.get(
@@ -22900,6 +23122,12 @@ async function readBackVerify(backend, iid, spawnFn, spawnOpts) {
     return { ok: false, reason: "read_back_error" };
   }
 }
+function repoSlugFromRemoteUrl(remoteUrl) {
+  const parsed = extractRemoteHostAndRepo(remoteUrl);
+  if (!parsed) return null;
+  const repoPath = parsed.repoPath.replace(/\.git$/, "");
+  return `${parsed.host}/${repoPath}`;
+}
 function isFailure(r) {
   return r.ok === false;
 }
@@ -22915,6 +23143,9 @@ async function createOnBackend(backend, opts, spawnFn) {
   if (backend === "gh") {
     cmd = "gh";
     args = ["issue", "create", "--title", title, "--body", body];
+    if (opts._repoSlug) {
+      args.push("--repo", opts._repoSlug);
+    }
     for (const label of labels) {
       args.push("--label", label);
     }
@@ -22924,6 +23155,9 @@ async function createOnBackend(backend, opts, spawnFn) {
   } else {
     cmd = "glab";
     args = ["issue", "create", "--title", title, "--description", body];
+    if (opts._repoSlug) {
+      args.push("-R", opts._repoSlug);
+    }
     for (const label of labels) {
       args.push("--label", label);
     }
@@ -23077,9 +23311,15 @@ async function syncIssueClose(opts) {
   if (remote_kind === "github") {
     cmd = "gh";
     args = ["issue", "close", String(remote_iid)];
+    if (opts._repoSlug) {
+      args.push("--repo", opts._repoSlug);
+    }
   } else {
     cmd = "glab";
     args = ["issue", "close", String(remote_iid)];
+    if (opts._repoSlug) {
+      args.push("-R", opts._repoSlug);
+    }
   }
   try {
     const result = spawnFn(cmd, args, spawnOpts);
@@ -23210,26 +23450,27 @@ function wrapHandler2(fn) {
     }
   };
 }
-function resolveSpawnCwd(db2, _dbPath) {
-  return resolveDefaultRepoPath(db2);
-}
-function resolveRemoteUrl(db2, backend) {
-  const row = db2.get(
-    `SELECT value_json FROM plugin_config WHERE key = 'remotes'`
-  );
-  if (!row) return null;
-  const remotes = JSON.parse(row.value_json);
-  const provider = backend === "gh" ? "github" : "gitlab";
-  const entry = remotes.find((r) => r.provider === provider);
-  if (!entry) return null;
-  return entry.url;
+function resolveIssueSyncContext(db2, repoName) {
+  const resolved = resolveRepoForSync(db2, repoName);
+  if (!resolved) return null;
+  return {
+    repoName: resolved.name,
+    cwd: resolved.path,
+    remoteFor(backend) {
+      const provider = backend === "gh" ? "github" : "gitlab";
+      const entry = resolved.remotes.find((r) => r.provider === provider);
+      if (!entry) return null;
+      return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
+    }
+  };
 }
 async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
   const remoteRow = db2.get(
-    `SELECT remote_iid, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?`,
+    `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
     [issueId]
   );
-  const closeCwd = resolveSpawnCwd(db2, dbPath2);
+  const closeCtx = resolveIssueSyncContext(db2, remoteRow?.repo ?? null);
+  const closeCwd = closeCtx?.cwd;
   const closeTargets = [];
   if (remoteRow?.gh_iid != null) {
     closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: "github" });
@@ -23242,10 +23483,12 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
     closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "gitlab" });
   }
   for (const target of closeTargets) {
+    const closeSlug = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0;
     const closeResult = await syncIssueClose({
       remote_iid: target.remote_iid,
       remote_kind: target.remote_kind,
       _cwd: closeCwd,
+      _repoSlug: closeSlug,
       _spawnFn: spawnFn
     });
     if (!closeResult.ok) {
@@ -23275,6 +23518,7 @@ function issueTools(db2, dbPath2 = "") {
           description: { type: "string", description: "Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation." },
           labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label AND at least one classification label, drawn from the project's configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue." },
           milestone: { type: "string", description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
+          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo's remotes). Defaults to the sole/managed repo when exactly one repos row exists." },
           allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." }
         },
         required: ["agent", "objective", "labels"]
@@ -23426,12 +23670,14 @@ function issueTools(db2, dbPath2 = "") {
         }
       }
       const milestone = args["milestone"] ?? null;
+      const explicitRepo = args["repo"] ?? null;
+      const issueRepo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
       const spawnFn = args["_spawnFn"] ?? void 0;
       const now = nowISO();
       db2.run(
-        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone)
-         VALUES (?, ?, 'open', ?, ?, ?)`,
-        [objective, description, now, now, milestone]
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
+         VALUES (?, ?, 'open', ?, ?, ?, ?)`,
+        [objective, description, now, now, milestone, issueRepo]
       );
       const rowId = db2.get(
         `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -23450,12 +23696,31 @@ function issueTools(db2, dbPath2 = "") {
         if (backend === null) {
           serverLog({ event: "issue_sync_skip", reason: "no_remote_configured", issueId });
         } else if (backend !== "off") {
-          const syncCwd = resolveSpawnCwd(db2, dbPath2);
+          const syncCtx = resolveIssueSyncContext(db2, issueRepo);
+          if (syncCtx === null) {
+            serverLog({ event: "issue_sync_skip", reason: "unresolvable_repo", issueId, repo: issueRepo, backend });
+            syncDiagnostic = {
+              sync_failed: true,
+              reason: "unresolvable_repo",
+              repo: issueRepo,
+              backend,
+              hint: issueRepo ? `issue repo "${issueRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.` : "multiple repos registered and no issue repo selected \u2014 pass repo= on issue_create."
+            };
+            const row2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+            const issue3 = decodeIssue(row2);
+            const redacted2 = redactIssue(issue3, agent, { include_description: true });
+            const payload2 = { ...redacted2 };
+            payload2._sync = syncDiagnostic;
+            return ok2(payload2);
+          }
+          const syncCwd = syncCtx.cwd;
           if (backend === "both") {
-            const ghRemoteUrl = resolveRemoteUrl(db2, "gh");
-            const glRemoteUrl = resolveRemoteUrl(db2, "glab");
-            const ghBlank = ghRemoteUrl === "";
-            const glBlank = glRemoteUrl === "";
+            const ghRemote = syncCtx.remoteFor("gh");
+            const glRemote = syncCtx.remoteFor("glab");
+            const ghRemoteUrl = ghRemote?.url ?? null;
+            const glRemoteUrl = glRemote?.url ?? null;
+            const ghBlank = !ghRemoteUrl;
+            const glBlank = !glRemoteUrl;
             if (ghBlank && glBlank) {
               serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
               syncDiagnostic = {
@@ -23475,7 +23740,8 @@ function issueTools(db2, dbPath2 = "") {
                   _backend: "gh",
                   _spawnFn: spawnFn,
                   _cwd: syncCwd,
-                  _remoteUrl: ghRemoteUrl ?? void 0
+                  _remoteUrl: ghRemoteUrl ?? void 0,
+                  _repoSlug: ghRemote?.slug ?? void 0
                 }) : Promise.resolve({ ok: false, reason: "no_backend", backend: "gh", message: "blank remote URL for gh" }),
                 !glBlank ? syncIssueCreate({
                   issueId,
@@ -23486,7 +23752,8 @@ function issueTools(db2, dbPath2 = "") {
                   _backend: "glab",
                   _spawnFn: spawnFn,
                   _cwd: syncCwd,
-                  _remoteUrl: glRemoteUrl ?? void 0
+                  _remoteUrl: glRemoteUrl ?? void 0,
+                  _repoSlug: glRemote?.slug ?? void 0
                 }) : Promise.resolve({ ok: false, reason: "no_backend", backend: "glab", message: "blank remote URL for glab" })
               ]);
               const ghIid = !isFailure(ghResult) && ghResult.remote_kind === "github" ? ghResult.remote_iid : null;
@@ -23530,8 +23797,9 @@ function issueTools(db2, dbPath2 = "") {
               }
             }
           } else {
-            const remoteUrl = resolveRemoteUrl(db2, backend);
-            if (remoteUrl === "") {
+            const remote = syncCtx.remoteFor(backend);
+            const remoteUrl = remote?.url ?? null;
+            if (!remoteUrl) {
               serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
               syncDiagnostic = {
                 sync_skipped: true,
@@ -23549,7 +23817,8 @@ function issueTools(db2, dbPath2 = "") {
                 _backend: backend,
                 _spawnFn: spawnFn,
                 _cwd: syncCwd,
-                _remoteUrl: remoteUrl ?? void 0
+                _remoteUrl: remoteUrl ?? void 0,
+                _repoSlug: remote?.slug ?? void 0
               });
               if (!isFailure(syncResult)) {
                 const ghIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
@@ -23767,8 +24036,17 @@ function issueTools(db2, dbPath2 = "") {
         return ok2({ skipped: true, reason: "no remote backend configured" });
       }
       const issue2 = decodeIssue(row);
+      const retryCtx = resolveIssueSyncContext(db2, row.repo ?? null);
+      if (retryCtx === null) {
+        return ok2({
+          skipped: true,
+          reason: "unresolvable_repo",
+          repo: row.repo ?? null,
+          hint: row.repo ? `issue repo "${row.repo}" has no matching repos row.` : "multiple repos registered and no issue repo selected."
+        });
+      }
       if (row.status === "closed") {
-        const retryCwd2 = resolveSpawnCwd(db2, dbPath2);
+        const retryCwd2 = retryCtx.cwd;
         const retryTargets = [];
         if (row.gh_iid != null) {
           retryTargets.push({ remote_iid: row.gh_iid, remote_kind: "github" });
@@ -23789,7 +24067,8 @@ function issueTools(db2, dbPath2 = "") {
             remote_iid: target.remote_iid,
             remote_kind: target.remote_kind,
             _spawnFn: spawnFn,
-            _cwd: retryCwd2
+            _cwd: retryCwd2,
+            _repoSlug: retryCtx.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0
           });
           if (!closeResult.ok) {
             closeErrors.push({
@@ -23807,7 +24086,7 @@ function issueTools(db2, dbPath2 = "") {
         }
         return ok2({ action: "close", success: false, errors: closeErrors });
       }
-      const retryCwd = resolveSpawnCwd(db2, dbPath2);
+      const retryCwd = retryCtx.cwd;
       const createTargets = [];
       if (backend === "gh" || backend === "both") {
         if (row.gh_iid == null && !(row.remote_kind === "github" && row.remote_iid != null)) {
@@ -23825,6 +24104,7 @@ function issueTools(db2, dbPath2 = "") {
       const createErrors = [];
       let lastSuccess = null;
       for (const target of createTargets) {
+        const retryRemote = retryCtx.remoteFor(target);
         const syncResult = await syncIssueCreate({
           issueId: row.id,
           title: issue2.objective,
@@ -23832,7 +24112,9 @@ function issueTools(db2, dbPath2 = "") {
           labels: [],
           _backend: target,
           _spawnFn: spawnFn,
-          _cwd: retryCwd
+          _cwd: retryCwd,
+          _remoteUrl: retryRemote?.url ?? void 0,
+          _repoSlug: retryRemote?.slug ?? void 0
         });
         if (!isFailure(syncResult)) {
           lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };
@@ -24477,21 +24759,7 @@ function taskTools(db2) {
               }
             }
           }
-          if (parentBranchId == null) {
-            const prTargetRow = db2.get(
-              `SELECT value_json FROM plugin_config WHERE key = 'pr_target'`
-            );
-            if (prTargetRow?.value_json) {
-              try {
-                const prTarget = JSON.parse(prTargetRow.value_json);
-                if (typeof prTarget === "string" && prTarget.length > 0) {
-                  parentBranchId = prTarget;
-                }
-              } catch {
-              }
-            }
-            if (parentBranchId == null) parentBranchId = "main";
-          }
+          if (parentBranchId == null) parentBranchId = "main";
           const promptBearing = typeof t.prompt_bearing === "number" && t.prompt_bearing === 1 ? 1 : 0;
           const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
           db2.run(
@@ -28910,8 +29178,8 @@ function onboardTools(db2, dbPath2 = "") {
           writeConfig(db2, "remotes", remotes);
           writeConfig(db2, "issue_sync", issue_sync);
           db2.run(
-            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?`,
-            [pr_target, branching_model, JSON.stringify(protected_branches)]
+            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ?`,
+            [pr_target, branching_model, JSON.stringify(protected_branches), JSON.stringify(remotes)]
           );
         });
         try {
