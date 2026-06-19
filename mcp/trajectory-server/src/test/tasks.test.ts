@@ -887,6 +887,7 @@ describe('taskTools', () => {
 
   it('task_create_batch stores repo and task_get returns it verbatim', async () => {
     const db = tempDB();
+    db.run("INSERT INTO repos (name, path) VALUES ('inner', '/tmp/inner')");
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
@@ -920,6 +921,7 @@ describe('taskTools', () => {
 
   it('task_create_batch stores nested repo path', async () => {
     const db = tempDB();
+    db.run("INSERT INTO repos (name, path) VALUES ('repos/backend', '/tmp/backend')");
     const issueId = await createIssue(db);
     const tools = taskTools(db);
 
