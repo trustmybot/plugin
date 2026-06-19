@@ -460,6 +460,121 @@ function resolveGlobalAgentMd(target: string): string | null {
   return null;
 }
 
+// Detect the built-in tool(s) a just-installed plugin contributes, by reading its
+// installed cache manifest (.claude-plugin/plugin.json). The manifest is resolved
+// from Claude Code's installed-plugins registry (the installPath of the plugin's
+// `<name>@<marketplace>` entry), honouring CLAUDE_CONFIG_DIR. Two manifest shapes
+// name a provided tool:
+//   - an `lsp` declaration  ⇒ the plugin provides the built-in `LSP` tool;
+//   - a `tools` array        ⇒ its entries are the provided set verbatim.
+// A plugin with neither (a skill-contributing plugin, or an MCP-server plugin that
+// registers globally) returns [] — no per-agent tool grant. A test may point
+// TMB_CHEATCODE_PLUGIN_MANIFEST at a manifest file directly to bypass registry
+// resolution. Fail-soft: an unresolvable / unreadable / non-object manifest is [].
+function readManifestProvidedTools(manifestPath: string): string[] {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return [];
+  }
+  if (!manifest || typeof manifest !== 'object') return [];
+  const obj = manifest as Record<string, unknown>;
+  const tools = obj['tools'];
+  if (Array.isArray(tools)) {
+    return tools.map((t) => String(t).trim()).filter((t) => t.length > 0);
+  }
+  if (obj['lsp'] !== undefined && obj['lsp'] !== null) return ['LSP'];
+  return [];
+}
+
+function resolveInstalledPluginManifest(name: string): string | null {
+  const override = process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+  if (override) return existsSync(override) ? override : null;
+  const claudeHome = process.env['CLAUDE_CONFIG_DIR'] || join(process.env['HOME'] || '', '.claude');
+  const registry = join(claudeHome, 'plugins', 'installed_plugins.json');
+  if (!existsSync(registry)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(registry, 'utf8'));
+  } catch {
+    return null;
+  }
+  const plugins = (parsed as { plugins?: Record<string, unknown> } | null)?.plugins;
+  if (!plugins || typeof plugins !== 'object') return null;
+  for (const [key, entries] of Object.entries(plugins)) {
+    if (key.split('@')[0] !== name) continue;
+    const list = Array.isArray(entries) ? entries : [];
+    for (const e of list) {
+      const installPath = (e as { installPath?: unknown })?.installPath;
+      if (typeof installPath !== 'string' || installPath.length === 0) continue;
+      const manifest = join(installPath, '.claude-plugin', 'plugin.json');
+      if (existsSync(manifest)) return manifest;
+    }
+  }
+  return null;
+}
+
+// The built-in tool(s) an installed plugin contributes, or [] when it provides
+// none (a skill-contributing plugin, an MCP-server-only plugin). Used to decide
+// the materialize branch: a tool-contributing plugin grants its tool to the
+// consuming agent's tools: allowlist; everything else keeps the skills: path.
+function detectProvidedTools(name: string): string[] {
+  const manifest = resolveInstalledPluginManifest(name);
+  if (!manifest) return [];
+  return readManifestProvidedTools(manifest);
+}
+
+// Add `toolName` to the `tools:` frontmatter line of an agent md, idempotently.
+// Claude Code's tools: is a comma-separated string (e.g. `tools: Read, Bash`),
+// not a bracketed array like skills:. Creates the tools: key (inside the leading
+// --- frontmatter block) when absent, never duplicates an existing entry, and
+// preserves the rest of the file verbatim.
+function addToolToAgentFrontmatter(content: string, toolName: string): string {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) {
+    // No frontmatter — prepend a minimal block carrying the tool grant.
+    return `---\ntools: ${toolName}\n---\n\n${content}`;
+  }
+  const fm = fmMatch[1];
+  const toolsLine = fm.match(/^tools:\s*(.*)$/m);
+  if (toolsLine) {
+    const entries = toolsLine[1]
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    if (entries.includes(toolName)) return content; // idempotent
+    entries.push(toolName);
+    const rebuilt = `tools: ${entries.join(', ')}`;
+    const newFm = fm.replace(/^tools:\s*.*$/m, rebuilt);
+    return content.replace(fm, newFm);
+  }
+  // No tools: key — append one to the end of the frontmatter block.
+  const newFm = `${fm}\ntools: ${toolName}`;
+  return content.replace(fm, newFm);
+}
+
+// Remove `toolName` from the `tools:` frontmatter line of an agent md — the
+// inverse of addToolToAgentFrontmatter. Idempotent: an absent entry (or no
+// tools: key, or no frontmatter) leaves the content unchanged. Preserves the
+// rest of the file verbatim.
+function removeToolFromAgentFrontmatter(content: string, toolName: string): string {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) return content;
+  const fm = fmMatch[1];
+  const toolsLine = fm.match(/^tools:\s*(.*)$/m);
+  if (!toolsLine) return content;
+  const entries = toolsLine[1]
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (!entries.includes(toolName)) return content; // idempotent
+  const remaining = entries.filter((s) => s !== toolName);
+  const rebuilt = `tools: ${remaining.join(', ')}`;
+  const newFm = fm.replace(/^tools:\s*.*$/m, rebuilt);
+  return content.replace(fm, newFm);
+}
+
 // Add `skillName` to the `skills:` frontmatter array of an agent md, idempotently.
 // Creates the skills: key (inside the leading --- frontmatter block) when absent,
 // never duplicates an existing entry, and preserves the rest of the file verbatim.
@@ -514,25 +629,35 @@ interface MaterializeResult {
   path: string;
 }
 
-// Materialize the consuming-agent prompt surface for an installed skill. This is
-// an install action against the USER PROJECT's .claude/ (like /tmb:agent-create)
+// Materialize the consuming-agent prompt surface for an installed cheatcode. This
+// is an install action against the USER PROJECT's .claude/ (like /tmb:agent-create)
 // — it NEVER writes into the plugin's shipped agents/ or the plugin's CLAUDE.md.
-// Idempotent: re-install adds no duplicate skill entry / CLAUDE.md line and never
+// Idempotent: re-install adds no duplicate entry / CLAUDE.md line and never
 // clobbers a customized file (edits in place). Returns null when it can't resolve
 // a project root or the global source.
+//
+// `providedTools` is non-empty only for a tool-contributing plugin (an LSP plugin
+// provides `LSP`). When set, the grant goes to the agent's `tools:` allowlist —
+// writing the cheatcode name to `skills:` would be inert, since Claude Code's
+// `skills:` expects a skill and a restricted-allowlist agent still couldn't call
+// the tool. A standalone skill or skill-contributing plugin passes [] and keeps
+// the `skills:` write.
 function materializeConsumingAgent(
   dbPath: string,
   target: string,
-  skillName: string,
+  cheatcodeName: string,
+  providedTools: string[] = [],
 ): MaterializeResult | null {
   const projectRoot = projectRootFromDbPath(dbPath);
   if (!projectRoot) return null;
   const claudeDir = join(projectRoot, '.claude');
 
   if (target === 'bro') {
-    // bro's surface is the project-local CLAUDE.md, not an agent md.
+    // bro's surface is the project-local CLAUDE.md, not an agent md. bro runs
+    // unrestricted, so a provided tool is already callable — the reference line
+    // is the surface for either kind.
     const claudeMd = join(claudeDir, 'CLAUDE.md');
-    const reference = `Installed skill: ${skillName} — load it when its capability is needed.`;
+    const reference = `Installed skill: ${cheatcodeName} — load it when its capability is needed.`;
     let body = existsSync(claudeMd) ? readFileSync(claudeMd, 'utf8') : '';
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith('\n') ? '' : '\n';
@@ -553,7 +678,15 @@ function materializeConsumingAgent(
     if (!globalAgentMd) return null;
     content = readFileSync(globalAgentMd, 'utf8');
   }
-  const updated = addSkillToAgentFrontmatter(content, skillName);
+  // A tool-contributing plugin grants its tool(s) to the agent's tools: allowlist
+  // and SKIPS the skills: write (the name there is inert). Everything else lands
+  // in skills: as before.
+  let updated = content;
+  if (providedTools.length > 0) {
+    for (const tool of providedTools) updated = addToolToAgentFrontmatter(updated, tool);
+  } else {
+    updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
+  }
   mkdirSync(dirname(localAgentMd), { recursive: true });
   writeFileSync(localAgentMd, updated);
   return {
@@ -563,16 +696,19 @@ function materializeConsumingAgent(
   };
 }
 
-// Reverse the materialized prompt surface for an uninstalled skill — the inverse
-// of materializeConsumingAgent. Edits the SAME project files materialize wrote:
-//   agent-md:<rel>  → remove skillName from that file's skills: header
+// Reverse the materialized prompt surface for an uninstalled cheatcode — the
+// inverse of materializeConsumingAgent. Edits the SAME project files materialize
+// wrote:
+//   agent-md:<rel>  → remove cheatcodeName from skills: AND any provided tool(s)
+//                     from tools: (whichever materialize wrote)
 //   claude-md:<rel> → remove the materialized reference line bro added
 // Fail-soft: a missing project root / missing file / absent entry is a no-op,
 // never throws (uninstall stays idempotent). Only runs on a successful teardown.
 function dematerializeAttachment(
   dbPath: string,
   artifact: string,
-  skillName: string,
+  cheatcodeName: string,
+  providedTools: string[] = [],
 ): void {
   const projectRoot = projectRootFromDbPath(dbPath);
   if (!projectRoot) return;
@@ -582,7 +718,8 @@ function dematerializeAttachment(
     const filePath = join(projectRoot, rel);
     if (!existsSync(filePath)) return;
     const content = readFileSync(filePath, 'utf8');
-    const updated = removeSkillFromAgentFrontmatter(content, skillName);
+    let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
+    for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
     if (updated !== content) writeFileSync(filePath, updated);
     return;
   }
@@ -591,7 +728,7 @@ function dematerializeAttachment(
     const rel = artifact.slice('claude-md:'.length);
     const filePath = join(projectRoot, rel);
     if (!existsSync(filePath)) return;
-    const reference = `Installed skill: ${skillName} — load it when its capability is needed.`;
+    const reference = `Installed skill: ${cheatcodeName} — load it when its capability is needed.`;
     const body = readFileSync(filePath, 'utf8');
     if (!body.includes(reference)) return;
     const updated = body
@@ -952,15 +1089,24 @@ export function cheatcodeTools(db: TrajectoryDB): {
           ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})`
           : `${kind} cheatcode '${name}' (installed)`;
 
+        // A plugin that provides a built-in tool (an LSP plugin provides `LSP`)
+        // is detected from its installed cache manifest (#149). A tool-contributing
+        // plugin grants the tool to the consuming agent's tools: allowlist;
+        // everything else (a skill, a skill-contributing plugin) keeps the skills:
+        // path. MCP-server-only plugins register globally → [] (no per-agent grant).
+        const providedTools =
+          kind === 'plugin' && target && target !== 'bro' ? detectProvidedTools(name) : [];
+
         // When a target is named for a skill OR a plugin, materialize the
         // consuming agent's prompt surface in the USER PROJECT's .claude/ (copy
-        // global agent md → local + skills: entry, or bro's CLAUDE.md) — never
-        // the plugin repo. A plugin installed FOR an agent contributes its
-        // cheatcode name to that agent's skills: header, same as a skill.
-        // The written path becomes an attachment row + is surfaced in the result.
+        // global agent md → local + skills: entry / tools: grant, or bro's
+        // CLAUDE.md) — never the plugin repo. A tool-contributing plugin grants
+        // its tool to tools: and skips skills:; a skill-contributing plugin /
+        // standalone skill lands in skills:. The written path becomes an
+        // attachment row + is surfaced in the result.
         const materialized =
           target && (kind === 'skill' || kind === 'plugin')
-            ? materializeConsumingAgent(db.dbPath, target, name)
+            ? materializeConsumingAgent(db.dbPath, target, name, providedTools)
             : null;
 
         // Provenance, derived from the source (#152): a marketplace ref →
@@ -1111,9 +1257,14 @@ export function cheatcodeTools(db: TrajectoryDB): {
             // header / drop bro's CLAUDE.md reference line) before the row
             // deletes. Fail-soft per attachment so a missing file never blocks
             // the teardown. Skipped on the broken-flip path below (surface kept).
+            // A tool-contributing plugin granted its tool(s) to tools:; re-detect
+            // them so the reversal drops the grant too (skill-kind / skill-plugin
+            // rows re-detect to [] and only the skills: entry is removed).
+            const reverseTools =
+              existing.kind === 'plugin' ? detectProvidedTools(existing.name) : [];
             for (const att of attachments) {
               if (att.artifact.startsWith('agent-md:') || att.artifact.startsWith('claude-md:')) {
-                dematerializeAttachment(db.dbPath, att.artifact, existing.name);
+                dematerializeAttachment(db.dbPath, att.artifact, existing.name, reverseTools);
               }
             }
             db.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);

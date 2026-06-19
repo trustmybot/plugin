@@ -30272,6 +30272,89 @@ function resolveGlobalAgentMd(target) {
   if (existsSync7(c)) return c;
   return null;
 }
+function readManifestProvidedTools(manifestPath) {
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync4(manifestPath, "utf8"));
+  } catch {
+    return [];
+  }
+  if (!manifest || typeof manifest !== "object") return [];
+  const obj = manifest;
+  const tools = obj["tools"];
+  if (Array.isArray(tools)) {
+    return tools.map((t) => String(t).trim()).filter((t) => t.length > 0);
+  }
+  if (obj["lsp"] !== void 0 && obj["lsp"] !== null) return ["LSP"];
+  return [];
+}
+function resolveInstalledPluginManifest(name) {
+  const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
+  if (override) return existsSync7(override) ? override : null;
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join9(process.env["HOME"] || "", ".claude");
+  const registry2 = join9(claudeHome, "plugins", "installed_plugins.json");
+  if (!existsSync7(registry2)) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync4(registry2, "utf8"));
+  } catch {
+    return null;
+  }
+  const plugins = parsed?.plugins;
+  if (!plugins || typeof plugins !== "object") return null;
+  for (const [key, entries] of Object.entries(plugins)) {
+    if (key.split("@")[0] !== name) continue;
+    const list = Array.isArray(entries) ? entries : [];
+    for (const e of list) {
+      const installPath = e?.installPath;
+      if (typeof installPath !== "string" || installPath.length === 0) continue;
+      const manifest = join9(installPath, ".claude-plugin", "plugin.json");
+      if (existsSync7(manifest)) return manifest;
+    }
+  }
+  return null;
+}
+function detectProvidedTools(name) {
+  const manifest = resolveInstalledPluginManifest(name);
+  if (!manifest) return [];
+  return readManifestProvidedTools(manifest);
+}
+function addToolToAgentFrontmatter(content, toolName) {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) {
+    return `---
+tools: ${toolName}
+---
+
+${content}`;
+  }
+  const fm = fmMatch[1];
+  const toolsLine = fm.match(/^tools:\s*(.*)$/m);
+  if (toolsLine) {
+    const entries = toolsLine[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    if (entries.includes(toolName)) return content;
+    entries.push(toolName);
+    const rebuilt = `tools: ${entries.join(", ")}`;
+    const newFm2 = fm.replace(/^tools:\s*.*$/m, rebuilt);
+    return content.replace(fm, newFm2);
+  }
+  const newFm = `${fm}
+tools: ${toolName}`;
+  return content.replace(fm, newFm);
+}
+function removeToolFromAgentFrontmatter(content, toolName) {
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) return content;
+  const fm = fmMatch[1];
+  const toolsLine = fm.match(/^tools:\s*(.*)$/m);
+  if (!toolsLine) return content;
+  const entries = toolsLine[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (!entries.includes(toolName)) return content;
+  const remaining = entries.filter((s) => s !== toolName);
+  const rebuilt = `tools: ${remaining.join(", ")}`;
+  const newFm = fm.replace(/^tools:\s*.*$/m, rebuilt);
+  return content.replace(fm, newFm);
+}
 function addSkillToAgentFrontmatter(content, skillName) {
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
   if (!fmMatch) {
@@ -30308,13 +30391,13 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
   const newFm = fm.replace(/^skills:\s*\[.*\]\s*$/m, rebuilt);
   return content.replace(fm, newFm);
 }
-function materializeConsumingAgent(dbPath2, target, skillName) {
+function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
   const claudeDir = join9(projectRoot, ".claude");
   if (target === "bro") {
     const claudeMd = join9(claudeDir, "CLAUDE.md");
-    const reference = `Installed skill: ${skillName} \u2014 load it when its capability is needed.`;
+    const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
     let body = existsSync7(claudeMd) ? readFileSync4(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
@@ -30335,7 +30418,12 @@ function materializeConsumingAgent(dbPath2, target, skillName) {
     if (!globalAgentMd) return null;
     content = readFileSync4(globalAgentMd, "utf8");
   }
-  const updated = addSkillToAgentFrontmatter(content, skillName);
+  let updated = content;
+  if (providedTools.length > 0) {
+    for (const tool of providedTools) updated = addToolToAgentFrontmatter(updated, tool);
+  } else {
+    updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
+  }
   mkdirSync6(dirname8(localAgentMd), { recursive: true });
   writeFileSync4(localAgentMd, updated);
   return {
@@ -30344,7 +30432,7 @@ function materializeConsumingAgent(dbPath2, target, skillName) {
     path: localAgentMd
   };
 }
-function dematerializeAttachment(dbPath2, artifact, skillName) {
+function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
@@ -30352,7 +30440,8 @@ function dematerializeAttachment(dbPath2, artifact, skillName) {
     const filePath = join9(projectRoot, rel);
     if (!existsSync7(filePath)) return;
     const content = readFileSync4(filePath, "utf8");
-    const updated = removeSkillFromAgentFrontmatter(content, skillName);
+    let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
+    for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
     if (updated !== content) writeFileSync4(filePath, updated);
     return;
   }
@@ -30360,7 +30449,7 @@ function dematerializeAttachment(dbPath2, artifact, skillName) {
     const rel = artifact.slice("claude-md:".length);
     const filePath = join9(projectRoot, rel);
     if (!existsSync7(filePath)) return;
-    const reference = `Installed skill: ${skillName} \u2014 load it when its capability is needed.`;
+    const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
     const body = readFileSync4(filePath, "utf8");
     if (!body.includes(reference)) return;
     const updated = body.split("\n").filter((line) => line !== reference).join("\n");
@@ -30654,7 +30743,8 @@ function cheatcodeTools(db2) {
         const placementScope = scope === "global" ? "global" : "project-local";
         const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
         const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
-        const materialized = target && (kind === "skill" || kind === "plugin") ? materializeConsumingAgent(db2.dbPath, target, name) : null;
+        const providedTools = kind === "plugin" && target && target !== "bro" ? detectProvidedTools(name) : [];
+        const materialized = target && (kind === "skill" || kind === "plugin") ? materializeConsumingAgent(db2.dbPath, target, name, providedTools) : null;
         const origin = deriveOrigin(sourceUrl);
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
@@ -30768,9 +30858,10 @@ function cheatcodeTools(db2) {
         const auditSummary = `Cheatcode uninstall: '${existing.name}' (kind=${existing.kind}, method=${reversal.method}, removed=${reversal.removed})`;
         db2.transaction(() => {
           if (reversal.removed) {
+            const reverseTools = existing.kind === "plugin" ? detectProvidedTools(existing.name) : [];
             for (const att of attachments) {
               if (att.artifact.startsWith("agent-md:") || att.artifact.startsWith("claude-md:")) {
-                dematerializeAttachment(db2.dbPath, att.artifact, existing.name);
+                dematerializeAttachment(db2.dbPath, att.artifact, existing.name, reverseTools);
               }
             }
             db2.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
