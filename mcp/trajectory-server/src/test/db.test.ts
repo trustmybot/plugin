@@ -8,7 +8,7 @@ import { tempDB } from './helpers.js';
 import { nowISO, TrajectoryDB } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=22 (skills folded into cheatcodes #101; world model in kuzu)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=23 (skills folded into cheatcodes #101; world model in kuzu)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -25,6 +25,8 @@ describe('TrajectoryDB', () => {
       'agent_runs',
       'pr_review_runs',
       'repos',
+      // #155 repos-centric schema — milestones FK hub
+      'milestones',
       // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
       'discussions_fts',
       'audit_fts',
@@ -48,7 +50,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 22);
+    assert.equal(meta.schema_version, 23);
 
     db.close();
   });

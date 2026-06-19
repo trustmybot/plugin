@@ -653,13 +653,13 @@ export function taskTools(db) {
                     else {
                         repoValue = defaultRepoValue;
                     }
-                    // Server-side parent_branch_id default: when omitted/null, resolve from
-                    // the per-repo target_branch (v11) falling back to global pr_target.
-                    // Fixes L5 92-base-branch where bro skipped reading config('pr_target')
-                    // and tasks landed against main on gitflow projects with pr_target='dev'.
+                    // Server-side parent_branch_id default: when omitted/null, resolve the
+                    // base branch from the task's repos row (#155 — pr_target is drained
+                    // out of plugin_config; the per-repo target_branch is the single source
+                    // of truth). Final fallback is 'main'. Fixes L5 92-base-branch where
+                    // tasks landed against main on gitflow projects with a 'dev' target.
                     let parentBranchId = t.parent_branch_id ?? null;
                     if (parentBranchId == null) {
-                        // 1. Try per-repo target_branch from the task's repos row.
                         const taskRepoName = t.repo ?? defaultRepoValue;
                         if (taskRepoName) {
                             const repoTargetRow = db.get(`SELECT target_branch FROM repos WHERE name = ?`, [taskRepoName]);
@@ -668,23 +668,8 @@ export function taskTools(db) {
                             }
                         }
                     }
-                    if (parentBranchId == null) {
-                        // 2. Fall back to global pr_target.
-                        const prTargetRow = db.get(`SELECT value_json FROM plugin_config WHERE key = 'pr_target'`);
-                        if (prTargetRow?.value_json) {
-                            try {
-                                const prTarget = JSON.parse(prTargetRow.value_json);
-                                if (typeof prTarget === 'string' && prTarget.length > 0) {
-                                    parentBranchId = prTarget;
-                                }
-                            }
-                            catch {
-                                // malformed config row — leave as null and fall through
-                            }
-                        }
-                        if (parentBranchId == null)
-                            parentBranchId = 'main';
-                    }
+                    if (parentBranchId == null)
+                        parentBranchId = 'main';
                     const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
                     const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
                     db.run(`INSERT INTO tasks

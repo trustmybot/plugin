@@ -1,12 +1,13 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { SpawnSyncOptions } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
-import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
+import { resolveRepoForSync } from '../utils/repo-paths.js';
+import type { ResolvedRepoSync } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend, detectPreferred } from '../sync/backend.js';
-import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
+import { syncIssueCreate, syncIssueClose, isSyncFailure, repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import type { SyncFailure } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
 
@@ -166,20 +167,34 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
-function resolveSpawnCwd(db: TrajectoryDB, _dbPath: string): string | undefined {
-  return resolveDefaultRepoPath(db);
+// Issue-scoped sync context (#155/#146). Resolve the repo an issue belongs to
+// (its `repo` column, or the sole-repo fallback) into the on-disk path used as
+// the explicit spawn cwd and a per-backend remote lookup. The remotes come from
+// the resolved repos.remotes row — never the global plugin_config, and never
+// process.cwd(). `null` means the repo could not be resolved; the caller raises
+// a named, actionable error rather than silently syncing against the cwd.
+interface IssueSyncContext {
+  repoName: string;
+  cwd: string;
+  remoteFor(backend: 'gh' | 'glab'): { url: string; slug: string | null } | null;
 }
 
-function resolveRemoteUrl(db: TrajectoryDB, backend: 'gh' | 'glab'): string | null {
-  const row = db.get<{ value_json: string }>(
-    `SELECT value_json FROM plugin_config WHERE key = 'remotes'`,
-  );
-  if (!row) return null;
-  const remotes = JSON.parse(row.value_json) as Array<{ provider: string; url: string }>;
-  const provider = backend === 'gh' ? 'github' : 'gitlab';
-  const entry = remotes.find((r) => r.provider === provider);
-  if (!entry) return null;
-  return entry.url;
+function resolveIssueSyncContext(
+  db: TrajectoryDB,
+  repoName: string | null,
+): IssueSyncContext | null {
+  const resolved: ResolvedRepoSync | null = resolveRepoForSync(db, repoName);
+  if (!resolved) return null;
+  return {
+    repoName: resolved.name,
+    cwd: resolved.path,
+    remoteFor(backend) {
+      const provider = backend === 'gh' ? 'github' : 'gitlab';
+      const entry = resolved.remotes.find((r) => r.provider === provider);
+      if (!entry) return null;
+      return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
+    },
+  };
 }
 
 // Fire the remote (GitHub/GitLab) issue-close for whatever remotes the row is
@@ -194,11 +209,15 @@ export async function syncIssueCloseRemotes(
   issueId: string | number,
   spawnFn?: SpawnFn,
 ): Promise<void> {
-  const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null; gh_iid: number | null; gl_iid: number | null }>(
-    `SELECT remote_iid, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?`,
+  const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null; gh_iid: number | null; gl_iid: number | null; repo: string | null }>(
+    `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
     [issueId],
   );
-  const closeCwd = resolveSpawnCwd(db, dbPath);
+  // Issue-scoped sync (#155/#146): resolve cwd + per-backend repo slug from the
+  // issue's repo. When unresolvable, fall back to no explicit cwd/slug — a
+  // best-effort close must not throw (the local close already happened).
+  const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
+  const closeCwd = closeCtx?.cwd;
   const closeTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
   if (remoteRow?.gh_iid != null) {
     closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
@@ -211,10 +230,12 @@ export async function syncIssueCloseRemotes(
     closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
   }
   for (const target of closeTargets) {
+    const closeSlug = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined;
     const closeResult = await syncIssueClose({
       remote_iid: target.remote_iid,
       remote_kind: target.remote_kind,
       _cwd: closeCwd,
+      _repoSlug: closeSlug,
       _spawnFn: spawnFn,
     });
     if (!closeResult.ok) {
@@ -248,6 +269,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
           labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue.' },
           milestone: { type: 'string', description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
+          repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo\'s remotes). Defaults to the sole/managed repo when exactly one repos row exists.' },
           allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
         },
         required: ['agent', 'objective', 'labels'],
@@ -408,14 +430,19 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       }
       // milestone: optional; persisted locally AND passed to remote sync (#83/#763).
       const milestone = (args['milestone'] as string | undefined) ?? null;
+      // repo (#155): explicit arg, else the sole/managed repo when exactly one
+      // repos row exists. Null for an ambiguous multi-repo install with no
+      // selector — the FK is nullable so the insert still succeeds.
+      const explicitRepo = (args['repo'] as string | undefined) ?? null;
+      const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
       // _spawnFn: test-only injection point; not in inputSchema
       const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
       const now = nowISO();
 
       db.run(
-        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone)
-         VALUES (?, ?, 'open', ?, ?, ?)`,
-        [objective, description, now, now, milestone],
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
+         VALUES (?, ?, 'open', ?, ?, ?, ?)`,
+        [objective, description, now, now, milestone, issueRepo],
       );
 
       const rowId = db.get<{ id: number }>(
@@ -444,12 +471,36 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {
-          const syncCwd = resolveSpawnCwd(db, dbPath);
+          // Issue-scoped sync (#155/#146): resolve cwd + per-backend remote
+          // from the issue's repo. Unresolvable repo while sync is on → named
+          // error rather than a silent process.cwd() sync.
+          const syncCtx = resolveIssueSyncContext(db, issueRepo);
+          if (syncCtx === null) {
+            serverLog({ event: 'issue_sync_skip', reason: 'unresolvable_repo', issueId, repo: issueRepo, backend });
+            syncDiagnostic = {
+              sync_failed: true,
+              reason: 'unresolvable_repo',
+              repo: issueRepo,
+              backend,
+              hint: issueRepo
+                ? `issue repo "${issueRepo}" has no matching repos row — run /scan or pass a valid repo.`
+                : 'multiple repos registered and no issue repo selected — pass repo= on issue_create.',
+            };
+            const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+            const issue = decodeIssue(row!);
+            const redacted = redactIssue(issue, agent, { include_description: true });
+            const payload: Record<string, unknown> = { ...(redacted as Record<string, unknown>) };
+            payload._sync = syncDiagnostic;
+            return ok(payload);
+          }
+          const syncCwd = syncCtx.cwd;
           if (backend === 'both') {
-            const ghRemoteUrl = resolveRemoteUrl(db, 'gh');
-            const glRemoteUrl = resolveRemoteUrl(db, 'glab');
-            const ghBlank = ghRemoteUrl === '';
-            const glBlank = glRemoteUrl === '';
+            const ghRemote = syncCtx.remoteFor('gh');
+            const glRemote = syncCtx.remoteFor('glab');
+            const ghRemoteUrl = ghRemote?.url ?? null;
+            const glRemoteUrl = glRemote?.url ?? null;
+            const ghBlank = !ghRemoteUrl;
+            const glBlank = !glRemoteUrl;
             if (ghBlank && glBlank) {
               serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
               syncDiagnostic = {
@@ -471,6 +522,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                       _spawnFn: spawnFn,
                       _cwd: syncCwd,
                       _remoteUrl: ghRemoteUrl ?? undefined,
+                      _repoSlug: ghRemote?.slug ?? undefined,
                     })
                   : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', backend: 'gh', message: 'blank remote URL for gh' }),
                 !glBlank
@@ -484,6 +536,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                       _spawnFn: spawnFn,
                       _cwd: syncCwd,
                       _remoteUrl: glRemoteUrl ?? undefined,
+                      _repoSlug: glRemote?.slug ?? undefined,
                     })
                   : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', backend: 'glab', message: 'blank remote URL for glab' }),
               ]);
@@ -531,8 +584,9 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
               }
             }
           } else {
-            const remoteUrl = resolveRemoteUrl(db, backend);
-            if (remoteUrl === '') {
+            const remote = syncCtx.remoteFor(backend);
+            const remoteUrl = remote?.url ?? null;
+            if (!remoteUrl) {
               serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
               syncDiagnostic = {
                 sync_skipped: true,
@@ -551,6 +605,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                 _spawnFn: spawnFn,
                 _cwd: syncCwd,
                 _remoteUrl: remoteUrl ?? undefined,
+                _repoSlug: remote?.slug ?? undefined,
               });
               if (!isSyncFailure(syncResult)) {
                 const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
@@ -817,8 +872,22 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
 
       const issue = decodeIssue(row);
 
+      // Issue-scoped sync (#155/#146): resolve cwd + per-backend slug from the
+      // issue's repo. Null when unresolvable — surface a named error.
+      const retryCtx = resolveIssueSyncContext(db, row.repo ?? null);
+      if (retryCtx === null) {
+        return ok({
+          skipped: true,
+          reason: 'unresolvable_repo',
+          repo: row.repo ?? null,
+          hint: row.repo
+            ? `issue repo "${row.repo}" has no matching repos row.`
+            : 'multiple repos registered and no issue repo selected.',
+        });
+      }
+
       if (row.status === 'closed') {
-        const retryCwd = resolveSpawnCwd(db, dbPath);
+        const retryCwd = retryCtx.cwd;
         const retryTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
         if (row.gh_iid != null) {
           retryTargets.push({ remote_iid: row.gh_iid, remote_kind: 'github' });
@@ -840,6 +909,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
             remote_kind: target.remote_kind,
             _spawnFn: spawnFn,
             _cwd: retryCwd,
+            _repoSlug: retryCtx.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined,
           });
           if (!closeResult.ok) {
             closeErrors.push({
@@ -859,9 +929,9 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       }
 
       // Only retry backends whose iid column is NULL — mirrors the close path's
-      // resolution (issues.ts:616-626). Prevents duplicate remote creates when
-      // one backend already succeeded in a prior attempt.
-      const retryCwd = resolveSpawnCwd(db, dbPath);
+      // resolution. Prevents duplicate remote creates when one backend already
+      // succeeded in a prior attempt.
+      const retryCwd = retryCtx.cwd;
       const createTargets: Array<'gh' | 'glab'> = [];
       if (backend === 'gh' || backend === 'both') {
         if (row.gh_iid == null && !(row.remote_kind === 'github' && row.remote_iid != null)) {
@@ -881,6 +951,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       const createErrors: unknown[] = [];
       let lastSuccess: { remote_iid: number; remote_kind: 'github' | 'gitlab' } | null = null;
       for (const target of createTargets) {
+        const retryRemote = retryCtx.remoteFor(target);
         const syncResult = await syncIssueCreate({
           issueId: row.id,
           title: issue.objective,
@@ -889,6 +960,8 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           _backend: target,
           _spawnFn: spawnFn,
           _cwd: retryCwd,
+          _remoteUrl: retryRemote?.url ?? undefined,
+          _repoSlug: retryRemote?.slug ?? undefined,
         });
         if (!isSyncFailure(syncResult)) {
           lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };

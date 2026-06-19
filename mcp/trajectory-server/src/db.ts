@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 22;
+const TARGET_SCHEMA_VERSION = 23;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -397,6 +397,7 @@ export type RepoRow = {
   target_branch: string | null;
   branching_model: string | null;
   protected_branches: string | null;
+  remotes: string | null;
 };
 
 export type CheatcodeRow = {
@@ -542,6 +543,9 @@ function runMigrations(
   }
   if (fromVersion < 22 && toVersion >= 22) {
     migrateV21toV22(db);
+  }
+  if (fromVersion < 23 && toVersion >= 23) {
+    migrateV22toV23(db);
   }
 }
 
@@ -1122,6 +1126,273 @@ function migrateV21toV22(db: DatabaseSync): void {
   // and hasColumn guards an idempotent re-run.
   if (tableExists(db, 'issues') && !hasColumn(db, 'issues', 'milestone')) {
     db.exec('ALTER TABLE issues ADD COLUMN milestone TEXT');
+  }
+}
+
+// v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
+//
+//   1. repos.remotes — new column drained from plugin_config('remotes') so
+//      issue-scoped sync resolves the per-repo remote rather than the global.
+//   2. milestones(name, repo→repos, state, PK(name,repo)) — GitHub-style
+//      per-repo milestones; backfilled from distinct issues.milestone values.
+//   3. repo FK on all work tables. issues + tasks are rebuilt (issues gains the
+//      composite issues.milestone→milestones FK which ALTER cannot add; tasks
+//      formalizes its existing plain `repo` column into a declared FK).
+//      audit / validation_attempts / discussions / agent_runs take a plain
+//      `ALTER ... ADD COLUMN repo REFERENCES repos(name)` — SQLite allows a
+//      nullable FK column via ADD COLUMN, and it leaves the FTS5/embeddings
+//      companions of discussions+audit untouched (the rowid mapping is stable),
+//      so no FTS teardown is needed for those two.
+//   4. Backfill repo on every table from its parent (tasks/pr_review_runs are
+//      already populated where applicable; discussions/audit/agent_runs/
+//      validation_attempts inherit from their parent issue/task).
+//
+// Single-repo installs resolve the "sole repo" — when exactly one repos row
+// exists, every NULL repo backfills to it. Multi-repo installs with ambiguous
+// parentage leave repo NULL (FK-exempt) rather than guess. foreign_keys is
+// toggled OFF around the table rebuilds (it cannot change inside a transaction)
+// and foreign_key_check re-validates before COMMIT.
+function migrateV22toV23(db: DatabaseSync): void {
+  // Resolve the sole repo name for single-repo backfill, when exactly one
+  // repos row exists. Multi-repo → undefined (leave NULLs; no guessing).
+  const soleRepo = (): string | null => {
+    if (!tableExists(db, 'repos')) return null;
+    const rows = db.prepare('SELECT name FROM repos').all() as Array<{ name: string }>;
+    return rows.length === 1 ? rows[0]!.name : null;
+  };
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    // (1) repos.remotes — drain the global plugin_config('remotes') into the
+    // per-repo column. Idempotent via hasColumn. Backfill every repos row whose
+    // remotes is NULL from the global blob (single-repo correctness; multi-repo
+    // installs can re-run /onboard to refine per-repo later).
+    if (tableExists(db, 'repos')) {
+      if (!hasColumn(db, 'repos', 'remotes')) {
+        db.exec('ALTER TABLE repos ADD COLUMN remotes TEXT');
+      }
+      if (tableExists(db, 'plugin_config')) {
+        const remotesRow = db
+          .prepare("SELECT value_json FROM plugin_config WHERE key = 'remotes'")
+          .get() as { value_json: string } | undefined;
+        if (remotesRow?.value_json) {
+          db.prepare('UPDATE repos SET remotes = ? WHERE remotes IS NULL').run(
+            remotesRow.value_json,
+          );
+        }
+      }
+    }
+
+    const sole = soleRepo();
+
+    // (2) milestones table. Created before the issues rebuild re-applies the
+    // composite milestone FK so the backfilled values resolve.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS milestones (
+          name   TEXT NOT NULL,
+          repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
+          state  TEXT NOT NULL DEFAULT 'open',
+          PRIMARY KEY (name, repo)
+      )
+    `);
+
+    // (4a) Backfill issues.repo BEFORE the rebuild so the milestone backfill and
+    // the composite FK both see resolved repos. Single-repo only — leave
+    // multi-repo NULLs untouched.
+    if (tableExists(db, 'issues') && hasColumn(db, 'issues', 'milestone')) {
+      const issuesHasRepo = hasColumn(db, 'issues', 'repo');
+      if (!issuesHasRepo) {
+        db.exec('ALTER TABLE issues ADD COLUMN repo TEXT');
+      }
+      if (sole !== null) {
+        // Don't backfill the synthetic system issue (id = -1) — it belongs to no
+        // repo. Real issues adopt the sole repo.
+        db.prepare('UPDATE issues SET repo = ? WHERE repo IS NULL AND id <> -1').run(sole);
+      }
+
+      // (2b) milestones backfill from distinct (milestone, repo) pairs on issues.
+      db.exec(`
+        INSERT OR IGNORE INTO milestones (name, repo, state)
+        SELECT DISTINCT milestone, repo, 'open'
+          FROM issues
+         WHERE milestone IS NOT NULL AND repo IS NOT NULL
+      `);
+
+      // (3a/5) Rebuild issues to declare repo FK + the composite milestone FK
+      // that ALTER cannot add. Column order mirrors schema.sql.
+      // LINT-ALLOW: scratch table for the SQLite FK-formalize rebuild (#155).
+      db.exec('DROP TABLE IF EXISTS issues_new');
+      db.exec(`
+        CREATE TABLE issues_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            objective         TEXT    NOT NULL,
+            description       TEXT    NOT NULL DEFAULT '',
+            status            TEXT    NOT NULL DEFAULT 'open',
+            created_at        TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            closed_at         TEXT,
+            remote_iid        INTEGER,
+            remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+            gh_iid            INTEGER,
+            gl_iid            INTEGER,
+            repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+            milestone         TEXT,
+            FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
+        )
+      `);
+      // Older upgrade fixtures (seeded at v9–v17) carry leaner issues shapes
+      // that may omit columns added pre-v22 (closed_at, gh_iid, …). Build each
+      // SELECT term defensively so the rebuild works regardless of starting
+      // shape, mirroring migrateV1toV2/migrateV2toV3.
+      const issueCol = (name: string, expr = name): string =>
+        hasColumn(db, 'issues', name) ? expr : `NULL AS ${name}`;
+      db.exec(`
+        INSERT INTO issues_new
+          (id, objective, description, status, created_at, updated_at, closed_at,
+           remote_iid, remote_kind, gh_iid, gl_iid, repo, milestone)
+        SELECT
+           id, objective, description, status, created_at, updated_at,
+           ${issueCol('closed_at')},
+           ${issueCol('remote_iid')}, ${issueCol('remote_kind')},
+           ${issueCol('gh_iid')}, ${issueCol('gl_iid')},
+           repo, milestone
+          FROM issues
+      `);
+      // LINT-ALLOW: FK-formalize rebuild — rows already copied into issues_new (#155).
+      db.exec('DROP TABLE issues');
+      db.exec('ALTER TABLE issues_new RENAME TO issues');
+    }
+
+    // (3b/5) Rebuild tasks to formalize the existing plain `repo` column into a
+    // declared FK. Preserves every column including the Typed Rails files/
+    // verification and prompt_bearing. The tasks(issue_id) FK + the unique
+    // (issue_id, branch_id) index are recreated.
+    if (tableExists(db, 'tasks') && hasColumn(db, 'tasks', 'repo')) {
+      // LINT-ALLOW: scratch table for the SQLite FK-formalize rebuild (#155).
+      db.exec('DROP TABLE IF EXISTS tasks_new');
+      db.exec(`
+        CREATE TABLE tasks_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_id          INTEGER NOT NULL REFERENCES issues(id),
+            branch_id         TEXT    NOT NULL,
+            parent_branch_id  TEXT,
+            title             TEXT    NOT NULL DEFAULT '',
+            description       TEXT    NOT NULL,
+            status            TEXT    NOT NULL DEFAULT 'pending',
+            attempts          INTEGER NOT NULL DEFAULT 0,
+            spec_body         TEXT    NOT NULL DEFAULT '',
+            commit_sha        TEXT,
+            repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+            prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+            files             TEXT    NOT NULL DEFAULT '[]',
+            verification      TEXT    NOT NULL DEFAULT '[]',
+            created_at        TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            completed_at      TEXT
+        )
+      `);
+      // Defensive SELECT terms for leaner fixtures (see the issues rebuild).
+      const taskCol = (name: string, fallback: string): string =>
+        hasColumn(db, 'tasks', name) ? name : `${fallback} AS ${name}`;
+      db.exec(`
+        INSERT INTO tasks_new
+          (id, issue_id, branch_id, parent_branch_id, title, description, status,
+           attempts, spec_body, commit_sha, repo, prompt_bearing, files,
+           verification, created_at, updated_at, completed_at)
+        SELECT
+           id, issue_id, branch_id,
+           ${taskCol('parent_branch_id', 'NULL')},
+           ${taskCol('title', "''")},
+           description, status, attempts,
+           ${taskCol('spec_body', "''")},
+           ${taskCol('commit_sha', 'NULL')},
+           repo,
+           ${taskCol('prompt_bearing', '0')},
+           ${taskCol('files', "'[]'")},
+           ${taskCol('verification', "'[]'")},
+           created_at, updated_at,
+           ${taskCol('completed_at', 'NULL')}
+          FROM tasks
+      `);
+      // LINT-ALLOW: FK-formalize rebuild — rows already copied into tasks_new (#155).
+      db.exec('DROP TABLE tasks');
+      db.exec('ALTER TABLE tasks_new RENAME TO tasks');
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)',
+      );
+    }
+
+    // (3c/4b) discussions / audit / agent_runs / validation_attempts: nullable
+    // FK column via ADD COLUMN, then backfill repo from the parent. ADD COLUMN
+    // with a REFERENCES clause is allowed by SQLite for a nullable column with no
+    // default — and leaves the FTS5/embeddings companions of discussions+audit
+    // intact, so no teardown is needed.
+    if (tableExists(db, 'discussions') && !hasColumn(db, 'discussions', 'repo')) {
+      db.exec('ALTER TABLE discussions ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT');
+      if (tableExists(db, 'issues')) {
+        db.exec(`
+          UPDATE discussions
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = discussions.issue_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+    if (tableExists(db, 'audit') && !hasColumn(db, 'audit', 'repo')) {
+      db.exec('ALTER TABLE audit ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT');
+      if (tableExists(db, 'issues')) {
+        db.exec(`
+          UPDATE audit
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = audit.issue_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+    if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'repo')) {
+      db.exec('ALTER TABLE agent_runs ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT');
+      // Prefer the task's repo; fall back to the issue's repo.
+      if (tableExists(db, 'tasks')) {
+        db.exec(`
+          UPDATE agent_runs
+             SET repo = (SELECT t.repo FROM tasks t WHERE t.id = agent_runs.task_id)
+           WHERE repo IS NULL AND task_id IS NOT NULL
+        `);
+      }
+      if (tableExists(db, 'issues')) {
+        db.exec(`
+          UPDATE agent_runs
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = agent_runs.issue_id)
+           WHERE repo IS NULL AND issue_id IS NOT NULL
+        `);
+      }
+    }
+    if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'repo')) {
+      db.exec('ALTER TABLE validation_attempts ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT');
+      if (tableExists(db, 'tasks')) {
+        db.exec(`
+          UPDATE validation_attempts
+             SET repo = (SELECT t.repo FROM tasks t WHERE t.id = validation_attempts.task_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV22toV23: foreign_key_check found ${violations.length} dangling reference(s) after the repos-centric migration`,
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
   }
 }
 

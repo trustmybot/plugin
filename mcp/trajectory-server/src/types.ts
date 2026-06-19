@@ -10,6 +10,8 @@ export interface Issue {
   remote_kind?: 'github' | 'gitlab' | null;
   gh_iid?: number | null;
   gl_iid?: number | null;
+  /** Repo this issue belongs to (FK to repos.name); null for single-repo / ambiguous installs. */
+  repo?: string | null;
   milestone?: string | null;
 }
 
@@ -25,6 +27,7 @@ export interface IssueRow {
   remote_kind: 'github' | 'gitlab' | null;
   gh_iid: number | null;
   gl_iid: number | null;
+  repo: string | null;
   milestone: string | null;
 }
 
