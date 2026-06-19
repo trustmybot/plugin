@@ -1112,6 +1112,7 @@ function migrateV19toV20(db: DatabaseSync): void {
 // log. Drop the table outright; no replacement. Its only FK referenced
 // cheatcodes(name), so dropping it leaves no dangling references in other tables.
 function migrateV20toV21(db: DatabaseSync): void {
+  // LINT-ALLOW: v20→v21 drops the unused skill_invocations table; no FK references (see comment above)
   db.exec('DROP TABLE IF EXISTS skill_invocations');
 }
 
