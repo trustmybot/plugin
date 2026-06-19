@@ -33,7 +33,6 @@ mask_session_start_prescan() {
         -e 's/Plugin version:.*/Plugin version: __VOLATILE__/' \
         -e 's/Top-level dirs:.*/Top-level dirs: __VOLATILE__/' \
         -e 's/Stacks detected:.*/Stacks detected: __VOLATILE__/' \
-        -e 's/Architecture docs:.*/Architecture docs: __VOLATILE__/' \
         -e 's/World model:.*/World model: __VOLATILE__/' \
         -e 's/Git branch:.*/Git branch: __VOLATILE__/' \
         -e 's/Open issues:.*/Open issues: __VOLATILE__/' \
