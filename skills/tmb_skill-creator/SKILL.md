@@ -8,6 +8,8 @@ allowed-tools: Read, Write, Edit, Glob, Bash, AskUserQuestion, mcp__plugin_tmb_t
 
 Add a new capability to a project's agents without editing their body.
 
+This authors a NEW skill from scratch. To pull in an EXISTING external skill / MCP / plugin instead, that's the cheatcode flow (`tmb_cheatcode`), not this.
+
 If the original ask depended on the new skill being in place, bro holds it until the skill exists + is attached + approved.
 
 ## Discover the gap
