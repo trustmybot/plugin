@@ -1012,6 +1012,7 @@ function migrateV19toV20(db) {
 // log. Drop the table outright; no replacement. Its only FK referenced
 // cheatcodes(name), so dropping it leaves no dangling references in other tables.
 function migrateV20toV21(db) {
+    // LINT-ALLOW: v20→v21 drops the unused skill_invocations table; no FK references (see comment above)
     db.exec('DROP TABLE IF EXISTS skill_invocations');
 }
 function migrateV21toV22(db) {

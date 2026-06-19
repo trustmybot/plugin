@@ -268,7 +268,7 @@ flowchart TD
   RESTART --> USE
   USE --> HEALTH[SessionStart cheatcode-healthcheck.sh\nreconcile status vs runtime; audit on drift]
   HEALTH --> SCANP[scan_run also discovers on-disk resources\n→ cheatcodes table, source_url='scan_discovered']
-  USE -.no longer needed.-> UNINST{cheatcode_uninstall\nHuman-confirmed AUQ}
+  USE -.unused.-> UNINST{cheatcode_uninstall\nHuman-confirmed AUQ}
   UNINST -->|teardown removed| REV[reverse via marketplace/MCP path\n+ DELETE cheatcodes & attachment rows\n+ de-materialize the skills: header entry\n+ audit]
   UNINST -->|teardown failed — honesty gate #114| BROKEN[keep row, status → broken, audit;\nreport uninstalled:false]
   UNINST -->|absent / partial| NOOP[idempotent no-op]
