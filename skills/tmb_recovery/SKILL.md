@@ -26,9 +26,9 @@ The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-serve
 |---|---|---|
 | `tmb_planning` base-branch AUQ | `${pr_target}` | Matches the project's configured branching model. |
 | `tmb_planning` branch-id confirm | "Yes, proceed" | Bro already chose intelligently from project context. |
-| `tmb_planning` difficult Q+A | "proceed as proposed" | ADR is still authored; the deliberate-decision marker survives. |
-| `tmb_review` push-fail resolution | "Abort push" | Half-fixed work shouldn't ship without Human review. |
-| `tmb_review` PR/MR resolution | (halt — error out cleanly) | No safe default for "which PR?" |
+| `tmb_planning` difficult Q+A | "proceed as proposed" | the decision note is still recorded; the deliberate-decision marker survives. |
+| `tmb_push-triage` push-fail resolution | "Abort push" | Half-fixed work shouldn't ship without Human review. |
+| `tmb_push-triage` PR/MR resolution | (halt — error out cleanly) | No safe default for "which PR?" |
 | `roundtable` agreements ratification | Ratify all agreements | Unanimous + uncontested; safe to proceed. |
 | `roundtable` disagreements resolution | Skip + file follow-up issue | No Human → no safe casting vote; log and continue. |
 | `roundtable` follow-up questions | Skip (no issue created) | Headless mode cannot scope new work interactively. |
@@ -73,8 +73,7 @@ The plugin's MCP server is missing from CC's resolved-plugin list — `/reload-p
 Recovery escalation — try IN ORDER, stop at the first that brings MCP back:
 
 1. `claude --plugin-dir <plugin-source>` — re-resolves the MCP config from disk with the plugin cache cleared.
-2. `/plugin uninstall tmb@trustmybot-rc`, quit CC fully, reinstall via `/plugin install tmb@trustmybot-rc`.
-3. `scripts/maintenance/heal-mcp-cache.sh` — interactive cache nuke with dry-run preview.
+2. `/plugin uninstall tmb@<your-marketplace>`, quit CC fully, then reinstall from your marketplace via `/plugin install tmb@<your-marketplace>`.
 
 ### C.2 — MCP died mid-session (Mode B)
 

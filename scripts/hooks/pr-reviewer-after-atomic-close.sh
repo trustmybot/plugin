@@ -4,7 +4,7 @@
 # spawn prompt must have status='closed' in the trajectory DB.
 #
 # Doctrine source: feedback_pr_reviewer_required_pre_push memory + tmb_planning
-# Step 5 (verify + close, then pr-reviewer per tmb_review §B) — "After
+# Step 5 (verify + close, then pr-reviewer per tmb_push-triage) — "After
 # bro_atomic_close succeeds, BEFORE pushing the branch, spawn pr-reviewer".
 # The order is non-negotiable: bro_atomic_close is the in-DB closure that
 # produces the artifact pr-reviewer evaluates.
@@ -69,7 +69,7 @@ fi
 
 _DENY_REASON="BLOCKED: pr-reviewer spawn requires task ${TASK_ID} status=closed but actual status=${STATUS}.
 
-Per tmb_planning Step 5 (verify + close, then pr-reviewer per tmb_review §B) + feedback_pr_reviewer_required_pre_push doctrine, the order is:
+Per tmb_planning Step 5 (verify + close, then pr-reviewer per tmb_push-triage) + feedback_pr_reviewer_required_pre_push doctrine, the order is:
   1. SWE returns status=completed (lifecycle answer, NOT a DB closure).
   2. bro runs V1 (task_get + git diff), V2 (3 checks), V3 (bro_atomic_close).
   3. ONLY THEN: spawn pr-reviewer for the push gate.

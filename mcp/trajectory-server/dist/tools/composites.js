@@ -288,7 +288,7 @@ export function compositeTools(db, dbPath, graph = null) {
             name: 'pr_review_worktree',
             description: 'PR-review worktree composite — creates a per-SHA worktree at /tmp/pr-review-<sha>, ' +
                 'runs a caller-supplied verification command inside it, then removes the worktree ' +
-                'atomically. Collapses the 4-step setup/verify/teardown sequence from §A of tmb_review ' +
+                'atomically. Collapses the 4-step setup/verify/teardown sequence from the worktree discipline in tmb_review ' +
                 'into one call, eliminating the compound-failure risk of stranded worktrees.',
             inputSchema: {
                 type: 'object',
@@ -310,7 +310,7 @@ export function compositeTools(db, dbPath, graph = null) {
         {
             name: 'reap_and_review_prep',
             description: 'Commit-reap composite — for each task, fetches detached HEAD from its worktree into the main checkout under branch_id. ' +
-                'Returns { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn. Collapses the per-task fetch loop from §C of tmb_review.',
+                'Returns { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn. Collapses the per-task fetch loop from the push-gate orchestration in tmb_push-triage.',
             inputSchema: {
                 type: 'object',
                 properties: {

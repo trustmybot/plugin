@@ -27536,7 +27536,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
     },
     {
       name: "pr_review_worktree",
-      description: "PR-review worktree composite \u2014 creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied verification command inside it, then removes the worktree atomically. Collapses the 4-step setup/verify/teardown sequence from \xA7A of tmb_review into one call, eliminating the compound-failure risk of stranded worktrees.",
+      description: "PR-review worktree composite \u2014 creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied verification command inside it, then removes the worktree atomically. Collapses the 4-step setup/verify/teardown sequence from the worktree discipline in tmb_review into one call, eliminating the compound-failure risk of stranded worktrees.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27556,7 +27556,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
     },
     {
       name: "reap_and_review_prep",
-      description: "Commit-reap composite \u2014 for each task, fetches detached HEAD from its worktree into the main checkout under branch_id. Returns { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn. Collapses the per-task fetch loop from \xA7C of tmb_review.",
+      description: "Commit-reap composite \u2014 for each task, fetches detached HEAD from its worktree into the main checkout under branch_id. Returns { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn. Collapses the per-task fetch loop from the push-gate orchestration in tmb_push-triage.",
       inputSchema: {
         type: "object",
         properties: {
