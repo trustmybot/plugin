@@ -15,7 +15,7 @@ import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
 import { cheatcodeTools } from './cheatcode.js';
-import { worldModelTools } from './world-model.js';
+import { worldModelTools } from './world_model.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
 function decorateWithAgent(tools) {

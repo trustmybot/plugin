@@ -29,3 +29,7 @@ The stem names the *feature*, not a *domain word*. Generic uses (e.g. "resource"
 ## Choosing a stem
 
 Short, memorable, one concept. A vivid name (`cheatcode`) beats a generic one (`resource`): unique, greppable, and it sticks. Avoid words already used generically in the codebase.
+
+## Intentional exceptions
+
+`onboard` is intentionally **tools-only** — `onboard_*` MCP tools (and the `onboard.ts` source) with no skill, forked script, or test stem. The onboarding ceremony is driven entirely through the MCP surface, so there is nothing to align on the other rows. This is a deliberate `WONTFIX`, not a drift.

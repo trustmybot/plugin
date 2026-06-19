@@ -18,6 +18,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 - **Label validation is fail-closed against the configured/default set** (#900) rather than a hardcoded list; the milestone-example and tool-description copy were genericized.
 - Raised the MCP tool-description byte budget to absorb v0.10.0 growth (the real token-trim is tracked in #771).
 - **Trimmed verbose MCP tool-description strings** (#88): the `waive_*` gate args and the multi-line tool/arg descriptions in `tasks.ts` + `composites.ts` (loaded into the model's context every turn) are now one tight sentence each — dropping rationale narration and issue-number citations while preserving the enforced contract. No validation, enum, required/optional, default, or arg-name change.
+- **Aligned the world-model file stem** (#68): `src/tools/world-model.ts` → `src/tools/world_model.ts` (and its test) so the source/test stem matches the existing `world_model_*` tool names, per the one-stem-per-feature rule. `docs/contributing/NAMING.md` now documents `onboard` as an intentional tools-only exception. Tool names, the `world-model.kuzu` graph filename, and the `world-model-*` warning strings are unchanged.
 
 ### Removed
 - **The `docs/trustmybot/architecture/` markdown-ADR design** (#889): a pre-world-model pattern of writing architecture docs into the user's project. Architectural decisions are now `kind='decision'` discussions in the trajectory DB; the template tree and all references were deleted. `docs/trustmybot/snapshots/` (PR-review handoff) is kept.
