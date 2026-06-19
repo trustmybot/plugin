@@ -245,39 +245,29 @@ export function taskTools(db: TrajectoryDB): {
                 spec_body: {
                   type: 'string',
                   description:
-                    'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 8000 chars — over this, the architect should split into multiple tasks via depends_on, or cite existing code/conventions rather than restating them. See issue #55.',
+                    'Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it).',
                 },
                 repo: {
                   type: 'string',
                   description:
-                    'Optional relative path to the git repo for this task (e.g. "inner", "repos/backend"). ' +
-                    'Must not contain ".." or start with "/". Null/omitted for single-repo CC. ' +
-                    'Used by the WorktreeCreate hook to route worktree creation to the right repo.',
+                    'Optional relative path to this task\'s git repo (no ".." or leading "/"); omit for single-repo CC. Routes worktree creation.',
                 },
                 prompt_bearing: {
                   type: 'number',
                   description:
-                    'Set to 1 when this task intentionally modifies prompt-surface files ' +
-                    '(agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, etc.). ' +
-                    'The swe-boundary hook checks this flag before blocking prompt-surface writes. Default 0.',
+                    'Set to 1 when this task intentionally edits prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md); the swe-boundary hook reads it. Default 0.',
                 },
                 files: {
                   type: 'array',
                   items: { type: 'string' },
                   description:
-                    'Typed Rails (#673): scope-fence allowlist — the authoritative list of path-like ' +
-                    'strings SWE is allowed to edit for this task. The swe-scope-fence hook reads this ' +
-                    'column directly. Non-empty array of paths. Persisted as a JSON array. An ' +
-                    'empty/omitted array disables scope enforcement.',
+                    'Authoritative allowlist of paths SWE may edit for this task, read by the swe-scope-fence hook; an empty/omitted array disables scope enforcement.',
                 },
                 verification: {
                   type: 'array',
                   items: { type: 'string' },
                   description:
-                    'Typed Rails (#673): the authoritative verification commands run by the ' +
-                    'swe-verification-gate hook in the task worktree before SWE may flip the task to ' +
-                    'completed. Non-empty array of shell command strings. Persisted as a JSON array. ' +
-                    'An empty/omitted array disables verification enforcement.',
+                    'Authoritative shell commands the swe-verification-gate hook runs in the worktree before SWE may complete the task; an empty/omitted array disables verification enforcement.',
                 },
               },
               required: ['branch_id', 'description'],
@@ -291,7 +281,7 @@ export function taskTools(db: TrajectoryDB): {
           emit_planning_complete: {
             type: 'boolean',
             description:
-              "Set true to atomically emit a planning_complete audit event in the same transaction as the task INSERTs. Eliminates the L5 03/12 failure mode where the LLM would create tasks but skip the closing audit_log call. The tmb_planning skill (Step 4) should set this to true.",
+              'Set true to emit a planning_complete audit event in the same transaction as the task INSERTs.',
           },
           planning_complete_summary: {
             type: 'string',
