@@ -22,6 +22,7 @@ test('Flow 10 — roundtable_close_with_decisions composite: create→vote→com
     agent: 'bro',
     objective: 'Decide on new architecture approach',
     description: 'Roundtable composite test carrier.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true, `issue_create: ${JSON.stringify(issue)}`);
   const issueId = issue.data.id;

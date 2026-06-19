@@ -21,6 +21,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
     agent: 'bro',
     objective: 'Add /hello endpoint',
     description: 'Single-file route, no architecture impact.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true, `issue_create: ${JSON.stringify(issue)}`);
   const issueId = issue.data.id;

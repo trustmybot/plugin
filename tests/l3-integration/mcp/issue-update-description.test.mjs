@@ -7,6 +7,7 @@ async function seedIssue(client, description = 'original description') {
     agent: 'bro',
     objective: 'backfill test issue',
     description,
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(result.ok, true, `seed issue: ${JSON.stringify(result)}`);
   return result.data;
