@@ -2,6 +2,30 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-delta — 2026-06-19
+
+### Added
+- **`tmb_push-triage` skill** (#898): bro's push-gate orchestration + PR/MR comment triage, split out of `tmb_review` so each skill has one loading role. This is where `AskUserQuestion` lives — bro is the only agent that talks to the Human.
+- **Configurable issue label taxonomy** (#900): `issue_create` now reads the valid classification + priority label sets from `plugin_config` (`issue_classification_labels`, `issue_priority_labels`) with a generic default (`Bug, Feature, Improvement, Docs, Test, Chore` + `Priority: Urgent|High|Medium|Low`), replacing the previously hardcoded TMB-specific set. A project sets its own labels via config; documented in `mcp/trajectory-server/docs/CONFIG_KEYS.md`.
+- **`docs/architecture/PHILOSOPHY.md`**: the design doctrine — minimal prompts with depth deferred to cheatcodes, the two review perspectives (bro reviews at the system level, pr-reviewer at the diff level), and the dev-vs-user-runtime boundary (only `docs/` is TMB-internal; the shipped runtime + MCP code stay about the user's project).
+- **Issue↔milestone binding** (#848): a nullable `milestone` on issues, settable at `issue_create` and synced to the GitHub/GitLab backend (schema v22).
+- **Comprehensive cheatcode lifecycle diagram** in `docs/architecture/FLOWS.md` (search → vet → approve → install → materialize → activate → use → healthcheck → uninstall).
+
+### Changed
+- **Split `tmb_review`** (#898): `tmb_review` is now pr-reviewer's diff-level push-gate review only — narrowed `allowed-tools` (no `AskUserQuestion`/`Task`), the five review phases collapsed to a tight diff-vs-spec check. `agents/pr-reviewer.md` drops the dead bro-only `pr_comments_get` grant.
+- **Label validation is fail-closed against the configured/default set** (#900) rather than a hardcoded list; the milestone-example and tool-description copy were genericized.
+- Raised the MCP tool-description byte budget to absorb v0.10.0 growth (the real token-trim is tracked in #771).
+
+### Removed
+- **The `docs/trustmybot/architecture/` markdown-ADR design** (#889): a pre-world-model pattern of writing architecture docs into the user's project. Architectural decisions are now `kind='decision'` discussions in the trajectory DB; the template tree and all references were deleted. `docs/trustmybot/snapshots/` (PR-review handoff) is kept.
+- **The `tests/manual/` manual-smoke layer** (#892): the automated L0–L6 pyramid is the sole gate.
+- **TMB-dev-meta leaks from the shipped runtime** (#900): harness levels (L0–L6, `tests/run-all.sh`), repo/channel names, and the TMB label set no longer appear in shipped prompts, hooks, or tool defaults — the runtime a user installs is about their project.
+
+### Fixed
+- **Cheatcode lifecycle** (#883): an orphan skill install (no agent target) is hard-rejected so no dangling install/attachment row is written; uninstall de-materializes the skill from the consuming agent's frontmatter.
+- **Six accumulated L1 lint failures** (#905): hook executable bits, a destructive-SQL marker, SQL-interpolation guards in two hooks, stale framing prose, two secret-scan false-positives, and the tool-description budget.
+- **Stale `session-start-prescan` golden tests** (#908) and **L3/L4 `issue_create` fixtures** (#904) updated for the arch-docs-line removal and the fail-closed label gate.
+
 ## v0.10.0-gamma — 2026-06-17
 
 ### Added
