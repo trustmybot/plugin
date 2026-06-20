@@ -10,7 +10,7 @@ The plugin's slash commands — the Human-triggered entry points into TMB's work
 | `scan.md` | Refresh the world model — walk the session dir for git repos and pull each directory's `README.md` into a summary node in the kuzu graph. Idempotent and summary-preserving. | (none) |
 | `agent-create.md` | Create or copy an agent into the project's `.claude/agents/` directory and optionally spawn it on a consultant question. User-created agents default to `kind='consultant'`. | `<kebab-case name>` plus optional question |
 | `roundtable.md` | Run a structured multi-agent deliberation: collect parallel positions, synthesize agreements and disagreements, ratify with the Human via AUQ, then close with decisions. | `<topic>` |
-| `monitor.md` | Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them, via the `tmb_push-triage` skill's triage section. | `<PR or MR number>` |
+| `monitor.md` | Pull review comments from a GitHub PR or GitLab MR and plan/dispatch SWE work to address them, via the `tmb_comment-triage` skill. | `<PR or MR number>` |
 
 ## How it fits
 

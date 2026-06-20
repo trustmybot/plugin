@@ -23,7 +23,7 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 | 13 | Bulk cleanup | Human pre-authorizes a bulk delete | bro (direct Bash, no SWE spawn) | — | — |
 | 33 | Multi-repo path discipline | Inner repos registered in `repos`; bro indexes them | bro | kuzu Directory nodes (repo-relative paths; `repo` property scopes to the right inner git repo) | — |
 | **C** | Consultant invocation | Human asks for second opinion | bro → consultant | `discussions(kind='analysis'/'concern')` | — |
-| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_push-triage` comment-triage section) | bro → pr-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
+| **M** | Monitor PR comments | `/monitor <PR_number>` (invokes `tmb_comment-triage`) | bro → pr-reviewer per actionable comment batch | `pr_review_runs`, `issues`, `tasks`, `audit` | — |
 
 ---
 

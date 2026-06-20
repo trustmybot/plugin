@@ -77,16 +77,17 @@ describe('schema — current table set, default values, constraints', () => {
       names,
       [
         'tmb_cheatcode',
+        'tmb_comment-triage',
         'tmb_concerns-protocol',
         'tmb_docs-conventions',
         'tmb_planning',
-        'tmb_push-triage',
+        'tmb_push-gate',
         'tmb_recovery',
         'tmb_review',
         'tmb_skill-creator',
         'tmb_swe-checklist',
       ],
-      'builtin-skill seed must equal the 9 shipped skills (tmb_cheatcode in, tmb_agent-creator out)',
+      'builtin-skill seed must equal the 10 shipped skills (tmb_push-triage split into tmb_push-gate + tmb_comment-triage)',
     );
     for (const b of builtins) {
       assert.equal(b.kind, 'skill', `${b.name} must be kind=skill`);
@@ -136,14 +137,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 24 in plugin_meta', () => {
+  it('fresh DB has schema_version = 25 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 24);
+    assert.equal(meta.schema_version, 25);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',

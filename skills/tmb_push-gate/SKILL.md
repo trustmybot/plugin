@@ -1,10 +1,10 @@
 ---
-name: tmb_push-triage
-description: Bro's push-gate orchestration and PR/MR comment triage — reaping unsigned commits, spawning pr-reviewer per task, the all-pass push + PR-create + post-merge cleanup path, and turning PR-comment threads into tasks. Loaded by bro when the push hook blocks, the Human asks for review-before-push, or /monitor surfaces PR comments.
+name: tmb_push-gate
+description: Bro's push-gate orchestration — reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.
 allowed-tools: Task, AskUserQuestion, mcp__plugin_tmb_trajectory-server
 ---
 
-# Push-gate orchestration & comment triage
+# Push-gate orchestration
 
 pr-reviewer judges each diff against its own spec; you judge the change at the system level — does it fit the architecture, disturb a cross-cutting surface (agents, schema, hooks, public API), and is the overall scope right?
 
@@ -45,38 +45,3 @@ Read pr-reviewer's first response line:
 ### Post-merge cleanup
 
 `git switch <pr_target> && git pull --ff-only && git branch -d <feature>`. The cleanup-on-task-close hook removes the SWE worktree automatically on task close.
-
-## C. PR/MR comment triage (loaded by /monitor)
-
-`pr_monitor_comments_get` does the deterministic fetch + since-marker bookkeeping. This section is the judgment around what's task-worthy.
-
-### Resolve the PR
-
-If the Human named a PR number, use it. Otherwise:
-- GitHub: `gh pr view --json number`
-- GitLab: `glab mr list --source-branch <branch> --json`
-
-Empty result → ask the Human which PR/MR number to monitor (free-text answer).
-
-### Fetch
-
-Call `pr_monitor_comments_get` with the PR number.
-
-Carrier: look up the issue via `tasks.branch_id` for the current branch. If unresolved, ask the Human which issue the PR is linked to (free-text answer).
-
-### Triage (judgment)
-
-Skip as informational when:
-- The body is a bare acknowledgment — an LGTM, a +1, a thanks, a nit.
-- The author is a bot (already classified by the MCP tool).
-- The comment is already resolved.
-
-Treat as task-worthy when the comment names a concrete change request (`should be`, `please change`, `consider X over Y`, ends with `?`), or contains a code suggestion fence.
-
-Group task-worthy comments by file or shared concept; one task per group. Flag tasks that touch DB schema files (e.g. `schema/*.sql`), public API surfaces, or config directories (e.g. `agents/`, `skills/`, plugin manifest files) as `(arch-impact)`.
-
-### Dispatch
-
-Offer the ratified groups as a multi-select — one option per group, titled by the task it would become (suffix arch-impact ones) — and let the Human pick a subset.
-
-For each ratified group: `task_create_batch(...)`, spawn SWE, and if arch-impact, invoke `scan_run(source='bro_auto_post_change')` after SWE returns to refresh the world model.

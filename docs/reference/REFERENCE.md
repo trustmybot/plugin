@@ -44,7 +44,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 - `/roundtable <topic>` — multi-agent deliberation with checkbox/radio AUQ ratification (full procedure in `commands/roundtable.md`)
 - `/onboard` — interactive policy ceremony with two branches based on project shape (local-only vs remote-tracked). Auto-fired on first contact when `plugin_config('onboarded')` is unset; Human-typed for later changes (full procedure in `commands/onboard.md`)
-- `/monitor <PR_number>` — invokes `tmb_push-triage` skill (PR comment triage section): fetches review comments, plans tasks, dispatches SWE per ratified comment
+- `/monitor <PR_number>` — invokes `tmb_comment-triage` skill: fetches review comments, plans tasks, dispatches SWE per ratified comment
 - `/scan` — triggers `scan_run` to rebuild the world model graph (directory nodes + CONTAINS edges in kuzu) and refresh the repos registry
 - `/tmb:agent-create <role> <question>` — spawns a consultant subagent with the given domain role and seed question
 

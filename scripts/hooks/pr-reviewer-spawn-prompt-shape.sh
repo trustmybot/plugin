@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook on Agent. Blocks pr-reviewer spawns whose prompt violates
-# the spawn discipline from tmb_push-triage: MUST contain the four bare anchors
+# the spawn discipline from tmb_push-gate: MUST contain the four bare anchors
 # (task_id, commit_sha, branch_id, repo) and MUST NOT contain prior-verdict
 # shortcuts that allow rubber-stamping.
 #
@@ -41,7 +41,7 @@ done
 
 if [ -n "$MISSING" ]; then
   REASON=$(jq -Rn --arg missing "$MISSING" '
-    "BLOCKED: pr-reviewer spawn prompt missing required anchors:" + $missing + ".\n\nPer tmb_push-triage, the prompt MUST contain task_id, commit_sha, branch_id, and repo so pr-reviewer can load context independently. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary."
+    "BLOCKED: pr-reviewer spawn prompt missing required anchors:" + $missing + ".\n\nPer tmb_push-gate, the prompt MUST contain task_id, commit_sha, branch_id, and repo so pr-reviewer can load context independently. Do not pre-summarize findings — pass only the bare anchors plus a one-line context summary."
   ')
   jq -nc --argjson r "$REASON" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
@@ -64,7 +64,7 @@ PHRASES
 
 if [ -n "$RUBBER_STAMP_FOUND" ]; then
   REASON=$(jq -Rn --arg phrase "$RUBBER_STAMP_FOUND" '
-    "BLOCKED: pr-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \"" + $phrase + "\").\n\nPer tmb_push-triage, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself."
+    "BLOCKED: pr-reviewer spawn prompt contains a rubber-stamp shortcut (matched: \"" + $phrase + "\").\n\nPer tmb_push-gate, the prompt MUST NOT contain the prior verdict text or shortcuts that allow rubber-stamping. The reviewer must derive findings from the spec + diff itself."
   ')
   jq -nc --argjson r "$REASON" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
