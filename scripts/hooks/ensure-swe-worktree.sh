@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse(Agent) PREPARE step — deterministically create swe's worktree.
 #
-# Headless `claude -p` skips the native WorktreeCreate tool, so bro spawns swe
+# Non-interactive `claude -p` skips the native WorktreeCreate tool, so bro spawns swe
 # NON-isolated (edits the main checkout) and swe self-creates a mis-named
 # worktree the verification gate can't find. This hook closes that gap: at
 # swe-spawn time it creates the worktree via `git worktree add` at the CANONICAL

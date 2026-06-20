@@ -182,11 +182,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-auq-shape.sh",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/auq-headless-deny.sh",
-            "timeout": 3
           }
         ]
       },

@@ -1,6 +1,6 @@
 -- C-consultant: bro spawns the project-local architect via Agent.
--- Bro may or may not create a carrier issue. In headless mode, when no issue
--- exists, the architect delivers analysis as text; bro relays to Human.
+-- Bro may or may not create a carrier issue. When no issue exists, the
+-- architect delivers analysis as text; bro relays to Human.
 -- Primary assertion: architect was spawned (enforced by trajectory_required).
 -- Secondary: if bro seeded a carrier issue, discussions should contain analysis.
 

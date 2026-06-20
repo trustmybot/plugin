@@ -82,7 +82,6 @@ l6c_run_step() {
 
     (
       cd "$project" || exit 1
-      export TMB_HEADLESS=1
       export TMB_DEBUG_TRAJECTORY=1
       export CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN}"
 
