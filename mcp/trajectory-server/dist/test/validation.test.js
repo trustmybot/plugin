@@ -70,6 +70,36 @@ describe('validation_record subagent_session_id gate', () => {
         assert.ok(data.error.includes('precondition_failed'), `Error must cite precondition_failed: ${data.error}`);
         assert.ok(data.error.includes('subagent_session_id'), `Error must mention subagent_session_id: ${data.error}`);
     });
+    it('rejects pr-reviewer call without mcp_available with precondition_failed', async () => {
+        const tools = validationTools(db);
+        const result = await call(tools.handlers, 'validation_record', {
+            agent: 'pr-reviewer',
+            task_id: taskId,
+            attempt_n: 1,
+            verdict: 'pass',
+            feedback: '# LGTM',
+            subagent_session_id: 'abc123',
+        });
+        assert.ok(result.isError, 'Expected error result');
+        const data = parseResult(result);
+        assert.ok(data.error.includes('precondition_failed'), `Error must cite precondition_failed: ${data.error}`);
+        assert.ok(data.error.includes('mcp_available'), `Error must mention mcp_available: ${data.error}`);
+    });
+    it('persists mcp_available:false as 0', async () => {
+        const tools = validationTools(db);
+        const result = await call(tools.handlers, 'validation_record', {
+            agent: 'pr-reviewer',
+            task_id: taskId,
+            attempt_n: 4,
+            verdict: 'pass',
+            feedback: 'honor-system review',
+            mcp_available: false,
+            subagent_session_id: 'sess-honor',
+        });
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const row = parseResult(result);
+        assert.equal(row.mcp_available, 0, 'mcp_available:false must persist as 0');
+    });
     it('accepts pr-reviewer call with subagent_session_id and persists it', async () => {
         const tools = validationTools(db);
         const result = await call(tools.handlers, 'validation_record', {
@@ -77,13 +107,15 @@ describe('validation_record subagent_session_id gate', () => {
             task_id: taskId,
             attempt_n: 1,
             verdict: 'pass',
-            feedback: 'MCP available: yes\n# LGTM',
+            feedback: '# LGTM',
+            mcp_available: true,
             subagent_session_id: 'abc123',
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         const row = parseResult(result);
         assert.equal(row.agent, 'pr-reviewer');
         assert.equal(row.verdict, 'pass');
+        assert.equal(row.mcp_available, 1, 'mcp_available:true must persist as 1 on the row');
         assert.equal(row.subagent_session_id, 'abc123', 'subagent_session_id must be stored on the row');
         assert.equal(row.task_id, taskId);
         assert.equal(row.attempt_n, 1);
@@ -123,7 +155,8 @@ describe('validation_record subagent_session_id gate', () => {
             task_id: taskId,
             attempt_n: 2,
             verdict: 'pass',
-            feedback: 'MCP available: yes\n# LGTM',
+            feedback: '# LGTM',
+            mcp_available: true,
             subagent_session_id: 'sess-pr-runs-test',
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -140,7 +173,8 @@ describe('validation_record subagent_session_id gate', () => {
             task_id: taskId,
             attempt_n: 3,
             verdict: 'fail',
-            feedback: 'MCP available: yes\n# Needs work',
+            feedback: '# Needs work',
+            mcp_available: true,
             subagent_session_id: 'sess-idem-1',
         });
         await call(tools.handlers, 'validation_record', {
@@ -148,7 +182,8 @@ describe('validation_record subagent_session_id gate', () => {
             task_id: taskId,
             attempt_n: 3,
             verdict: 'pass',
-            feedback: 'MCP available: yes\n# Now LGTM',
+            feedback: '# Now LGTM',
+            mcp_available: true,
             subagent_session_id: 'sess-idem-2',
         });
         const rows = db.all(`SELECT verdict FROM pr_review_runs WHERE task_id = ? AND attempt_n = 3`, [taskId]);
@@ -160,7 +195,7 @@ describe('validation_record subagent_session_id gate', () => {
         const issueId = await createIssue(altDb);
         const altTaskId = await createTask(altDb, issueId);
         altDb.run(`INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
-       VALUES (?, ?, ?, ?, ?, NULL, datetime('now'))`, [altTaskId, 1, 'pr-reviewer', 'pass', 'MCP available: yes\n# Legacy row']);
+       VALUES (?, ?, ?, ?, ?, NULL, datetime('now'))`, [altTaskId, 1, 'pr-reviewer', 'pass', '# Legacy row']);
         const tools = validationTools(altDb);
         const result = await call(tools.handlers, 'validation_history', {
             agent: 'bro',

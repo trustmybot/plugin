@@ -199,6 +199,7 @@ describe('validationTools', () => {
       attempt_n: 1,
       verdict: 'maybe',
       feedback: '# Notes',
+      mcp_available: true,
       subagent_session_id: 'test-session-abc',
     });
 
@@ -241,7 +242,8 @@ describe('validationTools', () => {
       task_id: 9999,
       attempt_n: 1,
       verdict: 'pass',
-      feedback: 'MCP available: yes\n# Notes',
+      feedback: '# Notes',
+      mcp_available: true,
       subagent_session_id: 'test-session-abc',
     });
 
@@ -266,7 +268,8 @@ describe('validationTools', () => {
       task_id: taskId,
       attempt_n: 3,
       verdict: 'fail',
-      feedback: 'MCP available: yes\n# Third attempt',
+      feedback: '# Third attempt',
+      mcp_available: true,
       subagent_session_id: 'session-3',
     });
 
@@ -275,7 +278,8 @@ describe('validationTools', () => {
       task_id: taskId,
       attempt_n: 1,
       verdict: 'fail',
-      feedback: 'MCP available: yes\n# First attempt',
+      feedback: '# First attempt',
+      mcp_available: true,
       subagent_session_id: 'session-1',
     });
 
@@ -284,7 +288,8 @@ describe('validationTools', () => {
       task_id: taskId,
       attempt_n: 2,
       verdict: 'pass',
-      feedback: 'MCP available: yes\n# Second attempt',
+      feedback: '# Second attempt',
+      mcp_available: true,
       subagent_session_id: 'session-2',
     });
 

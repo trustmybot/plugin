@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 25;
+const TARGET_SCHEMA_VERSION = 26;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -552,6 +552,9 @@ function runMigrations(
   }
   if (fromVersion < 25 && toVersion >= 25) {
     migrateV24toV25(db);
+  }
+  if (fromVersion < 26 && toVersion >= 26) {
+    migrateV25toV26(db);
   }
 }
 
@@ -1545,6 +1548,68 @@ function migrateV24toV25(db: DatabaseSync): void {
       // Original error wins.
     }
     throw err;
+  }
+}
+
+// v25→v26: typed pr-reviewer verdict (#157). Replace the magic-string
+// 'MCP available: yes/no' feedback prefix with a typed mcp_available column.
+// SQLite cannot ALTER-DROP the old feedback CHECK, so REBUILD validation_attempts:
+// create a scratch table with the identical columns minus the CHECK plus
+// mcp_available, copy rows backfilling availability from the old prefix, swap.
+function migrateV25toV26(db: DatabaseSync): void {
+  if (!tableExists(db, 'validation_attempts')) return;
+  if (hasColumn(db, 'validation_attempts', 'mcp_available')) return;
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    // LINT-ALLOW: scratch table for the SQLite CHECK-rebuild swap (#157).
+    db.exec('DROP TABLE IF EXISTS validation_attempts_new');
+    db.exec(`
+      CREATE TABLE validation_attempts_new (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id             INTEGER NOT NULL REFERENCES tasks(id),
+          attempt_n           INTEGER NOT NULL,
+          agent               TEXT    NOT NULL DEFAULT '',
+          verdict             TEXT    NOT NULL,
+          feedback            TEXT    NOT NULL DEFAULT '',
+          mcp_available       INTEGER NOT NULL DEFAULT 1,
+          subagent_session_id TEXT,
+          repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at          TEXT    NOT NULL,
+          UNIQUE(task_id, attempt_n)
+      )
+    `);
+    db.exec(`
+      INSERT INTO validation_attempts_new
+        (id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, repo, created_at)
+      SELECT
+        id, task_id, attempt_n, agent, verdict, feedback,
+        CASE WHEN feedback LIKE 'MCP available: no%' THEN 0 ELSE 1 END,
+        subagent_session_id, repo, created_at
+      FROM validation_attempts
+    `);
+    // LINT-ALLOW: CHECK-rebuild swap — rows already copied (#157).
+    db.exec('DROP TABLE validation_attempts');
+    db.exec('ALTER TABLE validation_attempts_new RENAME TO validation_attempts');
+
+    const violations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV25toV26: foreign_key_check found ${violations.length} dangling reference(s) after the validation_attempts rebuild`,
+      );
+    }
+
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // original error wins
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
   }
 }
 

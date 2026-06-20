@@ -19,7 +19,7 @@ task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin attempt_n=<attempt
 Push-gate review. Load the brief, verify each Success Criterion against the diff, and record your verdict — fail if any check fails.
 ```
 
-No-MCP fallback (Bash-only spawn, no `mcp__...` tools in the reviewer's tool list): just spawn pr-reviewer as above. The reviewer writes its own verdict through `tmb_review`'s fallback script and reports `MCP available: no — honor-system fallback`; you do not hand it a DB-access pointer.
+No-MCP fallback (Bash-only spawn, no `mcp__...` tools in the reviewer's tool list): just spawn pr-reviewer as above. The reviewer writes its own verdict through `tmb_review`'s fallback script, which records `mcp_available = 0` on the row; you do not hand it a DB-access pointer.
 
 ## B. Push-gate orchestration (loaded reactively)
 
@@ -33,9 +33,9 @@ This loads when the push guard blocks unsigned commits, or when the Human asks t
 
 Use `subagent_type='pr-reviewer'` (no-namespace form resolves project-local override). Tasks are independent; spawn in parallel where possible.
 
-Read pr-reviewer's first response line:
-- `MCP available: yes` — the reviewer wrote `validation_record` itself.
-- `MCP available: no — honor-system fallback` — the reviewer wrote the row through the `tmb_review` fallback script, which prepends the required feedback prefix itself.
+Read the verdict + `mcp_available` off each task's validation row via `validation_history` (the typed source of truth) — never parse the reviewer's reply text:
+- `mcp_available = 1` — the reviewer wrote `validation_record` itself.
+- `mcp_available = 0` — the reviewer wrote the row through the `tmb_review` fallback script (honor-system, MCP was unavailable).
 
 ### Outcomes
 
