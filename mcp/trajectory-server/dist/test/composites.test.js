@@ -1212,4 +1212,172 @@ describe('task_brief (#300)', () => {
         db.close();
     });
 });
+describe('plan_task (#157)', () => {
+    const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+    // Build a real git repo with an `origin/main` remote-tracking ref. The DB's
+    // default plugin_config pr_target is 'main', so the composite branches from
+    // origin/main unless an explicit `base` is passed.
+    function makeRepo() {
+        const ws = mkdtempSync(join(tmpdir(), 'plan-task-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        git(repoRoot, 'init', '-q', '-b', 'main');
+        git(repoRoot, 'config', 'user.email', 't@t.t');
+        git(repoRoot, 'config', 'user.name', 't');
+        writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+        git(repoRoot, 'add', '.');
+        git(repoRoot, 'commit', '-q', '-m', 'base');
+        // Fabricate the remote-tracking ref the composite branches from.
+        git(repoRoot, 'update-ref', 'refs/remotes/origin/main', git(repoRoot, 'rev-parse', 'HEAD'));
+        return { ws, repoRoot, git };
+    }
+    function seedIssue(db, repoRoot) {
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+        db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    }
+    it('happy path: writes decision + task + branch + worktree and returns the spawn-ready shape', async () => {
+        const { ws, repoRoot, git } = makeRepo();
+        try {
+            const db = tempDB();
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'plan_task', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/the-thing',
+                decision_body: 'Chosen approach: build X because Y; trade-off Z.',
+                task: {
+                    title: 'Do X',
+                    description: 'implement X',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['bun run build'],
+                    repo: 'app',
+                },
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const out = parse(r);
+            assert.equal(typeof out['task_id'], 'number');
+            assert.equal(out['branch_id'], 'feat/the-thing');
+            assert.equal(out['repo'], 'app');
+            assert.equal(out['slug'], 'the-thing');
+            assert.equal(out['git_setup'], 'created');
+            assert.equal(out['worktree_path'], join(repoRoot, '.claude', 'worktrees', 'the-thing'));
+            assert.equal(out['diagnostic'], undefined);
+            // Decision discussion written.
+            const decision = db.get(`SELECT body, author FROM discussions WHERE issue_id = 1 AND kind = 'decision' LIMIT 1`);
+            assert.ok(decision);
+            assert.match(decision.body, /Chosen approach/);
+            assert.equal(decision.author, 'bro');
+            // Task row written with typed fields.
+            const task = db.get(`SELECT id, status, files, verification, repo FROM tasks WHERE id = ?`, [out['task_id']]);
+            assert.ok(task);
+            assert.equal(task.status, 'pending');
+            assert.deepEqual(JSON.parse(task.files), ['src/x.ts']);
+            assert.deepEqual(JSON.parse(task.verification), ['bun run build']);
+            // planning_complete audit + bro agent_run row written.
+            const audit = db.get(`SELECT COUNT(*) AS c FROM audit WHERE issue_id = 1 AND event_type = 'planning_complete'`);
+            assert.equal(audit.c, 1);
+            const run = db.get(`SELECT COUNT(*) AS c FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [out['task_id']]);
+            assert.equal(run.c, 1);
+            // Branch ref + worktree created on disk.
+            assert.equal(git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/the-thing').length, 40);
+            const wtList = git(repoRoot, 'worktree', 'list', '--porcelain');
+            assert.match(wtList, /the-thing/);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('idempotent re-run reuses the existing branch + worktree (git_setup: reused)', async () => {
+        const { ws, repoRoot } = makeRepo();
+        try {
+            const db = tempDB();
+            seedIssue(db, repoRoot);
+            // Two issues sharing one branch_id: the (issue_id, branch_id) UNIQUE
+            // constraint means a re-run must use a DIFFERENT issue. The git setup,
+            // keyed on branch_id/slug, is what must be idempotent.
+            db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (2, 'o2', 'd', 'open', datetime('now'), datetime('now'))`);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const baseArgs = {
+                agent: 'bro',
+                branch_id: 'feat/reuse-me',
+                decision_body: 'approach: reuse path; trade-off none.',
+                task: {
+                    description: 'd',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['true'],
+                    repo: 'app',
+                },
+            };
+            const first = parse(await call(composites.handlers, 'plan_task', { ...baseArgs, issue_id: 1 }));
+            assert.equal(first['git_setup'], 'created');
+            const second = parse(await call(composites.handlers, 'plan_task', { ...baseArgs, issue_id: 2 }));
+            assert.equal(second['git_setup'], 'reused', 'existing branch + worktree reused, not error');
+            assert.equal(second['worktree_path'], first['worktree_path']);
+            assert.notEqual(second['task_id'], first['task_id']);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('git failure keeps the task (git_setup: error + diagnostic, DB not rolled back)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'plan-task-nogit-'));
+        try {
+            const db = tempDB();
+            // Point the repo at a non-git directory so the branch command fails.
+            const notARepo = join(ws, 'notgit');
+            mkdirSync(notARepo, { recursive: true });
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [notARepo]);
+            db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'plan_task', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/no-git',
+                decision_body: 'approach: x; trade-off y.',
+                task: {
+                    description: 'd',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['true'],
+                    repo: 'app',
+                },
+            });
+            assert.ok(!r.isError, 'composite returns ok — git failure is fail-soft, not a tool error');
+            const out = parse(r);
+            assert.equal(out['git_setup'], 'error');
+            assert.ok(typeof out['diagnostic'] === 'string' && out['diagnostic'].length > 0);
+            // The task survives — the DB row is the source of truth.
+            const task = db.get(`SELECT id FROM tasks WHERE id = ?`, [out['task_id']]);
+            assert.ok(task, 'task row persisted despite the git failure');
+            const decision = db.get(`SELECT COUNT(*) AS c FROM discussions WHERE issue_id = 1 AND kind = 'decision'`);
+            assert.equal(decision.c, 1, 'decision discussion persisted');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('rejects a non-bro caller', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'plan_task', {
+            agent: 'swe',
+            issue_id: 1,
+            branch_id: 'feat/nope',
+            decision_body: 'x',
+            task: { description: 'd', spec_body: SPEC, files: ['a'], verification: ['true'] },
+        });
+        assert.equal(r.isError, true);
+        db.close();
+    });
+});
 //# sourceMappingURL=composites.test.js.map

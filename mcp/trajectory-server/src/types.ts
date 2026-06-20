@@ -138,6 +138,23 @@ export interface TaskInput {
   verification?: string[];
 }
 
+/**
+ * The single task spec passed to the `plan_task` composite (#157). Mirrors the
+ * SWE-relevant subset of TaskInput — branch_id is supplied separately (the
+ * composite's `branch_id` arg) so the spec carries only the content fields.
+ */
+export interface PlanTaskInput {
+  title?: string;
+  description: string;
+  spec_body: string;
+  files: string[];
+  verification: string[];
+  /** Optional relative path to the git repo for this task. Must not contain ".." or start with "/". */
+  repo?: string;
+  /** Set to 1 when this task intentionally modifies prompt-surface files. Default 0. */
+  prompt_bearing?: number;
+}
+
 export interface PluginConfigRow {
   key: string;
   value_json: string;

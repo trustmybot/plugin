@@ -2979,7 +2979,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve3.call(this, root, ref);
+      let _sch = resolve4.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3006,7 +3006,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve3(root, ref) {
+    function resolve4(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3581,7 +3581,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve3(baseURI, relativeURI, options) {
+    function resolve4(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3808,7 +3808,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve3,
+      resolve: resolve4,
       resolveComponent,
       equal,
       serialize,
@@ -19595,7 +19595,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
+        await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -19612,7 +19612,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -19690,7 +19690,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve3(parseResult.data);
+            resolve4(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19951,12 +19951,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve3, interval);
+      const timeoutId = setTimeout(resolve4, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20826,12 +20826,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve3) => {
+    return new Promise((resolve4) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve3();
+        resolve4();
       } else {
-        this._stdout.once("drain", resolve3);
+        this._stdout.once("drain", resolve4);
       }
     });
   }
@@ -27646,6 +27646,8 @@ function prMonitorTools(db2, _spawnFn) {
 
 // src/tools/composites.ts
 import { execFileSync } from "node:child_process";
+import { existsSync as existsSync3, realpathSync } from "node:fs";
+import { resolve as resolve3, dirname as dirname5 } from "node:path";
 var WORKTREE_TIMEOUT_MS = 6e4;
 function filesToDirs(files) {
   const dirs = /* @__PURE__ */ new Set();
@@ -27662,6 +27664,19 @@ function parseTaskFiles(filesJson) {
     return Array.isArray(parsed) ? parsed.filter((p) => typeof p === "string") : [];
   } catch {
     return [];
+  }
+}
+function readPluginConfigString(db2, key) {
+  const row = db2.get(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [key]
+  );
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.value_json);
+    return typeof parsed === "string" && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
   }
 }
 function ok14(data) {
@@ -27987,6 +28002,58 @@ function compositeTools(db2, dbPath2, graph2 = null) {
       }
     },
     {
+      name: "plan_task",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Git side-effects AFTER the commit: creates the branch ref + worktree (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "number", description: "Issue the decision + task belong to." },
+          branch_id: { type: "string", description: "Git-convention branch_id (feat/foo); doubles as the working branch + worktree slug source." },
+          decision_body: {
+            type: "string",
+            description: "Bro's chosen approach (what, why, trade-offs) \u2014 stored as a kind='decision' discussion to satisfy the decision gate."
+          },
+          base: {
+            type: "string",
+            description: "Optional start-point for the branch ref. Defaults to plugin_config pr_target || 'dev'."
+          },
+          task: {
+            type: "object",
+            description: "The single task spec.",
+            properties: {
+              title: { type: "string" },
+              description: { type: "string" },
+              spec_body: {
+                type: "string",
+                description: `Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2.`
+              },
+              files: {
+                type: "array",
+                items: { type: "string" },
+                description: "Authoritative allowlist of paths SWE may edit (swe-scope-fence hook)."
+              },
+              verification: {
+                type: "array",
+                items: { type: "string" },
+                description: "Authoritative shell commands the swe-verification-gate hook runs before SWE may complete."
+              },
+              repo: {
+                type: "string",
+                description: `Optional relative path to this task's git repo (no ".." or leading "/"); omit for single-repo CC.`
+              },
+              prompt_bearing: {
+                type: "number",
+                description: "Set to 1 when this task intentionally edits prompt-surface files. Default 0."
+              }
+            },
+            required: ["description", "spec_body", "files", "verification"]
+          }
+        },
+        required: ["agent", "issue_id", "branch_id", "decision_body", "task"]
+      }
+    },
+    {
       name: "task_brief",
       description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch.",
       inputSchema: {
@@ -28000,6 +28067,189 @@ function compositeTools(db2, dbPath2, graph2 = null) {
     }
   ];
   const handlers = {
+    plan_task: requireRoles(
+      "plan_task",
+      ["bro"],
+      wrap2(async (args) => {
+        const agent = args["agent"] ?? "bro";
+        const issueId = args["issue_id"];
+        const branchId = args["branch_id"];
+        const decisionBody = args["decision_body"];
+        const task = args["task"];
+        if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
+          return err14("issue_id must be a number");
+        }
+        if (!branchId || typeof branchId !== "string") {
+          return err14("branch_id must be a non-empty string");
+        }
+        if (!BRANCH_ID_RE.test(branchId)) {
+          return err14(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
+        }
+        if (!decisionBody || decisionBody.trim().length === 0) {
+          return err14("decision_body must be a non-empty string");
+        }
+        if (!task || typeof task !== "object") {
+          return err14("task must be an object");
+        }
+        if (!task.description || task.description.trim().length === 0) {
+          return err14("task.description must be a non-empty string");
+        }
+        if (!task.spec_body || typeof task.spec_body !== "string") {
+          return err14("task.spec_body must be a non-empty string");
+        }
+        if (task.spec_body.length > SPEC_BODY_MAX_BYTES) {
+          return err14(
+            `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`
+          );
+        }
+        const validateStrArray = (value, field) => {
+          if (!Array.isArray(value) || value.length === 0) {
+            throw new Error(`task.${field} must be a non-empty array of strings.`);
+          }
+          for (const el of value) {
+            if (typeof el !== "string" || el.trim().length === 0) {
+              throw new Error(`task.${field} entries must each be a non-empty string.`);
+            }
+          }
+          return value;
+        };
+        const files = validateStrArray(task.files, "files");
+        const verification = validateStrArray(task.verification, "verification");
+        let repoValue = null;
+        if (task.repo !== void 0 && task.repo !== null && task.repo !== "") {
+          if (typeof task.repo !== "string") return err14("task.repo must be a string");
+          if (task.repo.includes("..")) return err14(`Invalid repo "${task.repo}": must not contain "..".`);
+          if (task.repo.startsWith("/")) return err14(`Invalid repo "${task.repo}": must not start with "/".`);
+          repoValue = task.repo;
+        } else {
+          repoValue = resolveDefaultRepo(db2)?.name ?? null;
+        }
+        const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
+        const now = nowISO();
+        const result = db2.transaction(() => {
+          db2.run(
+            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+             VALUES (?, ?, 'decision', ?, ?)`,
+            [issueId, agent, decisionBody, now]
+          );
+          db2.run(
+            `INSERT INTO tasks
+               (issue_id, branch_id, title, description,
+                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              issueId,
+              branchId,
+              task.title ?? "",
+              task.description,
+              task.spec_body,
+              repoValue,
+              promptBearing,
+              JSON.stringify(files),
+              JSON.stringify(verification),
+              now,
+              now
+            ]
+          );
+          const row = db2.get(
+            "SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()"
+          );
+          if (!row) throw new Error("plan_task: task insert succeeded but row lookup failed");
+          db2.run(
+            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
+             VALUES (?, ?, 'bro', ?)`,
+            [row.id, issueId, now]
+          );
+          db2.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
+            [
+              issueId,
+              branchId,
+              agent,
+              `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
+              JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
+              now
+            ]
+          );
+          return { task_id: row.id };
+        });
+        const slug = branchId.replace(/^[^/]+\//, "");
+        let gitSetup = "created";
+        let diagnostic;
+        let worktreePath = "";
+        try {
+          let repoPath = null;
+          if (repoValue) {
+            const reposRow = db2.get(
+              `SELECT path FROM repos WHERE name = ?`,
+              [repoValue]
+            );
+            if (reposRow) {
+              const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname5(db2.dbPath);
+              repoPath = reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
+            } else {
+              repoPath = repoValue;
+            }
+          }
+          if (!repoPath) {
+            throw new Error(
+              `cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo`
+            );
+          }
+          const base = args["base"] ?? (readPluginConfigString(db2, "pr_target") ?? "dev");
+          worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
+          let branchReused = true;
+          try {
+            execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branchId}`], {
+              stdio: ["ignore", "pipe", "pipe"],
+              timeout: SUBPROCESS_TIMEOUT_MS
+            });
+          } catch {
+            branchReused = false;
+          }
+          if (!branchReused) {
+            execFileSync("git", ["-C", repoPath, "branch", branchId, `origin/${base}`], {
+              stdio: ["ignore", "pipe", "pipe"],
+              timeout: SUBPROCESS_TIMEOUT_MS
+            });
+          }
+          let worktreeReused = false;
+          if (existsSync3(worktreePath)) {
+            const canonicalWt = realpathSync(worktreePath);
+            try {
+              const list = execFileSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
+                stdio: ["ignore", "pipe", "pipe"],
+                timeout: SUBPROCESS_TIMEOUT_MS
+              }).toString();
+              worktreeReused = list.split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
+            } catch {
+              worktreeReused = false;
+            }
+          }
+          if (!worktreeReused) {
+            execFileSync("git", ["-C", repoPath, "worktree", "add", worktreePath, branchId], {
+              stdio: ["ignore", "pipe", "pipe"],
+              timeout: WORKTREE_TIMEOUT_MS
+            });
+          }
+          gitSetup = branchReused && worktreeReused ? "reused" : "created";
+        } catch (e) {
+          gitSetup = "error";
+          diagnostic = e.message;
+        }
+        return ok14({
+          task_id: result.task_id,
+          branch_id: branchId,
+          repo: repoValue,
+          slug,
+          worktree_path: worktreePath,
+          git_setup: gitSetup,
+          ...diagnostic ? { diagnostic } : {}
+        });
+      })
+    ),
     task_brief: requireRoles(
       "task_brief",
       ["bro", "swe", "pr-reviewer"],
@@ -28665,13 +28915,13 @@ function compositeTools(db2, dbPath2, graph2 = null) {
 
 // src/tools/onboard.ts
 import { spawnSync as spawnSync5 } from "node:child_process";
-import { existsSync as existsSync4 } from "node:fs";
+import { existsSync as existsSync5 } from "node:fs";
 import os from "node:os";
-import { dirname as dirname5, join as join7 } from "node:path";
+import { dirname as dirname6, join as join7 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync3, chmodSync } from "node:fs";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync4, chmodSync } from "node:fs";
 import { join as join6 } from "node:path";
 var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
 var STABLE_RESOLVER_NAME = "resolve-hook.sh";
@@ -28701,7 +28951,7 @@ function deriveMarketplace(pluginRoot) {
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
   const hooksJsonPath = join6(pluginRoot, "hooks", "hooks.json");
-  if (!existsSync3(hooksJsonPath)) return null;
+  if (!existsSync4(hooksJsonPath)) return null;
   let parsed;
   try {
     parsed = JSON.parse(readFileSync2(hooksJsonPath, "utf8"));
@@ -28731,7 +28981,7 @@ function buildTmbGroups(pre, resolverPath, marketplace) {
 }
 function materializeResolver(pluginRoot, homeDir) {
   const canonical = join6(pluginRoot, ...CANONICAL_RESOLVER_REL);
-  if (!existsSync3(canonical)) return null;
+  if (!existsSync4(canonical)) return null;
   const resolverDir = join6(homeDir, ...STABLE_RESOLVER_DIR);
   const resolverPath = join6(resolverDir, STABLE_RESOLVER_NAME);
   mkdirSync4(resolverDir, { recursive: true });
@@ -28782,7 +29032,7 @@ function writeHeadlessEnforcementShim(opts) {
   const settingsDir = join6(homeDir, ".claude");
   const settingsPath = join6(settingsDir, "settings.json");
   let settings = {};
-  if (existsSync3(settingsPath)) {
+  if (existsSync4(settingsPath)) {
     try {
       const raw = readFileSync2(settingsPath, "utf8").trim();
       if (raw.length > 0) settings = JSON.parse(raw);
@@ -28812,11 +29062,11 @@ function writeHeadlessEnforcementShim(opts) {
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync4(join7(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname5(fileURLToPath3(import.meta.url));
+  if (env && existsSync5(join7(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname6(fileURLToPath3(import.meta.url));
   for (; ; ) {
-    if (existsSync4(join7(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname5(dir);
+    if (existsSync5(join7(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname6(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -29330,14 +29580,14 @@ function onboardTools(db2, dbPath2 = "") {
 
 // src/tools/scan.ts
 import { spawn } from "node:child_process";
-import { existsSync as existsSync6, readFileSync as readFileSync3, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
-import { dirname as dirname7, join as join8 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync3, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
+import { dirname as dirname8, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
-import { mkdirSync as mkdirSync5, existsSync as existsSync5 } from "node:fs";
-import { dirname as dirname6 } from "node:path";
+import { mkdirSync as mkdirSync5, existsSync as existsSync6 } from "node:fs";
+import { dirname as dirname7 } from "node:path";
 function single(result) {
   return Array.isArray(result) ? result[0] : result;
 }
@@ -29355,8 +29605,8 @@ var WorldModelGraph = class _WorldModelGraph {
   db;
   conn;
   constructor(dbPath2) {
-    if (dbPath2 !== ":memory:" && !existsSync5(dirname6(dbPath2))) {
-      mkdirSync5(dirname6(dbPath2), { recursive: true });
+    if (dbPath2 !== ":memory:" && !existsSync6(dirname7(dbPath2))) {
+      mkdirSync5(dirname7(dbPath2), { recursive: true });
     }
     const req = createRequire(import.meta.url);
     const kuzu = req("kuzu");
@@ -29553,21 +29803,21 @@ function wrap3(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname7(fileURLToPath4(import.meta.url));
+  const here = dirname8(fileURLToPath4(import.meta.url));
   const candidates = [
     join8(here, "..", "..", "..", "..", "scripts", "scan.sh"),
     join8(here, "..", "..", "..", "scripts", "scan.sh")
   ];
-  for (const c of candidates) if (existsSync6(c)) return c;
+  for (const c of candidates) if (existsSync7(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
     const c = join8(pluginRoot, "scripts", "scan.sh");
-    if (existsSync6(c)) return c;
+    if (existsSync7(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
 function runScanWithScript(script, sessionDir, timeoutMs) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const child = spawn("bash", [script, sessionDir], {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"]
@@ -29617,7 +29867,7 @@ function runScanWithScript(script, sessionDir, timeoutMs) {
         reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
         return;
       }
-      resolve3(parsed);
+      resolve4(parsed);
     });
   });
 }
@@ -29705,7 +29955,7 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames) {
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
     const readmePath = join8(absDirPath, candidate);
-    if (!existsSync6(readmePath)) continue;
+    if (!existsSync7(readmePath)) continue;
     try {
       const raw = readFileSync3(readmePath, "utf8");
       return raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
@@ -29904,7 +30154,7 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
             `graph_db_open_failed: ${graphOpenError2} \u2014 world model could not be opened this session (kuzu write-lock contention); restart the session to retry`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join8(dirname7(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join8(dirname8(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -29971,8 +30221,8 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync4, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname8, join as join9, sep as sep2 } from "node:path";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6, readFileSync as readFileSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname9, join as join9, sep as sep2 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -29993,16 +30243,16 @@ function wrap4(fn) {
   };
 }
 function resolveScriptsFile(name) {
-  const here = dirname8(fileURLToPath5(import.meta.url));
+  const here = dirname9(fileURLToPath5(import.meta.url));
   const candidates = [
     join9(here, "..", "..", "..", "..", "scripts", name),
     join9(here, "..", "..", "..", "scripts", name)
   ];
-  for (const c of candidates) if (existsSync7(c)) return c;
+  for (const c of candidates) if (existsSync8(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
     const c = join9(pluginRoot, "scripts", name);
-    if (existsSync7(c)) return c;
+    if (existsSync8(c)) return c;
   }
   throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
 }
@@ -30011,7 +30261,7 @@ var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
 var VET_TIMEOUT_MS = 60 * 1e3;
 function runSearchWithScript(script, query, kind, timeoutMs) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -30056,7 +30306,7 @@ function runSearchWithScript(script, query, kind, timeoutMs) {
         reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
         return;
       }
-      resolve3(parsed);
+      resolve4(parsed);
     });
   });
 }
@@ -30067,7 +30317,7 @@ var VALID_TIERS = /* @__PURE__ */ new Set([
   "unknown"
 ]);
 function runVetWithScript(script, candidate, timeoutMs) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -30116,12 +30366,12 @@ function runVetWithScript(script, candidate, timeoutMs) {
         reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing capabilities[])"));
         return;
       }
-      resolve3(parsed);
+      resolve4(parsed);
     });
   });
 }
 function runInstallWithScript(script, candidate, scope, timeoutMs) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const child = spawn2(
       "bash",
       [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
@@ -30168,14 +30418,14 @@ function runInstallWithScript(script, candidate, scope, timeoutMs) {
         reject(new Error("cheatcode-install.sh emitted unexpected shape (missing attachments[])"));
         return;
       }
-      resolve3(parsed);
+      resolve4(parsed);
     });
   });
 }
 var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
 var INSTALL_TIMEOUT_MS = 60 * 1e3;
 function runUninstallWithScript(script, candidate, timeoutMs) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -30220,7 +30470,7 @@ function runUninstallWithScript(script, candidate, timeoutMs) {
         reject(new Error("cheatcode-uninstall.sh emitted unexpected shape (missing method)"));
         return;
       }
-      resolve3(parsed);
+      resolve4(parsed);
     });
   });
 }
@@ -30265,11 +30515,11 @@ function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
     const c2 = join9(pluginRoot, "agents", `${target}.md`);
-    if (existsSync7(c2)) return c2;
+    if (existsSync8(c2)) return c2;
   }
-  const here = dirname8(fileURLToPath5(import.meta.url));
+  const here = dirname9(fileURLToPath5(import.meta.url));
   const c = join9(here, "..", "..", "..", "..", "agents", `${target}.md`);
-  if (existsSync7(c)) return c;
+  if (existsSync8(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
@@ -30290,10 +30540,10 @@ function readManifestProvidedTools(manifestPath) {
 }
 function resolveInstalledPluginManifest(name) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
-  if (override) return existsSync7(override) ? override : null;
+  if (override) return existsSync8(override) ? override : null;
   const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join9(process.env["HOME"] || "", ".claude");
   const registry2 = join9(claudeHome, "plugins", "installed_plugins.json");
-  if (!existsSync7(registry2)) return null;
+  if (!existsSync8(registry2)) return null;
   let parsed;
   try {
     parsed = JSON.parse(readFileSync4(registry2, "utf8"));
@@ -30309,7 +30559,7 @@ function resolveInstalledPluginManifest(name) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
       const manifest = join9(installPath, ".claude-plugin", "plugin.json");
-      if (existsSync7(manifest)) return manifest;
+      if (existsSync8(manifest)) return manifest;
     }
   }
   return null;
@@ -30398,7 +30648,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   if (target === "bro") {
     const claudeMd = join9(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync7(claudeMd) ? readFileSync4(claudeMd, "utf8") : "";
+    let body = existsSync8(claudeMd) ? readFileSync4(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
       body = body.length === 0 ? `${reference}
@@ -30411,7 +30661,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   }
   const localAgentMd = join9(claudeDir, "agents", `${target}.md`);
   let content;
-  if (existsSync7(localAgentMd)) {
+  if (existsSync8(localAgentMd)) {
     content = readFileSync4(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
@@ -30424,7 +30674,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync6(dirname8(localAgentMd), { recursive: true });
+  mkdirSync6(dirname9(localAgentMd), { recursive: true });
   writeFileSync4(localAgentMd, updated);
   return {
     target,
@@ -30438,7 +30688,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
     const filePath = join9(projectRoot, rel);
-    if (!existsSync7(filePath)) return;
+    if (!existsSync8(filePath)) return;
     const content = readFileSync4(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
@@ -30448,7 +30698,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
     const filePath = join9(projectRoot, rel);
-    if (!existsSync7(filePath)) return;
+    if (!existsSync8(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
     const body = readFileSync4(filePath, "utf8");
     if (!body.includes(reference)) return;
