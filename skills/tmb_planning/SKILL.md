@@ -33,7 +33,7 @@ Cheatcode reuse and codify take their own path — the `tmb_cheatcode` lifecycle
 
 When a remote is configured, ask the Human which branch to base the new feature branch on — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. Choosing `pr_target` means check it out and bring it up to date with the remote; any other choice means switch and leave it as-is.
 
-Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. Create the git branch locally afterward.
+Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. `task_provision` (§5) creates the git branch — don't create it here.
 
 ## 4. Author the spec
 
@@ -59,11 +59,11 @@ The `spec_body` markdown carries the prose bro and swe reason from. Its sections
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
-Before `task_create_batch`: `discussion_append(issue_id, author='bro', kind='decision', body='<chosen approach>')`.
+The chosen approach rides into `task_provision` as `decision_body` (§5) — it writes the `kind='decision'` discussion atomically with the task, so there's no separate `discussion_append` here.
 
 ### Architectural changes
 
-When the change does any of the following, record it as a `kind='decision'` discussion — `discussion_append(issue_id, author='bro', kind='decision', body='<decision + rationale>')` — and apply the blast-radius check. The trajectory IS the record; there's no separate document to author:
+When the change does any of the following, capture the decision + rationale in the `task_provision` `decision_body` (§5) and apply the blast-radius check. The trajectory IS the record; there's no separate document to author:
 
 - Introduces a new service boundary or top-level module
 - Modifies a public API surface
@@ -75,20 +75,17 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 ## 5. Spawn SWE
 
-Create the tasks with `task_create_batch`, passing the typed `files[]` and `verification[]` for each swe-executed task and asking it to emit the planning-complete event in the same transaction.
+Call `task_provision(issue_id, branch_id, decision_body, task, base?)` — it atomically writes the `kind='decision'` discussion, creates the task (with the typed `files[]` + `verification[]` and the planning-complete event), creates the git branch, and creates the worktree. It returns the spawn-ready shape `{task_id, branch_id, worktree_path, ...}` — branch and worktree already exist.
 
-Then run the worktree hook per branch and spawn SWE per task.
-
-The batch response includes `parallel_groups` — tasks in the same group are safe to spawn in parallel.
+Then spawn SWE with the `task_id` it returned. For multiple tasks, provision each, then spawn per task.
 
 ### Spawning SWE
 
-The Agent PreToolUse gates enforce a spawn contract — get all four right or the first spawn is denied:
+The Agent PreToolUse gates enforce a spawn contract:
 
-- The spawn prompt MUST contain the literal `task_id=<N>` — a bare `task_id 5` without `=` fails the gate.
-- Pre-create the feature branch before spawning: `git -C <repo> branch <branch> origin/<base>`. Required even when the task-create branch gate was waived — waiving the DB gate doesn't create the git ref.
-- The task must be `pending`/`open` with a non-empty `spec_body`.
-- The worktree is auto-created by the spawn hook — don't `EnterWorktree` manually.
+- The spawn prompt MUST contain the literal `task_id=<N>` from the `task_provision` response — a bare `task_id 5` without `=` fails the gate.
+- The task must be `pending`/`open` with a non-empty `spec_body` — `task_provision` guarantees this.
+- The branch and worktree are created by `task_provision` — don't pre-create the branch or `EnterWorktree` manually.
 
 ## 6. Verify on SWE return + atomic close
 
