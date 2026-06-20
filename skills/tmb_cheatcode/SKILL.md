@@ -22,11 +22,7 @@ If code you'd write anyway covers it, or a capability already on hand does, it's
 
 ## Find and recommend
 
-Name the capability and call once:
-
-`cheatcode_search(agent='bro', capability_query='<capability>', kind='skill'|'mcp'|'plugin'|'any')`
-
-One call searches, ranks, and records the audit row. Pin `kind` when the shape is obvious; leave `any` when unsure.
+Name the capability and call `cheatcode_search` once — it searches, ranks, and records the audit row. Pin `kind` when the shape is obvious; leave it for the schema default when unsure.
 
 Tier+relevance order is an input, not the verdict — you hold the actual requirement and know the codebase, so the pick is yours. Read what each candidate does, commit to the best fit (top two-three only if genuinely close), and lead with the reasoning plus its tier and source URL. Installing is a separate gate.
 
@@ -56,10 +52,8 @@ Lead the chat with the rationale — what the cheatcode does, its tier, and the 
 
 ## Decide the consuming agent
 
-`target` is the agent that will USE the cheatcode, and for a **skill** the target is mandatory — `cheatcode_install` rejects a targetless skill, so resolve it BEFORE install.
+`target` is the agent that will USE the cheatcode. For a **skill**, pass `target=<agent>` or the install fails; a `kind=mcp` server (or pure-server plugin) needs no target — its registration is the attachment, callable by any agent.
 
 If the Human named the agent — "install X for swe", "code-review for pr-reviewer" — use it. Otherwise infer from the cheatcode's domain: coding / test / refactor / debug → `swe`; code-review / quality → `pr-reviewer`; orchestration / routing / planning → `bro`; a consultant's domain → that consultant. Reach for AskUserQuestion only when it's genuinely ambiguous.
-
-Pass it as `cheatcode_install(..., target=<agent>)` — the install materializes that agent's prompt surface (mechanism in FLOWS flow 10). The one exception is a `kind=mcp` server (or pure-server plugin) — its registration is the attachment, callable by any agent, so it needs no target.
 
 The full lifecycle (search → vet → approve → install → materialize → activate) lives in [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md) flow 10.

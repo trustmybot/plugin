@@ -6,10 +6,6 @@ allowed-tools: Read, Write, Edit, Glob, Bash, AskUserQuestion, mcp__plugin_tmb_t
 
 # Skill Creator
 
-Add a new capability to a project's agents without editing their body.
-
-This authors a NEW skill from scratch. To pull in an EXISTING external skill / MCP / plugin instead, that's the cheatcode flow (`tmb_cheatcode`), not this.
-
 If the original ask depended on the new skill being in place, bro holds it until the skill exists + is attached + approved.
 
 ## Discover the gap
@@ -32,7 +28,7 @@ allowed-tools: <optional, comma-separated — restricts tools the skill can invo
 [Body — concrete rules, checks, or patterns the agent should apply when this skill is loaded. Keep it focused.]
 ```
 
-**Skill structure**: keep flat (single SKILL.md). Anthropic-style splits (SKILL.md + reference.md + forms.md + scripts/) sound clean but tax bro in headless mode — every extra file is another Read when bro can't ask the Human. Inline lookup tables and AUQ shapes; bundle scripts only when truly executable.
+**Skill structure**: keep flat (single SKILL.md) — do not split into reference.md / forms.md / scripts/. Inline lookup tables and AUQ shapes; bundle scripts only when truly executable.
 
 Then run `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`, surface findings via AUQ (user picks accept/decline per finding), and present the full drafted file in a fenced code block. Ask:
 > Do you want me to (a) write this skill at `.claude/skills/<name>/SKILL.md`, AND (b) extend the `skills:` frontmatter array of <agent-list> to include `<name>`? (yes / revise / no)
@@ -52,8 +48,4 @@ Then run `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`, sur
 
 ## Headless mode — HALT
 
-Skill creation is interactive by definition. On `AskUserQuestion` error or `TMB_HEADLESS=1`:
-
-1. Halt immediately. Leave all files unwritten.
-2. Create a scoping issue via `issue_create`, then log `event_type='headless_creator_blocked'` naming the proposed skill.
-3. Surface: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively."
+On `AskUserQuestion` error or `TMB_HEADLESS=1`: HALT — leave all files unwritten. Then `issue_create` a scoping issue, `audit_log` `event_type='headless_creator_blocked'` naming the proposed skill, and surface: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively."

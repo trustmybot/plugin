@@ -14,6 +14,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 - **Comprehensive cheatcode lifecycle diagram** in `docs/architecture/FLOWS.md` (search → vet → approve → install → materialize → activate → use → healthcheck → uninstall).
 
 ### Changed
+- **Grade-A prose pass on 5 B-grade prompt surfaces** (#98): `commands/onboard.md`, `skills/tmb_skill-creator`, `skills/tmb_cheatcode`, `skills/tmb_docs-conventions`, and `agents/pr-reviewer.md` were rewritten to DETERMINISM grade A — stripping exposition/self-narration, machine-spec the schema already enforces (the `cheatcode_search` `kind` enum), and frontmatter-restating duplication, while preserving every load-bearing rule, judgment, and verbatim contract (the pr-reviewer `MCP available:` strings and `LOAD-BEARING-SAFETY` comments).
 - **Split `tmb_review`** (#898): `tmb_review` is now pr-reviewer's diff-level push-gate review only — narrowed `allowed-tools` (no `AskUserQuestion`/`Task`), the five review phases collapsed to a tight diff-vs-spec check. `agents/pr-reviewer.md` drops the dead bro-only `pr_comments_get` grant.
 - **Label validation is fail-closed against the configured/default set** (#900) rather than a hardcoded list; the milestone-example and tool-description copy were genericized.
 - Raised the MCP tool-description byte budget to absorb v0.10.0 growth (the real token-trim is tracked in #771).

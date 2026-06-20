@@ -6,11 +6,7 @@ allowed-tools: AskUserQuestion, mcp__plugin_tmb_trajectory-server__onboard_state
 
 # Onboard / Re-onboard
 
-Bro orchestrates an AskUserQuestion ceremony in 2-3 rounds. All deterministic logic lives in the `onboard_*` MCP tools — bro's job is just to pass answers between AUQ and the server.
-
-## Auto-fire trigger
-
-Bro runs `/onboard` automatically on its first message in a session if `plugin_config.onboarded` is falsy (the empty-DB heuristic). The trigger is silent: no permission gate, no "want me to onboard?" question. `/onboard` also runs on demand whenever the Human types it for later changes.
+Bro orchestrates an AskUserQuestion ceremony in 2-3 rounds — Round 3 runs only when `shape == 'remote'`. Pass answers between AUQ and the server; all deterministic logic lives in the `onboard_*` MCP tools.
 
 ## 1. Read state (one MCP call)
 
@@ -25,6 +21,14 @@ Run the AskUserQuestion ceremony in up to three rounds.
 Call `onboard_get_questions(agent='bro', round='shape')`. Feed the returned questions into `AskUserQuestion`. When a round returns no questions, skip its AUQ.
 
 Store the answer as `shape` ∈ `{local, remote}`.
+
+#### If the answer conflicts with the probe
+
+Only when the user picks `Local-only` but `state.probe.origin_kind` showed `github`/`gitlab`, surface the contradiction:
+
+> Heads up: this project has a `<github|gitlab>` origin remote, but you picked Local-only. Issues won't mirror to the remote and PRs/MRs won't be tracked. Continue, or switch to Remote-tracked?
+
+Re-render Round 1 once. Trust the user's second answer.
 
 ### Round 2 — Multiple-choice questions (server-built AUQ)
 
@@ -43,14 +47,6 @@ Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, pro
 ## 4. Confirm to the Human
 
 Render the `applied` payload back as a short summary — project shape, branching model, PR target, protected branches, remotes, and issue sync — then close with "Tell me what you want to work on."
-
-## Conflict handling
-
-If the user picks `Local-only` on Round 1 but `state.probe.origin_kind` showed `github`/`gitlab`, surface the contradiction:
-
-> Heads up: this project has a `<github|gitlab>` origin remote, but you picked Local-only. Issues won't mirror to the remote and PRs/MRs won't be tracked. Continue, or switch to Remote-tracked?
-
-Re-render Round 1 once. Trust the user's second answer.
 
 ## Headless mode
 

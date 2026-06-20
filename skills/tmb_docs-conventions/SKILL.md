@@ -5,7 +5,7 @@ description: Loaded when editing prompt files (agents, skills, CLAUDE.md, workfl
 
 # Docs Conventions — Editing Discipline
 
-Link integrity is checked by lint/CI; this skill carries the editing judgment — what to delete, what to preserve verbatim, where the ripples go when a rename or restructure lands.
+When editing prompt files or user-visible docs, follow these rules.
 
 ## Docs-update expectation
 
@@ -17,10 +17,8 @@ If a doc you're updating contradicts the code, halt and surface it — pick the 
 
 ## Editing prompt files (agents, skills, CLAUDE.md, workflow markdown)
 
-When the task spec names a markdown file under `agents/`, `skills/`, `CLAUDE.md`, or any workflow markdown, apply these rules. They are the hardest-won discipline in the project: a sloppy prompt edit can swing every agent's behaviour next session.
-
 1. **Delete before you add.** A shorter prompt is usually clearer. Prefer removal over addition when both achieve the goal.
-2. **Preserve operational meaning.** Constraints, prohibitions, and examples with operational or legal weight are copied verbatim unless the request explicitly changes them.
+2. **Preserve operational meaning.** Copy constraints, prohibitions, and weighted examples verbatim — e.g. a `LOAD-BEARING-SAFETY` comment, a "HALT" rule, or an exact wire-format string — unless the request explicitly changes them.
 3. **Match tone and structure.** Edits blend into the target file; they don't impose a different style.
 4. **Stay in scope.** Correct what was asked; don't opportunistically rewrite adjacent content.
 5. **Update referenced paths.** When you rename or move a file the prompt cites, grep for every reference and update it in the same commit.
