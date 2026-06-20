@@ -25233,7 +25233,7 @@ function auditTools(db2) {
     },
     {
       name: "audit_log",
-      description: "Insert an audit lifecycle event (planning_complete, bro_verification_pass, headless_fallback, etc.). Both event_type and summary are required.",
+      description: "Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27850,24 +27850,6 @@ function compositeTools(db2, dbPath2, graph2 = null) {
       }
     },
     {
-      name: "headless_intent_start",
-      description: "Headless fast-path composite \u2014 atomically writes the headless_fallback audit_log + fallback note + intent discussion that follow issue_create in headless mode.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "number", description: "Issue ID returned by issue_create." },
-          branch_id: { type: "string", description: "Proposed branch_id (from branch_id_propose)." },
-          intent_verbatim: { type: "string", description: "Human intent verbatim \u2014 stored as kind=intent discussion." },
-          fallback_summary: {
-            type: "string",
-            description: "One-line summary of what defaults were applied. Stored in audit row."
-          }
-        },
-        required: ["agent", "issue_id", "branch_id", "intent_verbatim"]
-      }
-    },
-    {
       name: "intent_start",
       description: "Interactive planning composite \u2014 atomically runs issue_create + discussion_append(intent) + discussion_append(note) + audit_log(branch_id_proposed). Git branch creation stays caller-side. Returns {issue_id, branch_id}.",
       inputSchema: {
@@ -27879,21 +27861,6 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           branch_id: { type: "string", description: "Confirmed branch_id (from branch_id_propose + Human confirm)." }
         },
         required: ["agent", "objective", "intent_verbatim", "branch_id"]
-      }
-    },
-    {
-      name: "headless_fallback_record",
-      description: "Headless fallback composite \u2014 atomically writes audit_log(headless_fallback) + discussion_append(note); issue_id defaults to the most recent open issue or -1.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          question: { type: "string", description: "The AskUserQuestion prompt that was skipped in headless mode." },
-          chosen_default: { type: "string", description: "The default value that was applied." },
-          skill: { type: "string", description: "Which tmb_* skill triggered this fallback." },
-          issue_id: { type: "number", description: "Optional override. Defaults to most recent open issue or -1." }
-        },
-        required: ["agent", "question", "chosen_default", "skill"]
       }
     },
     {
@@ -28469,46 +28436,6 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         return ok14({ task_id: result.id, branch_id: result.branch_id });
       })
     ),
-    headless_intent_start: requireRoles(
-      "headless_intent_start",
-      ["bro"],
-      wrap2(async (args) => {
-        const issueId = args["issue_id"];
-        const branchId = args["branch_id"];
-        const intentVerbatim = args["intent_verbatim"];
-        const fallbackSummary = args["fallback_summary"] ?? "headless mode: defaults applied";
-        if (!issueId || typeof issueId !== "number") {
-          return err14("issue_id must be a number");
-        }
-        if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err14("intent_verbatim must be a non-empty string");
-        }
-        const now = nowISO();
-        let written = [];
-        db2.transaction(() => {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'headless_fallback', ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              `tmb_planning headless: branch_id confirm \u2192 Yes, proceed; cold-start \u2192 lazy fill; defaults applied`,
-              JSON.stringify({ fallback_summary: fallbackSummary }),
-              now
-            ]
-          );
-          written = insertIntentAndNote(
-            db2,
-            issueId,
-            intentVerbatim,
-            "Headless fallback: no Human in loop; defaults applied.",
-            now
-          );
-        });
-        return ok14({ issue_id: issueId, branch_id: branchId, written: ["audit", ...written] });
-      })
-    ),
     intent_start: requireRoles(
       "intent_start",
       ["bro"],
@@ -28564,49 +28491,6 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           return { issue_id: issueId, branch_id: branchId };
         });
         return ok14(result);
-      })
-    ),
-    headless_fallback_record: requireRoles(
-      "headless_fallback_record",
-      ["bro"],
-      wrap2(async (args) => {
-        const question = args["question"];
-        const chosenDefault = args["chosen_default"];
-        const skill = args["skill"];
-        if (!question || question.trim().length === 0) {
-          return err14("question must be a non-empty string");
-        }
-        if (!chosenDefault || chosenDefault.trim().length === 0) {
-          return err14("chosen_default must be a non-empty string");
-        }
-        if (!skill || skill.trim().length === 0) {
-          return err14("skill must be a non-empty string");
-        }
-        let issueId = args["issue_id"] ?? null;
-        if (issueId === null) {
-          issueId = resolveDefaultIssueId(db2);
-        }
-        const now = nowISO();
-        const noteBody = `Headless fallback (${skill}): question skipped \u2014 applied default "${chosenDefault}".`;
-        db2.transaction(() => {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, NULL, 'bro', 'headless_fallback', ?, ?, ?)`,
-            [
-              issueId,
-              `${skill}: "${question.slice(0, 120)}" \u2192 default: "${chosenDefault.slice(0, 80)}"`,
-              JSON.stringify({ skill, question, chosen_default: chosenDefault }),
-              now
-            ]
-          );
-          db2.run(
-            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'note', ?, ?)`,
-            [issueId, noteBody, now]
-          );
-        });
-        return ok14({ issue_id: issueId, written: ["audit", "note"] });
       })
     ),
     bro_verification_fail_record: requireRoles(
@@ -28925,7 +28809,7 @@ import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSy
 import { join as join6 } from "node:path";
 var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
 var STABLE_RESOLVER_NAME = "resolve-hook.sh";
-var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-headless-hook.sh"];
+var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-hook.sh"];
 var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
   "swe-brief-gate.sh",
   "naming-lint.sh",
@@ -28998,7 +28882,7 @@ function purgeTmbEntries(pre) {
   }
   return cleaned;
 }
-function writeHeadlessEnforcementShim(opts) {
+function writeUserSettingsEnforcementShim(opts) {
   const { pluginRoot, homeDir } = opts;
   if (!pluginRoot) {
     const reason = "plugin root unresolvable";
@@ -29556,7 +29440,7 @@ function onboardTools(db2, dbPath2 = "") {
           );
         });
         try {
-          writeHeadlessEnforcementShim({ pluginRoot: resolvePluginRoot2(), homeDir: os.homedir() });
+          writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot2(), homeDir: os.homedir() });
         } catch {
         }
         return ok15({

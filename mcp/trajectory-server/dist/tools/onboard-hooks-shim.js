@@ -1,8 +1,8 @@
-// Headless enforcement shim (#57, #74/#680). Marketplace-installed plugin hooks
-// do NOT fire in headless `claude -p` (CC trust-dialog gap), so TMB's PreToolUse
-// gates are absent for headless marketplace users. USER settings.json hooks DO
-// fire headless. So /onboard writes the plugin's PreToolUse hooks into the user
-// settings.json.
+// User-settings enforcement shim (#57, #74/#680). Marketplace-installed plugin
+// hooks do NOT fire in non-interactive `claude -p` runs (CC trust-dialog gap),
+// so TMB's PreToolUse gates are absent for those marketplace users. USER
+// settings.json hooks DO fire there. So /onboard writes the plugin's PreToolUse
+// hooks into the user settings.json.
 //
 // Version-agnostic resolver (#74/#680): writing the ${CLAUDE_PLUGIN_ROOT}
 // placeholder resolved to an absolute, version-PINNED cache path orphaned every
@@ -27,7 +27,7 @@ import { serverLog } from '../logger.js';
 const STABLE_RESOLVER_DIR = ['.claude', 'tmb-hooks'];
 const STABLE_RESOLVER_NAME = 'resolve-hook.sh';
 // Canonical resolver authored in the plugin, relative to the plugin root.
-const CANONICAL_RESOLVER_REL = ['scripts', 'lib', 'resolve-headless-hook.sh'];
+const CANONICAL_RESOLVER_REL = ['scripts', 'lib', 'resolve-hook.sh'];
 // Every TMB-managed hook entry is stamped with `_tmb_managed: true`. The
 // idempotency purge keys on THIS field, never on a path substring: dev/worktree
 // command paths (e.g. .claude/worktrees/X/scripts/hooks/...) contain no /tmb/
@@ -42,8 +42,7 @@ const CANONICAL_RESOLVER_REL = ['scripts', 'lib', 'resolve-headless-hook.sh'];
 // first in its group). Keep all genuine deny gates: no-source-edit-from-main,
 // swe-boundary, swe-scope-fence, git-guards, git-push-guard,
 // no-worktree-branch-create, stay-on-base-guard, no-remote-auth-guard,
-// agent-spawn-dispatch, swe-verification-gate, auq-headless-deny,
-// roundtable-auq-shape.
+// agent-spawn-dispatch, swe-verification-gate, roundtable-auq-shape.
 const ADVISORY_HOOK_DENYLIST = new Set([
     'swe-brief-gate.sh',
     'naming-lint.sh',
@@ -142,7 +141,7 @@ function purgeTmbEntries(pre) {
     }
     return cleaned;
 }
-export function writeHeadlessEnforcementShim(opts) {
+export function writeUserSettingsEnforcementShim(opts) {
     const { pluginRoot, homeDir } = opts;
     if (!pluginRoot) {
         const reason = 'plugin root unresolvable';

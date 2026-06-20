@@ -22,12 +22,12 @@ import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { writeHeadlessEnforcementShim } from './onboard-hooks-shim.js';
+import { writeUserSettingsEnforcementShim } from './onboard-hooks-shim.js';
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
 // manifest is found — correct for both the tsc layout (dist/tools/onboard.js)
 // and the esbuild bundle (dist/index.js). Returns null if unresolvable so the
-// headless shim can skip gracefully.
+// enforcement shim can skip gracefully.
 function resolvePluginRoot() {
     const env = process.env['CLAUDE_PLUGIN_ROOT'];
     if (env && existsSync(join(env, '.claude-plugin', 'plugin.json')))
@@ -594,10 +594,11 @@ export function onboardTools(db, dbPath = '') {
                 db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ?`, [pr_target, branching_model, JSON.stringify(protected_branches), JSON.stringify(remotes)]);
             });
             // Best-effort: write TMB PreToolUse hooks into the user settings.json so
-            // enforcement fires in headless `claude -p` under a marketplace install
-            // (plugin hooks don't fire there). A failure must NOT fail onboarding.
+            // enforcement fires in non-interactive `claude -p` runs under a
+            // marketplace install (plugin hooks don't fire there). A failure must
+            // NOT fail onboarding.
             try {
-                writeHeadlessEnforcementShim({ pluginRoot: resolvePluginRoot(), homeDir: os.homedir() });
+                writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot(), homeDir: os.homedir() });
             }
             catch {
                 // Shim is best-effort; onboarding still succeeds.

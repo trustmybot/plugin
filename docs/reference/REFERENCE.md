@@ -37,7 +37,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
-- **composites**: `intent_start`, `branch_id_propose`, `task_brief`, `task_retry_batch`, `task_recover`, `bro_atomic_close`, `bro_verification_fail_record`, `headless_intent_start`, `headless_fallback_record`, `pr_monitor_worktree`, `reap_and_review_prep`
+- **composites**: `intent_start`, `branch_id_propose`, `task_brief`, `task_retry_batch`, `task_recover`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `reap_and_review_prep`
 - **audit**: `audit_log`, `audit_log_list`, `audit_search`
 
 ## Slash commands
@@ -61,7 +61,6 @@ Runtime location: `plugin/commands/<name>.md`.
 
 ## Env vars
 
-- `TMB_HEADLESS=1` — disables AskUserQuestion; bro halts per `tmb_recovery` §A
 - `TMB_DISABLE_REMOTE_SYNC=1` — overrides `issue_sync` config to off (defense-in-depth)
 - `TRAJECTORY_DB_PATH` — pin DB path for tests/CI (overrides walk-up resolution)
 - `CLAUDE_PLUGIN_ROOT` — set by CC; resolves plugin name for path calculations
@@ -99,7 +98,6 @@ Runtime location: `plugin/commands/<name>.md`.
 | `cheatcode-install-approval.sh` | PreToolUse cheatcode_install | Require Human approval before installing a cheatcode |
 | `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
-| `auq-headless-deny.sh` | PreToolUse AskUserQuestion | Deny AUQ when TMB_HEADLESS=1 |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |
 | `swe-scope-fence.sh` | PreToolUse Edit/Write | Confine SWE edits to the task's declared `files[]` scope |
 | `naming-lint.sh` | PreToolUse Edit/Write | Enforce kebab/snake/Pascal naming conventions per language |

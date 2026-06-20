@@ -94,7 +94,7 @@ export function auditTools(db: TrajectoryDB): {
     {
       name: 'audit_log',
       description:
-        'Insert an audit lifecycle event (planning_complete, bro_verification_pass, headless_fallback, etc.). Both event_type and summary are required.',
+        'Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.',
       inputSchema: {
         type: 'object',
         properties: {
