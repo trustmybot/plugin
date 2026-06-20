@@ -46,6 +46,7 @@ export function validationTools(db) {
                     attempt_n: { type: 'number' },
                     verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
                     feedback: { type: 'string' },
+                    mcp_available: { type: 'boolean', description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
                     subagent_session_id: { type: 'string', description: 'Required when agent="pr-reviewer": the spawned pr-reviewer subagent\'s session ID.' },
                 },
                 required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
@@ -65,7 +66,7 @@ export function validationTools(db) {
                     fields: {
                         type: 'array',
                         items: { type: 'string' },
-                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns.',
+                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns.',
                     },
                 },
                 required: ['agent', 'task_id'],
@@ -83,12 +84,13 @@ export function validationTools(db) {
             if (agent === 'pr-reviewer' && !subagentSessionId) {
                 throw new Error('precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent\'s session ID). This prevents bro from self-authoring pr-reviewer verdicts.');
             }
+            const mcpAvailableArg = args['mcp_available'];
+            if (agent === 'pr-reviewer' && typeof mcpAvailableArg !== 'boolean') {
+                throw new Error('precondition_failed: validation_record with agent="pr-reviewer" requires mcp_available (boolean) — the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).');
+            }
+            const mcpAvailable = mcpAvailableArg === false ? 0 : 1;
             if (!VALID_VERDICTS.has(verdict)) {
                 throw new Error(`Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`);
-            }
-            const feedbackArg = args['feedback'];
-            if (!/^MCP available: (yes|no)\b/.test(feedbackArg)) {
-                throw new Error('precondition_failed: validation_record.feedback must start with "MCP available: yes" or "MCP available: no — honor-system fallback" (LOAD-BEARING-SAFETY #97 — bro\'s push-gate parses this prefix to detect dead MCP). Prepend the line, then put your rationale on subsequent lines.');
             }
             const taskExists = db.get(`SELECT id FROM tasks WHERE id = ?`, [taskId]);
             if (!taskExists) {
@@ -101,14 +103,15 @@ export function validationTools(db) {
             const repo = taskRepo?.repo ?? '';
             db.transaction(() => {
                 db.run(`INSERT INTO validation_attempts
-             (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(task_id, attempt_n) DO UPDATE SET
              agent = excluded.agent,
              verdict = excluded.verdict,
              feedback = excluded.feedback,
+             mcp_available = excluded.mcp_available,
              subagent_session_id = excluded.subagent_session_id,
-             created_at = excluded.created_at`, [taskId, attemptN, agent, verdict, feedback, subagentSessionId, now]);
+             created_at = excluded.created_at`, [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now]);
                 const existingPrRow = db.get('SELECT id FROM pr_review_runs WHERE task_id = ? AND attempt_n = ?', [taskId, attemptN]);
                 if (existingPrRow) {
                     db.run('UPDATE pr_review_runs SET verdict = ?, last_fetched_at = ? WHERE id = ?', [verdict, now, existingPrRow.id]);
@@ -134,7 +137,7 @@ export function validationTools(db) {
             const limitArg = args['limit'];
             const cursorArg = args['cursor'];
             const fieldsArg = args['fields'];
-            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'subagent_session_id', 'created_at']);
+            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'created_at']);
             if (fieldsArg !== undefined) {
                 const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
                 if (unknown.length > 0) {

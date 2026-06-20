@@ -182,7 +182,7 @@ sequenceDiagram
     end
 ```
 
-`validation_record.feedback` MUST start with `MCP available: yes` or `MCP available: no — honor-system fallback` (schema CHECK enforces; push-gate parses). Subagents that lack MCP access fall back to honor-system review with the `no` prefix.
+`validation_record` carries a typed `mcp_available` boolean (required for pr-reviewer; written to the `validation_attempts.mcp_available` column). The push-gate reads it from the row — `1` = MCP-backed review, `0` = honor-system fallback (a subagent that lacks MCP access reviews via the sqlite3 fallback path and records `mcp_available: false`). `feedback` is free-prose rationale.
 
 ---
 

@@ -137,14 +137,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 25 in plugin_meta', () => {
+  it('fresh DB has schema_version = 26 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 25);
+    assert.equal(meta.schema_version, 26);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',
@@ -244,6 +244,36 @@ describe('schema — current table set, default values, constraints', () => {
     assert.ok(fk !== undefined, 'task_id must have a foreign key');
     assert.equal(fk.table, 'tasks');
     assert.equal(fk.to, 'id');
+
+    db.close();
+  });
+
+  it('validation_attempts has mcp_available INTEGER NOT NULL DEFAULT 1 (#157)', () => {
+    const db = tempDB();
+
+    const cols = db.all<{ name: string; type: string; notnull: number; dflt_value: string | null }>(
+      'PRAGMA table_info(validation_attempts)',
+    );
+    const col = cols.find((c) => c.name === 'mcp_available');
+    assert.ok(col !== undefined, 'mcp_available column must exist');
+    assert.equal(col.type.toUpperCase(), 'INTEGER', 'mcp_available must be INTEGER');
+    assert.equal(col.notnull, 1, 'mcp_available must be NOT NULL');
+    assert.equal(col.dflt_value, '1', 'mcp_available default must be 1');
+
+    db.close();
+  });
+
+  it('validation_attempts.feedback CHECK is gone — free prose is accepted (#157)', () => {
+    const db = tempDB();
+
+    const ddl = db.get<{ sql: string }>(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'validation_attempts'",
+    );
+    assert.ok(ddl !== undefined, 'validation_attempts DDL must be present');
+    assert.ok(
+      !/MCP available/.test(ddl.sql),
+      'the MCP-availability feedback CHECK must be removed from validation_attempts',
+    );
 
     db.close();
   });

@@ -167,6 +167,7 @@ export interface ValidationAttempt {
   agent: string;
   verdict: string;
   feedback: string;
+  mcp_available: number;
   subagent_session_id?: string | null;
   created_at: string;
 }

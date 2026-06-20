@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 25;
+var TARGET_SCHEMA_VERSION = 26;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21242,6 +21242,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 25 && toVersion >= 25) {
     migrateV24toV25(db2);
+  }
+  if (fromVersion < 26 && toVersion >= 26) {
+    migrateV25toV26(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -21970,6 +21973,56 @@ function migrateV24toV25(db2) {
     } catch {
     }
     throw err18;
+  }
+}
+function migrateV25toV26(db2) {
+  if (!tableExists(db2, "validation_attempts")) return;
+  if (hasColumn(db2, "validation_attempts", "mcp_available")) return;
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    db2.exec("DROP TABLE IF EXISTS validation_attempts_new");
+    db2.exec(`
+      CREATE TABLE validation_attempts_new (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id             INTEGER NOT NULL REFERENCES tasks(id),
+          attempt_n           INTEGER NOT NULL,
+          agent               TEXT    NOT NULL DEFAULT '',
+          verdict             TEXT    NOT NULL,
+          feedback            TEXT    NOT NULL DEFAULT '',
+          mcp_available       INTEGER NOT NULL DEFAULT 1,
+          subagent_session_id TEXT,
+          repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at          TEXT    NOT NULL,
+          UNIQUE(task_id, attempt_n)
+      )
+    `);
+    db2.exec(`
+      INSERT INTO validation_attempts_new
+        (id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, repo, created_at)
+      SELECT
+        id, task_id, attempt_n, agent, verdict, feedback,
+        CASE WHEN feedback LIKE 'MCP available: no%' THEN 0 ELSE 1 END,
+        subagent_session_id, repo, created_at
+      FROM validation_attempts
+    `);
+    db2.exec("DROP TABLE validation_attempts");
+    db2.exec("ALTER TABLE validation_attempts_new RENAME TO validation_attempts");
+    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV25toV26: foreign_key_check found ${violations.length} dangling reference(s) after the validation_attempts rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err18) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err18;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
   }
 }
 function migrateV7toV8(db2) {
@@ -25564,6 +25617,7 @@ function validationTools(db2) {
           attempt_n: { type: "number" },
           verdict: { type: "string", enum: ["pass", "fail", "escalate"] },
           feedback: { type: "string" },
+          mcp_available: { type: "boolean", description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
           subagent_session_id: { type: "string", description: `Required when agent="pr-reviewer": the spawned pr-reviewer subagent's session ID.` }
         },
         required: ["agent", "task_id", "attempt_n", "verdict", "feedback"]
@@ -25583,7 +25637,7 @@ function validationTools(db2) {
           fields: {
             type: "array",
             items: { type: "string" },
-            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns."
+            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns."
           }
         },
         required: ["agent", "task_id"]
@@ -25603,15 +25657,16 @@ function validationTools(db2) {
           `precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent's session ID). This prevents bro from self-authoring pr-reviewer verdicts.`
         );
       }
+      const mcpAvailableArg = args["mcp_available"];
+      if (agent === "pr-reviewer" && typeof mcpAvailableArg !== "boolean") {
+        throw new Error(
+          'precondition_failed: validation_record with agent="pr-reviewer" requires mcp_available (boolean) \u2014 the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).'
+        );
+      }
+      const mcpAvailable = mcpAvailableArg === false ? 0 : 1;
       if (!VALID_VERDICTS.has(verdict)) {
         throw new Error(
           `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(", ")}`
-        );
-      }
-      const feedbackArg = args["feedback"];
-      if (!/^MCP available: (yes|no)\b/.test(feedbackArg)) {
-        throw new Error(
-          `precondition_failed: validation_record.feedback must start with "MCP available: yes" or "MCP available: no \u2014 honor-system fallback" (LOAD-BEARING-SAFETY #97 \u2014 bro's push-gate parses this prefix to detect dead MCP). Prepend the line, then put your rationale on subsequent lines.`
         );
       }
       const taskExists = db2.get(
@@ -25632,15 +25687,16 @@ function validationTools(db2) {
       db2.transaction(() => {
         db2.run(
           `INSERT INTO validation_attempts
-             (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(task_id, attempt_n) DO UPDATE SET
              agent = excluded.agent,
              verdict = excluded.verdict,
              feedback = excluded.feedback,
+             mcp_available = excluded.mcp_available,
              subagent_session_id = excluded.subagent_session_id,
              created_at = excluded.created_at`,
-          [taskId, attemptN, agent, verdict, feedback, subagentSessionId, now]
+          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now]
         );
         const existingPrRow = db2.get(
           "SELECT id FROM pr_review_runs WHERE task_id = ? AND attempt_n = ?",
@@ -25673,7 +25729,7 @@ function validationTools(db2) {
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
       const fieldsArg = args["fields"];
-      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "subagent_session_id", "created_at"]);
+      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "created_at"]);
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
         if (unknown2.length > 0) {

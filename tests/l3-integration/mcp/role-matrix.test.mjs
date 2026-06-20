@@ -222,7 +222,7 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
   }
 
   const ok = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: 'MCP available: yes\nlgtm',
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
   assert.equal(ok.ok, true, `pr-reviewer should record; got ${JSON.stringify(ok)}`);

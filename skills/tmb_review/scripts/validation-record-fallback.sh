@@ -5,7 +5,10 @@
 #   validation-record-fallback.sh <task_id> <attempt_n> <verdict> <feedback> <subagent_session_id>
 #
 # verdict: 'pass' or 'fail'
-# feedback: plain text — the literal prefix 'MCP available: no — honor-system fallback\n' is prepended automatically.
+# feedback: plain text — free prose.
+#
+# This is the honor-system path (MCP unavailable), so the row is written with
+# mcp_available = 0 — the typed signal bro reads from the validation row.
 #
 # DB path resolution mirrors bro-sqlite-readonly.sh:
 #   1. TRAJECTORY_DB_PATH env override wins
@@ -83,8 +86,7 @@ sql_escape() {
   printf '%s' "$1" | sed "s/'/''/g"
 }
 
-SAFE_FEEDBACK=$(sql_escape "MCP available: no — honor-system fallback
-$FEEDBACK")
+SAFE_FEEDBACK=$(sql_escape "$FEEDBACK")
 SAFE_SESSION=$(sql_escape "$SESSION_ID")
 
 # ---------------------------------------------------------------------------
@@ -101,9 +103,9 @@ CREATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:
 
 sqlite3 "$DB_PATH" "
 INSERT INTO validation_attempts
-  (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
+  (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
 VALUES
-  ($TASK_ID, $ATTEMPT_N, 'pr-reviewer', '$VERDICT', '$SAFE_FEEDBACK', '$SAFE_SESSION', '$CREATED_AT');
+  ($TASK_ID, $ATTEMPT_N, 'pr-reviewer', '$VERDICT', '$SAFE_FEEDBACK', 0, '$SAFE_SESSION', '$CREATED_AT');
 "
 
 printf '{"ok":true,"task_id":%s,"attempt_n":%s,"verdict":"%s"}\n' "$TASK_ID" "$ATTEMPT_N" "$VERDICT"

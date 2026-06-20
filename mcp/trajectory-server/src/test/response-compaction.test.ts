@@ -360,7 +360,8 @@ describe('fields projection — validation_history (#210)', () => {
       task_id: taskId,
       attempt_n: 1,
       verdict: 'pass',
-      feedback: 'MCP available: yes\nLooks good',
+      feedback: 'Looks good',
+      mcp_available: true,
       subagent_session_id: 'test-session-proj',
     });
 
@@ -394,7 +395,8 @@ describe('fields projection — validation_history (#210)', () => {
       task_id: taskId,
       attempt_n: 1,
       verdict: 'pass',
-      feedback: 'MCP available: yes\nLooks good',
+      feedback: 'Looks good',
+      mcp_available: true,
       subagent_session_id: 'test-session-compat',
     });
 

@@ -8,10 +8,10 @@ L5 flow `06-push-gate` already exercises this single-shot. L6 adds a multi-turn 
 
 1. The push-guard hook fires inside bro's session (not just on a synthetic test).
 2. Bro receives the deny signal and routes to pr-reviewer correctly across turns.
-3. The MCP-availability prefix on `validation_record.feedback` is enforced (schema CHECK).
+3. The typed `mcp_available` column on `validation_record` carries the MCP-availability signal (1 = MCP up, 0 = honor-system fallback).
 4. After signoff, bro can re-attempt the push and succeed.
 
-The bug class this catches: pr-reviewer paraphrasing the MCP-availability prefix (the schema CHECK on `validation_attempts.feedback` enforces the literal `MCP available: yes` / `MCP available: no — honor-system fallback` prefix). If a regression weakens the agent template, the `validation_record` row would fail the CHECK and the push-gate flow would deadlock.
+The bug class this catches: a regression that drops the MCP-availability signal. The `validation_record` precondition requires the typed `mcp_available` boolean when `agent='pr-reviewer'` — if the agent template stops passing it, the row write fails the precondition and the push-gate flow would deadlock.
 
 ## Pre-state
 
@@ -23,7 +23,7 @@ The bug class this catches: pr-reviewer paraphrasing the MCP-availability prefix
 |---|---|---|
 | 1 | user | `@bro git push\n\nDon't ask questions.` |
 | → | bro | the `push-intent-hint.sh` hook injects context listing pending validation tasks on the current branch; bro spawns pr-reviewer (no worktree) for the seeded task |
-| → | pr-reviewer | reads task spec + commit, writes `validation_record(verdict='pass', feedback='MCP available: yes\n...')` |
+| → | pr-reviewer | reads task spec + commit, writes `validation_record(verdict='pass', mcp_available=true, feedback='...')` |
 | → | bro | re-attempts `git push`; push-guard now allows. Single turn, terminates when validation lands. |
 
 ## Pass criteria

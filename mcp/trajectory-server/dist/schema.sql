@@ -105,14 +105,12 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     attempt_n           INTEGER NOT NULL,
     agent               TEXT    NOT NULL DEFAULT '',
     verdict             TEXT    NOT NULL,
-    -- LOAD-BEARING-SAFETY (#97): feedback MUST start with the literal MCP-availability prefix.
-    -- Bro's push-gate parser depends on this exact format; raw-SQL inserts via sqlite3 fallback
-    -- (tmb_review) bypass the MCP handler, so the constraint lives at the schema layer.
-    feedback            TEXT    NOT NULL DEFAULT '' CHECK (
-        feedback LIKE 'MCP available: yes%' OR
-        feedback LIKE 'MCP available: no — honor-system fallback%' OR
-        feedback = ''
-    ),
+    feedback            TEXT    NOT NULL DEFAULT '',
+    -- LOAD-BEARING-SAFETY: mcp_available is the typed push-gate signal (1=MCP up,
+    -- 0=honor-system fallback). Bro reads it off this column via validation_history,
+    -- so the pr-reviewer verdict + availability travel as typed fields, never scraped
+    -- from a free-text feedback prefix.
+    mcp_available       INTEGER NOT NULL DEFAULT 1,
     subagent_session_id TEXT,
     -- repo (#155): FK to repos(name); backfilled from the parent task's repo.
     repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
@@ -192,7 +190,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 25, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 26, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

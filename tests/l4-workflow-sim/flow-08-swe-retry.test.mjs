@@ -42,8 +42,8 @@ test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts
 
   for (let n = 1; n <= 2; n++) {
     const r = await call(client, 'validation_record', {
-      agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail',
-      feedback: `MCP available: yes\nAttempt ${n}: still has the bug.`,
+      agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail', mcp_available: true,
+      feedback: `Attempt ${n}: still has the bug.`,
       subagent_session_id: `flow08-retry-session-${n}`,
     });
     assert.equal(r.ok, true, `attempt ${n} fail: ${JSON.stringify(r)}`);
@@ -51,8 +51,8 @@ test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts
 
   // attempt 3: pass
   const pass = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 3, verdict: 'pass',
-    feedback: 'MCP available: yes\nFixed; LGTM.',
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 3, verdict: 'pass', mcp_available: true,
+    feedback: 'Fixed; LGTM.',
     subagent_session_id: 'flow08-retry-session-3',
   });
   assert.equal(pass.ok, true);
@@ -74,7 +74,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
 
   // attempt 1: pass
   await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: 'MCP available: yes\nfirst',
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'first',
     subagent_session_id: 'flow08-upsert-session-1',
   });
 
@@ -82,7 +82,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   // (intentional: pr-reviewer can revise its own verdict on the same attempt
   // before the push happens). UNIQUE(task_id, attempt_n) is enforced via ON CONFLICT.
   const overwrite = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', feedback: 'MCP available: yes\nsecond',
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true, feedback: 'second',
     subagent_session_id: 'flow08-upsert-session-1-revised',
   });
   assert.equal(overwrite.ok, true, 'upsert must succeed (latest write wins)');
@@ -90,7 +90,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   const history = await call(client, 'validation_history', { agent: 'bro', task_id: taskId });
   assert.equal(history.data.length, 1, 'still ONE row for attempt_n=1 after upsert');
   assert.equal(history.data[0].verdict, 'fail', 'latest verdict wins');
-  assert.equal(history.data[0].feedback, 'MCP available: yes\nsecond', 'latest feedback wins');
+  assert.equal(history.data[0].feedback, 'second', 'latest feedback wins');
 });
 
 test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', async (t) => {
@@ -101,8 +101,8 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
 
   for (let n = 1; n <= 3; n++) {
     const r = await call(client, 'validation_record', {
-      agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail',
-      feedback: `MCP available: yes\nAttempt ${n} still broken.`,
+      agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail', mcp_available: true,
+      feedback: `Attempt ${n} still broken.`,
       subagent_session_id: `flow08-escalate-session-${n}`,
     });
     assert.equal(r.ok, true);
