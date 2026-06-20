@@ -1,5 +1,6 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { execFileSync } from 'node:child_process';
+import { existsSync, realpathSync } from 'node:fs';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
@@ -10,6 +11,8 @@ import type { WorldModelGraph } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveDefaultIssueId } from './discussions.js';
 import { resolveDefaultRepo, resolveRepoForSync } from '../utils/repo-paths.js';
+import { resolve, dirname } from 'node:path';
+import type { PlanTaskInput } from '../types.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
 
@@ -35,6 +38,22 @@ export function parseTaskFiles(filesJson: string | null | undefined): string[] {
     return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : [];
   } catch {
     return [];
+  }
+}
+
+// Read a string plugin_config value (value_json is a JSON-encoded scalar).
+// Returns null when the key is unset or not a non-empty string.
+function readPluginConfigString(db: TrajectoryDB, key: string): string | null {
+  const row = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [key],
+  );
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.value_json) as unknown;
+    return typeof parsed === 'string' && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
   }
 }
 
@@ -435,6 +454,59 @@ export function compositeTools(
       },
     },
     {
+      name: 'plan_task',
+      description:
+        "Bro's atomic planning composite — collapses the pre-SWE setup into one call. DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Git side-effects AFTER the commit: creates the branch ref + worktree (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          issue_id: { type: 'number', description: 'Issue the decision + task belong to.' },
+          branch_id: { type: 'string', description: 'Git-convention branch_id (feat/foo); doubles as the working branch + worktree slug source.' },
+          decision_body: {
+            type: 'string',
+            description: "Bro's chosen approach (what, why, trade-offs) — stored as a kind='decision' discussion to satisfy the decision gate.",
+          },
+          base: {
+            type: 'string',
+            description: "Optional start-point for the branch ref. Defaults to plugin_config pr_target || 'dev'.",
+          },
+          task: {
+            type: 'object',
+            description: 'The single task spec.',
+            properties: {
+              title: { type: 'string' },
+              description: { type: 'string' },
+              spec_body: {
+                type: 'string',
+                description: `Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2.`,
+              },
+              files: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Authoritative allowlist of paths SWE may edit (swe-scope-fence hook).',
+              },
+              verification: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Authoritative shell commands the swe-verification-gate hook runs before SWE may complete.',
+              },
+              repo: {
+                type: 'string',
+                description: 'Optional relative path to this task\'s git repo (no ".." or leading "/"); omit for single-repo CC.',
+              },
+              prompt_bearing: {
+                type: 'number',
+                description: 'Set to 1 when this task intentionally edits prompt-surface files. Default 0.',
+              },
+            },
+            required: ['description', 'spec_body', 'files', 'verification'],
+          },
+        },
+        required: ['agent', 'issue_id', 'branch_id', 'decision_body', 'task'],
+      },
+    },
+    {
       name: 'task_brief',
       description:
         "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch.",
@@ -450,6 +522,236 @@ export function compositeTools(
   ];
 
   const handlers: Record<string, Fn> = {
+    plan_task: requireRoles(
+      'plan_task',
+      ['bro'],
+      wrap(async (args) => {
+        const agent = (args['agent'] as string | undefined) ?? 'bro';
+        const issueId = args['issue_id'];
+        const branchId = args['branch_id'] as string;
+        const decisionBody = args['decision_body'] as string;
+        const task = args['task'] as PlanTaskInput | undefined;
+
+        if (typeof issueId !== 'number' || !Number.isFinite(issueId)) {
+          return err('issue_id must be a number');
+        }
+        if (!branchId || typeof branchId !== 'string') {
+          return err('branch_id must be a non-empty string');
+        }
+        if (!BRANCH_ID_RE.test(branchId)) {
+          return err(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
+        }
+        if (!decisionBody || decisionBody.trim().length === 0) {
+          return err('decision_body must be a non-empty string');
+        }
+        if (!task || typeof task !== 'object') {
+          return err('task must be an object');
+        }
+        if (!task.description || task.description.trim().length === 0) {
+          return err('task.description must be a non-empty string');
+        }
+        if (!task.spec_body || typeof task.spec_body !== 'string') {
+          return err('task.spec_body must be a non-empty string');
+        }
+        if (task.spec_body.length > SPEC_BODY_MAX_BYTES) {
+          return err(
+            `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). ` +
+              `Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`,
+          );
+        }
+        const validateStrArray = (value: unknown, field: 'files' | 'verification'): string[] => {
+          if (!Array.isArray(value) || value.length === 0) {
+            throw new Error(`task.${field} must be a non-empty array of strings.`);
+          }
+          for (const el of value) {
+            if (typeof el !== 'string' || el.trim().length === 0) {
+              throw new Error(`task.${field} entries must each be a non-empty string.`);
+            }
+          }
+          return value as string[];
+        };
+        const files = validateStrArray(task.files, 'files');
+        const verification = validateStrArray(task.verification, 'verification');
+
+        let repoValue: string | null = null;
+        if (task.repo !== undefined && task.repo !== null && task.repo !== '') {
+          if (typeof task.repo !== 'string') return err('task.repo must be a string');
+          if (task.repo.includes('..')) return err(`Invalid repo "${task.repo}": must not contain "..".`);
+          if (task.repo.startsWith('/')) return err(`Invalid repo "${task.repo}": must not start with "/".`);
+          repoValue = task.repo;
+        } else {
+          repoValue = resolveDefaultRepo(db)?.name ?? null;
+        }
+
+        const promptBearing =
+          typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
+
+        // --- DB TRANSACTION (atomic) ---
+        // Write the decision (satisfies the decision gate) + create the single
+        // task via the same INSERT path task_create_batch uses, with the bro
+        // agent_run row + planning_complete audit. The intent/scope/registry/
+        // branch/spec gates are waived internally: this composite IS bro's
+        // atomic planning, so those preconditions are subsumed here. Any DB
+        // error rolls back the whole transaction.
+        const now = nowISO();
+        const result = db.transaction(() => {
+          db.run(
+            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+             VALUES (?, ?, 'decision', ?, ?)`,
+            [issueId, agent, decisionBody, now],
+          );
+
+          db.run(
+            `INSERT INTO tasks
+               (issue_id, branch_id, title, description,
+                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              issueId,
+              branchId,
+              task.title ?? '',
+              task.description,
+              task.spec_body,
+              repoValue,
+              promptBearing,
+              JSON.stringify(files),
+              JSON.stringify(verification),
+              now,
+              now,
+            ],
+          );
+          const row = db.get<{ id: number; branch_id: string }>(
+            'SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()',
+          );
+          if (!row) throw new Error('plan_task: task insert succeeded but row lookup failed');
+
+          db.run(
+            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
+             VALUES (?, ?, 'bro', ?)`,
+            [row.id, issueId, now],
+          );
+
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
+            [
+              issueId,
+              branchId,
+              agent,
+              `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
+              JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
+              now,
+            ],
+          );
+
+          return { task_id: row.id };
+        });
+
+        // --- GIT SIDE-EFFECTS AFTER THE COMMIT (not in the txn) ---
+        // The DB row is the source of truth: a git failure returns
+        // git_setup:'error' + a diagnostic but does NOT roll back the task —
+        // bro can retry the git setup. Idempotent: existing branch/worktree are
+        // reused, not re-created.
+        const slug = branchId.replace(/^[^/]+\//, '');
+        let gitSetup: 'created' | 'reused' | 'error' = 'created';
+        let diagnostic: string | undefined;
+        let worktreePath = '';
+
+        try {
+          // Resolve the repo's on-disk path (repos.path; relative → resolved
+          // against the trajectory DB's directory). Sole-repo fallback already
+          // applied to repoValue above.
+          let repoPath: string | null = null;
+          if (repoValue) {
+            const reposRow = db.get<{ path: string }>(
+              `SELECT path FROM repos WHERE name = ?`,
+              [repoValue],
+            );
+            if (reposRow) {
+              const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
+              repoPath = reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
+            } else {
+              repoPath = repoValue;
+            }
+          }
+          if (!repoPath) {
+            throw new Error(
+              `cannot resolve a repo path for git setup (task.repo='${repoValue ?? ''}'); ` +
+                `pass task.repo or register a single repo`,
+            );
+          }
+
+          const base =
+            (args['base'] as string | undefined) ??
+            (readPluginConfigString(db, 'pr_target') ?? 'dev');
+
+          worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
+
+          // Branch ref: create from origin/<base> only when absent (idempotent).
+          let branchReused = true;
+          try {
+            execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${branchId}`], {
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: SUBPROCESS_TIMEOUT_MS,
+            });
+          } catch {
+            branchReused = false;
+          }
+
+          if (!branchReused) {
+            execFileSync('git', ['-C', repoPath, 'branch', branchId, `origin/${base}`], {
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: SUBPROCESS_TIMEOUT_MS,
+            });
+          }
+
+          // Worktree: add only when absent (idempotent). Match by realpath —
+          // `git worktree list --porcelain` emits canonicalized paths (e.g.
+          // /private/var/… for a /var/… symlink), so a raw string compare
+          // against worktreePath would miss an existing linked worktree and
+          // re-trigger a failing `worktree add`.
+          let worktreeReused = false;
+          if (existsSync(worktreePath)) {
+            const canonicalWt = realpathSync(worktreePath);
+            try {
+              const list = execFileSync('git', ['-C', repoPath, 'worktree', 'list', '--porcelain'], {
+                stdio: ['ignore', 'pipe', 'pipe'],
+                timeout: SUBPROCESS_TIMEOUT_MS,
+              }).toString();
+              worktreeReused = list
+                .split('\n')
+                .some((l) => l.startsWith('worktree ') && l.slice('worktree '.length) === canonicalWt);
+            } catch {
+              worktreeReused = false;
+            }
+          }
+
+          if (!worktreeReused) {
+            execFileSync('git', ['-C', repoPath, 'worktree', 'add', worktreePath, branchId], {
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: WORKTREE_TIMEOUT_MS,
+            });
+          }
+
+          gitSetup = branchReused && worktreeReused ? 'reused' : 'created';
+        } catch (e) {
+          gitSetup = 'error';
+          diagnostic = (e as Error).message;
+        }
+
+        return ok({
+          task_id: result.task_id,
+          branch_id: branchId,
+          repo: repoValue,
+          slug,
+          worktree_path: worktreePath,
+          git_setup: gitSetup,
+          ...(diagnostic ? { diagnostic } : {}),
+        });
+      }),
+    ),
+
     task_brief: requireRoles(
       'task_brief',
       ['bro', 'swe', 'pr-reviewer'],
