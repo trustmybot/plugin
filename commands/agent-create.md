@@ -22,7 +22,7 @@ When `.claude/agents/<name>.md` already exists, read the `tmb_owner` field:
 
 ## Template-copy
 
-Show the template, ask for confirmation (interactive), then write verbatim. Template content is deterministic — reviewed at plugin release. If a follow-on question was provided, scope an issue and spawn via `Agent`.
+Show the template, ask for confirmation (interactive), then write verbatim. If a follow-on question was provided, scope an issue and spawn via `Agent`.
 
 ## From-scratch
 
@@ -30,7 +30,7 @@ Gather the shape in one AskUserQuestion batch (up to 3 questions): role/title, c
 
 ## Headless mode
 
-If `TMB_HEADLESS=1` or AskUserQuestion errors, HALT for any creation that needs Human input. The only auto-approved path is template-copy (content is deterministic). For collision or from-scratch, surface: "Cannot create agent headless — creation requires Human review."
+If `TMB_HEADLESS=1` or AskUserQuestion errors, HALT for any creation that needs Human input. The only auto-approved path is template-copy. For collision or from-scratch, surface: "Cannot create agent headless — creation requires Human review."
 
 ## Edge case — code-writing consultant
 

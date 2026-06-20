@@ -17,7 +17,7 @@ before proceeding.
 
 ## Phase 1 — Setup
 
-Glob `.claude/agents/` and pick 2–4 participants, excluding SWE; halt if fewer than 2 qualify. Open the round with `roundtable_create` (passing the carrier issue, topic, and participant count) and keep the returned `roundtable_id`.
+Glob `.claude/agents/` and pick the 2–4 agents whose domain bears on the topic, excluding SWE; halt if fewer than 2 are relevant. Open the round with `roundtable_create` (passing the carrier issue, topic, and participant count) and keep the returned `roundtable_id`.
 
 ## Phase 2 — Collect (parallel Task spawns)
 
