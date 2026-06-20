@@ -40,6 +40,73 @@ export function parseTaskFiles(filesJson: string | null | undefined): string[] {
   }
 }
 
+// Close-time files[] scope gate (#157): diff the commit's cumulative changed
+// files (baseRef...commitSha, three-dot → auto merge-base) against the task's
+// typed files[] and return the paths NOT covered. Coverage: a files[] entry
+// ending in '/' (or one that resolves to a directory under it) matches any path
+// beneath it (prefix); otherwise an exact path match. `checked:false` + a reason
+// when git can't resolve the repo or commit (caller fails CLOSED).
+export function scopeCheckCommit(
+  repoPath: string,
+  baseRef: string,
+  commitSha: string,
+  files: readonly string[],
+): { outOfScope: string[]; checked: boolean; reason?: string } {
+  let diffOut: string;
+  try {
+    diffOut = execFileSync(
+      'git',
+      ['-C', repoPath, 'diff', '--name-only', `${baseRef}...${commitSha}`],
+      { stdio: ['ignore', 'pipe', 'pipe'], timeout: SUBPROCESS_TIMEOUT_MS },
+    ).toString();
+  } catch (e) {
+    return {
+      outOfScope: [],
+      checked: false,
+      reason: (e as Error).message.split('\n')[0] || 'git diff failed',
+    };
+  }
+
+  const changed = diffOut
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  // Build the coverage matchers. A files[] entry that names a directory (ends in
+  // '/') becomes a prefix matcher; every entry doubles as an exact-path matcher.
+  // filesToDirs gives the per-file parent dirs but we want the entries
+  // themselves, so derive prefixes directly.
+  const exact = new Set<string>();
+  const prefixes: string[] = [];
+  for (const entry of files) {
+    if (entry.endsWith('/')) {
+      prefixes.push(entry);
+    } else {
+      exact.add(entry);
+      prefixes.push(`${entry}/`);
+    }
+  }
+
+  const outOfScope = changed.filter((path) => {
+    if (exact.has(path)) return false;
+    return !prefixes.some((p) => path.startsWith(p));
+  });
+
+  return { outOfScope, checked: true };
+}
+
+// Resolve a task's repo to its on-disk path (repos.path; relative → resolved
+// against the trajectory DB's directory). Sole-repo fallback applies when the
+// task has no explicit repo. Returns null when no repo can be resolved.
+function resolveRepoPath(db: TrajectoryDB, repoValue: string | null): string | null {
+  const name = repoValue && repoValue.length > 0 ? repoValue : resolveDefaultRepo(db)?.name ?? null;
+  if (!name) return null;
+  const reposRow = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = ?`, [name]);
+  if (!reposRow) return name;
+  const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
+  return reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
+}
+
 // Read a string plugin_config value (value_json is a JSON-encoded scalar).
 // Returns null when the key is unset or not a non-empty string.
 function readPluginConfigString(db: TrajectoryDB, key: string): string | null {
@@ -385,6 +452,14 @@ export function compositeTools(
             description:
               'When true and this is the issue\'s last open task, also close the issue in the ' +
               'same transaction.',
+          },
+          waive_scope_gate: {
+            type: 'boolean',
+            description:
+              'When true, SKIP the server-side files[] scope gate (the close-time check that the ' +
+              "commit's changed files all fall within the task's typed files[]) and record a waive " +
+              'note. Use only when closing intentionally outside a resolvable git checkout, or when ' +
+              'the out-of-scope paths are accepted. Default false (gate enforced, fail-closed).',
           },
         },
         required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
@@ -1316,15 +1391,18 @@ export function compositeTools(
         }
 
         const closeIssueIfLast = args['close_issue_if_last_task'] === true;
+        const waiveScopeGate = args['waive_scope_gate'] === true;
 
         const task = db.get<{
           id: number;
           issue_id: number;
           branch_id: string;
+          parent_branch_id: string | null;
           status: string;
           repo: string | null;
+          files: string | null;
         }>(
-          'SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ? LIMIT 1',
+          'SELECT id, issue_id, branch_id, parent_branch_id, status, repo, files FROM tasks WHERE id = ? LIMIT 1',
           [taskId],
         );
         if (!task) return err(`No task with id=${taskId}`);
@@ -1335,7 +1413,49 @@ export function compositeTools(
           );
         }
 
+        // --- Close-time files[] scope gate (#157) ---
+        // Deterministic, un-skippable: diff the commit's cumulative changes
+        // against the task's typed files[] and REFUSE to close on any
+        // out-of-scope path. Fail-CLOSED when the repo/commit can't be resolved.
+        // waive_scope_gate=true skips the gate and records an audit note.
+        // task_recover's shared close path is intentionally NOT gated.
         const now = nowISO();
+
+        if (waiveScopeGate) {
+          db.run(
+            `INSERT INTO audit
+               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`,
+            [
+              task.issue_id,
+              task.branch_id,
+              `bro_atomic_close scope gate waived for task ${task.id}`,
+              JSON.stringify({ skill: 'bro_atomic_close', task_id: task.id, commit_sha: commitSha }),
+              now,
+            ],
+          );
+        } else {
+          const repoPath = resolveRepoPath(db, task.repo);
+          const baseRef = `origin/${task.parent_branch_id || 'dev'}`;
+          const scope = repoPath
+            ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files))
+            : { outOfScope: [], checked: false, reason: `cannot resolve a path for repo '${task.repo ?? ''}'` };
+
+          if (!scope.checked) {
+            return err(
+              `bro_atomic_close scope gate: cannot resolve ${task.repo ?? '<repo>'}@${commitSha} to verify ` +
+                `files[] scope (${scope.reason ?? 'unknown'}). Pass waive_scope_gate=true if this close ` +
+                `is intentional outside a git checkout.`,
+            );
+          }
+          if (scope.outOfScope.length > 0) {
+            return err(
+              `bro_atomic_close scope gate: these committed files are outside the task's files[] fence: ` +
+                `${scope.outOfScope.join(', ')}. Add them to files[] (re-plan) or revert them, then retry. ` +
+                `Pass waive_scope_gate=true to override.`,
+            );
+          }
+        }
 
         const result = db.transaction(() => {
           const { issue_closed } = closeTaskInTx(

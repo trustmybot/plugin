@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tempDB } from './helpers.js';
-import { compositeTools, filesToDirs } from '../tools/composites.js';
+import { compositeTools, filesToDirs, scopeCheckCommit } from '../tools/composites.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';
@@ -417,6 +417,7 @@ describe('bro_atomic_close', () => {
                 commit_sha: 'abc1234',
                 verification_summary: 'ok',
                 close_issue_if_last_task: true,
+                waive_scope_gate: true,
             });
             assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
             assert.equal(parse(r)['issue_closed'], true);
@@ -476,7 +477,7 @@ describe('bro_atomic_close', () => {
             });
             const r = await call(composites.handlers, 'bro_atomic_close', {
                 agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
-                close_issue_if_last_task: true, _spawnFn: spawnFn,
+                close_issue_if_last_task: true, waive_scope_gate: true, _spawnFn: spawnFn,
             });
             assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
             assert.equal(parse(r)['issue_closed'], true);
@@ -484,6 +485,219 @@ describe('bro_atomic_close', () => {
             assert.ok(closeCall, `expected a remote 'issue close' spawn; got ${JSON.stringify(spawnCalls)}`);
             assert.equal(closeCall.cmd, 'gh', 'github remote closes via gh');
             assert.ok(closeCall.args.includes('42'), 'remote close must target gh_iid 42');
+        }
+        finally {
+            db.close();
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+describe('scopeCheckCommit (#157)', () => {
+    it('covers exact paths and dir-prefix entries; flags the rest', () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scopecheck-'));
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        try {
+            git(ws, 'init', '-q', '-b', 'main');
+            git(ws, 'config', 'user.email', 't@t.t');
+            git(ws, 'config', 'user.name', 't');
+            writeFileSync(join(ws, 'seed.txt'), 'seed\n');
+            git(ws, 'add', '.');
+            git(ws, 'commit', '-q', '-m', 'base');
+            git(ws, 'update-ref', 'refs/remotes/origin/dev', git(ws, 'rev-parse', 'HEAD'));
+            mkdirSync(join(ws, 'src'), { recursive: true });
+            mkdirSync(join(ws, 'dist'), { recursive: true });
+            writeFileSync(join(ws, 'src', 'a.ts'), 'a\n');
+            writeFileSync(join(ws, 'dist', 'index.js'), 'i\n');
+            writeFileSync(join(ws, 'rogue.ts'), 'r\n');
+            git(ws, 'add', '.');
+            git(ws, 'commit', '-q', '-m', 'work');
+            const sha = git(ws, 'rev-parse', 'HEAD');
+            const res = scopeCheckCommit(ws, 'origin/dev', sha, ['src/a.ts', 'dist/']);
+            assert.equal(res.checked, true);
+            assert.deepEqual(res.outOfScope, ['rogue.ts'], 'dist/ covers dist/index.js; rogue.ts is out');
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('returns checked:false with a reason when the repo/commit is unresolvable', () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scopecheck-nogit-'));
+        try {
+            const res = scopeCheckCommit(ws, 'origin/dev', 'deadbeef', ['src/a.ts']);
+            assert.equal(res.checked, false);
+            assert.ok(typeof res.reason === 'string' && res.reason.length > 0);
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+describe('bro_atomic_close — scope gate (#157)', () => {
+    // Build a real repo with an origin/dev ref, a base commit, and a work commit
+    // that changes `changedFiles`. Returns the work commit SHA + a DB seeded with
+    // a completed task whose typed files[] is `taskFiles`.
+    async function setup(taskFiles, changedFiles) {
+        const ws = mkdtempSync(join(tmpdir(), 'bac-scope-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        git(repoRoot, 'init', '-q', '-b', 'dev');
+        git(repoRoot, 'config', 'user.email', 't@t.t');
+        git(repoRoot, 'config', 'user.name', 't');
+        writeFileSync(join(repoRoot, 'seed.txt'), 'seed\n');
+        git(repoRoot, 'add', '.');
+        git(repoRoot, 'commit', '-q', '-m', 'base');
+        git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', git(repoRoot, 'rev-parse', 'HEAD'));
+        for (const rel of changedFiles) {
+            const abs = join(repoRoot, rel);
+            mkdirSync(join(abs, '..'), { recursive: true });
+            writeFileSync(abs, `${rel}\n`);
+        }
+        git(repoRoot, 'add', '.');
+        git(repoRoot, 'commit', '-q', '-m', 'work');
+        const sha = git(repoRoot, 'rev-parse', 'HEAD');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+        const issues = issueTools(db, dbPath);
+        const tasks = taskTools(db);
+        const composites = compositeTools(db, dbPath);
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
+            agent: 'bro', objective: 'scope gate', description: 'x',
+        }))['id']));
+        await call(discussions.handlers, 'discussion_append', {
+            agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+        });
+        await call(audit.handlers, 'audit_append', {
+            agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+            from_node: 'bro', branch_id: 'feat/scope', summary: 's',
+        });
+        const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+            agent: 'bro', issue_id: issueId,
+            waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+            tasks: [{ branch_id: 'feat/scope', description: 'd', spec_body: 's', repo: 'app' }],
+        }));
+        const taskId = String(created[0].id);
+        db.run(`UPDATE tasks SET parent_branch_id='dev', files=? WHERE id=?`, [JSON.stringify(taskFiles), taskId]);
+        await call(tasks.handlers, 'task_update_status', {
+            agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha.slice(0, 12),
+        });
+        return {
+            db, composites, taskId, issueId, sha,
+            cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); },
+        };
+    }
+    it('closes when every changed file is within files[]', async () => {
+        const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts']);
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'closed');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('a dir-prefix files[] entry (dist/) covers files beneath it (dist/index.js)', async () => {
+        const { db, composites, taskId, sha, cleanup } = await setup(['dist/'], ['dist/index.js']);
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'closed');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('refuses to close an out-of-scope commit, names the path, leaves the task open', async () => {
+        const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts', 'rogue.ts']);
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+            });
+            assert.equal(r.isError, true);
+            assert.match(parse(r)['error'], /rogue\.ts/);
+            assert.match(parse(r)['error'], /waive_scope_gate=true/);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'completed', 'task stays open when the gate rejects');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('waive_scope_gate=true closes an out-of-scope commit and logs the waive', async () => {
+        const { db, composites, taskId, issueId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts', 'rogue.ts']);
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+                waive_scope_gate: true,
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'closed');
+            const waive = db.get(`SELECT COUNT(*) AS c FROM audit WHERE issue_id = ? AND event_type = 'scope_gate_waived'`, [issueId]);
+            assert.equal(waive.c, 1, 'waive audit note recorded');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('fails closed when the repo/commit cannot be resolved (no git checkout)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'bac-nogit-'));
+        const notARepo = join(ws, 'notgit');
+        mkdirSync(notARepo, { recursive: true });
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [notARepo]);
+        const issues = issueTools(db, dbPath);
+        const tasks = taskTools(db);
+        const composites = compositeTools(db, dbPath);
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        try {
+            const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+                labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'fail closed', description: 'x',
+            }))['id']));
+            await call(discussions.handlers, 'discussion_append', {
+                agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+            });
+            await call(audit.handlers, 'audit_append', {
+                agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+                from_node: 'bro', branch_id: 'feat/fc', summary: 's',
+            });
+            const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+                agent: 'bro', issue_id: issueId,
+                waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+                waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+                tasks: [{ branch_id: 'feat/fc', description: 'd', spec_body: 's', repo: 'app' }],
+            }));
+            const taskId = String(created[0].id);
+            db.run(`UPDATE tasks SET parent_branch_id='dev', files=? WHERE id=?`, [JSON.stringify(['src/a.ts']), taskId]);
+            await call(tasks.handlers, 'task_update_status', {
+                agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abcdef1',
+            });
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: 'abcdef1', verification_summary: 'ok',
+            });
+            assert.equal(r.isError, true, 'fail-closed: unresolvable repo/commit must not silently close');
+            assert.match(parse(r)['error'], /cannot resolve/);
+            assert.match(parse(r)['error'], /waive_scope_gate=true/);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'completed', 'task stays open on fail-closed');
         }
         finally {
             db.close();
