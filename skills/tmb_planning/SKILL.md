@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_tr
 
 ## 1. Verify the world model
 
-Before anything: `world_model_get(depth=2)`. Returns the project's directory tree with README-derived summaries — bro's working mental picture. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` yourself to build it — it's deterministic and needs no Human — then re-read.
+`world_model_get(depth=2)` returns the project's directory tree with README-derived summaries. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` to build it, then re-read.
 
 Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
 
@@ -47,14 +47,12 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 | File layout | Single file until it grows enough to warrant splitting; follow the repo's module structure |
 | Scope of execution | Assume the simplest runtime that satisfies the requirement (e.g. single-user, single-process) unless the spec says otherwise |
 
-**Typed args** on `task_create_batch` carry the machine-read contract; **spec_body markdown** carries the prose bro and swe reason from.
-
-Pass the machine contract on each swe-executed task — the scope fence reads `files[]`, the verification gate reads `verification[]`:
+Pass the typed machine contract on each swe-executed task — the scope fence reads `files[]`, the verification gate reads `verification[]`:
 
 - `files: string[]` — the paths the task touches.
 - `verification: string[]` — runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
 
-Spec body sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
+The `spec_body` markdown carries the prose bro and swe reason from. Its sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
 
 - `## Description` — ≤3 sentences, file paths with line refs, Assumptions bullets
 - `## Success Criteria` — 2–5 testable assertions

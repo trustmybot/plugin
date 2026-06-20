@@ -6,7 +6,7 @@ allowed-tools: Task, AskUserQuestion, mcp__plugin_tmb_trajectory-server
 
 # Push-gate orchestration & comment triage
 
-While pr-reviewer judges each diff against its own spec, you judge the change at the system level: does it fit the architecture, does it disturb a cross-cutting surface (agents, schema, hooks, public API), and is the overall scope right for the system? Carry that lens through both flows below.
+pr-reviewer judges each diff against its own spec; you judge the change at the system level — does it fit the architecture, disturb a cross-cutting surface (agents, schema, hooks, public API), and is the overall scope right?
 
 ## A. Spawning pr-reviewer
 
