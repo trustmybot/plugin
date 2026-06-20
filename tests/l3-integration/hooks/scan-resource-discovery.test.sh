@@ -2,8 +2,9 @@
 # L3: scan resource-discovery (#124/#846).
 # scripts/scan.sh — after the repo/file walk, reconciles locally-present
 # resources (project-local skills, plugins, mcp servers) into the cheatcodes
-# table: each not-already-tracked resource is INSERTed (origin=installed,
-# status=installed, source_url='scan_discovered') + a scan_discovered audit row.
+# table: each not-already-tracked resource is INSERTed with its lifecycle-correct
+# provenance (a local skill is origin=external, source_url='skill:<name>',
+# status=active; #150) + a scan_discovered audit row.
 #
 # Cases:
 #   - a new local skill on disk          → registered + audited
@@ -105,8 +106,8 @@ JSON=$(run_scan "$NOCLAUDE_BIN")
 test_case "scan still emits valid world-model JSON (stdout unchanged)"
 assert_contains "$JSON" '"session_dir"' "scan json"
 
-test_case "new local skill registered as installed/scan_discovered row"
-assert_eq "installed|scan_discovered|installed|.claude/skills/alpha-skill/SKILL.md" \
+test_case "new local skill registered as external/skill:<name> row"
+assert_eq "external|skill:alpha-skill|active|.claude/skills/alpha-skill/SKILL.md" \
   "$(cc_row alpha-skill skill)" "alpha-skill row"
 
 test_case "discovery emits a scan_discovered audit row for the skill"
