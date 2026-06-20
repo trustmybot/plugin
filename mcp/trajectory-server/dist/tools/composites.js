@@ -186,7 +186,7 @@ export function compositeTools(db, dbPath, graph = null) {
             },
         },
         {
-            name: 'task_retry_batch',
+            name: 'task_retry',
             description: "Retry composite — one transaction: reads the failed task, appends rationale, creates a " +
                 "new task inheriting issue_id/parent_branch_id/repo (overridable). Returns the new task row.",
             inputSchema: {
@@ -278,7 +278,7 @@ export function compositeTools(db, dbPath, graph = null) {
             },
         },
         {
-            name: 'reap_and_review_prep',
+            name: 'worktree_commits_fetch',
             description: 'Commit-reap composite — fetches each task\'s worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn.',
             inputSchema: {
                 type: 'object',
@@ -706,7 +706,7 @@ export function compositeTools(db, dbPath, graph = null) {
             }
             return ok({ branch_id: branchId, confidence });
         })),
-        task_retry_batch: requireRoles('task_retry_batch', ['bro'], wrap(async (args) => {
+        task_retry: requireRoles('task_retry', ['bro'], wrap(async (args) => {
             const failedTaskId = args['failed_task_id'];
             const newBranchId = args['new_branch_id'];
             const spec = args['corrected_spec_body'];
@@ -737,7 +737,7 @@ export function compositeTools(db, dbPath, graph = null) {
                 return err(`No task with id=${failedTaskId}`);
             if (failed.status !== 'failed' && failed.status !== 'escalated') {
                 return err(`Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". ` +
-                    `task_retry_batch only operates on terminally-failed tasks.`);
+                    `task_retry only operates on terminally-failed tasks.`);
             }
             if (failed.branch_id === newBranchId) {
                 return err('new_branch_id must differ from the failed task\'s branch_id.');
@@ -960,7 +960,7 @@ export function compositeTools(db, dbPath, graph = null) {
                 isError: !passed,
             };
         })),
-        reap_and_review_prep: requireRoles('reap_and_review_prep', ['bro'], wrap(async (args) => {
+        worktree_commits_fetch: requireRoles('worktree_commits_fetch', ['bro'], wrap(async (args) => {
             const taskIds = args['task_ids'];
             const repoPath = args['repo_path'];
             if (!Array.isArray(taskIds) || taskIds.length === 0) {

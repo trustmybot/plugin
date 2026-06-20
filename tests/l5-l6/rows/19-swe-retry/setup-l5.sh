@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Seeds a failed task + failure discussion. Triggers task_retry_batch composite
+# Seeds a failed task + failure discussion. Triggers task_retry composite
 # + tmb_planning §Step 5 retry.
 set -uo pipefail
 

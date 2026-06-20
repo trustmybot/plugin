@@ -247,7 +247,7 @@ export function compositeTools(
       },
     },
     {
-      name: 'task_retry_batch',
+      name: 'task_retry',
       description:
         "Retry composite — one transaction: reads the failed task, appends rationale, creates a " +
         "new task inheriting issue_id/parent_branch_id/repo (overridable). Returns the new task row.",
@@ -345,7 +345,7 @@ export function compositeTools(
       },
     },
     {
-      name: 'reap_and_review_prep',
+      name: 'worktree_commits_fetch',
       description:
         'Commit-reap composite — fetches each task\'s worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn.',
       inputSchema: {
@@ -860,8 +860,8 @@ export function compositeTools(
       }),
     ),
 
-    task_retry_batch: requireRoles(
-      'task_retry_batch',
+    task_retry: requireRoles(
+      'task_retry',
       ['bro'],
       wrap(async (args) => {
         const failedTaskId = args['failed_task_id'] as string;
@@ -906,7 +906,7 @@ export function compositeTools(
         if (failed.status !== 'failed' && failed.status !== 'escalated') {
           return err(
             `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". ` +
-              `task_retry_batch only operates on terminally-failed tasks.`,
+              `task_retry only operates on terminally-failed tasks.`,
           );
         }
         if (failed.branch_id === newBranchId) {
@@ -1206,8 +1206,8 @@ export function compositeTools(
       }),
     ),
 
-    reap_and_review_prep: requireRoles(
-      'reap_and_review_prep',
+    worktree_commits_fetch: requireRoles(
+      'worktree_commits_fetch',
       ['bro'],
       wrap(async (args) => {
         const taskIds = args['task_ids'] as string[];

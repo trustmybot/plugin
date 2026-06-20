@@ -27854,7 +27854,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
       }
     },
     {
-      name: "task_retry_batch",
+      name: "task_retry",
       description: "Retry composite \u2014 one transaction: reads the failed task, appends rationale, creates a new task inheriting issue_id/parent_branch_id/repo (overridable). Returns the new task row.",
       inputSchema: {
         type: "object",
@@ -27942,7 +27942,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
       }
     },
     {
-      name: "reap_and_review_prep",
+      name: "worktree_commits_fetch",
       description: "Commit-reap composite \u2014 fetches each task's worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn.",
       inputSchema: {
         type: "object",
@@ -28355,8 +28355,8 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         return ok14({ branch_id: branchId, confidence });
       })
     ),
-    task_retry_batch: requireRoles(
-      "task_retry_batch",
+    task_retry: requireRoles(
+      "task_retry",
       ["bro"],
       wrap2(async (args) => {
         const failedTaskId = args["failed_task_id"];
@@ -28391,7 +28391,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         if (!failed) return err14(`No task with id=${failedTaskId}`);
         if (failed.status !== "failed" && failed.status !== "escalated") {
           return err14(
-            `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". task_retry_batch only operates on terminally-failed tasks.`
+            `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". task_retry only operates on terminally-failed tasks.`
           );
         }
         if (failed.branch_id === newBranchId) {
@@ -28644,8 +28644,8 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         };
       })
     ),
-    reap_and_review_prep: requireRoles(
-      "reap_and_review_prep",
+    worktree_commits_fetch: requireRoles(
+      "worktree_commits_fetch",
       ["bro"],
       wrap2(async (args) => {
         const taskIds = args["task_ids"];

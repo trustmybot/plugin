@@ -98,7 +98,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/prompt-intent-hints.sh` |
 | Roundtable capture-surface verification on `roundtable_close` | 2 | `scripts/hooks/roundtable-cleanup-postcheck.sh` |
 | Bro task-close atomic invariants (audit + status + issue close in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:bro_atomic_close` |
-| SWE retry composite (rationale + new task + audit in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:task_retry_batch` |
+| SWE retry composite (rationale + new task + audit in one txn) | 1 (composite) | `mcp/.../tools/composites.ts:task_retry` |
 | `branch_id` derivation from intent | 1 (composite) | `mcp/.../tools/composites.ts:branch_id_propose` |
 
 ## How to add a new enforcement

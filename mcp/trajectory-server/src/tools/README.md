@@ -11,7 +11,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Discussions | `discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
 | Audit | `audit.ts` | `audit_log`, `audit_log_list`, `audit_search` |
 | Validation | `validation.ts` | `validation_record`, `validation_history` |
-| Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `task_provision`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `task_recover`, `bro_verification_fail_record`, `pr_monitor_worktree`, `reap_and_review_prep`, `task_retry_batch` |
+| Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `task_provision`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `task_recover`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`, `task_retry` |
 | Agents | `agents.ts` | `agent_register`, `agent_list`, `agent_resolve` |
 | Skills | `skills.ts` | `skill_register`, `skill_promote` |
 | Cheatcodes | `cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall` |
