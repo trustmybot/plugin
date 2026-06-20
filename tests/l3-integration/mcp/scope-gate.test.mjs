@@ -286,7 +286,7 @@ test('task_create_batch — registry_cold_gate clears after a deep_scan_complete
   });
   assert.equal(issue.ok, true);
 
-  const seed = await call(client, 'audit_log', {
+  const seed = await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: '-1',
     from_node: 'bro',
@@ -393,7 +393,7 @@ test('task_create_batch — intent_gate rejects when no kind=intent discussion e
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
@@ -429,7 +429,7 @@ test('task_create_batch — decision_gate rejects when no kind=decision discussi
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
@@ -465,7 +465,7 @@ test('task_create_batch — decision_gate clears when a kind=decision discussion
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
@@ -521,7 +521,7 @@ test('roundtable_create — slash-invoke gate clears after a /roundtable audit l
   });
   const issueId = issue.data.id;
 
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: '-1',
     from_node: 'system',

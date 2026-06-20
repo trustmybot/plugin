@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _TMB_FALLBACK_ROLES_validation_record='pr-reviewer'
 _TMB_FALLBACK_ROLES_task_update_status='bro,swe'
 _TMB_FALLBACK_ROLES_discussion_append='bro,architect,swe,pr-reviewer'
-_TMB_FALLBACK_ROLES_audit_log='bro,architect,swe,pr-reviewer'
+_TMB_FALLBACK_ROLES_audit_append='bro,architect,swe,pr-reviewer'
 _TMB_FALLBACK_ROLES_issue_close='bro'
 
 _tmb_require_db() {
@@ -45,7 +45,7 @@ _tmb_fallback_check_role() {
   esac
 }
 
-_tmb_fallback_audit_log() {
+_tmb_fallback_audit_append() {
   local db="$1" tool="$2" agent="$3" extra_json="$4"
   local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
   local extra_json_esc; extra_json_esc=$(printf '%s' "$extra_json" | sed "s/'/''/g")
@@ -67,7 +67,7 @@ tmb_fallback_validation_record() {
 INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, created_at)
 VALUES ($task_id, $attempt_n, '$agent', '$verdict', '$feedback_esc', '$ts');
 SQL
-  _tmb_fallback_audit_log "$db" validation_record "$agent" "{\"task_id\":$task_id,\"attempt_n\":$attempt_n,\"verdict\":\"$verdict\"}"
+  _tmb_fallback_audit_append "$db" validation_record "$agent" "{\"task_id\":$task_id,\"attempt_n\":$attempt_n,\"verdict\":\"$verdict\"}"
 }
 
 # tmb_fallback_task_update_status <task_id> <status> <agent> [commit_sha]
@@ -87,7 +87,7 @@ SQL
 UPDATE tasks SET status = '$status', updated_at = '$ts' WHERE id = $task_id;
 SQL
   fi
-  _tmb_fallback_audit_log "$db" task_update_status "$agent" "{\"task_id\":$task_id,\"status\":\"$status\"}"
+  _tmb_fallback_audit_append "$db" task_update_status "$agent" "{\"task_id\":$task_id,\"status\":\"$status\"}"
 }
 
 # tmb_fallback_discussion_append <issue_id> <author> <kind> <body> <agent>
@@ -103,15 +103,15 @@ tmb_fallback_discussion_append() {
 INSERT INTO discussions (issue_id, author, kind, body, created_at)
 VALUES ($issue_id, '$author_esc', '$kind', '$body_esc', '$ts');
 SQL
-  _tmb_fallback_audit_log "$db" discussion_append "$agent" "{\"issue_id\":$issue_id,\"kind\":\"$kind\"}"
+  _tmb_fallback_audit_append "$db" discussion_append "$agent" "{\"issue_id\":$issue_id,\"kind\":\"$kind\"}"
 }
 
-# tmb_fallback_audit_log <issue_id> <branch_id> <from_node> <event_type> <summary> <content> <agent>
-tmb_fallback_audit_log() {
+# tmb_fallback_audit_append <issue_id> <branch_id> <from_node> <event_type> <summary> <content> <agent>
+tmb_fallback_audit_append() {
   local issue_id="$1" branch_id="$2" from_node="$3" event_type="$4" summary="$5" content="$6" agent="$7"
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
-  _tmb_fallback_check_role audit_log "$agent" || return 1
+  _tmb_fallback_check_role audit_append "$agent" || return 1
   local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
   local summary_esc; summary_esc=$(printf '%s' "$summary" | sed "s/'/''/g")
   local content_esc; content_esc=$(printf '%s' "$content" | sed "s/'/''/g")
@@ -120,7 +120,7 @@ tmb_fallback_audit_log() {
 INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
 VALUES ($issue_id, '$branch_esc', '$from_node', '$event_type', '$summary_esc', '$content_esc', '$ts');
 SQL
-  _tmb_fallback_audit_log "$db" audit_log "$agent" "{\"issue_id\":$issue_id,\"event_type\":\"$event_type\"}"
+  _tmb_fallback_audit_append "$db" audit_append "$agent" "{\"issue_id\":$issue_id,\"event_type\":\"$event_type\"}"
 }
 
 # tmb_fallback_issue_close <issue_id> <agent>
@@ -135,6 +135,6 @@ UPDATE issues
 SET status = 'closed', updated_at = '$ts', closed_at = COALESCE(closed_at, '$ts')
 WHERE id = $issue_id;
 SQL
-  _tmb_fallback_audit_log "$db" issue_close "$agent" "{\"issue_id\":$issue_id}"
+  _tmb_fallback_audit_append "$db" issue_close "$agent" "{\"issue_id\":$issue_id}"
 }
 

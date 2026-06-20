@@ -56,7 +56,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   assert.equal(running.ok, true, `status running: ${JSON.stringify(running)}`);
 
   // 3. Log progress during work
-  const progressAudit = await call(client, 'audit_log', {
+  const progressAudit = await call(client, 'audit_append', {
     agent: 'swe',
     issue_id: issueId,
     branch_id: 'feat/swe-test',
@@ -64,10 +64,10 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     event_type: 'swe_progress',
     summary: 'wrote initial handler',
   });
-  assert.equal(progressAudit.ok, true, `audit_log: ${JSON.stringify(progressAudit)}`);
+  assert.equal(progressAudit.ok, true, `audit_append: ${JSON.stringify(progressAudit)}`);
 
   // 4. Audit log for lifecycle event
-  const outputAudit = await call(client, 'audit_log', {
+  const outputAudit = await call(client, 'audit_append', {
     agent: 'swe',
     issue_id: issueId,
     branch_id: 'feat/swe-test',
@@ -75,7 +75,7 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     event_type: 'tool_output_logged',
     summary: 'pytest tests/ — OK: 12 passed',
   });
-  assert.equal(outputAudit.ok, true, `audit_log: ${JSON.stringify(outputAudit)}`);
+  assert.equal(outputAudit.ok, true, `audit_append: ${JSON.stringify(outputAudit)}`);
 
   // 6. Atomic close — status → completed
   const completed = await call(client, 'task_update_status', {

@@ -1010,7 +1010,7 @@ describe('taskTools', () => {
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -1125,7 +1125,7 @@ describe('taskTools', () => {
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -1200,7 +1200,7 @@ describe('taskTools', () => {
         });
         const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-        const auditResult = await call(aTools.handlers, 'audit_log_list', {
+        const auditResult = await call(aTools.handlers, 'audit_list', {
             agent: 'bro',
             issue_id: String(issueId),
         });

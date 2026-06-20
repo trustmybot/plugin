@@ -268,13 +268,13 @@ describe('fields projection — discussion_list (#210)', () => {
   });
 });
 
-describe('fields projection — audit_log_list (#210)', () => {
+describe('fields projection — audit_list (#210)', () => {
   it('fields projection returns only requested columns', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const audit = auditTools(db);
 
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
@@ -282,7 +282,7 @@ describe('fields projection — audit_log_list (#210)', () => {
       summary: 'Plan done',
     });
 
-    const result = await call(audit.handlers, 'audit_log_list', {
+    const result = await call(audit.handlers, 'audit_list', {
       agent: 'bro',
       issue_id: String(issueId),
       fields: ['id', 'event_type', 'summary'],
@@ -302,12 +302,12 @@ describe('fields projection — audit_log_list (#210)', () => {
     db.close();
   });
 
-  it('audit_log_list bare-array shape preserved when no fields projection', async () => {
+  it('audit_list bare-array shape preserved when no fields projection', async () => {
     const db = tempDB();
     const issueId = await createIssue(db);
     const audit = auditTools(db);
 
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
@@ -315,7 +315,7 @@ describe('fields projection — audit_log_list (#210)', () => {
       summary: 'Verified',
     });
 
-    const result = await call(audit.handlers, 'audit_log_list', {
+    const result = await call(audit.handlers, 'audit_list', {
       agent: 'bro',
       issue_id: String(issueId),
     });
@@ -333,7 +333,7 @@ describe('fields projection — audit_log_list (#210)', () => {
     const issueId = await createIssue(db);
     const audit = auditTools(db);
 
-    const result = await call(audit.handlers, 'audit_log_list', {
+    const result = await call(audit.handlers, 'audit_list', {
       agent: 'bro',
       issue_id: String(issueId),
       fields: ['id', 'bad_field'],
@@ -483,7 +483,7 @@ describe('issue_report_md summary mode (#210)', () => {
 
     const audit = auditTools(db);
     for (let i = 1; i <= 8; i++) {
-      await call(audit.handlers, 'audit_log', {
+      await call(audit.handlers, 'audit_append', {
         agent: 'bro',
         issue_id: String(issueId),
         from_node: 'bro',
@@ -527,7 +527,7 @@ describe('issue_report_md summary mode (#210)', () => {
     await createTask(db, issueId);
 
     const audit = auditTools(db);
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
@@ -565,7 +565,7 @@ describe('branch_report_md summary mode (#210)', () => {
 
     const audit = auditTools(db);
     for (let i = 1; i <= 7; i++) {
-      await call(audit.handlers, 'audit_log', {
+      await call(audit.handlers, 'audit_append', {
         agent: 'bro',
         issue_id: String(issueId),
         branch_id: branchId,

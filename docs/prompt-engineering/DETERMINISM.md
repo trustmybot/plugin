@@ -55,7 +55,7 @@ Recognizable by mechanism. **Anything that is *sequencing*, *defaulting*, *const
 | "Validate input matches schema" | MCP tool's input validation |
 | "Enforce file naming convention" | (3) Lint hook |
 | "Ensure committed before push" | (3) Pre-push hook |
-| "Always emit a closing audit_log after task creation" | (2) Composite (`emit_planning_complete=true` flag) |
+| "Always emit a closing audit_append after task creation" | (2) Composite (`emit_planning_complete=true` flag) |
 
 ---
 

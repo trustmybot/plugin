@@ -28,7 +28,7 @@ test('Flow 10 — roundtable_close_with_decisions composite: create→vote→com
   const issueId = issue.data.id;
 
   // 2. Seed a fresh slash-invoke audit row (gate consumed by roundtable_create)
-  const slashSeed = await call(client, 'audit_log', {
+  const slashSeed = await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: issueId,
     from_node: 'system',
@@ -114,7 +114,7 @@ test('Flow 10 — roundtable_close_with_decisions composite: create→vote→com
   assert.ok(summary.outcome, 'outcome must be set');
 
   // 9. Verify the original three tools still work on a separate roundtable (backwards compat)
-  const slashSeed2 = await call(client, 'audit_log', {
+  const slashSeed2 = await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: issueId,
     from_node: 'system',
@@ -160,7 +160,7 @@ test('Flow 10 — roundtable_close_with_decisions composite: create→vote→com
   assert.equal(summarize.data.state, 'closed');
 
   // 10. Gate: composite rejects when state != awaiting_human
-  const slashSeed3 = await call(client, 'audit_log', {
+  const slashSeed3 = await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: issueId,
     from_node: 'system',

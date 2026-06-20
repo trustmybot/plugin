@@ -92,7 +92,7 @@ describe('branchReportMdTools', () => {
     const taskId = await createTask(db, issueId, branchId);
 
     const audit = auditTools(db);
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: branchId,
@@ -290,7 +290,7 @@ describe('branchReportMdTools', () => {
     await createTask(db, issueId, siblingBranch);
 
     const audit = auditTools(db);
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: targetBranch,
@@ -299,7 +299,7 @@ describe('branchReportMdTools', () => {
       event_type: 'task_started',
       summary: 'Started target branch work',
     });
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: siblingBranch,

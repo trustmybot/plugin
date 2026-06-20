@@ -1,7 +1,7 @@
 // Flow 2 — Simple Task (FLOWS.md §2)
 //
 // Trajectory: bro triages simple → issue_create → discussion (intent + triage) →
-// task_create_batch + audit_log(planning_complete) → SWE returns
+// task_create_batch + audit_append(planning_complete) → SWE returns
 // (task_update_status='completed') → bro verifies (no validation row at task close;
 // pr-reviewer fires only at push gate) → bro flips task to 'closed' → issue_close.
 //
@@ -63,12 +63,12 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
   assert.ok(taskId, `no task id returned: ${JSON.stringify(batch.data)}`);
 
-  const planning = await call(client, 'audit_log', {
+  const planning = await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, branch_id: 'feat/hello',
     from_node: 'bro',
     event_type: 'planning_complete', summary: 'Triage simple. Spec authored for task_id=' + taskId,
   });
-  assert.equal(planning.ok, true, `audit_log: ${JSON.stringify(planning)}`);
+  assert.equal(planning.ok, true, `audit_append: ${JSON.stringify(planning)}`);
 
   // 4. SWE picks up the task: read spec → mark running
   const taskRead = await call(client, 'task_get', { agent: 'swe', task_id: taskId, include_spec_body: true });
@@ -117,7 +117,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(finalTask.data.commit_sha, 'aaaaaaa1111111111111111111111111111aaaaa');
 
   // audit event recorded
-  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId });
+  const audit = await call(client, 'audit_list', { agent: 'bro', issue_id: issueId });
   assert.equal(audit.ok, true);
   assert.ok(audit.data.some(e => e.event_type === 'planning_complete'),
     'planning_complete event must land in audit');

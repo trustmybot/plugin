@@ -19,6 +19,6 @@
 | Scorer | What it asserts |
 |---|---|
 | `outcome.sql` | Audit has `config_changed` OR `/onboard` routing |
-| `tools-required.json` | `audit_log` |
+| `tools-required.json` | `audit_append` |
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` |
 | `cost-budget.json` | Tight 40K / 60s |

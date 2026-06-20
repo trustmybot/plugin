@@ -92,7 +92,7 @@ sequenceDiagram
     and
         B->>S: spawn Task(swe, isolation='worktree', task_id=N) [hooks: require-task-spec verifies; worktree-create adds the worktree]
     and
-        B->>DB: audit_log(event_type='planning_complete')
+        B->>DB: audit_append(event_type='planning_complete')
     end
 
     Note over S: arrives already inside the hook-created worktree
@@ -212,7 +212,7 @@ Triggered four ways (the `source` value is verified against `scan.ts`):
 
 ## 8. SWE retry / escalation
 
-Triggered when bro V1/V2/V3 fails OR pr-reviewer verdict='fail'. Bro uses the `task_retry` MCP composite — one transaction inserts: a `discussion_append(kind='note', body='retry rationale: ...')`, a new `tasks` row keyed off the failed task's branch, and an `audit_log(event_type='swe_retry_spawned')`. Then spawns SWE on the new task.
+Triggered when bro V1/V2/V3 fails OR pr-reviewer verdict='fail'. Bro uses the `task_retry` MCP composite — one transaction inserts: a `discussion_append(kind='note', body='retry rationale: ...')`, a new `tasks` row keyed off the failed task's branch, and an `audit_append(event_type='swe_retry_spawned')`. Then spawns SWE on the new task.
 
 After 3 consecutive retries, bro flips status to `escalated` and surfaces to Human (CLAUDE.md routing — judgment-bound).
 

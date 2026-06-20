@@ -43,11 +43,11 @@ async function createTask(db, issueId, branchId = 'feat/test-task') {
     return parseBatch(result)[0].id;
 }
 describe('auditTools', () => {
-    it('audit_log stores small content_json intact', async () => {
+    it('audit_append stores small content_json intact', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -62,12 +62,12 @@ describe('auditTools', () => {
         assert.equal(row.content_json, JSON.stringify({ cmd: 'echo hi' }));
         db.close();
     });
-    it('audit_log rejects content_json > 1 MB with a named error', async () => {
+    it('audit_append rejects content_json > 1 MB with a named error', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
         const bigContent = JSON.stringify({ blob: 'x'.repeat(2_000_000) });
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -81,13 +81,13 @@ describe('auditTools', () => {
         db.close();
     });
     // Slim contract — audit is event-only. `kind` and `is_truncated` are gone
-    // from the schema; the audit_log handler must not surface them on output
+    // from the schema; the audit_append handler must not surface them on output
     // rows. Verify both via PRAGMA + the returned row shape.
     it('audit table has no kind or is_truncated columns after the slim cleanup', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -104,29 +104,29 @@ describe('auditTools', () => {
         assert.ok(!present.has('is_truncated'), 'audit.is_truncated must be dropped from the schema');
         db.close();
     });
-    it('audit_log returns ok and audit row exists even when embed returns null (no model in CI)', async () => {
+    it('audit_append returns ok and audit row exists even when embed returns null (no model in CI)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
             event_type: 'embed_await_test',
             summary: 'embedding await test',
         });
-        assert.ok(!result.isError, `audit_log must succeed: ${JSON.stringify(parseResult(result))}`);
+        assert.ok(!result.isError, `audit_append must succeed: ${JSON.stringify(parseResult(result))}`);
         const row = parseResult(result);
         assert.equal(row.event_type, 'embed_await_test');
         const auditRow = db.get('SELECT id FROM audit WHERE id = ?', [row.id]);
         assert.ok(auditRow, 'audit row must be persisted before tool returns');
         db.close();
     });
-    it('audit_log returns ok when embedAndStore rejects (embed error does not propagate)', async () => {
+    it('audit_append returns ok when embedAndStore rejects (embed error does not propagate)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const r1 = await call(tools.handlers, 'audit_log', {
+        const r1 = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -134,7 +134,7 @@ describe('auditTools', () => {
             summary: 'first call primes loadFailed state',
         });
         assert.ok(!r1.isError, 'first call must succeed');
-        const r2 = await call(tools.handlers, 'audit_log', {
+        const r2 = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -428,7 +428,7 @@ describe('reportTools', () => {
         const issueId = await createIssue(db);
         await createTask(db, issueId);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'swe',

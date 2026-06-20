@@ -110,7 +110,7 @@ describe('task_retry', () => {
       kind: 'question',
       body: 'scope?',
     });
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: issueId,
       kind: 'event',
@@ -182,7 +182,7 @@ describe('task_retry', () => {
     await call(discussions.handlers, 'discussion_append', {
       agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
     });
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
       from_node: 'bro', branch_id: 'fix/x', summary: 's',
     });
@@ -222,7 +222,7 @@ describe('task_retry', () => {
     await call(discussions.handlers, 'discussion_append', {
       agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
     });
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
       from_node: 'bro', branch_id: 'fix/base', summary: 's',
     });
@@ -303,7 +303,7 @@ describe('task_retry', () => {
     });
 
     const mkBranch = async (branch: string) => {
-      await call(audit.handlers, 'audit_log', {
+      await call(audit.handlers, 'audit_append', {
         agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
         from_node: 'bro', branch_id: branch, summary: 's',
       });
@@ -368,7 +368,7 @@ describe('bro_atomic_close', () => {
     await call(discussions.handlers, 'discussion_append', {
       agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
     });
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
       from_node: 'bro', branch_id: 'fix/x', summary: 's',
     });
@@ -457,7 +457,7 @@ describe('bro_atomic_close', () => {
       await call(discussions.handlers, 'discussion_append', {
         agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
       });
-      await call(audit.handlers, 'audit_log', {
+      await call(audit.handlers, 'audit_append', {
         agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
         from_node: 'bro', branch_id: 'fix/closed-at', summary: 's',
       });
@@ -533,7 +533,7 @@ describe('bro_atomic_close', () => {
       await call(discussions.handlers, 'discussion_append', {
         agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
       });
-      await call(audit.handlers, 'audit_log', {
+      await call(audit.handlers, 'audit_append', {
         agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
         from_node: 'bro', branch_id: 'fix/remote-close', summary: 's',
       });
@@ -589,7 +589,7 @@ describe('task_recover', () => {
     await call(discussions.handlers, 'discussion_append', {
       agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
     });
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
       from_node: 'bro', branch_id: 'fix/recover', summary: 's',
     });
@@ -782,7 +782,7 @@ describe('bro_verification_fail_record', () => {
     await call(discussions.handlers, 'discussion_append', {
       agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
     });
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
       from_node: 'bro', branch_id: 'fix/fail-rec', summary: 's',
     });
@@ -1113,7 +1113,7 @@ describe('intent_start (#426)', () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
-    // Poison the audit table so the 4th write (audit_log) throws.
+    // Poison the audit table so the 4th write (audit_append) throws.
     db.run(`DROP TABLE audit`);
 
     const r = await call(composites.handlers, 'intent_start', {
