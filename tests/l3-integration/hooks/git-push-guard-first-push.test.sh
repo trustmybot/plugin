@@ -77,8 +77,8 @@ insert_task() {
 sign_task() {
   local db="$1" task_id="$2"
   sqlite3 "$db" "
-    INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, created_at)
-      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 'MCP available: yes' || char(10) || 'LGTM', datetime('now'));
+    INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 1, 'LGTM', datetime('now'));
   " >/dev/null
 }
 

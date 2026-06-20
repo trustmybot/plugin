@@ -13,13 +13,14 @@ WHERE va.verdict = 'pass'
   AND va.agent = 'pr-reviewer'
   AND va.task_id IS NOT NULL;
 
--- The signoff feedback must start with the load-bearing MCP-availability
--- prefix (#97 — schema CHECK enforces; this assertion is belt-and-suspenders
--- so a regressed feedback is caught at the eval layer too).
+-- The signoff carries the load-bearing MCP-availability signal in the typed
+-- mcp_available column (1 = MCP up, 0 = honor-system fallback). The
+-- validation_record precondition enforces it at write time; this assertion is
+-- belt-and-suspenders so a regressed row is caught at the eval layer too.
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
-  'feedback has MCP-availability prefix (got ' || COUNT(*) || ', expected ≥1)' AS description
+  'signoff carries typed mcp_available signal (got ' || COUNT(*) || ', expected ≥1)' AS description
 FROM validation_attempts va
 WHERE va.agent = 'pr-reviewer'
   AND va.verdict = 'pass'
-  AND (va.feedback LIKE 'MCP available: yes%' OR va.feedback LIKE 'MCP available: no — honor-system fallback%');
+  AND va.mcp_available = 1;
