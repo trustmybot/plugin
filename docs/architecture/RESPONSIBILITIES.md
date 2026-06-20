@@ -145,7 +145,7 @@ Frontmatter: `model: opus`, `tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tm
 - Fires at **push time** over a batch of unsigned tasks (NOT per individual task close).
 - Bro spawns one pr-reviewer per unsigned `task_id=<N>` (parallel siblings when the push contains multiple).
 - First action: `task_get(agent='pr-reviewer', task_id=N)`. Reject spawn if `task_id` missing.
-- **MCP availability self-test** — first line of `validation_record.feedback` is `MCP available: yes` or `MCP available: no — honor-system fallback`. Schema CHECK enforces (`validation_attempts.feedback`); push-gate parses this prefix.
+- **MCP availability self-test** — pass the typed `mcp_available` boolean to `validation_record` (`true` = MCP up, `false` = honor-system fallback). It lands in the `validation_attempts.mcp_available` column; the push-gate reads the typed field from the row.
 
 ### Review work
 

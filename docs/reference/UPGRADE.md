@@ -216,11 +216,11 @@ The plugin ships one global pr-reviewer; it is the recommended reviewer. Claude 
 
 ### Verifying MCP is wired up
 
-When pr-reviewer writes its verdict, the first line of `feedback` will be `MCP available: yes` (path 1) instead of `MCP available: no — honor-system fallback` (path 2). Query the DB to confirm:
+When pr-reviewer writes its verdict, the typed `mcp_available` column is `1` (path 1, MCP-backed) instead of `0` (path 2, honor-system). Query the DB to confirm:
 
 ```bash
 sqlite3 <workspace>/.claude/tmb/trajectory.db \
-  "SELECT feedback FROM validation_attempts ORDER BY id DESC LIMIT 1;"
+  "SELECT mcp_available, verdict FROM validation_attempts ORDER BY id DESC LIMIT 1;"
 ```
 
 ---
