@@ -6,7 +6,7 @@ Reference for the interactive UI tools Claude Code exposes. Both bro (when decid
 
 | Primitive | UI rendered | Bro can call directly? | Non-interactive behavior |
 |---|---|---|---|
-| `AskUserQuestion` | Multi-choice picker (TUI form) | Yes — anywhere | No Human to answer → `tmb_recovery` skill applies the documented default |
+| `AskUserQuestion` | Multi-choice picker (TUI form) | Yes — anywhere | No Human to answer → the call errors; bro surfaces it |
 | `ExitPlanMode` | Plan-approval modal (accept / reject) | Only inside Plan Mode | Renders as text + binary prompt |
 | `EnterPlanMode` | None — toggles state only | Yes | State toggle only |
 | Permission prompts | Inline approve/deny when a tool needs auth | No — auto-rendered | Auto-approves if `defaultMode: "auto"` |
