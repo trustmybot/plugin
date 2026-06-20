@@ -33,7 +33,7 @@ Cheatcode reuse and codify take their own path — the `tmb_cheatcode` lifecycle
 
 When a remote is configured, ask the Human which branch to base the new feature branch on — offer the configured `pr_target`, the current branch, and 1–3 prominent local branches. Choosing `pr_target` means check it out and bring it up to date with the remote; any other choice means switch and leave it as-is.
 
-Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. Create the git branch locally afterward.
+Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. (The git branch is created later by `plan_task` in §5 — don't create it here.)
 
 ## 4. Author the spec
 
@@ -59,11 +59,11 @@ The `spec_body` markdown carries the prose bro and swe reason from. Its sections
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
-Before `task_create_batch`: `discussion_append(issue_id, author='bro', kind='decision', body='<chosen approach>')`.
+The chosen approach and the task spec both feed the single `plan_task` call in §5 — the `decision_body` argument carries the decision, the `task` argument carries this spec. No separate `discussion_append` or `task_create_batch` step.
 
 ### Architectural changes
 
-When the change does any of the following, record it as a `kind='decision'` discussion — `discussion_append(issue_id, author='bro', kind='decision', body='<decision + rationale>')` — and apply the blast-radius check. The trajectory IS the record; there's no separate document to author:
+When the change does any of the following, capture the decision + rationale in the `plan_task` `decision_body` and apply the blast-radius check. The trajectory IS the record; there's no separate document to author:
 
 - Introduces a new service boundary or top-level module
 - Modifies a public API surface
@@ -75,20 +75,18 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 ## 5. Spawn SWE
 
-Create the tasks with `task_create_batch`, passing the typed `files[]` and `verification[]` for each swe-executed task and asking it to emit the planning-complete event in the same transaction.
+Call `plan_task(issue_id, branch_id, decision_body, task, base?)` — one atomic composite that writes the `kind='decision'` discussion, creates the task (with the typed `files[]` and `verification[]` from §4), creates the git branch, and creates the worktree. It returns `{task_id, branch_id, worktree_path, ...}` — the branch and worktree already exist, so the spawn contract is guaranteed.
 
-Then run the worktree hook per branch and spawn SWE per task.
+Then spawn SWE with the `task_id` it returned.
 
-The batch response includes `parallel_groups` — tasks in the same group are safe to spawn in parallel.
+When a slice needs more than one task, call `plan_task` per task; the responses carry `parallel_groups` — tasks in the same group are safe to spawn in parallel.
 
 ### Spawning SWE
 
-The Agent PreToolUse gates enforce a spawn contract — get all four right or the first spawn is denied:
+The Agent PreToolUse gate enforces the spawn contract:
 
-- The spawn prompt MUST contain the literal `task_id=<N>` — a bare `task_id 5` without `=` fails the gate.
-- Pre-create the feature branch before spawning: `git -C <repo> branch <branch> origin/<base>`. Required even when the task-create branch gate was waived — waiving the DB gate doesn't create the git ref.
-- The task must be `pending`/`open` with a non-empty `spec_body`.
-- The worktree is auto-created by the spawn hook — don't `EnterWorktree` manually.
+- The spawn prompt MUST contain the literal `task_id=<N>` — using the id `plan_task` returned. A bare `task_id 5` without `=` fails the gate.
+- The task is already `pending` with a non-empty `spec_body`, and the branch + worktree exist — all created by `plan_task`.
 
 ## 6. Verify on SWE return + atomic close
 
