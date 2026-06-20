@@ -27,7 +27,7 @@ This loads when the push guard blocks unsigned commits, or when the Human asks t
 
 ### Reap commits → local feature branch
 
-`reap_and_review_prep` fetches each unsigned task's detached HEAD into the main checkout and reports per task whether the reap landed.
+`worktree_commits_fetch` fetches each unsigned task's detached HEAD into the main checkout and reports per task whether the fetch landed.
 
 ### Spawn pr-reviewer per unsigned task (parallel)
 

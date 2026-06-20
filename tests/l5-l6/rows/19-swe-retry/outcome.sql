@@ -1,5 +1,5 @@
 -- 19-swe-retry: pre-seed has a failed task + concern discussion. Bro should
--- call the task_retry_batch composite (tmb_planning §Step 5 retry path),
+-- call the task_retry composite (tmb_planning §Step 5 retry path),
 -- which emits a task_retry_attempted audit event in the same transaction
 -- as the new task insert and the discussion(kind='decision') append.
 
@@ -13,7 +13,7 @@ SELECT
   'discussions-grew-after-retry (got ' || COUNT(*) || ', expected ≥ 2)' AS description
 FROM discussions;
 
--- task_retry_batch composite emits this audit event atomically with the
+-- task_retry composite emits this audit event atomically with the
 -- new task insert. Presence proves bro used the composite (not a manual
 -- multi-call retry recipe that could drop the audit row).
 SELECT

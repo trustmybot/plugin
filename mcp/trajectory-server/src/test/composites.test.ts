@@ -84,7 +84,7 @@ describe('branch_id_propose', () => {
   });
 });
 
-describe('task_retry_batch', () => {
+describe('task_retry', () => {
   it('clones a failed task with corrected spec, links rationale + audit', async () => {
     const db = tempDB();
     const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -142,7 +142,7 @@ describe('task_retry_batch', () => {
       status: 'failed',
     });
 
-    const retry = await call(composites.handlers, 'task_retry_batch', {
+    const retry = await call(composites.handlers, 'task_retry', {
       agent: 'bro',
       failed_task_id: failedId,
       new_branch_id: 'fix/initial-v2',
@@ -194,7 +194,7 @@ describe('task_retry_batch', () => {
     }));
     const id = String(created[0]!.id);
 
-    const r = await call(composites.handlers, 'task_retry_batch', {
+    const r = await call(composites.handlers, 'task_retry', {
       agent: 'bro',
       failed_task_id: id,
       new_branch_id: 'fix/x-v2',
@@ -238,7 +238,7 @@ describe('task_retry_batch', () => {
     await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: failedId, status: 'failed' });
 
     // With repo override: new task carries the override ('plugin').
-    const retryWithOverride = await call(composites.handlers, 'task_retry_batch', {
+    const retryWithOverride = await call(composites.handlers, 'task_retry', {
       agent: 'bro', failed_task_id: failedId, new_branch_id: 'fix/base-v2',
       corrected_spec_body: 'fixed', retry_rationale: 'wrong repo; switch to plugin', description: 'd',
       repo: 'plugin',
@@ -250,7 +250,7 @@ describe('task_retry_batch', () => {
 
     // Without repo override: new task inherits 'plugin' from the previous task.
     await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: String(newId), status: 'failed' });
-    const retryInherited = await call(composites.handlers, 'task_retry_batch', {
+    const retryInherited = await call(composites.handlers, 'task_retry', {
       agent: 'bro', failed_task_id: String(newId), new_branch_id: 'fix/base-v3',
       corrected_spec_body: 'fixed again', retry_rationale: 'another attempt', description: 'd',
     });
@@ -265,7 +265,7 @@ describe('task_retry_batch', () => {
   it('#474: repo override rejects ".." in path', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-    const r = await call(composites.handlers, 'task_retry_batch', {
+    const r = await call(composites.handlers, 'task_retry', {
       agent: 'bro', failed_task_id: '1', new_branch_id: 'fix/x-v2',
       corrected_spec_body: 's', retry_rationale: 'r', description: 'd',
       repo: '../etc/passwd',
@@ -277,7 +277,7 @@ describe('task_retry_batch', () => {
   it('#474: repo override rejects leading "/"', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-    const r = await call(composites.handlers, 'task_retry_batch', {
+    const r = await call(composites.handlers, 'task_retry', {
       agent: 'bro', failed_task_id: '1', new_branch_id: 'fix/x-v2',
       corrected_spec_body: 's', retry_rationale: 'r', description: 'd',
       repo: '/absolute/path',
@@ -324,7 +324,7 @@ describe('task_retry_batch', () => {
     const retryFrom = async (failedId: string, newBranch: string): Promise<string> => {
       await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: failedId, status: 'failed' });
       await mkBranch(newBranch);
-      const r = await call(composites.handlers, 'task_retry_batch', {
+      const r = await call(composites.handlers, 'task_retry', {
         agent: 'bro', failed_task_id: failedId, new_branch_id: newBranch,
         corrected_spec_body: 's', retry_rationale: 'new approach', description: 'd',
       });
@@ -340,7 +340,7 @@ describe('task_retry_batch', () => {
     await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: id3, status: 'failed' });
     await mkBranch('fix/cap-v5');
 
-    const denied = await call(composites.handlers, 'task_retry_batch', {
+    const denied = await call(composites.handlers, 'task_retry', {
       agent: 'bro', failed_task_id: id3, new_branch_id: 'fix/cap-v5',
       corrected_spec_body: 's', retry_rationale: 'fourth retry', description: 'd',
     });
@@ -889,11 +889,11 @@ describe('pr_monitor_worktree', () => {
   });
 });
 
-describe('reap_and_review_prep', () => {
+describe('worktree_commits_fetch', () => {
   it('rejects non-bro caller', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-    const r = await call(composites.handlers, 'reap_and_review_prep', {
+    const r = await call(composites.handlers, 'worktree_commits_fetch', {
       agent: 'swe', task_ids: ['1'], repo_path: '/tmp',
     });
     assert.equal(r.isError, true);
@@ -903,7 +903,7 @@ describe('reap_and_review_prep', () => {
   it('rejects empty task_ids', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-    const r = await call(composites.handlers, 'reap_and_review_prep', {
+    const r = await call(composites.handlers, 'worktree_commits_fetch', {
       agent: 'bro', task_ids: [], repo_path: '/tmp',
     });
     assert.equal(r.isError, true);
@@ -913,7 +913,7 @@ describe('reap_and_review_prep', () => {
   it('rejects relative repo_path', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-    const r = await call(composites.handlers, 'reap_and_review_prep', {
+    const r = await call(composites.handlers, 'worktree_commits_fetch', {
       agent: 'bro', task_ids: ['1'], repo_path: 'relative',
     });
     assert.equal(r.isError, true);
@@ -923,7 +923,7 @@ describe('reap_and_review_prep', () => {
   it('surfaces a missing task as isError with the raw id preserved (#283)', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-    const r = await call(composites.handlers, 'reap_and_review_prep', {
+    const r = await call(composites.handlers, 'worktree_commits_fetch', {
       agent: 'bro', task_ids: ['99999'], repo_path: '/tmp',
     });
     // A failed reap must not read as success (#283): isError + all_reaped=false.
@@ -968,7 +968,7 @@ describe('reap_and_review_prep', () => {
       const taskId = String(db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id);
 
       const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
-      const r = await call(composites.handlers, 'reap_and_review_prep', {
+      const r = await call(composites.handlers, 'worktree_commits_fetch', {
         agent: 'bro', task_ids: [taskId], repo_path: repoRoot,
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
@@ -1027,7 +1027,7 @@ describe('reap_and_review_prep', () => {
       const taskId = String(db.get<{ id: number }>('SELECT last_insert_rowid() AS id')!.id);
 
       const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
-      const r = await call(composites.handlers, 'reap_and_review_prep', {
+      const r = await call(composites.handlers, 'worktree_commits_fetch', {
         agent: 'bro', task_ids: [taskId], repo_path: repoRoot,
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
