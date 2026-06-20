@@ -52,7 +52,7 @@ Lead the chat with the rationale — what the cheatcode does, its tier, and the 
 
 ## Decide the consuming agent
 
-`target` is the agent that will USE the cheatcode. For a **skill**, pass `target=<agent>` or the install fails; a `kind=mcp` server (or pure-server plugin) needs no target — its registration is the attachment, callable by any agent.
+`target` is the agent that will USE the cheatcode. For a **skill**, pass `target=<agent>`; a `kind=mcp` server (or pure-server plugin) needs no target — its registration is the attachment, callable by any agent.
 
 If the Human named the agent — "install X for swe", "code-review for pr-reviewer" — use it. Otherwise infer from the cheatcode's domain: coding / test / refactor / debug → `swe`; code-review / quality → `pr-reviewer`; orchestration / routing / planning → `bro`; a consultant's domain → that consultant. Reach for AskUserQuestion only when it's genuinely ambiguous.
 
