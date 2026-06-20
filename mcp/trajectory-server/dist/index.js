@@ -21875,6 +21875,7 @@ function migrateV23toV24(db2) {
   db2.exec("BEGIN");
   try {
     db2.exec(`
+      -- LINT-ALLOW: v23\u2192v24 WHERE-scoped cleanup of leaked scan-ingest rows (#150).
       DELETE FROM cheatcodes
        WHERE source_url = 'scan_discovered'
          AND (

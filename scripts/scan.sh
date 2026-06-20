@@ -361,7 +361,7 @@ SQL
       # plugins: one TSV line per entry → name<TAB>ref<TAB>status. jq splits the
       # id on '@' and maps enabled→active/installed; the shell loop validates +
       # inserts. A blank name (malformed id) is dropped by _valid_name.
-      local pline pname pref pstatus
+      local pname pref pstatus
       while IFS=$'\t' read -r pname pref pstatus; do
         [ -n "$pname" ] || continue
         _register plugin "$pname" "" marketplace "$pref" "$pstatus"

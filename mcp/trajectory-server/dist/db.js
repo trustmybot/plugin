@@ -1316,6 +1316,7 @@ function migrateV23toV24(db) {
         // Charset gate + header-word denylist. Builtins (origin='builtin') are never
         // 'scan_discovered', so this only touches leaked acquired rows.
         db.exec(`
+      -- LINT-ALLOW: v23→v24 WHERE-scoped cleanup of leaked scan-ingest rows (#150).
       DELETE FROM cheatcodes
        WHERE source_url = 'scan_discovered'
          AND (
