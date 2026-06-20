@@ -52,8 +52,8 @@ for hook in "${HOOKS[@]}"; do
 done
 
 # PREPARE step — all gates passed. Deterministically create swe's worktree at
-# the canonical slug so the headless path is isolated and the verification gate
-# finds the right slug. Fail-open: never denies the spawn.
+# the canonical slug so the non-interactive `claude -p` path is isolated and the
+# verification gate finds the right slug. Fail-open: never denies the spawn.
 PREPARE="$SCRIPT_DIR/ensure-swe-worktree.sh"
 if [ -x "$PREPARE" ]; then
   printf '%s' "$INPUT" | bash "$PREPARE" >/dev/null 2>&1 || true

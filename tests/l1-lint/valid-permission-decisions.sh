@@ -2,7 +2,7 @@
 # Lint: PreToolUse hook outputs must use permissionDecision allow|deny|ask.
 # CC schema-rejects other values (e.g. legacy "block"); a rejected output
 # marks the hook errored, which FAILS OPEN under -p --dangerously-skip-
-# permissions — the gate silently stops gating in headless sessions.
+# permissions — the gate silently stops gating in non-interactive sessions.
 
 set -euo pipefail
 

@@ -1,5 +1,5 @@
 {
   "max_turns": 1,
   "user_after_bro": [],
-  "terminal_pattern": "skill|created|blocked|headless|PR description"
+  "terminal_pattern": "skill|created|blocked|PR description"
 }

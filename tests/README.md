@@ -107,7 +107,7 @@ bun test tests/l4-workflow-sim/*.test.mjs
 L5 drives real Claude Code through one pre-seeded flow and asserts the MCP/tool sequence + DB state matches doctrine. See [`EVALUATION.md`](./EVALUATION.md) for the scorer model and the TODO-CLI journey table.
 
 ```bash
-# One-time: set the headless auth token
+# One-time: set the auth token for non-interactive `claude -p`
 export CLAUDE_CODE_OAUTH_TOKEN="<your-cc-oauth-token>"
 
 # Run all flows

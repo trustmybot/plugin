@@ -13,7 +13,7 @@ The Claude Code lifecycle hook engine — the deterministic enforcement layer th
 ### PreToolUse — gates (deny on violation)
 Git: `git-guards.sh`, `git-push-guard.sh`, `no-remote-auth-guard.sh`, `stay-on-base-guard.sh`, `no-source-edit-from-main.sh`, `no-worktree-branch-create.sh`, `branch-up-to-date-with-remote.sh`, `commit-msg-lint.sh`. The git guards are **registration-scoped**: they resolve the command's cwd git-root to a `repos` row (via `lib/resolve-repo.sh`) and only enforce on a registered repo — unregistered sibling trees no-op. `protected_branches` is read per-repo (`repos.protected_branches`) with the global `plugin_config` value as fallback. See [`docs/architecture/REPO_RESOLUTION.md`](../../docs/architecture/REPO_RESOLUTION.md).
 Agent dispatch: `agent-spawn-dispatch.sh`, `swe-brief-gate.sh`, `swe-verification-gate.sh`, `swe-boundary.sh`, `swe-scope-fence.sh`.
-AUQ / roundtable / cheatcode: `askuserquestion-length-lint.sh`, `auq-headless-deny.sh`, `roundtable-auq-shape.sh`, `cheatcode-install-approval.sh`.
+AUQ / roundtable / cheatcode: `askuserquestion-length-lint.sh`, `roundtable-auq-shape.sh`, `cheatcode-install-approval.sh`.
 Lint: `naming-lint.sh`, `code-quality-lint.sh`, `debug-trajectory.sh`.
 
 ### PostToolUse — reactions after a tool succeeds

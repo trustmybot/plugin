@@ -6,11 +6,10 @@
 
 **Trigger**: `@bro I want to switch to gitflow — what's the right way to reconfigure?`
 
-**Expected behavior** (headless-aware):
+**Expected behavior**:
 1. Bro recognises config-change trigger
-2. Loads `/onboard slash command`
-3. Skill calls `AskUserQuestion`
-4. **In headless mode (L5)**: AUQ errors → `tmb_recovery §A` records `headless_reonboard_blocked` audit event. (Interactive: `config_set` writes new value + `config_changed` event.)
+2. Routes the Human to `/onboard` (a Human-triggered slash command — bro doesn't fire it itself)
+3. **In test mode**: bro doesn't call AUQ; the documented default is to tell the Human to run `/onboard`, recorded as an audit/discussion `/onboard` mention. (Interactive: `/onboard`'s AUQ → `config_set` writes the new value + `config_changed` event.)
 
 **L5 mode**: onboarding-named fixture provides identity; no extra pre-state.
 **L6 mode**: standalone row, not in chain.
@@ -19,7 +18,7 @@
 
 | Scorer | What it asserts |
 |---|---|
-| `outcome.sql` | Audit has `config_changed` OR `headless_reonboard_blocked` (kind='event') OR `/onboard` routing |
+| `outcome.sql` | Audit has `config_changed` OR `/onboard` routing |
 | `tools-required.json` | `audit_log` |
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` |
 | `cost-budget.json` | Tight 40K / 60s |
