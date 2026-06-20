@@ -141,7 +141,7 @@ INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
 
 -- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
 -- discussion writes that don't belong to any user-created work issue. The
--- tmb_recovery doctrine and the /onboard headless-block path target this id.
+-- tmb_recovery doctrine and the /onboard recovery path target this id.
 -- Schema-seeded so every fresh DB has it without fixtures needing to add it.
 --
 -- Negative sentinel rather than a high positive (e.g. 999999) so SQLite's
@@ -149,7 +149,7 @@ INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
 -- id=1 — production installs see clean 1, 2, 3... numbering without a
 -- million-id gap polluting the issue space.
 INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
-VALUES (-1, 'system', 'parent issue for headless-recovery / system-level audit and discussion events', 'open', datetime('now'), datetime('now'));
+VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', datetime('now'), datetime('now'));
 
 CREATE TABLE IF NOT EXISTS roundtables (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -403,7 +403,7 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
 INSERT OR IGNORE INTO cheatcodes (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at) VALUES
     ('tmb_planning',           'skill', 'builtin', 'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
     ('tmb_concerns-protocol',  'skill', 'builtin', 'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors / TMB_HEADLESS=1, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                  'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
+    ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                                 'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
     ('tmb_review',             'skill', 'builtin', 'PR-reviewer''s diff-level push-gate protocol — check this task''s diff against its spec, then write the validation_record verdict that gates the push.',                                                       'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
     ('tmb_push-triage',        'skill', 'builtin', 'Bro''s push-gate orchestration and PR/MR comment triage — reaping unsigned commits, spawning pr-reviewer per task, the all-pass push + PR-create + post-merge cleanup path, and turning PR-comment threads into tasks.', 'skills/tmb_push-triage/SKILL.md',        'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
     ('tmb_swe-checklist',      'skill', 'builtin', 'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),

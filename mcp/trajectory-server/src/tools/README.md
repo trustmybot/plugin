@@ -11,7 +11,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Discussions | `discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
 | Audit | `audit.ts` | `audit_log`, `audit_log_list`, `audit_search` |
 | Validation | `validation.ts` | `validation_record`, `validation_history` |
-| Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `task_recover`, `bro_verification_fail_record`, `pr_monitor_worktree`, `reap_and_review_prep`, `task_retry_batch`, `headless_intent_start`, `headless_fallback_record` |
+| Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `task_recover`, `bro_verification_fail_record`, `pr_monitor_worktree`, `reap_and_review_prep`, `task_retry_batch` |
 | Agents | `agents.ts` | `agent_register`, `agent_list`, `agent_resolve` |
 | Skills | `skills.ts` | `skill_register`, `skill_promote` |
 | Cheatcodes | `cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall` |
@@ -25,7 +25,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Scan | `scan.ts` | `scan_run` (forks `scripts/scan.sh`), `repos_list` |
 | World model | `world_model.ts` | `world_model_get`, `world_model_search` (kuzu graph) |
 
-`onboard-hooks-shim.ts` is a non-tool helper: it writes the plugin's PreToolUse hooks into the user's `settings.json` so they fire in headless `claude -p`, where marketplace plugin hooks are absent.
+`onboard-hooks-shim.ts` is a non-tool helper: it writes the plugin's PreToolUse hooks into the user's `settings.json` so they fire in non-interactive `claude -p` runs, where marketplace plugin hooks are absent.
 
 ## How it fits
 

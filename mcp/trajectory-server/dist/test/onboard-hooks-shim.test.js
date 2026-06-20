@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeHeadlessEnforcementShim } from '../tools/onboard-hooks-shim.js';
+import { writeUserSettingsEnforcementShim } from '../tools/onboard-hooks-shim.js';
 // A hooks.json mirroring the real plugin's PreToolUse shape: each deny-capable
 // gate is preceded by advisory/allow-returning hooks that must be excluded so
 // the deny gate runs first. Plus a PostToolUse + SessionStart that must NOT be
@@ -53,7 +53,7 @@ const HOOKS_JSON = {
         ],
     },
 };
-describe('writeHeadlessEnforcementShim', () => {
+describe('writeUserSettingsEnforcementShim', () => {
     let pluginRoot;
     let homeDir;
     let base;
@@ -68,7 +68,7 @@ describe('writeHeadlessEnforcementShim', () => {
         mkdirSync(join(root, 'hooks'), { recursive: true });
         writeFileSync(join(root, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
         mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
-        writeFileSync(join(root, 'scripts', 'lib', 'resolve-headless-hook.sh'), '#!/usr/bin/env bash\nexit 0\n');
+        writeFileSync(join(root, 'scripts', 'lib', 'resolve-hook.sh'), '#!/usr/bin/env bash\nexit 0\n');
         return root;
     }
     function resolverPath() {
@@ -103,7 +103,7 @@ describe('writeHeadlessEnforcementShim', () => {
         rmSync(base, { recursive: true, force: true });
     });
     it('fresh write: version-agnostic resolver commands, no version segment, resolver materialized', () => {
-        const res = writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         assert.equal(res.written, true);
         assert.ok(existsSync(settingsPath()));
         // The stable resolver is materialized outside the versioned cache.
@@ -123,7 +123,7 @@ describe('writeHeadlessEnforcementShim', () => {
     // Success Criterion 1 + Bug A: the Edit|Write group has no-source-edit-from-main
     // FIRST and excludes swe-brief-gate and the advisory lints.
     it('excludes advisory hooks; no-source-edit-from-main runs first in Edit|Write group', () => {
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         const s = readSettings();
         const editGroup = groupFor(s, 'Edit|Write|MultiEdit|NotebookEdit');
         assert.ok(editGroup, 'Edit|Write group missing');
@@ -149,7 +149,7 @@ describe('writeHeadlessEnforcementShim', () => {
     });
     // Success Criterion 2 + Bug B: every TMB entry carries _tmb_managed:true.
     it('stamps _tmb_managed:true on every written TMB hook entry', () => {
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         const s = readSettings();
         const entries = (s.hooks?.PreToolUse ?? []).flatMap((g) => g.hooks);
         assert.ok(entries.length > 0);
@@ -158,7 +158,7 @@ describe('writeHeadlessEnforcementShim', () => {
         }
     });
     it('excludes PostToolUse and SessionStart entries from hooks.json', () => {
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         const s = readSettings();
         assert.equal(s.hooks?.PostToolUse, undefined);
         assert.equal(s.hooks?.SessionStart, undefined);
@@ -167,9 +167,9 @@ describe('writeHeadlessEnforcementShim', () => {
         assert.ok(!cmds.some((c) => c.includes('session-start-prescan')), 'SessionStart leaked');
     });
     it('idempotent re-write: running twice yields one TMB block, byte-identical, no version refs', () => {
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         const first = readFileSync(settingsPath(), 'utf8');
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         const second = readFileSync(settingsPath(), 'utf8');
         assert.equal(first, second);
         // Idempotent re-run never leaves a version-pinned path segment.
@@ -197,10 +197,10 @@ describe('writeHeadlessEnforcementShim', () => {
             },
         };
         writeFileSync(settingsPath(), JSON.stringify(stale, null, 2));
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         const after1 = allPreCommands(readSettings()).length;
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         const after3 = allPreCommands(readSettings());
         assert.equal(after3.length, after1, 'entries accumulated across writes');
         // No stale worktree-path entries survived.
@@ -221,7 +221,7 @@ describe('writeHeadlessEnforcementShim', () => {
             },
         };
         writeFileSync(settingsPath(), JSON.stringify(existing, null, 2));
-        const res = writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         assert.equal(res.written, true);
         const s = readSettings();
         assert.equal(s.model, 'sonnet');
@@ -230,7 +230,7 @@ describe('writeHeadlessEnforcementShim', () => {
         // User PostToolUse untouched.
         assert.equal((s.hooks?.PostToolUse ?? []).length, 1);
         // Re-running purges only TMB entries; user hook survives, still no dup.
-        writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         const cmds2 = allPreCommands(readSettings());
         assert.equal(cmds2.length, cmds.length, 'entry count drifted on re-run');
         assert.ok(cmds2.includes('/usr/local/bin/my-user-hook.sh'));
@@ -250,7 +250,7 @@ describe('writeHeadlessEnforcementShim', () => {
         const worktreeRoot = join(base, 'repo', '.claude', 'worktrees', 'feat-x', 'tmb', '0.0.0');
         mkdirSync(join(worktreeRoot, 'hooks'), { recursive: true });
         writeFileSync(join(worktreeRoot, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
-        const res = writeHeadlessEnforcementShim({ pluginRoot: worktreeRoot, homeDir });
+        const res = writeUserSettingsEnforcementShim({ pluginRoot: worktreeRoot, homeDir });
         assert.equal(res.written, false);
         assert.equal(res.reason, 'plugin-root-in-worktree');
         // settings.json untouched, byte-identical.
@@ -260,7 +260,7 @@ describe('writeHeadlessEnforcementShim', () => {
         const worktreeRoot = join(base, 'repo', '.claude', 'worktrees', 'feat-y', 'tmb', '0.0.0');
         mkdirSync(join(worktreeRoot, 'hooks'), { recursive: true });
         writeFileSync(join(worktreeRoot, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
-        const res = writeHeadlessEnforcementShim({ pluginRoot: worktreeRoot, homeDir });
+        const res = writeUserSettingsEnforcementShim({ pluginRoot: worktreeRoot, homeDir });
         assert.equal(res.written, false);
         assert.equal(res.reason, 'plugin-root-in-worktree');
         assert.ok(!existsSync(settingsPath()));
@@ -270,7 +270,7 @@ describe('writeHeadlessEnforcementShim', () => {
         mkdirSync(dir, { recursive: true });
         const existing = { model: 'opus', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/keep.sh' }] }] } };
         writeFileSync(settingsPath(), JSON.stringify(existing, null, 2));
-        const res = writeHeadlessEnforcementShim({ pluginRoot: null, homeDir });
+        const res = writeUserSettingsEnforcementShim({ pluginRoot: null, homeDir });
         assert.equal(res.written, false);
         assert.ok(res.reason);
         const s = readSettings();
@@ -279,7 +279,7 @@ describe('writeHeadlessEnforcementShim', () => {
     });
     it('missing hooks.json: returns {written:false} reason and skips', () => {
         rmSync(join(pluginRoot, 'hooks', 'hooks.json'));
-        const res = writeHeadlessEnforcementShim({ pluginRoot, homeDir });
+        const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
         assert.equal(res.written, false);
         assert.ok(res.reason);
         assert.ok(!existsSync(settingsPath()));

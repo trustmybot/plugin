@@ -9,7 +9,6 @@ import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import type { WorldModelGraph } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolveDefaultIssueId } from './discussions.js';
 import { resolveDefaultRepo, resolveRepoForSync } from '../utils/repo-paths.js';
 import { resolve, dirname } from 'node:path';
 import type { PlanTaskInput } from '../types.js';
@@ -287,25 +286,6 @@ export function compositeTools(
       },
     },
     {
-      name: 'headless_intent_start',
-      description:
-        'Headless fast-path composite — atomically writes the headless_fallback audit_log + fallback note + intent discussion that follow issue_create in headless mode.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          agent: { type: 'string' },
-          issue_id: { type: 'number', description: 'Issue ID returned by issue_create.' },
-          branch_id: { type: 'string', description: 'Proposed branch_id (from branch_id_propose).' },
-          intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
-          fallback_summary: {
-            type: 'string',
-            description: 'One-line summary of what defaults were applied. Stored in audit row.',
-          },
-        },
-        required: ['agent', 'issue_id', 'branch_id', 'intent_verbatim'],
-      },
-    },
-    {
       name: 'intent_start',
       description:
         'Interactive planning composite — atomically runs issue_create + discussion_append(intent) + ' +
@@ -320,22 +300,6 @@ export function compositeTools(
           branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
         },
         required: ['agent', 'objective', 'intent_verbatim', 'branch_id'],
-      },
-    },
-    {
-      name: 'headless_fallback_record',
-      description:
-        'Headless fallback composite — atomically writes audit_log(headless_fallback) + discussion_append(note); issue_id defaults to the most recent open issue or -1.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          agent: { type: 'string' },
-          question: { type: 'string', description: 'The AskUserQuestion prompt that was skipped in headless mode.' },
-          chosen_default: { type: 'string', description: 'The default value that was applied.' },
-          skill: { type: 'string', description: 'Which tmb_* skill triggered this fallback.' },
-          issue_id: { type: 'number', description: 'Optional override. Defaults to most recent open issue or -1.' },
-        },
-        required: ['agent', 'question', 'chosen_default', 'skill'],
       },
     },
     {
@@ -1049,52 +1013,6 @@ export function compositeTools(
       }),
     ),
 
-    headless_intent_start: requireRoles(
-      'headless_intent_start',
-      ['bro'],
-      wrap(async (args) => {
-        const issueId = args['issue_id'] as number;
-        const branchId = args['branch_id'] as string;
-        const intentVerbatim = args['intent_verbatim'] as string;
-        const fallbackSummary =
-          (args['fallback_summary'] as string | undefined) ??
-          'headless mode: defaults applied';
-
-        if (!issueId || typeof issueId !== 'number') {
-          return err('issue_id must be a number');
-        }
-        if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err('intent_verbatim must be a non-empty string');
-        }
-
-        const now = nowISO();
-        let written: string[] = [];
-        db.transaction(() => {
-          db.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'headless_fallback', ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              `tmb_planning headless: branch_id confirm → Yes, proceed; cold-start → lazy fill; defaults applied`,
-              JSON.stringify({ fallback_summary: fallbackSummary }),
-              now,
-            ],
-          );
-          written = insertIntentAndNote(
-            db,
-            issueId,
-            intentVerbatim,
-            'Headless fallback: no Human in loop; defaults applied.',
-            now,
-          );
-        });
-
-        return ok({ issue_id: issueId, branch_id: branchId, written: ['audit', ...written] });
-      }),
-    ),
-
     intent_start: requireRoles(
       'intent_start',
       ['bro'],
@@ -1159,54 +1077,6 @@ export function compositeTools(
         });
 
         return ok(result);
-      }),
-    ),
-
-    headless_fallback_record: requireRoles(
-      'headless_fallback_record',
-      ['bro'],
-      wrap(async (args) => {
-        const question = args['question'] as string;
-        const chosenDefault = args['chosen_default'] as string;
-        const skill = args['skill'] as string;
-
-        if (!question || question.trim().length === 0) {
-          return err('question must be a non-empty string');
-        }
-        if (!chosenDefault || chosenDefault.trim().length === 0) {
-          return err('chosen_default must be a non-empty string');
-        }
-        if (!skill || skill.trim().length === 0) {
-          return err('skill must be a non-empty string');
-        }
-
-        let issueId = (args['issue_id'] as number | undefined) ?? null;
-        if (issueId === null) {
-          issueId = resolveDefaultIssueId(db);
-        }
-
-        const now = nowISO();
-        const noteBody = `Headless fallback (${skill}): question skipped — applied default "${chosenDefault}".`;
-        db.transaction(() => {
-          db.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, NULL, 'bro', 'headless_fallback', ?, ?, ?)`,
-            [
-              issueId,
-              `${skill}: "${question.slice(0, 120)}" → default: "${chosenDefault.slice(0, 80)}"`,
-              JSON.stringify({ skill, question, chosen_default: chosenDefault }),
-              now,
-            ],
-          );
-          db.run(
-            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'note', ?, ?)`,
-            [issueId, noteBody, now],
-          );
-        });
-
-        return ok({ issue_id: issueId, written: ['audit', 'note'] });
       }),
     ),
 

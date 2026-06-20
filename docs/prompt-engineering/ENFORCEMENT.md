@@ -17,7 +17,7 @@ How TMB doctrine is enforced at runtime — what is structurally guaranteed by c
 
 **Doctrine: prefer the hardest layer that fits.** Promote a constraint up the stack as soon as the soft layer below misses it.
 
-> **Headless caveat.** Layer 2 (hooks) does not fire under a **marketplace-installed** plugin driven by `claude -p` — CC loads the MCP server, agents, and skills but leaves the hooks inert. Marketplace-headless bro therefore runs at Layer 6 (prompt-adherence) only; the Layer-1/4 MCP and schema gates still hold. Enforced headless runs (L5/L6, benchmarks, CI) sideload via `--plugin-dir`, which fires hooks. See [`HEADLESS_ENFORCEMENT.md`](../architecture/HEADLESS_ENFORCEMENT.md).
+> **Non-interactive caveat.** Layer 2 (hooks) does not fire under a **marketplace-installed** plugin driven by `claude -p` — CC loads the MCP server, agents, and skills but leaves the plugin hooks inert. The Layer-1/4 MCP and schema gates still hold. To restore the deny gates there, `/onboard` copies the plugin's deny-capable PreToolUse hooks into the user's `settings.json` (which DO fire under `claude -p`); a `--plugin-dir` sideload (L5/L6, benchmarks, CI) fires the plugin hooks directly.
 
 ## Coverage matrix
 
@@ -61,7 +61,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | MCP calls include `agent: 'swe'`, scope-restricted | 1 | server middleware |
 | Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing pr-reviewer-only tools |
 | Verification gate — SWE `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree; denies on any non-zero exit | 2 | `scripts/hooks/swe-verification-gate.sh` |
-| Worktree created at the canonical slug path at swe-spawn time (headless `claude -p` skips the native WorktreeCreate tool) | 2 | `scripts/hooks/ensure-swe-worktree.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
+| Worktree created at the canonical slug path at swe-spawn time (`claude -p` skips the native WorktreeCreate tool) | 2 | `scripts/hooks/ensure-swe-worktree.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
 | Task spec compliance (only edits `## Files`) | 6 only | `agents/swe.md` |
 
 ### pr-reviewer
@@ -125,4 +125,3 @@ Research basis: pink elephant problem (arxiv 2503.22395), NeQA inverse scaling (
 
 - [`FLOWS.md`](../architecture/FLOWS.md) — workflows; cross-references which hook fires when in each flow.
 - [`ERD.md`](../architecture/ERD.md) — schema; the role-by-tool matrix at the bottom is the source of truth for Layer 1's coverage.
-- [`HEADLESS_ENFORCEMENT.md`](../architecture/HEADLESS_ENFORCEMENT.md) — why Layer 2 is inert under marketplace-headless, and the `--plugin-dir` sideload that restores it.
