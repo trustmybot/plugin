@@ -115,7 +115,7 @@ Batch in one response:
 
 - `task_get` (all agents)
 - `task_update_status` for `completed`/`failed` (bro owns `closed`)
-- `audit_log`
+- `audit_append`
 - `discussion_append` for `kind='note'`
 
 ### Hooks fired against SWE actions
@@ -160,7 +160,7 @@ For each task, diff against the spec's `## Files`, `## Success Criteria`, `## Ve
 - `validation_record` — pr-reviewer is the **only** writer
 - `issue_snapshot_md` (shared with consultants)
 - `pr_monitor_comments_get` (shared with bro)
-- `audit_log`, `discussion_append`
+- `audit_append`, `discussion_append`
 
 ### Hooks fired against pr-reviewer actions
 
@@ -183,7 +183,7 @@ Templates in `templates/agents/<name>.md`, instantiated per-project on demand vi
 
 Consultants **cannot write workflow state**: `task_create_batch`, `task_update_status`, `issue_create`, `issue_close`, `validation_record` all return `forbidden`.
 
-They **can write analyses**: `discussion_append(kind='analysis')`, `audit_log`. Architect specifically also gets `issue_snapshot_md`.
+They **can write analyses**: `discussion_append(kind='analysis')`, `audit_append`. Architect specifically also gets `issue_snapshot_md`.
 
 ### Spawn pattern
 
@@ -205,4 +205,4 @@ Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireR
 | `world_model_get` / `world_model_search` | ✓ | ✓ | ✓ | |
 | `onboard_*` (state_get/get_questions/apply) | ✓ | | | |
 | `discussion_append` | any kind | note | any | analysis |
-| `audit_log`, `task_get` | ✓ | ✓ | ✓ | ✓ |
+| `audit_append`, `task_get` | ✓ | ✓ | ✓ | ✓ |

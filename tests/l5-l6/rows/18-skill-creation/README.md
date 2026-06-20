@@ -12,6 +12,6 @@
 | Scorer | Asserts |
 |---|---|
 | `outcome.sql` | `tmb_skill_created` OR a `creator_blocked` audit event; skill created or bro halted |
-| `tools-required.json` | `audit_log` |
+| `tools-required.json` | `audit_append` |
 | `tools-forbidden.json` | `task_create_batch`, `validation_record` |
 | `cost-budget.json` | Soft 60K / 90s |

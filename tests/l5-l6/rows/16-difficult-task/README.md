@@ -12,6 +12,6 @@
 | Scorer | Asserts |
 |---|---|
 | `outcome.sql` | Issue + task created; ≥1 discussion row (difficult-path differentiator); planning_complete audit |
-| `tools-required.json` | `issue_create`, `task_create_batch`, `discussion_append`, `audit_log` |
+| `tools-required.json` | `issue_create`, `task_create_batch`, `discussion_append`, `audit_append` |
 | `tools-forbidden.json` | `validation_record` NOT called |
 | `cost-budget.json` | Soft 80K / 90s |

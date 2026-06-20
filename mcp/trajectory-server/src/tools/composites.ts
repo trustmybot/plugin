@@ -289,7 +289,7 @@ export function compositeTools(
       name: 'intent_start',
       description:
         'Interactive planning composite — atomically runs issue_create + discussion_append(intent) + ' +
-        'discussion_append(note) + audit_log(branch_id_proposed). Git branch creation stays caller-side. ' +
+        'discussion_append(note) + audit_append(branch_id_proposed). Git branch creation stays caller-side. ' +
         'Returns {issue_id, branch_id}.',
       inputSchema: {
         type: 'object',
@@ -305,7 +305,7 @@ export function compositeTools(
     {
       name: 'bro_verification_fail_record',
       description:
-        'V3-fail composite — atomically writes the audit_log + discussion_append that bro emits when a verification check fails.',
+        'V3-fail composite — atomically writes the audit_append + discussion_append that bro emits when a verification check fails.',
       inputSchema: {
         type: 'object',
         properties: {

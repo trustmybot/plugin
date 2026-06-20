@@ -13,6 +13,6 @@
 |---|---|
 | `outcome.sql` | `tmb_agent_created` audit event with architect name + template-copy mode |
 | `outcome-files.json` | `.claude/agents/architect.md` exists and ≥100 bytes |
-| `tools-required.json` | `audit_log`, `Write` |
+| `tools-required.json` | `audit_append`, `Write` |
 | `tools-forbidden.json` | `task_update_status`, `validation_record`, `task_create_batch` |
 | `cost-budget.json` | Soft 80K / 90s |

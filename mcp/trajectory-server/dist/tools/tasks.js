@@ -705,7 +705,7 @@ export function taskTools(db) {
                 // Optional atomic audit emission: when emit_planning_complete=true, insert
                 // the planning_complete event in the SAME transaction as the task creation.
                 // This eliminates the L5 03/12 failure mode where the LLM would create
-                // tasks but skip the closing audit_log call. With this flag, the closing
+                // tasks but skip the closing audit_append call. With this flag, the closing
                 // event is server-side and cannot be dropped between LLM turns.
                 const emitPlanningComplete = args['emit_planning_complete'] === true;
                 if (emitPlanningComplete && results.length > 0) {

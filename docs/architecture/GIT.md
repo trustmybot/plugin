@@ -98,7 +98,7 @@ plugin/
     ├── discussions.ts                                # discussion_append (intent + decision audit)
     ├── composites.ts                                 # branch_id_propose
     ├── scan.ts                                       # scan_run (Phase 1 of /scan)
-    └── audit.ts                                      # audit_log(planning_complete)
+    └── audit.ts                                      # audit_append(planning_complete)
 ```
 
 **SWE working**
@@ -137,7 +137,7 @@ plugin/
 │   └── post-task-close-rescan.sh                     # PostToolUse: backgrounds /scan to refresh the world model
 └── mcp/trajectory-server/src/tools/
     ├── composites.ts                                 # bro_atomic_close (audit + status + close in one txn)
-    ├── audit.ts                                      # audit_log(bro_verification_pass)
+    ├── audit.ts                                      # audit_append(bro_verification_pass)
     └── issues.ts                                     # issue_close
 ```
 
@@ -162,6 +162,6 @@ plugin/
 ├── scripts/hooks/cleanup-worktree-on-task-close.sh   # removes SWE worktree (already done at close)
 ├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
-    ├── audit.ts                                      # audit_log(post-merge state)
+    ├── audit.ts                                      # audit_append(post-merge state)
     └── scan.ts                                       # scan_run rerun via post-task-close-rescan hook refreshes the world model + emits deep_scan_completed audit
 ```

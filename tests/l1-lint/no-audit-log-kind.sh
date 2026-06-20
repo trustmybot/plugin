@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Catch audit_log() calls that still pass the dropped kind= argument.
+# Catch audit_append() calls that still pass the dropped kind= argument.
 # Captures: !2892 MINOR + !2893 — kind was removed from the schema in rc.2;
 #           calls passing it are silently ignored but mislead readers.
 #
@@ -12,7 +12,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
-KIND_REGEX='audit_log[^)]*kind\s*='
+KIND_REGEX='audit_append[^)]*kind\s*='
 
 FAIL=0
 
@@ -22,7 +22,7 @@ scan_path() {
   while IFS=: read -r file lineno _; do
     [ -z "$lineno" ] && continue
     local rel="${file#"$PLUGIN_ROOT/"}"
-    printf '%s:%s: audit_log() with deprecated kind= arg\n' "$rel" "$lineno"
+    printf '%s:%s: audit_append() with deprecated kind= arg\n' "$rel" "$lineno"
     FAIL=1
   done < <(grep -rnE "$KIND_REGEX" "$path" || true)
 }

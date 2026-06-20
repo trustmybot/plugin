@@ -21,7 +21,7 @@ export async function startClient() {
   // know about the gate's existence. Tests that target the gate itself
   // can run a separate client without this seed.
   await client.callTool({
-    name: 'audit_log',
+    name: 'audit_append',
     arguments: {
       agent: 'bro',
       issue_id: '-1',

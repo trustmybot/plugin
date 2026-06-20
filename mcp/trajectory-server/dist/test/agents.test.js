@@ -201,17 +201,17 @@ describe('agent_register reserved name gate', () => {
         db.close();
     });
 });
-describe('audit_log requireRoles guard', () => {
+describe('audit_append requireRoles guard', () => {
     async function createIssueId(db) {
         const issues = issueTools(db);
         const result = await (issues.handlers['issue_create']({ agent: 'bro', objective: 'audit test', labels: ['Bug', 'Priority: High'] }));
         return JSON.parse(result.content[0].text).id;
     }
-    it('audit_log accepts bro', async () => {
+    it('audit_append accepts bro', async () => {
         const db = tempDB();
         const issueId = await createIssueId(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -221,11 +221,11 @@ describe('audit_log requireRoles guard', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         db.close();
     });
-    it('audit_log accepts swe', async () => {
+    it('audit_append accepts swe', async () => {
         const db = tempDB();
         const issueId = await createIssueId(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'swe',
             issue_id: String(issueId),
             from_node: 'swe',
@@ -235,11 +235,11 @@ describe('audit_log requireRoles guard', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         db.close();
     });
-    it('audit_log accepts consultant', async () => {
+    it('audit_append accepts consultant', async () => {
         const db = tempDB();
         const issueId = await createIssueId(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'architect',
             issue_id: String(issueId),
             from_node: 'architect',
@@ -249,11 +249,11 @@ describe('audit_log requireRoles guard', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         db.close();
     });
-    it('audit_log rejects unknown agent', async () => {
+    it('audit_append rejects unknown agent', async () => {
         const db = tempDB();
         const issueId = await createIssueId(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: '!!!invalid!!!',
             issue_id: String(issueId),
             from_node: '!!!invalid!!!',

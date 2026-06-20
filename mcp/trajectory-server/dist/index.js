@@ -25270,7 +25270,7 @@ function auditTools(db2) {
       }
     },
     {
-      name: "audit_log",
+      name: "audit_append",
       description: "Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.",
       inputSchema: {
         type: "object",
@@ -25287,7 +25287,7 @@ function auditTools(db2) {
       }
     },
     {
-      name: "audit_log_list",
+      name: "audit_list",
       description: "Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['id','event_type','summary'] to return only requested columns (unknown fields return a named error).",
       inputSchema: {
         type: "object",
@@ -25422,7 +25422,7 @@ function auditTools(db2) {
       if (!semanticAvailable) response["warning"] = "semantic_unavailable";
       return ok4(response);
     }),
-    audit_log: requireRoles("audit_log", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler4(async (args) => {
+    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler4(async (args) => {
       requireArg4(args, "agent");
       const issueId = requireArg4(args, "issue_id");
       requireArg4(args, "from_node");
@@ -25436,7 +25436,7 @@ function auditTools(db2) {
       const contentJson = args["content_json"] ?? "{}";
       const byteLength = Buffer.byteLength(contentJson, "utf8");
       if (byteLength > MAX_CONTENT_BYTES) {
-        return err4(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_log`);
+        return err4(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
       }
       db2.run(
         `INSERT INTO audit
@@ -25450,12 +25450,12 @@ function auditTools(db2) {
       if (row) {
         const embedText = contentJson !== "{}" ? `${summary} ${contentJson}` : summary;
         await embedAndStore(db2, "audit", row.id, embedText).catch(
-          (e) => console.error("[embeddings] audit_log embed failed:", e)
+          (e) => console.error("[embeddings] audit_append embed failed:", e)
         );
       }
       return ok4(row);
     })),
-    audit_log_list: wrapHandler4(async (args) => {
+    audit_list: wrapHandler4(async (args) => {
       requireArg4(args, "agent");
       const issueId = requireArg4(args, "issue_id");
       const branchId = args["branch_id"] ?? null;
@@ -27889,7 +27889,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
     },
     {
       name: "intent_start",
-      description: "Interactive planning composite \u2014 atomically runs issue_create + discussion_append(intent) + discussion_append(note) + audit_log(branch_id_proposed). Git branch creation stays caller-side. Returns {issue_id, branch_id}.",
+      description: "Interactive planning composite \u2014 atomically runs issue_create + discussion_append(intent) + discussion_append(note) + audit_append(branch_id_proposed). Git branch creation stays caller-side. Returns {issue_id, branch_id}.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27903,7 +27903,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
     },
     {
       name: "bro_verification_fail_record",
-      description: "V3-fail composite \u2014 atomically writes the audit_log + discussion_append that bro emits when a verification check fails.",
+      description: "V3-fail composite \u2014 atomically writes the audit_append + discussion_append that bro emits when a verification check fails.",
       inputSchema: {
         type: "object",
         properties: {

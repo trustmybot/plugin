@@ -35,7 +35,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Issues | `tools/issues.ts` | `issue_create`, `issue_get`, `issue_resume`, `issue_close`, `issue_snapshot_md` |
 | Tasks | `tools/tasks.ts` | `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable` |
 | Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list` |
-| Audit | `tools/audit.ts` | `audit_log`, `audit_log_list` |
+| Audit | `tools/audit.ts` | `audit_append`, `audit_list` |
 | Validation | `tools/validation.ts` | `validation_record`, `validation_history` |
 | Skills (builtin rows in the unified `cheatcodes` registry, #101) | `tools/skills.ts` | `skill_register` (takes `scope`), `skill_promote` |
 | Reports | `tools/reports.ts` | `issue_report_md` |

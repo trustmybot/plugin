@@ -38,7 +38,7 @@ KNOWN_WRITE_TOOLS=(
   task_update_status
   config_set
   discussion_append
-  audit_log
+  audit_append
   validation_record
 )
 

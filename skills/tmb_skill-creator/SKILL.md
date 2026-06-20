@@ -1,7 +1,7 @@
 ---
 name: tmb_skill-creator
 description: Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents. Loads when the user asks to capture a repeatable behavior — e.g. "create a skill that codifies <our convention>", "teach swe to also <run mypy / use black / etc.>", "make a skill for <reviewing PRs / writing changelogs / etc.>", "we need a checklist when <X happens>". Extends the consuming agent's `skills:` frontmatter array only; agent body stays intact. Always Human-approved.
-allowed-tools: Read, Write, Edit, Glob, Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__skill_register, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__issue_create
+allowed-tools: Read, Write, Edit, Glob, Bash, AskUserQuestion, mcp__plugin_tmb_trajectory-server__skill_register, mcp__plugin_tmb_trajectory-server__audit_append, mcp__plugin_tmb_trajectory-server__issue_create
 ---
 
 # Skill Creator

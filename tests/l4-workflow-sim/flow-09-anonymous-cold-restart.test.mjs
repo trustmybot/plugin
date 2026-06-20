@@ -85,7 +85,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   assert.equal(history.data.length, 0, 'no validation row should have been recorded');
 });
 
-test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
+test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -127,7 +127,7 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
   });
 
   // Bro's correct task-gate close sequence
-  const verifEvent = await call(client, 'audit_log', {
+  const verifEvent = await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: issueId,
     branch_id: branchId,
@@ -146,7 +146,7 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
   assert.equal(closed.ok, true);
 
   // Verify the audit table has the bro_verification_pass event
-  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId });
+  const audit = await call(client, 'audit_list', { agent: 'bro', issue_id: issueId });
   const verifEvents = audit.data.filter(e => e.event_type === 'bro_verification_pass');
   assert.equal(verifEvents.length, 1, 'exactly one bro_verification_pass event recorded');
   assert.equal(verifEvents[0].from_node, 'bro');

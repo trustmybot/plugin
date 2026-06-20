@@ -38,7 +38,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
 - **composites**: `intent_start`, `branch_id_propose`, `task_brief`, `task_retry`, `task_recover`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
-- **audit**: `audit_log`, `audit_log_list`, `audit_search`
+- **audit**: `audit_append`, `audit_list`, `audit_search`
 
 ## Slash commands
 
