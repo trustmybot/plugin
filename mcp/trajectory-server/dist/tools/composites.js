@@ -346,7 +346,7 @@ export function compositeTools(db, dbPath, graph = null) {
             },
         },
         {
-            name: 'plan_task',
+            name: 'task_provision',
             description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Git side-effects AFTER the commit: creates the branch ref + worktree (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
             inputSchema: {
                 type: 'object',
@@ -411,7 +411,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
     ];
     const handlers = {
-        plan_task: requireRoles('plan_task', ['bro'], wrap(async (args) => {
+        task_provision: requireRoles('task_provision', ['bro'], wrap(async (args) => {
             const agent = args['agent'] ?? 'bro';
             const issueId = args['issue_id'];
             const branchId = args['branch_id'];
@@ -498,7 +498,7 @@ export function compositeTools(db, dbPath, graph = null) {
                 ]);
                 const row = db.get('SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!row)
-                    throw new Error('plan_task: task insert succeeded but row lookup failed');
+                    throw new Error('task_provision: task insert succeeded but row lookup failed');
                 db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
              VALUES (?, ?, 'bro', ?)`, [row.id, issueId, now]);
                 db.run(`INSERT INTO audit

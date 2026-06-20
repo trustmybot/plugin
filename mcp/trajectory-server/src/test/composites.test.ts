@@ -1257,7 +1257,7 @@ describe('task_brief (#300)', () => {
   });
 });
 
-describe('plan_task (#157)', () => {
+describe('task_provision (#157)', () => {
   const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
 
   // Build a real git repo with an `origin/main` remote-tracking ref. The DB's
@@ -1293,7 +1293,7 @@ describe('plan_task (#157)', () => {
       seedIssue(db, repoRoot);
       const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
 
-      const r = await call(composites.handlers, 'plan_task', {
+      const r = await call(composites.handlers, 'task_provision', {
         agent: 'bro',
         issue_id: 1,
         branch_id: 'feat/the-thing',
@@ -1380,10 +1380,10 @@ describe('plan_task (#157)', () => {
           repo: 'app',
         },
       };
-      const first = parse(await call(composites.handlers, 'plan_task', { ...baseArgs, issue_id: 1 }));
+      const first = parse(await call(composites.handlers, 'task_provision', { ...baseArgs, issue_id: 1 }));
       assert.equal(first['git_setup'], 'created');
 
-      const second = parse(await call(composites.handlers, 'plan_task', { ...baseArgs, issue_id: 2 }));
+      const second = parse(await call(composites.handlers, 'task_provision', { ...baseArgs, issue_id: 2 }));
       assert.equal(second['git_setup'], 'reused', 'existing branch + worktree reused, not error');
       assert.equal(second['worktree_path'], first['worktree_path']);
       assert.notEqual(second['task_id'], first['task_id']);
@@ -1405,7 +1405,7 @@ describe('plan_task (#157)', () => {
               VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
       const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
 
-      const r = await call(composites.handlers, 'plan_task', {
+      const r = await call(composites.handlers, 'task_provision', {
         agent: 'bro',
         issue_id: 1,
         branch_id: 'feat/no-git',
@@ -1439,7 +1439,7 @@ describe('plan_task (#157)', () => {
   it('rejects a non-bro caller', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-    const r = await call(composites.handlers, 'plan_task', {
+    const r = await call(composites.handlers, 'task_provision', {
       agent: 'swe',
       issue_id: 1,
       branch_id: 'feat/nope',

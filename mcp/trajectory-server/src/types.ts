@@ -139,11 +139,11 @@ export interface TaskInput {
 }
 
 /**
- * The single task spec passed to the `plan_task` composite (#157). Mirrors the
+ * The single task spec passed to the `task_provision` composite (#157). Mirrors the
  * SWE-relevant subset of TaskInput — branch_id is supplied separately (the
  * composite's `branch_id` arg) so the spec carries only the content fields.
  */
-export interface PlanTaskInput {
+export interface TaskProvisionInput {
   title?: string;
   description: string;
   spec_body: string;
