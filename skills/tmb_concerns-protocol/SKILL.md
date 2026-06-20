@@ -18,7 +18,7 @@ Use when the concern is about HOW the work is being framed — scope, ordering, 
 2. Ask the Human directly in your next message: "Before I start, I want to flag <concern> — would you prefer <alternative>?"
 3. Wait for the Human's call. Hold on starting the work until they respond.
 
-When no Human is in the loop (headless, or the prompt says not to ask): steps 1 and 3 still apply — write the `Concern:` note, then halt and state in your reply that you are holding for alignment. The note replaces the ask; proceeding anyway is yes-anding with extra steps.
+When no Human is in the loop (the prompt says not to ask, or AskUserQuestion errors): steps 1 and 3 still apply — write the `Concern:` note, then halt and state in your reply that you are holding for alignment. The note replaces the ask; proceeding anyway is yes-anding with extra steps.
 
 ### Path B — Spawn a consultant (technical disagreement)
 
