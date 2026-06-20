@@ -47,7 +47,7 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 | File layout | Single file until it grows enough to warrant splitting; follow the repo's module structure |
 | Scope of execution | Assume the simplest runtime that satisfies the requirement (e.g. single-user, single-process) unless the spec says otherwise |
 
-Pass the typed machine contract on each swe-executed task — the scope fence reads `files[]`, the verification gate reads `verification[]`:
+Pass the typed machine contract on each swe-executed task:
 
 - `files: string[]` — the paths the task touches.
 - `verification: string[]` — runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.

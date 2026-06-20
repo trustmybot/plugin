@@ -35,7 +35,7 @@ Then run `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`, sur
 
 ## Write on approval
 
-`skill_register` the name, then write the skill file, append the new name to each attach-list agent's `skills:` array (and only that array), and re-read both to confirm the edits landed. If there's no open issue (free-floating skill creation — common), `issue_create` one scoping it. Record an audit event noting the skill and its carrying agents, and tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
+`skill_register` the name, then write the skill file, append the new name to each attach-list agent's `skills:` array (and only that array). If there's no open issue (free-floating skill creation — common), `issue_create` one scoping it. Record an audit event noting the skill and its carrying agents, and tell the Human in one line: skill landed at `<path>`; attached to `<agents>`.
 
 ## Hard rules
 
