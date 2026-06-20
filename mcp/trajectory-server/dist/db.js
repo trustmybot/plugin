@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 24;
+const TARGET_SCHEMA_VERSION = 25;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -462,6 +462,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 24 && toVersion >= 24) {
         migrateV23toV24(db);
+    }
+    if (fromVersion < 25 && toVersion >= 25) {
+        migrateV24toV25(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -1379,6 +1382,49 @@ function migrateV23toV24(db) {
     }
     finally {
         db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v24→v25: split the dual-responsibility tmb_push-triage builtin skill into two
+// single-responsibility rows — tmb_push-gate (push-gate orchestration) and
+// tmb_comment-triage (PR/MR comment triage) (#161). They load on different
+// events, so the SKILL.md was split; the builtin seed follows. Idempotent: the
+// DELETE is a no-op once the old row is gone and INSERT OR IGNORE skips rows
+// already present. Mirrors migrateV19toV20's seed-correction shape.
+function migrateV24toV25(db) {
+    if (!tableExists(db, 'cheatcodes')) {
+        return;
+    }
+    db.exec('BEGIN');
+    try {
+        // LINT-ALLOW: v24→v25 removes the split tmb_push-triage builtin row, replaced by two rows below (#161).
+        db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'");
+        db.exec(`
+      INSERT OR IGNORE INTO cheatcodes
+        (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      VALUES
+        ('tmb_push-gate', 'skill', 'builtin',
+         'Bro''s push-gate orchestration — reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.',
+         NULL, 'skills/tmb_push-gate/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now')),
+        ('tmb_comment-triage', 'skill', 'builtin',
+         'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.',
+         NULL, 'skills/tmb_comment-triage/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now'))
+    `);
+        const violations = db.prepare('PRAGMA foreign_key_check').all();
+        if (violations.length > 0) {
+            throw new Error(`migrateV24toV25: foreign_key_check found ${violations.length} dangling reference(s) after the push-triage skill split`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
     }
 }
 function migrateV7toV8(db) {

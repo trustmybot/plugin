@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 24;
+var TARGET_SCHEMA_VERSION = 25;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21239,6 +21239,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 24 && toVersion >= 24) {
     migrateV23toV24(db2);
+  }
+  if (fromVersion < 25 && toVersion >= 25) {
+    migrateV24toV25(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -21932,6 +21935,41 @@ function migrateV23toV24(db2) {
     throw err18;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV24toV25(db2) {
+  if (!tableExists(db2, "cheatcodes")) {
+    return;
+  }
+  db2.exec("BEGIN");
+  try {
+    db2.exec("DELETE FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'");
+    db2.exec(`
+      INSERT OR IGNORE INTO cheatcodes
+        (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      VALUES
+        ('tmb_push-gate', 'skill', 'builtin',
+         'Bro''s push-gate orchestration \u2014 reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.',
+         NULL, 'skills/tmb_push-gate/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now')),
+        ('tmb_comment-triage', 'skill', 'builtin',
+         'Bro''s PR/MR comment triage \u2014 resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.',
+         NULL, 'skills/tmb_comment-triage/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now'))
+    `);
+    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV24toV25: foreign_key_check found ${violations.length} dangling reference(s) after the push-triage skill split`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err18) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err18;
   }
 }
 function migrateV7toV8(db2) {
