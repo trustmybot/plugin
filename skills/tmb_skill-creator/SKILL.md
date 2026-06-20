@@ -45,7 +45,3 @@ Then run `${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`, sur
 - **Existing project skills require name collision resolution.** Name collision = Human resolves.
 - **Approval is non-negotiable.** Write nothing without an explicit Yes.
 - **Stay focused.** A skill should encode one cohesive concern. If the body grows past ~80 lines, propose trimming or splitting.
-
-## Headless mode — HALT
-
-On `AskUserQuestion` error or `TMB_HEADLESS=1`: HALT — leave all files unwritten. Then `issue_create` a scoping issue, `audit_log` `event_type='headless_creator_blocked'` naming the proposed skill, and surface: "Cannot create skill in headless mode — file writes require Human approval. Re-run interactively."

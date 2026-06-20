@@ -48,12 +48,6 @@ Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, pro
 
 Render the `applied` payload back as a short summary — project shape, branching model, PR target, protected branches, remotes, and issue sync — then close with "Tell me what you want to work on."
 
-## Headless mode
-
-`/onboard` is interactive by definition. If `TMB_HEADLESS=1` or AskUserQuestion errors, step 1 (`onboard_state_get`) still runs — the halt-reply must cite the current shape. Then log `headless_reonboard_blocked` via `audit_log` (issue_id='-1') and surface: `Re-onboarding requires interactive input. Re-run with a Human in the loop, or use \`config_set\` directly if you know the values.`
-
-Rationale: onboarding flips policy keys that drive `git-guards.sh`. Silent fallback could break the project's git workflow with no audit trace.
-
 ## Error handling
 
 If any `onboard_*` call fails, report the exact error, retry once, then halt.

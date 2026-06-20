@@ -60,14 +60,14 @@ l5_preserve_trajectory() {
 # them, and there is no human in the loop here. The scratch dir is a
 # fresh mktemp-d, so there's nothing to harm.
 # Shared header injected before every test prompt. The "Don't call AUQ"
-# instruction is how the harness suppresses AUQ in tests: bro takes the
-# documented default instead of asking, so there's no human in the loop to
+# instruction is how the harness suppresses AUQ in tests: bro takes a
+# sensible default instead of asking, so there's no human in the loop to
 # answer and no SDK + API-key cost to answer AUQ programmatically. AUQ
 # rendering / option labels aren't exercised here — that surface is covered
 # by the L1 auq-shape lint.
 _l5_test_prompt_prefix() {
   cat <<'EOF'
-[TEST MODE] Do not call AskUserQuestion. Apply documented defaults from skills/CLAUDE.md and continue; when a skill's documented behavior is to hold for the Human (e.g. concerns-protocol Path A), recording the note and holding IS the documented default — do not push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose.
+[TEST MODE] Do not call AskUserQuestion. Apply sensible defaults and continue; where a skill's normal flow is to hold for the Human (e.g. concerns-protocol), record the note and hold — don't push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose.
 
 EOF
 }

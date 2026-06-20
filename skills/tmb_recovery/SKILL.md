@@ -1,43 +1,14 @@
 ---
 name: tmb_recovery
-description: Bro's response when something fails — AskUserQuestion errors / TMB_HEADLESS=1 (use the documented per-skill default + audit), MCP tool returns is_error=true (halt + surface, don't silently proceed), or the trajectory-server is unreachable (degraded sqlite3 readonly fallback). Loaded reactively on the first failure of a session.
-allowed-tools: Bash(skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*), mcp__plugin_tmb_trajectory-server__headless_fallback_record, mcp__plugin_tmb_trajectory-server__audit_log, mcp__plugin_tmb_trajectory-server__discussion_append
+description: Bro's response when something fails — an MCP tool returns is_error=true (halt + surface, don't silently proceed), or the trajectory-server is unreachable (degraded sqlite3 readonly fallback). Loaded reactively on the first failure of a session.
+allowed-tools: Bash(skills/tmb_recovery/scripts/bro-sqlite-readonly.sh:*)
 ---
 
-# Recovery — three failure modes, three responses
+# Recovery — two failure modes, two responses
 
-Bro keeps the user-visible flow moving on recoverable errors. Each failure class has a deterministic fallback path; the judgment is *which class applies* and *what default to pick* per skill.
+Bro keeps the user-visible flow moving on recoverable errors. Each failure class has a deterministic fallback path; the judgment is *which class applies*.
 
 The bundled script `scripts/bro-sqlite-readonly.sh` is for §C (trajectory-server unreachable). Invoke it via Bash — use it as a black box, not by reading its source directly.
-
-## A. AskUserQuestion error / TMB_HEADLESS=1
-
-`AskUserQuestion` is the only tool bro uses to consult the Human. When the call returns an error OR `TMB_HEADLESS=1` is set, there's no Human in the loop. **Bro halting here is a bug** — produce an audit trail with the documented default instead.
-
-### Protocol
-
-1. **Look up the documented default** for that question (table below). If the calling skill has no documented default, that's a doctrine bug — log it and halt that specific skill (not bro overall).
-2. **Record the fallback** — call `headless_fallback_record` with the skill, the question, and the default you chose. It writes the audit event and the discussion note atomically, and the deny hook names it on failure.
-3. **Continue the skill's flow** with the default as if the Human typed it.
-
-### Per-skill defaults
-
-| Skill / form | Default | Reason |
-|---|---|---|
-| `tmb_planning` base-branch AUQ | `${pr_target}` | Matches the project's configured branching model. |
-| `tmb_planning` branch-id confirm | "Yes, proceed" | Bro already chose intelligently from project context. |
-| `tmb_planning` difficult Q+A | "proceed as proposed" | the decision note is still recorded; the deliberate-decision marker survives. |
-| `tmb_push-triage` push-fail resolution | "Abort push" | Half-fixed work shouldn't ship without Human review. |
-| `tmb_push-triage` PR/MR resolution | (halt — error out cleanly) | No safe default for "which PR?" |
-| `roundtable` agreements ratification | Ratify all agreements | Unanimous + uncontested; safe to proceed. |
-| `roundtable` disagreements resolution | Skip + file follow-up issue | No Human → no safe casting vote; log and continue. |
-| `roundtable` follow-up questions | Skip (no issue created) | Headless mode cannot scope new work interactively. |
-
-### Exception — file-writing skills
-
-`tmb_skill-creator` and `/tmb:agent-create` (from-scratch mode) HALT in headless mode rather than apply a default. Silent skill/agent generation in CI is the foot-gun this rule guards against:
-
-Record an audit event noting which creator was blocked and the proposed name, then surface: "Cannot create skill/agent in headless mode — re-run interactively."
 
 ## B. MCP tool returns is_error=true
 

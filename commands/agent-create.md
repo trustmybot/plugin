@@ -28,10 +28,6 @@ Show the template, ask for confirmation (interactive), then write verbatim. If a
 
 Gather the shape in one AskUserQuestion batch (up to 3 questions): role/title, core responsibilities, and the closest existing agent plus its gap. Read the top-level project files for stack context, then draft from `${CLAUDE_PLUGIN_ROOT}/templates/agents/template.md` — body cap 15 lines after frontmatter. Run the pre-write lint (`${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`) and surface its findings via AUQ. Show the full draft, and on approval write it with `tmb_owner: bro` in frontmatter.
 
-## Headless mode
-
-If `TMB_HEADLESS=1` or AskUserQuestion errors, HALT for any creation that needs Human input. The only auto-approved path is template-copy. For collision or from-scratch, surface: "Cannot create agent headless — creation requires Human review."
-
 ## Edge case — code-writing consultant
 
 If the user wants a consultant that writes source code, warn:
