@@ -1,6 +1,6 @@
 # 05.04-multirepo-commit
 
-**Flow under test:** path discipline in a multi-repo workspace — path-keyed repo resolution (each inner repo registered by path in the `repos` table; see [`docs/architecture/REPO_RESOLUTION.md`](../../../../docs/architecture/REPO_RESOLUTION.md)) + repo-relative indexing in the kuzu world model (graph DB per ADR 0002).
+**Flow under test:** path discipline in a multi-repo workspace — path-keyed repo resolution (each inner repo registered by path in the `repos` table; see [`docs/architecture/REPO_RESOLUTION.md`](../../../../../docs/architecture/REPO_RESOLUTION.md)) + repo-relative indexing in the kuzu world model (graph DB per ADR 0002).
 
 **Pre-state**: `onboarding-named` fixture + workspace fixture with **two sibling inner git repos**, each with a top-level `README.md` so `/scan` produces author-curated dir summaries in the kuzu graph:
 
