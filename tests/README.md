@@ -142,7 +142,7 @@ Run L6 locally before tagging a release candidate; rc tag policy gates on 15/15 
 When an L6 step fails, the failure can come from either the step itself or from prior chain steps that left bad state behind. To isolate, run the same row in L5 mode:
 
 ```bash
-bash tests/l5-l6/run-l5.sh <NN>-<step-name>     # e.g. 10-consultant
+bash tests/l5-l6/run-l5.sh <NN>-<step-name>     # e.g. 12-consultant
 ```
 
 L5 applies the step's `setup-l5.sh` to simulate ONLY the prior-state surface (a clean approximation of what the prior chain step should have left), then drives the same prompt + scorers as L6. Two outcomes:
