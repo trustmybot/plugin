@@ -23,6 +23,7 @@ HARDCODED_REGEX='(\.claude/tmb/|tmb-active-workspace|trustmybot-rc|=["\x27]tmb["
 EXCLUDED_FILES=(
   "scripts/lib/resolve-plugin-name.sh"
   "scripts/hooks/lib/query-task.sh"
+  "scripts/publish-rc-channel.sh"
 )
 
 EXCLUDED_LINE_PATTERNS=(

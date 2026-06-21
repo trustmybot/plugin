@@ -2,6 +2,14 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-rc.4 — 2026-06-21
+
+Fourth release candidate for v0.10.0 — fixes two lint failures the rc.3 gate surfaced (no shipped-runtime change).
+
+### Fixed
+- **Link-check**: a moved L5 README (`rows/05/05.04-multirepo-commit`) had a relative `docs/` link that under-resolved after the family-folder move; corrected the depth.
+- **`no-hardcoded-plugin-name` lint**: exempted `scripts/publish-rc-channel.sh`, which legitimately references the `trustmybot-rc` rc-channel catalog.
+
 ## v0.10.0-rc.3 — 2026-06-21
 
 Third release candidate for v0.10.0 — test-harness, tooling, and docs polish on top of rc.2 (no shipped-runtime change; the full L6 chain re-validates 15/15 on the new layout).
