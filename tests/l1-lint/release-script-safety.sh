@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# Lint: structural safety checks on scripts/release.sh.
+# Lint: structural safety checks on the release scripts.
 #
-# Protects against the "force-push a published tag" antipattern: the
-# release script must contain the explicit "Refusing to re-tag a PUBLISHED
-# release" guard. This test catches accidental removal of that guard
-# during refactors.
+# scripts/release.sh — protects against the "force-push a published tag"
+# antipattern: the release script must contain the explicit "Refusing to
+# re-tag a PUBLISHED release" guard.
 #
-# This is a lint, not a behavior test, because driving release.sh
+# scripts/publish-rc-channel.sh — protects the sanctioned rc-channel publish:
+# it must refuse non-rc versions, verify the tag on origin, operate on a temp
+# clone (never a hardcoded local catalog path), and clean up via trap.
+#
+# This test catches accidental removal of these guards during refactors.
+#
+# This is a lint, not a behavior test, because driving the scripts
 # end-to-end requires a real repo + real remote. The behavior is small
 # enough that grep'ing for the guard text + the underlying mechanism
-# (`git ls-remote --tags origin`) is sufficient evidence.
+# (`git ls-remote --tags`) is sufficient evidence.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$ROOT/scripts/release.sh"
+RC_SCRIPT="$ROOT/scripts/publish-rc-channel.sh"
 
 failed=0
 fail() { echo "  ✗ $1" >&2; failed=1; }
@@ -65,6 +71,49 @@ if awk '/Local-only/{found=1} found && /git push.*:refs\/tags/ {print "BAD"; exi
   fail "local-only retag path still tries to push tag deletion to origin (would corrupt remote)"
 else
   pass "local-only retag path doesn't push tag deletion to origin"
+fi
+
+# ---------- scripts/publish-rc-channel.sh ----------
+
+if [ ! -f "$RC_SCRIPT" ]; then
+  fail "scripts/publish-rc-channel.sh missing"
+  echo "Release-script-safety: FAIL" >&2
+  exit 1
+fi
+
+# R1: strict bash mode
+if grep -q 'set -euo pipefail' "$RC_SCRIPT"; then
+  pass "publish-rc-channel: uses set -euo pipefail"
+else
+  fail "publish-rc-channel: missing 'set -euo pipefail'"
+fi
+
+# R2: rc-version guard — the refusal regex must be present
+if grep -qF 'rc\.[0-9]+$' "$RC_SCRIPT"; then
+  pass "publish-rc-channel: enforces the rc-version regex"
+else
+  fail "publish-rc-channel: missing rc-version guard (X.Y.Z-rc.N regex)"
+fi
+
+# R3: tag-existence check on origin (must be pushed before publishing)
+if grep -q 'git ls-remote --tags' "$RC_SCRIPT"; then
+  pass "publish-rc-channel: verifies the tag exists on origin"
+else
+  fail "publish-rc-channel: missing tag-existence check (git ls-remote --tags)"
+fi
+
+# R4: operates on a temp clone, never a hardcoded local catalog path
+if grep -q 'mktemp -d' "$RC_SCRIPT"; then
+  pass "publish-rc-channel: clones into a temp dir (mktemp -d)"
+else
+  fail "publish-rc-channel: no 'mktemp -d' — must use a temp clone, not a hardcoded path"
+fi
+
+# R5: trap-based cleanup of the temp clone
+if grep -Eq "trap .*rm -rf" "$RC_SCRIPT"; then
+  pass "publish-rc-channel: cleans up the temp clone via trap"
+else
+  fail "publish-rc-channel: missing 'trap ... rm -rf' cleanup of the temp clone"
 fi
 
 echo ""
