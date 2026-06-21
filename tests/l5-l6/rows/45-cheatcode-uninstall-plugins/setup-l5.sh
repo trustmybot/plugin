@@ -22,7 +22,14 @@ SCENARIO_DIR="$2"
 DB="$PROJECT/.claude/tmb/trajectory.db"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-sqlite3 "$DB" <<SQL
+# In the L6 chain, row 44 already installed feature-dev/code-review. Re-seeding
+# here would fail the cheatcodes UNIQUE(name) insert while the separate
+# attachments insert succeeds (FK off), leaving orphan attachment rows. Only
+# seed the installed state when it is not already present.
+EXISTING="$(sqlite3 "$DB" "SELECT COUNT(*) FROM cheatcodes WHERE name IN ('feature-dev','code-review');")"
+
+if [ "$EXISTING" -eq 0 ]; then
+  sqlite3 "$DB" <<SQL
 INSERT INTO cheatcodes (id, name, kind, source_url, version, trust_tier, scope, status, installed_at)
 VALUES
   (101, 'feature-dev', 'plugin', 'https://example.test/feature-dev', '1.0.0', 'trusted', 'project-local', 'installed', '$NOW'),
@@ -40,6 +47,7 @@ VALUES
   (-1, NULL, 'bro', 'cheatcode_install', 'Cheatcode install: ''code-review'' (kind=plugin, method=marketplace)', '{"name":"code-review","kind":"plugin","source_url":"https://example.test/code-review","method":"marketplace"}', '$NOW'),
   (-1, NULL, 'bro', 'cheatcode_installed', 'Cheatcode installed: ''code-review'' → cheatcode_id=102', '{"cheatcode_id":102,"name":"code-review","kind":"plugin","source_url":"https://example.test/code-review","installed":true,"attachments":[{"target":"pr-reviewer","artifact":"marketplace-plugin:code-review"}]}', '$NOW');
 SQL
+fi
 
 FIXTURE="$PROJECT/.tmb-cheatcode-uninstall-fixture.json"
 cat > "$FIXTURE" <<'JSON'
