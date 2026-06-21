@@ -24,7 +24,7 @@ DB="$PROJECT/.claude/tmb/trajectory.db"
 ISSUE_ID=$(sqlite3 "$DB" \
   "SELECT id FROM issues ORDER BY id LIMIT 1;" 2>/dev/null)
 if [ -z "$ISSUE_ID" ]; then
-  sqlite3 "$DB" <<SQL
+  ISSUE_ID=$(sqlite3 "$DB" <<SQL
 INSERT INTO issues (objective, description, status, created_at, updated_at)
 VALUES (
   'Extract storage layer into backend interface',
@@ -33,12 +33,13 @@ VALUES (
   datetime('now', '-2 hours'),
   datetime('now', '-2 hours')
 );
+SELECT last_insert_rowid();
 SQL
-  ISSUE_ID=$(sqlite3 "$DB" "SELECT last_insert_rowid();")
+)
 fi
 
 # Insert the kind='decision' discussion mirroring step 08's decision body.
-sqlite3 "$DB" <<SQL
+DISCUSSION_ID=$(sqlite3 "$DB" <<SQL
 INSERT INTO discussions (issue_id, author, kind, body, created_at)
 VALUES (
   $ISSUE_ID,
@@ -47,9 +48,9 @@ VALUES (
   'Decision: extract storage into a backend interface (StorageBackend ABC) with a JsonFileBackend default implementation. Factory function selects backend at runtime. Rationale: (1) decouples command handlers from persistence detail; (2) makes SQLite swap-in a targeted change; (3) preserves back-compat for existing ~/.todo-cli/todos.json files via JsonFileBackend.',
   datetime('now', '-1 hour')
 );
+SELECT last_insert_rowid();
 SQL
-
-DISCUSSION_ID=$(sqlite3 "$DB" "SELECT last_insert_rowid();")
+)
 
 # Seed a stub embedding for the decision row so discussion_search returns it
 # deterministically without a real ONNX call. zeroblob(1536*4) = 6144 zero

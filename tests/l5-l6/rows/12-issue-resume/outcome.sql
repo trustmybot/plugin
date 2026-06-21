@@ -3,7 +3,7 @@
 -- dispatches SWE without re-planning.
 --
 -- The load-bearing "didn't replan" signal lives in tools-forbidden
--- (issue_create, task_create_batch). This SQL asserts the existing
+-- (issue_create, task_provision). This SQL asserts the existing
 -- count-subcommand task remains intact + was actually picked up.
 
 SELECT

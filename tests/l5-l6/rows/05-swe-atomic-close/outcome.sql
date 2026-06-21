@@ -1,5 +1,5 @@
 -- 05-swe-atomic-close — covers BOTH dispatch (#14) and SubagentStop bookkeeping (#15).
--- (1) bro must spawn SWE after task_create_batch — tasks should not stay pending.
+-- (1) bro must spawn SWE after task_provision — tasks should not stay pending.
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
   'tasks created (got ' || COUNT(*) || ', expected >=1)' AS description
