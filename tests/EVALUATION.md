@@ -5,7 +5,7 @@ Two automated layers drive **real Claude Code through pre-seeded TMB workflows**
 | Layer | Purpose | Scope per run | When to run |
 |---|---|---|---|
 | **L5** | Per-row independent unit tests. Each test starts from a fixture that pre-seeds the **cumulative state up to this row** (codebase, MCP DB, discussions, issues, tasks, audit, etc.). One row = one test. | Single bro turn (or short multi-turn) against pre-seeded state. Fast, isolated, ~$0.20/test. | Debug or regression-test a single row's contract. **First-line check after a fix** — if the L5 for that row doesn't pass, don't run L6. |
-| **L6** | Single **chained integration test** that walks ALL 13 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_get_phase` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 13-row chain. Slow, ~$0.30–1/scenario × 13 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
+| **L6** | Single **chained integration test** that walks ALL 15 journey rows sequentially against ONE cumulative trajectory DB. Each row fires a fresh `claude -p` invocation; continuity is **DB-driven** (via bro's `tmb_recovery` + state-aware MCPs like `issue_get_phase` / `task_first_actionable`), NOT LLM-session-driven. Row N's bro turn produces real DB writes that row N+1 inherits. The TODO-CLI codebase grows row by row. | Full 15-row chain. Slow, ~$0.30–1/scenario × 15 rows + per-row scoring. | After all relevant L5 rows pass, run L6 to verify cross-row DB continuity holds end-to-end. |
 
 The full pyramid (L0 install-smoke → L1 lint → L2 unit → L3 integration → L4 workflow-sim → L5 → L6) lives in [`README.md`](./README.md). This doc is the reference for how L5 + L6 work and what each catches.
 
@@ -46,7 +46,7 @@ L6 catches **cross-row continuity drift** (the seam between steps); L5 catches *
 
 ## L6 chain flowchart
 
-The 13 chain steps form a single workflow journey of a fictional TODO-CLI project. Each step is a fresh `claude -p` invocation; state passes via the cumulative trajectory DB, the project filesystem, and git.
+The 15 chain steps form a single workflow journey of a fictional TODO-CLI project. Each step is a fresh `claude -p` invocation; state passes via the cumulative trajectory DB, the project filesystem, and git.
 
 The diagram has two arrow types:
 - **Solid arrows** trace the linear chain progression (every step inherits SOMETHING from the prior step — even if just an unchanged DB).
@@ -70,7 +70,7 @@ flowchart TD
     S12[step 12: 12-issue-resume<br/>'keep going on the in-progress task']
     S13[step 13: 13-search-grounding<br/>'why did we choose to extract storage into a backend interface?'<br/>→ discussion_search grounds answer in step 08 ADR]
 
-    Done([all 13 green = release-ready])
+    Done([all 15 green = release-ready])
 
     Start --> S1
     S1 -- "identity row<br/>plugin_config: local shape" --> S2

@@ -33,9 +33,10 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 
 ## CI (GitHub Actions)
 
-`.github/workflows/release-gate.yml` runs on GitHub's runners:
-- **every push / PR to `dev`** → L1–L4 (`tests/run-all.sh`).
+`.github/workflows/release-gate.yml` is **not** wired to dev pushes or PRs — it runs only on:
 - **version tags + manual dispatch** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**.
+
+Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.sh`) + pr-reviewer** — there is no automatic PR-CI on `dev`. CI-affecting changes additionally run a `workflow_dispatch` release-gate on the feature branch before merge (rule 6 above).
 
 L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 
@@ -61,9 +62,9 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 2. Bump PR on a branch off `dev`: `bump-version.sh X.Y.Z-rc.N` + a `## vX.Y.Z-rc.N` CHANGELOG section → PR → `dev`.
 
 **Phase B — local license (the gate)**
-3. Run the full local L6 chain (`bash tests/l5-l6/run-l6-chain.sh`) on the exact `dev` tree you intend to tag. **13/13 green licenses the rc tag.** A green CI gate on a feature branch never substitutes.
+3. Run the full local L6 chain (`bash tests/l5-l6/run-l6-chain.sh`) on the exact `dev` tree you intend to tag. **15/15 green licenses the rc tag.** A green CI gate on a feature branch never substitutes.
 4. On any step failure: reproduce and debug with the matching L5 row (`bash tests/l5-l6/run-l5.sh <row>`), fix on `dev` through the normal flow, then **resume the chain from the failed step** (`run-l6-chain.sh --from <step>`). Iterate until the chain completes.
-5. Whether the resumed 13/13 counts as the license depends on what the fix touched:
+5. Whether the resumed 15/15 counts as the license depends on what the fix touched:
    - Fix confined to **test fixtures, scorers, or docs** → the resumed pass stands; tag.
    - Fix touched **runtime** (`mcp/`, `scripts/hooks/`, schema, `agents/`, `skills/`, `commands/`, `CLAUDE.md`) → finish with **one full fresh chain**, because steps before the failure ran on pre-fix code and their green doesn't transfer.
 

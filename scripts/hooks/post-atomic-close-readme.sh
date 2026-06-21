@@ -111,10 +111,12 @@ TOUCHED_DIRS=$(printf '%s\n' "$TOUCHED_FILES" | while IFS= read -r f; do
   fi
 done | sort -u)
 
-# README.mtime helper: epoch seconds, portable across GNU + BSD stat.
+# README.mtime helper: epoch seconds, portable across GNU + BSD stat. GNU-first
+# (`stat -c %Y`) so GNU/Linux (CI) resolves correctly; on BSD `stat -c` errors
+# and falls through to `stat -f %m`.
 _readme_mtime() {
   local p="$1"
-  stat -f %m "$p" 2>/dev/null || stat -c %Y "$p" 2>/dev/null || echo ""
+  stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || echo ""
 }
 
 STALE_DIRS=""

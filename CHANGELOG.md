@@ -2,6 +2,18 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-rc.2 — 2026-06-21
+
+Second release candidate for v0.10.0 — fixes two issues the rc.1 release-gate surfaced, plus doc sync.
+
+### Fixed
+- **`no-hardcoded-plugin-name` lint**: the `projectRootFromDbPath` comment carried a literal `.claude/tmb/` example path; genericized to `.claude/<plugin>/`.
+- **README-staleness hook portability** (#87): `post-atomic-close-readme.sh` computed file mtime BSD-first (`stat -f %m || stat -c %Y`), which mis-resolves on GNU/Linux (CI), silently disabling stale-README detection there. Reordered to GNU-first — correct on both Linux and macOS.
+
+### Docs
+- Synced the L6 chain step count 13 → 15 across the release-gate label, tests/README.md, EVALUATION.md, the runner comments, and CONTRIBUTING.
+- Corrected CONTRIBUTING's CI description: the release-gate runs on version tags + manual dispatch (not every dev push/PR); per-PR dev validation is local L0–L4 + pr-reviewer.
+
 ## v0.10.0-rc.1 — 2026-06-21
 
 Release candidate for v0.10.0. Hardens the cheatcode lifecycle and the L5/L6 harness; the full L6 chain now runs end-to-end (15/15 rows, zero host-config leakage).

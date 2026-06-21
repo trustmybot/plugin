@@ -16,7 +16,7 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), [`l3-integration/hooks/*.sh`](./l3-integration/hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`l4-workflow-sim/*.test.mjs`](./l4-workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.sh`](./l5-l6/run-l5.sh), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
-| **L6** | Multi-turn chain. Walks the 13 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.sh`](./l5-l6/run-l6-chain.sh), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
+| **L6** | Multi-turn chain. Walks the 15 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.sh`](./l5-l6/run-l6-chain.sh), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`l0-install/release-canary.Dockerfile`](./l0-install/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
 
 **Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed every test while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
@@ -123,10 +123,10 @@ Run L5 locally before tagging a release candidate. The token is the one-time `CL
 
 L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, and world-model state on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
-The 13 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
+The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
 
 ```bash
-# Chained run — walks all 13 chain rows against a cumulative trajectory DB.
+# Chained run — walks all 15 chain rows against a cumulative trajectory DB.
 # Each row fires a fresh `claude -p`; DB continuity drives the chain.
 # Per-step logs land at ~/.claude/tmb/l6-chain-runs/<run-id>/.
 # See tests/l5-l6/l6-chain/README.md.
@@ -135,7 +135,7 @@ bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from row 7
 bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
 ```
 
-Run L6 locally before tagging a release candidate; rc tag policy gates on 13/13 chain pass.
+Run L6 locally before tagging a release candidate; rc tag policy gates on 15/15 chain pass.
 
 ### Debugging an L6 chain failure
 
