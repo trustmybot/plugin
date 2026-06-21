@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
-import { cheatcodeTools } from '../tools/cheatcode.js';
+import { cheatcodeTools, projectRootFromDbPath } from '../tools/cheatcode.js';
+import { sep } from 'node:path';
 
 // The plugin root on disk — four levels up from dist/test, the same walk the
 // tool's script resolution uses. Carries .claude-plugin/plugin.json, whose
@@ -2103,5 +2104,32 @@ describe('builtin cheatcode version backfill (#111)', () => {
       if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
       else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
     }
+  });
+});
+
+describe('projectRootFromDbPath', () => {
+  const p = (...parts: string[]) => parts.join(sep);
+
+  it('resolves the inner project root when the project is nested under a .claude ancestor (#164 L6 layout)', () => {
+    // ~/.claude/tmb/l6-chain-runs/<run>/project/.claude/tmb/trajectory.db —
+    // .claude appears twice; the root must be the project dir adjacent to the
+    // DB (innermost .claude), not $HOME (the outer .claude).
+    const dbPath = p(
+      sep + 'Users', 'x', '.claude', 'tmb', 'l6-chain-runs', 'r', 'project', '.claude', 'tmb', 'trajectory.db',
+    );
+    assert.equal(
+      projectRootFromDbPath(dbPath),
+      p(sep + 'Users', 'x', '.claude', 'tmb', 'l6-chain-runs', 'r', 'project'),
+    );
+  });
+
+  it('resolves the project root for a normal single-.claude path', () => {
+    const dbPath = p(sep + 'Users', 'x', 'proj', '.claude', 'tmb', 'trajectory.db');
+    assert.equal(projectRootFromDbPath(dbPath), p(sep + 'Users', 'x', 'proj'));
+  });
+
+  it('returns null for :memory: and empty db paths', () => {
+    assert.equal(projectRootFromDbPath(':memory:'), null);
+    assert.equal(projectRootFromDbPath(''), null);
   });
 });

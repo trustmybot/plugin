@@ -329,13 +329,18 @@ function parseInstallCandidate(raw) {
 // materializes a project-local CLAUDE.md reference.
 // Derive the PROJECT ROOT (the dir that owns .claude/) from the trajectory DB
 // path. The DB lives at <root>/.claude/<plugin>/trajectory.db, so the root is
-// the parent of the first `.claude` segment. Returns null for an in-memory DB
-// or a path with no `.claude` segment (e.g. a bespoke TRAJECTORY_DB_PATH).
-function projectRootFromDbPath(dbPath) {
+// the parent of the `.claude` adjacent to the DB — the INNERMOST `.claude`
+// (lastIndexOf). Using the first `.claude` mis-resolves the root to an ancestor
+// when the project itself is nested under a `.claude` ancestor (the L6 chain
+// layout: ~/.claude/tmb/l6-chain-runs/<run>/project/.claude/tmb/trajectory.db),
+// which leaks materialize/dematerialize writes outside the project. Returns null
+// for an in-memory DB or a path with no `.claude` segment (e.g. a bespoke
+// TRAJECTORY_DB_PATH).
+export function projectRootFromDbPath(dbPath) {
     if (!dbPath || dbPath === ':memory:')
         return null;
     const segments = dbPath.split(sep);
-    const idx = segments.indexOf('.claude');
+    const idx = segments.lastIndexOf('.claude');
     if (idx <= 0)
         return null;
     return segments.slice(0, idx).join(sep) || sep;
