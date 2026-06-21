@@ -23,7 +23,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 67 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
 
 - **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`
-- **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`
+- **tasks**: `task_get`, `task_update_status`, `task_first_actionable`
 - **stats**: `task_stats`
 - **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `discussion_search`, `issue_get_with_discussions`
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_close_with_decisions`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
@@ -37,7 +37,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
-- **composites**: `intent_start`, `branch_id_propose`, `task_brief`, `task_retry`, `task_recover`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
+- **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief`, `task_retry`, `task_recover`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
 - **audit**: `audit_append`, `audit_list`, `audit_search`
 
 ## Slash commands
@@ -107,7 +107,7 @@ Runtime location: `plugin/commands/<name>.md`.
 | `roundtable-cleanup-postcheck.sh` | PostToolUse roundtable_close | Verify capture surface on close |
 | `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
 | `post-atomic-close-readme.sh` | PostToolUse bro_atomic_close | Refresh directory README summaries after close |
-| `post-task-create-spawn-hint.sh` | PostToolUse task_create_batch | Remind bro to spawn SWE after task batch |
+| `post-task-create-spawn-hint.sh` | PostToolUse task-create (batch insert path) | Remind bro to spawn SWE after a task is provisioned |
 | `post-pr-comments-persist.sh` | PostToolUse pr_monitor_comments_get | Auto-persist returned PR comments as discussion rows |
 | `attribution-footer.sh` | PostToolUse Bash | Append co-author / session attribution to commits |
 | `clean-merged-branch.sh` | PostToolUse Bash | Prune local branches once their PR merges |
