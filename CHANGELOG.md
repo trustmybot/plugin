@@ -2,6 +2,17 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-rc.1 — 2026-06-21
+
+Release candidate for v0.10.0. Hardens the cheatcode lifecycle and the L5/L6 harness; the full L6 chain now runs end-to-end (15/15 rows, zero host-config leakage).
+
+### Fixed
+- **Cheatcode materialization stays inside the project** (#164): `projectRootFromDbPath` resolved the *first* `.claude` path segment, so a project nested under a `.claude` ancestor had its consuming-agent materialize/dematerialize write into the user's real `~/.claude/agents/` instead of the project. It now resolves the innermost `.claude` (adjacent to the trajectory DB), restoring the "writes the user project only" invariant; the shared-helper fix covers both install-materialize and uninstall-dematerialize.
+- **Repo-rooted worktree resolution** (#169): an incomplete migration left worktree creators using `<repo>/.claude/worktrees/` while some closers (`swe-atomic-close`, `worktree-create` DB path) assumed `<workspace>/.claude/worktrees/`, diverging for a repo nested under the launch workspace (multi-repo). All resolution is now repo-rooted, and the stale-worktree maintenance pruner (which would have deleted now-canonical worktrees) is neutralized.
+
+### Tests
+- **L5/L6 harness aligned to v0.10.0** (#162, #165, #166, #167, #168): isolate the L5/L6 smokes from live DBs and stop the DB walk-up at the git-repo boundary (#162); refresh fixtures for the `task_create_batch`→`task_provision` rename and the `discussion_append`-subsumed-by-`task_provision` planning flow (#165, #167); make the cheatcode-uninstall row seed idempotent so chain mode no longer orphans attachment rows (#166); add `task_provision` to no-task forbidden lists, refresh scorer comments, and fix a `last_insert_rowid` seed orphan (#168).
+
 ## v0.10.0-delta — 2026-06-19
 
 ### Added
