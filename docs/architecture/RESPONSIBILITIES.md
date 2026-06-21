@@ -47,8 +47,8 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 1. `session-start-prescan.sh` (auto hook — inventory) → decide
 2. `branch_id_propose` MCP composite (open MCP issue + propose `branch_id`)
 3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + a `kind=decision` discussion when the change is architectural: new boundary/module, public API, schema, strategic stack, external side effects)
-4. **bro pre-creates the task branch** from `origin/<pr_target>` — `git fetch origin && git branch <task.branch_id> origin/<pr_target>`
-5. `task_create_batch(emit_planning_complete=true)` + spawn SWE [batched]
+4. `task_provision(issue_id, branch_id, decision_body, task, base?)` MCP composite — one DB transaction: writes the `kind='decision'` discussion + creates the task (with `planning_complete`); then the git side-effects after commit (branch ref + worktree, idempotent/fail-soft). Returns the spawn-ready shape (`task_id`, `branch_id`, `worktree_path`, `git_setup`).
+5. spawn SWE against the provisioned branch + worktree
 6. SWE returns
 7. **bro verification (V1/V2/V3)**:
    - V1 — files match the spec's `## Files`
@@ -59,7 +59,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 ### Server-enforced privileges (Layer 1)
 
 Bro is the only agent allowed to call:
-- `task_create_batch`
+- `task_provision`
 - `task_update_status` (shared with SWE; bro writes `closed`, SWE writes `completed`/`failed`)
 - `issue_create`, `issue_close`, `issue_resume`
 - `discussion_append` for `kind='intent'`
@@ -131,7 +131,7 @@ Batch in one response:
 
 - Push (any `git push`)
 - Edit outside the worktree
-- Author the spec body (server enforces — bro-only on `task_create_batch`)
+- Author the spec body (server enforces — bro-only on `task_provision`)
 - Bypass any PreToolUse hook block — STOP and surface the hook output to bro instead
 
 ---
@@ -181,7 +181,7 @@ Templates in `templates/agents/<name>.md`, instantiated per-project on demand vi
 
 ### Server-enforced constraints (Layer 1)
 
-Consultants **cannot write workflow state**: `task_create_batch`, `task_update_status`, `issue_create`, `issue_close`, `validation_record` all return `forbidden`.
+Consultants **cannot write workflow state**: `task_provision`, `task_update_status`, `issue_create`, `issue_close`, `validation_record` all return `forbidden`.
 
 They **can write analyses**: `discussion_append(kind='analysis')`, `audit_append`. Architect specifically also gets `issue_snapshot_md`.
 
@@ -198,7 +198,7 @@ Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireR
 | Tool | bro | swe | pr-reviewer | consultants |
 |---|:---:|:---:|:---:|:---:|
 | `issue_create` / `issue_close` | ✓ | | | |
-| `task_create_batch` | ✓ | | | |
+| `task_provision` | ✓ | | | |
 | `task_update_status(closed)` | ✓ | | | |
 | `task_update_status(completed/failed)` | ✓ | ✓ | | |
 | `validation_record` | | | ✓ | |
