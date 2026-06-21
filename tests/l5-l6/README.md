@@ -14,7 +14,7 @@ bash tests/l5-l6/run-l6-chain.sh           # full cumulative chain
 |---|---|
 | [`run-l5.sh`](./run-l5.sh) | Per-row isolated runner — applies `setup-l5.sh`, drives the prompt, runs scorers |
 | [`run-l6-chain.sh`](./run-l6-chain.sh) | Multi-turn chain runner — walks the manifest rows against one cumulative trajectory DB |
-| [`rows/`](./rows/) | The canonical row tree — each `<NN>-<name>/` holds `prompt.txt`, `script.json`, `fixture.txt`, `setup-l5.sh`, `outcome.sql`, `tools-required.json`, `tools-forbidden.json`, `cost-budget.json`, and optional outcome bundles |
+| [`rows/`](./rows/) | The canonical row tree, organized into family folders `<NN>/` that hold the primary step `<NN>-<name>/` plus its edge cases `<NN>.<MM>-<name>/` (standalone `23-bulk-cleanup/` stays flat). Each leaf row dir holds `prompt.txt`, `script.json`, `fixture.txt`, `setup-l5.sh`, `outcome.sql`, `tools-required.json`, `tools-forbidden.json`, `cost-budget.json`, and optional outcome bundles |
 | [`l6-chain/`](./l6-chain/) | Chain configuration — `chain-manifest.json` (ordered steps) + `seeds/` (between-row SQL bridges). See its [`README.md`](./l6-chain/README.md) |
 | [`lib/`](./lib/) | Shared shell helpers — flow/chain helpers, scorers, sandbox, stubs, timeout shim |
 | [`fixtures/`](./fixtures/) | SQL fixtures (`empty`, `onboarding-named`, `onboarding-anonymous`) that pre-seed the world-model-cold gate |

@@ -113,7 +113,7 @@ Reading the dotted edges:
 
 **Note on retired hook-attribution row:** the `skill_invocations` hook-attribution assertion that the retired standalone row used to own is now folded into step 05's outcome.sql — `skill_invocations` rows accumulate naturally on any chain step that invokes tmb skills, and step 05 is the first such step. The standalone row was redundant.
 
-**Note on the cheatcode steps (chain steps 4 and 9):** the chain runs the cheatcode pipeline end-to-end via two rows wired into `chain-manifest.json` (dir names `rows/04-cheatcode-install-plugins` and `rows/09-cheatcode-uninstall-plugins`). **Chain step 4** (`04-cheatcode-install-plugins`) installs two marketplace plugins via cheatcode — `feature-dev` attaches to `swe`, `code-review` attaches to `pr-reviewer` — so the install state is cumulative for the rest of the journey. **Chain step 9** (`09-cheatcode-uninstall-plugins`) reverses it, tearing the installed cheatcodes + attachments back down. Both steps stage their deterministic, no-network fixture via a `chain_setup_command` that reuses the row's own `setup-l5.sh` (the same script L5 isolation sources directly). The first-task row (`05-first-task-hits-gate`) runs at chain step 5, `11-concerns-protocol` at step 11, `15-search-grounding` at step 15.
+**Note on the cheatcode steps (chain steps 4 and 9):** the chain runs the cheatcode pipeline end-to-end via two rows wired into `chain-manifest.json` (dir names `rows/04/04-cheatcode-install-plugins` and `rows/09/09-cheatcode-uninstall-plugins`). **Chain step 4** (`04-cheatcode-install-plugins`) installs two marketplace plugins via cheatcode — `feature-dev` attaches to `swe`, `code-review` attaches to `pr-reviewer` — so the install state is cumulative for the rest of the journey. **Chain step 9** (`09-cheatcode-uninstall-plugins`) reverses it, tearing the installed cheatcodes + attachments back down. Both steps stage their deterministic, no-network fixture via a `chain_setup_command` that reuses the row's own `setup-l5.sh` (the same script L5 isolation sources directly). The first-task row (`05-first-task-hits-gate`) runs at chain step 5, `11-concerns-protocol` at step 11, `15-search-grounding` at step 15.
 
 **Reading the S13 dotted edge:** S8 → S13: step 10 records the `kind='decision'` discussion that step 15 searches for. In L6, the organic DB carry means the row is already present when step 13 fires. In L5 isolation, `setup-l5.sh` seeds the same decision body so the same prompt + assertion work unchanged.
 
@@ -158,7 +158,7 @@ For all other steps, bro's turn alone produces the row's expected Output organic
 
 ## Single canonical row tree
 
-All rows live in **`tests/l5-l6/rows/`**. Every row is usable in both L5 (isolated) and L6 (chained) mode via the same prompt + scorer set. The difference between modes:
+All rows live in **`tests/l5-l6/rows/`**, organized into **family folders** `rows/<NN>/` that hold the primary chain step `<NN>-<name>/` plus its edge cases `<NN>.<MM>-<name>/` (standalone `23-bulk-cleanup/` stays flat). Every row is usable in both L5 (isolated) and L6 (chained) mode via the same prompt + scorer set. The difference between modes:
 
 | Aspect | L5 mode | L6 chain mode |
 |---|---|---|
@@ -171,7 +171,7 @@ All rows live in **`tests/l5-l6/rows/`**. Every row is usable in both L5 (isolat
 ### Row layout
 
 ```
-tests/l5-l6/rows/<row-name>/
+tests/l5-l6/rows/<NN>/<row-name>/        # family folder <NN>/ groups a primary + its edge cases
   prompt.txt              # shared by L5 + L6 — the user prompt fed to claude -p
   README.md               # scenario description for both L5 and L6 modes
   script.json             # max_turns, user_after_bro[], terminal_pattern
@@ -301,7 +301,7 @@ tests/l5-l6/
 │   ├── scorers.sh            # outcome / coherence / git / trajectory / cost scorer impls
 │   ├── smoke-helpers.sh      # pre-flight substrate health (MCP spawn + auth + plugin-load)
 │   └── timeout-shim.sh       # cross-platform timeout wrapper
-├── rows/<row-name>/          # canonical row layout (used by both L5 + L6)
+├── rows/<NN>/<row-name>/     # canonical row layout in family folders (used by both L5 + L6)
 │   └── ... (see "Row layout" above)
 ├── l6-chain/
 │   ├── chain-manifest.json   # ordered list of chain rows + seed bridges
@@ -381,8 +381,8 @@ A row passes when every scorer it ships passes. Missing optional scorers are ski
 
 | Goal | Where | Pattern |
 |---|---|---|
-| New standalone L5 row | `tests/l5-l6/rows/<name>/` | scaffold per canonical layout; chain manifest unchanged |
-| New L6 chain step | `tests/l5-l6/rows/<NN>-<name>/` + `l6-chain/chain-manifest.json` | add row dir; append entry to manifest with `step`, `id`, `row_dir`, `seed_before`/`seed_after` |
+| New standalone L5 row | `tests/l5-l6/rows/<NN>/<NN>.<MM>-<name>/` (under its family folder) | scaffold per canonical layout; chain manifest unchanged |
+| New L6 chain step | `tests/l5-l6/rows/<NN>/<NN>-<name>/` + `l6-chain/chain-manifest.json` | add row dir under its family folder; append entry to manifest with `step`, `id`, `row_dir` (`rows/<NN>/<NN>-<name>`), `seed_before`/`seed_after` |
 | New scorer type | `tests/l5-l6/lib/scorers.sh` | add `score_<name>`; register in `l5_score_flow` / `l6c_score_step` |
 
 When you add or modify a chain step, update the **Per-step I/O table** above so the Input/Output/Carried-from columns stay accurate — those columns are the contract the next-row author reads to know what their step inherits.
