@@ -7,7 +7,7 @@ SELECT
 FROM discussions
 WHERE kind = 'decision';
 
--- And a task lands (bro called task_create_batch successfully — gate cleared).
+-- And a task lands (bro called task_provision successfully — gate cleared).
 SELECT
   CASE WHEN COUNT(*) >= 1 THEN 1 ELSE 0 END AS pass,
   'tasks created (got ' || COUNT(*) || ', expected >=1)' AS description

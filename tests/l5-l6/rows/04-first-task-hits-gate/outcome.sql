@@ -1,5 +1,5 @@
 -- 04-first-task-hits-gate — bro responds to the registry-cold gate by
--- running /scan, then plans + dispatches via task_create_batch. The
+-- running /scan, then plans + dispatches via task_provision. The
 -- prompt is a natural full-feature ask ("make a todo CLI"), so bro
 -- typically also spawns SWE + atomic-closes in the same turn — that's
 -- not exclusive with step 05 (which adds a feature on top); step 05's
