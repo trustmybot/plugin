@@ -2,6 +2,19 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-rc.3 — 2026-06-21
+
+Third release candidate for v0.10.0 — test-harness, tooling, and docs polish on top of rc.2 (no shipped-runtime change; the full L6 chain re-validates 15/15 on the new layout).
+
+### Added
+- **`scripts/publish-rc-channel.sh`** — sanctioned, guard-compatible rc-channel publish: verifies the rc tag on origin, updates `marketplace-rc`'s `source.ref`, writes its README if missing, and pushes. CONTRIBUTING step 7 now references it.
+
+### Changed
+- **L5/L6 rows renumbered to the 15-step schema** — chain rows numbered to their L6 step (01–15; fixes the old 44/45 cheatcode-row mislabeling), edge cases as `N.MM` under their primary step, organized into per-step family folders (`tests/l5-l6/rows/NN/`); `run-l5.sh` discovers the two-level layout. The L6 chain runs 15/15.
+
+### Docs
+- v0.10.0 staleness fixes: ERD schema `v26` + the `milestones` table, `task_create_batch`→`task_provision` in RESPONSIBILITIES/REFERENCE, mcp README schema `v26`.
+
 ## v0.10.0-rc.2 — 2026-06-21
 
 Second release candidate for v0.10.0 — fixes two issues the rc.1 release-gate surfaced, plus doc sync.
