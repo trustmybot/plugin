@@ -28,8 +28,6 @@ PLUGIN_NAME=$(tmb_resolve_plugin_name)
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || true
 # shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh" 2>/dev/null || true
-# shellcheck source=scripts/hooks/lib/resolve-workspace.sh disable=SC1091
-. "$SCRIPT_DIR/lib/resolve-workspace.sh" 2>/dev/null || true
 
 mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
@@ -240,29 +238,29 @@ fi
 
 # Derive the worktree path: slug = everything after the last '/' in branch_id.
 SLUG="${BRANCH##*/}"
-# Resolve workspace root via shared lib (dirname×3 of DB).
-# In a workspace-above-repo layout (repo at <ws>/plugin, worktrees at
-# <ws>/.claude/worktrees) REPO_ROOT points into the inner repo while
-# worktrees live at the workspace root one level up.
-WS_ROOT=""
-if command -v tmb_workspace_root >/dev/null 2>&1 && [ -n "$DB" ]; then
-  WS_ROOT=$(tmb_workspace_root "$DB" || true)
-fi
-# Sentinel fallback: subagents that inherit cwd=~ and lack env vars.
-if [ -n "$WS_ROOT" ] && [ ! -d "${WS_ROOT}/.claude/worktrees/${SLUG}" ]; then
+# Resolve the worktree from the TASK'S REPO, repo-rooted, mirroring the creators
+# (ensure-swe-worktree.sh / MCP task_provision) and swe-verification-gate.sh:
+# the worktree lives at <repoRoot>/.claude/worktrees/<slug>. REPO_ROOT was
+# resolved above from tasks.repo → repos.path (single-repo: repo == workspace).
+WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
+
+# Sentinel fallback: subagents that inherit cwd=~ and lack env vars use the
+# active-workspace sentinel written by the plugin at launch time. The sentinel
+# names the workspace root; the worktree still hangs off the repo subdir, so
+# join the resolved TASK_REPO (single-repo: the workspace root is the repo).
+if [ ! -d "$WT_PATH" ]; then
   _SENTINEL="${HOME}/.claude/${PLUGIN_NAME}-active-workspace"
   if [ -f "$_SENTINEL" ]; then
     _WS_SENTINEL=$(head -1 "$_SENTINEL" 2>/dev/null || true)
-    if [ -n "$_WS_SENTINEL" ] && [ -d "${_WS_SENTINEL}/.claude/worktrees/${SLUG}" ]; then
-      WS_ROOT="$_WS_SENTINEL"
+    if [ -n "$_WS_SENTINEL" ]; then
+      for _cand in "${_WS_SENTINEL}/${TASK_REPO}" "$_WS_SENTINEL"; do
+        if [ -n "$_cand" ] && [ -d "${_cand}/.claude/worktrees/${SLUG}" ]; then
+          WT_PATH="${_cand}/.claude/worktrees/${SLUG}"
+          break
+        fi
+      done
     fi
   fi
-fi
-# Fall back to REPO_ROOT if WS_ROOT is empty (preserves previous behavior).
-if [ -n "$WS_ROOT" ]; then
-  WT_PATH="${WS_ROOT}/.claude/worktrees/${SLUG}"
-else
-  WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
 fi
 
 # Read the SWE's worktree HEAD.

@@ -82,11 +82,11 @@ fi
 [ -d "$REPO_ROOT/.git" ] || exit 0
 
 SLUG="${BRANCH_ID#*/}"
-# The regex tolerates both repo-rooted (legacy: <repo>/.claude/worktrees/<slug>)
-# and workspace-rooted (current: <workspace>/.claude/worktrees/<slug>) paths
-# because both end in `/.claude/worktrees/<slug>`. After all stale repo-rooted
-# worktrees are pruned (see scripts/maintenance/cleanup-stale-worktrees.sh),
-# only workspace-rooted ones remain.
+# Worktrees are created repo-rooted at <repo>/.claude/worktrees/<slug> by the
+# creators (ensure-swe-worktree.sh / MCP task_provision). `git worktree list`
+# enumerates them by git's own tracking regardless of physical location, so the
+# slug-suffix match below locates the worktree by its `/.claude/worktrees/<slug>`
+# tail without assuming any particular root.
 WORKTREE_PATH=$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | awk -v slug="$SLUG" '
   /^worktree / {
     wt = substr($0, 10);

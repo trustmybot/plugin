@@ -24,8 +24,11 @@
 # The worktree attaches to the named branch so SWE's commits advance the branch
 # ref directly and pushes carry the commits.
 #
-# Worktree path: <workspace_root>/.claude/worktrees/<slug>
-# where slug strips the <type>/ prefix (fix/123-foo → 123-foo).
+# Worktree path: <repo_root>/.claude/worktrees/<slug>
+# where slug strips the <type>/ prefix (fix/123-foo → 123-foo). Repo-rooted to
+# match the creators (ensure-swe-worktree.sh / MCP task_provision) and the
+# closers, so a repo nested under the launch workspace (e.g. TMB/plugin under
+# TMB) resolves to one canonical path everywhere.
 #
 # Resolves <repo> relative to the workspace root (dir containing
 # .claude/<plugin>/trajectory.db), found via tmb_db_path walk-up.
@@ -106,7 +109,7 @@ if [ "$TASK_COUNT" = "0" ]; then
   # No matching task — single-repo fallback (repos.path), else workspace root.
   REPO_ABS=$(tmb_repo_single_path "$DB_PATH" 2>/dev/null || true)
   [ -n "$REPO_ABS" ] || REPO_ABS="$WORKSPACE_ROOT"
-  WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
+  WORKTREE_PATH="$REPO_ABS/.claude/worktrees/$SLUG"
 else
   REPO=$(sqlite3 "$DB_PATH" \
     "SELECT COALESCE(repo,'') FROM tasks WHERE branch_id='$SAFE_BRANCH' LIMIT 1;" \
@@ -117,7 +120,7 @@ else
   REPO_ABS=$(tmb_repo_resolve_path "$DB_PATH" "$REPO" 2>/dev/null || true)
   [ -n "$REPO_ABS" ] || REPO_ABS="$WORKSPACE_ROOT"
 
-  WORKTREE_PATH="$WORKSPACE_ROOT/.claude/worktrees/$SLUG"
+  WORKTREE_PATH="$REPO_ABS/.claude/worktrees/$SLUG"
 fi
 
 # If the resolved repo isn't a git work tree, fail loudly
