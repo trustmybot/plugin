@@ -70,7 +70,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 **Phase C — rc**
 6. Tag `vX.Y.Z-rc.N` on `dev`, push. The tag-triggered CI release-gate (L1–L4 + L6 + L0) is **re-confirmation**, not the gate. Fast-forward the `rc` branch to the tag.
-7. **Publish to the rc channel**: in `trustmybot/marketplace-rc`, edit `.claude-plugin/marketplace.json` → `plugins[].source.ref` to the new rc tag and push. Installs of `tmb@trustmybot-rc` now serve the rc.
+7. **Publish to the rc channel**: run `bash scripts/publish-rc-channel.sh` — it clones `trustmybot/marketplace-rc`, points `plugins[].source.ref` at the new rc tag, writes the channel README if missing, and pushes. Installs of `tmb@trustmybot-rc` now serve the rc. (Refuses non-rc versions; verifies the tag is on origin first; idempotent; `--dry-run` previews, `--yes` skips the prompt.)
 8. The CI release-gate (L1–L4 + L6 + L0) is the gate — the automated layers are the sole sign-off; a green gate on the exact tree you tag is the license.
 
 **Phase D — stable**
