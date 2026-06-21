@@ -837,17 +837,23 @@ txfirst_status_601=$(sqlite3 "$TXFIRST_DB" "SELECT status FROM tasks WHERE id=60
 assert_eq "pending" "$txfirst_status_601" "task 601 untouched when transcript resolves task 600"
 
 # ========================================================
-# Workspace-above-repo layout: DB two levels above the repo.
-# Reproduces the completion deadlock: WT at <ws>/.claude/worktrees/<slug>,
-# repo at <ws>/inner-repo (REPO_ROOT != WS_ROOT).
+# Nested-repo layout (#169): workspace=$WS, repo=$WS/plugin, repos.path=$WS/plugin,
+# tasks.repo='plugin'. The worktree is REPO-ROOTED at
+# $WS/plugin/.claude/worktrees/<slug>, NOT $WS/.claude/worktrees/<slug>.
+# Pre-fix (WS_ROOT-primary) the hook resolved the workspace path and could not
+# locate the worktree → task stuck pending. This case must fail against the
+# pre-fix code and pass with the repo-rooted resolver.
 # ========================================================
 
-echo '--- Test: workspace-above-repo: worktree at WS_ROOT, not REPO_ROOT → auto-completed ---'
+echo '--- Test: nested-repo: worktree repo-rooted under <ws>/plugin → auto-completed ---'
 
-WS_ROOT_DIR="$TMPDIR/ws-above"
-INNER_REPO="$WS_ROOT_DIR/inner-repo"
+WS_ROOT_DIR="$TMPDIR/nested-ws"
+INNER_REPO="$WS_ROOT_DIR/plugin"
 WS_DB="$WS_ROOT_DIR/.claude/tmb/trajectory.db"
-WS_WT="$WS_ROOT_DIR/.claude/worktrees/ws-task"
+# Repo-rooted worktree: hangs off the inner repo, NOT the workspace root.
+WS_WT="$INNER_REPO/.claude/worktrees/ws-task"
+# Workspace-rooted path that the pre-fix code would (wrongly) look for.
+WS_WRONG_WT="$WS_ROOT_DIR/.claude/worktrees/ws-task"
 
 mkdir -p "$INNER_REPO"
 mkdir -p "$(dirname "$WS_DB")"
@@ -858,6 +864,7 @@ git -C "$INNER_REPO" config user.name t
 echo base > "$INNER_REPO/base.txt"
 git -C "$INNER_REPO" add .
 git -C "$INNER_REPO" commit -qm "base"
+INNER_REPO_ROOT=$(git -C "$INNER_REPO" rev-parse --show-toplevel)
 
 sqlite3 "$WS_DB" "
   CREATE TABLE tasks (
@@ -900,16 +907,17 @@ sqlite3 "$WS_DB" "
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL DEFAULT '\"\"'
   );
-  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
-    VALUES (700, 'fix/ws-task', 'dev', 'pending', datetime('now', '+1 second'));
+  INSERT INTO repos (name, path) VALUES ('plugin', '$INNER_REPO_ROOT');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
+    VALUES (700, 'fix/ws-task', 'dev', 'pending', 'plugin', datetime('now', '+1 second'));
   INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
-# Worktree lives at the WS root, not inside the inner repo.
+# Worktree is REPO-ROOTED inside the inner repo (the canonical layout).
 git -C "$INNER_REPO" branch fix/ws-task HEAD
 git -C "$INNER_REPO" worktree add -q "$WS_WT" fix/ws-task
 
-# SWE commits in the workspace-level worktree.
+# SWE commits in the repo-rooted worktree.
 (cd "$WS_WT" && echo "$RANDOM" >> ws-work.txt && git add ws-work.txt && git commit -qm "feat: ws work")
 WS_WT_HEAD=$(git -C "$WS_WT" rev-parse HEAD)
 
@@ -917,12 +925,17 @@ ws_swe_input() {
   jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
 }
 
-test_case "workspace-above-repo: worktree at WS_ROOT → pending task auto-completed (deadlock fix)"
+test_case "nested-repo: repo-rooted worktree under <ws>/plugin → no workspace-rooted path exists"
+# The workspace-rooted path the pre-fix code targeted must NOT exist, so a hook
+# that resolves it would fail to auto-close.
+if [ ! -d "$WS_WRONG_WT" ]; then _pass; else _fail "workspace-rooted path unexpectedly exists: $WS_WRONG_WT"; fi
+
+test_case "nested-repo: repo-rooted worktree → pending task auto-completed (#169 repo-rooted resolver)"
 out=$(run_hook_in_dir "$INNER_REPO" "$(ws_swe_input)" "$WS_DB")
 assert_eq "" "$out" "no additionalContext on auto-close"
 ws_status=$(sqlite3 "$WS_DB" "SELECT status FROM tasks WHERE id=700;")
-assert_eq "completed" "$ws_status" "task 700 auto-closed via workspace-root worktree path"
+assert_eq "completed" "$ws_status" "task 700 auto-closed via repo-rooted worktree path"
 ws_sha=$(sqlite3 "$WS_DB" "SELECT commit_sha FROM tasks WHERE id=700;")
-assert_eq "$WS_WT_HEAD" "$ws_sha" "commit_sha written from WS_ROOT worktree HEAD"
+assert_eq "$WS_WT_HEAD" "$ws_sha" "commit_sha written from repo-rooted worktree HEAD"
 
 summarize

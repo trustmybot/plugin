@@ -123,7 +123,7 @@ case "$no_match_path" in
   *)   _fail "stdout is not an absolute path: '$no_match_path'" ;;
 esac
 assert_contains "$no_match_path" '777-nomatch' "path contains slug"
-NOMATCH_WT="$WORKSPACE/.claude/worktrees/777-nomatch"
+NOMATCH_WT="$INNER_ROOT/.claude/worktrees/777-nomatch"
 if [ -d "$NOMATCH_WT" ]; then _pass; else _fail "worktree not created at $NOMATCH_WT"; fi
 
 test_case "no-match + single-repo fallback: branch auto-created when missing"
@@ -133,7 +133,7 @@ case "$autocreate_path" in
   /*)  _pass "stdout is absolute path" ;;
   *)   _fail "stdout is not an absolute path: '$autocreate_path'" ;;
 esac
-AUTOCREATE_WT="$WORKSPACE/.claude/worktrees/666-autocreate"
+AUTOCREATE_WT="$INNER_ROOT/.claude/worktrees/666-autocreate"
 if [ -d "$AUTOCREATE_WT" ]; then _pass; else _fail "worktree not created at $AUTOCREATE_WT"; fi
 if git -C "$INNER_REPO" show-ref --verify --quiet "refs/heads/feat/666-autocreate" 2>/dev/null; then
   _pass "branch auto-created in inner repo"
@@ -158,7 +158,7 @@ case "$no_repo_path" in
   *)   _fail "stdout is not an absolute path: '$no_repo_path'" ;;
 esac
 assert_contains "$no_repo_path" '456-no-repo' "path contains slug"
-if [ -d "$WORKSPACE/.claude/worktrees/456-no-repo" ]; then _pass; else _fail "worktree not created"; fi
+if [ -d "$INNER_ROOT/.claude/worktrees/456-no-repo" ]; then _pass; else _fail "worktree not created"; fi
 
 test_case "branch matching task with repo set: stdout is bare absolute path"
 task_path=$(echo "$(input_event 'fix/123-with-repo')" | bash "$HOOK" 2>/dev/null)
@@ -169,17 +169,17 @@ esac
 assert_not_contains "$task_path" '"continue"' "stdout must not contain JSON"
 assert_contains "$task_path" '123-with-repo' "path contains slug"
 
-WORKTREE_PATH="$WORKSPACE/.claude/worktrees/123-with-repo"
+WORKTREE_PATH="$INNER_ROOT/.claude/worktrees/123-with-repo"
 if [ -d "$WORKTREE_PATH" ]; then
   _pass
 else
   _fail "worktree directory not created at $WORKTREE_PATH"
 fi
 
-test_case "worktree path is workspace-rooted, not repo-rooted, when workspace != repo"
-REPO_ROOTED_PATH="$INNER_REPO/.claude/worktrees/123-with-repo"
-if [ -d "$REPO_ROOTED_PATH" ]; then
-  _fail "worktree must NOT be created inside inner repo at $REPO_ROOTED_PATH"
+test_case "#169: worktree path is repo-rooted (inside the inner repo), not workspace-rooted, when workspace != repo"
+WS_ROOTED_PATH="$WORKSPACE/.claude/worktrees/123-with-repo"
+if [ -d "$WS_ROOTED_PATH" ]; then
+  _fail "worktree must NOT be created at the workspace root $WS_ROOTED_PATH — it is repo-rooted"
 else
   _pass
 fi
@@ -284,7 +284,7 @@ sqlite3 "$MR_DB" "
 "
 git -C "$MR_REPO" branch fix/330-subdir HEAD
 
-MR_WT="$MR_WORKSPACE/.claude/worktrees/330-subdir"
+MR_WT="$MR_REPO_ROOT/.claude/worktrees/330-subdir"
 
 test_case "#330: multi-repo (session dir is parent of repo subdir): bare path on stdout"
 mr_path=$(echo "$(input_event 'fix/330-subdir')" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null)
@@ -296,14 +296,17 @@ assert_not_contains "$mr_path" '"continue"' "stdout must not contain JSON"
 assert_contains "$mr_path" '330-subdir' "path contains slug"
 if [ -d "$MR_WT" ]; then _pass; else _fail "worktree not created at $MR_WT"; fi
 
+test_case "#330/#169: stdout path is exactly the repo-rooted worktree path (fails pre-fix)"
+assert_eq "$MR_WT" "$mr_path" "hook must emit the repo-rooted path, not the workspace-rooted one"
+
 test_case "#330: subdir-repo worktree HEAD is on the named branch"
 MR_HB=$(git -C "$MR_WT" rev-parse --abbrev-ref HEAD 2>/dev/null)
 if [ "$MR_HB" = "fix/330-subdir" ]; then _pass; else _fail "expected HEAD on fix/330-subdir, got '$MR_HB'"; fi
 
-test_case "#330: worktree is workspace-rooted (not inside inner repo)"
-MR_INNER_WT="$MR_REPO/.claude/worktrees/330-subdir"
-if [ -d "$MR_INNER_WT" ]; then
-  _fail "worktree must NOT be created inside inner repo at $MR_INNER_WT"
+test_case "#330/#169: worktree is repo-rooted (inside the inner repo, not at the workspace root)"
+MR_WS_WT="$MR_WORKSPACE/.claude/worktrees/330-subdir"
+if [ -d "$MR_WS_WT" ]; then
+  _fail "worktree must NOT be created at the workspace root $MR_WS_WT — it is repo-rooted"
 else
   _pass
 fi
