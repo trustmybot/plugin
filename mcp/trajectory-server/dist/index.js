@@ -20926,6 +20926,7 @@ function findExistingDbUp(startDir, pluginName, opts) {
     if (dir === home && startDir !== home) return null;
     const candidate = join2(dir, ".claude", pluginName, "trajectory.db");
     if (existsSync(candidate)) return candidate;
+    if (existsSync(join2(dir, ".git"))) break;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
