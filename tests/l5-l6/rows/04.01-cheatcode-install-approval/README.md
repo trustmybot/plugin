@@ -5,7 +5,7 @@
 **Determinism:** `setup-l5.sh` writes a marketplace-install fixture and points `cheatcode_install` at it via `TMB_CHEATCODE_INSTALL_FIXTURE` — no live web, no real marketplace call. The kind-dependent attachment shape — for a skill kind, the `cheatcodes` row records `file_path=.claude/skills/<name>/SKILL.md` and the install writes its `cheatcode_attachments` rows in the same transaction — is asserted at L2/L3. This row asserts the flow ran (approval recorded, install gate cleared, install + audit records present), not marketplace results.
 
 **L5 mode:** `setup-l5.sh` seeds the fixture; `fixture.txt` seeds `onboarding-named` identity.
-**L6 mode:** Standalone — NOT in the chain manifest. Install carries no cumulative state across the journey chain (mirrors 40/41-cheatcode).
+**L6 mode:** Standalone — NOT in the chain manifest. Install carries no cumulative state across the journey chain (mirrors 04.02/04.03-cheatcode).
 
 ## Scorers
 
