@@ -96,6 +96,13 @@ function findExistingDbUp(startDir, pluginName, opts) {
         const candidate = join(dir, '.claude', pluginName, 'trajectory.db');
         if (existsSync(candidate))
             return candidate;
+        // Git-repo boundary: a dir containing a `.git` entry (a dir in a normal
+        // checkout, a FILE in a git worktree) is the repo root. Check it for the
+        // DB above, then STOP — never traverse above the repo root, so a spawned
+        // server (a worktree under another repo, an isolated subdir test) can't
+        // silently adopt a parent project's live DB.
+        if (existsSync(join(dir, '.git')))
+            break;
         const parent = dirname(dir);
         if (parent === dir)
             break;

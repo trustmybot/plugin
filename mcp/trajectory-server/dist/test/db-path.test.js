@@ -160,6 +160,87 @@ describe('resolveDbPath', () => {
             rmSync(fakeHome, { recursive: true, force: true });
         }
     });
+    // #162 git-repo boundary: the walk-up must STOP at the enclosing repo root
+    // (a dir with a `.git` entry) so a spawned server (a worktree under another
+    // repo, an isolated subdir test) never adopts a PARENT project's live DB.
+    // (a) A subdir within a repo (.git at the repo root) still resolves the
+    // repo-root DB — interactive CC in project/src/foo finds project's DB.
+    it('resolves the repo-root DB from a subdir within the repo (.git at root) (#162)', () => {
+        const repo = mkdtempSync(join(tmpdir(), 'git-repo-'));
+        try {
+            mkdirSync(join(repo, '.git'), { recursive: true });
+            mkdirSync(join(repo, '.claude', 'tmb'), { recursive: true });
+            writeFileSync(join(repo, '.claude', 'tmb', 'trajectory.db'), '');
+            const inner = join(repo, 'src', 'foo');
+            mkdirSync(inner, { recursive: true });
+            const got = resolveDbPath({ env: {}, cwd: inner });
+            assert.equal(got, join(repo, '.claude', 'tmb', 'trajectory.db'));
+        }
+        finally {
+            rmSync(repo, { recursive: true, force: true });
+        }
+    });
+    // (b) THE BUG: a DB in a PARENT dir ABOVE a `.git` boundary is NOT adopted.
+    // The repo (with .git, no DB) sits between cwd and the parent's live DB.
+    it('does NOT adopt a parent-project DB above a .git boundary (#162)', () => {
+        const parent = mkdtempSync(join(tmpdir(), 'parent-proj-'));
+        try {
+            // Parent project holds a live DB.
+            mkdirSync(join(parent, '.claude', 'tmb'), { recursive: true });
+            writeFileSync(join(parent, '.claude', 'tmb', 'trajectory.db'), '');
+            // An inner repo (its own .git, no DB) under the parent.
+            const repo = join(parent, 'inner-repo');
+            mkdirSync(join(repo, '.git'), { recursive: true });
+            const inner = join(repo, 'src');
+            mkdirSync(inner, { recursive: true });
+            const got = resolveDbPath({ env: {}, cwd: inner });
+            // Must NOT escape the repo to the parent's live DB.
+            assert.notEqual(got, join(parent, '.claude', 'tmb', 'trajectory.db'));
+            // Falls back to a repo-rooted path (no DB found within the boundary).
+            assert.equal(got, join(inner, '.claude', 'tmb', 'trajectory.db'));
+        }
+        finally {
+            rmSync(parent, { recursive: true, force: true });
+        }
+    });
+    // (c) `.git` as a FILE (git worktrees use a `.git` FILE, not a dir) bounds
+    // the walk exactly like a `.git` dir — a parent repo's DB stays unreachable.
+    it('treats a .git FILE (worktree) as a boundary, same as a dir (#162)', () => {
+        const parent = mkdtempSync(join(tmpdir(), 'parent-repo-'));
+        try {
+            mkdirSync(join(parent, '.claude', 'tmb'), { recursive: true });
+            writeFileSync(join(parent, '.claude', 'tmb', 'trajectory.db'), '');
+            // A worktree under the parent: .git is a FILE here.
+            const worktree = join(parent, 'wt');
+            mkdirSync(worktree, { recursive: true });
+            writeFileSync(join(worktree, '.git'), 'gitdir: /somewhere/.git/worktrees/wt\n');
+            const inner = join(worktree, 'src');
+            mkdirSync(inner, { recursive: true });
+            const got = resolveDbPath({ env: {}, cwd: inner });
+            assert.notEqual(got, join(parent, '.claude', 'tmb', 'trajectory.db'));
+            assert.equal(got, join(inner, '.claude', 'tmb', 'trajectory.db'));
+        }
+        finally {
+            rmSync(parent, { recursive: true, force: true });
+        }
+    });
+    // (c2) A worktree that DOES hold its own DB still resolves it (the boundary
+    // checks the repo-root dir BEFORE stopping).
+    it('resolves a worktree-root DB from within the worktree (.git FILE) (#162)', () => {
+        const worktree = mkdtempSync(join(tmpdir(), 'worktree-'));
+        try {
+            writeFileSync(join(worktree, '.git'), 'gitdir: /somewhere/.git/worktrees/wt\n');
+            mkdirSync(join(worktree, '.claude', 'tmb'), { recursive: true });
+            writeFileSync(join(worktree, '.claude', 'tmb', 'trajectory.db'), '');
+            const inner = join(worktree, 'src', 'deep');
+            mkdirSync(inner, { recursive: true });
+            const got = resolveDbPath({ env: {}, cwd: inner });
+            assert.equal(got, join(worktree, '.claude', 'tmb', 'trajectory.db'));
+        }
+        finally {
+            rmSync(worktree, { recursive: true, force: true });
+        }
+    });
     // Degenerate case: cwd === HOME. The user explicitly chose HOME as their
     // workspace. Walk-up checks the starting dir but doesn't traverse above it.
     it('when cwd === HOME, uses HOME-rooted .claude/<plugin>/trajectory.db (degenerate but explicit)', () => {
@@ -172,6 +253,24 @@ describe('resolveDbPath', () => {
         }
         finally {
             rmSync(fakeHome, { recursive: true, force: true });
+        }
+    });
+    // (d) The 8-level cap still bounds the walk: a DB more than 8 levels above
+    // cwd (and no .git boundary in between) is not adopted.
+    it('does NOT adopt a DB beyond the 8-level walk-up cap (#162)', () => {
+        const top = mkdtempSync(join(tmpdir(), 'cap-top-'));
+        try {
+            mkdirSync(join(top, '.claude', 'tmb'), { recursive: true });
+            writeFileSync(join(top, '.claude', 'tmb', 'trajectory.db'), '');
+            // 10 levels of nesting below top — past the cap, no .git anywhere.
+            const inner = join(top, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j');
+            mkdirSync(inner, { recursive: true });
+            const got = resolveDbPath({ env: {}, cwd: inner });
+            assert.notEqual(got, join(top, '.claude', 'tmb', 'trajectory.db'));
+            assert.equal(got, join(inner, '.claude', 'tmb', 'trajectory.db'));
+        }
+        finally {
+            rmSync(top, { recursive: true, force: true });
         }
     });
 });
