@@ -438,7 +438,7 @@ function parseInstallCandidate(raw: unknown): ParsedInstallCandidate {
 // the parent of the `.claude` adjacent to the DB — the INNERMOST `.claude`
 // (lastIndexOf). Using the first `.claude` mis-resolves the root to an ancestor
 // when the project itself is nested under a `.claude` ancestor (the L6 chain
-// layout: ~/.claude/tmb/l6-chain-runs/<run>/project/.claude/tmb/trajectory.db),
+// layout: ~/.claude/<plugin>/l6-chain-runs/<run>/project/.claude/<plugin>/trajectory.db),
 // which leaks materialize/dematerialize writes outside the project. Returns null
 // for an in-memory DB or a path with no `.claude` segment (e.g. a bespoke
 // TRAJECTORY_DB_PATH).

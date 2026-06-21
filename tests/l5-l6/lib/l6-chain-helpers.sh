@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 chain runner helpers. The chain walks all 13 journey rows sequentially
+# L6 chain runner helpers. The chain walks all 15 journey rows sequentially
 # against ONE cumulative trajectory DB. Each row fires a fresh `claude -p`
 # invocation — continuity is DB-driven, not LLM-session-driven. Bro's
 # tmb_recovery + state-aware MCPs (issue_state_get, task_first_actionable)

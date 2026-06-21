@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 chain runner — drives ALL 13 journey rows sequentially through ONE
+# L6 chain runner — drives ALL 15 journey rows sequentially through ONE
 # cumulative trajectory DB. Rows live in tests/l5-l6/rows/ (canonical tree).
 # State carries across rows via DB; see tests/EVALUATION.md for the journey spec
 # and tests/l5-l6/l6-chain/chain-manifest.json for the step manifest.
