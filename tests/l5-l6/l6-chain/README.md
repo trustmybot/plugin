@@ -1,6 +1,6 @@
 # L6 chain — single chained integration
 
-This directory holds the **L6 chain manifest** + **between-row seeds**. Each L5 row in `tests/l5-l6/rows/` doubles as a chain step here — same outcome bundle, same fixtures, no duplication of scorer config.
+This directory holds the **L6 chain manifest** + **between-row seeds**. Each L5 row under `tests/l5-l6/rows/<NN>/` doubles as a chain step here — same outcome bundle, same fixtures, no duplication of scorer config.
 
 ## Layout
 
@@ -61,13 +61,13 @@ Rows 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15 are not partial-test — they progress
 
 ## Adding a new row to the chain
 
-1. Add the L5 row directory under `tests/l5-l6/rows/`.
+1. Add the L5 row directory under its family folder `tests/l5-l6/rows/<NN>/`.
 2. Append an entry to `chain-manifest.json`:
    ```json
    {
      "id": 16,
      "name": "16-new-step",
-     "row_dir": "rows/16-new-step",
+     "row_dir": "rows/16/16-new-step",
      "partial_test": false,
      "seed_before": null,
      "seed_after": null,
