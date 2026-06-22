@@ -129,12 +129,43 @@ function materializeResolver(pluginRoot, homeDir) {
     chmodSync(resolverPath, 0o755);
     return resolverPath;
 }
-// Remove every prior TMB-managed entry by sentinel, dropping now-empty matcher
-// groups. Non-TMB user entries are preserved untouched.
-function purgeTmbEntries(pre) {
+// Recognize a TMB-managed PreToolUse entry. The `_tmb_managed` sentinel is the
+// primary key; the command-string signatures are the legacy backstop for entries
+// written before the sentinel existed (so an already-polluted settings.json
+// self-heals on the next /onboard). The signatures are deliberately specific —
+// the #661 incident showed a broad `/tmb/` substring purge produced
+// false-NEGATIVES (missed worktree paths → accumulation), and a broad purge here
+// would risk false-POSITIVES against genuine user hooks. A signature never
+// matches a path lacking `/scripts/hooks/` unless it is the stable resolver path.
+function isTmbEntry(h, tmbHookNames) {
+    // (a) sentinel — the primary key.
+    if (h._tmb_managed === true)
+        return true;
+    const command = h.command ?? '';
+    // (b) stable resolver path (the version-agnostic invocation, no sentinel).
+    if (command.includes('/.claude/tmb-hooks/resolve-hook.sh') ||
+        command.includes('/resolve-headless-hook.sh')) {
+        return true;
+    }
+    // (c) version-pinned cache install path.
+    if (command.includes('/plugins/cache/') &&
+        command.includes('/tmb/') &&
+        command.includes('/scripts/hooks/')) {
+        return true;
+    }
+    // (d) a TMB hook basename under a /scripts/hooks/ dir (e.g. dev/worktree path).
+    if (command.includes('/scripts/hooks/') && tmbHookNames.has(hookName(command))) {
+        return true;
+    }
+    return false;
+}
+// Remove every prior TMB-managed entry — by sentinel or legacy command-string
+// signature — dropping now-empty matcher groups. Non-TMB user entries are
+// preserved untouched, including same-dir hooks whose basename is not TMB's.
+function purgeTmbEntries(pre, tmbHookNames) {
     const cleaned = [];
     for (const group of pre) {
-        const hooks = (group.hooks ?? []).filter((h) => h._tmb_managed !== true);
+        const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h, tmbHookNames));
         if (hooks.length === 0)
             continue;
         cleaned.push({ ...group, hooks });
@@ -197,7 +228,11 @@ export function writeUserSettingsEnforcementShim(opts) {
     const existingPre = Array.isArray(hooks.PreToolUse)
         ? hooks.PreToolUse
         : [];
-    const preserved = purgeTmbEntries(existingPre);
+    // The TMB hook-name set is the basename (sans .sh) of every PreToolUse hook
+    // declared in the plugin's hooks.json — the legacy-signature backstop matches
+    // against this so dev/worktree command paths are recognized as TMB-managed.
+    const tmbHookNames = new Set(pre.flatMap((g) => (g.hooks ?? []).map((h) => hookName(h.command))));
+    const preserved = purgeTmbEntries(existingPre, tmbHookNames);
     hooks.PreToolUse = [...preserved, ...tmbGroups];
     settings.hooks = hooks;
     try {
