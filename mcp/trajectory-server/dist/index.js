@@ -23590,8 +23590,17 @@ function validateIssueLabels(db2, labels) {
   }
   return `missing_required_labels: issue_create requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
 }
+function ensureMilestoneRow(db2, milestone, repo) {
+  if (repo === null) return;
+  db2.run(
+    `INSERT INTO milestones (name, repo) VALUES (?, ?)
+     ON CONFLICT(name, repo) DO NOTHING`,
+    [milestone, repo]
+  );
+}
 function resolveDefaultMilestone(db2, explicitMilestone, repo) {
   if (explicitMilestone !== null && explicitMilestone !== "") {
+    ensureMilestoneRow(db2, explicitMilestone, repo);
     return explicitMilestone;
   }
   const row = db2.get(
@@ -23605,13 +23614,7 @@ function resolveDefaultMilestone(db2, explicitMilestone, repo) {
     return null;
   }
   if (typeof active !== "string" || active.length === 0) return null;
-  if (repo !== null) {
-    db2.run(
-      `INSERT INTO milestones (name, repo) VALUES (?, ?)
-       ON CONFLICT(name, repo) DO NOTHING`,
-      [active, repo]
-    );
-  }
+  ensureMilestoneRow(db2, active, repo);
   return active;
 }
 var DEDUP_THRESHOLD = 0.6;

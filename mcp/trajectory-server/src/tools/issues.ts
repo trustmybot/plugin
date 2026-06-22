@@ -103,21 +103,35 @@ function validateIssueLabels(db: TrajectoryDB, labels: string[]): string | null 
   return `missing_required_labels: issue_create requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
 }
 
+// FK (milestone, repo) -> milestones(name, repo): upsert the milestones row so
+// the issues insert doesn't violate it. Only meaningful when repo is non-null
+// (milestones.repo is NOT NULL and FKs the repos table); with a null repo the
+// composite FK is not enforced, so no upsert is needed. Reuses an existing row
+// (per-repo PK, no duplicate).
+function ensureMilestoneRow(db: TrajectoryDB, milestone: string, repo: string | null): void {
+  if (repo === null) return;
+  db.run(
+    `INSERT INTO milestones (name, repo) VALUES (?, ?)
+     ON CONFLICT(name, repo) DO NOTHING`,
+    [milestone, repo],
+  );
+}
+
 // Active-milestone default (#154): when issue_create / intent_start omit the
 // milestone, fall back to the project-wide `tmb_active_milestone` config so
 // issues bind to the open release without bro having to remember. An explicit
 // (non-empty) milestone arg always wins; when neither is set the result stays
 // null (honors #763's no-forced-binding). The repos-centric migration made
-// issues.milestone an FK into milestones(name, repo) — so when a defaulted
-// milestone has no row for the issue's repo, upsert one (repo non-null) before
-// the issues insert, or the FK would reject it. With a null repo the composite
-// (milestone, repo) FK is not enforced, so no upsert is needed.
+// issues.milestone an FK into milestones(name, repo) — so whether the milestone
+// is explicit (#985) or defaulted (#154), auto-create its (name, repo) row
+// before the issues insert or the FK would reject it.
 export function resolveDefaultMilestone(
   db: TrajectoryDB,
   explicitMilestone: string | null,
   repo: string | null,
 ): string | null {
   if (explicitMilestone !== null && explicitMilestone !== '') {
+    ensureMilestoneRow(db, explicitMilestone, repo);
     return explicitMilestone;
   }
   const row = db.get<{ value_json: string }>(
@@ -131,16 +145,7 @@ export function resolveDefaultMilestone(
     return null;
   }
   if (typeof active !== 'string' || active.length === 0) return null;
-  // FK (milestone, repo) -> milestones(name, repo): upsert the milestones row so
-  // the issues insert doesn't violate it. Only meaningful when repo is non-null
-  // (milestones.repo is NOT NULL and FKs the repos table).
-  if (repo !== null) {
-    db.run(
-      `INSERT INTO milestones (name, repo) VALUES (?, ?)
-       ON CONFLICT(name, repo) DO NOTHING`,
-      [active, repo],
-    );
-  }
+  ensureMilestoneRow(db, active, repo);
   return active;
 }
 
