@@ -57,6 +57,7 @@ The schema-seeded global keys (`issue_sync`, `issue_classification_labels`, `iss
 - `issue_create` accepts `repo=<name>`, defaulting to the sole repo when exactly one is registered. Issue-scoped sync resolves the repo's on-disk path + `repos.remotes` to target the explicit `gh --repo` / `glab -R` — never `process.cwd()` (#146).
 - `issue_create` auto-creates the `milestones(name, repo)` row for the resolved milestone (whether passed explicitly or defaulted from `tmb_active_milestone`) before inserting the issue, so the composite `issues.milestone` FK is satisfied; an existing row is reused (per-repo PK, no duplicate). With a null repo the FK is not enforced and no row is created (#985/#154).
 - Per-repo policy (`target_branch`, `branching_model`, `protected_branches`, `remotes`) lives on the `repos` row; readers resolve it from there.
+- `onboard_get_questions` and `onboard_apply` accept an optional `repo=<name>` param (`round='main'`, `shape='remote'`). When supplied, the branching + pr_target questions seed from that repos row's `branching_model`/`target_branch`, and `onboard_apply` writes `target_branch` + `branching_model` + derived `protected_branches` to **only that repos row** — other repos rows, `remotes`, `issue_sync`, and the global `onboarded` marker are untouched. Omitting `repo` preserves the workspace-wide apply (every repos row + the global `onboarded`/`issue_sync` markers). An unknown repo name is a validation error with no partial write.
 
 **Default:** single-repo CC — exactly one `repos` row, adopted implicitly; no `repo=` needed.
 

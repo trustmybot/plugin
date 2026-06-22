@@ -255,6 +255,68 @@ describe('onboard tools', () => {
             assert.ok(q.default_index >= 0 && q.default_index < q.options.length, 'default_index must be a valid option index');
             db.close();
         });
+        it('per-repo round=main reflects THAT repo row values in Keep options', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name, target_branch, branching_model, protected_branches)
+         VALUES ('/repo/a', 'a', 'develop', 'gitflow', '["main","develop"]'),
+                ('/repo/b', 'b', 'main', 'github-flow', '["main"]')`);
+            const tools = onboardTools(db);
+            const result = await call(tools.handlers, 'onboard_get_questions', {
+                shape: 'remote',
+                round: 'main',
+                repo: 'a',
+            });
+            const data = parse(result);
+            const questions = data.questions;
+            assert.deepEqual(questions.map((q) => q.header), ['Branching', 'PR target']);
+            assert.equal(questions[0].options[0].label, 'Keep "gitflow"');
+            assert.equal(questions[0].options[0].wire, '__keep__');
+            assert.equal(questions[1].options[0].label, 'Keep "develop"');
+            assert.equal(questions[1].options[0].wire, '__keep__');
+            db.close();
+        });
+        it('per-repo round=main on a never-onboarded repo shows no Keep options', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+            const tools = onboardTools(db);
+            const result = await call(tools.handlers, 'onboard_get_questions', {
+                shape: 'remote',
+                round: 'main',
+                repo: 'a',
+            });
+            const data = parse(result);
+            const questions = data.questions;
+            for (const q of questions) {
+                assert.ok(!q.options.some((o) => o.label.startsWith('Keep')), `${q.header} must not offer Keep for a fresh repo`);
+            }
+            db.close();
+        });
+        it('per-repo round=main rejects an unknown repo name', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+            const tools = onboardTools(db);
+            const result = await call(tools.handlers, 'onboard_get_questions', {
+                shape: 'remote',
+                round: 'main',
+                repo: 'nope',
+            });
+            const data = parse(result);
+            assert.match(String(data.error), /unknown repo 'nope'/);
+            db.close();
+        });
+        it('per-repo param requires shape=remote', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+            const tools = onboardTools(db);
+            const result = await call(tools.handlers, 'onboard_get_questions', {
+                shape: 'local',
+                round: 'main',
+                repo: 'a',
+            });
+            const data = parse(result);
+            assert.match(String(data.error), /requires shape='remote'/);
+            db.close();
+        });
     });
     describe('onboard_apply', () => {
         it('local shape: marks onboarded, defaults branching to github-flow, pr_target to main, remotes=[], issue_sync=off', async () => {
@@ -630,6 +692,95 @@ describe('onboard tools', () => {
             // identity row also written as marker
             const cfg = db.get("SELECT value_json FROM plugin_config WHERE key='onboarded'");
             assert.ok(cfg && cfg.value_json === 'true', 'plugin_config onboarded marker written');
+            db.close();
+        });
+    });
+    describe('onboard_apply (per-repo)', () => {
+        it('writes ONLY the named repos row; other repos + global markers untouched', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name, target_branch, branching_model, protected_branches)
+         VALUES ('/repo/a', 'a', 'main', 'github-flow', '["main"]'),
+                ('/repo/b', 'b', 'main', 'github-flow', '["main"]')`);
+            const tools = onboardTools(db);
+            const result = await call(tools.handlers, 'onboard_apply', {
+                shape: 'remote',
+                repo: 'a',
+                branching_model: 'gitflow',
+                pr_target: 'develop',
+            });
+            const data = parse(result);
+            assert.equal(data.ok, true);
+            const applied = data.applied;
+            assert.equal(applied.repo, 'a');
+            assert.equal(applied.branching_model, 'gitflow');
+            assert.equal(applied.pr_target, 'develop');
+            assert.deepEqual(applied.protected_branches, ['main', 'develop']);
+            const rowA = db.get(`SELECT target_branch, branching_model, protected_branches FROM repos WHERE name='a'`);
+            assert.ok(rowA);
+            assert.equal(rowA.target_branch, 'develop');
+            assert.equal(rowA.branching_model, 'gitflow');
+            assert.equal(rowA.protected_branches, JSON.stringify(['main', 'develop']));
+            // Repo b is untouched.
+            const rowB = db.get(`SELECT target_branch, branching_model FROM repos WHERE name='b'`);
+            assert.ok(rowB);
+            assert.equal(rowB.target_branch, 'main');
+            assert.equal(rowB.branching_model, 'github-flow');
+            // Global markers untouched — per-repo apply writes neither onboarded nor issue_sync.
+            // onboarded is not schema-seeded, so its absence proves no global write.
+            const onboarded = db.get("SELECT value_json FROM plugin_config WHERE key='onboarded'");
+            assert.equal(onboarded, undefined, 'per-repo apply must NOT write the global onboarded marker');
+            // issue_sync stays at its schema-seeded default ("off"); the workspace apply would set it.
+            const sync = db.get("SELECT value_json FROM plugin_config WHERE key='issue_sync'");
+            assert.equal(JSON.parse(sync.value_json), 'off', 'per-repo apply must leave global issue_sync at its seeded default');
+            db.close();
+        });
+        it('derives pr_target from branching_model when pr_target omitted', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+            const tools = onboardTools(db);
+            const result = await call(tools.handlers, 'onboard_apply', {
+                shape: 'remote',
+                repo: 'a',
+                branching_model: 'gitflow',
+            });
+            const data = parse(result);
+            const applied = data.applied;
+            assert.equal(applied.pr_target, 'dev');
+            assert.deepEqual(applied.protected_branches, ['main', 'dev']);
+            db.close();
+        });
+        it('Keep sentinel retains the repo row existing values', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name, target_branch, branching_model)
+         VALUES ('/repo/a', 'a', 'develop', 'gitflow')`);
+            const tools = onboardTools(db);
+            const result = await call(tools.handlers, 'onboard_apply', {
+                shape: 'remote',
+                repo: 'a',
+                branching_model: '__keep__',
+                pr_target: '__keep__',
+            });
+            const data = parse(result);
+            const applied = data.applied;
+            assert.equal(applied.branching_model, 'gitflow');
+            assert.equal(applied.pr_target, 'develop');
+            db.close();
+        });
+        it('rejects an unknown repo name with no partial write', async () => {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name, target_branch, branching_model)
+         VALUES ('/repo/a', 'a', 'main', 'github-flow')`);
+            const tools = onboardTools(db);
+            const result = await call(tools.handlers, 'onboard_apply', {
+                shape: 'remote',
+                repo: 'nope',
+                branching_model: 'gitflow',
+            });
+            const data = parse(result);
+            assert.match(String(data.error), /unknown repo 'nope'/);
+            const rowA = db.get(`SELECT branching_model FROM repos WHERE name='a'`);
+            assert.ok(rowA);
+            assert.equal(rowA.branching_model, 'github-flow');
             db.close();
         });
     });

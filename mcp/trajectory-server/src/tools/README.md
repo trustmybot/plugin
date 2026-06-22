@@ -21,7 +21,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Branch report | `branch_report_md.ts` | `branch_report_md` |
 | Stats | `stats.ts` | `task_stats` |
 | Config | `config.ts` | `config_get`, `config_set`, `config_list` |
-| Onboard | `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (+ `origin` helper) |
+| Onboard | `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (+ `origin` helper). Both `onboard_get_questions` and `onboard_apply` take an optional `repo=<name>` param (round='main', shape='remote') to scope the branching + pr_target questions/writes to a single `repos` row; omitting it preserves the workspace-wide behaviour. |
 | Scan | `scan.ts` | `scan_run` (forks `scripts/scan.sh`), `repos_list` |
 | World model | `world_model.ts` | `world_model_get`, `world_model_search` (kuzu graph) |
 
