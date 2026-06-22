@@ -1323,6 +1323,88 @@ describe('issueTools — active-milestone default (#154)', () => {
   });
 });
 
+describe('issueTools — explicit-milestone auto-create (#985)', () => {
+  it('auto-creates the milestones row for an explicit unknown milestone (no FK error)', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'explicit unknown milestone auto-created',
+      labels: VALID_LABELS,
+      milestone: 'v9.9.9',
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no FK error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null; repo: string | null }>(
+      'SELECT milestone, repo FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, 'v9.9.9', 'explicit milestone persisted');
+    assert.equal(row?.repo, 'app');
+    const ms = db.get<{ name: string; repo: string }>(
+      `SELECT name, repo FROM milestones WHERE name = 'v9.9.9' AND repo = 'app'`,
+    );
+    assert.ok(ms, 'milestones row auto-created for the explicit milestone');
+
+    db.close();
+  });
+
+  it('reuses an existing milestones row (no duplicate, no error)', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'explicit existing milestone reused',
+      labels: VALID_LABELS,
+      milestone: 'v0.10.0',
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, 'v0.10.0', 'explicit milestone persisted');
+    const count = db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM milestones WHERE name = 'v0.10.0' AND repo = 'app'`,
+    );
+    assert.equal(count?.n, 1, 'existing milestones row reused — no duplicate');
+
+    db.close();
+  });
+
+  it('leaves milestone NULL (no row created) when omitted with no active config', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'omitted milestone unchanged',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, null, 'milestone stays NULL when omitted');
+    const count = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM milestones`);
+    assert.equal(count?.n, 0, 'no milestones row created for an omitted milestone');
+
+    db.close();
+  });
+});
+
 describe('issue_create dedup (#91/#775)', () => {
   it('objectiveSimilarity is a deterministic pure function pinning threshold behavior', () => {
     // Identical (ignoring case/punctuation) → 1.

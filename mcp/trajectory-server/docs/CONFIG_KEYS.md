@@ -55,6 +55,7 @@ The schema-seeded global keys (`issue_sync`, `issue_classification_labels`, `iss
 
 - `task_create_batch` accepts `repo=<name>` per task; when exactly one `repos` row exists it is the single-repo fallback. The value MUST match a `repos.name` row (the FK enforces it).
 - `issue_create` accepts `repo=<name>`, defaulting to the sole repo when exactly one is registered. Issue-scoped sync resolves the repo's on-disk path + `repos.remotes` to target the explicit `gh --repo` / `glab -R` — never `process.cwd()` (#146).
+- `issue_create` auto-creates the `milestones(name, repo)` row for the resolved milestone (whether passed explicitly or defaulted from `tmb_active_milestone`) before inserting the issue, so the composite `issues.milestone` FK is satisfied; an existing row is reused (per-repo PK, no duplicate). With a null repo the FK is not enforced and no row is created (#985/#154).
 - Per-repo policy (`target_branch`, `branching_model`, `protected_branches`, `remotes`) lives on the `repos` row; readers resolve it from there.
 
 **Default:** single-repo CC — exactly one `repos` row, adopted implicitly; no `repo=` needed.
