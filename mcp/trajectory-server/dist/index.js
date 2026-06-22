@@ -29260,6 +29260,13 @@ function readRepoPolicy(db2) {
     remotes: parseJson(row?.remotes ?? null)
   };
 }
+function readRepoRow(db2, repo) {
+  const row = db2.get(
+    `SELECT name, target_branch, branching_model FROM repos WHERE name = ?`,
+    [repo]
+  );
+  return row ?? null;
+}
 function readOnboardedFlag(db2) {
   const row = db2.get(
     `SELECT value_json FROM plugin_config WHERE key = 'onboarded'`
@@ -29456,6 +29463,10 @@ function onboardTools(db2, dbPath2 = "") {
             type: "string",
             enum: ["shape", "main", "sync"],
             description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync)."
+          },
+          repo: {
+            type: "string",
+            description: "Optional. Scope the branching + pr_target questions to a single repos row (Keep options seed from that repo's target_branch/branching_model). Only valid with round='main', shape='remote'. Must match an existing repos.name. Omit for workspace-wide questions."
           }
         },
         required: ["round"]
@@ -29483,6 +29494,10 @@ function onboardTools(db2, dbPath2 = "") {
             type: "string",
             enum: ["auto", "off"],
             description: 'Required when shape=remote. Always "off" on local.'
+          },
+          repo: {
+            type: "string",
+            description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply."
           }
         },
         required: ["shape"]
@@ -29533,9 +29548,28 @@ function onboardTools(db2, dbPath2 = "") {
       wrapHandler13(async (args) => {
         const shape = args["shape"];
         const round = args["round"];
+        const repo = args["repo"];
         const git = probeGit(probeDir());
         if (round === "shape") {
           return ok15({ questions: [shapeQuestion(git.origin_kind)] });
+        }
+        if (repo !== void 0) {
+          if (round !== "main") {
+            throw new Error(`repo param is only valid with round='main' (got '${round}')`);
+          }
+          if (shape !== "remote") {
+            throw new Error(`repo param requires shape='remote' (got '${String(shape)}')`);
+          }
+          const repoRow = readRepoRow(db2, repo);
+          if (!repoRow) {
+            throw new Error(`unknown repo '${repo}' \u2014 no matching repos row`);
+          }
+          const isReonboardRepo = repoRow.branching_model !== null;
+          const repoQuestions = [
+            branchingQuestion(repoRow.branching_model, isReonboardRepo),
+            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo)
+          ];
+          return ok15({ questions: repoQuestions });
         }
         const isReonboard = readOnboardedFlag(db2);
         const policy = readRepoPolicy(db2);
@@ -29574,6 +29608,57 @@ function onboardTools(db2, dbPath2 = "") {
         const shape = args["shape"];
         if (shape !== "local" && shape !== "remote") {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
+        }
+        const repo = args["repo"];
+        if (repo !== void 0) {
+          const repoRow = readRepoRow(db2, repo);
+          if (!repoRow) {
+            throw new Error(`unknown repo '${repo}' \u2014 no matching repos row`);
+          }
+          const rawBranchingRepo = args["branching_model"];
+          let branchingRepo;
+          if (rawBranchingRepo !== void 0) {
+            const resolved = resolveOption(rawBranchingRepo, BRANCHING_OPTIONS);
+            if (resolved === KEEP_SENTINEL) {
+              branchingRepo = repoRow.branching_model ?? void 0;
+            } else if (resolved !== null) {
+              branchingRepo = resolved;
+            } else {
+              branchingRepo = rawBranchingRepo;
+            }
+          } else {
+            branchingRepo = repoRow.branching_model ?? void 0;
+          }
+          branchingRepo = branchingRepo ?? "github-flow";
+          if (branchingRepo !== "github-flow" && branchingRepo !== "gitflow") {
+            throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branchingRepo}')`);
+          }
+          const rawPrTargetRepo = args["pr_target"];
+          let prTargetRepo;
+          if (rawPrTargetRepo !== void 0) {
+            const resolved = resolveOption(rawPrTargetRepo, PR_TARGET_OPTIONS);
+            if (resolved === KEEP_SENTINEL) {
+              prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
+            } else {
+              prTargetRepo = resolved ?? rawPrTargetRepo;
+            }
+          } else {
+            prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
+          }
+          const protectedRepo = deriveProtectedBranches(branchingRepo, prTargetRepo);
+          db2.run(
+            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+            [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo]
+          );
+          return ok15({
+            ok: true,
+            applied: {
+              repo,
+              branching_model: branchingRepo,
+              pr_target: prTargetRepo,
+              protected_branches: protectedRepo
+            }
+          });
         }
         const rawBranching = args["branching_model"];
         let branching_model;

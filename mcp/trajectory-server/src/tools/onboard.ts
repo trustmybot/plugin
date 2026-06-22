@@ -176,6 +176,23 @@ function readRepoPolicy(db: TrajectoryDB): {
   };
 }
 
+interface RepoPolicyRow {
+  name: string;
+  target_branch: string | null;
+  branching_model: string | null;
+}
+
+// Read one repos row by name for the per-repo onboard path. Returns null when
+// no such repo is registered — callers surface a validation error so the
+// per-repo path never writes blind.
+function readRepoRow(db: TrajectoryDB, repo: string): RepoPolicyRow | null {
+  const row = db.get<RepoPolicyRow>(
+    `SELECT name, target_branch, branching_model FROM repos WHERE name = ?`,
+    [repo],
+  );
+  return row ?? null;
+}
+
 function readOnboardedFlag(db: TrajectoryDB): boolean {
   // value_json is JSON-encoded — `"true"` is the canonical truthy value.
   const row = db.get<{ value_json: string }>(
@@ -465,6 +482,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
             description:
               "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync).",
           },
+          repo: {
+            type: 'string',
+            description:
+              "Optional. Scope the branching + pr_target questions to a single repos row (Keep options seed from that repo's target_branch/branching_model). Only valid with round='main', shape='remote'. Must match an existing repos.name. Omit for workspace-wide questions.",
+          },
         },
         required: ['round'],
       },
@@ -492,6 +514,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
             type: 'string',
             enum: ['auto', 'off'],
             description: 'Required when shape=remote. Always "off" on local.',
+          },
+          repo: {
+            type: 'string',
+            description:
+              "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply.",
           },
         },
         required: ['shape'],
@@ -560,11 +587,36 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
       wrapHandler(async (args) => {
         const shape = args['shape'] as 'local' | 'remote' | undefined;
         const round = args['round'] as 'shape' | 'main' | 'sync';
+        const repo = args['repo'] as string | undefined;
 
         const git = probeGit(probeDir());
 
         if (round === 'shape') {
           return ok({ questions: [shapeQuestion(git.origin_kind)] });
+        }
+
+        // Per-repo path: branching + pr_target questions seeded from THAT repos
+        // row. Only valid on round='main', shape='remote'. The Keep options
+        // reflect the repo's current target_branch/branching_model; the remote
+        // provider question (git-derived) and issue_sync (global, sync round)
+        // stay out of the per-repo path.
+        if (repo !== undefined) {
+          if (round !== 'main') {
+            throw new Error(`repo param is only valid with round='main' (got '${round}')`);
+          }
+          if (shape !== 'remote') {
+            throw new Error(`repo param requires shape='remote' (got '${String(shape)}')`);
+          }
+          const repoRow = readRepoRow(db, repo);
+          if (!repoRow) {
+            throw new Error(`unknown repo '${repo}' — no matching repos row`);
+          }
+          const isReonboardRepo = repoRow.branching_model !== null;
+          const repoQuestions: BuiltQuestion[] = [
+            branchingQuestion(repoRow.branching_model, isReonboardRepo),
+            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo),
+          ];
+          return ok({ questions: repoQuestions });
         }
 
         // Re-onboard means /onboard already ran in this project — identity row exists.
@@ -613,6 +665,67 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         const shape = args['shape'] as 'local' | 'remote';
         if (shape !== 'local' && shape !== 'remote') {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
+        }
+
+        // Per-repo path: write branching_model + derived protected_branches +
+        // target_branch to ONLY this repos row. Other repos rows, remotes,
+        // issue_sync, and the onboarded marker are untouched. Keep sentinels
+        // read from the repos row, not the global config.
+        const repo = args['repo'] as string | undefined;
+        if (repo !== undefined) {
+          const repoRow = readRepoRow(db, repo);
+          if (!repoRow) {
+            throw new Error(`unknown repo '${repo}' — no matching repos row`);
+          }
+
+          const rawBranchingRepo = args['branching_model'] as string | undefined;
+          let branchingRepo: string | undefined;
+          if (rawBranchingRepo !== undefined) {
+            const resolved = resolveOption(rawBranchingRepo, BRANCHING_OPTIONS);
+            if (resolved === KEEP_SENTINEL) {
+              branchingRepo = repoRow.branching_model ?? undefined;
+            } else if (resolved !== null) {
+              branchingRepo = resolved;
+            } else {
+              branchingRepo = rawBranchingRepo;
+            }
+          } else {
+            branchingRepo = repoRow.branching_model ?? undefined;
+          }
+          branchingRepo = branchingRepo ?? 'github-flow';
+          if (branchingRepo !== 'github-flow' && branchingRepo !== 'gitflow') {
+            throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branchingRepo}')`);
+          }
+
+          const rawPrTargetRepo = args['pr_target'] as string | undefined;
+          let prTargetRepo: string;
+          if (rawPrTargetRepo !== undefined) {
+            const resolved = resolveOption(rawPrTargetRepo, PR_TARGET_OPTIONS);
+            if (resolved === KEEP_SENTINEL) {
+              prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
+            } else {
+              prTargetRepo = resolved ?? rawPrTargetRepo;
+            }
+          } else {
+            prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
+          }
+
+          const protectedRepo = deriveProtectedBranches(branchingRepo, prTargetRepo);
+
+          db.run(
+            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+            [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo],
+          );
+
+          return ok({
+            ok: true,
+            applied: {
+              repo,
+              branching_model: branchingRepo,
+              pr_target: prTargetRepo,
+              protected_branches: protectedRepo,
+            },
+          });
         }
 
         // Resolve branching_model — accept wire value or human-readable label.
