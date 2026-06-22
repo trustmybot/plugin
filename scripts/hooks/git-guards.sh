@@ -125,14 +125,17 @@ else
   PROTECTED_RAW=""
 fi
 
+# Safe defaults — a registered-but-not-onboarded repo must NOT fail open.
+# When the repos row lacks policy, default to github-flow with main+dev
+# protected so protected-branch ops still DENY (never exit 0 here).
 if [ -z "$BRANCHING_MODEL" ]; then
-  echo "TMB: branching_model not configured for this repo — run bro onboarding" >&2
-  exit 0
+  BRANCHING_MODEL="github-flow"
 fi
-
-if [ -z "$PR_TARGET" ] || [ -z "$PROTECTED_RAW" ]; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: this repo has no target_branch or protected_branches set. Run bro onboarding or fix the repos row."}}'
-  exit 0
+if [ -z "$PR_TARGET" ]; then
+  PR_TARGET="main"
+fi
+if [ -z "$PROTECTED_RAW" ]; then
+  PROTECTED_RAW='["main","dev"]'
 fi
 
 if ! printf '%s' "$PROTECTED_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
