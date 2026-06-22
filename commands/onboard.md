@@ -1,7 +1,7 @@
 ---
 description: Configure or change identity, branching model, PR target, remotes, and issue-sync. Server-driven — bro orchestrates AskUserQuestion rounds.
 argument-hint: (none)
-allowed-tools: AskUserQuestion, mcp__plugin_tmb_trajectory-server__onboard_state_get, mcp__plugin_tmb_trajectory-server__onboard_get_questions, mcp__plugin_tmb_trajectory-server__onboard_apply, mcp__plugin_tmb_trajectory-server__audit_append
+allowed-tools: AskUserQuestion, mcp__plugin_tmb_trajectory-server__onboard_state_get, mcp__plugin_tmb_trajectory-server__onboard_get_questions, mcp__plugin_tmb_trajectory-server__onboard_apply, mcp__plugin_tmb_trajectory-server__repos_list, mcp__plugin_tmb_trajectory-server__audit_append
 ---
 
 # Onboard / Re-onboard
@@ -30,23 +30,39 @@ Only when the user picks `Local-only` but `state.probe.origin_kind` showed `gith
 
 Re-render Round 1 once. Trust the user's second answer.
 
-### Round 2 — Multiple-choice questions (server-built AUQ)
+### Round 2 — Branching + PR target (per repo)
 
-Call `onboard_get_questions(agent='bro', shape=<shape>, round='main')`. Feed the returned questions into `AskUserQuestion`. When the round returns no questions, skip its AUQ and proceed to Round 3 / Apply. The server already pre-selects the right option, supplies the correct `Keep "<current>"` options on re-onboard, and disables unavailable CLI options.
+Branching model and PR target are per-repo. Enumerate repos with `repos_list(agent='bro')`.
+
+**One repo** — single pass. Call `onboard_get_questions(agent='bro', shape=<shape>, round='main')`, feed into `AskUserQuestion`, no per-repo framing.
+
+**Multiple repos** — loop. For each repo `<name>`:
+
+- Call `onboard_get_questions(agent='bro', shape=<shape>, round='main', repo=<name>)`.
+- Feed the returned branching + PR-target questions into `AskUserQuestion`, framed for `<name>`.
+- Call `onboard_apply(agent='bro', repo=<name>, branching_model=<answer>, pr_target=<answer>)` — writes only that repo's row.
+
+The remote/provider is git-derived (scan), not asked per repo — Round 2 asks only branching + PR target.
+
+When the round returns no questions, skip its AUQ. The server pre-selects the right option, supplies the correct `Keep "<current>"` options on re-onboard, and disables unavailable CLI options.
 
 ### Round 3 — Issue sync (remote shape only)
 
 If `shape == 'remote'`, call `onboard_get_questions(agent='bro', shape='remote', round='sync')` and feed the returned questions into `AskUserQuestion`.
 
-## 3. Apply (one MCP call, transactional)
+## 3. Apply (transactional)
 
-Call `onboard_apply` passing each answer. The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". The server writes the `plugin_config.onboarded` marker, persists all config fields, recomputes protected branches, and wraps everything in a transaction.
+Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(repo=<name>, ...)` per repo, each writing only that repo's row).
+
+The final apply is workspace-level: call `onboard_apply(agent='bro', ...)` with **no** `repo` to write the global `issue_sync` answer and the `onboarded` marker. Omit `branching_model` / `pr_target` on this call so it sets only issue_sync + onboarded and leaves per-repo policy intact.
+
+The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". Each apply recomputes protected branches and wraps its writes in a transaction.
 
 Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync } }`.
 
 ## 4. Confirm to the Human
 
-Render the `applied` payload back as a short summary — project shape, branching model, PR target, protected branches, remotes, and issue sync — then close with "Tell me what you want to work on."
+Render a short summary — project shape, then per repo its branching model, PR target, and protected branches, plus the workspace remotes and the global issue sync — then close with "Tell me what you want to work on."
 
 ## Error handling
 
