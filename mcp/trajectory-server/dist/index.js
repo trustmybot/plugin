@@ -28121,7 +28121,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
     },
     {
       name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Git side-effects AFTER the commit: creates the branch ref + worktree (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and creates the branch ref (idempotent) BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -28243,6 +28243,57 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           repoValue = resolveDefaultRepo(db2)?.name ?? null;
         }
         const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
+        const slug = branchId.replace(/^[^/]+\//, "");
+        let repoPath = null;
+        if (repoValue) {
+          const reposRow = db2.get(
+            `SELECT path FROM repos WHERE name = ?`,
+            [repoValue]
+          );
+          if (reposRow) {
+            const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname5(db2.dbPath);
+            repoPath = reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
+          } else {
+            repoPath = repoValue;
+          }
+        }
+        if (!repoPath) {
+          return err14(
+            `task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo. No task row was created \u2014 retry once the repo resolves.`
+          );
+        }
+        const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? "dev");
+        let branchReused = true;
+        try {
+          execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branchId}`], {
+            stdio: ["ignore", "pipe", "pipe"],
+            timeout: SUBPROCESS_TIMEOUT_MS
+          });
+        } catch {
+          branchReused = false;
+        }
+        if (!branchReused) {
+          try {
+            execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `origin/${base}`], {
+              stdio: ["ignore", "pipe", "pipe"],
+              timeout: SUBPROCESS_TIMEOUT_MS
+            });
+          } catch (e) {
+            return err14(
+              `task_provision: base 'origin/${base}' does not resolve in repo '${repoValue}' (${e.message.split("\n")[0] || "git rev-parse failed"}). No task row was created \u2014 retry with a valid base and the same branch_id.`
+            );
+          }
+          try {
+            execFileSync("git", ["-C", repoPath, "branch", branchId, `origin/${base}`], {
+              stdio: ["ignore", "pipe", "pipe"],
+              timeout: SUBPROCESS_TIMEOUT_MS
+            });
+          } catch (e) {
+            return err14(
+              `task_provision: failed to create branch '${branchId}' from 'origin/${base}' in repo '${repoValue}' (${e.message.split("\n")[0] || "git branch failed"}). No task row was created \u2014 retry with the same branch_id.`
+            );
+          }
+        }
         const now = nowISO();
         const result = db2.transaction(() => {
           db2.run(
@@ -28293,46 +28344,10 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           );
           return { task_id: row.id };
         });
-        const slug = branchId.replace(/^[^/]+\//, "");
         let gitSetup = "created";
         let diagnostic;
-        let worktreePath = "";
+        const worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
         try {
-          let repoPath = null;
-          if (repoValue) {
-            const reposRow = db2.get(
-              `SELECT path FROM repos WHERE name = ?`,
-              [repoValue]
-            );
-            if (reposRow) {
-              const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname5(db2.dbPath);
-              repoPath = reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
-            } else {
-              repoPath = repoValue;
-            }
-          }
-          if (!repoPath) {
-            throw new Error(
-              `cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo`
-            );
-          }
-          const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? "dev");
-          worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
-          let branchReused = true;
-          try {
-            execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branchId}`], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: SUBPROCESS_TIMEOUT_MS
-            });
-          } catch {
-            branchReused = false;
-          }
-          if (!branchReused) {
-            execFileSync("git", ["-C", repoPath, "branch", branchId, `origin/${base}`], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: SUBPROCESS_TIMEOUT_MS
-            });
-          }
           let worktreeReused = false;
           if (existsSync3(worktreePath)) {
             const canonicalWt = realpathSync(worktreePath);

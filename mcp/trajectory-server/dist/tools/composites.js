@@ -408,7 +408,7 @@ export function compositeTools(db, dbPath, graph = null) {
         },
         {
             name: 'task_provision',
-            description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Git side-effects AFTER the commit: creates the branch ref + worktree (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+            description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and creates the branch ref (idempotent) BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -530,13 +530,76 @@ export function compositeTools(db, dbPath, graph = null) {
                 repoValue = resolveDefaultRepo(db)?.name ?? null;
             }
             const promptBearing = typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
+            const slug = branchId.replace(/^[^/]+\//, '');
+            // --- GIT SETUP BEFORE THE COMMIT (atomic guarantee) ---
+            // Resolve the repo path + base ref and create the branch ref BEFORE
+            // writing the task row. A git failure here returns an error and
+            // persists NOTHING, so the same (issue_id, branch_id) retries cleanly
+            // — no orphan task row left occupying the UNIQUE constraint. The
+            // branch ref is created idempotently (reused when present), so a retry
+            // after a partial failure re-resolves to the same ref. Only the
+            // worktree stays fail-soft (recoverable, post-commit).
+            let repoPath = null;
+            if (repoValue) {
+                const reposRow = db.get(`SELECT path FROM repos WHERE name = ?`, [repoValue]);
+                if (reposRow) {
+                    const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
+                    repoPath = reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
+                }
+                else {
+                    repoPath = repoValue;
+                }
+            }
+            if (!repoPath) {
+                return err(`task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ''}'); ` +
+                    `pass task.repo or register a single repo. No task row was created — retry once the repo resolves.`);
+            }
+            const base = args['base'] ??
+                (readRepoTargetBranch(db, repoValue) ?? 'dev');
+            let branchReused = true;
+            try {
+                execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${branchId}`], {
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: SUBPROCESS_TIMEOUT_MS,
+                });
+            }
+            catch {
+                branchReused = false;
+            }
+            if (!branchReused) {
+                // Pre-validate the base resolves before creating anything. task_provision
+                // prepends origin/ to base, so verify the remote-tracking ref.
+                try {
+                    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `origin/${base}`], {
+                        stdio: ['ignore', 'pipe', 'pipe'],
+                        timeout: SUBPROCESS_TIMEOUT_MS,
+                    });
+                }
+                catch (e) {
+                    return err(`task_provision: base 'origin/${base}' does not resolve in repo '${repoValue}' ` +
+                        `(${e.message.split('\n')[0] || 'git rev-parse failed'}). No task row was created — ` +
+                        `retry with a valid base and the same branch_id.`);
+                }
+                try {
+                    execFileSync('git', ['-C', repoPath, 'branch', branchId, `origin/${base}`], {
+                        stdio: ['ignore', 'pipe', 'pipe'],
+                        timeout: SUBPROCESS_TIMEOUT_MS,
+                    });
+                }
+                catch (e) {
+                    return err(`task_provision: failed to create branch '${branchId}' from 'origin/${base}' in repo '${repoValue}' ` +
+                        `(${e.message.split('\n')[0] || 'git branch failed'}). No task row was created — ` +
+                        `retry with the same branch_id.`);
+                }
+            }
             // --- DB TRANSACTION (atomic) ---
-            // Write the decision (satisfies the decision gate) + create the single
-            // task via the same INSERT path task_create_batch uses, with the bro
-            // agent_run row + planning_complete audit. The intent/scope/registry/
-            // branch/spec gates are waived internally: this composite IS bro's
-            // atomic planning, so those preconditions are subsumed here. Any DB
-            // error rolls back the whole transaction.
+            // The branch ref now exists. Write the decision (satisfies the decision
+            // gate) + create the single task via the same INSERT path
+            // task_create_batch uses, with the bro agent_run row +
+            // planning_complete audit. The intent/scope/registry/branch/spec gates
+            // are waived internally: this composite IS bro's atomic planning, so
+            // those preconditions are subsumed here. Any DB error rolls back the
+            // whole transaction.
             const now = nowISO();
             const result = db.transaction(() => {
                 db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
@@ -574,54 +637,16 @@ export function compositeTools(db, dbPath, graph = null) {
                 ]);
                 return { task_id: row.id };
             });
-            // --- GIT SIDE-EFFECTS AFTER THE COMMIT (not in the txn) ---
-            // The DB row is the source of truth: a git failure returns
-            // git_setup:'error' + a diagnostic but does NOT roll back the task —
-            // bro can retry the git setup. Idempotent: existing branch/worktree are
-            // reused, not re-created.
-            const slug = branchId.replace(/^[^/]+\//, '');
+            // --- WORKTREE SIDE-EFFECT AFTER THE COMMIT (fail-soft) ---
+            // The branch ref + task row are committed; the worktree is the only
+            // recoverable side-effect, so a failure here returns git_setup:'error'
+            // + a diagnostic without rolling back the task — bro can retry the
+            // worktree setup. Idempotent: an existing worktree is reused, not
+            // re-created.
             let gitSetup = 'created';
             let diagnostic;
-            let worktreePath = '';
+            const worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
             try {
-                // Resolve the repo's on-disk path (repos.path; relative → resolved
-                // against the trajectory DB's directory). Sole-repo fallback already
-                // applied to repoValue above.
-                let repoPath = null;
-                if (repoValue) {
-                    const reposRow = db.get(`SELECT path FROM repos WHERE name = ?`, [repoValue]);
-                    if (reposRow) {
-                        const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-                        repoPath = reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
-                    }
-                    else {
-                        repoPath = repoValue;
-                    }
-                }
-                if (!repoPath) {
-                    throw new Error(`cannot resolve a repo path for git setup (task.repo='${repoValue ?? ''}'); ` +
-                        `pass task.repo or register a single repo`);
-                }
-                const base = args['base'] ??
-                    (readRepoTargetBranch(db, repoValue) ?? 'dev');
-                worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
-                // Branch ref: create from origin/<base> only when absent (idempotent).
-                let branchReused = true;
-                try {
-                    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${branchId}`], {
-                        stdio: ['ignore', 'pipe', 'pipe'],
-                        timeout: SUBPROCESS_TIMEOUT_MS,
-                    });
-                }
-                catch {
-                    branchReused = false;
-                }
-                if (!branchReused) {
-                    execFileSync('git', ['-C', repoPath, 'branch', branchId, `origin/${base}`], {
-                        stdio: ['ignore', 'pipe', 'pipe'],
-                        timeout: SUBPROCESS_TIMEOUT_MS,
-                    });
-                }
                 // Worktree: add only when absent (idempotent). Match by realpath —
                 // `git worktree list --porcelain` emits canonicalized paths (e.g.
                 // /private/var/… for a /var/… symlink), so a raw string compare
