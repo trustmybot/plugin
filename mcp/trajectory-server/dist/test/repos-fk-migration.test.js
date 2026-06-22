@@ -29,7 +29,7 @@ function recordingSpawnFn(url) {
 function seedRepo(db, name, path, remotes) {
     db.run(`INSERT INTO repos (name, path, file_count, remotes) VALUES (?, ?, 0, ?)`, [name, path, remotes ? JSON.stringify(remotes) : null]);
 }
-describe('repos-centric schema (#155) — fresh v23 shape', () => {
+describe('repos-centric schema (#155) — fresh schema shape', () => {
     it('declares a repo FK on every work table', () => {
         const db = tempDB();
         for (const table of ['issues', 'tasks', 'discussions', 'audit', 'agent_runs', 'validation_attempts']) {
@@ -50,6 +50,18 @@ describe('repos-centric schema (#155) — fresh v23 shape', () => {
         const db = tempDB();
         const cols = db.all('PRAGMA table_info(repos)').map((c) => c.name);
         assert.ok(cols.includes('remotes'), 'repos.remotes must exist');
+        db.close();
+    });
+    it('the four repo-scoped keys live on repos, not in plugin_config (#980)', () => {
+        const db = tempDB();
+        const cols = db.all('PRAGMA table_info(repos)').map((c) => c.name);
+        for (const col of ['target_branch', 'branching_model', 'protected_branches', 'remotes']) {
+            assert.ok(cols.includes(col), `repos.${col} must exist`);
+        }
+        for (const key of ['pr_target', 'branching_model', 'protected_branches', 'remotes']) {
+            const row = db.get('SELECT value_json FROM plugin_config WHERE key = ?', [key]);
+            assert.equal(row, undefined, `plugin_config must not seed '${key}' (#980)`);
+        }
         db.close();
     });
 });

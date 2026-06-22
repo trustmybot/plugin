@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
-const TARGET_SCHEMA_VERSION = 26;
+const TARGET_SCHEMA_VERSION = 27;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -476,6 +476,9 @@ function runMigrations(db, fromVersion, toVersion) {
     if (fromVersion < 26 && toVersion >= 26) {
         migrateV25toV26(db);
     }
+    if (fromVersion < 27 && toVersion >= 27) {
+        migrateV26toV27(db);
+    }
 }
 function hasColumn(db, table, column) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -570,53 +573,6 @@ function migrateV10toV11(db) {
             }
             if (!hasColumn(db, 'repos', 'protected_branches')) {
                 db.exec('ALTER TABLE repos ADD COLUMN protected_branches TEXT');
-            }
-            // Backfill per-repo config from global plugin_config so existing
-            // single-repo installs behave identically after the upgrade.
-            if (tableExists(db, 'plugin_config')) {
-                const prTargetRow = db
-                    .prepare("SELECT value_json FROM plugin_config WHERE key = 'pr_target'")
-                    .get();
-                const branchingModelRow = db
-                    .prepare("SELECT value_json FROM plugin_config WHERE key = 'branching_model'")
-                    .get();
-                const protectedBranchesRow = db
-                    .prepare("SELECT value_json FROM plugin_config WHERE key = 'protected_branches'")
-                    .get();
-                const prTarget = prTargetRow?.value_json
-                    ? (() => {
-                        try {
-                            const v = JSON.parse(prTargetRow.value_json);
-                            return typeof v === 'string' && v.length > 0 ? v : null;
-                        }
-                        catch {
-                            return null;
-                        }
-                    })()
-                    : null;
-                const branchingModel = branchingModelRow?.value_json
-                    ? (() => {
-                        try {
-                            const v = JSON.parse(branchingModelRow.value_json);
-                            return typeof v === 'string' && v.length > 0 ? v : null;
-                        }
-                        catch {
-                            return null;
-                        }
-                    })()
-                    : null;
-                const protectedBranches = protectedBranchesRow?.value_json ?? null;
-                if (prTarget !== null || branchingModel !== null || protectedBranches !== null) {
-                    db.prepare(`
-            UPDATE repos
-               SET target_branch     = COALESCE(target_branch, ?),
-                   branching_model   = COALESCE(branching_model, ?),
-                   protected_branches = COALESCE(protected_branches, ?)
-             WHERE target_branch IS NULL
-               AND branching_model IS NULL
-               AND protected_branches IS NULL
-          `).run(prTarget, branchingModel, protectedBranches);
-                }
             }
         }
         db.exec('COMMIT');
@@ -1044,8 +1000,8 @@ function migrateV21toV22(db) {
 }
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
 //
-//   1. repos.remotes — new column drained from plugin_config('remotes') so
-//      issue-scoped sync resolves the per-repo remote rather than the global.
+//   1. repos.remotes — new column so issue-scoped sync resolves the per-repo
+//      remote. Populated by scan_run (#979) from each repo's git remotes.
 //   2. milestones(name, repo→repos, state, PK(name,repo)) — GitHub-style
 //      per-repo milestones; backfilled from distinct issues.milestone values.
 //   3. repo FK on all work tables. issues + tasks are rebuilt (issues gains the
@@ -1077,21 +1033,12 @@ function migrateV22toV23(db) {
     db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN');
     try {
-        // (1) repos.remotes — drain the global plugin_config('remotes') into the
-        // per-repo column. Idempotent via hasColumn. Backfill every repos row whose
-        // remotes is NULL from the global blob (single-repo correctness; multi-repo
-        // installs can re-run /onboard to refine per-repo later).
+        // (1) repos.remotes — the per-repo remote list column. scan_run populates
+        // it from each repo's actual git remotes (#979); migrateV26toV27 drains any
+        // residual global plugin_config('remotes') before that key is removed.
         if (tableExists(db, 'repos')) {
             if (!hasColumn(db, 'repos', 'remotes')) {
                 db.exec('ALTER TABLE repos ADD COLUMN remotes TEXT');
-            }
-            if (tableExists(db, 'plugin_config')) {
-                const remotesRow = db
-                    .prepare("SELECT value_json FROM plugin_config WHERE key = 'remotes'")
-                    .get();
-                if (remotesRow?.value_json) {
-                    db.prepare('UPDATE repos SET remotes = ? WHERE remotes IS NULL').run(remotesRow.value_json);
-                }
             }
         }
         const sole = soleRepo();
@@ -1497,6 +1444,68 @@ function migrateV25toV26(db) {
     }
     finally {
         db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v26 -> v27: the repos table becomes the SOLE source of truth for the four
+// repo-scoped keys (target_branch/pr_target, branching_model,
+// protected_branches, remotes); they are removed from plugin_config (#980).
+// Before deleting the keys, drain each one into any repos row whose column is
+// still NULL so existing single-repo installs keep working state across the
+// upgrade. issue_sync, onboarded, and the label taxonomies stay in plugin_config.
+function migrateV26toV27(db) {
+    if (!tableExists(db, 'plugin_config'))
+        return;
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'repos')) {
+            const scalarFromConfig = (key) => {
+                const row = db
+                    .prepare('SELECT value_json FROM plugin_config WHERE key = ?')
+                    .get(key);
+                if (!row?.value_json)
+                    return null;
+                try {
+                    const v = JSON.parse(row.value_json);
+                    return typeof v === 'string' && v.length > 0 ? v : null;
+                }
+                catch {
+                    return null;
+                }
+            };
+            const rawFromConfig = (key) => {
+                const row = db
+                    .prepare('SELECT value_json FROM plugin_config WHERE key = ?')
+                    .get(key);
+                return row?.value_json ?? null;
+            };
+            const prTarget = scalarFromConfig('pr_target');
+            const branchingModel = scalarFromConfig('branching_model');
+            const protectedBranches = rawFromConfig('protected_branches');
+            const remotes = rawFromConfig('remotes');
+            if (hasColumn(db, 'repos', 'target_branch') && prTarget !== null) {
+                db.prepare('UPDATE repos SET target_branch = ? WHERE target_branch IS NULL').run(prTarget);
+            }
+            if (hasColumn(db, 'repos', 'branching_model') && branchingModel !== null) {
+                db.prepare('UPDATE repos SET branching_model = ? WHERE branching_model IS NULL').run(branchingModel);
+            }
+            if (hasColumn(db, 'repos', 'protected_branches') && protectedBranches !== null) {
+                db.prepare('UPDATE repos SET protected_branches = ? WHERE protected_branches IS NULL').run(protectedBranches);
+            }
+            if (hasColumn(db, 'repos', 'remotes') && remotes !== null) {
+                db.prepare('UPDATE repos SET remotes = ? WHERE remotes IS NULL').run(remotes);
+            }
+        }
+        db.prepare("DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')").run();
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
     }
 }
 function migrateV7toV8(db) {

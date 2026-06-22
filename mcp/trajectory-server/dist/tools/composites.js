@@ -88,19 +88,16 @@ function resolveRepoPath(db, repoValue) {
     const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
     return reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
 }
-// Read a string plugin_config value (value_json is a JSON-encoded scalar).
-// Returns null when the key is unset or not a non-empty string.
-function readPluginConfigString(db, key) {
-    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [key]);
-    if (!row)
+// Read a repo's target_branch (pr_target) from the repos table — the sole
+// source of truth (#980). Falls back to the sole registered repo when repoValue
+// is empty. Returns null when no row or a NULL/empty column.
+function readRepoTargetBranch(db, repoValue) {
+    const name = repoValue && repoValue.length > 0 ? repoValue : resolveDefaultRepo(db)?.name ?? null;
+    if (!name)
         return null;
-    try {
-        const parsed = JSON.parse(row.value_json);
-        return typeof parsed === 'string' && parsed.length > 0 ? parsed : null;
-    }
-    catch {
-        return null;
-    }
+    const row = db.get(`SELECT target_branch FROM repos WHERE name = ?`, [name]);
+    const v = row?.target_branch;
+    return typeof v === 'string' && v.length > 0 ? v : null;
 }
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -424,7 +421,7 @@ export function compositeTools(db, dbPath, graph = null) {
                     },
                     base: {
                         type: 'string',
-                        description: "Optional start-point for the branch ref. Defaults to plugin_config pr_target || 'dev'.",
+                        description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'.",
                     },
                     task: {
                         type: 'object',
@@ -606,7 +603,7 @@ export function compositeTools(db, dbPath, graph = null) {
                         `pass task.repo or register a single repo`);
                 }
                 const base = args['base'] ??
-                    (readPluginConfigString(db, 'pr_target') ?? 'dev');
+                    (readRepoTargetBranch(db, repoValue) ?? 'dev');
                 worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
                 // Branch ref: create from origin/<base> only when absent (idempotent).
                 let branchReused = true;

@@ -21,7 +21,7 @@
 #     hook honors this when present)
 #   - Bypass: TMB_ALLOW_STALE_BRANCH=1 (offline / disconnected work)
 #
-# pr_target read from plugin_config (defaults to "main").
+# pr_target read from the repos table (defaults to "main").
 
 set -uo pipefail
 
@@ -70,14 +70,9 @@ if ! tmb_repo_is_registered "$DB_PATH" "$REPO_ROOT"; then
   exit 0
 fi
 
-# Resolve per-repo target_branch, falling back to global pr_target.
+# Resolve per-repo target_branch from the repos table (the sole source).
 _REPO_ROW=$(tmb_repo_resolve "$DB_PATH" "$REPO_ROOT")
 PR_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
-
-if [ -z "$PR_TARGET" ]; then
-  PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target' LIMIT 1;" 2>/dev/null || true)
-  PR_TARGET=$(echo "${PR_TARGET:-}" | tr -d '"')
-fi
 [ -n "$PR_TARGET" ] || PR_TARGET="main"
 
 if ! git -C "$REPO_ROOT" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then

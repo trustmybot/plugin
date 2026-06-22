@@ -2,29 +2,42 @@
 
 ## 1. Key Registry
 
-The repo-shaped policy keys (`branching_model`, `pr_target`, `protected_branches`, `remotes`) are **per-repo** state, drained into the `repos` table as of the repos-centric schema (#155). `/onboard` still writes the global `plugin_config` rows (back-compat) AND mirrors them onto the `repos` row(s); the **authoritative readers read the repos row**, never the global key. See §7.
+The four repo-scoped policy fields (`target_branch`/`pr_target`, `branching_model`, `protected_branches`, `remotes`) live **only on the `repos` table** — the sole source of truth (#980). They are NOT stored in `plugin_config`: there is no global key and no global fallback. `/onboard` applies policy workspace-wide by writing the chosen values onto every `repos` row; `scan_run` keeps `repos.remotes` in sync with each repo's actual git remotes (#979). All readers resolve the values per repo from the `repos` row. See §5.
+
+Only workspace-global keys live in `plugin_config`:
 
 | Key | Type | Allowed values | Default | Read by | Written by |
 |-----|------|----------------|---------|---------|------------|
-| `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `"github-flow"` (schema-seeded at DB init) | `git-guards.sh`, bro routing (authoritative source: `repos.branching_model`) | `/onboard` (mirrors to `repos`) |
-| `pr_target` | string | any valid branch name | `"main"` (schema-seeded at DB init) | `git-guards.sh` PR rule (authoritative source: `repos.target_branch`; `task_create_batch` reads `repos.target_branch`, not this key) | `/onboard` (mirrors to `repos`) |
-| `protected_branches` | string[] (JSON) | array of branch names | `["main"]` (schema-seeded at DB init) | `git-guards.sh` commit rule (authoritative source: `repos.protected_branches`) | `/onboard` (mirrors to `repos`) |
-| `remotes` | object[] (JSON) | array of `{name, provider, url}` (`provider` ∈ `github` \| `gitlab` \| `bitbucket` \| `codeberg` \| `azuredev` \| `other`) | `[]` (schema-seeded at DB init) | `/onboard`, `tmb_review` push-gate section (issue-scoped sync reads `repos.remotes`, not this key) | bro onboarding (auto-detect or AUQ; mirrors to `repos.remotes`) |
 | `issue_sync` | string | `auto` \| `gh` \| `glab` \| `both` \| `off` | `"off"` (schema-seeded; safe default — no remote sync without opt-in) | `issue_create`, `issue_close`, `issue_sync_retry` | bro; overridden by `TMB_DISABLE_REMOTE_SYNC=1` env var |
 | `onboarded` | boolean (JSON) | `true` | unset until `/onboard` completes | `activation-routine.sh` (banner), `onboard.ts:onboard_state_get` | `onboard_apply` (writes `true` on first successful run); `db.ts:migrateV1toV2` (forward-migrates legacy `identity` marker) |
 | `pr_review_bots` | string[] (JSON) | array of bot login patterns | unset (falls back to `DEFAULT_BOT_PATTERNS` in `pr_monitor.ts`) | `pr_monitor_comments_get` — merged with `DEFAULT_BOT_PATTERNS` for bot-comment filtering | bro via `config_set pr_review_bots '[\"bot-login\"]'` |
 | `issue_classification_labels` | string[] (JSON) | array of classification label names | `["Bug","Feature","Improvement","Docs","Test","Chore"]` (schema-seeded generic default) | `issue_create` → `validateIssueLabels` (mandatory-tagging check) | project owner via `config_set issue_classification_labels '[...]'` |
 | `issue_priority_labels` | string[] (JSON) | array of priority label names | `["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]` (schema-seeded generic default) | `issue_create` → `validateIssueLabels` (mandatory-tagging check) | project owner via `config_set issue_priority_labels '[...]'` |
+| `onboarded` | boolean (JSON) | `true` | unset until `/onboard` completes | `activation-routine.sh` (banner), `onboard.ts:onboard_state_get` | `onboard_apply` (writes `true` on first successful run); `db.ts:migrateV1toV2` (forward-migrates legacy `identity` marker) |
+| `pr_review_bots` | string[] (JSON) | array of bot login patterns | unset (falls back to `DEFAULT_BOT_PATTERNS` in `pr_monitor.ts`) | `pr_monitor_comments_get` — merged with `DEFAULT_BOT_PATTERNS` for bot-comment filtering | bro via `config_set pr_review_bots '[\"bot-login\"]'` |
+| `issue_classification_labels` | string[] (JSON) | array of classification label names | `["Bug","Feature","Improvement","Docs","Test","Chore"]` (schema-seeded generic default) | `issue_create` → `validateIssueLabels` (mandatory-tagging check) | project owner via `config_set issue_classification_labels '[...]'` |
+| `issue_priority_labels` | string[] (JSON) | array of priority label names | `["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]` (schema-seeded generic default) | `issue_create` → `validateIssueLabels` (mandatory-tagging check) | project owner via `config_set issue_priority_labels '[...]'` |
+
+## 1a. Repo-scoped policy (on the `repos` table)
+
+| Column | Type | Allowed values | Read by | Written by |
+|--------|------|----------------|---------|------------|
+| `repos.branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `git-guards.sh`, bro routing | `onboard_apply` (every repos row) |
+| `repos.target_branch` (`pr_target`) | string | any valid branch name | `git-guards.sh` PR rule, `git-push-guard.sh`, `branch-up-to-date-with-remote.sh`, `clean-merged-branch.sh`, `cleanup-worktree-on-task-close.sh`, `task_create_batch` (branch base) | `onboard_apply` (every repos row) |
+| `repos.protected_branches` | string[] (JSON) | array of branch names | `git-guards.sh` commit rule, `clean-merged-branch.sh` | `onboard_apply` (every repos row) |
+| `repos.remotes` | object[] (JSON) | array of `{name, provider, url}` (`provider` ∈ `github` \| `gitlab` \| `bitbucket` \| `codeberg` \| `azuredev` \| `other`) | issue-scoped sync, `substrate-preflight.sh`, `no-remote-auth-guard.sh`, `tmb_review` push-gate | `scan_run` (from git remotes, #979); `onboard_apply` (every repos row) |
+
+Shell hooks resolve the current repo via `scripts/hooks/lib/resolve-repo.sh` (`tmb_repo_git_root` + `tmb_repo_resolve` / `tmb_repo_remotes`) and read the matching `repos` row.
 
 ## 2. Default Derivation
 
-| `branching_model` value | `pr_target` default | `protected_branches` default |
+| `branching_model` value | `target_branch` default | `protected_branches` default |
 |-------------------------|---------------------|------------------------------|
 | `github-flow` | `main` | `["main"]` |
-| `gitflow` | `develop` | `["main", "develop"]` |
+| `gitflow` | `dev` | `["main", "dev"]` |
 | `custom` | (caller required) | (caller required) |
 
-`branching_model` sets sensible defaults for `pr_target` and `protected_branches` but does NOT override them once explicitly set.
+`branching_model` sets sensible defaults for `target_branch` and `protected_branches` but does NOT override them once explicitly set. `onboard_apply` derives and writes these onto the `repos` row(s).
 
 ## 3. Forward Compatibility
 
@@ -32,7 +45,7 @@ Additional keys can be added to `plugin_config` without schema migration; the ta
 
 ## 4. Reading-the-Config Policy
 
-The schema-seeded keys (`branching_model`, `pr_target`, `protected_branches`, `remotes`, `issue_sync`, `issue_classification_labels`, `issue_priority_labels`) are present in every properly-initialised DB via `INSERT OR IGNORE`. Readers of the policy keys MUST treat a missing seeded key as "DB corruption or pre-seed install — trigger `/onboard`" — NOT as "silently default". Silent defaults hide configuration drift. The label-taxonomy keys are the deliberate exception: `validateIssueLabels` falls back to the generic default in code when the key is unset or malformed, so a pre-seed or label-less project can still create issues. Dynamic keys (`onboarded`, `pr_review_bots`) may legitimately be absent until the triggering operation runs; readers of such keys must handle `NULL`/absent gracefully.
+The schema-seeded global keys (`issue_sync`, `issue_classification_labels`, `issue_priority_labels`) are present in every properly-initialised DB via `INSERT OR IGNORE`. The label-taxonomy keys fall back to a generic default in code (`validateIssueLabels`) when unset or malformed, so a pre-seed or label-less project can still create issues. Dynamic keys (`onboarded`, `pr_review_bots`) may legitimately be absent until the triggering operation runs; readers must handle `NULL`/absent gracefully. The repo-scoped policy fields live on the `repos` row (§1a) — readers resolve them per repo and treat an unset `branching_model`/`target_branch`/`protected_branches` as "this repo is not onboarded — trigger `/onboard`", never a silent global default.
 
 ## 5. Multi-repo workspace support (repos-centric, #155)
 

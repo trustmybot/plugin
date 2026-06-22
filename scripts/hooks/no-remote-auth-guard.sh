@@ -2,12 +2,14 @@
 # PreToolUse hook — deny interactive auth login when no remote is configured.
 #
 # Blocks `gh auth login` and `glab auth login` (only the `login` subcommand)
-# when plugin_config.remotes contains no entry with a non-empty URL.
+# when the current repo's repos.remotes contains no entry with a non-empty URL.
 # Fail-open on any error: missing DB, jq absent, sqlite3 absent → allow.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
@@ -32,8 +34,9 @@ DB=$(tmb_db_path 2>/dev/null || true)
 tmb_have_sqlite || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-# Read remotes JSON from plugin_config.
-REMOTES_JSON=$(tmb_config_raw "remotes" "$DB" 2>/dev/null || true)
+# Read remotes JSON from the current repo's repos.remotes (sole source of truth).
+_GIT_ROOT=$(tmb_repo_git_root "$PWD" 2>/dev/null || true)
+REMOTES_JSON=$(tmb_repo_remotes "$DB" "$_GIT_ROOT" 2>/dev/null || true)
 
 # No remotes key at all → config says nothing → fail-open (allow).
 [ -n "$REMOTES_JSON" ] || exit 0

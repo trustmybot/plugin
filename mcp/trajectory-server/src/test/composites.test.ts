@@ -1495,9 +1495,9 @@ describe('task_brief (#300)', () => {
 describe('task_provision (#157)', () => {
   const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
 
-  // Build a real git repo with an `origin/main` remote-tracking ref. The DB's
-  // default plugin_config pr_target is 'main', so the composite branches from
-  // origin/main unless an explicit `base` is passed.
+  // Build a real git repo with an `origin/main` remote-tracking ref. The repos
+  // row carries target_branch='main' (the sole source of truth, #980), so the
+  // composite branches from origin/main unless an explicit `base` is passed.
   function makeRepo(): { ws: string; repoRoot: string; git: (cwd: string, ...a: string[]) => string } {
     const ws = mkdtempSync(join(tmpdir(), 'plan-task-'));
     const repoRoot = join(ws, 'app');
@@ -1516,7 +1516,7 @@ describe('task_provision (#157)', () => {
   }
 
   function seedIssue(db: TrajectoryDB, repoRoot: string): void {
-    db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repoRoot]);
     db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
             VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
   }

@@ -141,6 +141,41 @@ function writeConfig(db: TrajectoryDB, key: string, value: unknown): void {
   );
 }
 
+// Read the four repo-scoped policy keys from the repos table — the sole source
+// of truth (#980). onboard applies policy workspace-wide (every repos row gets
+// the same values), so the representative first row reflects current state.
+// Returns null for each field on an empty repos table or a NULL column.
+function readRepoPolicy(db: TrajectoryDB): {
+  branching_model: string | null;
+  pr_target: string | null;
+  protected_branches: unknown;
+  remotes: unknown;
+} {
+  const row = db.get<{
+    target_branch: string | null;
+    branching_model: string | null;
+    protected_branches: string | null;
+    remotes: string | null;
+  }>(
+    `SELECT target_branch, branching_model, protected_branches, remotes
+       FROM repos ORDER BY name LIMIT 1`,
+  );
+  const parseJson = (s: string | null): unknown => {
+    if (!s) return null;
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+  return {
+    branching_model: row?.branching_model ?? null,
+    pr_target: row?.target_branch ?? null,
+    protected_branches: parseJson(row?.protected_branches ?? null),
+    remotes: parseJson(row?.remotes ?? null),
+  };
+}
+
 function readOnboardedFlag(db: TrajectoryDB): boolean {
   // value_json is JSON-encoded — `"true"` is the canonical truthy value.
   const row = db.get<{ value_json: string }>(
@@ -496,13 +531,14 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         // on cold restart (#95).
         const first_run = !onboarded;
 
+        const policy = readRepoPolicy(db);
         return ok({
           first_run,
           current: {
-            branching_model: readConfig(db, 'branching_model'),
-            pr_target: readConfig(db, 'pr_target'),
-            protected_branches: readConfig(db, 'protected_branches'),
-            remotes: readConfig(db, 'remotes'),
+            branching_model: policy.branching_model,
+            pr_target: policy.pr_target,
+            protected_branches: policy.protected_branches,
+            remotes: policy.remotes,
             issue_sync: readConfig(db, 'issue_sync'),
           },
           probe: {
@@ -533,9 +569,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
 
         // Re-onboard means /onboard already ran in this project — identity row exists.
         const isReonboard = readOnboardedFlag(db);
-        const currentBranching = readConfig(db, 'branching_model') as string | null;
-        const currentPrTarget = readConfig(db, 'pr_target') as string | null;
-        const currentRemotes = readConfig(db, 'remotes');
+        const policy = readRepoPolicy(db);
+        const currentBranching = policy.branching_model;
+        const currentPrTarget = policy.pr_target;
+        const currentRemotes = policy.remotes;
         const currentSync = readConfig(db, 'issue_sync') as string | null;
 
         const gh = probeCli('gh');
@@ -585,7 +622,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         if (rawBranching !== undefined) {
           const resolved = resolveOption(rawBranching, BRANCHING_OPTIONS);
           if (resolved === KEEP_SENTINEL) {
-            branching_model = (readConfig(db, 'branching_model') as string | null) ?? undefined;
+            branching_model = readRepoPolicy(db).branching_model ?? undefined;
           } else if (resolved !== null) {
             branching_model = resolved;
           } else {
@@ -606,7 +643,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         if (rawPrTarget !== undefined) {
           const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
           if (resolved === KEEP_SENTINEL) {
-            pr_target = (readConfig(db, 'pr_target') as string | null) ?? derivePrTargetDefault(branching_model);
+            pr_target = readRepoPolicy(db).pr_target ?? derivePrTargetDefault(branching_model);
           } else {
             pr_target = resolved ?? rawPrTarget;
           }
@@ -692,15 +729,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.
           writeConfig(db, 'onboarded', true);
 
-          writeConfig(db, 'branching_model', branching_model);
-          writeConfig(db, 'pr_target', pr_target);
-          writeConfig(db, 'protected_branches', protected_branches);
-          writeConfig(db, 'remotes', remotes);
           writeConfig(db, 'issue_sync', issue_sync);
 
-          // Mirror policy onto every repos row, including the per-repo remotes
-          // drained out of the global plugin_config (#155). Issue-scoped sync
-          // reads repos.remotes; the global key is kept only for back-compat.
+          // The repos table is the sole source of truth for the four repo-scoped
+          // keys (#980). onboard applies workspace-wide, so every repos row gets
+          // the same values; issue-scoped sync reads repos.remotes per repo.
           db.run(
             `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ?`,
             [pr_target, branching_model, JSON.stringify(protected_branches), JSON.stringify(remotes)],

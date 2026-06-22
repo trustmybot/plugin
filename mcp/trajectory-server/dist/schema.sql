@@ -15,10 +15,10 @@ CREATE TABLE IF NOT EXISTS repos (
     target_branch     TEXT,
     branching_model   TEXT,
     protected_branches TEXT,
-    -- remotes (#155): per-repo remote list, drained from the global
-    -- plugin_config('remotes'). JSON array of {name, provider, url}. The
-    -- issue-scoped sync path reads this to pick the explicit gh --repo / glab -R
-    -- for the issue's repo rather than process.cwd().
+    -- remotes (#155, #980): per-repo remote list, the sole source of truth.
+    -- Populated by scan_run from each repo's git remotes (#979). JSON array of
+    -- {name, provider, url}. The issue-scoped sync path reads this to pick the
+    -- explicit gh --repo / glab -R for the issue's repo rather than process.cwd().
     remotes           TEXT
 );
 
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 26, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 27, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -201,11 +201,9 @@ CREATE TABLE IF NOT EXISTS plugin_config (
 -- on first contact. Modern-agent UX: the system gives bro working state out
 -- of the box; the user changes anything via tmb_reonboard. INSERT OR IGNORE
 -- makes this safe to re-run on existing DBs (no overwrite of user choices).
+-- Repo-scoped policy (target_branch, branching_model, protected_branches,
+-- remotes) lives on the repos table, not here (#980).
 INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
-    ('branching_model',    '"github-flow"'),
-    ('pr_target',          '"main"'),
-    ('protected_branches', '["main"]'),
-    ('remotes',            '[]'),
     ('issue_sync',         '"off"'),
     ('issue_classification_labels', '["Bug","Feature","Improvement","Docs","Test","Chore"]'),
     ('issue_priority_labels',       '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]');
