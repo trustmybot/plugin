@@ -53,12 +53,19 @@ setup_first_push_repo() {
   FEATURE_SHA=$(cat "$dir/.feature_sha")
 }
 
-# Apply schema to a fresh trajectory.db inside the repo.
+# Apply schema to a fresh trajectory.db inside the repo and register the repo
+# (post-#987: the push guard resolves the per-repo target_branch from the repos
+# row matching the git-toplevel — repos is the sole source of truth).
 setup_db() {
   local repo="$1"
   local db="$repo/.claude/tmb/trajectory.db"
   mkdir -p "$(dirname "$db")"
   sqlite3 "$db" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+  local git_root
+  git_root=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || echo "$repo")
+  sqlite3 "$db" "
+    INSERT OR REPLACE INTO repos (name, path) VALUES ('repo', '$git_root');
+  " >/dev/null
   echo "$db"
 }
 
@@ -82,12 +89,11 @@ sign_task() {
   " >/dev/null
 }
 
-# Set pr_target in plugin_config.
+# Set the per-repo target_branch on the registered repos row (the sole source).
 set_pr_target() {
   local db="$1" target="$2"
   sqlite3 "$db" "
-    INSERT OR REPLACE INTO plugin_config (key, value_json)
-      VALUES ('pr_target', '\"$target\"');
+    UPDATE repos SET target_branch = '$target' WHERE name = 'repo';
   " >/dev/null
 }
 
@@ -143,17 +149,18 @@ out=$(run_hook "git push -u origin feat/my-feature" "/nonexistent.db")
 assert_not_contains "$out" '"permissionDecision":"deny"' "missing DB must not block first push"
 cleanup
 
-test_case "first-push: schema-default pr_target='main' is used when not overridden in plugin_config"
-# Schema seeds pr_target='main'. The test repo has origin/dev but no origin/main,
+test_case "first-push: target_branch='main' from the repos row gates against origin/main"
+# repos.target_branch='main'. The test repo has origin/dev but no origin/main,
 # so git log origin/main..HEAD returns empty → no commits to gate → allowed.
-# This verifies the hook reads pr_target from config rather than hard-coding 'dev'.
+# This verifies the hook reads target_branch from the repos row rather than
+# hard-coding 'dev'.
 setup_first_push_repo
 db=$(setup_db "$REPO_PATH")
-# do NOT set pr_target — schema default 'main' is used; origin/main doesn't exist in test repo
+set_pr_target "$db" "main"
 insert_task "$db" 1 "$FEATURE_SHA"
 out=$(run_hook "git push -u origin feat/my-feature" "$db")
 # origin/main doesn't exist so git log fails gracefully, PUSH_SHAS empty, exits 0
-assert_not_contains "$out" '"permissionDecision":"deny"' "when origin/pr_target doesn't exist, hook allows (no range to check)"
+assert_not_contains "$out" '"permissionDecision":"deny"' "when origin/target_branch doesn't exist, hook allows (no range to check)"
 cleanup
 
 summarize

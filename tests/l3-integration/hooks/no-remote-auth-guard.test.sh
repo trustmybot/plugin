@@ -25,19 +25,30 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 DB="$TMPDIR/trajectory.db"
 
-# Fixture: remotes=[{name,provider,url:""}] — no usable url
+# repos schema (post-#987): repos.remotes is the sole source of truth. A single
+# registered repo lets tmb_repo_remotes resolve via the single-repo fallback
+# regardless of cwd/git-root.
+_repos_schema="CREATE TABLE repos (
+  name TEXT PRIMARY KEY, path TEXT NOT NULL,
+  file_count INTEGER NOT NULL DEFAULT 0,
+  last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
+  target_branch TEXT, branching_model TEXT, protected_branches TEXT,
+  remotes TEXT
+);"
+
+# Fixture: a single repos row whose remotes have no usable url.
 sqlite3 "$DB" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value_json) VALUES
-    ('remotes', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
+  $_repos_schema
+  INSERT INTO repos (name, path, remotes) VALUES
+    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
 "
 
-# Fixture DB with a usable url
+# Fixture DB: a single repos row with a usable url.
 DB_WITH_REMOTE="$TMPDIR/trajectory-with-remote.db"
 sqlite3 "$DB_WITH_REMOTE" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value_json) VALUES
-    ('remotes', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/repo.git\"}]');
+  $_repos_schema
+  INSERT INTO repos (name, path, remotes) VALUES
+    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/repo.git\"}]');
 "
 
 input_bash() {
@@ -144,15 +155,13 @@ out_gl_r=$(run_hook "$(input_bash 'glab auth login')" "$DB_WITH_REMOTE")
 assert_eq "" "$out_gl_r" "glab allow when remote configured"
 
 # ============================================================================
-# Extra: remotes key absent (no row) → fail-open
+# Extra: no registered repo (empty repos table) → fail-open
 # ============================================================================
-test_case "remotes key absent: fail-open (allow)"
+test_case "no registered repo: fail-open (allow)"
 DB_NO_REMOTES="$TMPDIR/trajectory-no-remotes.db"
-sqlite3 "$DB_NO_REMOTES" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-"
+sqlite3 "$DB_NO_REMOTES" "$_repos_schema"
 out_nr=$(echo "$(input_bash 'gh auth login')" | TRAJECTORY_DB_PATH="$DB_NO_REMOTES" bash "$HOOK" 2>/dev/null || true)
-assert_eq "" "$out_nr" "absent remotes key → allow"
+assert_eq "" "$out_nr" "no repos row → allow"
 
 # ============================================================================
 # Subshell-wrapped forms: (gh auth login) / (glab auth login) → deny
