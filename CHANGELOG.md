@@ -2,10 +2,21 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
-## Unreleased
+## v0.10.0-rc.5 — 2026-06-22
+
+Fifth release candidate for v0.10.0 — completes the move of repo-scoped policy onto the `repos` table and hardens onboard, provisioning, embeddings, the orphan-scan, and the git guards.
 
 ### Changed
-- **Repo-scoped policy lives only on the `repos` table** (#980, schema v27). The four repo-scoped keys — `remotes`, `pr_target` (→ `repos.target_branch`), `branching_model`, and `protected_branches` — are removed from `plugin_config` entirely; the `repos` row is now the sole source of truth. `onboard_apply` stops writing the four keys globally (it still mirrors the answers to every `repos` row), and the onboard readers + `task_provision`'s PR-target lookup read them from `repos`. The git hooks (`substrate-preflight.sh`, `no-remote-auth-guard.sh`, `git-guards.sh`, `git-push-guard.sh`, `branch-up-to-date-with-remote.sh`, `clean-merged-branch.sh`) resolve the current repo and read its `repos` columns with no `plugin_config` fallback. The v27 migration drains any residual global values into each repo's NULL columns, then deletes the keys; `issue_sync`, `onboarded`, and the label taxonomies stay global. (Builds on #979, which made `scan_run` populate `repos.remotes` from each repo's real git remotes.)
+- **Repo-scoped policy lives only on the `repos` table** (#980, schema v27). The four repo-scoped keys — `remotes`, `pr_target` (→ `repos.target_branch`), `branching_model`, and `protected_branches` — are removed from `plugin_config` entirely; the `repos` row is now the sole source of truth. `onboard_apply` stops writing the four keys globally (it still mirrors the answers to every `repos` row), and the onboard readers + `task_provision`'s PR-target lookup read them from `repos`. The git hooks (`substrate-preflight.sh`, `no-remote-auth-guard.sh`, `git-guards.sh`, `git-push-guard.sh`, `branch-up-to-date-with-remote.sh`, `clean-merged-branch.sh`) resolve the current repo and read its `repos` columns with no `plugin_config` fallback. The v27 migration drains any residual global values into each repo's NULL columns, then deletes the keys; `issue_sync`, `onboarded`, and the label taxonomies stay global.
+- **Onboard configures policy per repo** (#980): the onboard ceremony asks remotes / PR-target / branching-model / protected-branches per repo rather than once globally, writing each answer to its own `repos` row.
+- **`scan_run` captures per-repo git remotes** (#979): the scanner reads each repo's real git remotes and populates `repos.remotes`, so the world model and the git guards see the actual remote set.
+- **Onboard purges legacy hook entries** (#978): the hooks-shim step removes pre-sentinel legacy entries instead of leaving them stranded alongside the current managed block.
+- **`task_provision` is atomic** (#984): a git-setup failure no longer leaves an orphan task row — the task and its branch/worktree provisioning commit or roll back together.
+- **`issue_create` auto-creates the milestone** (#985): passing an explicit milestone creates the `milestones` row when it doesn't yet exist, instead of failing on the missing FK.
+- **Composite discussions embed consistently** (#986): composite-discussion writes go through the shared `insertDiscussion` path so they get the same embedding treatment as standalone discussions.
+- **Project-scoped SessionStart orphan-scan** (#997): the startup scan flags stale DBs, orphan MCP processes, and unused cache scoped to the current project rather than across the whole user environment.
+- **Git guards default safe** (#999): on an absent repos policy the git guards apply safe defaults instead of failing open.
+- **Deterministic dist** (#1001): a post-build path-canonicalization step makes the built `dist/` reproducible across checkout locations.
 
 ## v0.10.0-rc.4 — 2026-06-21
 
