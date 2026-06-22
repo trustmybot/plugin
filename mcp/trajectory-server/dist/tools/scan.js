@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { WorldModelGraph } from '../graph-db.js';
+import { classifyUrl } from '../utils/classify-url.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -325,6 +326,36 @@ function persistDirectoriesGraph(graph, out, now) {
     }
     return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
 }
+// Read a repo's actual git remotes as {name, provider, url}[]. Mirrors
+// onboard.ts probeGit: `git -C <path> remote` then `git -C <path> remote
+// get-url <name>`. A repo with no remote → []. Any error degrades to [] so
+// one unreadable repo never throws the whole scan.
+function readRepoRemotes(path) {
+    try {
+        const opts = { encoding: 'utf8', timeout: 3000 };
+        const listR = spawnSync('git', ['-C', path, 'remote'], opts);
+        if (listR.status !== 0)
+            return [];
+        const names = (listR.stdout ?? '')
+            .split('\n')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        const remotes = [];
+        for (const name of names) {
+            const urlR = spawnSync('git', ['-C', path, 'remote', 'get-url', name], opts);
+            if (urlR.status !== 0)
+                continue;
+            const url = (urlR.stdout ?? '').trim();
+            if (!url)
+                continue;
+            remotes.push({ name, provider: classifyUrl(url), url });
+        }
+        return remotes;
+    }
+    catch {
+        return [];
+    }
+}
 // Persist repos[] + directories[] from a scan output. Transactional.
 // File-level state lives entirely in the directories rows (file_count) and
 // the world model. Per-file md5/summary state was retired in schema v7
@@ -347,12 +378,14 @@ function persistScan(db, graph, out, sessionDir) {
     let dirs_retired = 0;
     db.transaction(() => {
         for (const r of out.repos) {
-            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at)
-         VALUES (?, ?, ?, ?)
+            const remotesJson = JSON.stringify(readRepoRemotes(r.path));
+            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
            file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
+           last_scanned_at = excluded.last_scanned_at,
+           remotes = excluded.remotes`, [r.name, r.path, r.file_count, now, remotesJson]);
             repos_upserted++;
         }
         for (const r of toRetire) {
