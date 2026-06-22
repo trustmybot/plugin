@@ -22030,6 +22030,7 @@ function migrateV26toV27(db2) {
       }
     }
     db2.prepare(
+      // LINT-ALLOW: v27 migration intentionally removes the drained global policy keys (#980).
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
     db2.exec("COMMIT");

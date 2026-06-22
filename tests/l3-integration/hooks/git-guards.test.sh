@@ -222,15 +222,12 @@ dir=$(mktemp -d -t tmb-guards-quote-XXXX)
   git worktree add -q --detach ".claude/worktrees/o'brien-cli"
   mkdir -p .claude/tmb
   sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
-  sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path) VALUES ('fixture', '$(git rev-parse --show-toplevel)');" >/dev/null
+  sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path, target_branch, branching_model, protected_branches) VALUES ('fixture', '$(git rev-parse --show-toplevel)', 'main', 'github-flow', '[\"main\", \"feat/o''brien-cli\"]');" >/dev/null
   sqlite3 .claude/tmb/trajectory.db "
     INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
       VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
     INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
       VALUES (1, 1, 'feat/o''brien-cli', 'test task', 'd', 'pending', '', datetime('now'), datetime('now'));
-    UPDATE plugin_config
-       SET value_json = '[\"main\", \"feat/o''brien-cli\"]'
-     WHERE key = 'protected_branches';
   " >/dev/null
 )
 REPO_PATH="$dir"
@@ -434,11 +431,7 @@ setup_glab_repo() {
 
     mkdir -p .claude/tmb
     sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
-    sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path) VALUES ('fixture', '$(git rev-parse --show-toplevel)');" >/dev/null
-    sqlite3 .claude/tmb/trajectory.db "
-      UPDATE plugin_config SET value_json = '\"dev\"'         WHERE key = 'pr_target';
-      UPDATE plugin_config SET value_json = '[\"main\",\"dev\"]' WHERE key = 'protected_branches';
-    " >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "INSERT INTO repos (name, path, target_branch, branching_model, protected_branches) VALUES ('fixture', '$(git rev-parse --show-toplevel)', 'dev', 'gitflow', '[\"main\",\"dev\"]');" >/dev/null
   )
   REPO_PATH="$dir"
 }
@@ -588,12 +581,12 @@ assert_contains "$out" '"permissionDecision":"deny"' "registered sibling repo mu
 cleanup_ws
 
 # ---- #693: per-repo protected_branches is authoritative -------------------------
-# repos.protected_branches (resolved by git-root path) WINS; the global
-# plugin_config.protected_branches is a fallback used ONLY when the row's column
-# is empty/NULL.
+# repos.protected_branches (resolved by git-root path) WINS. When the row's
+# column is empty/NULL the guard falls back to SAFE DEFAULTS (main+dev
+# protected) — never fail-open (#987 regression).
 
 setup_perrepo_protected() {
-  # $1 = repos.protected_branches JSON (may be empty to test the global fallback).
+  # $1 = repos.protected_branches JSON (may be empty to test the safe-default path).
   local repo_protected="$1"
   local dir
   dir=$(mktemp -d -t tmb-guards-perrepo-XXXX)
@@ -606,8 +599,8 @@ setup_perrepo_protected() {
     git add . && git commit -qm init
     mkdir -p .claude/tmb
     sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
-    # Global protected_branches is ["main"] (schema default) — does NOT cover
-    # the current branch `release`. The per-repo value, when set, must win.
+    # Safe-default protected_branches is [main, dev] — does NOT cover the
+    # current branch `release`. The per-repo value, when set, must win.
     local root
     root=$(git rev-parse --show-toplevel)
     if [ -n "$repo_protected" ]; then
@@ -627,10 +620,54 @@ out=$(run_hook_in_repo "git commit -m broken")
 assert_contains "$out" '"permissionDecision":"deny"' "per-repo protected_branches=[release] must block commit on release"
 cleanup_repo
 
-test_case "#693: per-repo unset → global protected_branches fallback (release NOT in global [main], commit allowed)"
+test_case "#693: per-repo unset → safe-default protected (release NOT in [main,dev], commit allowed)"
 setup_perrepo_protected ''
 out=$(run_hook_in_repo "git commit -m wip")
-assert_not_contains "$out" '"permissionDecision":"deny"' "with per-repo empty, global [main] does not cover release → no block"
+assert_not_contains "$out" '"permissionDecision":"deny"' "with per-repo empty, safe-default [main,dev] does not cover release → no block"
+cleanup_repo
+
+# ---- #987 regression: registered-but-unconfigured repo must NOT fail open --------
+# A repos row with NO branching_model/protected_branches must still DENY a direct
+# commit / merge / force-push on a default-protected branch (main/dev) via safe
+# defaults — the pre-fix `exit 0` punt allowed these through.
+
+setup_unconfigured_registered_repo() {
+  # $1 = branch to init on (default main).
+  local branch="${1:-main}"
+  local dir
+  dir=$(mktemp -d -t tmb-guards-unconf-XXXX)
+  (
+    cd "$dir" || exit 1
+    git init -q -b "$branch"
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md
+    git add . && git commit -qm init
+    mkdir -p .claude/tmb
+    sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    # Registered, but policy columns left NULL (freshly scanned, not onboarded).
+    sqlite3 .claude/tmb/trajectory.db \
+      "INSERT INTO repos (name, path) VALUES ('fixture', '$(git rev-parse --show-toplevel)');" >/dev/null
+  )
+  REPO_PATH="$dir"
+}
+
+test_case "#987: unconfigured registered repo — direct commit on main DENIED (safe default, no fail-open)"
+setup_unconfigured_registered_repo main
+out=$(run_hook_in_repo "git commit -m broken")
+assert_contains "$out" '"permissionDecision":"deny"' "unconfigured repo must deny commit on default-protected main"
+cleanup_repo
+
+test_case "#987: unconfigured registered repo — direct commit on dev DENIED (safe default protects dev too)"
+setup_unconfigured_registered_repo dev
+out=$(run_hook_in_repo "git commit -m broken")
+assert_contains "$out" '"permissionDecision":"deny"' "unconfigured repo must deny commit on default-protected dev"
+cleanup_repo
+
+test_case "#987: unconfigured registered repo — force-push to main DENIED (safe default, no fail-open)"
+setup_unconfigured_registered_repo main
+out=$(run_hook_in_repo "git push -f origin main")
+assert_contains "$out" '"permissionDecision":"deny"' "unconfigured repo must deny force-push to default-protected main"
 cleanup_repo
 
 summarize
