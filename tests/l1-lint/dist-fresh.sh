@@ -34,6 +34,14 @@ fi
   --bundle --platform=node --format=esm --target=node22 \
   --external:kuzu --external:@huggingface/transformers \
   --outfile="$TMPDIR/index.js" --sourcemap >/dev/null 2>&1
+# Canonicalize the volatile bun-store path baked into the bundle. esbuild bakes
+# the relative climb-out to the `.bun` store as __commonJS labels + comments; the
+# depth varies by build location (symlinked worktree vs root vs CI). These are
+# cosmetic labels (modules referenced by variable, not by the string key), so a
+# consistent global collapse is runtime-safe. This MUST stay byte-identical to
+# the transform in mcp/trajectory-server/package.json `build:bundle` so the diff
+# below remains a strict byte comparison across build locations.
+perl -i -pe 's{(?:\.\./)+node_modules/\.bun/}{node_modules/.bun/}g' "$TMPDIR/index.js" "$TMPDIR/index.js.map"
 cp src/schema*.sql "$TMPDIR/"
 
 # Diff (ignore .map files since their sourceRoot is path-dependent)
