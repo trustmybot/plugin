@@ -1368,21 +1368,29 @@ describe('task_provision (#157)', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('git failure keeps the task (git_setup: error + diagnostic, DB not rolled back)', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'plan-task-nogit-'));
+    it('atomicity: base-unresolvable git failure leaves NO task row; retry with a valid base + same branch_id succeeds', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'plan-task-nobase-'));
         try {
             const db = tempDB();
-            // Point the repo at a non-git directory so the branch command fails.
-            const notARepo = join(ws, 'notgit');
-            mkdirSync(notARepo, { recursive: true });
-            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [notARepo]);
+            // A real git repo but WITHOUT the origin/<base> remote-tracking ref, so
+            // the base pre-validation fails and the branch is never created.
+            const repoRoot = join(ws, 'app');
+            mkdirSync(repoRoot, { recursive: true });
+            const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+            git(repoRoot, 'init', '-q', '-b', 'main');
+            git(repoRoot, 'config', 'user.email', 't@t.t');
+            git(repoRoot, 'config', 'user.name', 't');
+            writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+            git(repoRoot, 'add', '.');
+            git(repoRoot, 'commit', '-q', '-m', 'base');
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
             db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
               VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
             const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
-            const r = await call(composites.handlers, 'task_provision', {
+            const baseTaskArgs = {
                 agent: 'bro',
                 issue_id: 1,
-                branch_id: 'feat/no-git',
+                branch_id: 'feat/atomic',
                 decision_body: 'approach: x; trade-off y.',
                 task: {
                     description: 'd',
@@ -1391,16 +1399,74 @@ describe('task_provision (#157)', () => {
                     verification: ['true'],
                     repo: 'app',
                 },
+            };
+            // base 'no-such-base' has no origin/ ref → error, nothing persisted.
+            const r = await call(composites.handlers, 'task_provision', {
+                ...baseTaskArgs,
+                base: 'no-such-base',
             });
-            assert.ok(!r.isError, 'composite returns ok — git failure is fail-soft, not a tool error');
-            const out = parse(r);
-            assert.equal(out['git_setup'], 'error');
-            assert.ok(typeof out['diagnostic'] === 'string' && out['diagnostic'].length > 0);
-            // The task survives — the DB row is the source of truth.
-            const task = db.get(`SELECT id FROM tasks WHERE id = ?`, [out['task_id']]);
-            assert.ok(task, 'task row persisted despite the git failure');
-            const decision = db.get(`SELECT COUNT(*) AS c FROM discussions WHERE issue_id = 1 AND kind = 'decision'`);
-            assert.equal(decision.c, 1, 'decision discussion persisted');
+            assert.ok(r.isError, 'unresolvable base must be a tool error');
+            assert.match(parse(r)['error'], /does not resolve|No task row was created/);
+            // No task row, no decision, no branch ref — the (issue_id, branch_id) slot is free.
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 0, 'no orphan task row after base-unresolvable git failure');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM discussions WHERE issue_id = 1 AND kind = 'decision'`).c, 0, 'no orphan decision after git failure');
+            // Retry with a valid base (origin/main, fabricated here) + SAME branch_id succeeds.
+            git(repoRoot, 'update-ref', 'refs/remotes/origin/main', git(repoRoot, 'rev-parse', 'HEAD'));
+            const retry = await call(composites.handlers, 'task_provision', {
+                ...baseTaskArgs,
+                base: 'main',
+            });
+            assert.ok(!retry.isError, `retry with a valid base must succeed: ${JSON.stringify(parse(retry))}`);
+            const out = parse(retry);
+            assert.equal(out['branch_id'], 'feat/atomic');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 1, 'retry creates exactly one task row');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('atomicity: repo-unresolvable git failure leaves NO task row; retry with a valid repo + same branch_id succeeds', async () => {
+        const { ws, repoRoot } = makeRepo();
+        try {
+            const db = tempDB();
+            // Multi-repo workspace: register only 'app' (target_branch='main' so the
+            // base resolves on retry). The first call names a repo that does not
+            // resolve to a repos.path.
+            db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repoRoot]);
+            db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const baseTaskArgs = {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/repo-atomic',
+                decision_body: 'approach: x; trade-off y.',
+                task: {
+                    description: 'd',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['true'],
+                },
+            };
+            // repo 'ghost' resolves to the literal name 'ghost' (no repos.path) — git
+            // commands run against a non-existent dir and fail. Nothing persisted.
+            const r = await call(composites.handlers, 'task_provision', {
+                ...baseTaskArgs,
+                task: { ...baseTaskArgs.task, repo: 'ghost' },
+            });
+            assert.ok(r.isError, 'unresolvable repo must be a tool error');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 0, 'no orphan task row after repo-unresolvable git failure');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM discussions WHERE issue_id = 1 AND kind = 'decision'`).c, 0, 'no orphan decision after git failure');
+            // Retry with a valid repo + SAME branch_id succeeds.
+            const retry = await call(composites.handlers, 'task_provision', {
+                ...baseTaskArgs,
+                task: { ...baseTaskArgs.task, repo: 'app' },
+            });
+            assert.ok(!retry.isError, `retry with a valid repo must succeed: ${JSON.stringify(parse(retry))}`);
+            const out = parse(retry);
+            assert.equal(out['repo'], 'app');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 1, 'retry creates exactly one task row');
             db.close();
         }
         finally {

@@ -30,3 +30,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 ## How it fits
 
 These modules are the entire MCP surface bro and the subagents call. `index.ts` is the registration point; role-gating per tool is enforced by `requireRoles()` in `../middleware/agent-scope.ts`. See `../../README.md` for the tool-family overview, environment, and schema notes. Handlers are unit-tested at L2 (`../test/`).
+
+## Atomicity notes
+
+`task_provision` is atomic from the caller's view: it resolves the repo path and validates the branch `base` (`git rev-parse` on `origin/<base>`), then creates the branch ref, all **before** committing the decision + task transaction. A git-setup failure (unresolvable repo or base, failed branch creation) returns a tool error and persists nothing — no orphan task row is left occupying the `(issue_id, branch_id)` UNIQUE constraint, so the same `branch_id` retries cleanly once the repo/base resolves. Only worktree creation stays fail-soft (post-commit, recoverable): a worktree failure returns `git_setup:'error'` with a diagnostic but keeps the committed task.
