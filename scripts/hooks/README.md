@@ -5,7 +5,20 @@ The Claude Code lifecycle hook engine — the deterministic enforcement layer th
 ## Grouped by lifecycle
 
 ### SessionStart — preflight
-`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `write-active-workspace-sentinel.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh` — make sure the gitignore, MCP server, kuzu native binary, workspace sentinel, and required host binaries are in place before a session does real work.
+`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `write-active-workspace-sentinel.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, workspace sentinel, and required host binaries are in place before a session does real work.
+
+#### `orphan-scan.sh` — project-scoped cross-upgrade orphan scan
+
+Detects (and, only when explicitly opted in, cleans) TMB artifacts left behind by version upgrades. Advisory: it emits findings as `additionalContext`, soft-fails, caps itself with a tight internal timeout, and never blocks session start.
+
+**Project-scoping invariant (load-bearing).** A user may run a *different* TMB version in *other* projects — each with its own cache dir, MCP process, and `trajectory.db`. Those are legitimate, not orphans. The hook resolves the current project first (session cwd / `CLAUDE_PROJECT_DIR` → its `.claude/<plugin>/trajectory.db` live path and its `~/.claude/projects/<this-slug>/` history dir) and confines all detection and cleanup to it. It never enumerates, reports, or touches another project's DB, process, or pinned cache version. The single permitted cross-project action is removing a cache version that *no* `installed_plugins.json` entry pins (globally unused).
+
+What it detects, current project only:
+1. **Stale old-layout DBs of this project** — `~/.claude/projects/<this-slug>/trajectory.db`, its `memory/trajectory.db`, and a legacy `~/.claude/<plugin>/trajectory.db` only when this project has no live DB yet. A candidate is 0-byte *or* has a `schema_version` older than the live DB. The live `<project>/.claude/<plugin>/trajectory.db` is always kept.
+2. **Stale duplicate MCP proc on this project's live DB** — a second `trajectory-server` node proc holding *this* project's live DB (the lowest PID is kept as the live server). A proc holding any other project's DB is never flagged. `lsof` absence degrades gracefully.
+3. **Globally-unused cache versions** — a `~/.claude/plugins/cache/<channel>/<plugin>/<version>` dir referenced by no `installed_plugins.json` entry. A version pinned by any project (current or other) is never a candidate.
+
+**Safety gates.** Detection-first: the default mode reports only and deletes nothing. Cleanup is gated behind `TMB_ORPHAN_SCAN_CLEAN=1` (default OFF) and is limited to this project's provably-dead stale DBs, a confirmed stale duplicate proc on this project's live DB (with a `kill -0` liveness check), and globally-unused cache versions. It never removes the live DB, never touches another project's DB / proc / cache, and never removes a pinned version. The scan is idempotent and soft-fails. (Tests set `TMB_ORPHAN_SCAN_HOME` / `TMB_ORPHAN_SCAN_PROJECT_DIR` to sandbox HOME and project-root resolution.)
 
 ### UserPromptSubmit — per-turn setup + routing
 `activation-routine.sh`, `mcp-health-check.sh`, `session-log-capture.sh`, `prompt-intent-hints.sh`, `roundtable-slash-detect.sh` — inject identity/context, log the turn, and route phrasing hints (onboarding nudges, roundtable detection).

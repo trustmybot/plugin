@@ -43,6 +43,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cheatcode-healthcheck.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/orphan-scan.sh",
+            "timeout": 6
           }
         ]
       }
