@@ -31,6 +31,10 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 
 These modules are the entire MCP surface bro and the subagents call. `index.ts` is the registration point; role-gating per tool is enforced by `requireRoles()` in `../middleware/agent-scope.ts`. See `../../README.md` for the tool-family overview, environment, and schema notes. Handlers are unit-tested at L2 (`../test/`).
 
+## Discussions: single insert+embed path
+
+Every discussion write — `discussion_append` plus every composite that logs an `intent` / `decision` / `note` (`task_provision`, `intent_start`, `task_retry`, `bro_verification_fail_record`) — goes through one helper, `insertDiscussion(db, { issue_id, author, kind, body, created_at? })` in `discussions.ts`. It INSERTs the row and fires `embedAndStore` so the entry is indexed for semantic `discussion_search`. The embed is not awaited and its failure is caught (degrades to FTS-only), so when a composite calls it inside `db.transaction()` the embedding write lands after COMMIT and an embed failure never rolls back the transaction. No module writes the `discussions` table directly.
+
 ## Atomicity notes
 
 `task_provision` is atomic from the caller's view: it resolves the repo path and validates the branch `base` (`git rev-parse` on `origin/<base>`), then creates the branch ref, all **before** committing the decision + task transaction. A git-setup failure (unresolvable repo or base, failed branch creation) returns a tool error and persists nothing — no orphan task row is left occupying the `(issue_id, branch_id)` UNIQUE constraint, so the same `branch_id` retries cleanly once the repo/base resolves. Only worktree creation stays fail-soft (post-commit, recoverable): a worktree failure returns `git_setup:'error'` with a diagnostic but keeps the committed task.

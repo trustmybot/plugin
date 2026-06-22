@@ -9,6 +9,7 @@ import { discussionTools } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { reportTools } from '../tools/reports.js';
+import { embed } from '../embeddings/model.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -780,6 +781,49 @@ describe('discussion_append awaits embedAndStore (#537)', () => {
     assert.ok(!r2.isError, 'subsequent call with failed embed must still succeed (graceful degradation)');
     const d2 = parseResult(r2);
     assert.equal(d2.kind, 'decision');
+
+    localDb.close();
+  });
+
+  it('still routes through the shared insert+embed path (#986): an embedding row appears when a model is available', async () => {
+    const localDb = tempDB();
+    const issues = issueTools(localDb);
+    const disc = discussionTools(localDb);
+
+    const issueResult = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
+      agent: 'bro',
+      objective: 'append-still-embeds test issue',
+    });
+    const issue = parseResult(issueResult as RawResult);
+
+    const result = await call(disc.handlers, 'discussion_append', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+      author: 'bro',
+      kind: 'decision',
+      body: 'discussion_append must remain indexed for semantic search',
+    });
+    assert.ok(!result.isError, 'discussion_append must succeed');
+    const row = parseResult(result);
+
+    const probe = await embed('model availability probe');
+    const deadline = Date.now() + 5000;
+    let embCount = 0;
+    do {
+      embCount = localDb.get<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM discussions_embeddings WHERE discussion_id = ?',
+        [row.id],
+      )?.n ?? 0;
+      if (embCount >= 1) break;
+      await new Promise((r) => setTimeout(r, 50));
+    } while (Date.now() < deadline);
+
+    if (probe === null) {
+      assert.equal(embCount, 0, 'no model → append degrades to FTS-only, tool still ok');
+    } else {
+      assert.equal(embCount, 1, 'append must embed its discussion via the shared helper');
+    }
 
     localDb.close();
   });

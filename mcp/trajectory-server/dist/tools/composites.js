@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+import { insertDiscussion } from './discussions.js';
 import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveDefaultRepo, resolveRepoForSync } from '../utils/repo-paths.js';
@@ -163,12 +164,16 @@ function insertIntentAndNote(db, issueId, intentVerbatim, noteLine, now) {
     const existing = db.get(`SELECT id FROM discussions
       WHERE issue_id = ? AND kind = 'intent' AND body = ?
       LIMIT 1`, [issueId, `Human intent verbatim: "${intentVerbatim}"`]);
-    db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, 'bro', 'note', ?, ?)`, [issueId, noteLine, now]);
+    insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'note', body: noteLine, created_at: now });
     const written = ['note'];
     if (!existing) {
-        db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-       VALUES (?, 'bro', 'intent', ?, ?)`, [issueId, `Human intent verbatim: "${intentVerbatim}"`, now]);
+        insertDiscussion(db, {
+            issue_id: issueId,
+            author: 'bro',
+            kind: 'intent',
+            body: `Human intent verbatim: "${intentVerbatim}"`,
+            created_at: now,
+        });
         written.push('intent');
     }
     return written;
@@ -602,8 +607,7 @@ export function compositeTools(db, dbPath, graph = null) {
             // whole transaction.
             const now = nowISO();
             const result = db.transaction(() => {
-                db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, ?, 'decision', ?, ?)`, [issueId, agent, decisionBody, now]);
+                insertDiscussion(db, { issue_id: issueId, author: agent, kind: 'decision', body: decisionBody, created_at: now });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, title, description,
                 status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
@@ -860,8 +864,13 @@ export function compositeTools(db, dbPath, graph = null) {
             }
             const now = nowISO();
             const result = db.transaction(() => {
-                db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'decision', ?, ?)`, [failed.issue_id, `Retry rationale (failed task ${failedTaskId}): ${rationale}`, now]);
+                insertDiscussion(db, {
+                    issue_id: failed.issue_id,
+                    author: 'bro',
+                    kind: 'decision',
+                    body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
+                    created_at: now,
+                });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
                 status, attempts, spec_body, repo, created_at, updated_at)
@@ -973,8 +982,13 @@ export function compositeTools(db, dbPath, graph = null) {
                     JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
                     now,
                 ]);
-                db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'note', ?, ?)`, [task.issue_id, `Verification fail: ${summary}`, now]);
+                insertDiscussion(db, {
+                    issue_id: task.issue_id,
+                    author: 'bro',
+                    kind: 'note',
+                    body: `Verification fail: ${summary}`,
+                    created_at: now,
+                });
             });
             return ok({ task_id: task.id, which_check: whichCheck, written: ['audit', 'note'] });
         })),

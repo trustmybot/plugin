@@ -22652,6 +22652,19 @@ function resolveDefaultIssueId(db2) {
   );
   return latest?.id ?? -1;
 }
+function insertDiscussion(db2, entry) {
+  const createdAt = entry.created_at ?? nowISO();
+  const res = db2.run(
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt]
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db2, "discussions", id, entry.body).catch(
+    (e) => console.error("[embeddings] insertDiscussion embed failed:", e)
+  );
+  return id;
+}
 function discussionTools(db2) {
   const definitions = [
     {
@@ -22936,19 +22949,8 @@ function discussionTools(db2) {
           throw new Error(`Not found: issue ${issueId}`);
         }
         const now = nowISO();
-        db2.run(
-          `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [issueId, author, kind, body, now]
-        );
-        const row = db2.get(
-          "SELECT * FROM discussions WHERE rowid = last_insert_rowid()"
-        );
-        if (row) {
-          await embedAndStore(db2, "discussions", row.id, body).catch(
-            (e) => console.error("[embeddings] discussion_append embed failed:", e)
-          );
-        }
+        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body, created_at: now });
+        const row = db2.get("SELECT * FROM discussions WHERE id = ?", [id]);
         return ok(row);
       })
     ),
@@ -27876,18 +27878,16 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
       LIMIT 1`,
     [issueId, `Human intent verbatim: "${intentVerbatim}"`]
   );
-  db2.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, 'bro', 'note', ?, ?)`,
-    [issueId, noteLine, now]
-  );
+  insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: noteLine, created_at: now });
   const written = ["note"];
   if (!existing) {
-    db2.run(
-      `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-       VALUES (?, 'bro', 'intent', ?, ?)`,
-      [issueId, `Human intent verbatim: "${intentVerbatim}"`, now]
-    );
+    insertDiscussion(db2, {
+      issue_id: issueId,
+      author: "bro",
+      kind: "intent",
+      body: `Human intent verbatim: "${intentVerbatim}"`,
+      created_at: now
+    });
     written.push("intent");
   }
   return written;
@@ -28296,11 +28296,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         }
         const now = nowISO();
         const result = db2.transaction(() => {
-          db2.run(
-            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, ?, 'decision', ?, ?)`,
-            [issueId, agent, decisionBody, now]
-          );
+          insertDiscussion(db2, { issue_id: issueId, author: agent, kind: "decision", body: decisionBody, created_at: now });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, title, description,
@@ -28550,11 +28546,13 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         }
         const now = nowISO();
         const result = db2.transaction(() => {
-          db2.run(
-            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'decision', ?, ?)`,
-            [failed.issue_id, `Retry rationale (failed task ${failedTaskId}): ${rationale}`, now]
-          );
+          insertDiscussion(db2, {
+            issue_id: failed.issue_id,
+            author: "bro",
+            kind: "decision",
+            body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
+            created_at: now
+          });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -28696,11 +28694,13 @@ function compositeTools(db2, dbPath2, graph2 = null) {
               now
             ]
           );
-          db2.run(
-            `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-             VALUES (?, 'bro', 'note', ?, ?)`,
-            [task.issue_id, `Verification fail: ${summary}`, now]
-          );
+          insertDiscussion(db2, {
+            issue_id: task.issue_id,
+            author: "bro",
+            kind: "note",
+            body: `Verification fail: ${summary}`,
+            created_at: now
+          });
         });
         return ok14({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
       })
