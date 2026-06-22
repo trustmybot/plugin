@@ -240,6 +240,109 @@ describe('writeUserSettingsEnforcementShim', () => {
             .find((h) => h.command === '/usr/local/bin/my-user-hook.sh');
         assert.equal(userEntry?._tmb_managed, undefined);
     });
+    // #978: legacy pre-sentinel TMB entries are purged by command-string signature.
+    // Block A: literal dev .../plugin/scripts/hooks/*.sh (basename in TMB set, under
+    //          /scripts/hooks/, no sentinel) → signature (d).
+    // Block B: .../cache/<mp>/tmb/<version>/scripts/hooks/*.sh → signature (c).
+    // Block C: stable resolver invocation, no sentinel → signature (b).
+    // Block D: stable resolver invocation + _tmb_managed:true → signature (a).
+    // All four collapse to exactly ONE sentinel-stamped TMB block.
+    it('legacy purge: Blocks A/B/C/D collapse to one sentinel-stamped TMB block', () => {
+        const dir = join(homeDir, '.claude');
+        mkdirSync(dir, { recursive: true });
+        const stableResolver = resolverPath();
+        const stale = {
+            hooks: {
+                PreToolUse: [
+                    // Block A: literal dev plugin path, no sentinel.
+                    {
+                        matcher: 'Edit|Write|MultiEdit|NotebookEdit',
+                        hooks: [
+                            { type: 'command', command: '/Users/dev/Git/TMB/plugin/scripts/hooks/no-source-edit-from-main.sh' },
+                            { type: 'command', command: '/Users/dev/Git/TMB/plugin/scripts/hooks/swe-boundary.sh' },
+                        ],
+                    },
+                    // Block B: version-pinned cache path, no sentinel.
+                    {
+                        matcher: 'Bash',
+                        hooks: [
+                            { type: 'command', command: '/Users/u/.claude/plugins/cache/trustmybot/tmb/0.10.0-alpha/scripts/hooks/git-guards.sh' },
+                            { type: 'command', command: '/Users/u/.claude/plugins/cache/trustmybot/tmb/0.10.0-alpha/scripts/hooks/git-push-guard.sh' },
+                        ],
+                    },
+                    // Block C: stable resolver, no sentinel.
+                    {
+                        matcher: 'mcp__.*trajectory-server__task_update_status',
+                        hooks: [
+                            { type: 'command', command: `bash ${stableResolver} --marketplace trustmybot --hook swe-verification-gate` },
+                        ],
+                    },
+                    // Block D: stable resolver + sentinel.
+                    {
+                        matcher: 'Bash',
+                        hooks: [
+                            { type: 'command', command: `bash ${stableResolver} --marketplace trustmybot --hook git-guards`, _tmb_managed: true },
+                        ],
+                    },
+                ],
+            },
+        };
+        writeFileSync(settingsPath(), JSON.stringify(stale, null, 2));
+        const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+        assert.equal(res.written, true);
+        const s = readSettings();
+        const all = (s.hooks?.PreToolUse ?? []).flatMap((g) => g.hooks);
+        // No legacy entry survived.
+        assert.ok(!all.some((h) => h.command.includes('/Users/dev/Git/TMB/plugin/scripts/hooks/')), 'Block A survived');
+        assert.ok(!all.some((h) => h.command.includes('0.10.0-alpha')), 'Block B survived');
+        // Every surviving entry is freshly written + sentinel-stamped.
+        for (const h of all) {
+            assert.equal(h._tmb_managed, true, `non-TMB-stamped entry survived: ${h.command}`);
+            assert.ok(h.command.startsWith(`bash ${stableResolver} --marketplace `), `non-resolver entry survived: ${h.command}`);
+        }
+        // Re-running is idempotent (no accumulation).
+        const before = readFileSync(settingsPath(), 'utf8');
+        writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+        assert.equal(readFileSync(settingsPath(), 'utf8'), before, 'legacy re-run not idempotent');
+    });
+    // Success Criterion 3: genuine non-TMB hooks survive, including a same-dir
+    // /scripts/hooks/ entry whose basename is NOT in the TMB hook-name set.
+    it('legacy purge: preserves arbitrary AND same-dir non-TMB-basename user hooks', () => {
+        const dir = join(homeDir, '.claude');
+        mkdirSync(dir, { recursive: true });
+        const existing = {
+            hooks: {
+                PreToolUse: [
+                    {
+                        matcher: 'Bash',
+                        hooks: [
+                            // Arbitrary path — not TMB.
+                            { type: 'command', command: '/Users/u/myhooks/custom.sh' },
+                            // Same /scripts/hooks/ dir but basename not in the TMB set.
+                            { type: 'command', command: '/Users/u/work/scripts/hooks/my-notes.sh' },
+                            // A legacy TMB entry alongside them (basename IS in the TMB set).
+                            { type: 'command', command: '/Users/dev/Git/TMB/plugin/scripts/hooks/git-guards.sh' },
+                        ],
+                    },
+                ],
+            },
+        };
+        writeFileSync(settingsPath(), JSON.stringify(existing, null, 2));
+        const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+        assert.equal(res.written, true);
+        const cmds = allPreCommands(readSettings());
+        assert.ok(cmds.includes('/Users/u/myhooks/custom.sh'), 'arbitrary user hook lost');
+        assert.ok(cmds.includes('/Users/u/work/scripts/hooks/my-notes.sh'), 'same-dir non-TMB-basename hook lost');
+        // The legacy TMB entry was purged.
+        assert.ok(!cmds.includes('/Users/dev/Git/TMB/plugin/scripts/hooks/git-guards.sh'), 'legacy TMB entry not purged');
+        // These user hooks are not stamped TMB-managed.
+        const userEntries = (readSettings().hooks?.PreToolUse ?? [])
+            .flatMap((g) => g.hooks)
+            .filter((h) => h.command === '/Users/u/myhooks/custom.sh' || h.command === '/Users/u/work/scripts/hooks/my-notes.sh');
+        assert.equal(userEntries.length, 2);
+        for (const h of userEntries)
+            assert.equal(h._tmb_managed, undefined);
+    });
     // Success Criterion 3 + Bug C: a worktree plugin root must not touch settings.
     it('worktree plugin root: returns {written:false} and does NOT touch settings.json', () => {
         const dir = join(homeDir, '.claude');
