@@ -137,14 +137,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 26 in plugin_meta', () => {
+  it('fresh DB has schema_version = 27 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 26);
+    assert.equal(meta.schema_version, 27);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',
@@ -278,7 +278,7 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('plugin_config has the 7 schema-seeded default policy keys on init', () => {
+  it('plugin_config has the 3 schema-seeded global keys on init (#980: repo-scoped keys live on repos)', () => {
     const db = tempDB();
 
     const rows = db.all<{ key: string; value_json: string }>(
@@ -288,13 +288,9 @@ describe('schema — current table set, default values, constraints', () => {
     // so assert.deepEqual matches the literal expected shape.
     const plain = rows.map((r) => ({ key: r.key, value_json: r.value_json }));
     assert.deepEqual(plain, [
-      { key: 'branching_model', value_json: '"github-flow"' },
       { key: 'issue_classification_labels', value_json: '["Bug","Feature","Improvement","Docs","Test","Chore"]' },
       { key: 'issue_priority_labels', value_json: '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]' },
       { key: 'issue_sync', value_json: '"off"' },
-      { key: 'pr_target', value_json: '"main"' },
-      { key: 'protected_branches', value_json: '["main"]' },
-      { key: 'remotes', value_json: '[]' },
     ]);
 
     db.close();

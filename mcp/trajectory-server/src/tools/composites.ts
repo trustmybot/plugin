@@ -107,20 +107,18 @@ function resolveRepoPath(db: TrajectoryDB, repoValue: string | null): string | n
   return reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
 }
 
-// Read a string plugin_config value (value_json is a JSON-encoded scalar).
-// Returns null when the key is unset or not a non-empty string.
-function readPluginConfigString(db: TrajectoryDB, key: string): string | null {
-  const row = db.get<{ value_json: string }>(
-    `SELECT value_json FROM plugin_config WHERE key = ?`,
-    [key],
+// Read a repo's target_branch (pr_target) from the repos table — the sole
+// source of truth (#980). Falls back to the sole registered repo when repoValue
+// is empty. Returns null when no row or a NULL/empty column.
+function readRepoTargetBranch(db: TrajectoryDB, repoValue: string | null): string | null {
+  const name = repoValue && repoValue.length > 0 ? repoValue : resolveDefaultRepo(db)?.name ?? null;
+  if (!name) return null;
+  const row = db.get<{ target_branch: string | null }>(
+    `SELECT target_branch FROM repos WHERE name = ?`,
+    [name],
   );
-  if (!row) return null;
-  try {
-    const parsed = JSON.parse(row.value_json) as unknown;
-    return typeof parsed === 'string' && parsed.length > 0 ? parsed : null;
-  } catch {
-    return null;
-  }
+  const v = row?.target_branch;
+  return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
 function ok(data: unknown): CallToolResult {
@@ -508,7 +506,7 @@ export function compositeTools(
           },
           base: {
             type: 'string',
-            description: "Optional start-point for the branch ref. Defaults to plugin_config pr_target || 'dev'.",
+            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'.",
           },
           task: {
             type: 'object',
@@ -723,7 +721,7 @@ export function compositeTools(
 
           const base =
             (args['base'] as string | undefined) ??
-            (readPluginConfigString(db, 'pr_target') ?? 'dev');
+            (readRepoTargetBranch(db, repoValue) ?? 'dev');
 
           worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
 

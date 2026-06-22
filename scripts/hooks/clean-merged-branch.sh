@@ -192,8 +192,7 @@ _cmb_is_protected() {
 }
 
 # _cmb_base_branch <repo_root>
-# Print the repo's base branch (repos.target_branch, else plugin_config
-# pr_target, else dev).
+# Print the repo's base branch (repos.target_branch, else dev).
 _cmb_base_branch() {
   local repo_root="$1"
   local db
@@ -205,13 +204,6 @@ _cmb_base_branch() {
     if [ -n "$target" ]; then
       printf '%s' "$target"
       return 0
-    fi
-    if command -v sqlite3 >/dev/null 2>&1; then
-      target=$(sqlite3 "$db" "SELECT json_extract(value_json, '\$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' || true)
-      if [ -n "$target" ]; then
-        printf '%s' "$target"
-        return 0
-      fi
     fi
   fi
   printf 'dev'

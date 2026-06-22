@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hook: Enforce git workflow rules driven by plugin_config branching model.
+# Hook: Enforce git workflow rules driven by the repo's branching model.
 # 1. PR must target pr_target
 # 2. No direct commits to protected_branches
 # 3. No force push to protected_branches
@@ -97,8 +97,7 @@ cmd_effective_branch() {
 
 # --- Per-repo config resolution ---
 # Resolve the effective branching config from the repos row for the git
-# toplevel of the command's working directory, falling back to global
-# plugin_config for legacy single-repo installs.
+# toplevel of the command's working directory — the sole source of truth (#980).
 # If the cwd's git root is not a registered TMB repo, guard no-ops (exit 0).
 _CMD_CWD=$(cmd_cwd "$CMD")
 _GIT_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
@@ -117,68 +116,27 @@ if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite && [ -n "$_GIT_ROOT" ]; the
     exit 0
   fi
   _REPO_ROW=$(tmb_repo_resolve "$_DB" "$_GIT_ROOT")
-  _REPO_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
-  _REPO_MODEL=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f2)
-  _REPO_PROTECTED=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f3)
+  PR_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
+  BRANCHING_MODEL=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f2)
+  PROTECTED_RAW=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f3)
 else
-  _REPO_TARGET=""
-  _REPO_MODEL=""
-  _REPO_PROTECTED=""
-fi
-
-# Fetch global config as fallback for repos rows that lack per-repo values.
-_load_global_config() {
-  local db
-  db=$(tmb_db_path 2>/dev/null || true)
-  [ -n "$db" ] || return 0
-  tmb_have_sqlite || return 0
-  sqlite3 "$db" "
-    SELECT key, value_json
-      FROM plugin_config
-     WHERE key IN ('branching_model', 'pr_target', 'protected_branches');
-  " 2>/dev/null || true
-}
-_global_config_rows=$(_load_global_config)
-
-_gcfg_scalar() {
-  printf '%s\n' "$_global_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}' \
-    | sed 's/^"//;s/"$//'
-}
-_gcfg_raw() {
-  printf '%s\n' "$_global_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}'
-}
-
-# Effective values: per-repo wins, global is fallback.
-if [ -n "$_REPO_MODEL" ]; then
-  BRANCHING_MODEL="$_REPO_MODEL"
-else
-  BRANCHING_MODEL=$(_gcfg_scalar "branching_model")
+  BRANCHING_MODEL=""
+  PR_TARGET=""
+  PROTECTED_RAW=""
 fi
 
 if [ -z "$BRANCHING_MODEL" ]; then
-  echo "TMB: branching_model not configured — run bro onboarding" >&2
+  echo "TMB: branching_model not configured for this repo — run bro onboarding" >&2
   exit 0
 fi
 
-if [ -n "$_REPO_TARGET" ]; then
-  PR_TARGET="$_REPO_TARGET"
-else
-  PR_TARGET=$(_gcfg_scalar "pr_target")
-fi
-
-if [ -n "$_REPO_PROTECTED" ]; then
-  PROTECTED_RAW="$_REPO_PROTECTED"
-else
-  PROTECTED_RAW=$(_gcfg_raw "protected_branches")
-fi
-
 if [ -z "$PR_TARGET" ] || [ -z "$PROTECTED_RAW" ]; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run bro onboarding or fix your config."}}'
+  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: this repo has no target_branch or protected_branches set. Run bro onboarding or fix the repos row."}}'
   exit 0
 fi
 
 if ! printf '%s' "$PROTECTED_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: TMB plugin_config key protected_branches is malformed JSON. Fix the config or re-run bro onboarding."}}'
+  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: this repo'"'"'s protected_branches is malformed JSON. Fix the repos row or re-run bro onboarding."}}'
   exit 0
 fi
 

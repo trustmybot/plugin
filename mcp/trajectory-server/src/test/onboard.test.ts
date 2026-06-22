@@ -32,8 +32,24 @@ describe('onboard tools', () => {
       const current = data.current as Record<string, unknown>;
       // No human_name field — bro doesn't store names.
       assert.equal((current as { human_name?: unknown }).human_name, undefined);
-      // Schema-seeded defaults should be visible
-      assert.equal(current.branching_model, 'github-flow');
+      // Repo-scoped policy reads from the repos table (#980); an empty repos
+      // table yields null (no schema-seeded global default any more).
+      assert.equal(current.branching_model, null);
+      db.close();
+    });
+
+    it('reports repo-scoped policy from the repos table (#980)', async () => {
+      const db = tempDB();
+      db.run(
+        `INSERT INTO repos (path, name, target_branch, branching_model, protected_branches, remotes)
+         VALUES ('/repo/x', 'x', 'dev', 'gitflow', '["main","dev"]', '[]')`,
+      );
+      const tools = onboardTools(db);
+      const result = await call(tools.handlers, 'onboard_state_get', {});
+      const current = parse(result).current as Record<string, unknown>;
+      assert.equal(current.branching_model, 'gitflow');
+      assert.equal(current.pr_target, 'dev');
+      assert.deepEqual(current.protected_branches, ['main', 'dev']);
       db.close();
     });
 
@@ -129,6 +145,8 @@ describe('onboard tools', () => {
       db.run(
         `INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true')`,
       );
+      // Current branching model lives on the repos table now (#980).
+      db.run(`INSERT INTO repos (path, name, branching_model) VALUES ('/repo/r', 'r', 'github-flow')`);
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_get_questions', {
         shape: 'local',
@@ -204,6 +222,7 @@ describe('onboard tools', () => {
     it('Keep option carries wire=__keep__', async () => {
       const db = tempDB();
       db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true')`);
+      db.run(`INSERT INTO repos (path, name, branching_model) VALUES ('/repo/r', 'r', 'github-flow')`);
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_get_questions', {
         shape: 'local',
@@ -509,7 +528,8 @@ describe('onboard tools', () => {
     it('branching_model Keep sentinel resolves to omission (retains existing value)', async () => {
       const db = tempDB();
       db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 'true')`);
-      db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('branching_model', '"gitflow"') ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`);
+      // Existing value lives on the repos table now (#980).
+      db.run(`INSERT INTO repos (path, name, branching_model) VALUES ('/repo/k', 'k', 'gitflow')`);
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'local',
@@ -663,6 +683,7 @@ describe('onboard tools', () => {
 
     it('successful apply leaves a coherent DB state (transactional write)', async () => {
       const db = tempDB();
+      db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
@@ -672,14 +693,25 @@ describe('onboard tools', () => {
       });
       const data = parse(result);
       assert.equal(data.ok, true);
-      const config = db.all<{ key: string; value_json: string }>(
-        `SELECT key, value_json FROM plugin_config WHERE key IN ('branching_model','pr_target','protected_branches','remotes','issue_sync')`,
+
+      // The four repo-scoped keys live on the repos table, NOT plugin_config (#980).
+      const stale = db.all<{ key: string }>(
+        `SELECT key FROM plugin_config WHERE key IN ('branching_model','pr_target','protected_branches','remotes')`,
       );
-      const map = Object.fromEntries(config.map((r) => [r.key, JSON.parse(r.value_json)]));
-      assert.equal(map.branching_model, 'gitflow');
-      assert.equal(map.pr_target, 'dev');
-      assert.deepEqual((map.protected_branches as string[]).sort(), ['dev', 'main']);
-      assert.equal(map.issue_sync, 'auto');
+      assert.equal(stale.length, 0, 'no repo-scoped keys may be written to plugin_config');
+
+      const repo = db.get<{
+        target_branch: string;
+        branching_model: string;
+        protected_branches: string;
+      }>(`SELECT target_branch, branching_model, protected_branches FROM repos WHERE path = '/repo/a'`);
+      assert.equal(repo!.branching_model, 'gitflow');
+      assert.equal(repo!.target_branch, 'dev');
+      assert.deepEqual((JSON.parse(repo!.protected_branches) as string[]).sort(), ['dev', 'main']);
+
+      // issue_sync stays global in plugin_config.
+      const sync = db.get<{ value_json: string }>("SELECT value_json FROM plugin_config WHERE key='issue_sync'");
+      assert.equal(JSON.parse(sync!.value_json), 'auto');
       // identity row also written as marker
       const cfg = db.get<{ value_json: string }>("SELECT value_json FROM plugin_config WHERE key='onboarded'");
       assert.ok(cfg && cfg.value_json === 'true', 'plugin_config onboarded marker written');

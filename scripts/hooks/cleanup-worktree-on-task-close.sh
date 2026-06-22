@@ -115,9 +115,6 @@ git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
 if [ "${TMB_KEEP_HEAD_ON_CLOSE:-0}" != "1" ]; then
   _REPO_ROW=$(tmb_repo_resolve "$DB_PATH" "$REPO_ROOT")
   PR_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
-  if [ -z "$PR_TARGET" ]; then
-    PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target';" 2>/dev/null | sed -e 's/^"//' -e 's/"$//' || true)
-  fi
   PR_TARGET="${PR_TARGET:-dev}"
   # Only checkout if (a) the target branch exists and (b) we're not already on it.
   CURRENT_HEAD=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)

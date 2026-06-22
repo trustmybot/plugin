@@ -9,6 +9,10 @@
 #                               — print pipe-separated "target_branch|branching_model|protected_branches"
 #                                 from the repos row matching <git_root>.
 #                                 Prints empty when no row matches (unregistered repo).
+#   tmb_repo_remotes <db> <git_root>
+#                               — print repos.remotes (JSON array) for the row
+#                                 matching <git_root>, falling back to the sole
+#                                 registered repo. Empty when unresolved.
 #   tmb_repo_is_registered <db> <git_root>
 #                               — exits 0 when a repos row with path=<git_root> exists, 1 otherwise.
 #   tmb_repo_path_by_name <db> <name>
@@ -53,6 +57,34 @@ tmb_repo_resolve() {
     "SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'')
        FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")' LIMIT 1;" \
     2>/dev/null | head -1 || true
+}
+
+# tmb_repo_remotes <db> <git_root>
+# Prints repos.remotes (JSON array of {name,provider,url}) for the row whose
+# path matches <git_root>. When <git_root> is empty or no row matches, falls
+# back to the sole registered repo (single-repo). Empty when unresolved.
+tmb_repo_remotes() {
+  local db="$1"
+  local git_root="$2"
+  [ -f "$db" ] || return 0
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  local out=""
+  if [ -n "$git_root" ]; then
+    out=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
+      "SELECT COALESCE(remotes,'')
+         FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")' LIMIT 1;" \
+      2>/dev/null | head -1 || true)
+  fi
+  if [ -z "$out" ]; then
+    local count
+    count=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
+      "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+    if [ "${count:-0}" = "1" ]; then
+      out=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
+        "SELECT COALESCE(remotes,'') FROM repos LIMIT 1;" 2>/dev/null | head -1 || true)
+    fi
+  fi
+  printf '%s' "$out"
 }
 
 # tmb_repo_is_registered <db> <git_root>
