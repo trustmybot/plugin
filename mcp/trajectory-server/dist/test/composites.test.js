@@ -10,6 +10,7 @@ import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';
 import { auditTools } from '../tools/audit.js';
+import { embed } from '../embeddings/model.js';
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }
@@ -1484,6 +1485,67 @@ describe('task_provision (#157)', () => {
             task: { description: 'd', spec_body: SPEC, files: ['a'], verification: ['true'] },
         });
         assert.equal(r.isError, true);
+        db.close();
+    });
+});
+describe('composite discussions route through insertDiscussion + embedAndStore (#986)', () => {
+    // The embed is fired non-blocking after the row is written, so it lands a few
+    // event-loop turns later. Poll briefly for the embedding row to appear.
+    async function waitForEmbeddings(db, expected, timeoutMs = 5000) {
+        const deadline = Date.now() + timeoutMs;
+        let n = 0;
+        do {
+            n = db.get('SELECT COUNT(*) AS n FROM discussions_embeddings')?.n ?? 0;
+            if (n >= expected)
+                return n;
+            await new Promise((r) => setTimeout(r, 50));
+        } while (Date.now() < deadline);
+        return n;
+    }
+    it('intent_start: composite-written intent + note become embedded (semantic discussion_search visible)', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'composite embed test',
+            intent_verbatim: 'make composite discussions searchable',
+            branch_id: 'feat/composite-embed-test',
+        });
+        assert.ok(!r.isError, `intent_start must succeed: ${JSON.stringify(parse(r))}`);
+        const issueId = parse(r)['issue_id'];
+        // The discussion rows themselves always land (transaction committed).
+        const discCount = db.get('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?', [issueId])?.n ?? 0;
+        assert.equal(discCount, 2, 'intent_start writes one intent + one note discussion');
+        // The embed is the gap #986 closes. Assert the embedding rows appear when a
+        // model is available; in a model-less CI embed() returns null so the path is
+        // a graceful no-op (composite still succeeded above).
+        const probe = await embed('model availability probe');
+        const embCount = await waitForEmbeddings(db, probe === null ? 0 : 2);
+        if (probe === null) {
+            assert.equal(embCount, 0, 'no model → embed degrades to FTS-only, composite still ok');
+        }
+        else {
+            assert.ok(embCount >= 2, `composite discussions must be embedded so semantic search can find them (got ${embCount})`);
+        }
+        db.close();
+    });
+    it('embed failure is non-fatal: the composite transaction still commits', async () => {
+        // After a first embed attempt the model loader latches loadFailed when no
+        // model is present, so subsequent embed() calls return null. Either way the
+        // composite must succeed and its discussion rows must persist — an embed
+        // failure must never roll back the transaction.
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'embed non-fatal test',
+            intent_verbatim: 'embed failure must not roll back',
+            branch_id: 'feat/embed-non-fatal',
+        });
+        assert.ok(!r.isError, `composite must commit even if embedding fails: ${JSON.stringify(parse(r))}`);
+        const issueId = parse(r)['issue_id'];
+        const discCount = db.get('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?', [issueId])?.n ?? 0;
+        assert.equal(discCount, 2, 'discussion rows persist regardless of embed outcome');
         db.close();
     });
 });

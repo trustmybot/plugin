@@ -46,6 +46,36 @@ export function resolveDefaultIssueId(db: TrajectoryDB): number {
   return latest?.id ?? -1;
 }
 
+/**
+ * The single insert+embed path for discussions. Synchronously INSERTs the row
+ * and returns its id, then fires `embedAndStore` for semantic discussion_search.
+ *
+ * The embed is intentionally NOT awaited: `embed()` yields to the event loop, so
+ * the embedding-table write runs in a later turn — after a surrounding
+ * synchronous `db.transaction()` callback has returned and COMMIT has executed,
+ * making the row visible. The `.catch` keeps an embed failure non-fatal, so it
+ * can never roll back a caller's transaction (a failed embed degrades to
+ * FTS-only search). Callers inside a transaction therefore get the row id
+ * immediately while the embed lands post-commit; callers outside one (e.g.
+ * discussion_append) behave identically.
+ */
+export function insertDiscussion(
+  db: TrajectoryDB,
+  entry: { issue_id: number | string; author: string; kind: string; body: string; created_at?: string },
+): number {
+  const createdAt = entry.created_at ?? nowISO();
+  const res = db.run(
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt],
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db, 'discussions', id, entry.body).catch((e) =>
+    console.error('[embeddings] insertDiscussion embed failed:', e),
+  );
+  return id;
+}
+
 export function discussionTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -388,21 +418,9 @@ export function discussionTools(db: TrajectoryDB): {
         }
 
         const now = nowISO();
-        db.run(
-          `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [issueId, author, kind, body, now],
-        );
+        const id = insertDiscussion(db, { issue_id: issueId, author, kind, body, created_at: now });
 
-        const row = db.get<Discussion>(
-          'SELECT * FROM discussions WHERE rowid = last_insert_rowid()',
-        );
-
-        if (row) {
-          await embedAndStore(db, 'discussions', row.id, body).catch((e) =>
-            console.error('[embeddings] discussion_append embed failed:', e),
-          );
-        }
+        const row = db.get<Discussion>('SELECT * FROM discussions WHERE id = ?', [id]);
 
         return ok(row);
       }),
