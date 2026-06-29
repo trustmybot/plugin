@@ -23604,19 +23604,12 @@ function resolveDefaultMilestone(db2, explicitMilestone, repo) {
     ensureMilestoneRow(db2, explicitMilestone, repo);
     return explicitMilestone;
   }
-  const row = db2.get(
-    `SELECT value_json FROM plugin_config WHERE key = 'tmb_active_milestone'`
+  if (repo === null) return null;
+  const open = db2.all(
+    `SELECT name FROM milestones WHERE repo = ? AND state = 'open'`,
+    [repo]
   );
-  if (!row) return null;
-  let active;
-  try {
-    active = JSON.parse(row.value_json);
-  } catch {
-    return null;
-  }
-  if (typeof active !== "string" || active.length === 0) return null;
-  ensureMilestoneRow(db2, active, repo);
-  return active;
+  return open.length === 1 ? open[0].name : null;
 }
 var DEDUP_THRESHOLD = 0.6;
 function normalizeObjective(text) {
@@ -24895,6 +24888,7 @@ function taskTools(db2) {
         }
       }
       const soleRepoValue = resolveSoleRepo(db2)?.name ?? null;
+      const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
       const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname2(db2.dbPath);
       const autocreatedAudits = [];
       for (const t of taskInputs) {
@@ -24916,6 +24910,11 @@ function taskTools(db2) {
           }
           effectiveRepoName = repo;
         } else {
+          if (repoCount > 1) {
+            throw new Error(
+              `task_create_batch: task branch_id='${t.branch_id}' omits repo but ${repoCount} repos are registered. Pass task.repo=<name> \u2014 multi-repo workspaces scope every task by repo (mirrors task_provision).`
+            );
+          }
           effectiveRepoName = soleRepoValue;
         }
         if (effectiveRepoName) {
@@ -27617,7 +27616,7 @@ function prMonitorTools(db2, _spawnFn) {
           },
           repo: {
             type: "string",
-            description: "Optional repo slug (owner/repo). Defaults to current git remote."
+            description: "Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo's remote slug; in a multi-repo workspace it is required (a named error is returned otherwise). The cwd git remote is never used in a multi-repo workspace."
           },
           since: {
             type: "string",
@@ -27650,7 +27649,21 @@ function prMonitorTools(db2, _spawnFn) {
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
         return err13("pr_number must be a positive integer");
       }
-      const repo = typeof args["repo"] === "string" ? args["repo"] : "";
+      const explicitRepo = typeof args["repo"] === "string" && args["repo"].length > 0 ? args["repo"] : null;
+      let repo;
+      if (explicitRepo !== null) {
+        repo = explicitRepo;
+      } else {
+        const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
+        if (repoCount > 1) {
+          return err13(
+            'pr_monitor_comments_get: multiple repos registered and no repo slug given \u2014 pass repo="owner/repo". The cwd git remote is never used in a multi-repo workspace.'
+          );
+        }
+        const resolved = resolveRepoForSync(db2, null);
+        const slug = resolved ? resolved.remotes.map((r) => repoSlugFromRemoteUrl(r.url)).find((s) => s !== null) ?? null : null;
+        repo = slug ?? "";
+      }
       let since = typeof args["since"] === "string" ? args["since"] : void 0;
       if (since === void 0) {
         const cursor = db2.get(
@@ -28009,7 +28022,8 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           agent: { type: "string" },
           objective: { type: "string", description: "Short one-liner issue objective." },
           intent_verbatim: { type: "string", description: "Human intent verbatim \u2014 stored as kind=intent discussion." },
-          branch_id: { type: "string", description: "Confirmed branch_id (from branch_id_propose + Human confirm)." }
+          branch_id: { type: "string", description: "Confirmed branch_id (from branch_id_propose + Human confirm)." },
+          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create." }
         },
         required: ["agent", "objective", "intent_verbatim", "branch_id"]
       }
@@ -28623,8 +28637,16 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         if (!BRANCH_ID_RE.test(branchId)) {
           return err14(`branch_id "${branchId}" does not match the conventional format.`);
         }
+        const explicitRepoRaw = args["repo"];
+        const explicitRepo = typeof explicitRepoRaw === "string" && explicitRepoRaw.length > 0 ? explicitRepoRaw : null;
+        if (explicitRepo !== null) {
+          const repoRow = db2.get(`SELECT name FROM repos WHERE name = ?`, [explicitRepo]);
+          if (!repoRow) {
+            return err14(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
+          }
+        }
         const now = nowISO();
-        const issueRepo = resolveRepoForSync(db2, null)?.name ?? null;
+        const issueRepo = explicitRepo ?? resolveSoleRepo(db2)?.name ?? null;
         const milestone = resolveDefaultMilestone(db2, null, issueRepo);
         const result = db2.transaction(() => {
           db2.run(
@@ -31568,7 +31590,12 @@ function worldModelTools(db2, graph2) {
       wrap5(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
-          repo = resolveSoleRepo(db2)?.name ?? "";
+          const sole = resolveSoleRepo(db2)?.name;
+          if (sole === void 0) {
+            const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+            return ok18({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
+          }
+          repo = sole;
         }
         const path2 = args["path"] ?? "";
         const depthArg = args["depth"];
@@ -31600,7 +31627,12 @@ function worldModelTools(db2, graph2) {
         const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
         let repo = args["repo"] ?? "";
         if (!repo) {
-          repo = resolveSoleRepo(db2)?.name ?? "";
+          const sole = resolveSoleRepo(db2)?.name;
+          if (sole === void 0) {
+            const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+            return ok18({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
+          }
+          repo = sole;
         }
         if (!graph2) {
           return ok18({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });

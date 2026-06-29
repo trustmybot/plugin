@@ -575,3 +575,72 @@ describe('pr_monitor_comments_get — repo threading (#362)', () => {
     db.close();
   });
 });
+
+describe('pr_monitor_comments_get — repo resolution (#15)', () => {
+  function makeCapturingSpawnFn(responses: Array<{ status: number; stdout: string; stderr: string }>): {
+    spawnFn: SpawnFn;
+    calls: Array<{ cmd: string; args: string[] }>;
+  } {
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    let index = 0;
+    const spawnFn: SpawnFn = (cmd, args, _opts) => {
+      calls.push({ cmd, args });
+      const response = responses[index] ?? { status: 1, stdout: '', stderr: 'no more responses' };
+      index++;
+      return response;
+    };
+    return { spawnFn, calls };
+  }
+
+  it('returns a named error in multi-repo with no slug (never a cwd-remote sync)', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('frontend', '/tmp/frontend')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('backend', '/tmp/backend')`);
+    const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
+    const tools = prMonitorTools(db, spawnFn);
+
+    const result = (await tools.handlers['pr_monitor_comments_get']!({
+      agent: 'bro',
+      pr_number: 5,
+    })) as RawResult;
+
+    assert.ok(result.isError, 'multi-repo with no slug must be a named error');
+    assert.match(parseResult(result).error as string, /multiple repos registered and no repo slug/);
+    assert.equal(calls.length, 0, 'no gh/glab spawn — never a cwd-remote sync');
+    const cursor = db.get<{ id: number }>('SELECT id FROM pr_review_runs');
+    assert.equal(cursor, undefined, 'no cursor row written on the named error');
+
+    db.close();
+  });
+
+  it('resolves the sole repo\'s remote slug and threads it into gh -R + the cursor key', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    db.run(
+      `INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`,
+      [JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }])],
+    );
+    const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
+    const tools = prMonitorTools(db, spawnFn);
+
+    const result = (await tools.handlers['pr_monitor_comments_get']!({
+      agent: 'bro',
+      pr_number: 11,
+    })) as RawResult;
+
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const ghCall = calls.find((c) => c.cmd === 'gh');
+    assert.ok(ghCall, 'gh should be called');
+    const rIdx = ghCall.args.indexOf('-R');
+    assert.ok(rIdx >= 0, 'sole repo slug must be threaded as -R');
+    assert.equal(ghCall.args[rIdx + 1], 'github.com/owner/repo', '-R targets the sole repo slug');
+
+    // Cursor key is the resolved slug, not '' — so two repos can't collide.
+    const row = db.get<{ repo: string }>('SELECT repo FROM pr_review_runs WHERE pr_number = 11');
+    assert.ok(row, 'cursor row written');
+    assert.equal(row.repo, 'github.com/owner/repo', 'cursor key is the per-repo slug');
+
+    db.close();
+  });
+});

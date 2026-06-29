@@ -173,7 +173,14 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
       wrap(async (args) => {
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
-          repo = resolveSoleRepo(db)?.name ?? '';
+          const sole = resolveSoleRepo(db)?.name;
+          if (sole === undefined) {
+            // Multi-repo (or no repos) with no selector: don't silently target
+            // an empty repo. Name the available repos so the caller can pass one.
+            const available = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+            return ok({ repo: '', root: null, warning: 'repo-unspecified', available_repos: available });
+          }
+          repo = sole;
         }
 
         const path = (args['path'] as string | undefined) ?? '';
@@ -213,7 +220,14 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
 
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
-          repo = resolveSoleRepo(db)?.name ?? '';
+          const sole = resolveSoleRepo(db)?.name;
+          if (sole === undefined) {
+            // Multi-repo (or no repos) with no selector: don't silently search
+            // an empty repo. Name the available repos so the caller can pass one.
+            const available = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+            return ok({ repo: '', results: [], total_matched: 0, warning: 'repo-unspecified', available_repos: available, mode });
+          }
+          repo = sole;
         }
 
         if (!graph) {
