@@ -34,8 +34,11 @@ DB=$(tmb_db_path 2>/dev/null || true)
 tmb_have_sqlite || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-# Read remotes JSON from the current repo's repos.remotes (sole source of truth).
-_GIT_ROOT=$(tmb_repo_git_root "$PWD" 2>/dev/null || true)
+# Read remotes JSON from the command's repo (sole source of truth). Resolve the
+# repo from the command's `cd <repo> &&` / `git -C <repo>` target, not $PWD — in
+# a multi-repo workspace $PWD is the non-repo workspace root.
+_CMD_CWD=$(tmb_cmd_cwd "$CMD" "$INPUT" 2>/dev/null || true)
+_GIT_ROOT=$(tmb_repo_git_root "$_CMD_CWD" 2>/dev/null || true)
 REMOTES_JSON=$(tmb_repo_remotes "$DB" "$_GIT_ROOT" 2>/dev/null || true)
 
 # No remotes key at all → config says nothing → fail-open (allow).

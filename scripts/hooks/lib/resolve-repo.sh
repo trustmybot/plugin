@@ -4,6 +4,17 @@
 # branch-up-to-date-with-remote.sh.
 #
 # Provides:
+#   tmb_cmd_cwd <command> [<input_json>]
+#                               — print the directory a Bash command will run in,
+#                                 parsing a leading `cd <path> &&` / `git -C <path>`
+#                                 target (then the payload .cwd, then $PWD). This is
+#                                 the repo-scoping primitive: in a multi-repo
+#                                 workspace $PWD is the non-repo root, so guards must
+#                                 resolve the repo from the command itself.
+#   tmb_repo_default_branch <git_root>
+#                               — print the repo's real default branch: origin/HEAD's
+#                                 target, else the main checkout's HEAD branch, else
+#                                 "main". Empty only when <git_root> is empty.
 #   tmb_repo_git_root <dir>     — print the MAIN worktree root for <dir>, or empty
 #   tmb_repo_resolve <db> <git_root>
 #                               — print pipe-separated "target_branch|branching_model|protected_branches"
@@ -26,6 +37,74 @@
 #                                 when neither resolves.
 #
 # All functions never fail the caller (use || true / return 0 patterns).
+
+# tmb_cmd_cwd <command> [<input_json>]
+# Resolve the working directory a Bash command will execute in. SWE and bro
+# prefix commands with `cd <repo> &&` (or `git -C <repo>`) to target a specific
+# repo in a multi-repo workspace; the hook's own $PWD is the non-repo workspace
+# root and must NOT be trusted to scope the guard. Resolution order:
+#   1. leading `cd <path> &&|;|<newline>` prefix (quoted or bare)
+#   2. `git -C <path>` option in the command
+#   3. the hook payload `.cwd` field (parsed from <input_json> when provided)
+#   4. fallback: $PWD
+tmb_cmd_cwd() {
+  local cmd="$1"
+  local input="${2:-}"
+  local cd_path
+  # Match leading: `cd /some/path &&` or `cd /some/path ;` or `cd /some/path\n`
+  cd_path=$(echo "$cmd" | sed -nE 's|^[[:space:]]*cd[[:space:]]+("([^"]+)"\|'"'"'([^'"'"']+)'"'"'\|([^[:space:]&;]+)).*|\2\3\4|p' | head -1)
+  if [ -n "$cd_path" ]; then
+    echo "$cd_path"
+    return
+  fi
+  # Try git -C <path>
+  cd_path=$(echo "$cmd" | grep -oE 'git -C [^[:space:]]+' | head -1 | awk '{print $3}' | tr -d "'\"")
+  if [ -n "$cd_path" ]; then
+    echo "$cd_path"
+    return
+  fi
+  # Try the hook payload cwd (CC may populate this).
+  if [ -n "$input" ]; then
+    cd_path=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null)
+    if [ -n "$cd_path" ]; then
+      echo "$cd_path"
+      return
+    fi
+  fi
+  echo "$PWD"
+}
+
+# tmb_repo_default_branch <git_root>
+# Print the repo's real default branch. Resolution order:
+#   1. the remote's default (origin/HEAD's target)
+#   2. the first well-known default name that actually exists (main, master, dev)
+#   3. the main checkout's current branch (HEAD)
+#   4. "main"
+# Empty only when <git_root> is empty. Used as the base-check fallback when a
+# configured target_branch ref does not actually exist in the repo. Steps 1–2
+# avoid returning a feature branch that merely happens to be the checked-out HEAD.
+tmb_repo_default_branch() {
+  local root="$1"
+  [ -n "$root" ] || return 0
+  local b cand
+  b=$(git -C "$root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)
+  if [ -n "$b" ]; then
+    printf '%s' "$b"
+    return 0
+  fi
+  for cand in main master dev; do
+    if git -C "$root" show-ref --verify --quiet "refs/heads/$cand" 2>/dev/null; then
+      printf '%s' "$cand"
+      return 0
+    fi
+  done
+  b=$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null || true)
+  if [ -n "$b" ]; then
+    printf '%s' "$b"
+    return 0
+  fi
+  printf 'main'
+}
 
 # tmb_repo_git_root <dir>
 # Prints the MAIN worktree root for <dir>; empty string if not inside a git repo.

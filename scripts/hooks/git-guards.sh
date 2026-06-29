@@ -29,35 +29,10 @@ _cmd_needs_git_guard "$CMD" || exit 0
 # SWE runs in isolated worktrees and prefixes commands with `cd <worktree> &&`.
 # Without this awareness, `git branch --show-current` runs in CC's CWD (the
 # project root) and always returns the root branch — blocking every legitimate
-# worktree commit. The fix: parse the cd prefix and run git from there.
-#
-# Tries (in order):
-#   1. `cd <path> && ...` prefix in the command (SWE's worktree pattern)
-#   2. `--git-dir`/`-C <path>` git option in the command
-#   3. CC's hook payload `cwd` field (if/when CC populates it)
-#   4. Fallback: $PWD (CC's session CWD, usually the project root)
+# worktree commit. The shared tmb_cmd_cwd parses the `cd <path> &&` / `git -C
+# <path>` target (then the payload .cwd, then $PWD).
 cmd_cwd() {
-  local cmd="$1"
-  local cd_path
-  # Match leading: `cd /some/path &&` or `cd /some/path ;` or `cd /some/path\n`
-  cd_path=$(echo "$cmd" | sed -nE 's|^[[:space:]]*cd[[:space:]]+("([^"]+)"\|'"'"'([^'"'"']+)'"'"'\|([^[:space:]&;]+)).*|\2\3\4|p' | head -1)
-  if [ -n "$cd_path" ]; then
-    echo "$cd_path"
-    return
-  fi
-  # Try git -C <path>
-  cd_path=$(echo "$cmd" | grep -oE 'git -C [^[:space:]]+' | head -1 | awk '{print $3}' | tr -d "'\"")
-  if [ -n "$cd_path" ]; then
-    echo "$cd_path"
-    return
-  fi
-  # Try hook payload cwd (CC may add this in future)
-  cd_path=$(echo "$INPUT" | jq -r '.cwd // empty')
-  if [ -n "$cd_path" ]; then
-    echo "$cd_path"
-    return
-  fi
-  echo "$PWD"
+  tmb_cmd_cwd "$1" "$INPUT"
 }
 
 # Get the current branch in the dir the command will execute in.
@@ -102,6 +77,14 @@ cmd_effective_branch() {
 _CMD_CWD=$(cmd_cwd "$CMD")
 _GIT_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
 _DB=$(tmb_db_path 2>/dev/null || true)
+
+# H8: when the command's repo can't be resolved (no `cd`/`-C` target and $PWD is
+# not inside a git repo — the multi-repo workspace root), NO-OP. Enforcing a
+# guessed github-flow/main default policy on an unresolved repo is wrong: there
+# is no repo to apply a branching model to.
+if [ -z "$_GIT_ROOT" ]; then
+  exit 0
+fi
 
 # --- Managed-repo scope by REGISTRATION (#693, ADR: path-keyed repo resolution) ---
 # In a multi-repo workspace these guards (Rule 1 PR-target, Rule 2
@@ -191,7 +174,7 @@ if [ -n "$_RULE1_FORGE" ]; then
       # Dual-tier exception: dev → main release merge.
       HEAD_BRANCH=$(echo "$CMD" | grep -oE -- '--head[= ][^[:space:]]+' | head -1 | sed -E 's/--head[= ]+//' | tr -d "'\"" || true)
       if [ -z "$HEAD_BRANCH" ]; then
-        HEAD_BRANCH=$(git branch --show-current 2>/dev/null || true)
+        HEAD_BRANCH=$(git -C "$_CMD_CWD" branch --show-current 2>/dev/null || true)
       fi
       if [ "$HEAD_BRANCH" != "dev" ]; then
         jq -nc --arg r "BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${PR_TARGET}: gh pr create --base ${PR_TARGET} --head <branch>. Got --head=${HEAD_BRANCH}." \
@@ -216,7 +199,7 @@ if [ -n "$_RULE1_FORGE" ]; then
       SOURCE_BRANCH=$(echo "$CMD" | grep -oE -- '-s[= ][^[:space:]]+' | head -1 | sed -E 's/-s[= ]+//' | tr -d "'\"" || true)
     fi
     if [ -z "$SOURCE_BRANCH" ]; then
-      SOURCE_BRANCH=$(git branch --show-current 2>/dev/null || true)
+      SOURCE_BRANCH=$(git -C "$_CMD_CWD" branch --show-current 2>/dev/null || true)
     fi
 
     if [ "$TARGET_BRANCH" = "$PR_TARGET" ]; then
@@ -304,14 +287,24 @@ esac
 case "$CMD" in
   *"git checkout -b"*|*"git switch -c"*)
     BRANCH=$(cmd_effective_branch "$CMD")
-    if [ -n "$BRANCH" ] && [ "$BRANCH" != "$PR_TARGET" ]; then
-      jq -nc --arg r "BLOCKED: New branches must be created from ${PR_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${PR_TARGET} && git pull origin ${PR_TARGET} first." \
+    # H3 (#13 hook-side self-defense): the configured PR_TARGET may name a branch
+    # that does not exist in this repo (e.g. /scan wrongly tagged a main-only repo
+    # as dev-target). Enforcing a non-existent base is wrong — fall back to the
+    # repo's real default branch for the Rule-4 base checks.
+    _RULE4_TARGET="$PR_TARGET"
+    if ! git -C "$_CMD_CWD" rev-parse --verify --quiet "$PR_TARGET" >/dev/null 2>&1 \
+       && ! git -C "$_CMD_CWD" rev-parse --verify --quiet "origin/$PR_TARGET" >/dev/null 2>&1; then
+      _DEFAULT_BRANCH=$(tmb_repo_default_branch "$_GIT_ROOT")
+      [ -n "$_DEFAULT_BRANCH" ] && _RULE4_TARGET="$_DEFAULT_BRANCH"
+    fi
+    if [ -n "$BRANCH" ] && [ "$BRANCH" != "$_RULE4_TARGET" ]; then
+      jq -nc --arg r "BLOCKED: New branches must be created from ${_RULE4_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${_RULE4_TARGET} && git pull origin ${_RULE4_TARGET} first." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
     # Detached HEAD (BRANCH empty): guide to checkout -B rather than hard-deny.
     if [ -z "$BRANCH" ]; then
-      jq -nc --arg r "BLOCKED: Detached HEAD detected. Run: git checkout -B ${PR_TARGET} origin/${PR_TARGET} to reattach, then create your feature branch." \
+      jq -nc --arg r "BLOCKED: Detached HEAD detected. Run: git checkout -B ${_RULE4_TARGET} origin/${_RULE4_TARGET} to reattach, then create your feature branch." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
@@ -321,16 +314,16 @@ case "$CMD" in
       exit 0
     fi
     # timeout 5: portable guard against flaky networks stalling the hook.
-    git -C "$_CMD_CWD" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch origin "$PR_TARGET" --quiet 2>/dev/null || true
+    git -C "$_CMD_CWD" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch origin "$_RULE4_TARGET" --quiet 2>/dev/null || true
     # Use --verify: without it, `git rev-parse origin/main` prints the literal
     # string "origin/main" when the ref doesn't exist, then exits non-zero.
     # 2>/dev/null swallows the stderr so the literal-string stdout sneaks
     # through, making LOCAL/REMOTE non-empty even for refs that don't exist.
     # The "behind origin" check then false-fires on any repo without a remote.
-    LOCAL=$(git -C "$_CMD_CWD" rev-parse --verify "${PR_TARGET}" 2>/dev/null || true)
-    REMOTE=$(git -C "$_CMD_CWD" rev-parse --verify "origin/${PR_TARGET}" 2>/dev/null || true)
+    LOCAL=$(git -C "$_CMD_CWD" rev-parse --verify "${_RULE4_TARGET}" 2>/dev/null || true)
+    REMOTE=$(git -C "$_CMD_CWD" rev-parse --verify "origin/${_RULE4_TARGET}" 2>/dev/null || true)
     if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
-      jq -nc --arg r "BLOCKED: Local ${PR_TARGET} is behind origin/${PR_TARGET}. Run: git pull origin ${PR_TARGET} first." \
+      jq -nc --arg r "BLOCKED: Local ${_RULE4_TARGET} is behind origin/${_RULE4_TARGET}. Run: git pull origin ${_RULE4_TARGET} first." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi

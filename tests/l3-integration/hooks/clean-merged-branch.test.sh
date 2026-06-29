@@ -36,6 +36,17 @@ git -C "$REPO" add .
 git -C "$REPO" commit -qm init
 git -C "$REPO" branch dev _parking
 
+# Register the repo so the cleanup hook reads its real base/protected set from
+# the repos row (target_branch=dev) rather than guessing. The repo's main
+# checkout sits on `_parking`, so config — not the checked-out HEAD — names the
+# base the merges land on.
+DB="$TMPDIR/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$DB")"
+sqlite3 "$DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+_REPO_REAL=$(git -C "$REPO" rev-parse --show-toplevel)
+sqlite3 "$DB" "INSERT INTO repos (name, path, target_branch, protected_branches) VALUES ('repo', '$_REPO_REAL', 'dev', '[\"main\",\"dev\"]');"
+export TRAJECTORY_DB_PATH="$DB"
+
 # input <command> [cwd] — synthesize a PostToolUse(Bash) payload. Defaults to a
 # successful response and cwd=$REPO.
 input() {
@@ -98,20 +109,15 @@ git -C "$REPO" worktree remove "$TMPDIR/wt-dev" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 test_case "(b') protected via repos.protected_branches → untouched"
-# main is hard-excluded, but also exercise the DB-driven protected list with a
-# custom branch name 'release'.
-DB="$TMPDIR/.claude/tmb/trajectory.db"
-mkdir -p "$(dirname "$DB")"
-_REPO_REAL=$(git -C "$REPO" rev-parse --show-toplevel)
-sqlite3 "$DB" "
-  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT);
-  INSERT INTO repos (name, path, target_branch, protected_branches) VALUES ('repo', '${_REPO_REAL}', 'dev', '[\"release\"]');
-"
+# Exercise the DB-driven protected list with a custom, non-default branch name
+# 'release'. Add it to the repo's protected set, then assert cleanup refuses it.
+sqlite3 "$DB" "UPDATE repos SET protected_branches = '[\"main\",\"dev\",\"release\"]' WHERE name='repo';"
 git -C "$REPO" branch release dev
-out=$(TRAJECTORY_DB_PATH="$DB" run_hook "$(input 'gh pr merge release --squash')")
+out=$(run_hook "$(input 'gh pr merge release --squash')")
 branch_exists release || { echo "FAIL: protected 'release' branch deleted"; exit 1; }
 _pass
 git -C "$REPO" branch -D release >/dev/null 2>&1 || true
+sqlite3 "$DB" "UPDATE repos SET protected_branches = '[\"main\",\"dev\"]' WHERE name='repo';"
 
 # ---------------------------------------------------------------------------
 test_case "(c) dirty worktree → skipped with warning, not removed"
@@ -175,6 +181,39 @@ git -C "$REPO" branch feat/nowt dev
 out=$(run_hook "$(input 'gh pr merge feat/nowt --squash')")
 assert_contains "$out" 'cleaned up merged branch feat/nowt' "no-worktree cleanup report"
 branch_exists feat/nowt && { echo "FAIL: branch not deleted"; exit 1; }
+_pass
+
+# ---------------------------------------------------------------------------
+test_case "(i) multi-repo: 'cd <sibling> && gh pr merge' resolves the SIBLING repo, not the payload cwd/\$PWD"
+# A second, independent repo. The merge command cd's into it, but the payload
+# .cwd still points at the FIRST repo — proving the hook scopes to the command's
+# cd target (shared cmd_cwd), not .cwd/$PWD.
+SIB="$TMPDIR/sibling"
+# Init on a parking branch so `main` is never the main checkout's HEAD — lets us
+# fast-forward main (simulating the merge landing) without colliding with it.
+git init -q -b _parking "$SIB"
+git -C "$SIB" config user.email t@t.io
+git -C "$SIB" config user.name t
+echo init > "$SIB/README.md"
+git -C "$SIB" add .
+git -C "$SIB" commit -qm init
+git -C "$SIB" branch main _parking
+git -C "$SIB" branch feat/sib main
+git -C "$SIB" worktree add -q "$TMPDIR/wt-sib" feat/sib
+echo work > "$TMPDIR/wt-sib/s.txt"
+git -C "$TMPDIR/wt-sib" add .
+git -C "$TMPDIR/wt-sib" commit -qm "feat sib"
+# The sibling's configured base branch (main) is the merge base.
+git -C "$SIB" branch -f main feat/sib
+_SIB_REAL=$(git -C "$SIB" rev-parse --show-toplevel)
+sqlite3 "$DB" "INSERT INTO repos (name, path, target_branch, protected_branches) VALUES ('sibling', '$_SIB_REAL', 'main', '[\"main\"]');"
+# input() defaults .cwd to \$REPO (the WRONG repo); the cd prefix must win.
+out=$(run_hook "$(input "cd $SIB && gh pr merge feat/sib --squash")")
+assert_contains "$out" 'cleaned up merged branch feat/sib' "cd target (sibling) must be resolved, not payload cwd"
+git -C "$SIB" rev-parse --verify --quiet refs/heads/feat/sib >/dev/null 2>&1 && { echo "FAIL: sibling branch not deleted"; exit 1; }
+_pass
+# The first repo must be untouched (the merge never scoped to it).
+branch_exists dev || { echo "FAIL: first repo's dev branch affected"; exit 1; }
 _pass
 
 summarize

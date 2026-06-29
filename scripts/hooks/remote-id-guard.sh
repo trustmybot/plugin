@@ -35,15 +35,18 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null ||
 # Is this a remote-WRITE command? (git/gh/glab parity)
 #   gh pr create|edit · gh issue create|edit|comment|close
 #   glab mr create|update · glab issue create|update|note|close
+# Capture the command's PROVIDER alongside the match — the iid to cite depends
+# on which forge the command targets (gh → gh_iid, glab → gl_iid).
 REMOTE_WRITE=0
+PROVIDER=""
 if printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])gh[[:space:]]+pr[[:space:]]+(create|edit)([[:space:]]|$)'; then
-  REMOTE_WRITE=1
+  REMOTE_WRITE=1; PROVIDER="gh"
 elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])gh[[:space:]]+issue[[:space:]]+(create|edit|comment|close)([[:space:]]|$)'; then
-  REMOTE_WRITE=1
+  REMOTE_WRITE=1; PROVIDER="gh"
 elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])glab[[:space:]]+mr[[:space:]]+(create|update)([[:space:]]|$)'; then
-  REMOTE_WRITE=1
+  REMOTE_WRITE=1; PROVIDER="glab"
 elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])glab[[:space:]]+issue[[:space:]]+(create|update|note|close)([[:space:]]|$)'; then
-  REMOTE_WRITE=1
+  REMOTE_WRITE=1; PROVIDER="glab"
 fi
 [ "$REMOTE_WRITE" = "1" ] || exit 0
 
@@ -78,7 +81,7 @@ while IFS= read -r n; do
   [ -n "$n" ] || continue
   safe_n=$(tmb_sql_int "$n")
   [ -n "$safe_n" ] || continue
-  # Local id → its remote iid (gh_iid preferred, then gl_iid).
+  # Local id → its remote iids.
   ROW=$(tmb_sqlite_ro "$DB" "
     SELECT COALESCE(gh_iid, ''), COALESCE(gl_iid, '')
       FROM issues WHERE id = ${safe_n};
@@ -87,10 +90,21 @@ while IFS= read -r n; do
   [ -n "$ROW" ] || continue
   GH=$(printf '%s' "$ROW" | cut -d'|' -f1)
   GL=$(printf '%s' "$ROW" | cut -d'|' -f2)
-  if [ -n "$GH" ] && [ "$GH" != "$safe_n" ]; then
-    OFFENSES="${OFFENSES}#${safe_n} → #${GH} (GitHub)\n"
-  elif [ -z "$GH" ] && [ -n "$GL" ] && [ "$GL" != "$safe_n" ]; then
-    OFFENSES="${OFFENSES}#${safe_n} → #${GL} (GitLab)\n"
+  # Pick the iid by the command's PROVIDER: a glab command resolves to the
+  # GitLab iid, a gh command to the GitHub iid. Fall back to the other forge's
+  # iid only when the command's own provider has none recorded.
+  if [ "$PROVIDER" = "glab" ]; then
+    if [ -n "$GL" ] && [ "$GL" != "$safe_n" ]; then
+      OFFENSES="${OFFENSES}#${safe_n} → #${GL} (GitLab)\n"
+    elif [ -z "$GL" ] && [ -n "$GH" ] && [ "$GH" != "$safe_n" ]; then
+      OFFENSES="${OFFENSES}#${safe_n} → #${GH} (GitHub)\n"
+    fi
+  else
+    if [ -n "$GH" ] && [ "$GH" != "$safe_n" ]; then
+      OFFENSES="${OFFENSES}#${safe_n} → #${GH} (GitHub)\n"
+    elif [ -z "$GH" ] && [ -n "$GL" ] && [ "$GL" != "$safe_n" ]; then
+      OFFENSES="${OFFENSES}#${safe_n} → #${GL} (GitLab)\n"
+    fi
   fi
 done <<< "$TOKENS"
 

@@ -180,4 +180,32 @@ assert_contains "$out_sub_glab" '"permissionDecision":"deny"' "subshell glab aut
 test_case "subshell (glab auth login): deny reason mentions BLOCKED"
 assert_contains "$out_sub_glab" "BLOCKED" "BLOCKED in reason for subshell glab"
 
+# ============================================================================
+# Multi-repo (H6): the remotes are resolved from the command's cd/-C target, not
+# $PWD. Two REAL git repos are registered by their git-root path: a with-remote
+# repo and a no-remote repo. A `cd <no-remote> && gh auth login` must DENY even
+# when $PWD is the with-remote repo — proving cd-target scoping.
+# ============================================================================
+MR_DB="$TMPDIR/multirepo.db"
+WITH="$TMPDIR/with-remote"
+NORM="$TMPDIR/no-remote"
+git init -q -b main "$WITH"
+git init -q -b main "$NORM"
+_WITH_REAL=$(git -C "$WITH" rev-parse --show-toplevel)
+_NORM_REAL=$(git -C "$NORM" rev-parse --show-toplevel)
+sqlite3 "$MR_DB" "
+  $_repos_schema
+  INSERT INTO repos (name, path, remotes) VALUES
+    ('with', '$_WITH_REAL', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/with.git\"}]'),
+    ('norm', '$_NORM_REAL', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
+"
+
+test_case "(H6) cd into the no-remote sibling → deny (resolved from cd target, not \$PWD)"
+out_mr=$( (cd "$WITH" && echo "$(input_bash "cd $NORM && gh auth login")" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
+assert_contains "$out_mr" '"permissionDecision":"deny"' "no-remote sibling must deny even when \$PWD has a remote"
+
+test_case "(H6) cd into the with-remote sibling → allow (resolved from cd target, not \$PWD)"
+out_mr2=$( (cd "$NORM" && echo "$(input_bash "cd $WITH && gh auth login")" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
+assert_eq "" "$out_mr2" "with-remote sibling must allow even when \$PWD has no remote"
+
 summarize
