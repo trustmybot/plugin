@@ -26,7 +26,7 @@ A name-keyed global default forced one repo to be "the" repo and made the git gu
 
 Implementers (MCP source and hooks) agree on one shape:
 
-- **Canonical resolver** — `resolveDefaultRepoPath(db)` returns the path of the sole registered repo (single-repo fallback), else `null`. A caller that needs a *specific* repo passes `tasks.repo` or the cwd git-root and resolves it against `repos.path`.
+- **Canonical resolver** — `resolveSoleRepoPath(db)` returns the path of the sole registered repo (single-repo fallback), else `null`. A caller that needs a *specific* repo passes `tasks.repo` or the cwd git-root and resolves it against `repos.path`.
 - **Hooks** resolve the acting repo from the command's git-root → `repos` row. Absent a matching row, they apply the single-repo fallback; if that doesn't resolve either, they no-op rather than enforce on an unregistered tree.
 - **`scripts/hooks/lib/resolve-repo.sh`** is the shell side of this contract: `tmb_repo_git_root` (cwd → main worktree root), `tmb_repo_is_registered`, `tmb_repo_resolve` (per-repo `target_branch|branching_model|protected_branches`), `tmb_repo_single_path` (single-repo fallback), and `tmb_repo_resolve_path` (by name, falling back to single-repo).
 

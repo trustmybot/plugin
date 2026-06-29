@@ -1,5 +1,5 @@
 import { requireRoles } from '../middleware/agent-scope.js';
-import { resolveDefaultRepo } from '../utils/repo-paths.js';
+import { resolveSoleRepo } from '../utils/repo-paths.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -131,7 +131,7 @@ export function worldModelTools(db, graph) {
         world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
             let repo = args['repo'] ?? '';
             if (!repo) {
-                repo = resolveDefaultRepo(db)?.name ?? '';
+                repo = resolveSoleRepo(db)?.name ?? '';
             }
             const path = args['path'] ?? '';
             const depthArg = args['depth'];
@@ -160,7 +160,7 @@ export function worldModelTools(db, graph) {
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
             let repo = args['repo'] ?? '';
             if (!repo) {
-                repo = resolveDefaultRepo(db)?.name ?? '';
+                repo = resolveSoleRepo(db)?.name ?? '';
             }
             if (!graph) {
                 return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });

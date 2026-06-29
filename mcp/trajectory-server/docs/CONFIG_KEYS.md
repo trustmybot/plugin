@@ -47,7 +47,7 @@ The schema-seeded global keys (`issue_sync`, `issue_classification_labels`, `iss
 
 **Purpose:** In a multi-repo workspace the trajectory DB lives at `<workspace>/.claude/<plugin>/trajectory.db` while each code git repo lives at `<workspace>/<inner>/`. Repo identity is carried by the `repos` table (one row per `/scan`-discovered repo), and every work-table row (issues, tasks, discussions, audit, agent_runs, validation_attempts) carries a `repo` column that is a real FK to `repos(name)`.
 
-**Replaces `tmb_default_repo`.** The old global `tmb_default_repo` config key is removed — repo selection is now per-row, not a single workspace-wide default:
+**Repo selection is per-row, not a single workspace-wide default:**
 
 - `task_create_batch` accepts `repo=<name>` per task; when exactly one `repos` row exists it is the single-repo fallback. The value MUST match a `repos.name` row (the FK enforces it).
 - `issue_create` accepts `repo=<name>`, defaulting to the sole repo when exactly one is registered. Issue-scoped sync resolves the repo's on-disk path + `repos.remotes` to target the explicit `gh --repo` / `glab -R` — never `process.cwd()` (#146).

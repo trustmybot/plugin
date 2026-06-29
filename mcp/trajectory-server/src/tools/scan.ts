@@ -184,49 +184,6 @@ export function detectStructuralChange(
   return false;
 }
 
-// Returns true when a repo should be deprioritized as a default: version-tag-like
-// names (e.g. v0.7.1-rc.1) and paths containing bench/release copies.
-function isDeprioritizedRepo(name: string, path: string): boolean {
-  if (/^v[0-9]+\.[0-9]+/.test(name)) return true;
-  if (path.includes('/bench-worktrees/') || path.includes('/marketplace')) return true;
-  return false;
-}
-
-// Pick the repo whose path encloses (or equals) the scan session_dir — the
-// cwd-aware preferred repo for audit/diagnostic logging. Resolution order:
-//   1. cwd-enclosing repo (session_dir is inside the repo root)
-//   2. largest ordinary working repo by file_count (deprioritized: version-named
-//      or bench/marketplace-pathed repos lose to any ordinary candidate)
-//   3. largest deprioritized repo when no ordinary candidate exists
-//   4. repos[0] as a last resort when file counts are all zero or unavailable
-// Returns '' for an empty list.
-// onGuessed is called with the chosen name + all candidates when resolution
-// falls through to heuristic (no enclosing repo).
-export function preferredDefaultRepo(
-  repos: Array<{ name: string; path: string; file_count?: number }>,
-  sessionDir: string,
-  onGuessed?: (chosen: string, candidates: Array<{ name: string; file_count: number }>) => void,
-): string {
-  if (repos.length === 0) return '';
-  const norm = (p: string) => p.replace(/\/+$/, '');
-  const sd = norm(sessionDir);
-  const enclosing = repos.find((r) => {
-    const rp = norm(r.path);
-    return sd === rp || sd.startsWith(rp + '/');
-  });
-  if (enclosing) return enclosing.name;
-
-  // No enclosing repo — pick the largest by file_count, ordinary repos first.
-  const withCounts = repos.map((r) => ({ name: r.name, path: r.path, file_count: r.file_count ?? 0 }));
-  const ordinary = withCounts.filter((r) => !isDeprioritizedRepo(r.name, r.path));
-  const pool = ordinary.length > 0 ? ordinary : withCounts;
-  const largest = pool.reduce((best, cur) => (cur.file_count > best.file_count ? cur : best));
-  const chosen = largest.file_count > 0 ? largest.name : repos[0].name;
-  const candidatesForAudit = withCounts.map(({ name, file_count }) => ({ name, file_count }));
-  onGuessed?.(chosen, candidatesForAudit);
-  return chosen;
-}
-
 // Directory-level world model population (v0.7 world-model). For each unique
 // dir implied by the scanned file set, the summary comes from <dir>/README.md
 // when present (author-curated, high-trust, summary_source='readme'). Dirs with

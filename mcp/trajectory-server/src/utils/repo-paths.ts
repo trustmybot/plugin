@@ -1,7 +1,7 @@
 import type { TrajectoryDB } from '../db.js';
 
-export function resolveDefaultRepoPath(db: TrajectoryDB): string | undefined {
-  return resolveDefaultRepo(db)?.path;
+export function resolveSoleRepoPath(db: TrajectoryDB): string | undefined {
+  return resolveSoleRepo(db)?.path;
 }
 
 export interface RepoRemote {
@@ -60,10 +60,10 @@ export function resolveRepoForSync(
 
 // Path-keyed repo resolution. There is no name-keyed global default — callers
 // needing a specific repo pass `tasks.repo` (resolved via `repos.path`). The
-// only implicit resolution is the single-repo fallback: when exactly one repo
-// is registered, that repo IS the default. Multi-repo with no explicit selector
-// returns undefined and the caller decides.
-export function resolveDefaultRepo(
+// only implicit resolution is the sole-repo fallback: when exactly one repo
+// is registered, that repo resolves implicitly. Multi-repo with no explicit
+// selector returns undefined and the caller decides.
+export function resolveSoleRepo(
   db: TrajectoryDB,
   name?: string,
 ): { name: string; path: string } | undefined {

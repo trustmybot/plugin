@@ -2,7 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import type { WorldModelGraph, DirectoryNode } from '../graph-db.js';
-import { resolveDefaultRepo } from '../utils/repo-paths.js';
+import { resolveSoleRepo } from '../utils/repo-paths.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -173,7 +173,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
       wrap(async (args) => {
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
-          repo = resolveDefaultRepo(db)?.name ?? '';
+          repo = resolveSoleRepo(db)?.name ?? '';
         }
 
         const path = (args['path'] as string | undefined) ?? '';
@@ -213,7 +213,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
 
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
-          repo = resolveDefaultRepo(db)?.name ?? '';
+          repo = resolveSoleRepo(db)?.name ?? '';
         }
 
         if (!graph) {

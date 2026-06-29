@@ -1214,9 +1214,9 @@ describe('taskTools', () => {
   });
 
   it('task_create_batch defaults repo to the sole registered repo when task.repo omitted (single-repo fallback)', async () => {
-    const { name: repoName, dir: repoDir, cleanup } = makeGitSubdir('test-default-repo-gate');
+    const { name: repoName, dir: repoDir, cleanup } = makeGitSubdir('test-sole-repo-gate');
     try {
-      spawnSync('git', ['-C', repoDir, 'branch', 'feat/default-repo-test'], { stdio: 'pipe' });
+      spawnSync('git', ['-C', repoDir, 'branch', 'feat/sole-repo-test'], { stdio: 'pipe' });
 
       const db = tempDB();
       db.run(
@@ -1232,7 +1232,7 @@ describe('taskTools', () => {
         agent: 'bro',
         issue_id: String(issueId),
         tasks: [
-          { branch_id: 'feat/default-repo-test', description: 'No repo arg' },
+          { branch_id: 'feat/sole-repo-test', description: 'No repo arg' },
         ],
       });
       const inserted = parseBatch(result);
@@ -1269,7 +1269,7 @@ describe('taskTools', () => {
   });
 
   it('task_create_batch auto-creates branch via the sole registered repo when the branch is missing (#529)', async () => {
-    const { dir: repoDir, cleanup } = makeGitSubdir('test-default-repo-autocreate');
+    const { dir: repoDir, cleanup } = makeGitSubdir('test-sole-repo-autocreate');
     try {
       const db = tempDB();
       db.run(
@@ -1286,12 +1286,12 @@ describe('taskTools', () => {
         waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
         agent: 'bro',
         issue_id: String(issueId),
-        tasks: [{ branch_id: 'feat/autocreated-via-default', description: 'Branch missing from default repo' }],
+        tasks: [{ branch_id: 'feat/autocreated-via-default', description: 'Branch missing from the sole (registered) repo' }],
       });
       assert.ok(!result.isError, `Expected auto-create success: ${JSON.stringify(parseResult(result))}`);
 
       const branchCheck = spawnSync('git', ['-C', repoDir, 'rev-parse', '--verify', 'feat/autocreated-via-default'], { encoding: 'utf8' });
-      assert.equal(branchCheck.status, 0, 'Branch must have been auto-created in default repo');
+      assert.equal(branchCheck.status, 0, 'Branch must have been auto-created in the sole (registered) repo');
 
       const auditRow = db.get<{ event_type: string }>(
         `SELECT event_type FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`,

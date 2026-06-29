@@ -7,7 +7,7 @@ import { serverLog } from '../logger.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
-import { resolveDefaultRepo } from '../utils/repo-paths.js';
+import { resolveSoleRepo } from '../utils/repo-paths.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -667,11 +667,11 @@ export function taskTools(db: TrajectoryDB): {
         }
       }
 
-      // Resolve the default repo once for all tasks so the branch-existence
+      // Resolve the sole (registered) repo once for all tasks so the branch-existence
       // check can fire even when task.repo is omitted. (#360) Path-keyed
-      // resolution: the single-repo fallback names the sole registered repo;
+      // resolution: the sole-repo fallback names the sole registered repo;
       // multi-repo projects must pass task.repo explicitly (else null).
-      const defaultRepoValue: string | null = resolveDefaultRepo(db)?.name ?? null;
+      const soleRepoValue: string | null = resolveSoleRepo(db)?.name ?? null;
 
       // Pre-transaction: format-validate then branch-ensure against the
       // resolved repo (explicit > default). Order matters: bad format should
@@ -700,7 +700,7 @@ export function taskTools(db: TrajectoryDB): {
           }
           effectiveRepoName = repo;
         } else {
-          effectiveRepoName = defaultRepoValue;
+          effectiveRepoName = soleRepoValue;
         }
 
         if (effectiveRepoName) {
@@ -751,7 +751,7 @@ export function taskTools(db: TrajectoryDB): {
           if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
             repoValue = t.repo as string;
           } else {
-            repoValue = defaultRepoValue;
+            repoValue = soleRepoValue;
           }
 
           // Server-side parent_branch_id default: when omitted/null, resolve the
@@ -761,7 +761,7 @@ export function taskTools(db: TrajectoryDB): {
           // tasks landed against main on gitflow projects with a 'dev' target.
           let parentBranchId: string | null = t.parent_branch_id ?? null;
           if (parentBranchId == null) {
-            const taskRepoName = (t.repo as string | undefined | null) ?? defaultRepoValue;
+            const taskRepoName = (t.repo as string | undefined | null) ?? soleRepoValue;
             if (taskRepoName) {
               const repoTargetRow = db.get<{ target_branch: string | null }>(
                 `SELECT target_branch FROM repos WHERE name = ?`,

@@ -50,10 +50,10 @@ describe('onboard tools', () => {
             assert.equal(data.first_run, false);
             db.close();
         });
-        it('probes the DEFAULT REPO path, not the workspace-root cwd (#675)', async () => {
+        it('probes the SOLE (registered) REPO path, not the workspace-root cwd (#675)', async () => {
             // A real git repo with a github origin, sitting at an arbitrary path that
             // is NOT the workspace root the dbPath would strip down to. The probe must
-            // resolve it via the `repos` row (resolveDefaultRepoPath single-repo
+            // resolve it via the `repos` row (resolveSoleRepoPath single-repo
             // fallback) so in_git:true and the remote is detected.
             const repoDir = mkdtempSync(join(tmpdir(), 'onboard-probe-'));
             const gitOpts = { cwd: repoDir, encoding: 'utf8' };
@@ -68,9 +68,9 @@ describe('onboard tools', () => {
                 const result = await call(tools.handlers, 'onboard_state_get', {});
                 const data = parse(result);
                 const probe = data.probe;
-                assert.equal(probe.in_git, true, 'must probe inside the default repo git tree');
+                assert.equal(probe.in_git, true, 'must probe inside the sole (registered) repo git tree');
                 const origin = probe.detected_remotes.find((r) => r.name === 'origin');
-                assert.ok(origin, 'origin remote must be detected from the default repo path');
+                assert.ok(origin, 'origin remote must be detected from the sole (registered) repo path');
                 assert.equal(origin.url, 'https://github.com/acme/widget.git');
                 assert.equal(origin.provider, 'github');
                 db.close();
@@ -352,7 +352,7 @@ describe('onboard tools', () => {
             db.close();
         });
         it('remote shape with no detectable origin URL emits a blank-URL warning (#675)', async () => {
-            // Default repo path points at a NON-git directory → probe finds no remote
+            // Sole (registered) repo path points at a NON-git directory → probe finds no remote
             // → origin URL blank. onboard_apply must surface a warning (not throw) so
             // issue-sync silence is visible to the operator. (An empty dir, rather
             // than the test cwd which IS a git repo with a real origin.)
