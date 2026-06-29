@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
-import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
+import { resolveSoleRepoPath } from '../utils/repo-paths.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { writeUserSettingsEnforcementShim } from './onboard-hooks-shim.js';
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
@@ -416,7 +416,7 @@ export function onboardTools(db, dbPath = '') {
             },
         },
     ];
-    // The probe must run inside the default repo's git tree, not the workspace
+    // The probe must run inside the sole (registered) repo's git tree, not the workspace
     // root. In a multi-repo workspace the trajectory.db lives above the repos,
     // so the stripped workspace path is not a git repo at all (#675) — git
     // probes there report in_git:false and detect no remotes, persisting blank
@@ -424,9 +424,9 @@ export function onboardTools(db, dbPath = '') {
     // single-repo path (path-keyed resolution); fall back to the legacy
     // workspace-root derivation only when it can't be resolved.
     const probeDir = () => {
-        const fromDefaultRepo = resolveDefaultRepoPath(db);
-        if (fromDefaultRepo)
-            return fromDefaultRepo;
+        const fromSoleRepo = resolveSoleRepoPath(db);
+        if (fromSoleRepo)
+            return fromSoleRepo;
         const workspaceRoot = dbPath
             ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '')
             : process.cwd();

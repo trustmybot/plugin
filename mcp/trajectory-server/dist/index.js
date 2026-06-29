@@ -23066,8 +23066,8 @@ function discussionTools(db2) {
 }
 
 // src/utils/repo-paths.ts
-function resolveDefaultRepoPath(db2) {
-  return resolveDefaultRepo(db2)?.path;
+function resolveSoleRepoPath(db2) {
+  return resolveSoleRepo(db2)?.path;
 }
 function resolveRepoForSync(db2, repoName) {
   const decodeRemotes = (raw) => {
@@ -23094,7 +23094,7 @@ function resolveRepoForSync(db2, repoName) {
   const sole = rows[0];
   return { name: sole.name, path: sole.path, remotes: decodeRemotes(sole.remotes) };
 }
-function resolveDefaultRepo(db2, name) {
+function resolveSoleRepo(db2, name) {
   if (name) {
     const repoRow = db2.get(
       `SELECT path FROM repos WHERE name = ?`,
@@ -24894,7 +24894,7 @@ function taskTools(db2) {
           };
         }
       }
-      const defaultRepoValue = resolveDefaultRepo(db2)?.name ?? null;
+      const soleRepoValue = resolveSoleRepo(db2)?.name ?? null;
       const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname2(db2.dbPath);
       const autocreatedAudits = [];
       for (const t of taskInputs) {
@@ -24916,7 +24916,7 @@ function taskTools(db2) {
           }
           effectiveRepoName = repo;
         } else {
-          effectiveRepoName = defaultRepoValue;
+          effectiveRepoName = soleRepoValue;
         }
         if (effectiveRepoName) {
           const reposRow = db2.get(
@@ -24956,11 +24956,11 @@ function taskTools(db2) {
           if (t.repo !== void 0 && t.repo !== null && t.repo !== "") {
             repoValue = t.repo;
           } else {
-            repoValue = defaultRepoValue;
+            repoValue = soleRepoValue;
           }
           let parentBranchId = t.parent_branch_id ?? null;
           if (parentBranchId == null) {
-            const taskRepoName = t.repo ?? defaultRepoValue;
+            const taskRepoName = t.repo ?? soleRepoValue;
             if (taskRepoName) {
               const repoTargetRow = db2.get(
                 `SELECT target_branch FROM repos WHERE name = ?`,
@@ -27815,7 +27815,7 @@ function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
   return { outOfScope, checked: true };
 }
 function resolveRepoPath(db2, repoValue) {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveDefaultRepo(db2)?.name ?? null;
+  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
   if (!name) return null;
   const reposRow = db2.get(`SELECT path FROM repos WHERE name = ?`, [name]);
   if (!reposRow) return name;
@@ -27823,7 +27823,7 @@ function resolveRepoPath(db2, repoValue) {
   return reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
 }
 function readRepoTargetBranch(db2, repoValue) {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveDefaultRepo(db2)?.name ?? null;
+  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
   if (!name) return null;
   const row = db2.get(
     `SELECT target_branch FROM repos WHERE name = ?`,
@@ -28244,7 +28244,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           if (task.repo.startsWith("/")) return err14(`Invalid repo "${task.repo}": must not start with "/".`);
           repoValue = task.repo;
         } else {
-          repoValue = resolveDefaultRepo(db2)?.name ?? null;
+          repoValue = resolveSoleRepo(db2)?.name ?? null;
         }
         const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
         const slug = branchId.replace(/^[^/]+\//, "");
@@ -28399,7 +28399,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         if (!task) return err14(`No task with id=${taskId}`);
         let repo = task.repo ?? "";
         if (!repo) {
-          repo = resolveDefaultRepo(db2)?.name ?? "";
+          repo = resolveSoleRepo(db2)?.name ?? "";
         }
         const dirs = filesToDirs(parseTaskFiles(task.files));
         let scope_world_model = [];
@@ -29506,8 +29506,8 @@ function onboardTools(db2, dbPath2 = "") {
     }
   ];
   const probeDir = () => {
-    const fromDefaultRepo = resolveDefaultRepoPath(db2);
-    if (fromDefaultRepo) return fromDefaultRepo;
+    const fromSoleRepo = resolveSoleRepoPath(db2);
+    if (fromSoleRepo) return fromSoleRepo;
     const workspaceRoot = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
     return workspaceRoot || process.cwd();
   };
@@ -31568,7 +31568,7 @@ function worldModelTools(db2, graph2) {
       wrap5(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
-          repo = resolveDefaultRepo(db2)?.name ?? "";
+          repo = resolveSoleRepo(db2)?.name ?? "";
         }
         const path2 = args["path"] ?? "";
         const depthArg = args["depth"];
@@ -31600,7 +31600,7 @@ function worldModelTools(db2, graph2) {
         const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
         let repo = args["repo"] ?? "";
         if (!repo) {
-          repo = resolveDefaultRepo(db2)?.name ?? "";
+          repo = resolveSoleRepo(db2)?.name ?? "";
         }
         if (!graph2) {
           return ok18({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });

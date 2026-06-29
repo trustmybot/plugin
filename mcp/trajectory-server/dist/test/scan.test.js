@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
-import { scanTools, preferredDefaultRepo, runScanWithScript } from '../tools/scan.js';
+import { scanTools, runScanWithScript } from '../tools/scan.js';
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }
@@ -354,73 +354,6 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
         }
     });
 });
-describe('preferredDefaultRepo — unit', () => {
-    it('returns cwd-enclosing repo when session_dir is inside one', () => {
-        const repos = [
-            { name: 'enterprise', path: '/ws/enterprise', file_count: 89 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 901 },
-        ];
-        assert.equal(preferredDefaultRepo(repos, '/ws/plugin/src'), 'plugin', 'enclosing repo wins regardless of file_count');
-    });
-    it('returns largest repo by file_count when no repo encloses session_dir (#316)', () => {
-        const repos = [
-            { name: 'enterprise', path: '/ws/enterprise', file_count: 89 },
-            { name: 'marketplace', path: '/ws/marketplace', file_count: 0 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 901 },
-        ];
-        const guesses = [];
-        const result = preferredDefaultRepo(repos, '/ws', (chosen, candidates) => {
-            guesses.push({ chosen });
-            assert.equal(candidates.length, 3);
-        });
-        assert.equal(result, 'plugin', 'largest repo wins over alphabetical-first (enterprise)');
-        assert.equal(guesses.length, 1, 'onGuessed callback fires once');
-    });
-    it('returns single repo name regardless of file_count', () => {
-        assert.equal(preferredDefaultRepo([{ name: 'solo', path: '/ws/solo', file_count: 0 }], '/other'), 'solo');
-    });
-    it('returns empty string for empty repos list', () => {
-        assert.equal(preferredDefaultRepo([], '/any'), '');
-    });
-    it('#474: version-named repo loses to a smaller ordinary working repo', () => {
-        const repos = [
-            { name: 'v0.7.1-rc.1', path: '/ws/cache/v0.7.1-rc.1', file_count: 973 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 969 },
-        ];
-        const guesses = [];
-        const result = preferredDefaultRepo(repos, '/ws', (chosen) => guesses.push(chosen));
-        assert.equal(result, 'plugin', 'ordinary repo wins even with fewer files than the version-named copy');
-        assert.equal(guesses.length, 1, 'onGuessed fires (heuristic path)');
-    });
-    it('#474: bench-worktrees path is deprioritized below ordinary repos', () => {
-        const repos = [
-            { name: 'bench-run', path: '/ws/bench-worktrees/bench-run', file_count: 500 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 10 },
-        ];
-        const result = preferredDefaultRepo(repos, '/ws');
-        assert.equal(result, 'plugin', 'bench-worktrees repo deprioritized');
-    });
-    it('#474: /marketplace path is deprioritized below ordinary repos', () => {
-        const repos = [
-            { name: 'tmb-marketplace', path: '/ws/marketplace/tmb-marketplace', file_count: 800 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 5 },
-        ];
-        const result = preferredDefaultRepo(repos, '/ws');
-        assert.equal(result, 'plugin', 'marketplace repo deprioritized');
-    });
-    it('#474: falls back to deprioritized repo when no ordinary candidates exist, emitting onGuessed', () => {
-        const repos = [
-            { name: 'v0.7.1', path: '/ws/cache/v0.7.1', file_count: 200 },
-        ];
-        const guesses = [];
-        const result = preferredDefaultRepo(repos, '/ws', (chosen) => guesses.push(chosen));
-        assert.equal(result, 'v0.7.1', 'only candidate wins even if deprioritized');
-        assert.equal(guesses.length, 1, 'onGuessed still fires when falling back to deprioritized');
-    });
-});
-// Repo-ranking heuristics live in the preferredDefaultRepo unit block above —
-// scan_run no longer writes tmb_default_repo, so the ranking is exercised at the
-// pure-function level (#474), not through the scan handler + plugin_config.
 describe('scan_run lock contention + release (#339)', () => {
     function mkRepo(parent, name) {
         const root = join(parent, name);

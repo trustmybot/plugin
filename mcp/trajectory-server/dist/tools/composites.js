@@ -6,7 +6,7 @@ import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolveDefaultRepo, resolveRepoForSync } from '../utils/repo-paths.js';
+import { resolveSoleRepo, resolveRepoForSync } from '../utils/repo-paths.js';
 import { resolve, dirname } from 'node:path';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
@@ -80,7 +80,7 @@ export function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
 // against the trajectory DB's directory). Sole-repo fallback applies when the
 // task has no explicit repo. Returns null when no repo can be resolved.
 function resolveRepoPath(db, repoValue) {
-    const name = repoValue && repoValue.length > 0 ? repoValue : resolveDefaultRepo(db)?.name ?? null;
+    const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
     if (!name)
         return null;
     const reposRow = db.get(`SELECT path FROM repos WHERE name = ?`, [name]);
@@ -93,7 +93,7 @@ function resolveRepoPath(db, repoValue) {
 // source of truth (#980). Falls back to the sole registered repo when repoValue
 // is empty. Returns null when no row or a NULL/empty column.
 function readRepoTargetBranch(db, repoValue) {
-    const name = repoValue && repoValue.length > 0 ? repoValue : resolveDefaultRepo(db)?.name ?? null;
+    const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
     if (!name)
         return null;
     const row = db.get(`SELECT target_branch FROM repos WHERE name = ?`, [name]);
@@ -532,7 +532,7 @@ export function compositeTools(db, dbPath, graph = null) {
                 repoValue = task.repo;
             }
             else {
-                repoValue = resolveDefaultRepo(db)?.name ?? null;
+                repoValue = resolveSoleRepo(db)?.name ?? null;
             }
             const promptBearing = typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
             const slug = branchId.replace(/^[^/]+\//, '');
@@ -708,7 +708,7 @@ export function compositeTools(db, dbPath, graph = null) {
             // resolution — empty in multi-repo projects, which scope by task.repo).
             let repo = task.repo ?? '';
             if (!repo) {
-                repo = resolveDefaultRepo(db)?.name ?? '';
+                repo = resolveSoleRepo(db)?.name ?? '';
             }
             // Scope: the dirs the task's typed files[] touch, resolved in the world model.
             const dirs = filesToDirs(parseTaskFiles(task.files));

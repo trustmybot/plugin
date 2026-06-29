@@ -1,5 +1,5 @@
-export function resolveDefaultRepoPath(db) {
-    return resolveDefaultRepo(db)?.path;
+export function resolveSoleRepoPath(db) {
+    return resolveSoleRepo(db)?.path;
 }
 // Issue-scoped repo resolution for the sync path (#155/#146). Resolve the repo
 // an issue belongs to, returning its on-disk path AND the per-repo remotes
@@ -39,10 +39,10 @@ export function resolveRepoForSync(db, repoName) {
 }
 // Path-keyed repo resolution. There is no name-keyed global default — callers
 // needing a specific repo pass `tasks.repo` (resolved via `repos.path`). The
-// only implicit resolution is the single-repo fallback: when exactly one repo
-// is registered, that repo IS the default. Multi-repo with no explicit selector
-// returns undefined and the caller decides.
-export function resolveDefaultRepo(db, name) {
+// only implicit resolution is the sole-repo fallback: when exactly one repo
+// is registered, that repo resolves implicitly. Multi-repo with no explicit
+// selector returns undefined and the caller decides.
+export function resolveSoleRepo(db, name) {
     if (name) {
         const repoRow = db.get(`SELECT path FROM repos WHERE name = ?`, [name]);
         return repoRow?.path ? { name, path: repoRow.path } : undefined;

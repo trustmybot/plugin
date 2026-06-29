@@ -4,7 +4,7 @@ import { serverLog } from '../logger.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
-import { resolveDefaultRepo } from '../utils/repo-paths.js';
+import { resolveSoleRepo } from '../utils/repo-paths.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
 // composites.ts — kept here to avoid a circular import (composites.ts imports
 // BRANCH_ID_RE from tasks.ts). `filesJson` is the tasks.files JSON column.
@@ -565,11 +565,11 @@ export function taskTools(db) {
                     };
                 }
             }
-            // Resolve the default repo once for all tasks so the branch-existence
+            // Resolve the sole (registered) repo once for all tasks so the branch-existence
             // check can fire even when task.repo is omitted. (#360) Path-keyed
-            // resolution: the single-repo fallback names the sole registered repo;
+            // resolution: the sole-repo fallback names the sole registered repo;
             // multi-repo projects must pass task.repo explicitly (else null).
-            const defaultRepoValue = resolveDefaultRepo(db)?.name ?? null;
+            const soleRepoValue = resolveSoleRepo(db)?.name ?? null;
             // Pre-transaction: format-validate then branch-ensure against the
             // resolved repo (explicit > default). Order matters: bad format should
             // produce the format error, not a git error. (#360, #529)
@@ -594,7 +594,7 @@ export function taskTools(db) {
                     effectiveRepoName = repo;
                 }
                 else {
-                    effectiveRepoName = defaultRepoValue;
+                    effectiveRepoName = soleRepoValue;
                 }
                 if (effectiveRepoName) {
                     const reposRow = db.get(`SELECT path FROM repos WHERE name = ?`, [effectiveRepoName]);
@@ -641,7 +641,7 @@ export function taskTools(db) {
                         repoValue = t.repo;
                     }
                     else {
-                        repoValue = defaultRepoValue;
+                        repoValue = soleRepoValue;
                     }
                     // Server-side parent_branch_id default: when omitted/null, resolve the
                     // base branch from the task's repos row (#155 — pr_target is drained
@@ -650,7 +650,7 @@ export function taskTools(db) {
                     // tasks landed against main on gitflow projects with a 'dev' target.
                     let parentBranchId = t.parent_branch_id ?? null;
                     if (parentBranchId == null) {
-                        const taskRepoName = t.repo ?? defaultRepoValue;
+                        const taskRepoName = t.repo ?? soleRepoValue;
                         if (taskRepoName) {
                             const repoTargetRow = db.get(`SELECT target_branch FROM repos WHERE name = ?`, [taskRepoName]);
                             if (repoTargetRow?.target_branch) {
