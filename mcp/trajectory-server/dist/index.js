@@ -28317,12 +28317,13 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           insertDiscussion(db2, { issue_id: issueId, author: agent, kind: "decision", body: decisionBody, created_at: now });
           db2.run(
             `INSERT INTO tasks
-               (issue_id, branch_id, title, description,
+               (issue_id, branch_id, parent_branch_id, title, description,
                 status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               branchId,
+              base,
               task.title ?? "",
               task.description,
               task.spec_body,

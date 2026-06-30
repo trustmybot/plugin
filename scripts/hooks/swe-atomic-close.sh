@@ -28,6 +28,8 @@ PLUGIN_NAME=$(tmb_resolve_plugin_name)
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || true
 # shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh" 2>/dev/null || true
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh disable=SC1091
+. "$SCRIPT_DIR/lib/resolve-repo.sh" 2>/dev/null || true
 
 mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
@@ -290,6 +292,32 @@ if [ -n "$WT_HEAD" ]; then
     LOCAL_FEATURE=$(git -C "$REPO_ROOT" rev-parse "refs/heads/${BRANCH}" 2>/dev/null || true)
     if [ -n "$LOCAL_FEATURE" ] && [ "$WT_HEAD" != "$LOCAL_FEATURE" ]; then
       HAS_COMMITS="true"
+    fi
+    # Empty-parent_branch_id fallback: in the attached-worktree model SWE's
+    # commits advance the feature ref directly, so WT_HEAD == refs/heads/<branch>
+    # and the comparisons above never fire. Resolve the repo's base (its
+    # repos.target_branch, else the repo default branch) and count commits the
+    # worktree HEAD carries ahead of it.
+    if [ "$HAS_COMMITS" = "false" ] && [ -z "$PARENT_BRANCH" ] && [ -n "$LOCAL_FEATURE" ] && [ "$WT_HEAD" = "$LOCAL_FEATURE" ]; then
+      FALLBACK_BASE=""
+      if command -v tmb_repo_resolve >/dev/null 2>&1; then
+        # tmb_repo_resolve prints "target_branch|branching_model|protected_branches";
+        # take only the first field (target_branch).
+        FALLBACK_BASE=$(tmb_repo_resolve "$DB" "$REPO_ROOT" 2>/dev/null | head -1 | cut -d'|' -f1 || true)
+      fi
+      if [ -z "$FALLBACK_BASE" ] && command -v tmb_repo_default_branch >/dev/null 2>&1; then
+        FALLBACK_BASE=$(tmb_repo_default_branch "$REPO_ROOT" 2>/dev/null || true)
+      fi
+      if [ -n "$FALLBACK_BASE" ]; then
+        AHEAD=$(git -C "$WT_PATH" rev-list --count "origin/${FALLBACK_BASE}..HEAD" 2>/dev/null || true)
+        if [ -z "$AHEAD" ]; then
+          AHEAD=$(git -C "$WT_PATH" rev-list --count "${FALLBACK_BASE}..HEAD" 2>/dev/null || true)
+        fi
+        case "${AHEAD:-0}" in (''|*[!0-9]*) AHEAD=0 ;; esac
+        if [ "${AHEAD:-0}" -gt 0 ]; then
+          HAS_COMMITS="true"
+        fi
+      fi
     fi
   fi
 else

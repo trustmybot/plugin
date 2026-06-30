@@ -938,4 +938,96 @@ assert_eq "completed" "$ws_status" "task 700 auto-closed via repo-rooted worktre
 ws_sha=$(sqlite3 "$WS_DB" "SELECT commit_sha FROM tasks WHERE id=700;")
 assert_eq "$WS_WT_HEAD" "$ws_sha" "commit_sha written from repo-rooted worktree HEAD"
 
+# ========================================================
+# EMPTY parent_branch_id + attached-worktree commit → auto-completed (#18).
+# The attached-worktree model advances the feature ref directly, so
+# WT_HEAD == refs/heads/<branch>; with parent_branch_id NULL the legacy
+# comparisons never fire. The empty-parent fallback resolves the repo base
+# (repos.target_branch, else default branch) and counts commits ahead.
+# ========================================================
+
+echo '--- Test: empty parent_branch_id + attached-worktree commit → auto-completed ---'
+
+EP_REPO="$TMPDIR/empty-parent-repo"
+git init -q -b dev "$EP_REPO"
+git -C "$EP_REPO" config user.email t@t.io
+git -C "$EP_REPO" config user.name t
+echo base > "$EP_REPO/base.txt"
+git -C "$EP_REPO" add .
+git -C "$EP_REPO" commit -qm "base"
+EP_REPO_ROOT=$(git -C "$EP_REPO" rev-parse --show-toplevel)
+
+EP_DB="$EP_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$EP_DB")"
+sqlite3 "$EP_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, remotes TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
+  INSERT INTO repos (name, path, target_branch) VALUES ('empty-parent-repo', '$EP_REPO_ROOT', 'dev');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
+    VALUES (800, 'fix/ep-task', NULL, 'pending', 'empty-parent-repo', datetime('now', '+1 second'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# Attached worktree owns the feature ref — SWE's commit advances refs/heads/fix/ep-task
+# directly, so WT_HEAD == the local feature ref tip.
+EP_WT="$EP_REPO/.claude/worktrees/ep-task"
+git -C "$EP_REPO" branch fix/ep-task HEAD
+git -C "$EP_REPO" worktree add -q "$EP_WT" fix/ep-task
+(cd "$EP_WT" && echo "$RANDOM" >> ep-work.txt && git add ep-work.txt && git commit -qm "feat: ep work")
+EP_WT_HEAD=$(git -C "$EP_WT" rev-parse HEAD)
+
+ep_swe_input() {
+  jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
+}
+
+test_case "empty parent_branch_id + attached-worktree commit → auto-completed"
+out=$(run_hook_in_dir "$EP_REPO" "$(ep_swe_input)" "$EP_DB")
+assert_eq "" "$out" "no additionalContext on auto-close"
+ep_status=$(sqlite3 "$EP_DB" "SELECT status FROM tasks WHERE id=800;")
+assert_eq "completed" "$ep_status" "task 800 auto-closed despite empty parent_branch_id"
+ep_sha=$(sqlite3 "$EP_DB" "SELECT commit_sha FROM tasks WHERE id=800;")
+assert_eq "$EP_WT_HEAD" "$ep_sha" "commit_sha written from attached-worktree HEAD"
+
+# ========================================================
+# EMPTY parent_branch_id + attached-worktree NO commit ahead → warn-no-commits.
+# Guards the fallback against false positives: worktree HEAD == base tip.
+# ========================================================
+
+echo '--- Test: empty parent_branch_id + no commit ahead → warn-no-commits ---'
+
+EP2_REPO="$TMPDIR/empty-parent-nocommit-repo"
+git init -q -b dev "$EP2_REPO"
+git -C "$EP2_REPO" config user.email t@t.io
+git -C "$EP2_REPO" config user.name t
+echo base > "$EP2_REPO/base.txt"
+git -C "$EP2_REPO" add .
+git -C "$EP2_REPO" commit -qm "base"
+EP2_REPO_ROOT=$(git -C "$EP2_REPO" rev-parse --show-toplevel)
+
+EP2_DB="$EP2_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$EP2_DB")"
+sqlite3 "$EP2_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, remotes TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
+  INSERT INTO repos (name, path, target_branch) VALUES ('empty-parent-nocommit-repo', '$EP2_REPO_ROOT', 'dev');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
+    VALUES (801, 'fix/ep2-task', NULL, 'pending', 'empty-parent-nocommit-repo', datetime('now', '+1 second'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# Worktree at the base tip — no SWE commits yet.
+EP2_WT="$EP2_REPO/.claude/worktrees/ep2-task"
+git -C "$EP2_REPO" branch fix/ep2-task HEAD
+git -C "$EP2_REPO" worktree add -q "$EP2_WT" fix/ep2-task
+
+test_case "empty parent_branch_id + no commit ahead → warn-no-commits, task stays pending"
+out=$(run_hook_in_dir "$EP2_REPO" "$(ep_swe_input)" "$EP2_DB")
+assert_contains "$out" "stopped without committing" "warn body present"
+ep2_status=$(sqlite3 "$EP2_DB" "SELECT status FROM tasks WHERE id=801;")
+assert_eq "pending" "$ep2_status" "task 801 stays pending (no false-positive auto-close)"
+
 summarize
