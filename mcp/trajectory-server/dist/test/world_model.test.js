@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTree } from '../tools/world_model.js';
+import { buildTree, worldModelTools } from '../tools/world_model.js';
 import { WorldModelGraph } from '../graph-db.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { tempDB } from './helpers.js';
 // Helper to detect whether kuzu is loadable in this environment.
 function kuzuAvailable() {
     try {
@@ -117,6 +118,46 @@ describe('buildTree summary truncation at depth > 1 (#363)', () => {
             ?.children.find((c) => c.path === 'src/api');
         assert.ok(api, 'src/api found at depth 2');
         assert.equal(api.summary, 'first line', 'depth-2 summary truncated to first line');
+    });
+});
+function wmParse(r) {
+    return JSON.parse(r.content[0].text);
+}
+describe('world_model_get/search — repo-unspecified (#15)', () => {
+    it('world_model_get returns repo-unspecified + available_repos in multi-repo with no repo arg', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('frontend', '/tmp/frontend')`);
+        db.run(`INSERT INTO repos (name, path) VALUES ('backend', '/tmp/backend')`);
+        const tools = worldModelTools(db, null);
+        const r = (await tools.handlers['world_model_get']({ agent: 'bro' }));
+        const out = wmParse(r);
+        assert.equal(out['warning'], 'repo-unspecified', 'multi-repo no-arg must warn repo-unspecified');
+        assert.deepEqual(out['available_repos'], ['backend', 'frontend'], 'available repos named, sorted');
+        assert.equal(out['root'], null);
+        db.close();
+    });
+    it('world_model_search returns repo-unspecified + available_repos in multi-repo with no repo arg', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('frontend', '/tmp/frontend')`);
+        db.run(`INSERT INTO repos (name, path) VALUES ('backend', '/tmp/backend')`);
+        const tools = worldModelTools(db, null);
+        const r = (await tools.handlers['world_model_search']({ agent: 'bro', query: 'parser' }));
+        const out = wmParse(r);
+        assert.equal(out['warning'], 'repo-unspecified', 'multi-repo no-arg must warn repo-unspecified');
+        assert.deepEqual(out['available_repos'], ['backend', 'frontend']);
+        assert.deepEqual(out['results'], []);
+        db.close();
+    });
+    it('single-repo with no repo arg resolves the sole repo (not repo-unspecified)', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+        const tools = worldModelTools(db, null);
+        const r = (await tools.handlers['world_model_get']({ agent: 'bro' }));
+        const out = wmParse(r);
+        // Sole repo resolves, so we fall through to the graph check (null graph here).
+        assert.equal(out['warning'], 'world-model-unavailable', 'sole repo resolves past the selector check');
+        assert.notEqual(out['warning'], 'repo-unspecified');
+        db.close();
     });
 });
 // Rename-prune regression test (#342). kuzu is instantiated in a child

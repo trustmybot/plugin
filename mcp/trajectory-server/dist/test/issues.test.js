@@ -970,33 +970,31 @@ describe('issueTools — milestone (#83/#763)', () => {
         db.close();
     });
 });
-describe('issueTools — active-milestone default (#154)', () => {
-    function setActiveMilestone(db, value) {
-        db.run(`INSERT INTO plugin_config (key, value_json) VALUES ('tmb_active_milestone', ?)
-       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [JSON.stringify(value)]);
-    }
-    it('defaults milestone from tmb_active_milestone when omitted', async () => {
+describe('issueTools — per-repo open-milestone default (#15)', () => {
+    it('defaults milestone to the issue repo\'s sole OPEN milestone when omitted', async () => {
         const db = tempDB();
-        setActiveMilestone(db, 'v0.10.0');
+        registerSoleRepo(db);
+        db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
         const tools = issueTools(db);
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
-            objective: 'omitted milestone defaults from config',
+            objective: 'omitted milestone defaults to the sole open milestone',
             labels: VALID_LABELS,
         });
         const created = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
         const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
-        assert.equal(row?.milestone, 'v0.10.0', 'config-driven default applied');
+        assert.equal(row?.milestone, 'v0.10.0', 'sole open milestone applied');
         db.close();
     });
-    it('explicit milestone arg overrides the config default', async () => {
+    it('explicit milestone arg overrides the per-repo default and upserts (name, repo)', async () => {
         const db = tempDB();
-        setActiveMilestone(db, 'v0.10.0');
+        registerSoleRepo(db);
+        db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
         const tools = issueTools(db);
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
-            objective: 'explicit milestone wins over config',
+            objective: 'explicit milestone wins over the per-repo default',
             labels: VALID_LABELS,
             milestone: 'v0.11.0',
         });
@@ -1004,39 +1002,73 @@ describe('issueTools — active-milestone default (#154)', () => {
         assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
         const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
         assert.equal(row?.milestone, 'v0.11.0', 'explicit arg wins');
+        const ms = db.get(`SELECT name FROM milestones WHERE name = 'v0.11.0' AND repo = 'app'`);
+        assert.ok(ms, 'explicit milestone (name, repo) row upserted');
         db.close();
     });
-    it('stays NULL when neither the arg nor the config is set', async () => {
+    it('stays NULL when the repo has zero open milestones', async () => {
         const db = tempDB();
+        registerSoleRepo(db);
         const tools = issueTools(db);
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
-            objective: 'no default no arg stays null',
+            objective: 'no open milestone stays null',
             labels: VALID_LABELS,
         });
         const created = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
         const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
-        assert.equal(row?.milestone, null, 'unset config + unset arg → null');
+        assert.equal(row?.milestone, null, 'zero open milestones → null');
         db.close();
     });
-    it('upserts the FK milestones row for the issue repo when defaulting', async () => {
+    it('stays NULL when the repo has more than one open milestone (ambiguous)', async () => {
         const db = tempDB();
         registerSoleRepo(db);
-        setActiveMilestone(db, 'v0.10.0');
+        db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+        db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.11.0', 'app', 'open')`);
         const tools = issueTools(db);
         const result = await call(tools.handlers, 'issue_create', {
             agent: 'bro',
-            objective: 'defaulted milestone with FK repo',
+            objective: 'two open milestones is ambiguous → null',
+            labels: VALID_LABELS,
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.milestone, null, '>1 open milestones → null');
+        db.close();
+    });
+    it('ignores a non-open milestone and does not create a row on the default path', async () => {
+        const db = tempDB();
+        registerSoleRepo(db);
+        db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.9.0', 'app', 'closed')`);
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'closed milestone is not a default',
+            labels: VALID_LABELS,
+        });
+        const created = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+        const row = db.get('SELECT milestone FROM issues WHERE id = ?', [created.id]);
+        assert.equal(row?.milestone, null, 'a closed milestone is not auto-defaulted');
+        const count = db.get(`SELECT COUNT(*) AS n FROM milestones`);
+        assert.equal(count?.n, 1, 'default path created no new milestones row');
+        db.close();
+    });
+    it('stays NULL when no repo is registered (null repo)', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'null repo yields null milestone',
             labels: VALID_LABELS,
         });
         const created = parseResult(result);
         assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
         const row = db.get('SELECT milestone, repo FROM issues WHERE id = ?', [created.id]);
-        assert.equal(row?.milestone, 'v0.10.0');
-        assert.equal(row?.repo, 'app');
-        const ms = db.get(`SELECT name, repo FROM milestones WHERE name = 'v0.10.0' AND repo = 'app'`);
-        assert.ok(ms, 'milestones row upserted for the FK insert');
+        assert.equal(row?.repo, null, 'no repos registered → null repo');
+        assert.equal(row?.milestone, null, 'null repo → null milestone');
         db.close();
     });
 });

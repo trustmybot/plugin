@@ -918,18 +918,11 @@ describe('task_recover', () => {
   });
 });
 
-describe('intent_start — active-milestone default (#154)', () => {
-  function setActiveMilestone(db: ReturnType<typeof tempDB>, value: string): void {
-    db.run(
-      `INSERT INTO plugin_config (key, value_json) VALUES ('tmb_active_milestone', ?)
-       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-      [JSON.stringify(value)],
-    );
-  }
-
-  it('defaults the created issue milestone from tmb_active_milestone', async () => {
+describe('intent_start — per-repo milestone default + repo param (#15)', () => {
+  it('defaults the created issue milestone to the sole repo\'s sole OPEN milestone', async () => {
     const db = tempDB();
-    setActiveMilestone(db, 'v0.10.0');
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
     const r = await call(composites.handlers, 'intent_start', {
@@ -941,17 +934,19 @@ describe('intent_start — active-milestone default (#154)', () => {
     assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
     const issueId = parse(r)['issue_id'];
 
-    const row = db.get<{ milestone: string | null }>(
-      'SELECT milestone FROM issues WHERE id = ?',
+    const row = db.get<{ milestone: string | null; repo: string | null }>(
+      'SELECT milestone, repo FROM issues WHERE id = ?',
       [issueId],
     );
-    assert.equal(row?.milestone, 'v0.10.0', 'intent_start applies the config default');
+    assert.equal(row?.milestone, 'v0.10.0', 'intent_start applies the sole open milestone');
+    assert.equal(row?.repo, 'app', 'sole repo bound when repo omitted');
 
     db.close();
   });
 
-  it('stays NULL when tmb_active_milestone is unset', async () => {
+  it('stays NULL when the repo has no open milestone', async () => {
     const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
     const r = await call(composites.handlers, 'intent_start', {
@@ -967,22 +962,24 @@ describe('intent_start — active-milestone default (#154)', () => {
       'SELECT milestone FROM issues WHERE id = ?',
       [issueId],
     );
-    assert.equal(row?.milestone, null, 'unset config → null');
+    assert.equal(row?.milestone, null, 'no open milestone → null');
 
     db.close();
   });
 
-  it('upserts the FK milestones row for the sole repo', async () => {
+  it('binds issues.repo to an explicit repo arg and resolves its milestone', async () => {
     const db = tempDB();
-    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
-    setActiveMilestone(db, 'v0.10.0');
+    db.run(`INSERT INTO repos (name, path) VALUES ('frontend', '/tmp/frontend')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('backend', '/tmp/backend')`);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v2.0.0', 'backend', 'open')`);
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
 
     const r = await call(composites.handlers, 'intent_start', {
       agent: 'bro',
-      objective: 'intent default milestone fk',
+      objective: 'intent explicit repo',
       intent_verbatim: 'do the thing',
-      branch_id: 'feat/intent-default-ms-fk',
+      branch_id: 'feat/intent-explicit-repo',
+      repo: 'backend',
     });
     assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
     const issueId = parse(r)['issue_id'];
@@ -991,12 +988,26 @@ describe('intent_start — active-milestone default (#154)', () => {
       'SELECT milestone, repo FROM issues WHERE id = ?',
       [issueId],
     );
-    assert.equal(row?.milestone, 'v0.10.0');
-    assert.equal(row?.repo, 'app');
-    const ms = db.get<{ name: string }>(
-      `SELECT name FROM milestones WHERE name = 'v0.10.0' AND repo = 'app'`,
-    );
-    assert.ok(ms, 'milestones row upserted so the FK insert succeeds');
+    assert.equal(row?.repo, 'backend', 'explicit repo bound on the issue');
+    assert.equal(row?.milestone, 'v2.0.0', 'milestone resolved from the explicit repo');
+
+    db.close();
+  });
+
+  it('returns a named error for an explicit repo with no matching repos row', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+
+    const r = await call(composites.handlers, 'intent_start', {
+      agent: 'bro',
+      objective: 'intent unknown repo',
+      intent_verbatim: 'do the thing',
+      branch_id: 'feat/intent-unknown-repo',
+      repo: 'ghost',
+    });
+    assert.ok(r.isError, 'unknown repo must be a named error');
+    assert.match(parse(r)['error'] as string, /repo "ghost" has no matching repos row/);
 
     db.close();
   });

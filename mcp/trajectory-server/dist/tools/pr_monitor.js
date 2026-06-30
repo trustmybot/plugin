@@ -5,6 +5,8 @@ import { buildBotPatterns, isBot } from '../sync/bot_patterns.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
+import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -168,7 +170,7 @@ export function prMonitorTools(db, _spawnFn) {
                     },
                     repo: {
                         type: 'string',
-                        description: 'Optional repo slug (owner/repo). Defaults to current git remote.',
+                        description: 'Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo\'s remote slug; in a multi-repo workspace it is required (a named error is returned otherwise). The cwd git remote is never used in a multi-repo workspace.',
                     },
                     since: {
                         type: 'string',
@@ -201,7 +203,35 @@ export function prMonitorTools(db, _spawnFn) {
             if (!Number.isInteger(prNumber) || prNumber <= 0) {
                 return err('pr_number must be a positive integer');
             }
-            const repo = typeof args['repo'] === 'string' ? args['repo'] : '';
+            // Repo slug resolution (#15): explicit arg wins. Otherwise resolve the
+            // sole registered repo's remote slug — never the cwd git remote. In a
+            // multi-repo workspace with no slug, return a named error rather than
+            // syncing against the wrong (or cwd) remote; this also keeps the
+            // pr_review_runs cursor key per-repo so two repos sharing a PR number
+            // can't collide on (pr_number, '').
+            const explicitRepo = typeof args['repo'] === 'string' && args['repo'].length > 0
+                ? args['repo']
+                : null;
+            let repo;
+            if (explicitRepo !== null) {
+                repo = explicitRepo;
+            }
+            else {
+                const repoCount = db.get('SELECT COUNT(*) AS c FROM repos')?.c ?? 0;
+                if (repoCount > 1) {
+                    return err('pr_monitor_comments_get: multiple repos registered and no repo slug given — ' +
+                        'pass repo="owner/repo". The cwd git remote is never used in a multi-repo workspace.');
+                }
+                // 0 or 1 repos: derive the sole repo's slug from its remotes; fall back
+                // to '' (cwd remote) only when no repo/remote slug resolves (uninitialized).
+                const resolved = resolveRepoForSync(db, null);
+                const slug = resolved
+                    ? resolved.remotes
+                        .map((r) => repoSlugFromRemoteUrl(r.url))
+                        .find((s) => s !== null) ?? null
+                    : null;
+                repo = slug ?? '';
+            }
             // Wire incremental polling: prefer the explicit `since` arg, otherwise
             // read the cursor from pr_review_runs and pass `last_fetched_at` as the
             // since-filter on the next backend fetch.

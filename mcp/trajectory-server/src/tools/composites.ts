@@ -10,7 +10,7 @@ import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import type { WorldModelGraph } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolveSoleRepo, resolveRepoForSync } from '../utils/repo-paths.js';
+import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { resolve, dirname } from 'node:path';
 import type { TaskProvisionInput } from '../types.js';
 
@@ -362,6 +362,7 @@ export function compositeTools(
           objective: { type: 'string', description: 'Short one-liner issue objective.' },
           intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
           branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
+          repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create.' },
         },
         required: ['agent', 'objective', 'intent_verbatim', 'branch_id'],
       },
@@ -1131,11 +1132,22 @@ export function compositeTools(
           return err(`branch_id "${branchId}" does not match the conventional format.`);
         }
 
+        // repo (#15): explicit arg, else the sole registered repo. An explicit
+        // repo must match a repos row, mirroring issue_create's repo handling.
+        const explicitRepoRaw = args['repo'];
+        const explicitRepo =
+          typeof explicitRepoRaw === 'string' && explicitRepoRaw.length > 0 ? explicitRepoRaw : null;
+        if (explicitRepo !== null) {
+          const repoRow = db.get<{ name: string }>(`SELECT name FROM repos WHERE name = ?`, [explicitRepo]);
+          if (!repoRow) {
+            return err(`intent_start: repo "${explicitRepo}" has no matching repos row — run /scan or pass a valid repo.`);
+          }
+        }
+
         const now = nowISO();
-        // Default the milestone from `tmb_active_milestone` (#154), mirroring
-        // issue_create. Resolve the sole-repo first so the FK milestones row is
-        // upserted under the right repo before the issues insert.
-        const issueRepo = resolveRepoForSync(db, null)?.name ?? null;
+        // Resolve the issue's repo (explicit arg, else the sole registered repo)
+        // so the milestone default + FK insert bind to the right repo (#15).
+        const issueRepo = explicitRepo ?? resolveSoleRepo(db)?.name ?? null;
         const milestone = resolveDefaultMilestone(db, null, issueRepo);
         const result = db.transaction(() => {
           db.run(

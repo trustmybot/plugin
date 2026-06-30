@@ -88,33 +88,22 @@ function ensureMilestoneRow(db, milestone, repo) {
     db.run(`INSERT INTO milestones (name, repo) VALUES (?, ?)
      ON CONFLICT(name, repo) DO NOTHING`, [milestone, repo]);
 }
-// Active-milestone default (#154): when issue_create / intent_start omit the
-// milestone, fall back to the project-wide `tmb_active_milestone` config so
-// issues bind to the open release without bro having to remember. An explicit
-// (non-empty) milestone arg always wins; when neither is set the result stays
-// null (honors #763's no-forced-binding). The repos-centric migration made
-// issues.milestone an FK into milestones(name, repo) — so whether the milestone
-// is explicit (#985) or defaulted (#154), auto-create its (name, repo) row
-// before the issues insert or the FK would reject it.
+// Milestone default (#15): when issue_create / intent_start omit the milestone,
+// derive it from the issue's own repo — never a global. An explicit (non-empty)
+// milestone arg always wins and upserts its (name, repo) FK row (#985).
+// Otherwise, when the repo has exactly one OPEN milestone, that milestone is the
+// default; zero or more than one open milestones leave it null (honors #763's
+// no-forced-binding). The default path NEVER auto-creates a milestone row — it
+// only binds to one that already exists for the repo. A null repo yields null.
 export function resolveDefaultMilestone(db, explicitMilestone, repo) {
     if (explicitMilestone !== null && explicitMilestone !== '') {
         ensureMilestoneRow(db, explicitMilestone, repo);
         return explicitMilestone;
     }
-    const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_active_milestone'`);
-    if (!row)
+    if (repo === null)
         return null;
-    let active;
-    try {
-        active = JSON.parse(row.value_json);
-    }
-    catch {
-        return null;
-    }
-    if (typeof active !== 'string' || active.length === 0)
-        return null;
-    ensureMilestoneRow(db, active, repo);
-    return active;
+    const open = db.all(`SELECT name FROM milestones WHERE repo = ? AND state = 'open'`, [repo]);
+    return open.length === 1 ? open[0].name : null;
 }
 // Dedup pre-check (#91/#775): before inserting, compare the new objective
 // against every OPEN issue's objective with a deterministic token-set Jaccard
@@ -415,8 +404,8 @@ export function issueTools(db, dbPath = '') {
             const explicitRepo = args['repo'] ?? null;
             const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
             // milestone: optional; persisted locally AND passed to remote sync
-            // (#83/#763). Defaults to the `tmb_active_milestone` config when omitted,
-            // upserting the FK milestones row for the issue's repo (#154).
+            // (#83/#763). When omitted, defaults to the issue repo's sole OPEN
+            // milestone (#15); an explicit milestone upserts its FK row (#985/#154).
             const explicitMilestone = args['milestone'] ?? null;
             const milestone = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
             // _spawnFn: test-only injection point; not in inputSchema

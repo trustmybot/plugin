@@ -570,6 +570,7 @@ export function taskTools(db) {
             // resolution: the sole-repo fallback names the sole registered repo;
             // multi-repo projects must pass task.repo explicitly (else null).
             const soleRepoValue = resolveSoleRepo(db)?.name ?? null;
+            const repoCount = db.get('SELECT COUNT(*) AS c FROM repos')?.c ?? 0;
             // Pre-transaction: format-validate then branch-ensure against the
             // resolved repo (explicit > default). Order matters: bad format should
             // produce the format error, not a git error. (#360, #529)
@@ -594,6 +595,12 @@ export function taskTools(db) {
                     effectiveRepoName = repo;
                 }
                 else {
+                    // Multi-repo with no task.repo: don't silently default the base to
+                    // 'main'. Mirror task_provision — require an explicit task.repo (#15).
+                    if (repoCount > 1) {
+                        throw new Error(`task_create_batch: task branch_id='${t.branch_id}' omits repo but ${repoCount} repos are registered. ` +
+                            `Pass task.repo=<name> — multi-repo workspaces scope every task by repo (mirrors task_provision).`);
+                    }
                     effectiveRepoName = soleRepoValue;
                 }
                 if (effectiveRepoName) {

@@ -1055,7 +1055,7 @@ describe('taskTools', () => {
             cleanup();
         }
     });
-    it('task_create_batch defaults repo to null when task.repo omitted and multiple repos are registered', async () => {
+    it('task_create_batch returns a named error when task.repo is omitted and multiple repos are registered (#15)', async () => {
         const db = tempDB();
         db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a')`);
         db.run(`INSERT INTO repos (name, path) VALUES ('b', '/ws/b')`);
@@ -1070,9 +1070,11 @@ describe('taskTools', () => {
                 { branch_id: 'feat/multi-repo-no-default', description: 'No repo, multi-repo' },
             ],
         });
-        const inserted = parseBatch(result);
-        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-        assert.equal(inserted[0].repo, null, 'multi-repo with no explicit repo resolves to null');
+        assert.ok(result.isError, 'multi-repo with no task.repo must be a named error');
+        assert.match(parseResult(result).error, /omits repo but 2 repos are registered/);
+        // No task row was created — the error fires before any INSERT.
+        const count = db.get('SELECT COUNT(*) AS n FROM tasks WHERE issue_id = ?', [issueId]);
+        assert.equal(count?.n, 0, 'no task row persisted on the named error');
         db.close();
     });
     it('task_create_batch auto-creates branch via the sole registered repo when the branch is missing (#529)', async () => {
