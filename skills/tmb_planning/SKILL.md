@@ -96,6 +96,6 @@ After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff
 3. Each `## Success Criteria` bullet is visibly met by the diff.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
-All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, file the fix as a follow-up issue, and hold the push.
+All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, file the fix as a follow-up issue, and hold the push.
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
