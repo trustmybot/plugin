@@ -670,4 +670,75 @@ out=$(run_hook_in_repo "git push -f origin main")
 assert_contains "$out" '"permissionDecision":"deny"' "unconfigured repo must deny force-push to default-protected main"
 cleanup_repo
 
+# ---- #15/H8: unresolved repo → NO-OP (don't enforce a guessed default policy) --
+# When a command runs in the non-repo workspace root with no `cd`/`-C` target,
+# the repo can't be resolved. The guard must no-op rather than apply a guessed
+# github-flow/main policy (pre-fix it false-fired a "Detached HEAD" block).
+
+test_case "#15/H8: command in non-repo workspace root (no cd target) → no-op, not a guessed-policy block"
+setup_multirepo_workspace "single"
+out=$( (cd "$WS_PATH" && echo '{"tool_input":{"command":"git checkout -b feat/x"}}' \
+  | TRAJECTORY_DB_PATH="$WS_PATH/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1) || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "unresolved repo must no-op (no main-policy enforcement)"
+cleanup_ws
+
+# ---- #13/H3: configured target_branch ref missing → fall back to real default --
+# /scan can wrongly tag a main-only repo with target_branch=dev. Rule 4 must not
+# demand branching from a non-existent dev; it falls back to the repo's real
+# default branch (main here) for the base check.
+
+setup_h3_missing_target_repo() {
+  local dir
+  dir=$(mktemp -d -t tmb-guards-h3-XXXX)
+  (
+    cd "$dir" || exit 1
+    git init -q -b main
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md && git add . && git commit -qm init
+    mkdir -p .claude/tmb
+    sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    # target_branch=dev, but the repo has NO dev branch (main-only).
+    sqlite3 .claude/tmb/trajectory.db \
+      "INSERT INTO repos (name, path, target_branch, branching_model, protected_branches) VALUES ('fixture', '$(git rev-parse --show-toplevel)', 'dev', 'gitflow', '[\"main\",\"dev\"]');" >/dev/null
+  )
+  REPO_PATH="$dir"
+}
+
+test_case "#13/H3: missing target_branch ref → branch-from-default (main) ALLOWED"
+setup_h3_missing_target_repo
+out=$(run_hook_in_repo "git checkout -b feat/x")
+assert_not_contains "$out" '"permissionDecision":"deny"' "branch from real default (main) must be allowed when configured 'dev' ref is missing"
+cleanup_repo
+
+test_case "#13/H3: missing target_branch ref → branch from a NON-default branch still BLOCKS"
+setup_h3_missing_target_repo
+git -C "$REPO_PATH" branch feat/existing
+git -C "$REPO_PATH" checkout -q feat/existing
+out=$(run_hook_in_repo "git checkout -b feat/y")
+assert_contains "$out" '"permissionDecision":"deny"' "fallback target is main, not blanket-allow — branching off feat/existing must block"
+assert_contains "$out" "from main" "block message must name the fallback default branch"
+cleanup_repo
+
+# ---- #15/H2: dev→main exception reads the head from the COMMAND's repo ----------
+# A `cd <repo> && gh pr create --base main` (no --head) must read the current
+# branch via `git -C <cd-target>`, not the hook's $PWD. Pre-fix, the bare
+# `git branch --show-current` ran in $PWD (a non-repo here) and returned empty,
+# falsely blocking a legitimate dev→main release PR.
+
+test_case "#15/H2: dev→main gh pr create (no --head) reads head=dev from the cd target → ALLOWED"
+setup_glab_repo   # repo initialized on dev, target_branch=dev
+out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title release" '{tool_input:{command:$c}}')" \
+  | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1) || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "current branch (dev), read from the cd target, must allow the release PR"
+cleanup_repo
+
+test_case "#15/H2: dev→main gh pr create (no --head) from a FEATURE branch (read via cd target) → BLOCKS"
+setup_glab_repo
+git -C "$REPO_PATH" checkout -q -b feat/x
+out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title oops" '{tool_input:{command:$c}}')" \
+  | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1) || true)
+assert_contains "$out" '"permissionDecision":"deny"' "head=feat/x (read from cd target) must block the dev→main exception"
+cleanup_repo
+
 summarize

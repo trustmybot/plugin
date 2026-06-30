@@ -29,6 +29,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 #   id=42 → gh_iid=42  (aligned)
 #   id=7  → gl_iid=88, gh_iid NULL (GitLab project)
 #   id=9  → gh_iid NULL, gl_iid NULL (unmapped local)
+#   id=10 → gh_iid=50, gl_iid=60 (BOTH set, differ — provider decides which iid)
 DB="$TMPDIR/trajectory.db"
 sqlite3 "$DB" "
   CREATE TABLE issues (
@@ -40,7 +41,8 @@ sqlite3 "$DB" "
     (5, 42, NULL),
     (42, 42, NULL),
     (7, NULL, 88),
-    (9, NULL, NULL);
+    (9, NULL, NULL),
+    (10, 50, 60);
 "
 
 input_bash() {
@@ -82,6 +84,22 @@ test_case "(a) glab mr create body with local #7 (gl_iid 88): deny, shows #88"
 out_a4=$(run_hook "$(input_bash "glab mr create --title x --description 'see #7'")")
 assert_contains "$out_a4" '"permissionDecision":"deny"' "deny on glab gl_iid mismatch"
 assert_contains "$out_a4" "#88" "correct gl remote ref shown"
+
+# ---- H7: provider decides which iid to cite (id=10 has gh_iid=50, gl_iid=60) --
+test_case "(H7) gh pr create citing local #10: deny, shows the GitHub iid #50"
+out_h7_gh=$(run_hook "$(input_bash "gh pr create --title x --body 'see #10'")")
+assert_contains "$out_h7_gh" '"permissionDecision":"deny"' "gh provider must deny on #10"
+assert_contains "$out_h7_gh" "#50" "gh command must resolve the GitHub iid"
+assert_contains "$out_h7_gh" "GitHub" "gh command must name GitHub"
+
+test_case "(H7) glab mr create citing local #10: deny, shows the GitLab iid #60 (not #50)"
+out_h7_gl=$(run_hook "$(input_bash "glab mr create --title x --description 'see #10'")")
+assert_contains "$out_h7_gl" '"permissionDecision":"deny"' "glab provider must deny on #10"
+assert_contains "$out_h7_gl" "#60" "glab command must resolve the GitLab iid, not the GitHub one"
+assert_contains "$out_h7_gl" "GitLab" "glab command must name GitLab"
+
+test_case "(H7) glab mr create citing #10 does NOT cite the GitHub iid #50"
+assert_not_contains "$out_h7_gl" "#50" "glab command must not surface the GitHub iid"
 
 # ============================================================================
 # Case (b) — real remote ref (#42 is not a mis-cited local id) → allow

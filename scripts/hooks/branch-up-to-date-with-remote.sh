@@ -59,7 +59,12 @@ esac
 BRANCH=$(echo "$CMD" | awk '{print $NF}')
 [ -n "$BRANCH" ] || exit 0
 
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# Resolve the repo from the command's `cd <repo> &&` / `git -C <repo>` target —
+# in a multi-repo workspace $PWD is the non-repo workspace root, so a bare
+# `git rev-parse --show-toplevel` on $PWD would mis-scope (or go inert).
+_CMD_CWD=$(tmb_cmd_cwd "$CMD" "$INPUT")
+REPO_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
+[ -n "$REPO_ROOT" ] || exit 0
 DB_PATH="${TRAJECTORY_DB_PATH:-$REPO_ROOT/.claude/${PLUGIN_NAME}/trajectory.db}"
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0

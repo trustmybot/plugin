@@ -142,8 +142,41 @@ if [ -z "$PUSH_SHAS" ]; then
   _PUSH_REPO_ROW=$(tmb_repo_resolve "$DB" "$_PUSH_GIT_ROOT")
   PR_TARGET=$(printf '%s' "$_PUSH_REPO_ROW" | cut -d'|' -f1)
   PR_TARGET="${PR_TARGET:-dev}"
-  # shellcheck disable=SC2086
-  PUSH_SHAS=$(git ${GIT_DIR_ARGS} log "origin/${PR_TARGET}..HEAD" --pretty=%H 2>/dev/null || true)
+  # H4 (HIGH): resolve a base ref that ACTUALLY EXISTS. When origin/$PR_TARGET is
+  # missing (main-only / unresolved repo) the old `git log origin/$PR_TARGET..HEAD`
+  # returned empty and the hook exited 0 — letting unsigned commits BYPASS the
+  # pr-reviewer gate. Prefer origin/<target>, then local <target>, then the
+  # remote's real default (origin/HEAD). If none resolve, FAIL CLOSED by gating
+  # the whole branch history (`HEAD`) so unsigned commits are always caught.
+  _BASE_REF=""
+  for _cand in "origin/${PR_TARGET}" "${PR_TARGET}"; do
+    # shellcheck disable=SC2086
+    if git ${GIT_DIR_ARGS} rev-parse --verify --quiet "$_cand" >/dev/null 2>&1; then
+      _BASE_REF="$_cand"
+      break
+    fi
+  done
+  if [ -z "$_BASE_REF" ]; then
+    # shellcheck disable=SC2086
+    _PUSH_DEFAULT=$(git ${GIT_DIR_ARGS} symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)
+    if [ -n "$_PUSH_DEFAULT" ]; then
+      for _cand in "origin/${_PUSH_DEFAULT}" "${_PUSH_DEFAULT}"; do
+        # shellcheck disable=SC2086
+        if git ${GIT_DIR_ARGS} rev-parse --verify --quiet "$_cand" >/dev/null 2>&1; then
+          _BASE_REF="$_cand"
+          break
+        fi
+      done
+    fi
+  fi
+  if [ -n "$_BASE_REF" ]; then
+    # shellcheck disable=SC2086
+    PUSH_SHAS=$(git ${GIT_DIR_ARGS} log "${_BASE_REF}..HEAD" --pretty=%H 2>/dev/null || true)
+  else
+    # Fail closed: base unresolvable → gate every commit reachable from HEAD.
+    # shellcheck disable=SC2086
+    PUSH_SHAS=$(git ${GIT_DIR_ARGS} log HEAD --pretty=%H 2>/dev/null || true)
+  fi
 fi
 [ -z "$PUSH_SHAS" ] && exit 0
 

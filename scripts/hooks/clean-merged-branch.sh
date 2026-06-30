@@ -55,9 +55,11 @@ _clean_merged_branch_main() {
     exit 0
   fi
 
+  # Resolve the repo from the command's `cd <repo> &&` / `git -C <repo>` target
+  # (then the payload .cwd, then $PWD) — in a multi-repo workspace $PWD/.cwd is
+  # the non-repo workspace root and would mis-scope the cleanup to the wrong tree.
   local cwd
-  cwd=$(printf '%s' "$input" | jq -r '.cwd // ""' 2>/dev/null)
-  [ -n "$cwd" ] || cwd="$PWD"
+  cwd=$(tmb_cmd_cwd "$cmd" "$input")
 
   # Resolve the MAIN repo root (the merge may run from a worktree).
   local repo_root
@@ -164,13 +166,14 @@ _cmb_branch_from_cmd() {
 }
 
 # _cmb_is_protected <repo_root> <branch>
-# Exit 0 when <branch> is protected: hard-excluded main/dev, or listed in the
-# repos.protected_branches column for this repo.
+# Exit 0 when <branch> is protected: it is the repo's real default branch, or it
+# is listed in the repos.protected_branches column for this repo.
 _cmb_is_protected() {
   local repo_root="$1" branch="$2"
-  case "$branch" in
-    main|dev|master) return 0 ;;
-  esac
+  # Never delete the repo's real default branch.
+  local default_branch
+  default_branch=$(tmb_repo_default_branch "$repo_root")
+  [ -n "$default_branch" ] && [ "$branch" = "$default_branch" ] && return 0
   local db protected
   db=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$db" ] && [ -f "$db" ]; then
@@ -192,7 +195,8 @@ _cmb_is_protected() {
 }
 
 # _cmb_base_branch <repo_root>
-# Print the repo's base branch (repos.target_branch, else dev).
+# Print the repo's base branch: repos.target_branch when set, else the repo's
+# real default branch (origin/HEAD's target / the main checkout's branch).
 _cmb_base_branch() {
   local repo_root="$1"
   local db
@@ -206,7 +210,7 @@ _cmb_base_branch() {
       return 0
     fi
   fi
-  printf 'dev'
+  tmb_repo_default_branch "$repo_root"
 }
 
 # _cmb_worktree_for_branch <repo_root> <branch>
