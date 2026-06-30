@@ -13,6 +13,7 @@ Sixth release candidate for v0.10.0 — the native multi-repo hardening campaign
 - **Onboard per-repo reconciliation** (#1007, closes #13): the workspace-wide apply reconciles each repo against its own git tree, so a main-only sibling is no longer forced into gitflow/`dev` — removing the git-guard deadlock for catalog ref bumps.
 
 ### Fixed
+- **SWE tasks no longer stick at pending** (#18): `task_provision` now persists `parent_branch_id` (= the branch base) instead of leaving it NULL, and `swe-atomic-close` detects the worktree commit even when `parent_branch_id` is empty — so a dispatched SWE task auto-completes on commit instead of stranding bro in a manual-recovery loop.
 - **Push-gate fails closed on unresolved base ref** (#1005): the push-gate first-push check now fails closed when the base ref can't be resolved, instead of letting unsigned commits bypass the pr-reviewer gate on main-only repos.
 - **MCP tools error instead of degrading on an unresolved repo** (#1006): `world_model_get`, `world_model_search`, `pr_monitor_comments_get`, and `task_create_batch` return an actionable `repo-unspecified` error rather than silently degrading when the repo is unresolved in a multi-repo workspace.
 - **World-model 0-repo edge + test isolation** (#1008): `repo-unspecified` is returned only with 2+ repos (0 repos falls through to the empty/unavailable path), and the git-guards fresh-install test is isolated from ancestor-workspace DB discovery.
