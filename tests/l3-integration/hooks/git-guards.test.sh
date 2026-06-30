@@ -19,8 +19,28 @@ run_hook() {
 }
 
 test_case "no config (fresh install) is non-blocking for commits"
-out=$(run_hook '{"tool_input":{"command":"git commit -m test"}}')
+# Isolate like the #549 case: a fresh temp git repo with NO ancestor
+# .claude/tmb DB, and a clean temp HOME so no tmb-active-workspace sentinel
+# resolves. Otherwise tmb_db_path walks up and finds the real workspace DB
+# (gitflow/dev policy) when the suite runs nested inside a live TMB checkout,
+# which would block the commit and fail the assertion. The repo is on a
+# feature branch so the fresh-install safe-default ([main,dev] protected) does
+# not fire Rule 2 — the assertion is purely "no config → no policy block".
+_fresh_dir=$(mktemp -d -t tmb-guards-fresh-XXXX)
+_fresh_home=$(mktemp -d -t tmb-guards-freshhome-XXXX)
+(
+  cd "$_fresh_dir" || exit 1
+  git init -q -b feat/fresh
+  git config user.email t@t.t
+  git config user.name T
+  echo init > README.md
+  git add . && git commit -qm init
+  # No .claude/tmb DB and no INSERT INTO repos — genuine fresh install.
+)
+out=$(cd "$_fresh_dir" && echo '{"tool_input":{"command":"git commit -m test"}}' \
+  | HOME="$_fresh_home" TRAJECTORY_DB_PATH=/nonexistent.db bash "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "should NOT block on fresh install"
+rm -rf "$_fresh_dir" "$_fresh_home"
 
 test_case "non-git command passes through"
 out=$(run_hook '{"tool_input":{"command":"ls -la"}}')

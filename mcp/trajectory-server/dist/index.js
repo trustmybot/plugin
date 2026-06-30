@@ -31642,12 +31642,11 @@ function worldModelTools(db2, graph2) {
       wrap5(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
-          const sole = resolveSoleRepo(db2)?.name;
-          if (sole === void 0) {
-            const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          if (available.length >= 2) {
             return ok18({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
           }
-          repo = sole;
+          repo = resolveSoleRepo(db2)?.name ?? "";
         }
         const path2 = args["path"] ?? "";
         const depthArg = args["depth"];
@@ -31679,12 +31678,11 @@ function worldModelTools(db2, graph2) {
         const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
         let repo = args["repo"] ?? "";
         if (!repo) {
-          const sole = resolveSoleRepo(db2)?.name;
-          if (sole === void 0) {
-            const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          if (available.length >= 2) {
             return ok18({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
           }
-          repo = sole;
+          repo = resolveSoleRepo(db2)?.name ?? "";
         }
         if (!graph2) {
           return ok18({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
