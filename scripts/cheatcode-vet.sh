@@ -136,16 +136,27 @@ owner_repo() {
     | sed -nE 's#^https?://github\.com/([^/]+)/([^/.]+)(\.git)?/?.*$#\1/\2#p'
 }
 
+# Resolve the fixture path. The env var wins when set. When it is unset/empty,
+# probe the deterministic default path "$PWD/.tmb-cheatcode-vet-fixture.json"
+# (the path the row setup-l5.sh stages in the step's CWD) and use it if present —
+# this lets the L6 chain reach the fixture even though the runner's subshell
+# export of the env var never reaches the step's `claude -p`. When neither the
+# env nor the default file is present, the live / no-fixture path is unchanged.
+VET_FIXTURE_PATH="${TMB_CHEATCODE_VET_FIXTURE:-}"
+if [ -z "$VET_FIXTURE_PATH" ] && [ -f "$PWD/.tmb-cheatcode-vet-fixture.json" ]; then
+  VET_FIXTURE_PATH="$PWD/.tmb-cheatcode-vet-fixture.json"
+fi
+
 # Acquire signal inputs. Fixture path (test hook) takes precedence over any live
 # lookup so CI never touches the network.
 repo_json='{}'
 contents_json='[]'
-if [ -n "${TMB_CHEATCODE_VET_FIXTURE:-}" ]; then
-  [ -f "$TMB_CHEATCODE_VET_FIXTURE" ] || {
-    echo "{\"error\":\"fixture not found: $TMB_CHEATCODE_VET_FIXTURE\"}" >&2
+if [ -n "$VET_FIXTURE_PATH" ]; then
+  [ -f "$VET_FIXTURE_PATH" ] || {
+    echo "{\"error\":\"fixture not found: $VET_FIXTURE_PATH\"}" >&2
     exit 1
   }
-  fixture=$(cat "$TMB_CHEATCODE_VET_FIXTURE")
+  fixture=$(cat "$VET_FIXTURE_PATH")
   if ! printf '%s' "$fixture" | jq -e 'type == "object"' >/dev/null 2>&1; then
     echo '{"error":"fixture is not a JSON object"}' >&2
     exit 1
