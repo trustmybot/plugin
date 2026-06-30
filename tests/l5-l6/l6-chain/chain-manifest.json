@@ -52,6 +52,8 @@
       "row_dir": "rows/05/05-first-task-hits-gate",
       "partial_test": false,
       "seed_before": "seeds/before-05-first-task-hits-gate.sql",
+      "chain_setup_command": "rm -rf .claude/*/world-model.kuzu",
+      "chain_setup_note": "Make step 05 genuinely cold. seed_before deletes the deep_scan_completed audit row (SessionStart banner reports cold), but prior chain steps leave the kuzu world model populated, so world_model_get would return a WARM tree and bro could non-deterministically skip scan_run — which this step's tools-required scorer mandates. Removing the kuzu graph dir(s) at $PROJECT/.claude/<plugin>/world-model.kuzu (resolved relative to $PWD, since the runner runs this from inside $PROJECT) makes world_model_get return empty, matching the cold audit signal — bro deterministically runs /scan per the registry-cold SOP, which repopulates repos + the deep_scan_completed row for the downstream scorers. L5 standalone skips this (no prior chain populates kuzu).",
       "seed_after": null,
       "halt_on_fail": true
     },
