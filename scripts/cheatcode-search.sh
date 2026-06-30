@@ -145,15 +145,26 @@ adapter_pulsemcp() {
   ' 2>/dev/null || echo '[]'
 }
 
+# Resolve the fixture path. The env var wins when set. When it is unset/empty,
+# probe the deterministic default path "$PWD/.tmb-cheatcode-fixture.json" (the
+# path the row setup-l5.sh stages in the step's CWD) and use it if present —
+# this lets the L6 chain reach the fixture even though the runner's subshell
+# export of the env var never reaches the step's `claude -p`. When neither the
+# env nor the default file is present, the live / no-fixture path is unchanged.
+SEARCH_FIXTURE_PATH="${TMB_CHEATCODE_SEARCH_FIXTURE:-}"
+if [ -z "$SEARCH_FIXTURE_PATH" ] && [ -f "$PWD/.tmb-cheatcode-fixture.json" ]; then
+  SEARCH_FIXTURE_PATH="$PWD/.tmb-cheatcode-fixture.json"
+fi
+
 # Acquire the candidate set. Fixture path (test hook) takes precedence over any
 # live lookup so CI never touches the network.
 candidates_json=""
-if [ -n "${TMB_CHEATCODE_SEARCH_FIXTURE:-}" ]; then
-  [ -f "$TMB_CHEATCODE_SEARCH_FIXTURE" ] || {
-    echo "{\"error\":\"fixture not found: $TMB_CHEATCODE_SEARCH_FIXTURE\"}" >&2
+if [ -n "$SEARCH_FIXTURE_PATH" ]; then
+  [ -f "$SEARCH_FIXTURE_PATH" ] || {
+    echo "{\"error\":\"fixture not found: $SEARCH_FIXTURE_PATH\"}" >&2
     exit 1
   }
-  candidates_json=$(cat "$TMB_CHEATCODE_SEARCH_FIXTURE")
+  candidates_json=$(cat "$SEARCH_FIXTURE_PATH")
   if ! printf '%s' "$candidates_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
     echo '{"error":"fixture is not a JSON array of candidates"}' >&2
     exit 1
