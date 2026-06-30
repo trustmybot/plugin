@@ -1574,14 +1574,16 @@ describe('task_provision (#157)', () => {
       assert.equal(decision!.author, 'bro');
 
       // Task row written with typed fields.
-      const task = db.get<{ id: number; status: string; files: string; verification: string; repo: string }>(
-        `SELECT id, status, files, verification, repo FROM tasks WHERE id = ?`,
+      const task = db.get<{ id: number; status: string; files: string; verification: string; repo: string; parent_branch_id: string }>(
+        `SELECT id, status, files, verification, repo, parent_branch_id FROM tasks WHERE id = ?`,
         [out['task_id']],
       );
       assert.ok(task);
       assert.equal(task!.status, 'pending');
       assert.deepEqual(JSON.parse(task!.files), ['src/x.ts']);
       assert.deepEqual(JSON.parse(task!.verification), ['bun run build']);
+      // parent_branch_id persisted = the resolved base (repos.target_branch='main' when no explicit base).
+      assert.equal(task!.parent_branch_id, 'main', 'parent_branch_id = defaulted base (repos.target_branch)');
 
       // planning_complete audit + bro agent_run row written.
       const audit = db.get<{ c: number }>(
@@ -1598,6 +1600,44 @@ describe('task_provision (#157)', () => {
       assert.equal(git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/the-thing').length, 40);
       const wtList = git(repoRoot, 'worktree', 'list', '--porcelain');
       assert.match(wtList, /the-thing/);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('persists parent_branch_id = explicit base passed to task_provision', async () => {
+    const { ws, repoRoot, git } = makeRepo();
+    try {
+      // Fabricate an origin/dev remote-tracking ref so an explicit base='dev' resolves.
+      git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', git(repoRoot, 'rev-parse', 'HEAD'));
+      const db = tempDB();
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro',
+        issue_id: 1,
+        branch_id: 'feat/explicit-base',
+        base: 'dev',
+        decision_body: 'approach: branch from dev; trade-off none.',
+        task: {
+          description: 'd',
+          spec_body: SPEC,
+          files: ['src/x.ts'],
+          verification: ['true'],
+          repo: 'app',
+        },
+      });
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      const out = parse(r) as Record<string, unknown>;
+
+      const task = db.get<{ parent_branch_id: string }>(
+        `SELECT parent_branch_id FROM tasks WHERE id = ?`,
+        [out['task_id']],
+      );
+      assert.ok(task);
+      assert.equal(task!.parent_branch_id, 'dev', 'parent_branch_id = explicit base passed');
       db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });
