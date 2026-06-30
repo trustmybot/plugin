@@ -2,6 +2,21 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-rc.6 — 2026-06-30
+
+Sixth release candidate for v0.10.0 — the native multi-repo hardening campaign: retires the default-repo concept, scopes the git/workflow hooks and the MCP defaults to the command's actual target repo, and reconciles each repo against its own git tree on onboard.
+
+### Changed
+- **Default-repo concept retired** (#1004): removed the dead repo-ranking code, renamed the single-repo resolver `resolveDefaultRepo` → `resolveSoleRepo`, and cleaned the stale `tmb_default_repo` doc note.
+- **Multi-repo hook scoping** (#1005, H1–H8): the git/workflow guards resolve the command's `cd`/`-C` target repo instead of `$PWD`, use a provider-aware remote-id, and fall back to the repo's real default branch when `target_branch` is missing.
+- **Per-repo MCP defaults** (#1006, F1–F5): the milestone default derives from the issue repo's own open milestone (no global `tmb_active_milestone`), and `intent_start` takes a `repo` param.
+- **Onboard per-repo reconciliation** (#1007, closes #13): the workspace-wide apply reconciles each repo against its own git tree, so a main-only sibling is no longer forced into gitflow/`dev` — removing the git-guard deadlock for catalog ref bumps.
+
+### Fixed
+- **Push-gate fails closed on unresolved base ref** (#1005): the push-gate first-push check now fails closed when the base ref can't be resolved, instead of letting unsigned commits bypass the pr-reviewer gate on main-only repos.
+- **MCP tools error instead of degrading on an unresolved repo** (#1006): `world_model_get`, `world_model_search`, `pr_monitor_comments_get`, and `task_create_batch` return an actionable `repo-unspecified` error rather than silently degrading when the repo is unresolved in a multi-repo workspace.
+- **World-model 0-repo edge + test isolation** (#1008): `repo-unspecified` is returned only with 2+ repos (0 repos falls through to the empty/unavailable path), and the git-guards fresh-install test is isolated from ancestor-workspace DB discovery.
+
 ## v0.10.0-rc.5 — 2026-06-22
 
 Fifth release candidate for v0.10.0 — completes the move of repo-scoped policy onto the `repos` table and hardens onboard, provisioning, embeddings, the orphan-scan, and the git guards.
