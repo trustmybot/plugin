@@ -131,14 +131,15 @@ export function worldModelTools(db, graph) {
         world_model_get: requireRoles('world_model_get', ['bro', 'swe', 'pr-reviewer'], wrap(async (args) => {
             let repo = args['repo'] ?? '';
             if (!repo) {
-                const sole = resolveSoleRepo(db)?.name;
-                if (sole === undefined) {
-                    // Multi-repo (or no repos) with no selector: don't silently target
-                    // an empty repo. Name the available repos so the caller can pass one.
-                    const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+                const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+                if (available.length >= 2) {
+                    // Multi-repo with no selector: don't silently target one repo.
+                    // Name the available repos so the caller can pass one.
                     return ok({ repo: '', root: null, warning: 'repo-unspecified', available_repos: available });
                 }
-                repo = sole;
+                // 0 repos → fall through with repo='' to the empty/unavailable paths.
+                // Exactly 1 → resolve the sole repo.
+                repo = resolveSoleRepo(db)?.name ?? '';
             }
             const path = args['path'] ?? '';
             const depthArg = args['depth'];
@@ -167,14 +168,15 @@ export function worldModelTools(db, graph) {
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
             let repo = args['repo'] ?? '';
             if (!repo) {
-                const sole = resolveSoleRepo(db)?.name;
-                if (sole === undefined) {
-                    // Multi-repo (or no repos) with no selector: don't silently search
-                    // an empty repo. Name the available repos so the caller can pass one.
-                    const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+                const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+                if (available.length >= 2) {
+                    // Multi-repo with no selector: don't silently search one repo.
+                    // Name the available repos so the caller can pass one.
                     return ok({ repo: '', results: [], total_matched: 0, warning: 'repo-unspecified', available_repos: available, mode });
                 }
-                repo = sole;
+                // 0 repos → fall through with repo='' to the empty/unavailable paths.
+                // Exactly 1 → resolve the sole repo.
+                repo = resolveSoleRepo(db)?.name ?? '';
             }
             if (!graph) {
                 return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });

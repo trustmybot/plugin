@@ -169,6 +169,33 @@ describe('world_model_get/search — repo-unspecified (#15)', () => {
     db.close();
   });
 
+  it('world_model_get with 0 repos falls through to world-model-unavailable (not repo-unspecified) (#16)', async () => {
+    const db = tempDB();
+    const tools = worldModelTools(db, null);
+
+    const r = (await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult;
+    const out = wmParse(r);
+    assert.notEqual(out['warning'], 'repo-unspecified', '0 repos must not short-circuit on repo-unspecified');
+    assert.equal(out['warning'], 'world-model-unavailable', '0 repos falls through to the empty/unavailable path');
+    assert.equal(out['repo'], '');
+    assert.equal(out['available_repos'], undefined, 'no available_repos list on the 0-repo fall-through');
+
+    db.close();
+  });
+
+  it('world_model_search with 0 repos falls through to world-model-unavailable (not repo-unspecified) (#16)', async () => {
+    const db = tempDB();
+    const tools = worldModelTools(db, null);
+
+    const r = (await tools.handlers['world_model_search']!({ agent: 'bro', query: 'parser' })) as WmResult;
+    const out = wmParse(r);
+    assert.notEqual(out['warning'], 'repo-unspecified', '0 repos must not short-circuit on repo-unspecified');
+    assert.equal(out['warning'], 'world-model-unavailable', '0 repos falls through to the empty/unavailable path');
+    assert.equal(out['available_repos'], undefined, 'no available_repos list on the 0-repo fall-through');
+
+    db.close();
+  });
+
   it('single-repo with no repo arg resolves the sole repo (not repo-unspecified)', async () => {
     const db = tempDB();
     db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);

@@ -173,14 +173,15 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
       wrap(async (args) => {
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
-          const sole = resolveSoleRepo(db)?.name;
-          if (sole === undefined) {
-            // Multi-repo (or no repos) with no selector: don't silently target
-            // an empty repo. Name the available repos so the caller can pass one.
-            const available = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          const available = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          if (available.length >= 2) {
+            // Multi-repo with no selector: don't silently target one repo.
+            // Name the available repos so the caller can pass one.
             return ok({ repo: '', root: null, warning: 'repo-unspecified', available_repos: available });
           }
-          repo = sole;
+          // 0 repos → fall through with repo='' to the empty/unavailable paths.
+          // Exactly 1 → resolve the sole repo.
+          repo = resolveSoleRepo(db)?.name ?? '';
         }
 
         const path = (args['path'] as string | undefined) ?? '';
@@ -220,14 +221,15 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
 
         let repo = (args['repo'] as string | undefined) ?? '';
         if (!repo) {
-          const sole = resolveSoleRepo(db)?.name;
-          if (sole === undefined) {
-            // Multi-repo (or no repos) with no selector: don't silently search
-            // an empty repo. Name the available repos so the caller can pass one.
-            const available = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          const available = db.all<{ name: string }>(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          if (available.length >= 2) {
+            // Multi-repo with no selector: don't silently search one repo.
+            // Name the available repos so the caller can pass one.
             return ok({ repo: '', results: [], total_matched: 0, warning: 'repo-unspecified', available_repos: available, mode });
           }
-          repo = sole;
+          // 0 repos → fall through with repo='' to the empty/unavailable paths.
+          // Exactly 1 → resolve the sole repo.
+          repo = resolveSoleRepo(db)?.name ?? '';
         }
 
         if (!graph) {
