@@ -29235,6 +29235,31 @@ function probeGit(cwd) {
     origin_kind: origin ? origin.provider : null
   };
 }
+function branchExists(cwd, branch) {
+  const r = spawnSync5("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+    encoding: "utf8",
+    timeout: 3e3
+  });
+  return r.status === 0;
+}
+function repoDefaultBranch(cwd) {
+  const opts = { encoding: "utf8", timeout: 3e3 };
+  const head = spawnSync5("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
+  if (head.status === 0) {
+    const b = (head.stdout ?? "").trim().replace(/^origin\//, "");
+    if (b) return b;
+  }
+  for (const cand of ["main", "master", "dev"]) {
+    const r = spawnSync5("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
+    if (r.status === 0) return cand;
+  }
+  const cur = spawnSync5("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
+  if (cur.status === 0) {
+    const b = (cur.stdout ?? "").trim();
+    if (b) return b;
+  }
+  return "main";
+}
 function probeCli(cmd) {
   const which = spawnSync5("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? "").trim().length > 0;
@@ -29717,9 +29742,9 @@ function onboardTools(db2, dbPath2 = "") {
         let remotes = [];
         let issue_sync = "off";
         let warning;
+        let remoteList = [];
         if (shape === "remote") {
           const rawRemote = args["remote"];
-          let remoteList;
           if (Array.isArray(rawRemote)) {
             remoteList = rawRemote.filter((s) => typeof s === "string");
           } else if (typeof rawRemote === "string") {
@@ -29754,18 +29779,21 @@ function onboardTools(db2, dbPath2 = "") {
           if (issue_sync !== "auto" && issue_sync !== "off") {
             throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
           }
-          const git = probeGit(probeDir());
-          const findUrl = (p) => git.detected_remotes.find((r) => r.provider === p)?.url ?? "";
+        }
+        const remotesForPath = (path2) => {
+          const detected = probeGit(path2).detected_remotes;
+          const findUrl = (p) => detected.find((r) => r.provider === p)?.url ?? "";
+          const out = [];
           const wantedGh = remoteList.includes("github");
           const wantedGl = remoteList.includes("gitlab");
-          if (wantedGh) remotes.push({ name: "origin", provider: "github", url: findUrl("github") });
+          if (wantedGh) out.push({ name: "origin", provider: "github", url: findUrl("github") });
           if (wantedGl) {
-            remotes.push({
-              name: wantedGh ? "gitlab" : "origin",
-              provider: "gitlab",
-              url: findUrl("gitlab")
-            });
+            out.push({ name: wantedGh ? "gitlab" : "origin", provider: "gitlab", url: findUrl("gitlab") });
           }
+          return out;
+        };
+        if (shape === "remote") {
+          remotes = remotesForPath(probeDir());
           const origin = remotes.find((r) => r.name === "origin");
           if (origin && origin.url.length === 0) {
             warning = `remote URL not detected for ${origin.provider}; issues will not sync \u2014 check the repo's git remote`;
@@ -29775,10 +29803,34 @@ function onboardTools(db2, dbPath2 = "") {
         db2.transaction(() => {
           writeConfig(db2, "onboarded", true);
           writeConfig(db2, "issue_sync", issue_sync);
-          db2.run(
-            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ?`,
-            [pr_target, branching_model, JSON.stringify(protected_branches), JSON.stringify(remotes)]
+          const rows = db2.all(
+            `SELECT name, path FROM repos`
           );
+          for (const row of rows) {
+            let effModel = branching_model;
+            let effTarget = pr_target;
+            let effRemotes = shape === "remote" ? remotes : [];
+            try {
+              if (probeGit(row.path).in_git) {
+                if (effModel === "gitflow" && !branchExists(row.path, pr_target)) {
+                  effModel = "github-flow";
+                  effTarget = repoDefaultBranch(row.path);
+                }
+                if (shape === "remote") {
+                  effRemotes = remotesForPath(row.path);
+                }
+              }
+            } catch {
+              effModel = branching_model;
+              effTarget = pr_target;
+              effRemotes = shape === "remote" ? remotes : [];
+            }
+            const effProtected = deriveProtectedBranches(effModel, effTarget);
+            db2.run(
+              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`,
+              [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name]
+            );
+          }
         });
         try {
           writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot2(), homeDir: os.homedir() });

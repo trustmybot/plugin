@@ -695,6 +695,112 @@ describe('onboard tools', () => {
             db.close();
         });
     });
+    describe('onboard_apply (workspace per-repo reconciliation #13)', () => {
+        function initRepo(dir, opts = {}) {
+            const gitOpts = { cwd: dir, encoding: 'utf8' };
+            spawnSync('git', ['init', '-q', '-b', 'main'], gitOpts);
+            spawnSync('git', ['config', 'user.email', 't@t.t'], gitOpts);
+            spawnSync('git', ['config', 'user.name', 't'], gitOpts);
+            spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], gitOpts);
+            for (const b of opts.branches ?? []) {
+                spawnSync('git', ['branch', b], gitOpts);
+            }
+            if (opts.origin) {
+                spawnSync('git', ['remote', 'add', 'origin', opts.origin], gitOpts);
+            }
+        }
+        it('main-only sibling is reconciled to github-flow/main under a gitflow workspace choice (#13)', async () => {
+            const repoMain = mkdtempSync(join(tmpdir(), 'onboard-main-'));
+            const repoDev = mkdtempSync(join(tmpdir(), 'onboard-dev-'));
+            try {
+                initRepo(repoMain, { origin: 'https://github.com/acme/main-only.git' });
+                initRepo(repoDev, { branches: ['dev'], origin: 'https://github.com/acme/has-dev.git' });
+                const db = tempDB();
+                db.run(`INSERT INTO repos (path, name) VALUES (?, 'main-only')`, [repoMain]);
+                db.run(`INSERT INTO repos (path, name) VALUES (?, 'has-dev')`, [repoDev]);
+                const tools = onboardTools(db);
+                const result = await call(tools.handlers, 'onboard_apply', {
+                    shape: 'remote',
+                    branching_model: 'gitflow',
+                    pr_target: 'dev',
+                    remote: ['github'],
+                    issue_sync: 'auto',
+                });
+                assert.equal(parse(result).ok, true);
+                const mainRow = db.get(`SELECT target_branch, branching_model, protected_branches FROM repos WHERE name='main-only'`);
+                assert.equal(mainRow.branching_model, 'github-flow', 'main-only repo cannot run gitflow/dev');
+                assert.equal(mainRow.target_branch, 'main', 'downgraded to its real default branch');
+                assert.deepEqual(JSON.parse(mainRow.protected_branches), ['main']);
+                const devRow = db.get(`SELECT target_branch, branching_model, protected_branches FROM repos WHERE name='has-dev'`);
+                assert.equal(devRow.branching_model, 'gitflow', 'dev-capable sibling keeps the chosen gitflow model');
+                assert.equal(devRow.target_branch, 'dev');
+                assert.deepEqual(JSON.parse(devRow.protected_branches).sort(), ['dev', 'main']);
+                db.close();
+            }
+            finally {
+                rmSync(repoMain, { recursive: true, force: true });
+                rmSync(repoDev, { recursive: true, force: true });
+            }
+        });
+        it('each repo gets ITS OWN remotes, not the managed repo\'s (#979)', async () => {
+            const repoA = mkdtempSync(join(tmpdir(), 'onboard-rA-'));
+            const repoB = mkdtempSync(join(tmpdir(), 'onboard-rB-'));
+            try {
+                initRepo(repoA, { branches: ['dev'], origin: 'https://github.com/acme/alpha.git' });
+                initRepo(repoB, { branches: ['dev'], origin: 'https://github.com/acme/beta.git' });
+                const db = tempDB();
+                db.run(`INSERT INTO repos (path, name) VALUES (?, 'alpha')`, [repoA]);
+                db.run(`INSERT INTO repos (path, name) VALUES (?, 'beta')`, [repoB]);
+                const tools = onboardTools(db);
+                await call(tools.handlers, 'onboard_apply', {
+                    shape: 'remote',
+                    branching_model: 'gitflow',
+                    pr_target: 'dev',
+                    remote: ['github'],
+                    issue_sync: 'auto',
+                });
+                const a = db.get(`SELECT remotes FROM repos WHERE name='alpha'`);
+                const b = db.get(`SELECT remotes FROM repos WHERE name='beta'`);
+                const aRemotes = JSON.parse(a.remotes);
+                const bRemotes = JSON.parse(b.remotes);
+                assert.equal(aRemotes[0].url, 'https://github.com/acme/alpha.git');
+                assert.equal(bRemotes[0].url, 'https://github.com/acme/beta.git');
+                db.close();
+            }
+            finally {
+                rmSync(repoA, { recursive: true, force: true });
+                rmSync(repoB, { recursive: true, force: true });
+            }
+        });
+        it('single real git repo keeps the chosen gitflow/dev (single-repo unchanged)', async () => {
+            const repo = mkdtempSync(join(tmpdir(), 'onboard-solo-'));
+            try {
+                initRepo(repo, { branches: ['dev'], origin: 'https://github.com/acme/solo.git' });
+                const db = tempDB();
+                db.run(`INSERT INTO repos (path, name) VALUES (?, 'solo')`, [repo]);
+                const tools = onboardTools(db);
+                const result = await call(tools.handlers, 'onboard_apply', {
+                    shape: 'remote',
+                    branching_model: 'gitflow',
+                    pr_target: 'dev',
+                    remote: ['github'],
+                    issue_sync: 'auto',
+                });
+                const applied = parse(result).applied;
+                assert.equal(applied.branching_model, 'gitflow');
+                assert.equal(applied.pr_target, 'dev');
+                const row = db.get(`SELECT target_branch, branching_model, remotes FROM repos WHERE name='solo'`);
+                assert.equal(row.branching_model, 'gitflow');
+                assert.equal(row.target_branch, 'dev');
+                const remotes = JSON.parse(row.remotes);
+                assert.equal(remotes[0].url, 'https://github.com/acme/solo.git');
+                db.close();
+            }
+            finally {
+                rmSync(repo, { recursive: true, force: true });
+            }
+        });
+    });
     describe('onboard_apply (per-repo)', () => {
         it('writes ONLY the named repos row; other repos + global markers untouched', async () => {
             const db = tempDB();
