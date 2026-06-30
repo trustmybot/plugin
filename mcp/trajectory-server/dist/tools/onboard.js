@@ -88,6 +88,40 @@ function probeGit(cwd) {
         origin_kind: origin ? origin.provider : null,
     };
 }
+// Whether a branch ref exists in the repo at `cwd`. Mirrors the hooks'
+// rev-parse --verify probe (resolve-repo.sh): a missing ref means that repo
+// cannot run a model whose long-lived target is that branch.
+function branchExists(cwd, branch) {
+    const r = spawnSync('git', ['-C', cwd, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], {
+        encoding: 'utf8',
+        timeout: 3000,
+    });
+    return r.status === 0;
+}
+// The repo's real default branch — same resolution order as the hooks'
+// tmb_repo_default_branch (resolve-repo.sh): origin/HEAD's target → first of
+// main/master/dev that exists → the checked-out HEAD → 'main'.
+function repoDefaultBranch(cwd) {
+    const opts = { encoding: 'utf8', timeout: 3000 };
+    const head = spawnSync('git', ['-C', cwd, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], opts);
+    if (head.status === 0) {
+        const b = (head.stdout ?? '').trim().replace(/^origin\//, '');
+        if (b)
+            return b;
+    }
+    for (const cand of ['main', 'master', 'dev']) {
+        const r = spawnSync('git', ['-C', cwd, 'show-ref', '--verify', '--quiet', `refs/heads/${cand}`], opts);
+        if (r.status === 0)
+            return cand;
+    }
+    const cur = spawnSync('git', ['-C', cwd, 'symbolic-ref', '--short', 'HEAD'], opts);
+    if (cur.status === 0) {
+        const b = (cur.stdout ?? '').trim();
+        if (b)
+            return b;
+    }
+    return 'main';
+}
 function probeCli(cmd) {
     const which = spawnSync('command', ['-v', cmd], { encoding: 'utf8', timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
     const installed = which.status === 0 && (which.stdout ?? '').trim().length > 0;
@@ -631,10 +665,10 @@ export function onboardTools(db, dbPath = '') {
             let remotes = [];
             let issue_sync = 'off';
             let warning;
+            let remoteList = [];
             if (shape === 'remote') {
                 const rawRemote = args['remote'];
                 // Accept array (canonical, post-multiSelect) or string (legacy/single).
-                let remoteList;
                 if (Array.isArray(rawRemote)) {
                     remoteList = rawRemote.filter((s) => typeof s === 'string');
                 }
@@ -676,21 +710,28 @@ export function onboardTools(db, dbPath = '') {
                 if (issue_sync !== 'auto' && issue_sync !== 'off') {
                     throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
                 }
-                const git = probeGit(probeDir());
-                const findUrl = (p) => git.detected_remotes.find((r) => r.provider === p)?.url ?? '';
-                // Stable order: github first, then gitlab. The first entry uses
-                // name='origin'; if both are present the second uses provider name.
+            }
+            // Build the chosen-provider remotes from a given repo's own git tree.
+            // Stable order: github first, then gitlab. The first entry uses
+            // name='origin'; if both are present the second uses the provider name.
+            const remotesForPath = (path) => {
+                const detected = probeGit(path).detected_remotes;
+                const findUrl = (p) => detected.find((r) => r.provider === p)?.url ?? '';
+                const out = [];
                 const wantedGh = remoteList.includes('github');
                 const wantedGl = remoteList.includes('gitlab');
                 if (wantedGh)
-                    remotes.push({ name: 'origin', provider: 'github', url: findUrl('github') });
+                    out.push({ name: 'origin', provider: 'github', url: findUrl('github') });
                 if (wantedGl) {
-                    remotes.push({
-                        name: wantedGh ? 'gitlab' : 'origin',
-                        provider: 'gitlab',
-                        url: findUrl('gitlab'),
-                    });
+                    out.push({ name: wantedGh ? 'gitlab' : 'origin', provider: 'gitlab', url: findUrl('gitlab') });
                 }
+                return out;
+            };
+            // The `applied` payload reflects the managed (probe) repo's resolution
+            // for backward compatibility with the single-repo summary that callers
+            // already consume.
+            if (shape === 'remote') {
+                remotes = remotesForPath(probeDir());
                 // Defensive: if the origin remote's URL is still blank after the
                 // probe, issue-sync will silently skip (blank_remote_url). Surface a
                 // warning so the operator can fix the repo's git remote rather than
@@ -707,9 +748,42 @@ export function onboardTools(db, dbPath = '') {
                 writeConfig(db, 'onboarded', true);
                 writeConfig(db, 'issue_sync', issue_sync);
                 // The repos table is the sole source of truth for the four repo-scoped
-                // keys (#980). onboard applies workspace-wide, so every repos row gets
-                // the same values; issue-scoped sync reads repos.remotes per repo.
-                db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ?`, [pr_target, branching_model, JSON.stringify(protected_branches), JSON.stringify(remotes)]);
+                // keys (#980). Reconcile each repo against ITS OWN git tree rather than
+                // blasting the managed repo's policy onto every row (#13): a sibling
+                // that lacks the chosen long-lived target branch cannot run the chosen
+                // gitflow model, so it is downgraded to github-flow + its real default
+                // branch. Remotes are probed from each repo's own path so scan-captured
+                // per-repo remotes (#979) survive. A repo whose git tree can't be probed
+                // falls back to the chosen policy as-is (no worse than before).
+                const rows = db.all(`SELECT name, path FROM repos`);
+                for (const row of rows) {
+                    let effModel = branching_model;
+                    let effTarget = pr_target;
+                    let effRemotes = shape === 'remote' ? remotes : [];
+                    try {
+                        // Only reconcile against a repo that is actually a git tree. A
+                        // non-git path (or a probe failure) keeps the chosen policy as-is
+                        // — no worse than before, and single-repo behavior stays identical.
+                        if (probeGit(row.path).in_git) {
+                            if (effModel === 'gitflow' && !branchExists(row.path, pr_target)) {
+                                effModel = 'github-flow';
+                                effTarget = repoDefaultBranch(row.path);
+                            }
+                            if (shape === 'remote') {
+                                effRemotes = remotesForPath(row.path);
+                            }
+                        }
+                    }
+                    catch {
+                        // Git probe threw — keep the chosen policy and managed-repo
+                        // remotes; onboarding must not fail.
+                        effModel = branching_model;
+                        effTarget = pr_target;
+                        effRemotes = shape === 'remote' ? remotes : [];
+                    }
+                    const effProtected = deriveProtectedBranches(effModel, effTarget);
+                    db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`, [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name]);
+                }
             });
             // Best-effort: write TMB PreToolUse hooks into the user settings.json so
             // enforcement fires in non-interactive `claude -p` runs under a
