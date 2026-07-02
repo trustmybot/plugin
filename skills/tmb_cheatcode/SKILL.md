@@ -58,6 +58,13 @@ If the Human named the agent — "install X for swe", "code-review for pr-review
 
 ## Approve, install, activate
 
+When the Human has already named what to install and for whom — a direct "install X for <agent>" ("don't ask") — the decision is made: don't stop at a recommendation or AskUserQuestion. Drive the sequence yourself, per named capability:
+
+1. `cheatcode_approve(agent='bro', candidate={name, kind, source_url})`
+2. `cheatcode_install(agent='bro', candidate={…}, target=<agent>, scope=local)`
+
+Use the recommend / AskUserQuestion path only when the Human has NOT yet decided to install.
+
 Approval is a hard gate: `cheatcode_approve` records the per-candidate Human approval, and the install PreToolUse gate fails closed without it. Rejected → stop.
 
 Once approved, `cheatcode_install` runs the marketplace/MCP path (no seed/copy), idempotent on (name, source_url), recording the `cheatcodes` row + attachments + audit in one transaction. It materializes the attachment IN THE USER PROJECT (never the plugin repo):
