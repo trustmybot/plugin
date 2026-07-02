@@ -101,6 +101,24 @@ assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "missing required anchors" "prompt-shape wording present"
 rm -rf "$TMPDIR"
 
+# ----- tests: shape hook enforces attempt_n + subagent_session_id anchors ----
+
+SHAPE_HOOK="$PLUGIN_ROOT/scripts/hooks/pr-reviewer-spawn-prompt-shape.sh"
+
+test_case "pr-reviewer spawn with legacy four anchors but no attempt_n/subagent_session_id is denied"
+prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin"
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
+assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
+assert_contains "$out" "attempt_n" "missing attempt_n named"
+assert_contains "$out" "subagent_session_id" "missing subagent_session_id named"
+
+test_case "pr-reviewer spawn with all six anchors passes shape check silently"
+prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin attempt_n=1 subagent_session_id=sess-xyz"
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
+assert_eq "" "$out" "silent pass — all six anchors present"
+
 # ----- tests: pr-reviewer-no-worktree short-circuits before shape check -----
 
 test_case "pr-reviewer with isolation=worktree is denied before shape check (hook order preserved)"
