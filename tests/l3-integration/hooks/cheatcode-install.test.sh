@@ -14,7 +14,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 SCRIPT="$PLUGIN_ROOT/scripts/cheatcode-install.sh"
 HOOK="$PLUGIN_ROOT/scripts/hooks/cheatcode-install-approval.sh"
 
-command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
+command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required dependency for this security-gate test\n"; exit 1; }
 
 WORKSPACE=$(mktemp -d)
 trap 'rm -rf "$WORKSPACE"' EXIT
@@ -186,10 +186,8 @@ if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on bad kind";
 # Part B — PreToolUse approval gate (fail closed).
 # ---------------------------------------------------------------------------
 if ! command -v sqlite3 >/dev/null 2>&1; then
-  printf "SKIP sqlite3 not found — approval-gate cases skipped\n"
-  summarize
-  printf "PASS cheatcode-install\n"
-  exit 0
+  printf "FAIL sqlite3 not found — required dependency for the approval-gate cases\n"
+  exit 1
 fi
 
 WS="$WORKSPACE/ws"

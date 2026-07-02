@@ -82,3 +82,5 @@ assert_eq "" "$out" "no DB = not TMB = allow"
 test_case "no DB (not a TMB project): pass even on --detach"
 out=$(run_hook "$(input 'Bash' 'git worktree add --detach .claude/worktrees/x fix/foo')")
 assert_eq "" "$out" "no DB = not TMB = allow detach too"
+
+summarize

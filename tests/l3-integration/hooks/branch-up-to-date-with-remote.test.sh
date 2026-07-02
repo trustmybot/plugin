@@ -29,8 +29,6 @@ mkdir -p .claude/tmb
 DB="$WORK/.claude/tmb/trajectory.db"
 _REPO_REALPATH=$(git rev-parse --show-toplevel)
 sqlite3 "$DB" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"main\"');
   CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
@@ -40,7 +38,7 @@ sqlite3 "$DB" "
     branching_model   TEXT,
     protected_branches TEXT
   );
-  INSERT INTO repos (name, path) VALUES ('fixture', '$_REPO_REALPATH');
+  INSERT INTO repos (name, path, target_branch) VALUES ('fixture', '$_REPO_REALPATH', 'main');
 "
 export TRAJECTORY_DB_PATH="$DB"
 
@@ -117,7 +115,7 @@ git init -q -b main "$SIB"
   echo x > b.txt && git add b.txt && git commit -qm advance && git push -q origin main
 )
 _SIB_REAL=$(git -C "$SIB" rev-parse --show-toplevel)
-sqlite3 "$DB" "INSERT INTO repos (name, path) VALUES ('sib', '$_SIB_REAL');"
+sqlite3 "$DB" "INSERT INTO repos (name, path, target_branch) VALUES ('sib', '$_SIB_REAL', 'main');"
 
 test_case "multi-repo: 'cd <sibling> && git worktree add <stale>' resolves the SIBLING and blocks"
 # Still cd'd in \$WORK (the first repo); the cd prefix must redirect to \$SIB.

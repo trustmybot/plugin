@@ -70,9 +70,14 @@ insert_closed_task() {
 
 set_pr_target() {
   local db="$1" target="$2"
+  # Register the repo with a target_branch so git-push-guard resolves the base
+  # via the repos table (the sole source) — the retired plugin_config.pr_target
+  # key is no longer read.
+  local root
+  root=$(git -C "$REPO_PATH" rev-parse --show-toplevel)
   sqlite3 "$db" "
-    INSERT OR REPLACE INTO plugin_config (key, value_json)
-      VALUES ('pr_target', '\"$target\"');
+    INSERT OR REPLACE INTO repos (name, path, target_branch)
+      VALUES ('fixture', '$root', '$target');
   " >/dev/null
 }
 

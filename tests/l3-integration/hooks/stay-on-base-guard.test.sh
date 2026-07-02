@@ -124,3 +124,5 @@ export TRAJECTORY_DB_PATH="/nonexistent-path/trajectory.db"
 out=$(run_hook "git checkout feat/open-task")
 assert_eq "" "$out" "no DB = not TMB = allow"
 export TRAJECTORY_DB_PATH="$ORIG_DB"
+
+summarize
