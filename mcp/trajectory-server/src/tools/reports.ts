@@ -52,7 +52,7 @@ export function reportTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'issue_report_md',
-      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, all audit events, and skill usage.',
+      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, and all audit events.',
       inputSchema: {
         type: 'object',
         properties: {

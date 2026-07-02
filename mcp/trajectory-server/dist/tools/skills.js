@@ -1,10 +1,10 @@
 import { nowISO } from '../db.js';
 const VALID_TRUST_TIERS = new Set(['curated', 'agent']);
 // Skill name must be kebab-case: starts with a lowercase letter, followed by
-// lowercase letters, digits, or hyphens, max 64 chars total. The tmb_ prefix
-// (with underscore, not hyphen) is reserved for plugin-shipped skills registered
-// at scope='global'; user-created skills at scope='project-local' or 'template'
-// must not use it to avoid confusion with the canonical plugin catalog.
+// lowercase letters, digits, or hyphens, max 64 chars total. Underscores are
+// rejected, so the tmb_ prefix (reserved for plugin-shipped global skills, which
+// are schema-seeded rather than registered here) can never be minted through
+// skill_register.
 const SKILL_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
 const VALID_STATUS_TRANSITIONS = new Map([
     ['draft', new Set(['pending_review'])],
@@ -96,11 +96,6 @@ export function skillTools(db) {
                     `Skill names must match ^[a-z][a-z0-9-]{0,63}$ — ` +
                     `lowercase letters, digits, and hyphens only, starting with a letter, max 64 chars. ` +
                     `Examples: my-skill, data-export-v2.`);
-            }
-            if (name.startsWith('tmb_') && scope !== 'global') {
-                throw new Error(`skill_register rejected: the 'tmb_' prefix is reserved for plugin-shipped global skills. ` +
-                    `Rename your skill (e.g. replace 'tmb_' with your project prefix) or set scope='global' ` +
-                    `if you are contributing an official plugin skill.`);
             }
             const now = nowISO();
             // Skills are origin='builtin' rows in the unified cheatcodes registry

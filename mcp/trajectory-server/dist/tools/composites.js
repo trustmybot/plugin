@@ -1177,18 +1177,7 @@ export function compositeTools(db, dbPath, graph = null) {
             // waive_scope_gate=true skips the gate and records an audit note.
             // task_recover's shared close path is intentionally NOT gated.
             const now = nowISO();
-            if (waiveScopeGate) {
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`, [
-                    task.issue_id,
-                    task.branch_id,
-                    `bro_atomic_close scope gate waived for task ${task.id}`,
-                    JSON.stringify({ skill: 'bro_atomic_close', task_id: task.id, commit_sha: commitSha }),
-                    now,
-                ]);
-            }
-            else {
+            if (!waiveScopeGate) {
                 const repoPath = resolveRepoPath(db, task.repo);
                 const baseRef = `origin/${task.parent_branch_id || 'dev'}`;
                 const scope = repoPath
@@ -1206,6 +1195,20 @@ export function compositeTools(db, dbPath, graph = null) {
                 }
             }
             const result = db.transaction(() => {
+                // The waiver audit lands INSIDE the close transaction (mirror
+                // task_create_batch) so a failed close can't leave a phantom waiver
+                // audit with no corresponding close.
+                if (waiveScopeGate) {
+                    db.run(`INSERT INTO audit
+                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+               VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`, [
+                        task.issue_id,
+                        task.branch_id,
+                        `bro_atomic_close scope gate waived for task ${task.id}`,
+                        JSON.stringify({ skill: 'bro_atomic_close', task_id: task.id, commit_sha: commitSha }),
+                        now,
+                    ]);
+                }
                 const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
                 return { task_id: task.id, issue_closed };
             });

@@ -497,8 +497,8 @@ describe('skill_register name validation gate', () => {
     });
     assert.ok(!hyphenResult.isError, "tmb- (hyphen) prefix must be allowed — only tmb_ (underscore) is reserved");
 
-    // tmb_ (underscore) fails the name regex first (underscore not in [a-z0-9-]);
-    // the tmb_ prefix guard is defense-in-depth for future regex relaxations.
+    // tmb_ (underscore) fails the name regex (underscore not in [a-z0-9-]), so the
+    // tmb_ prefix reserved for plugin-shipped global skills can never be minted here.
     const underscoreResult = await call(tools.handlers, 'skill_register', {
       agent: 'bro',
       name: 'tmb_myskill',

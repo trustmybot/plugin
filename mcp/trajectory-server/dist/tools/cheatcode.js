@@ -897,6 +897,18 @@ export function cheatcodeTools(db) {
                     attachments,
                 });
             }
+            // Server-side approval gate (#1023): fail-closed. The install only runs
+            // when a matching `cheatcode_approved` audit row exists for this
+            // candidate's source_url — the same row cheatcode_approve writes. The
+            // check is self-contained here so the gate holds even without the hook.
+            const approval = db.get(`SELECT id FROM audit
+             WHERE event_type = 'cheatcode_approved'
+               AND json_extract(content_json, '$.source_url') = ?
+           LIMIT 1`, [sourceUrl]);
+            if (!approval) {
+                return err(`cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). ` +
+                    `Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`);
+            }
             const candidate = {
                 name,
                 kind,
@@ -955,7 +967,7 @@ export function cheatcodeTools(db) {
             const installedAt = nowISO();
             const cheatcodeId = db.transaction(() => {
                 const res = db.run(`INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, origin, description, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]);
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?)`, [name, kind, origin, description, sourceUrl, filePath, out.version ?? null, trustTier, placementScope, installedAt]);
                 const id = Number(res.lastInsertRowid);
                 for (const att of out.attachments) {
                     db.run(`INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)

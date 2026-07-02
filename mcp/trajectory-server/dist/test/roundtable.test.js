@@ -646,6 +646,30 @@ describe('roundtable tools', () => {
             assert.equal(data.state, 'closed');
             assert.equal(data.outcome, 'Microservices adopted.');
         });
+        it('includes same-day rows on an OPEN roundtable (closed_at NULL) — ISO window, not datetime(now) (#1030)', async () => {
+            const rt = roundtableTools(db);
+            const issues = issueTools(db);
+            const issueResult = await call(issues.handlers, 'issue_create', {
+                labels: ['Bug', 'Priority: High'],
+                agent: 'bro', objective: 'open-roundtable same-day window', description: '',
+            });
+            const localIssueId = parseResult(issueResult).id;
+            const createResult = await call(rt.handlers, 'roundtable_create', {
+                agent: 'bro', issue_id: localIssueId, topic: 'open same-day', expected_participants: 2,
+            });
+            const localRtId = parseResult(createResult).roundtable_id;
+            // The roundtable stays OPEN (closed_at NULL). A same-day 'answer' row with
+            // an ISO 'T' timestamp would sort ABOVE SQLite's space-separated
+            // datetime('now') and be silently dropped by the old filter.
+            db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'answer', 'same-day open answer', ?)`, [localIssueId, new Date().toISOString()]);
+            const result = await call(rt.handlers, 'roundtable_summarize', {
+                agent: 'bro', roundtable_id: localRtId,
+            });
+            assert.ok(!result.isError, `summarize failed: ${JSON.stringify(parseResult(result))}`);
+            const data = parseResult(result);
+            assert.notEqual(data.state, 'closed', 'roundtable is still open');
+            assert.ok(data.agreements_ratified.includes('same-day open answer'), 'same-day answer on an open roundtable must appear in the summary');
+        });
     });
     describe('discussion_append kind=analysis', () => {
         it('kind=analysis is accepted by discussion_append', async () => {

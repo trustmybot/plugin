@@ -1281,5 +1281,28 @@ describe('issue_create dedup (#91/#775)', () => {
         assert.ok(!('duplicate' in reopenedIssue), 'a closed match must not block a new open issue');
         db.close();
     });
+    it('scopes dedup to the same repo — an equal objective in a different repo is not a duplicate (#1039)', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('frontend', '/tmp/frontend')`);
+        db.run(`INSERT INTO repos (name, path) VALUES ('backend', '/tmp/backend')`);
+        const tools = issueTools(db);
+        const a = await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'Add dedup pre-check to issue_create', labels: VALID_LABELS, repo: 'frontend',
+        });
+        assert.ok(!a.isError, `first create errored: ${JSON.stringify(parseResult(a))}`);
+        // Same objective in a DIFFERENT repo is distinct work — must not dedup.
+        const other = await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'Add dedup pre-check to issue_create', labels: VALID_LABELS, repo: 'backend',
+        });
+        const otherIssue = parseResult(other);
+        assert.ok(!other.isError);
+        assert.ok(!('duplicate' in otherIssue), 'same objective in a different repo must not dedup');
+        // Same objective in the SAME repo still dedups.
+        const same = await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'Add dedup pre-check to issue_create', labels: VALID_LABELS, repo: 'frontend',
+        });
+        assert.equal(parseResult(same).duplicate, true, 'same objective in the same repo dedups');
+        db.close();
+    });
 });
 //# sourceMappingURL=issues.test.js.map
