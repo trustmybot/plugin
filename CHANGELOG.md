@@ -2,6 +2,31 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-rc.7 — 2026-07-02
+
+Seventh release candidate for v0.10.0 — a pre-release deep-scan hardening pass: closes hook guard bypasses and a branch-name SQL injection, fixes MCP-server correctness (validation gating, scan lock/retire, pagination, task state machine, issue-sync backend), reconciles stale docs to the v27 schema, and enforces test integrity.
+
+### Security
+- **Hook guard bypasses closed** (#1016, #1024, #1031, #1032): whitespace/wrapper-tolerant `git push`/force-push matching (no fail-open on `git  push` or `bash -c` wrappers), `--base` token-boundary matching, the branch-name SQL-injection sink removed from the PR-comment persister, and the no-source-edit worktree exemption now tests the write destination.
+- **Cheatcode install gate self-contained** (#1023): the server verifies the `cheatcode_approved` audit row before installing, not the PreToolUse hook alone.
+- **Push-gate verdict hardened** (#1017): `validation_record` compares the normalized role, closing a mixed-case bypass.
+- **Untrusted-content framing** (#1036): README summaries and PR/MR comment bodies are framed at the tool boundary so remote text is data, not instructions.
+
+### Fixed
+- **MCP correctness** (#1018, #1019, #1025, #1026, #1027): scan lock released on any failure + FK-safe per-repo retire; `issue_get_with_discussions` DESC pagination; `task_update_status` can no longer bypass the atomic-close scope gate; `task_brief` keeps the newest discussions; task creation validates before any git side effect.
+- **Issue sync** (#1043, #1028, #1029): the sync backend derives from the repo's `repos.remotes` (fixes silent no-sync in multi-repo/non-git-root workspaces); `issue_sync_retry` preserves milestone + labels; read-back verify carries the repo slug.
+- **Roundtable** (#1030): `roundtable_summarize` no longer drops same-day rows; decisions route through `insertDiscussion`.
+- **Deny messages surface** (#1033): hooks emit `permissionDecisionReason` so blocks carry recovery text.
+- **glab attribution** (#1034): MR/issue descriptions read raw JSON, no longer clobbered by rendered view output.
+
+### Changed
+- **Docs reconciled to schema v27** (#1037): retired the `plugin_config` repo-policy fallback language, corrected schema-version references, repointed the legacy marketplace catalog to the GitHub-canonical source.
+- **Prompt surfaces** (#1020, #1021, #1022, #1035): onboard `shape` param + probe claim corrected, pr-reviewer spawn contract carries `subagent_session_id` end-to-end, the cheatcode skill is self-contained (no docs/ route), recovery scopes its server kill to the project.
+- **Test integrity** (#1015, #1038): four L3 tests that could never fail now call `summarize`; test isolation, dep-less hard-fails, and the `bro_atomic_close`-only close contract enforced across the L3-mcp/L4 suites.
+
+### Internal
+- Low-severity MCP cleanup (#1039): dead code/types removed, undefined-bind guards, repo-scoped issue dedup, waiver audit inside the close transaction.
+
 ## v0.10.0-rc.6 — 2026-06-30
 
 Sixth release candidate for v0.10.0 — the native multi-repo hardening campaign: retires the default-repo concept, scopes the git/workflow hooks and the MCP defaults to the command's actual target repo, and reconciles each repo against its own git tree on onboard.
