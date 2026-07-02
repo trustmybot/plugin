@@ -24,22 +24,31 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
 
 # Only fire for git push (not push --force; that's git-guards's job).
-# Matches both `git push ...` and `git -C <path> push ...` forms.
+# Whitespace-tolerant, boundary-anchored detection (#1016): the old literal
+# `case` substrings failed open on `git  push` (double space), leading- or
+# newline-prefixed forms, and `bash -c "git push"` / `eval "..."` wrappers.
+# _norm_cmd strips quotes (so wrapper forms collapse to a bare command),
+# squeezes whitespace runs, pads, and rewrites shell-executor prefixes
+# (`-c `, `eval `) to a statement separator. A push is then `git [ -C <p> ]
+# push` anchored at a statement boundary (start, or after ; & |) — which
+# ignores `git push` sitting inside quoted data (grep/echo/commit -m).
+_norm_cmd() {
+  local n
+  n=$(printf '%s' "$1" | tr -d "\"'" | tr -s '[:space:]' ' ')
+  n=" $n "
+  printf '%s' "$n" | sed -E 's/ -c / ; /g; s/ eval / ; /g'
+}
+_is_git_push() {
+  printf '%s' "$1" | grep -qE '(^[[:space:]]*|[;&|][[:space:]]*)git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push([[:space:]]|$)'
+}
+_is_force_push_cmd() {
+  printf '%s' "$1" | grep -qE 'push[^;&|]*[[:space:]](--force(-with-lease)?|-f)([[:space:]]|$)'
+}
+NCMD=$(_norm_cmd "$CMD")
 IS_PUSH=""
 IS_FORCE=""
-case "$CMD" in
-  "git push"*|"git -C "*" push"*) IS_PUSH="yes" ;;
-  *"; git push"*|*"&& git push"*|*"|| git push"*|*"| git push"*) IS_PUSH="yes" ;;
-  *"; git -C "*" push"*|*"&& git -C "*" push"*|*"|| git -C "*" push"*) IS_PUSH="yes" ;;
-esac
-case "$CMD" in
-  "git push"*"--force"*|"git push"*"-f "*) IS_FORCE="yes" ;;
-  "git -C "*" push"*"--force"*|"git -C "*" push"*"-f "*) IS_FORCE="yes" ;;
-  *"; git push"*"--force"*|*"&& git push"*"--force"*|*"|| git push"*"--force"*) IS_FORCE="yes" ;;
-  *"; git push"*"-f "*|*"&& git push"*"-f "*|*"|| git push"*"-f "*) IS_FORCE="yes" ;;
-  *"; git -C "*" push"*"--force"*|*"&& git -C "*" push"*"--force"*|*"|| git -C "*" push"*"--force"*) IS_FORCE="yes" ;;
-  *"; git -C "*" push"*"-f "*|*"&& git -C "*" push"*"-f "*|*"|| git -C "*" push"*"-f "*) IS_FORCE="yes" ;;
-esac
+_is_git_push "$NCMD" && IS_PUSH="yes"
+[ "$IS_PUSH" = "yes" ] && _is_force_push_cmd "$NCMD" && IS_FORCE="yes"
 [ "$IS_PUSH" = "yes" ] || exit 0
 [ "$IS_FORCE" = "yes" ] && exit 0
 
@@ -96,7 +105,7 @@ if [ -z "$WT_CWD" ] && [ -z "$CD_OVERRIDE" ] && \
 fi
 
 if [ "$WT_CWD" = "yes" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`."}}'
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`."}}'
   exit 0
 fi
 
@@ -104,7 +113,7 @@ fi
 # Defense-in-depth fallback: catches non-worktree SWE pushes and cases where
 # CC #97 might strip the agent_type field from the payload.
 if [ "$AGENT_TYPE" = "swe" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
   exit 0
 fi
 
@@ -112,7 +121,7 @@ fi
 # pr-reviewer renders a verdict row; the push decision belongs to bro
 # after that verdict — pr-reviewer itself must never initiate a push.
 if [ "$AGENT_TYPE" = "pr-reviewer" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: pr-reviewer must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed."}}'
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: pr-reviewer must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed."}}'
   exit 0
 fi
 
@@ -223,5 +232,5 @@ Run: @bro review before push
 bro will spawn pr-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing."
 
 jq -nc --arg reason "$DENY_REASON" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$reason}}'
+  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
 exit 0

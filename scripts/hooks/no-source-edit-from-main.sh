@@ -56,11 +56,14 @@ fi
 if [ "$TOOL_NAME" = "Bash" ]; then
   CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || true)
 
-  # Worktree exemption: if the command is operating inside a worktree, allow.
-  _main_bash_in_worktree() {
-    local cmd="$1"
-    case "$cmd" in
-      */.claude/worktrees/*|*.claude/worktrees/*) return 0 ;;
+  # Worktree exemption: allow only when the WRITE TARGET (destination token)
+  # lives inside a worktree — not merely because the command string mentions a
+  # worktree path anywhere (#1031). The old whole-command test exempted
+  # `sed '...' .claude/worktrees/x/agents/a.md > agents/a.md`, which reads from a
+  # worktree but WRITES a prompt surface in the main checkout.
+  _token_in_worktree() {
+    case "$1" in
+      */.claude/worktrees/*|.claude/worktrees/*) return 0 ;;
     esac
     return 1
   }
@@ -81,8 +84,10 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     return 1
   }
 
-  # _main_bash_writes_prompt_surface: destination-coupled matching.
-  # The verb/redirect operator must be adjacent to the prompt-surface path token.
+  # _main_bash_writes_prompt_surface: destination-coupled matching. The verb/
+  # redirect operator must be adjacent to the prompt-surface path token. On a
+  # match it prints the destination token (so the caller can test THAT token
+  # against the worktree exemption) and returns 0; otherwise returns 1.
   _main_bash_writes_prompt_surface() {
     local cmd="$1"
 
@@ -93,7 +98,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
         after_redir="${cmd##*>>}"
         after_redir="${after_redir#"${after_redir%%[! ]*}"}"
         local dest_tok="${after_redir%% *}"
-        _is_prompt_surface_token "$dest_tok" && return 0
+        _is_prompt_surface_token "$dest_tok" && { printf '%s' "$dest_tok"; return 0; }
         ;;
     esac
     case "$cmd" in
@@ -105,7 +110,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
             after_redir="${no_dbl##*>}"
             after_redir="${after_redir#"${after_redir%%[! ]*}"}"
             local dest_tok2="${after_redir%% *}"
-            _is_prompt_surface_token "$dest_tok2" && return 0
+            _is_prompt_surface_token "$dest_tok2" && { printf '%s' "$dest_tok2"; return 0; }
             ;;
         esac
         ;;
@@ -123,7 +128,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
           "-a "*) tee_rest="${tee_rest#-a }" ;;
         esac
         local tee_dest="${tee_rest%% *}"
-        _is_prompt_surface_token "$tee_dest" && return 0
+        _is_prompt_surface_token "$tee_dest" && { printf '%s' "$tee_dest"; return 0; }
         ;;
     esac
 
@@ -136,7 +141,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
           *"sed -i"*) after_sedi="${cmd##*sed -i}" ;;
         esac
         local sedi_file="${after_sedi##* }"
-        _is_prompt_surface_token "$sedi_file" && return 0
+        _is_prompt_surface_token "$sedi_file" && { printf '%s' "$sedi_file"; return 0; }
         ;;
     esac
 
@@ -145,7 +150,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
       *"perl -i"*)
         local after_perli="${cmd##*perl -i}"
         local perli_file="${after_perli##* }"
-        _is_prompt_surface_token "$perli_file" && return 0
+        _is_prompt_surface_token "$perli_file" && { printf '%s' "$perli_file"; return 0; }
         ;;
     esac
 
@@ -158,7 +163,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
         open_path="${open_path%\'}"
         open_path="${open_path#\"}"
         open_path="${open_path%\"}"
-        _is_prompt_surface_token "$open_path" && return 0
+        _is_prompt_surface_token "$open_path" && { printf '%s' "$open_path"; return 0; }
         ;;
     esac
 
@@ -166,15 +171,17 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     case "$cmd" in
       "cp "*|*" cp "*|"mv "*|*" mv "*|"rsync "*|*" rsync "*)
         local copy_last="${cmd##* }"
-        _is_prompt_surface_token "$copy_last" && return 0
+        _is_prompt_surface_token "$copy_last" && { printf '%s' "$copy_last"; return 0; }
         ;;
     esac
 
     return 1
   }
 
-  if ! _main_bash_in_worktree "$CMD" \
-      && _main_bash_writes_prompt_surface "$CMD"; then
+  # Exempt only when the WRITE DESTINATION is inside a worktree (#1031) — not
+  # when the command merely reads from one.
+  _BASH_DEST_TOK=$(_main_bash_writes_prompt_surface "$CMD")
+  if [ -n "$_BASH_DEST_TOK" ] && ! _token_in_worktree "$_BASH_DEST_TOK"; then
     BASH_DENY_REASON="BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed."
     jq -nc --arg reason "$BASH_DENY_REASON" '{
       hookSpecificOutput: {

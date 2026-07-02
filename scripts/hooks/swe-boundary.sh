@@ -87,18 +87,25 @@ esac
 if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
 
+  # Whitespace-tolerant, boundary-anchored push detection (#1016): the old
+  # literal `case` substrings failed open on `git  push` (double space),
+  # leading-/newline-prefixed forms, and `bash -c "git push"` / `eval "..."`
+  # wrappers. _norm_cmd strips quotes, squeezes whitespace, pads, and rewrites
+  # shell-executor prefixes (`-c `, `eval `) to a statement separator; a push is
+  # then `git [ -C <p> ] push` anchored at a statement boundary.
+  _norm_cmd() {
+    local n
+    n=$(printf '%s' "$1" | tr -d "\"'" | tr -s '[:space:]' ' ')
+    n=" $n "
+    printf '%s' "$n" | sed -E 's/ -c / ; /g; s/ eval / ; /g'
+  }
+  NCMD=$(_norm_cmd "$CMD")
   IS_PUSH=""
   IS_FORCE=""
-  case "$CMD" in
-    "git push"*|"git -C "*" push"*) IS_PUSH="yes" ;;
-    *"; git push"*|*"&& git push"*|*"|| git push"*) IS_PUSH="yes" ;;
-    *"; git -C "*" push"*|*"&& git -C "*" push"*|*"|| git -C "*" push"*) IS_PUSH="yes" ;;
-  esac
-  case "$CMD" in
-    *"--force"*|*" -f "*) IS_FORCE="yes" ;;
-  esac
+  printf '%s' "$NCMD" | grep -qE '(^[[:space:]]*|[;&|][[:space:]]*)git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push([[:space:]]|$)' && IS_PUSH="yes"
+  printf '%s' "$NCMD" | grep -qE 'push[^;&|]*[[:space:]](--force(-with-lease)?|-f)([[:space:]]|$)' && IS_FORCE="yes"
   if [ "$IS_PUSH" = "yes" ] && [ "$IS_FORCE" != "yes" ]; then
-    jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
+    jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
     exit 0
   fi
 
@@ -116,7 +123,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     *"glab mr create"*|*"glab mr merge"*|*"glab mr close"*|*"glab mr edit"*) GH_MUTATING="yes" ;;
   esac
   if [ "$GH_MUTATING" = "yes" ]; then
-    jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro."}}'
+    jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro."}}'
     exit 0
   fi
 
@@ -296,7 +303,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
       fi
     fi
     if [ "$_PB_ALLOWED" != "yes" ]; then
-      jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync). Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed."}}'
+      jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync). Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed."}}'
       exit 0
     fi
   fi
@@ -333,7 +340,7 @@ if [ -n "$WORKTREE_ROOT" ]; then
     *)
       DENY_MSG="BLOCKED: SWE may only edit files inside its assigned worktree (${WORKTREE_ROOT}). Target '${TARGET}' is outside the worktree."
       jq -nc --arg r "$DENY_MSG" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$r}}'
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
       exit 0
       ;;
   esac
@@ -372,7 +379,7 @@ if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
   fi
   PS_DENY_MSG="BLOCKED: SWE may not edit prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, CODEX/CURSOR/GEMINI.md). Target: ${TARGET}. If this task intentionally modifies agent prompts, set prompt_bearing=1 in task_create_batch."
   jq -nc --arg r "$PS_DENY_MSG" \
-    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$r}}'
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
   exit 0
 fi
 

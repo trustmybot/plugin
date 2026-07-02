@@ -127,11 +127,16 @@ run_hook "$PAYLOAD"
 assert_eq "false" "$([ -f "$EDIT_LOG" ] && echo true || echo false)" "no edit for non-Bash tool"
 
 # ── glab parity: stub glab, mr create → update ───────────────────────────────
+# `glab mr view N -F json` must return the RAW description as a JSON field (#1034)
+# — the hook parses `.description`, never the rendered `glab ... view` table.
 cat > "$STUB_DIR/glab" <<STUB
 #!/usr/bin/env bash
+BARE='$BARE_CC'
 case "\$1 \$2" in
   "mr view"|"issue view")
-    printf '%s\n\n%s' "Glab body." '$BARE_CC'
+    jq -cn --arg d "Glab body.
+
+\$BARE" '{description:\$d}'
     ;;
   "mr update"|"issue update")
     body="\${!#}"

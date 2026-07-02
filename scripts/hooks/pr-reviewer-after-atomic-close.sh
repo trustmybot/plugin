@@ -56,7 +56,7 @@ if [ -z "$STATUS" ]; then
   # Distinguish DB busy from row-missing: re-probe without -readonly.
   PROBE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM tasks WHERE id=${TASK_ID};" 2>/dev/null || echo "query_failed")
   if [ "$PROBE" = "query_failed" ]; then
-    jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: DB query failed for task_id="+$id+" (DB busy?). Retry the pr-reviewer spawn once the DB lock clears.")}}'
+    jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: DB query failed for task_id="+$id+" (DB busy?). Retry the pr-reviewer spawn once the DB lock clears.")}}'
     exit 0
   fi
   # Row missing — let pr-reviewer surface the error itself.
@@ -81,7 +81,7 @@ jq -nc --arg reason "$_DENY_REASON" '{
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
     permissionDecision: "deny",
-    denyReason: $reason
+    permissionDecisionReason: $reason
   }
 }'
 exit 0

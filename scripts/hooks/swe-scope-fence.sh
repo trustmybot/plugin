@@ -152,5 +152,5 @@ DIRS_LIST=$(printf '%s\n' "${ALLOWED_DIRS[@]}" | sort -u | tr '\n' ' ')
 DENY_MSG="BLOCKED (scope fence): '${REL_TARGET}' is outside this task's files[] dirs. Allowed: ${DIRS_LIST%. }. To edit files outside scope, ask bro to extend the task's typed files[] field (or file a follow-up task) — do not edit out of scope."
 
 jq -nc --arg r "$DENY_MSG" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$r}}'
+  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
 exit 0

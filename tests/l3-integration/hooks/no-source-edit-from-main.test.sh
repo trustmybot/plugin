@@ -279,6 +279,22 @@ test_case "Bash write in a worktree path: pass (worktree exemption)"
 out=$(run_hook "$(bash_input 'echo "x" > .claude/worktrees/task-99/agents/swe.md')")
 assert_eq "" "$out" "worktree-targeted write passes"
 
+# ---- #1031: worktree exemption is DESTINATION-scoped, not whole-command -------
+# Reading FROM a worktree but WRITING a prompt surface in the main checkout must
+# still be denied — the old whole-command match exempted it because the string
+# merely mentioned .claude/worktrees/.
+test_case "#1031: sed reads worktree source, redirects to main-checkout prompt surface: DENIED"
+out=$(run_hook "$(bash_input "sed 's/x/y/' .claude/worktrees/task-99/agents/swe.md > agents/swe.md")")
+assert_contains "$out" '"permissionDecision":"deny"' "write to main-checkout prompt surface must block even when source is a worktree"
+
+test_case "#1031: cp from worktree source to main-checkout prompt surface: DENIED"
+out=$(run_hook "$(bash_input 'cp .claude/worktrees/task-99/agents/swe.md agents/swe.md')")
+assert_contains "$out" '"permissionDecision":"deny"' "cp destination in main checkout must block regardless of worktree source"
+
+test_case "#1031: write whose destination IS the worktree: still ALLOWED"
+out=$(run_hook "$(bash_input 'cat agents/swe.md > .claude/worktrees/task-99/agents/swe.md')")
+assert_eq "" "$out" "destination inside a worktree stays exempt"
+
 test_case "Bash redirect > to CODEX.md: DENIED"
 out=$(run_hook "$(bash_input 'echo "x" > CODEX.md')")
 assert_contains "$out" '"permissionDecision":"deny"' "redirect to CODEX.md denied"
