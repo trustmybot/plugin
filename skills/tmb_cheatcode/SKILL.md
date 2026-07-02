@@ -56,4 +56,13 @@ Lead the chat with the rationale — what the cheatcode does, its tier, and the 
 
 If the Human named the agent — "install X for swe", "code-review for pr-reviewer" — use it. Otherwise infer from the cheatcode's domain: coding / test / refactor / debug → `swe`; code-review / quality → `pr-reviewer`; orchestration / routing / planning → `bro`; a consultant's domain → that consultant. Reach for AskUserQuestion only when it's genuinely ambiguous.
 
-The full lifecycle (search → vet → approve → install → materialize → activate) lives in [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md) flow 10.
+## Approve, install, activate
+
+Approval is a hard gate: `cheatcode_approve` records the per-candidate Human approval, and the install PreToolUse gate fails closed without it. Rejected → stop.
+
+Once approved, `cheatcode_install` runs the marketplace/MCP path (no seed/copy), idempotent on (name, source_url), recording the `cheatcodes` row + attachments + audit in one transaction. It materializes the attachment IN THE USER PROJECT (never the plugin repo):
+
+- **skill** (or skill-contributing plugin): `target=bro` adds a reference to `.claude/CLAUDE.md`; any other target copies the global `agents/<target>.md` into `.claude/agents/<target>.md` (if absent) and adds the name to its `skills:` frontmatter. A skill with no resolved target is hard-rejected — no orphan can land.
+- **mcp / pure-server plugin**: its registration IS its attachment — no target, no `skills:` entry needed.
+
+Then `cheatcode_activate`: a skill is usable in-session immediately; an MCP/plugin returns `restart_required` and loads on the next cold start.
