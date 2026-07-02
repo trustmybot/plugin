@@ -16,7 +16,7 @@ A name-keyed global default forced one repo to be "the" repo and made the git gu
 
 3. **git-guard scoping is registration-based.** A git op is enforced iff its git-root resolves to a registered `repos` row. When the command's git-root is an unregistered sibling tree, the guards no-op — they never enforce on a tree TMB doesn't manage. For a single-repo user project the sole repo *is* the registered root, so the whole tree is guarded as before.
 
-4. **`protected_branches` is per-repo authoritative.** `repos.protected_branches` (resolved path-keyed) wins. The global `plugin_config.protected_branches` is a fallback used only when the matched repo row carries no per-repo value.
+4. **`protected_branches` is per-repo authoritative.** `repos.protected_branches` (resolved path-keyed) is the sole source of truth; there is no global `plugin_config` fallback.
 
 5. **Single-repo fallback.** When exactly one repo is registered, resolution defaults to it. This keeps single-repo projects (the common case) working without any per-operation repo argument.
 
@@ -34,5 +34,5 @@ Implementers (MCP source and hooks) agree on one shape:
 
 - **Multi-repo workspaces work without ceremony.** Each operation resolves to its own repo by path; sibling repos coexist without one being privileged.
 - **Guards never fire on unmanaged trees.** Editing or committing in an unregistered sibling repo is allowed — TMB only enforces on trees it registered.
-- **Per-repo branch policy.** Each repo carries its own `target_branch`, `branching_model`, and `protected_branches`; the global config is a fallback, not the source of truth.
+- **Per-repo branch policy.** Each repo carries its own `target_branch`, `branching_model`, and `protected_branches` on its `repos` row — the sole source of truth, with no global fallback.
 - **`/scan` is the registration point.** A repo must be scanned to participate; this is the same step that warms the world model, so the two stay aligned.

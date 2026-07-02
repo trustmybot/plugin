@@ -10,7 +10,7 @@ All consultants (architect, cto, ceo, pm, project-local) advise but never write 
 
 | # | Flow | Trigger | Agents | DB tables touched | Distinguishing hooks |
 |---|---|---|---|---|---|
-| 1 | First contact | `onboard_state_get().first_run === true` (i.e. `plugin_config('onboarded')` absent) | bro | `plugin_config`, `audit` | `activation-routine` (auto-fire trigger) |
+| 1 | First contact | `onboard_state_get().first_run === true` (i.e. `plugin_config('onboarded')` absent) | bro | `plugin_config`, `repos`, `audit` | `activation-routine` (auto-fire trigger) |
 | 2 | **Code-touching task** (canonical) | Code change ask | bro → swe; pr-reviewer at push | `issues`, `tasks`, `discussions`, `audit` (+ `validation_attempts` at push) | `require-task-spec`, `git-push-guard`, `git-guards`, `cleanup-worktree-on-task-close` |
 | 3 | Architectural change | New boundary/module, schema, public API, external side effects | bro records a `kind=decision` discussion + blast-radius, then standard SWE flow | + `discussions(kind='decision')` | universal `decision_gate` on `task_create_batch` |
 | 4 | Agent-creator | Routing hits role not in `.claude/agents/` | bro | — (file-based outcome) | — |
@@ -35,8 +35,8 @@ Bro's `activation-routine.sh` UserPromptSubmit hook reads `plugin_config('onboar
 
 | Shape | Round 2 questions | Persisted |
 |---|---|---|
-| Local-only | (none — github-flow defaulted silently) | `plugin_config('onboarded')`, `branching_model`, derived `pr_target`, `remotes=[]`, `issue_sync='off'` |
-| Remote-tracked | Branching, PR target, Remote (multiSelect) | + `remotes` array, then a Round 3 for `issue_sync` |
+| Local-only | (none — github-flow defaulted silently) | global `plugin_config('onboarded')` + `issue_sync='off'`; per-repo `repos` rows get `branching_model`, derived `target_branch`, `protected_branches`, `remotes=[]` |
+| Remote-tracked | Branching, PR target, Remote (multiSelect) | + each repo row's `remotes` array, then a Round 3 for the global `issue_sync` |
 
 A **silent probe** (origin URL, gh/glab installed/authed) pre-selects defaults so most questions become 1-tap confirms. Local re-onboard adds the Branching question with a `Keep` option so the user can change models without first switching shape.
 

@@ -38,7 +38,7 @@ Routing SWE's commits through your local branch (rather than letting SWE push st
 
 ## Per-repo branch protection + guard scoping
 
-Branch policy is **per-repo**, not global. Each registered repo's `repos` row carries its own `target_branch`, `branching_model`, and `protected_branches`; the git guards resolve the acting repo path-keyed (the command's git toplevel → matching `repos` row) and enforce that row's policy. The matching global `plugin_config` keys are a fallback used only when the resolved repo carries no per-repo value.
+Branch policy is **per-repo**, not global. Each registered repo's `repos` row carries its own `target_branch`, `branching_model`, and `protected_branches`; the git guards resolve the acting repo path-keyed (the command's git toplevel → matching `repos` row) and enforce that row's policy. The `repos` row is the sole source of truth — there is no global `plugin_config` fallback.
 
 Guard scoping is **registration-based**: a git op is enforced only when its git-root resolves to a registered `repos` row. When the command's git-root is an unregistered sibling tree, the guards no-op — TMB never enforces on a tree it doesn't manage. For a single-repo project the sole repo is the registered root, so the whole tree is guarded; `/scan` is the registration point. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md) for the full resolution contract.
 

@@ -60,6 +60,6 @@ where `<type>` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `pe
 
 ## Schema
 
-Current baseline: `TARGET_SCHEMA_VERSION = 26` (see `src/db.ts`). `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` semantics. On open, the stored `schema_version` is compared against `TARGET_SCHEMA_VERSION` via `db.ts:runMigrations`; if behind, a `.bak` snapshot is written before any migration runs, then migrations execute in sequence and `schema_version` is updated on success. Rollback is via the `.bak` file. Migration correctness is covered by `src/test/schema-upgrade.test.ts`.
+Current baseline: `TARGET_SCHEMA_VERSION = 27` (see `src/db.ts`). `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` semantics. On open, the stored `schema_version` is compared against `TARGET_SCHEMA_VERSION` via `db.ts:runMigrations`; if behind, a `.bak` snapshot is written before any migration runs, then migrations execute in sequence and `schema_version` is updated on success. Rollback is via the `.bak` file. Migration correctness is covered by `src/test/schema-upgrade.test.ts`.
 
 `plugin_meta` tracks `schema_version` + `plugin_version`. `plugin_version` is synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — fresh and existing DBs auto-update without a migration; the schema placeholder `'0.0.0'` applies only when `CLAUDE_PLUGIN_ROOT` is unset (e.g. test runs).

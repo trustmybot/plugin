@@ -25,7 +25,7 @@ That structure earns its keep on **long-horizon, multi-task work** — a codebas
 /plugin install tmb@trustmybot
 ```
 
-Use `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` for the beta channel (pre-promotion testing — tolerate occasional breakage). Pick one channel per CC install; to switch, `/plugin uninstall tmb` then add the other.
+Use `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` for the rc channel (pre-promotion testing — tolerate occasional breakage). Pick one channel per CC install; to switch, `/plugin uninstall tmb` then add the other.
 
 Refresh after upstream changes: `/plugin marketplace update trustmybot`.
 

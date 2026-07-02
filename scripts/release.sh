@@ -12,6 +12,7 @@
 #   1. Tag main HEAD as v<plugin.json version>
 #   2. Push the tag to origin
 #   3. Create the GitHub release with notes extracted from CHANGELOG.md
+#   4. Run the L5 release canary (re-clone the tag in Docker, run install-smoke)
 #
 # Idempotent + safety-checked:
 #   - Refuses to run unless current branch is `main`.
@@ -77,7 +78,7 @@ if ! grep -q "^## ${NEW_TAG} " CHANGELOG.md; then
   exit 1
 fi
 
-# The release gate is the CI release-gate (L1–L4 + L6 + L0, = local L6 13/13),
+# The release gate is the CI release-gate (L1–L4 + L6 + L0, = local L6 15/15),
 # run on the rc tag before promotion — not a manual sign-off here.
 
 confirm() {
