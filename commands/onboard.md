@@ -10,7 +10,7 @@ Bro orchestrates an AskUserQuestion ceremony in 2-3 rounds — Round 3 runs only
 
 ## 1. Read state (one MCP call)
 
-Call `onboard_state_get(agent='bro')`. Returns `{ first_run, current, probe }`. Bro passes the probe to the server in subsequent calls; it doesn't interpret it.
+Call `onboard_state_get(agent='bro')`. Returns `{ first_run, current, probe }`. The server re-probes internally on each call, so bro never feeds the probe back — read `state.probe` only to spot a shape/remote conflict in Round 1.
 
 ## 2. Ask the questions
 
@@ -40,7 +40,7 @@ Branching model and PR target are per-repo. Enumerate repos with `repos_list(age
 
 - Call `onboard_get_questions(agent='bro', shape=<shape>, round='main', repo=<name>)`.
 - Feed the returned branching + PR-target questions into `AskUserQuestion`, framed for `<name>`.
-- Call `onboard_apply(agent='bro', repo=<name>, branching_model=<answer>, pr_target=<answer>)` — writes only that repo's row.
+- Call `onboard_apply(agent='bro', shape=<shape>, repo=<name>, branching_model=<answer>, pr_target=<answer>)` — writes only that repo's row. `shape` is required (the value resolved in Round 1).
 
 The remote/provider is git-derived (scan), not asked per repo — Round 2 asks only branching + PR target.
 
@@ -52,9 +52,9 @@ If `shape == 'remote'`, call `onboard_get_questions(agent='bro', shape='remote',
 
 ## 3. Apply (transactional)
 
-Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(repo=<name>, ...)` per repo, each writing only that repo's row).
+Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(shape=<shape>, repo=<name>, ...)` per repo, each writing only that repo's row).
 
-The final apply is workspace-level: call `onboard_apply(agent='bro', ...)` with **no** `repo` to write the global `issue_sync` answer and the `onboarded` marker. Omit `branching_model` / `pr_target` on this call so it sets only issue_sync + onboarded and leaves per-repo policy intact.
+The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write the global `issue_sync` answer and the `onboarded` marker. `shape` is required on every apply. Omit `branching_model` / `pr_target` on this call so it sets only issue_sync + onboarded and leaves per-repo policy intact.
 
 The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". Each apply recomputes protected branches and wraps its writes in a transaction.
 
