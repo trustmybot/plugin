@@ -1,5 +1,8 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { resolveBackend, detectAvailable } from '../sync/backend.js';
 
 describe('resolveBackend', () => {
@@ -64,12 +67,85 @@ describe('resolveBackend — hasSpawnFn bypasses TMB_DISABLE_REMOTE_SYNC', () =>
   });
 
   it('returns gh (not null) when hasSpawnFn=true even with TMB_DISABLE_REMOTE_SYNC=1', () => {
-    const result = resolveBackend('gh', true);
+    const result = resolveBackend('gh', null, true);
     assert.equal(result, 'gh');
   });
 
   it('still returns null when hasSpawnFn=false and TMB_DISABLE_REMOTE_SYNC=1', () => {
-    const result = resolveBackend('gh', false);
+    const result = resolveBackend('gh', null, false);
+    assert.equal(result, null);
+  });
+});
+
+describe('resolveBackend — auto derives from repos.remotes, not the cwd (#1043)', () => {
+  let savedEnv: string | undefined;
+  const savedCwd = process.cwd();
+
+  before(() => {
+    savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
+    delete process.env.TMB_DISABLE_REMOTE_SYNC;
+    // Move the process into a temp dir that is NOT a git repo, to prove the
+    // decision no longer depends on a process.cwd() `git remote` probe.
+    const tmp = mkdtempSync(join(tmpdir(), 'tmb-nogit-'));
+    process.chdir(tmp);
+  });
+
+  after(() => {
+    process.chdir(savedCwd);
+    if (savedEnv !== undefined) {
+      process.env.TMB_DISABLE_REMOTE_SYNC = savedEnv;
+    } else {
+      delete process.env.TMB_DISABLE_REMOTE_SYNC;
+    }
+  });
+
+  it('a repo with a github remote resolves to gh even when cwd is not a git repo', () => {
+    const result = resolveBackend(
+      'auto',
+      { github: true, gitlab: false },
+      false,
+      { gh: true, glab: false },
+    );
+    assert.equal(result, 'gh');
+  });
+
+  it('a repo with a gitlab remote resolves to glab', () => {
+    const result = resolveBackend(
+      'auto',
+      { github: false, gitlab: true },
+      false,
+      { gh: false, glab: true },
+    );
+    assert.equal(result, 'glab');
+  });
+
+  it('a repo with both remotes (both CLIs available) resolves to both', () => {
+    const result = resolveBackend(
+      'auto',
+      { github: true, gitlab: true },
+      false,
+      { gh: true, glab: true },
+    );
+    assert.equal(result, 'both');
+  });
+
+  it('a github remote whose CLI is not authed resolves to null (availability gate)', () => {
+    const result = resolveBackend(
+      'auto',
+      { github: true, gitlab: false },
+      false,
+      { gh: false, glab: false },
+    );
+    assert.equal(result, null);
+  });
+
+  it('a repo with no remotes resolves to null', () => {
+    const result = resolveBackend(
+      'auto',
+      { github: false, gitlab: false },
+      false,
+      { gh: true, glab: true },
+    );
     assert.equal(result, null);
   });
 });

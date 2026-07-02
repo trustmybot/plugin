@@ -421,6 +421,76 @@ describe('syncIssueCreate cwd injection', () => {
         assert.equal(capturedOpts[0].cwd, undefined, 'cwd should be undefined when _cwd is not provided');
     });
 });
+describe('syncIssueCreate readBackVerify repo slug (#1029)', () => {
+    it('threads _repoSlug into the gh issue view verify call', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":9,"url":"https://github.com/owner/repo/issues/9"}', stderr: '' };
+            }
+            return { status: 0, stdout: 'https://github.com/owner/repo/issues/9\n', stderr: '' };
+        };
+        const result = await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            _backend: 'gh',
+            _spawnFn: spawnFn,
+            _repoSlug: 'github.com/owner/repo',
+        });
+        assert.ok(!isSyncFailure(result));
+        const viewCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'view');
+        assert.ok(viewCall !== undefined, 'gh issue view must be called for readback verify');
+        const rIdx = viewCall.args.indexOf('--repo');
+        assert.ok(rIdx >= 0, 'verify view must carry --repo');
+        assert.equal(viewCall.args[rIdx + 1], 'github.com/owner/repo');
+    });
+    it('threads _repoSlug into the glab issue view verify call', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: 'issue 9 details', stderr: '' };
+            }
+            return { status: 0, stdout: 'https://gitlab.com/owner/repo/-/issues/9\n', stderr: '' };
+        };
+        const result = await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            _backend: 'glab',
+            _spawnFn: spawnFn,
+            _repoSlug: 'gitlab.com/owner/repo',
+        });
+        assert.ok(!isSyncFailure(result));
+        const viewCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'view');
+        assert.ok(viewCall !== undefined, 'glab issue view must be called for readback verify');
+        const rIdx = viewCall.args.indexOf('-R');
+        assert.ok(rIdx >= 0, 'verify view must carry -R');
+        assert.equal(viewCall.args[rIdx + 1], 'gitlab.com/owner/repo');
+    });
+    it('omits the repo flag on verify when _repoSlug is not set', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":9,"url":"https://github.com/owner/repo/issues/9"}', stderr: '' };
+            }
+            return { status: 0, stdout: 'https://github.com/owner/repo/issues/9\n', stderr: '' };
+        };
+        await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            _backend: 'gh',
+            _spawnFn: spawnFn,
+        });
+        const viewCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'view');
+        assert.ok(viewCall !== undefined);
+        assert.ok(!viewCall.args.includes('--repo'), 'no --repo on verify when _repoSlug unset');
+    });
+});
 describe('syncIssueClose', () => {
     it('returns ok=true when gh close succeeds', async () => {
         const spawnFn = makeSpawnFn([

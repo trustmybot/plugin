@@ -38,6 +38,52 @@ function defaultSpawnFn(cmd, args, opts) {
         stderr: result.stderr ? String(result.stderr) : '',
     };
 }
+// Map a pr_review_runs.repo slug (host-qualified "github.com/owner/repo" or bare
+// "owner/repo") back to a repos.name so the task lookup can be repo-scoped.
+// Best-effort: null when no repos row's remotes match.
+function repoNameForSlug(db, slug) {
+    if (!slug)
+        return null;
+    const rows = db.all(`SELECT name, remotes FROM repos`);
+    for (const row of rows) {
+        if (!row.remotes)
+            continue;
+        let remotes;
+        try {
+            const parsed = JSON.parse(row.remotes);
+            remotes = Array.isArray(parsed) ? parsed : [];
+        }
+        catch {
+            continue;
+        }
+        for (const r of remotes) {
+            const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
+            if (!full)
+                continue;
+            const bare = full.replace(/^[^/]+\//, '');
+            if (slug === full || slug === bare)
+                return row.name;
+        }
+    }
+    return null;
+}
+// Resolve the task that owns a PR from its head branch (+ repo). Populates
+// pr_review_runs.task_id on the monitor path (#1024) so the post-pr-comments
+// carrier resolution (pr_number → pr_review_runs → tasks → issue) resolves in
+// production. Best-effort: returns null when the branch is empty, unknown, or
+// ambiguous — the carrier hook then exits cleanly.
+function resolveMonitorTaskId(db, branch, repoSlug) {
+    if (!branch)
+        return null;
+    const repoName = repoNameForSlug(db, repoSlug);
+    if (repoName) {
+        const scoped = db.all(`SELECT id FROM tasks WHERE branch_id = ? AND repo = ?`, [branch, repoName]);
+        if (scoped.length === 1)
+            return scoped[0].id;
+    }
+    const rows = db.all(`SELECT id FROM tasks WHERE branch_id = ?`, [branch]);
+    return rows.length === 1 ? rows[0].id : null;
+}
 function normalizePrState(raw) {
     const lower = raw.toLowerCase();
     if (lower === 'open' || lower === 'opened')
@@ -48,7 +94,7 @@ function normalizePrState(raw) {
 }
 function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
     const opts = { timeout: 15000, encoding: 'utf8' };
-    const ghArgs = ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews'];
+    const ghArgs = ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews,headRefName'];
     if (repo)
         ghArgs.splice(2, 0, '-R', repo);
     const result = spawnFn('gh', ghArgs, opts);
@@ -100,7 +146,7 @@ function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
             rawComments.push(comment);
         }
     }
-    return { comments: rawComments, pr_state: prState, remote_kind: 'github' };
+    return { comments: rawComments, pr_state: prState, remote_kind: 'github', head_branch: parsed.headRefName ?? '' };
 }
 function fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn) {
     const opts = { timeout: 15000, encoding: 'utf8' };
@@ -139,7 +185,7 @@ function fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn) {
             comment.line = note.position.new_line;
         rawComments.push(comment);
     }
-    return { comments: rawComments, pr_state: prState, remote_kind: 'gitlab' };
+    return { comments: rawComments, pr_state: prState, remote_kind: 'gitlab', head_branch: parsed.source_branch ?? '' };
 }
 function resolveComments(backend, prNumber, repo, since, botPatterns, spawnFn) {
     if (backend === 'gh') {
@@ -258,7 +304,10 @@ export function prMonitorTools(db, _spawnFn) {
                 }
             }
             else {
-                backend = resolveBackend(configValue, _spawnFn !== undefined);
+                // repoRemotes is null here: comment fetching resolves the backend from
+                // the explicit/derived repo slug and resolveComments falls back to
+                // trying both CLIs, so the auto decision needn't re-probe the cwd (#1043).
+                backend = resolveBackend(configValue, null, _spawnFn !== undefined);
             }
             const configBots = db.get(`SELECT value_json FROM plugin_config WHERE key = 'pr_review_bots'`);
             let botsOverride = '';
@@ -286,13 +335,18 @@ export function prMonitorTools(db, _spawnFn) {
             // duplicate row. Monitoring rows always have pr_number > 0 so they
             // are covered by idx_pr_review_runs_pr (partial unique WHERE pr_number > 0).
             // Use SELECT + INSERT/UPDATE to avoid relying on partial-index ON CONFLICT.
+            // Resolve the owning task from the PR head branch so the carrier
+            // resolution (pr_number → pr_review_runs → tasks → issue) works in
+            // production (#1024). Null when unresolvable — COALESCE keeps a
+            // previously-resolved task_id rather than nulling it on a later fetch.
+            const taskId = resolveMonitorTaskId(db, fetchResult.head_branch, repo);
             const existingCursor = db.get('SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?', [prNumber, repo]);
             if (existingCursor) {
-                db.run('UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ? WHERE id = ?', [now, lastCommentId, existingCursor.id]);
+                db.run('UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?', [now, lastCommentId, taskId, existingCursor.id]);
             }
             else {
-                db.run(`INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id)
-           VALUES (?, ?, ?, ?)`, [prNumber, repo, now, lastCommentId]);
+                db.run(`INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
+           VALUES (?, ?, ?, ?, ?)`, [prNumber, repo, now, lastCommentId, taskId]);
             }
             return ok(fetchResult);
         })),
