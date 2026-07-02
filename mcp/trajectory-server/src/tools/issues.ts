@@ -455,14 +455,22 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       if (labelError !== null) {
         return err(labelError);
       }
+      // repo (#155): explicit arg, else the sole/managed repo when exactly one
+      // repos row exists. Null for an ambiguous multi-repo install with no
+      // selector — the FK is nullable so the insert still succeeds. Resolved
+      // before the dedup check so dedup can scope to the same repo.
+      const explicitRepo = (args['repo'] as string | undefined) ?? null;
+      const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
       // Dedup pre-check (#91/#775): unless explicitly overridden, refuse to
       // fork a second open issue for objective-equivalent work. Deterministic
-      // token-set Jaccard against every OPEN issue; the best match at/above the
-      // threshold (or a normalized-equal objective) short-circuits the insert.
+      // token-set Jaccard against OPEN issues in the SAME repo (or repo-less
+      // ones); a match at/above the threshold short-circuits the insert. Issues
+      // in other repos are distinct work and never dedup against this one.
       const allowDuplicate = (args['allow_duplicate'] as boolean | undefined) ?? false;
       if (!allowDuplicate) {
         const openIssues = db.all<{ id: number; objective: string }>(
-          `SELECT id, objective FROM issues WHERE status = 'open'`,
+          `SELECT id, objective FROM issues WHERE status = 'open' AND (repo IS NULL OR repo = ?)`,
+          [issueRepo],
         );
         let best: { id: number; objective: string; similarity: number } | null = null;
         for (const candidate of openIssues) {
@@ -480,11 +488,6 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           });
         }
       }
-      // repo (#155): explicit arg, else the sole/managed repo when exactly one
-      // repos row exists. Null for an ambiguous multi-repo install with no
-      // selector — the FK is nullable so the insert still succeeds.
-      const explicitRepo = (args['repo'] as string | undefined) ?? null;
-      const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
       // milestone: optional; persisted locally AND passed to remote sync
       // (#83/#763). When omitted, defaults to the issue repo's sole OPEN
       // milestone (#15); an explicit milestone upserts its FK row (#985/#154).

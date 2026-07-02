@@ -23862,10 +23862,13 @@ function issueTools(db2, dbPath2 = "") {
       if (labelError !== null) {
         return err2(labelError);
       }
+      const explicitRepo = args["repo"] ?? null;
+      const issueRepo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
       const allowDuplicate = args["allow_duplicate"] ?? false;
       if (!allowDuplicate) {
         const openIssues = db2.all(
-          `SELECT id, objective FROM issues WHERE status = 'open'`
+          `SELECT id, objective FROM issues WHERE status = 'open' AND (repo IS NULL OR repo = ?)`,
+          [issueRepo]
         );
         let best = null;
         for (const candidate of openIssues) {
@@ -23883,8 +23886,6 @@ function issueTools(db2, dbPath2 = "") {
           });
         }
       }
-      const explicitRepo = args["repo"] ?? null;
-      const issueRepo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
       const explicitMilestone = args["milestone"] ?? null;
       const milestone = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
       const spawnFn = args["_spawnFn"] ?? void 0;
@@ -25923,11 +25924,6 @@ function skillTools(db2) {
           `skill_register rejected: invalid name "${name}". Skill names must match ^[a-z][a-z0-9-]{0,63}$ \u2014 lowercase letters, digits, and hyphens only, starting with a letter, max 64 chars. Examples: my-skill, data-export-v2.`
         );
       }
-      if (name.startsWith("tmb_") && scope !== "global") {
-        throw new Error(
-          `skill_register rejected: the 'tmb_' prefix is reserved for plugin-shipped global skills. Rename your skill (e.g. replace 'tmb_' with your project prefix) or set scope='global' if you are contributing an official plugin skill.`
-        );
-      }
       const now = nowISO();
       db2.run(
         `INSERT INTO cheatcodes
@@ -26226,7 +26222,7 @@ function reportTools(db2) {
   const definitions = [
     {
       name: "issue_report_md",
-      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, all audit events, and skill usage.',
+      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, and all audit events.',
       inputSchema: {
         type: "object",
         properties: {
@@ -27260,15 +27256,9 @@ function roundtableTools(db2) {
         let voteRowsWritten = 0;
         db2.transaction(() => {
           for (const agreement of ratified) {
-            db2.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'answer', ?, ?)`,
-              [issueId, agreement, now]
-            );
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now });
             discussionRowsWritten++;
-            db2.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`,
-              [issueId, `Ratified: ${agreement}`, now]
-            );
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
@@ -27277,17 +27267,11 @@ function roundtableTools(db2) {
             voteRowsWritten++;
           }
           for (const agreement of unratified) {
-            db2.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'note', ?, ?)`,
-              [issueId, `not ratified: ${agreement}`, now]
-            );
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now });
             discussionRowsWritten++;
           }
           for (const r of resolutions) {
-            db2.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`,
-              [issueId, `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, now]
-            );
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
@@ -27316,6 +27300,7 @@ function roundtableTools(db2) {
         if (!roundtable) {
           throw new Error(`Not found: roundtable ${roundtableId}`);
         }
+        const windowEnd = nowISO();
         const participants = db2.all(
           `SELECT DISTINCT participant FROM roundtable_votes
            WHERE roundtable_id = ? AND participant != 'human' AND participant IS NOT NULL`,
@@ -27323,18 +27308,18 @@ function roundtableTools(db2) {
         ).map((r) => r.participant);
         const answerRows = db2.all(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at]
+           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd]
         ).map((r) => r.body);
         const noteRows = db2.all(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at]
+           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd]
         ).map((r) => r.body.replace(/^not ratified: /, ""));
         const decisionRows = db2.all(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at]
+           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd]
         );
         const disagreementsResolved = decisionRows.map((r) => ({
           decision_body: r.body
@@ -27387,15 +27372,9 @@ function roundtableTools(db2) {
         let voteRowsWritten = 0;
         db2.transaction(() => {
           for (const agreement of decisions.ratified) {
-            db2.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'answer', ?, ?)`,
-              [issueId, agreement, now]
-            );
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now });
             discussionRowsWritten++;
-            db2.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`,
-              [issueId, `Ratified: ${agreement}`, now]
-            );
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
@@ -27404,17 +27383,11 @@ function roundtableTools(db2) {
             voteRowsWritten++;
           }
           for (const agreement of decisions.unratified) {
-            db2.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'note', ?, ?)`,
-              [issueId, `not ratified: ${agreement}`, now]
-            );
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now });
             discussionRowsWritten++;
           }
           for (const r of decisions.resolutions) {
-            db2.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`,
-              [issueId, `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, now]
-            );
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
@@ -27500,6 +27473,17 @@ function buildBotPatterns(configOverride) {
 
 // src/tools/pr_monitor.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
+
+// src/utils/untrusted.ts
+var UNTRUSTED_CLOSE = "</untrusted-content>";
+function frameUntrusted(source, content) {
+  const neutralized = content.split(UNTRUSTED_CLOSE).join("</ untrusted-content>");
+  return `<untrusted-content source="${source}">
+${neutralized}
+${UNTRUSTED_CLOSE}`;
+}
+
+// src/tools/pr_monitor.ts
 function ok13(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -27598,7 +27582,7 @@ function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
       id,
       author,
       author_kind: isBot(author, botPatterns) ? "bot" : "human",
-      body: c.body ?? "",
+      body: frameUntrusted("pr-comment", c.body ?? ""),
       created_at,
       is_resolved: false
     });
@@ -27613,7 +27597,7 @@ function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
         id,
         author,
         author_kind: isBot(author, botPatterns) ? "bot" : "human",
-        body: c.body ?? "",
+        body: frameUntrusted("pr-comment", c.body ?? ""),
         created_at,
         is_resolved: c.isResolved ?? false
       };
@@ -27647,7 +27631,7 @@ function fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn) {
       id,
       author,
       author_kind: isBot(author, botPatterns) ? "bot" : "human",
-      body: note.body ?? "",
+      body: frameUntrusted("pr-comment", note.body ?? ""),
       created_at,
       is_resolved: note.resolved ?? false
     };
@@ -28965,20 +28949,7 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           );
         }
         const now = nowISO();
-        if (waiveScopeGate) {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`,
-            [
-              task.issue_id,
-              task.branch_id,
-              `bro_atomic_close scope gate waived for task ${task.id}`,
-              JSON.stringify({ skill: "bro_atomic_close", task_id: task.id, commit_sha: commitSha }),
-              now
-            ]
-          );
-        } else {
+        if (!waiveScopeGate) {
           const repoPath = resolveRepoPath(db2, task.repo);
           const baseRef = `origin/${task.parent_branch_id || "dev"}`;
           const scope = repoPath ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files)) : { outOfScope: [], checked: false, reason: `cannot resolve a path for repo '${task.repo ?? ""}'` };
@@ -28994,6 +28965,20 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           }
         }
         const result = db2.transaction(() => {
+          if (waiveScopeGate) {
+            db2.run(
+              `INSERT INTO audit
+                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+               VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`,
+              [
+                task.issue_id,
+                task.branch_id,
+                `bro_atomic_close scope gate waived for task ${task.id}`,
+                JSON.stringify({ skill: "bro_atomic_close", task_id: task.id, commit_sha: commitSha }),
+                now
+              ]
+            );
+          }
           const { issue_closed } = closeTaskInTx(
             db2,
             task,
@@ -30307,7 +30292,8 @@ function readReadmeSummary(absDirPath) {
     if (!existsSync7(readmePath)) continue;
     try {
       const raw = readFileSync3(readmePath, "utf8");
-      return raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
+      const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
+      return frameUntrusted("readme", clipped);
     } catch {
     }
   }
@@ -31353,6 +31339,18 @@ function cheatcodeTools(db2) {
             attachments
           });
         }
+        const approval = db2.get(
+          `SELECT id FROM audit
+             WHERE event_type = 'cheatcode_approved'
+               AND json_extract(content_json, '$.source_url') = ?
+           LIMIT 1`,
+          [sourceUrl]
+        );
+        if (!approval) {
+          return err16(
+            `cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
+          );
+        }
         const candidate = {
           name,
           kind,
@@ -31381,7 +31379,7 @@ function cheatcodeTools(db2) {
           const res = db2.run(
             `INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?)`,
-            [name, kind, origin, description, sourceUrl, filePath, out.version, trustTier, placementScope, installedAt]
+            [name, kind, origin, description, sourceUrl, filePath, out.version ?? null, trustTier, placementScope, installedAt]
           );
           const id = Number(res.lastInsertRowid);
           for (const att of out.attachments) {

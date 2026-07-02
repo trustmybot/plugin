@@ -8,6 +8,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { WorldModelGraph } from '../graph-db.js';
 import { classifyUrl, type Provider } from '../utils/classify-url.js';
+import { frameUntrusted } from '../utils/untrusted.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -264,13 +265,17 @@ function buildStructuralSummary(
   return `${leaf}/ — ${parts.length > 0 ? parts.join('; ') : 'empty directory'}`;
 }
 
-function readReadmeSummary(absDirPath: string): string | null {
+export function readReadmeSummary(absDirPath: string): string | null {
   for (const candidate of README_CANDIDATES) {
     const readmePath = join(absDirPath, candidate);
     if (!existsSync(readmePath)) continue;
     try {
       const raw = readFileSync(readmePath, 'utf8');
-      return raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
+      const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
+      // A README is remotely-sourced text — frame it as untrusted data so any
+      // agent that later reads this world-model summary treats it as content,
+      // not instructions (#1036).
+      return frameUntrusted('readme', clipped);
     } catch {
       // Unreadable — fall through.
     }

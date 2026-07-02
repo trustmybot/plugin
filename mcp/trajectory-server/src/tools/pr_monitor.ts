@@ -8,6 +8,7 @@ import { spawnSync, SpawnSyncOptions } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { frameUntrusted } from '../utils/untrusted.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -190,7 +191,7 @@ function fetchGithubComments(
       id,
       author,
       author_kind: isBot(author, botPatterns) ? 'bot' : 'human',
-      body: c.body ?? '',
+      body: frameUntrusted('pr-comment', c.body ?? ''),
       created_at,
       is_resolved: false,
     });
@@ -206,7 +207,7 @@ function fetchGithubComments(
         id,
         author,
         author_kind: isBot(author, botPatterns) ? 'bot' : 'human',
-        body: c.body ?? '',
+        body: frameUntrusted('pr-comment', c.body ?? ''),
         created_at,
         is_resolved: c.isResolved ?? false,
       };
@@ -264,7 +265,7 @@ function fetchGitlabComments(
       id,
       author,
       author_kind: isBot(author, botPatterns) ? 'bot' : 'human',
-      body: note.body ?? '',
+      body: frameUntrusted('pr-comment', note.body ?? ''),
       created_at,
       is_resolved: note.resolved ?? false,
     };

@@ -38,6 +38,18 @@ async function call(handlers, name, args) {
     assert.ok(h, `handler not found: ${name}`);
     return h(args);
 }
+// cheatcode_install is fail-closed behind a server-side approval gate (#1023):
+// it only runs when a matching cheatcode_approved audit row exists for the
+// candidate's source_url. Seed that approval (via the real cheatcode_approve
+// handler) then invoke install — the default path for tests that aren't
+// exercising the gate itself.
+async function callInstall(handlers, args) {
+    const candidate = args['candidate'];
+    if (candidate && typeof candidate === 'object') {
+        await call(handlers, 'cheatcode_approve', { agent: 'bro', candidate });
+    }
+    return call(handlers, 'cheatcode_install', args);
+}
 // Mixed-tier fixture. The curated (tier 2) candidate is given STRICTLY MORE
 // relevance than the official (tier 1) one, so a tier-blind ranker would float
 // it to the top. Tier dominance (200 base vs 100) must keep official first.
@@ -471,7 +483,7 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 },
                 trust_tier: 'trusted',
@@ -501,7 +513,7 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
             });
@@ -523,7 +535,7 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
                 scope: 'global',
@@ -552,7 +564,7 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = featureDev.path;
         let featureId;
         try {
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
             });
@@ -571,7 +583,7 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = codeReview.path;
         let reviewId;
         try {
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'code-review', kind: 'plugin', source_url: 'https://github.com/x/code-review' },
             });
@@ -607,13 +619,13 @@ describe('cheatcode_install', () => {
         }));
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = keyed.path;
         try {
-            const rf = await call(tools.handlers, 'cheatcode_install', {
+            const rf = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
             });
             assert.notEqual(rf.isError, true, `feature-dev install errored: ${rf.content[0]?.text}`);
             const featureId = parse(rf)['cheatcode_id'];
-            const rr = await call(tools.handlers, 'cheatcode_install', {
+            const rr = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'code-review', kind: 'plugin', source_url: 'https://github.com/x/code-review' },
             });
@@ -637,8 +649,8 @@ describe('cheatcode_install', () => {
         try {
             const tools = cheatcodeTools(db);
             const cand = { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 };
-            await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate: cand });
-            const r2 = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate: cand });
+            await callInstall(tools.handlers, { agent: 'bro', candidate: cand });
+            const r2 = await callInstall(tools.handlers, { agent: 'bro', candidate: cand });
             const out2 = parse(r2);
             assert.equal(out2['idempotent'], true);
             assert.equal(out2['installed'], false);
@@ -656,7 +668,7 @@ describe('cheatcode_install', () => {
         const db = tempDB();
         const before = db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`).n;
         const tools = cheatcodeTools(db);
-        const r = await call(tools.handlers, 'cheatcode_install', {
+        const r = await callInstall(tools.handlers, {
             agent: 'bro',
             candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
         });
@@ -675,13 +687,13 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            const rMcp = await call(tools.handlers, 'cheatcode_install', {
+            const rMcp = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'serena-mcp', kind: 'mcp', source_url: 'https://github.com/x/serena' },
             });
             assert.notEqual(rMcp.isError, true, `mcp no-target install errored: ${rMcp.content[0]?.text}`);
             assert.ok(typeof parse(rMcp)['cheatcode_id'] === 'number', 'mcp installs without a target');
-            const rPlugin = await call(tools.handlers, 'cheatcode_install', {
+            const rPlugin = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
             });
@@ -699,7 +711,7 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            await call(tools.handlers, 'cheatcode_install', {
+            await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 },
             });
@@ -719,7 +731,7 @@ describe('cheatcode_install', () => {
     it('rejects a non-bro caller', async () => {
         const db = tempDB();
         const tools = cheatcodeTools(db);
-        const r = await call(tools.handlers, 'cheatcode_install', {
+        const r = await callInstall(tools.handlers, {
             agent: 'swe',
             candidate: { name: 'x', kind: 'plugin', source_url: 'https://github.com/x/y' },
         });
@@ -759,7 +771,7 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 // A <name>@<marketplace> ref — not a raw URL — is a marketplace source.
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'pdf-plugin@some-marketplace' },
@@ -781,13 +793,53 @@ describe('cheatcode_install', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'broken-plugin', kind: 'plugin', source_url: 'https://github.com/x/broken' },
             });
             assert.equal(r.isError, true, 'a failed plugin install is surfaced as an error');
             const n = db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE name = 'broken-plugin'`);
             assert.equal(n.n, 0, 'no phantom installed=false row is recorded');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('blocks the install fail-closed when no approval is on record (#1023)', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            // Raw install with NO preceding cheatcode_approve — the server-side gate
+            // must refuse before the script forks.
+            const r = await call(tools.handlers, 'cheatcode_install', {
+                agent: 'bro',
+                candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+            });
+            assert.equal(r.isError, true, 'unapproved install is rejected');
+            assert.match(parse(r)['error'], /approval/i, 'error names the missing approval');
+            assert.equal(db.get(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`).n, 0, 'no cheatcodes row written for an unapproved install');
+            assert.equal(db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_install'`).n, 0, 'no install audit row for an unapproved install');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            cleanup();
+        }
+    });
+    it('installs once a matching cheatcode_approved audit row exists for the source_url (#1023)', async () => {
+        const db = tempDB();
+        const { path, cleanup } = withFixture(INSTALL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+        try {
+            const tools = cheatcodeTools(db);
+            const candidate = { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' };
+            const approved = await call(tools.handlers, 'cheatcode_approve', { agent: 'bro', candidate });
+            assert.notEqual(approved.isError, true, `approve errored: ${approved.content[0]?.text}`);
+            const r = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate });
+            assert.notEqual(r.isError, true, `approved install errored: ${r.content[0]?.text}`);
+            assert.equal(parse(r)['installed'], true, 'install proceeds once approved');
         }
         finally {
             delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
@@ -848,7 +900,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         const snapshot = pluginRepoSnapshot();
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
                 target: 'swe',
@@ -894,13 +946,13 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         try {
             const tools = cheatcodeTools(db);
             const cand = { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' };
-            await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate: cand, target: 'swe' });
+            await callInstall(tools.handlers, { agent: 'bro', candidate: cand, target: 'swe' });
             // Customize the materialized file, then re-install: the second call must
             // no-op (idempotent install) and never clobber the customization.
             const localSwe = join(root, '.claude', 'agents', 'swe.md');
             const customized = readFileSync(localSwe, 'utf8') + '\n<!-- human customization -->\n';
             writeFileSync(localSwe, customized);
-            const r2 = await call(tools.handlers, 'cheatcode_install', {
+            const r2 = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: cand,
                 target: 'swe',
@@ -936,7 +988,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
             const seeded = '---\nname: pr-reviewer\nskills: [tmb_review]\n---\n\n# custom body\n';
             writeFileSync(join(localPr, 'pr-reviewer.md'), seeded);
             const tools = cheatcodeTools(db);
-            await call(tools.handlers, 'cheatcode_install', {
+            await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'sec-skill', kind: 'skill', source_url: 'https://github.com/x/sec-skill' },
                 target: 'pr-reviewer',
@@ -967,7 +1019,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         const snapshot = pluginRepoSnapshot();
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
                 target: 'bro',
@@ -989,7 +1041,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
             // Reset the (name, source_url) idempotency by installing a second skill
             // referencing bro to prove de-dup of the SAME line: re-run via a fresh
             // tools call on the same db — install is idempotent so the line is stable.
-            const r2 = await call(tools.handlers, 'cheatcode_install', {
+            const r2 = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
                 target: 'bro',
@@ -1018,7 +1070,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         try {
             const tools = cheatcodeTools(db);
             const cand = { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' };
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: cand,
                 target: 'swe',
@@ -1044,7 +1096,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
             // Re-install no-ops and never clobbers a human customization.
             const customized = body + '\n<!-- human customization -->\n';
             writeFileSync(localSwe, customized);
-            const r2 = await call(tools.handlers, 'cheatcode_install', {
+            const r2 = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: cand,
                 target: 'swe',
@@ -1088,7 +1140,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         const snapshot = pluginRepoSnapshot();
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pyright-lsp', kind: 'plugin', source_url: 'https://github.com/x/pyright-lsp' },
                 target: 'swe',
@@ -1131,7 +1183,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
         try {
             const tools = cheatcodeTools(db);
-            await call(tools.handlers, 'cheatcode_install', {
+            await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'multi-tool', kind: 'plugin', source_url: 'https://github.com/x/multi-tool' },
                 target: 'swe',
@@ -1165,7 +1217,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
         try {
             const tools = cheatcodeTools(db);
-            await call(tools.handlers, 'cheatcode_install', {
+            await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
                 target: 'swe',
@@ -1198,7 +1250,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
         try {
             const tools = cheatcodeTools(db);
-            await call(tools.handlers, 'cheatcode_install', {
+            await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
                 target: 'swe',
@@ -1236,7 +1288,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = unfx;
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pyright-lsp', kind: 'plugin', source_url: 'https://github.com/x/pyright-lsp' },
                 target: 'swe',
@@ -1271,7 +1323,7 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         const snapshot = pluginRepoSnapshot();
         try {
             const tools = cheatcodeTools(db);
-            const r = await call(tools.handlers, 'cheatcode_install', {
+            const r = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
             });
@@ -1308,7 +1360,7 @@ describe('cheatcode_uninstall', () => {
         writeFileSync(path, INSTALL_OK);
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
-            const r = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate });
+            const r = await callInstall(tools.handlers, { agent: 'bro', candidate });
             assert.notEqual(r.isError, true, `seed install errored: ${r.content[0]?.text}`);
             return parse(r)['cheatcode_id'];
         }
@@ -1492,7 +1544,7 @@ describe('cheatcode_uninstall de-materializes the prompt surface', () => {
         process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = un.path;
         try {
             const tools = cheatcodeTools(db);
-            const rInstall = await call(tools.handlers, 'cheatcode_install', {
+            const rInstall = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
                 target: 'swe',
@@ -1528,7 +1580,7 @@ describe('cheatcode_uninstall de-materializes the prompt surface', () => {
         process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = un.path;
         try {
             const tools = cheatcodeTools(db);
-            const rInstall = await call(tools.handlers, 'cheatcode_install', {
+            const rInstall = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
                 target: 'bro',
@@ -1562,7 +1614,7 @@ describe('cheatcode_uninstall de-materializes the prompt surface', () => {
         process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = un.path;
         try {
             const tools = cheatcodeTools(db);
-            const rInstall = await call(tools.handlers, 'cheatcode_install', {
+            const rInstall = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
                 target: 'swe',
@@ -1600,7 +1652,7 @@ describe('cheatcode_uninstall de-materializes the prompt surface', () => {
         process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = un.path;
         try {
             const tools = cheatcodeTools(db);
-            const rInstall = await call(tools.handlers, 'cheatcode_install', {
+            const rInstall = await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
                 target: 'swe',
@@ -1633,7 +1685,7 @@ describe('cheatcode_activate', () => {
         writeFileSync(path, INSTALL_OK);
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
-            const r = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate });
+            const r = await callInstall(tools.handlers, { agent: 'bro', candidate });
             assert.notEqual(r.isError, true, `seed install errored: ${r.content[0]?.text}`);
             return parse(r)['cheatcode_id'];
         }
@@ -1647,7 +1699,7 @@ describe('cheatcode_activate', () => {
         const tools = cheatcodeTools(db);
         // Skill kind with no fixture installs nothing at the marketplace but still
         // records the cheatcodes row, which activate keys off.
-        const r0 = await call(tools.handlers, 'cheatcode_install', {
+        const r0 = await callInstall(tools.handlers, {
             agent: 'bro',
             candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
             target: 'swe',
@@ -1753,7 +1805,7 @@ describe('cheatcode_list', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            await call(tools.handlers, 'cheatcode_install', {
+            await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
                 trust_tier: 'trusted',
@@ -1778,7 +1830,7 @@ describe('cheatcode_list', () => {
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
         try {
             const tools = cheatcodeTools(db);
-            await call(tools.handlers, 'cheatcode_install', {
+            await callInstall(tools.handlers, {
                 agent: 'bro',
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
             });

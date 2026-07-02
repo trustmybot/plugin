@@ -92,6 +92,25 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
         assert.equal(reviewComment.line, 42);
         db.close();
     });
+    it('frames every returned comment body as untrusted data (#1036)', async () => {
+        const db = tempDB();
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
+        const result = (await tools.handlers['pr_monitor_comments_get']({
+            agent: 'bro',
+            pr_number: 6,
+        }));
+        assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+        const data = parseResult(result);
+        for (const c of data.comments) {
+            assert.ok(c.body.startsWith('<untrusted-content source="pr-comment">'), `comment body must be framed as untrusted data: ${c.body}`);
+            assert.ok(c.body.endsWith('</untrusted-content>'), 'framed body ends with the close marker');
+        }
+        // The original text still lives inside the fence.
+        const alice = data.comments.find((c) => c.author === 'alice');
+        assert.ok(alice.body.includes('This function should handle null input.'), 'original body preserved inside the fence');
+        db.close();
+    });
     it('filters comments by since timestamp', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
