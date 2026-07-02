@@ -153,8 +153,9 @@ describe('taskTools', () => {
         await step('needs_validation'); // running → needs_validation
         const completed = await step('completed'); // needs_validation → completed
         assert.ok(completed.completed_at, 'completed sets completed_at');
-        const closed = await step('closed'); // completed → closed
-        assert.ok(closed.completed_at, 'closed preserves the completion stamp');
+        // 'closed' is reached only via bro_atomic_close (#1025); set it directly to
+        // exercise the one remaining task_update_status edge out of closed.
+        db.run("UPDATE tasks SET status = 'closed' WHERE id = ?", [Number(taskId)]);
         await step('escalated'); // closed → escalated (push-gate pushback)
         db.close();
     });
@@ -686,7 +687,7 @@ describe('taskTools', () => {
         assert.equal(parseResult(failedResult).status, 'failed');
         db.close();
     });
-    it('task_update_status lets bro close verified work and reopen for re-validation (#278)', async () => {
+    it('task_update_status blocks completed → closed (only bro_atomic_close closes) and allows reopen for re-validation (#278 #1025)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = taskTools(db);
@@ -701,15 +702,16 @@ describe('taskTools', () => {
             ],
         });
         const tasks = parseBatch(batchResult);
-        // SWE completes task 0, then bro closes it (completed → closed).
+        // SWE completes task 0; bro may NOT close it via task_update_status —
+        // completed → closed is reserved for bro_atomic_close (#1025).
         await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[0].id), status: 'completed', commit_sha: 'abc1234' });
         const closedResult = await call(tools.handlers, 'task_update_status', {
             agent: 'bro',
             task_id: String(tasks[0].id),
             status: 'closed',
         });
-        assert.ok(!closedResult.isError, `Expected no error for completed → closed: ${JSON.stringify(parseResult(closedResult))}`);
-        assert.equal(parseResult(closedResult).status, 'closed');
+        assert.ok(closedResult.isError, 'completed → closed via task_update_status must be rejected');
+        assert.equal(parseResult(closedResult).status, undefined, 'no status flip on a rejected close');
         // Task 1: completed → needs_validation (bro reopens for re-validation).
         await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[1].id), status: 'completed', commit_sha: 'def5678' });
         const nvResult = await call(tools.handlers, 'task_update_status', {
@@ -1282,7 +1284,9 @@ describe('taskTools', () => {
         });
         const taskId = String(parseBatch(batchResult)[0].id);
         await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed' });
-        await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
+        // 'closed' is reached only via bro_atomic_close (#1025); set it directly to
+        // put the task into the terminal state this test guards against.
+        db.run("UPDATE tasks SET status = 'closed' WHERE id = ?", [Number(taskId)]);
         for (const status of ['completed', 'running', 'failed']) {
             const result = await call(tools.handlers, 'task_update_status', {
                 agent: 'swe',

@@ -70,6 +70,21 @@ describe('validation_record subagent_session_id gate', () => {
         assert.ok(data.error.includes('precondition_failed'), `Error must cite precondition_failed: ${data.error}`);
         assert.ok(data.error.includes('subagent_session_id'), `Error must mention subagent_session_id: ${data.error}`);
     });
+    it('rejects mixed-case PR-REVIEWER without subagent_session_id (#1017 normalized role)', async () => {
+        const tools = validationTools(db);
+        const result = await call(tools.handlers, 'validation_record', {
+            agent: 'PR-REVIEWER',
+            task_id: taskId,
+            attempt_n: 1,
+            verdict: 'pass',
+            feedback: '# LGTM',
+            mcp_available: true,
+        });
+        assert.ok(result.isError, 'mixed-case pr-reviewer must not bypass the precondition');
+        const data = parseResult(result);
+        assert.ok(data.error.includes('precondition_failed'), `Error must cite precondition_failed: ${data.error}`);
+        assert.ok(data.error.includes('subagent_session_id'), `Error must mention subagent_session_id: ${data.error}`);
+    });
     it('rejects pr-reviewer call without mcp_available with precondition_failed', async () => {
         const tools = validationTools(db);
         const result = await call(tools.handlers, 'validation_record', {
