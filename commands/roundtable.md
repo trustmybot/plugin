@@ -17,7 +17,11 @@ before proceeding.
 
 ## Phase 1 — Setup
 
-Glob `.claude/agents/` and pick the 2–4 agents whose domain bears on the topic, excluding SWE; halt if fewer than 2 are relevant. Open the round with `roundtable_create` (passing the carrier issue, topic, and participant count) and keep the returned `roundtable_id`.
+Glob `.claude/agents/` and pick the 2–4 agents whose domain bears on the topic, excluding SWE; halt if fewer than 2 are relevant.
+
+Resolve the carrier issue — the issue this roundtable's discussions and decisions attach to. If the topic already maps to an open issue, use its `issue_id`. Otherwise create a one-shot carrier with `issue_create` (title = the topic) and use the returned id; Phase 6 closes it once the roundtable ends.
+
+Open the round with `roundtable_create` (passing the carrier `issue_id`, topic, and participant count) and keep the returned `roundtable_id`.
 
 ## Phase 2 — Collect (parallel Task spawns)
 
