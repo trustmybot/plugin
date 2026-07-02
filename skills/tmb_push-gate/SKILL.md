@@ -14,7 +14,7 @@ The verdict row is always authored by pr-reviewer itself — via `validation_rec
 
 **Clean spawn prompt example:**
 ```
-task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin attempt_n=<attempt #>
+task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin attempt_n=<attempt #> subagent_session_id=<spawned reviewer session id>
 
 Push-gate review. Load the brief, verify each Success Criterion against the diff, and record your verdict — fail if any check fails.
 ```

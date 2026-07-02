@@ -10,7 +10,7 @@
 #   1. require-task-spec              — swe must cite a valid task_id
 #   2. require-feature-branch-active  — task's branch must already exist
 #   3. pr-reviewer-no-worktree        — pr-reviewer must not run in worktree
-#   4. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have four anchors
+#   4. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have six anchors
 #   5. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
 #
 # Silent on success (no context gathered); emits deny verbatim on first block.
