@@ -178,14 +178,17 @@ const VALID_STATUSES = new Set([
 // reject every outbound move; a same-status no-op is always allowed.
 //   - Into 'completed' only from a work state (running / needs_validation) —
 //     bro can't fabricate completion from pending or a terminal state.
-//   - Into 'closed' only from verified/terminal states, never from pending.
+//   - The only path from a verified work state (needs_validation / completed)
+//     into 'closed' is bro_atomic_close, so task_update_status must not offer
+//     those edges (else bro could close a task without the atomic close's
+//     side effects).
 //   - 'closed'→'escalated' is the push-gate pushback path (pr-reviewer FAILs
 //     after the task was closed; bro reopens the work).
 const BRO_TRANSITIONS: Record<string, Set<string>> = {
   pending: new Set(['running', 'failed', 'escalated']),
   running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
-  needs_validation: new Set(['running', 'completed', 'failed', 'escalated', 'closed']),
-  completed: new Set(['needs_validation', 'failed', 'escalated', 'closed']),
+  needs_validation: new Set(['running', 'completed', 'failed', 'escalated']),
+  completed: new Set(['needs_validation', 'failed', 'escalated']),
   failed: new Set(['pending', 'running', 'escalated', 'closed']),
   escalated: new Set(['pending', 'running', 'failed', 'closed']),
   closed: new Set(['escalated']),
@@ -686,6 +689,27 @@ export function taskTools(db: TrajectoryDB): {
         // side effects (branch auto-create / INSERT). Named error → model retries.
         validateTypedRailsFields(t);
 
+        // #1027: validate everything that can reject a task BEFORE the git
+        // branch/worktree side effect below, so a validation failure persists
+        // nothing (no orphan auto-created branch, no post-side-effect FK error
+        // in the INSERT transaction).
+        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
+        if (!t.description) throw new Error('Missing required arg: description');
+        if (t.spec_body !== undefined) {
+          if (typeof t.spec_body !== 'string') {
+            throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
+          }
+          if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
+            throw new Error(
+              `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
+              `Split into multiple tasks via depends_on, or cite existing code/` +
+              `conventions rather than restating them inline. Very long specs ` +
+              `push SWE cold-start into the minutes range; see issue #55. ` +
+              `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
+            );
+          }
+        }
+
         let effectiveRepoName: string | null = null;
         if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
           const repo = t.repo as string;
@@ -717,13 +741,18 @@ export function taskTools(db: TrajectoryDB): {
             `SELECT path FROM repos WHERE name = ?`,
             [effectiveRepoName],
           );
-          let repoPath: string;
-          if (reposRow) {
-            const rawPath = reposRow.path;
-            repoPath = rawPath.startsWith('/') ? rawPath : resolve(dbDir, rawPath);
-          } else {
-            repoPath = effectiveRepoName;
+          if (!reposRow) {
+            // #1027: tasks.repo is a FK to repos(name) ON DELETE RESTRICT.
+            // Reject an unregistered repo here, before ensureBranchInRepo, so we
+            // never auto-create a branch for a task whose INSERT would then FK-fail.
+            throw new Error(
+              `task_create_batch: task branch_id='${t.branch_id}' names repo='${effectiveRepoName}' ` +
+              `which is not registered (no repos row). Run /scan or pass a registered repo — ` +
+              `tasks.repo is a foreign key to repos(name).`,
+            );
           }
+          const rawPath = reposRow.path;
+          const repoPath = rawPath.startsWith('/') ? rawPath : resolve(dbDir, rawPath);
 
           const parentBranchId = (t.parent_branch_id as string | undefined | null) ?? null;
           const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);

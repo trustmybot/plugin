@@ -537,7 +537,9 @@ export function discussionTools(db: TrajectoryDB): {
       if (cursorArg) {
         const decoded = decodeCursor(cursorArg);
         if (decoded) {
-          cursorFilter = 'AND (created_at > ? OR (created_at = ? AND id > ?))';
+          // DESC pagination walks toward older rows, so the next page is
+          // everything strictly older than the last row we returned.
+          cursorFilter = 'AND (created_at < ? OR (created_at = ? AND id < ?))';
           cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
         }
       }
@@ -550,10 +552,13 @@ export function discussionTools(db: TrajectoryDB): {
 
       const hasMore = fetchedDisc.length > resolvedLastN;
       const sliced = hasMore ? fetchedDisc.slice(0, resolvedLastN) : fetchedDisc;
-      // Return in ascending order for readability
-      const discussions = sliced.reverse();
-      const last = sliced[sliced.length - 1];
-      const next_cursor = hasMore && last ? encodeCursor(last) : undefined;
+      // fetchedDisc is DESC (newest first); the oldest returned row is the last
+      // element. Capture it for the next cursor BEFORE reversing for display.
+      const oldest = sliced[sliced.length - 1];
+      const next_cursor = hasMore && oldest ? encodeCursor(oldest) : undefined;
+      // Return in ascending order for readability (copy so the cursor above is
+      // not affected by the in-place reverse).
+      const discussions = sliced.slice().reverse();
 
       return ok({
         issue: redactedIssue,

@@ -643,7 +643,15 @@ export function compositeTools(
             const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
             repoPath = reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
           } else {
-            repoPath = repoValue;
+            // #1027: tasks.repo is a FK to repos(name) ON DELETE RESTRICT.
+            // Reject an unregistered repo here, before any git branch/worktree
+            // side effect, so we never leave an orphan branch behind a task row
+            // whose INSERT would then FK-fail.
+            return err(
+              `task_provision: repo '${repoValue}' is not registered (no repos row). ` +
+                `Run /scan or pass a registered task.repo — tasks.repo is a foreign key to repos(name). ` +
+                `No task row or branch was created.`,
+            );
           }
         }
         if (!repoPath) {
@@ -886,6 +894,10 @@ export function compositeTools(
         // truncate their bodies, with a pointer to discussion_search for the
         // full text. This is the unbounded-growth term in the brief — paid on
         // every swe/pr-reviewer spawn for a long-lived issue.
+        // #1026: window the NEWEST 200 rows (DESC LIMIT), then reverse to
+        // chronological order for display. An ASC LIMIT 200 would drop the
+        // latest decision/intent rows on issues with >200 discussions — the
+        // exact rows the executor must obey.
         const raw = db.all<{
           author: string;
           kind: string;
@@ -893,9 +905,9 @@ export function compositeTools(
           created_at: string;
         }>(
           `SELECT author, kind, body, created_at FROM discussions
-            WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200`,
+            WHERE issue_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`,
           [task.issue_id],
-        );
+        ).reverse();
 
         const FULL_KINDS = new Set(['decision', 'intent']);
         const NOTE_CAP = 500;

@@ -828,3 +828,68 @@ describe('discussion_append awaits embedAndStore (#537)', () => {
     localDb.close();
   });
 });
+
+describe('issue_get_with_discussions compact DESC pagination (#1019)', () => {
+  let db: TrajectoryDB;
+  let issueId: string;
+
+  before(async () => {
+    db = tempDB();
+    const issues = issueTools(db);
+    const created = await call(issues.handlers, 'issue_create', {
+      labels: ['Bug', 'Priority: High'],
+      agent: 'bro',
+      objective: 'compact pagination test issue',
+      description: 'Isolated issue for pagination.',
+    });
+    issueId = String(parseResult(created).id);
+
+    const disc = discussionTools(db);
+    for (let i = 1; i <= 5; i++) {
+      const r = await call(disc.handlers, 'discussion_append', {
+        agent: 'bro',
+        issue_id: issueId,
+        author: 'bro',
+        kind: 'note',
+        body: `pagination-note-${i}`,
+      });
+      assert.ok(!r.isError, `append ${i} must succeed: ${JSON.stringify(parseResult(r))}`);
+    }
+  });
+
+  after(() => {
+    db.close();
+  });
+
+  it('page 2 is non-empty and disjoint from page 1', async () => {
+    const disc = discussionTools(db);
+
+    const page1 = parseResult(
+      await call(disc.handlers, 'issue_get_with_discussions', {
+        agent: 'bro',
+        issue_id: issueId,
+        last_n: 2,
+      }),
+    );
+    assert.ok(Array.isArray(page1.discussions), 'page 1 must have a discussions array');
+    assert.equal(page1.discussions.length, 2, 'page 1 must return last_n=2 rows');
+    assert.ok(page1.next_cursor, 'page 1 must expose a next_cursor when more rows remain');
+
+    const page2 = parseResult(
+      await call(disc.handlers, 'issue_get_with_discussions', {
+        agent: 'bro',
+        issue_id: issueId,
+        last_n: 2,
+        cursor: page1.next_cursor,
+      }),
+    );
+    assert.ok(Array.isArray(page2.discussions), 'page 2 must have a discussions array');
+    assert.ok(page2.discussions.length > 0, 'page 2 must be non-empty (regression: DESC cursor)');
+
+    const bodies1 = new Set(page1.discussions.map((d: { body: string }) => d.body));
+    const bodies2 = new Set(page2.discussions.map((d: { body: string }) => d.body));
+    for (const b of bodies2) {
+      assert.ok(!bodies1.has(b), `page 2 body "${b}" must not repeat page 1`);
+    }
+  });
+});

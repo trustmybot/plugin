@@ -80,12 +80,13 @@ export function validationTools(db) {
             requireArg(args, 'attempt_n');
             const verdict = requireArg(args, 'verdict');
             requireArg(args, 'feedback');
+            const role = normalizeAgent(agent);
             const subagentSessionId = (args['subagent_session_id'] ?? null);
-            if (agent === 'pr-reviewer' && !subagentSessionId) {
+            if (role === 'pr-reviewer' && !subagentSessionId) {
                 throw new Error('precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent\'s session ID). This prevents bro from self-authoring pr-reviewer verdicts.');
             }
             const mcpAvailableArg = args['mcp_available'];
-            if (agent === 'pr-reviewer' && typeof mcpAvailableArg !== 'boolean') {
+            if (role === 'pr-reviewer' && typeof mcpAvailableArg !== 'boolean') {
                 throw new Error('precondition_failed: validation_record with agent="pr-reviewer" requires mcp_available (boolean) — the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).');
             }
             const mcpAvailable = mcpAvailableArg === false ? 0 : 1;

@@ -408,6 +408,7 @@ function persistScan(
   let repos_upserted = 0;
   let repos_retired = 0;
   let dirs_retired = 0;
+  const retired: Array<{ name: string; path: string }> = [];
 
   db.transaction(() => {
     for (const r of out.repos) {
@@ -425,14 +426,22 @@ function persistScan(
       repos_upserted++;
     }
     for (const r of toRetire) {
-      db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
-      repos_retired++;
+      try {
+        db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+        repos_retired++;
+        retired.push(r);
+      } catch {
+        // ON DELETE RESTRICT FK: the repo is still referenced (tasks/issues
+        // point at it). Keep its row and skip retiring it rather than failing
+        // the whole scan. SQLite rolls back only this statement, so the
+        // surrounding transaction stays open for the remaining repos.
+      }
     }
   });
 
-  // Retire kuzu nodes for vanished repos (prune all their dirs).
+  // Retire kuzu nodes for repos actually removed above (prune all their dirs).
   if (graph) {
-    for (const r of toRetire) {
+    for (const r of retired) {
       const n = graph.pruneDirectories(r.name, new Set());
       dirs_retired += n;
     }
@@ -589,62 +598,75 @@ export function scanTools(
           if (existing && pidAlive(existing.pid)) {
             return err(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
           }
+          let acquired = false;
+          let acquireThrew = false;
           try {
-            acquireLock(lockPath);
+            acquired = acquireLock(lockPath);
           } catch {
+            // wx write failed: raced another acquirer, or the lock dir is absent.
+            acquireThrew = true;
+          }
+          if (!acquired) {
             const recheck = readLock(lockPath);
             if (recheck && pidAlive(recheck.pid)) {
+              // A live lock appeared between the pre-check and the acquire — we
+              // lost the race. Never fall through to a concurrent scan (#1018c).
               return err(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
             }
+            if (!acquireThrew) {
+              // acquireLock returned false with no live lock present — treat as a
+              // lost lock rather than silently double-scanning.
+              return err('scan lock could not be acquired');
+            }
+            // Threw with no live lock (missing lock dir / dead leftover): proceed
+            // best-effort lock-less, as there is no concurrent scan to guard.
           }
         }
 
-        let out: ScanOutput;
         try {
-          out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
-        } catch (e) {
+          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+          const stats = persistScan(db, graph, out, sessionDir);
+
+          // #2881: structural-change detection vs previous deep_scan_completed
+          // audit. The flag rides in the audit content_json so downstream
+          // tooling (the scan-side renderer pass, manual diagnostic queries)
+          // can decide whether the scan changed the project shape.
+          const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
+          const structuralChange = detectStructuralChange(db, out.repos, topDirs);
+
+          // Emit deep_scan_completed audit row. Attach to the system issue
+          // (id=-1) — this is a session-level event, not work-issue scoped.
+          db.run(
+            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
+            [
+              `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
+              JSON.stringify({
+                ...stats,
+                session_dir: out.session_dir,
+                scanned_at: out.scanned_at,
+                source,
+                structural_change: structuralChange,
+                repos_seen: out.repos.map((r) => r.name),
+                top_dirs: Array.from(topDirs).sort(),
+              }),
+              nowISO(),
+            ],
+          );
+
+          return ok({
+            session_dir: out.session_dir,
+            scanned_at: out.scanned_at,
+            repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
+            source,
+            structural_change: structuralChange,
+            ...stats,
+          });
+        } finally {
+          // Release the lock whether runScan or persistScan threw or not, so a
+          // failed scan never wedges future runs behind a stale lock.
           if (lockPath) releaseLock(lockPath);
-          throw e;
         }
-
-        const stats = persistScan(db, graph, out, sessionDir);
-        if (lockPath) releaseLock(lockPath);
-
-        // #2881: structural-change detection vs previous deep_scan_completed
-        // audit. The flag rides in the audit content_json so downstream
-        // tooling (the scan-side renderer pass, manual diagnostic queries)
-        // can decide whether the scan changed the project shape.
-        const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
-        const structuralChange = detectStructuralChange(db, out.repos, topDirs);
-
-        // Emit deep_scan_completed audit row. Attach to the system issue
-        // (id=-1) — this is a session-level event, not work-issue scoped.
-        db.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
-          [
-            `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
-            JSON.stringify({
-              ...stats,
-              session_dir: out.session_dir,
-              scanned_at: out.scanned_at,
-              source,
-              structural_change: structuralChange,
-              repos_seen: out.repos.map((r) => r.name),
-              top_dirs: Array.from(topDirs).sort(),
-            }),
-            nowISO(),
-          ],
-        );
-
-        return ok({
-          session_dir: out.session_dir,
-          scanned_at: out.scanned_at,
-          repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
-          source,
-          structural_change: structuralChange,
-          ...stats,
-        });
       }),
     ),
 
