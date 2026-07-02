@@ -952,6 +952,67 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
   });
 });
 
+describe('issue_sync_retry — milestone + valid labels (#1028)', () => {
+  it('retry create carries the persisted milestone and a valid label set', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+
+    // Create with the initial gh create failing so gh_iid stays null → retryable.
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'retry milestone + labels',
+      labels: VALID_LABELS,
+      milestone: 'v0.10.0',
+      _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated gh create failure' }]),
+    });
+    const issue = parseResult(createResult);
+    assert.ok(!createResult.isError, `create should succeed locally: ${issue.error}`);
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":88,"url":"https://github.com/owner/repo/issues/88"}', stderr: '' };
+      }
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/88\n', stderr: '' };
+    };
+
+    const retryResult = await call(tools.handlers, 'issue_sync_retry', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+      _spawnFn: spawnFn,
+    });
+    const data = parseResult(retryResult);
+    assert.ok(!retryResult.isError, `retry should not error: ${JSON.stringify(data)}`);
+
+    const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+    assert.ok(createCall !== undefined, 'gh issue create must run on retry');
+
+    const mIdx = createCall.args.indexOf('--milestone');
+    assert.ok(mIdx >= 0, 'retry create must include --milestone (not undefined)');
+    assert.equal(createCall.args[mIdx + 1], 'v0.10.0');
+
+    // A valid label set: at least one classification + one priority default,
+    // never labels:[] (which a tagging-enforced remote would reject).
+    const labelValues: string[] = [];
+    for (let i = 0; i < createCall.args.length; i++) {
+      if (createCall.args[i] === '--label') labelValues.push(createCall.args[i + 1]!);
+    }
+    assert.ok(labelValues.length >= 2, `retry create must supply labels, got: ${JSON.stringify(labelValues)}`);
+    assert.ok(labelValues.includes('Bug'), 'default classification label present');
+    assert.ok(
+      labelValues.some((l) => l.startsWith('Priority: ')),
+      `a priority label present, got: ${JSON.stringify(labelValues)}`,
+    );
+
+    db.close();
+  });
+});
+
 describe('issue_create sync_skipped audit marker (#336)', () => {
   it('writes sync_skipped audit row when issue_sync=off', async () => {
     const db = tempDB();

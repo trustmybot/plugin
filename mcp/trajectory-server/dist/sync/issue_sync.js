@@ -75,14 +75,20 @@ function extractRemoteHostAndRepo(remoteUrl) {
         return { host: sshMatch[1], repoPath: sshMatch[2] };
     return null;
 }
-async function readBackVerify(backend, iid, spawnFn, spawnOpts) {
+async function readBackVerify(backend, iid, spawnFn, spawnOpts, repoSlug) {
     try {
         let result;
         if (backend === 'gh') {
-            result = spawnFn('gh', ['issue', 'view', String(iid), '--json', 'number,url'], spawnOpts);
+            const args = ['issue', 'view', String(iid), '--json', 'number,url'];
+            if (repoSlug)
+                args.push('--repo', repoSlug);
+            result = spawnFn('gh', args, spawnOpts);
         }
         else {
-            result = spawnFn('glab', ['issue', 'view', String(iid)], spawnOpts);
+            const args = ['issue', 'view', String(iid)];
+            if (repoSlug)
+                args.push('-R', repoSlug);
+            result = spawnFn('glab', args, spawnOpts);
         }
         if (result.status !== 0) {
             return { ok: false, reason: 'read_back_non_zero_exit' };
@@ -216,7 +222,7 @@ async function createOnBackend(backend, opts, spawnFn) {
                 }
             }
         }
-        const verifyResult = await readBackVerify(backend, parsed.iid, spawnFn, spawnOpts);
+        const verifyResult = await readBackVerify(backend, parsed.iid, spawnFn, spawnOpts, opts._repoSlug);
         if (!verifyResult.ok) {
             syncLog({
                 event: 'issue_create_verify_failed',

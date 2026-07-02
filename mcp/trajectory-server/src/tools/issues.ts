@@ -81,6 +81,20 @@ function resolveLabelTaxonomy(db: TrajectoryDB): {
   return { classification, priorityLabels };
 }
 
+// A minimal valid label set (one classification + one priority) drawn from the
+// project taxonomy. issue_create labels aren't persisted locally, so a retry
+// (#1028) can't recover the originals — it re-derives this default so the
+// retried remote issue satisfies the same mandatory-tagging invariant
+// issue_create enforces, rather than sending labels:[] (which a
+// tagging-enforced remote would reject).
+function defaultSyncLabels(db: TrajectoryDB): string[] {
+  const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+  const labels: string[] = [];
+  if (classification.length > 0) labels.push(classification[0]!);
+  if (priorityLabels.length > 0) labels.push(priorityLabels[0]!);
+  return labels;
+}
+
 // Fail closed: reject unless the labels arg satisfies BOTH required categories,
 // checked against the project's configured (or generic-default) taxonomy.
 // Returns a named error string listing what is missing and the valid options,
@@ -508,14 +522,19 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       let syncDiagnostic: Record<string, unknown> | undefined;
 
       if (syncConfig !== 'off') {
-        const backend = resolveBackend(syncConfig, !!spawnFn);
+        // Issue-scoped sync (#155/#146): resolve cwd + per-backend remote from
+        // the issue's repo. The repo's remotes also drive the 'auto' backend
+        // decision (#1043) — never a process.cwd() git probe.
+        const syncCtx = resolveIssueSyncContext(db, issueRepo);
+        const repoRemotes = syncCtx
+          ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
+          : null;
+        const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {
-          // Issue-scoped sync (#155/#146): resolve cwd + per-backend remote
-          // from the issue's repo. Unresolvable repo while sync is on → named
-          // error rather than a silent process.cwd() sync.
-          const syncCtx = resolveIssueSyncContext(db, issueRepo);
+          // Unresolvable repo while sync is on → named error rather than a
+          // silent process.cwd() sync.
           if (syncCtx === null) {
             serverLog({ event: 'issue_sync_skip', reason: 'unresolvable_repo', issueId, repo: issueRepo, backend });
             syncDiagnostic = {
@@ -906,16 +925,17 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         return ok({ skipped: true, reason: 'issue_sync is off' });
       }
 
-      const backend = resolveBackend(syncConfig, !!spawnFn);
+      // Issue-scoped sync (#155/#146): resolve cwd + per-backend slug from the
+      // issue's repo. The repo's remotes also drive the 'auto' backend decision
+      // (#1043). Null when unresolvable — surface a named error.
+      const retryCtx = resolveIssueSyncContext(db, row.repo ?? null);
+      const retryRemotes = retryCtx
+        ? { github: retryCtx.remoteFor('gh') !== null, gitlab: retryCtx.remoteFor('glab') !== null }
+        : null;
+      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
       if (backend === null || backend === 'off') {
         return ok({ skipped: true, reason: 'no remote backend configured' });
       }
-
-      const issue = decodeIssue(row);
-
-      // Issue-scoped sync (#155/#146): resolve cwd + per-backend slug from the
-      // issue's repo. Null when unresolvable — surface a named error.
-      const retryCtx = resolveIssueSyncContext(db, row.repo ?? null);
       if (retryCtx === null) {
         return ok({
           skipped: true,
@@ -926,6 +946,8 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
             : 'multiple repos registered and no issue repo selected.',
         });
       }
+
+      const issue = decodeIssue(row);
 
       if (row.status === 'closed') {
         const retryCwd = retryCtx.cwd;
@@ -997,7 +1019,11 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           issueId: row.id,
           title: issue.objective,
           body: row.description,
-          labels: [],
+          // #1028: re-derive a valid label set + carry the persisted milestone
+          // so the retried remote issue satisfies the same mandatory-tagging
+          // invariant issue_create enforces.
+          labels: defaultSyncLabels(db),
+          milestone: row.milestone ?? undefined,
           _backend: target,
           _spawnFn: spawnFn,
           _cwd: retryCwd,

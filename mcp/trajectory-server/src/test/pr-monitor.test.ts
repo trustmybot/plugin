@@ -440,6 +440,100 @@ describe('pr_review_runs table state capture', () => {
 
 });
 
+describe('pr_monitor_comments_get — pr_review_runs.task_id population (#1024)', () => {
+  function seedTask(db: ReturnType<typeof tempDB>, branch: string, repo: string): number {
+    db.run(
+      `INSERT INTO repos (name, path, remotes) VALUES (?, '/tmp/app', ?)`,
+      [repo, JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }])],
+    );
+    db.run(
+      `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('t', '', 'open', datetime('now'), datetime('now'))`,
+    );
+    const issue = db.get<{ id: number }>('SELECT id FROM issues ORDER BY id DESC LIMIT 1')!;
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, description, repo, created_at, updated_at)
+       VALUES (?, ?, 'task', ?, datetime('now'), datetime('now'))`,
+      [issue.id, branch, repo],
+    );
+    return db.get<{ id: number }>('SELECT id FROM tasks ORDER BY id DESC LIMIT 1')!.id;
+  }
+
+  const GH_WITH_BRANCH = (branch: string) =>
+    JSON.stringify({
+      state: 'OPEN',
+      headRefName: branch,
+      comments: [
+        { id: 'c1', author: { login: 'alice' }, body: 'hi', createdAt: '2024-01-15T10:00:00Z' },
+      ],
+      reviews: [],
+    });
+
+  it('resolves task_id from the PR head branch (+ repo) on the monitor row', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const taskId = seedTask(db, 'fix/1043-branch', 'app');
+
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_WITH_BRANCH('fix/1043-branch'), stderr: '' }]));
+    const result = (await tools.handlers['pr_monitor_comments_get']!({
+      agent: 'bro',
+      pr_number: 31,
+    })) as RawResult;
+
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const row = db.get<{ task_id: number | null }>(
+      'SELECT task_id FROM pr_review_runs WHERE pr_number = 31',
+    );
+    assert.ok(row, 'monitor row must exist');
+    assert.equal(row.task_id, taskId, 'task_id resolved from head branch');
+
+    db.close();
+  });
+
+  it('leaves task_id null when the head branch matches no task', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    seedTask(db, 'fix/known-branch', 'app');
+
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_WITH_BRANCH('fix/unknown-branch'), stderr: '' }]));
+    const result = (await tools.handlers['pr_monitor_comments_get']!({
+      agent: 'bro',
+      pr_number: 32,
+    })) as RawResult;
+
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const row = db.get<{ task_id: number | null }>(
+      'SELECT task_id FROM pr_review_runs WHERE pr_number = 32',
+    );
+    assert.ok(row, 'monitor row must exist');
+    assert.equal(row.task_id, null, 'unresolved branch → task_id null (hook exits cleanly)');
+
+    db.close();
+  });
+
+  it('does not null a previously-resolved task_id on a later fetch with no branch', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const taskId = seedTask(db, 'fix/persist-branch', 'app');
+
+    const tools = prMonitorTools(
+      db,
+      makeSpawnFn([
+        { status: 0, stdout: GH_WITH_BRANCH('fix/persist-branch'), stderr: '' },
+        { status: 0, stdout: GH_WITH_BRANCH(''), stderr: '' },
+      ]),
+    );
+    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 33 });
+    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 33 });
+
+    const row = db.get<{ task_id: number | null }>(
+      'SELECT task_id FROM pr_review_runs WHERE pr_number = 33',
+    );
+    assert.equal(row?.task_id, taskId, 'COALESCE keeps the earlier task_id');
+
+    db.close();
+  });
+});
+
 describe('pr_monitor_runs_list', () => {
   it('returns all cursors in order when called without a filter', async () => {
     const db = tempDB();
