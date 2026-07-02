@@ -30,7 +30,11 @@ async function setupClosedTask(client, branch, sha) {
   await call(client, 'task_update_status', {
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
   });
-  await call(client, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
+  await call(client, 'bro_atomic_close', {
+    agent: 'bro', task_id: taskId, commit_sha: sha,
+    verification_summary: 'V1/V2/V3 verified; closing.',
+    waive_scope_gate: true,
+  });
   return { taskId, issueId };
 }
 

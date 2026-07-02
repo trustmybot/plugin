@@ -192,8 +192,19 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
   const sweDone = await call(client, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234' });
   assert.equal(sweDone.ok, true, `swe should complete; got ${JSON.stringify(sweDone)}`);
 
-  const broClose = await call(client, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
-  assert.equal(broClose.ok, true, `bro should close verified work; got ${JSON.stringify(broClose)}`);
+  // completed → closed via task_update_status is rejected (#1025): the only
+  // path into 'closed' is the bro_atomic_close composite.
+  const directClose = await call(client, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
+  assert.equal(directClose.ok, false, `direct close must be rejected; got ${JSON.stringify(directClose)}`);
+  assert.match(directClose.error?.error ?? '', /bro_atomic_close/, `rejection should name bro_atomic_close; got ${JSON.stringify(directClose)}`);
+
+  // Bro is the closer, but only through the composite (bro-only role).
+  const broClose = await call(client, 'bro_atomic_close', {
+    agent: 'bro', task_id: taskId, commit_sha: 'abc1234',
+    verification_summary: 'role-matrix: verified, closing via composite',
+    waive_scope_gate: true,
+  });
+  assert.equal(broClose.ok, true, `bro should close verified work via bro_atomic_close; got ${JSON.stringify(broClose)}`);
 });
 
 test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', async (t) => {
