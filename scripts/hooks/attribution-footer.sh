@@ -107,11 +107,14 @@ case "$KIND" in
     ;;
   glab-mr)
     command -v glab >/dev/null 2>&1 || exit 0
-    ORIG=$(glab mr view "$NUMBER" 2>/dev/null) || exit 0
+    # Read the RAW description via -F json (#1034). The plain `glab mr view`
+    # renders a decorated table (title/labels/etc.) — feeding that back into
+    # --description clobbered the real body with rendered chrome.
+    ORIG=$(glab mr view "$NUMBER" -F json 2>/dev/null | jq -r '.description // ""') || exit 0
     ;;
   glab-issue)
     command -v glab >/dev/null 2>&1 || exit 0
-    ORIG=$(glab issue view "$NUMBER" 2>/dev/null) || exit 0
+    ORIG=$(glab issue view "$NUMBER" -F json 2>/dev/null | jq -r '.description // ""') || exit 0
     ;;
 esac
 

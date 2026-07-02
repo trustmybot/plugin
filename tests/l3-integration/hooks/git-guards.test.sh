@@ -761,4 +761,55 @@ out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr crea
 assert_contains "$out" '"permissionDecision":"deny"' "head=feat/x (read from cd target) must block the dev→main exception"
 cleanup_repo
 
+# ---- #1032: Rule 1 --base compared at a token boundary ----------------------
+# The old `grep -qF -- "--base dev"` substring-matched a longer branch name as a
+# valid pr_target, and `--base main` matched `--base maintenance` in the dev→main
+# exception. PR_TARGET=dev (setup_glab_repo).
+
+test_case "#1032: gh pr create --base dev-old (PR_TARGET=dev) must NOT be accepted → deny"
+setup_glab_repo
+out=$(run_hook_in_repo "gh pr create --base dev-old --head feat/x --title x")
+assert_contains "$out" '"permissionDecision":"deny"' "--base dev-old must not substring-match dev"
+cleanup_repo
+
+test_case "#1032: gh pr create --base development (PR_TARGET=dev) must NOT be accepted → deny"
+setup_glab_repo
+out=$(run_hook_in_repo "gh pr create --base development --head feat/x --title x")
+assert_contains "$out" '"permissionDecision":"deny"' "--base development must not substring-match dev"
+cleanup_repo
+
+test_case "#1032: gh pr create --base dev (exact) → allow"
+setup_glab_repo
+out=$(run_hook_in_repo "gh pr create --base dev --head feat/x --title x")
+assert_not_contains "$out" '"permissionDecision":"deny"' "exact --base dev must be accepted"
+cleanup_repo
+
+test_case "#1032: dev→main exception must NOT accept --base maintenance → deny"
+setup_glab_repo
+out=$(run_hook_in_repo "gh pr create --base maintenance --head dev --title x")
+assert_contains "$out" '"permissionDecision":"deny"' "--base maintenance must not match the dev→main exception"
+cleanup_repo
+
+test_case "#1032: dev→main exception with exact --base main --head dev → allow"
+setup_glab_repo
+out=$(run_hook_in_repo "gh pr create --base main --head dev --title release")
+assert_not_contains "$out" '"permissionDecision":"deny"' "exact dev→main release merge must be allowed"
+cleanup_repo
+
+# ---- #1016: Rule 3 force-push detection is whitespace-tolerant ---------------
+# `git  push --force origin main` (double space) previously slipped past the
+# literal `case *"git push"*` gate and failed open.
+
+test_case "#1016: git  push --force origin main (double space) IS blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "git  push --force origin main")
+assert_contains "$out" '"permissionDecision":"deny"' "double-space force push to main must block"
+cleanup_repo
+
+test_case "#1016: git  push  -f origin main (double space) IS blocked"
+setup_worktree_repo
+out=$(run_hook_in_repo "git  push  -f origin main")
+assert_contains "$out" '"permissionDecision":"deny"' "double-space -f force push to main must block"
+cleanup_repo
+
 summarize

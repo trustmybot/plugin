@@ -57,4 +57,4 @@ HAS_REMOTE=$(printf '%s' "$REMOTES_JSON" | \
 REASON="BLOCKED: No remote is configured (remotes have no URL) — TMB is operating locally. Interactive '${MATCHED_TOOL} auth login' will hang here (no TTY/network); remote/push ops are skipped. Work locally."
 
 jq -nc --arg reason "$REASON" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$reason}}'
+  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'

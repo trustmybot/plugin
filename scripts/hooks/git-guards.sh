@@ -168,9 +168,13 @@ _RULE1_FORGE=$(_rule1_match "$CMD" || true)
 if [ -n "$_RULE1_FORGE" ]; then
   if [ "$_RULE1_FORGE" = "gh" ]; then
     # --- gh pr create ---
-    if echo "$CMD" | grep -qF -- "--base ${PR_TARGET}"; then
+    # Extract the --base value and compare at a token boundary (#1032). The old
+    # `grep -qF -- "--base dev"` substring-matched `--base dev-old` / `--base
+    # development` (false OK) and `--base main` matched `--base maintenance`.
+    BASE_BRANCH=$(echo "$CMD" | grep -oE -- '--base[= ][^[:space:]]+' | head -1 | sed -E 's/--base[= ]+//' | tr -d "'\"" || true)
+    if [ -n "$BASE_BRANCH" ] && [ "$BASE_BRANCH" = "$PR_TARGET" ]; then
       :  # OK — feature → pr_target (the standard path)
-    elif [ "$PR_TARGET" = "dev" ] && echo "$CMD" | grep -qF -- "--base main"; then
+    elif [ "$PR_TARGET" = "dev" ] && [ "$BASE_BRANCH" = "main" ]; then
       # Dual-tier exception: dev → main release merge.
       HEAD_BRANCH=$(echo "$CMD" | grep -oE -- '--head[= ][^[:space:]]+' | head -1 | sed -E 's/--head[= ]+//' | tr -d "'\"" || true)
       if [ -z "$HEAD_BRANCH" ]; then
@@ -258,28 +262,29 @@ _is_force_push() {
   # --follow-tags contains no force token; --force-with-lease is a force flag.
   printf '%s' "$clause" | grep -qE '(^|[[:space:]])(--force(-with-lease)?|-f)([[:space:]]|$)'
 }
-case "$CMD" in
-  *"git push"*)
-    if _is_force_push "$CMD"; then
-      PUSH_CLAUSE=$(_push_clause "$CMD")
-      if printf '%s' "$PUSH_CLAUSE" | grep -qE '\b(origin|upstream)\s+\S+'; then
-        PUSH_TARGET=$(printf '%s' "$PUSH_CLAUSE" | grep -oE '\b(origin|upstream)\s+\S+' | awk '{print $2}')
-        if branch_is_protected "$PUSH_TARGET"; then
-          jq -nc --arg r "BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible." \
-            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-          exit 0
-        fi
-      else
-        BRANCH=$(cmd_branch "$CMD")
-        if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
-          jq -nc --arg r "BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible." \
-            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-          exit 0
-        fi
-      fi
+# The outer trigger is _is_force_push itself (which extracts the push clause via
+# _push_clause and token-matches force flags with grep -qE — already whitespace
+# tolerant). The old bare `case *"git push"*` gate was literal single-space and
+# failed open on `git  push --force origin main` (#1016): the force-push branch
+# never ran, so a double-spaced force-push to a protected branch slipped through.
+if _is_force_push "$CMD"; then
+  PUSH_CLAUSE=$(_push_clause "$CMD")
+  if printf '%s' "$PUSH_CLAUSE" | grep -qE '\b(origin|upstream)\s+\S+'; then
+    PUSH_TARGET=$(printf '%s' "$PUSH_CLAUSE" | grep -oE '\b(origin|upstream)\s+\S+' | awk '{print $2}')
+    if branch_is_protected "$PUSH_TARGET"; then
+      jq -nc --arg r "BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+      exit 0
     fi
-    ;;
-esac
+  else
+    BRANCH=$(cmd_branch "$CMD")
+    if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
+      jq -nc --arg r "BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+      exit 0
+    fi
+  fi
+fi
 
 # --- Rule 4: New branches must be based on latest pr_target (worktree-aware) ---
 # Remote freshness check is skipped when the repo has no origin remote or

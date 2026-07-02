@@ -115,4 +115,4 @@ $(printf '%b' "$OFFENSES")
 A bare #N in a PR body / gh issue comment resolves to remote issue N, not the local one. Use the remote id shown above. (Bypass: TMB_DISABLE_REMOTE_ID_GUARD=1.)"
 
 jq -nc --arg reason "$REASON" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$reason}}'
+  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
