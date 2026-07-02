@@ -60,7 +60,7 @@ Server enforces valid transitions: `collecting → awaiting_human → closed | s
 | `github` | TMB | GitHub (github.com or GHE) |
 | `gitlab` | TMB | GitLab (gitlab.com or self-hosted) |
 
-Mirrors `plugin_config.remotes[].provider` (see [`plugin_config.remotes[].provider`](#plugin_configremotesprovider---git-host-provider-per-remote)). Only these two values are supported for issue sync. Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
+Mirrors `repos.remotes[].provider` (see [`repos.remotes[].provider`](#reposremotesprovider---git-host-provider-per-remote)). Only these two values are supported for issue sync. Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
 
 ### `discussions.kind` — narrative kind in issue discussions
 
@@ -145,13 +145,13 @@ No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the hea
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `22`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+Currently `27`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
 
 ### `agent_runs.agent_type` (open enum)
 
 Common values: `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.
 
-### `plugin_config.remotes[].provider` — git host provider per remote
+### `repos.remotes[].provider` — git host provider per remote
 
 | Value | Meaning |
 |---|---|
@@ -159,8 +159,6 @@ Common values: `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum 
 | `gitlab` | gitlab.com or self-hosted GitLab |
 | `bitbucket` | Atlassian's git host (bitbucket.org) |
 | `codeberg` | codeberg.org (Forgejo-based public forge) |
-| `gitea` | Self-hosted Gitea instance |
-| `forgejo` | Self-hosted Forgejo instance |
 | `azuredev` | Azure DevOps (dev.azure.com) |
 | `other` | Unrecognised or custom host |
 
@@ -173,7 +171,7 @@ URL-pattern auto-detection rules:
 - `dev.azure.com` → `azuredev`
 - everything else → `other`
 
-`remotes` is a `plugin_config` key whose value is a JSON array of `{ name, provider, url }` objects (e.g. `[{ "name": "origin", "provider": "gitlab", "url": "git@gitlab.com:org/repo.git" }]`). An empty array means no remote is configured.
+`remotes` is a `repos`-table column whose value is a JSON array of `{ name, provider, url }` objects (e.g. `[{ "name": "origin", "provider": "github", "url": "git@github.com:org/repo.git" }]`). An empty array means no remote is configured.
 
 ---
 
