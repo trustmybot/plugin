@@ -118,7 +118,6 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
   });
   const createdTask = Array.isArray(task.data) ? task.data[0] : task.data.tasks?.[0];
   const taskId = createdTask.id;
-  const branchId = createdTask.branch_id;
 
   // SWE finishes the work first — bro can only close verified ('completed')
   // work, never jump a pending task straight to closed (#278).
@@ -126,22 +125,14 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
   });
 
-  // Bro's correct task-gate close sequence
-  const verifEvent = await call(client, 'audit_append', {
-    agent: 'bro',
-    issue_id: issueId,
-    branch_id: branchId,
-    from_node: 'bro',
-    event_type: 'bro_verification_pass',
-    summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
-  });
-  assert.equal(verifEvent.ok, true);
-
-  const closed = await call(client, 'task_update_status', {
+  // Bro's correct task-gate close: bro_atomic_close writes the single
+  // bro_verification_pass audit and advances the task to closed in one tx.
+  const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro',
     task_id: taskId,
-    status: 'closed',
     commit_sha: 'abc1234',
+    verification_summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
+    waive_scope_gate: true,
   });
   assert.equal(closed.ok, true);
 

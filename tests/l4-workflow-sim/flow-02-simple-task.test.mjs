@@ -97,12 +97,16 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(preCloseValidations.data.length, 0,
     'simple-task close must NOT spawn pr-reviewer (push gate is amortized)');
 
-  const closed = await call(client, 'task_update_status', {
-    agent: 'bro', task_id: taskId, status: 'closed',
+  const closed = await call(client, 'bro_atomic_close', {
+    agent: 'bro', task_id: taskId,
+    commit_sha: 'aaaaaaa1111111111111111111111111111aaaaa',
+    verification_summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
+    close_issue_if_last_task: true,
+    waive_scope_gate: true,
   });
   assert.equal(closed.ok, true);
 
-  // 7. bro closes the issue
+  // 7. bro closes the issue (idempotent — the composite already closed it as the last task)
   const issueClosed = await call(client, 'issue_close', {
     agent: 'bro', issue_id: issueId,
   });

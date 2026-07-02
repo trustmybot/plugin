@@ -53,8 +53,10 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
     await call(client, 'task_update_status', {
       agent: 'swe', task_id: id, status: 'completed', commit_sha: sha,
     });
-    await call(client, 'task_update_status', {
-      agent: 'bro', task_id: id, status: 'closed',
+    await call(client, 'bro_atomic_close', {
+      agent: 'bro', task_id: id, commit_sha: sha,
+      verification_summary: 'V1/V2/V3 verified; closing pre-push.',
+      waive_scope_gate: true,
     });
   }
 
@@ -127,7 +129,12 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
     agent: 'swe', task_id: taskId, status: 'completed',
     commit_sha: 'ccc3333333333333333333333333333333333333',
   });
-  await call(client, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
+  await call(client, 'bro_atomic_close', {
+    agent: 'bro', task_id: taskId,
+    commit_sha: 'ccc3333333333333333333333333333333333333',
+    verification_summary: 'V1/V2/V3 verified; closing pre-push.',
+    waive_scope_gate: true,
+  });
 
   // attempt 1: FAIL
   const fail1 = await call(client, 'validation_record', {
