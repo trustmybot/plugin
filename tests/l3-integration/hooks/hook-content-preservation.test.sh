@@ -73,6 +73,10 @@ mask_mcp_health_check() {
 # ---------------------------------------------------------------------------
 
 TMPDIR_ROOT=$(mktemp -d)
+# Sandbox HOME so hooks (mcp-health-check et al.) touch a throwaway state/log
+# dir, never the developer's real ~/.claude/tmb.
+export HOME="$TMPDIR_ROOT/home"
+mkdir -p "$HOME"
 trap 'rm -rf "$TMPDIR_ROOT"' EXIT
 
 # --- session-start-prescan setup ---

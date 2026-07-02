@@ -105,7 +105,9 @@ assert_eq "0" "$tokens_safe" "corrupt input must be coerced to 0 by printf '%d'"
 #   - no double-counting (A + B == total)
 
 TMPDIR_MT=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_MT"' EXIT
+# Combined trap: a second `trap ... EXIT` replaces the first, so clean both
+# tmpdirs here (otherwise TMPDIR_BTU would leak).
+trap 'rm -rf "$TMPDIR_BTU" "$TMPDIR_MT"' EXIT
 MT_DB="$TMPDIR_MT/trajectory.db"
 MT_T1="$TMPDIR_MT/transcript1.jsonl"
 MT_T2="$TMPDIR_MT/transcript2.jsonl"

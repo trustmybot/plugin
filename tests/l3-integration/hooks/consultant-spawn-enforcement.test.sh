@@ -23,8 +23,8 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/prompt-intent-hints.sh"
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
-command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 unavailable"; exit 0; }
-command -v jq     >/dev/null 2>&1 || { echo "SKIP: jq unavailable"; exit 0; }
+command -v sqlite3 >/dev/null 2>&1 || { echo "FAIL: sqlite3 unavailable — required dependency for this security-gate test"; exit 1; }
+command -v jq     >/dev/null 2>&1 || { echo "FAIL: jq unavailable — required dependency for this security-gate test"; exit 1; }
 
 TMPDIR_CS=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_CS"' EXIT

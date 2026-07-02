@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 SCRIPT="$PLUGIN_ROOT/scripts/cheatcode-search.sh"
 
-command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
+command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required dependency for this security-gate test\n"; exit 1; }
 
 WORKSPACE=$(mktemp -d)
 trap 'rm -rf "$WORKSPACE"' EXIT

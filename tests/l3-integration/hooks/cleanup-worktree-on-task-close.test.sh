@@ -182,11 +182,11 @@ assert_eq "" "$out" "non-bro agent must be silent no-op for bro_atomic_close"
 [ -d "$REPO/.claude/worktrees/atomic2" ] || { echo "FAIL: worktree removed for non-bro agent"; exit 1; }
 
 # ---- #559: per-repo HEAD-reset target resolution -----------------------------
-# Set up plugin_config + repos table in the main DB for these cases.
+# Set up the repos table in the main DB for these cases. The hook resolves the
+# reset target from repos.target_branch (the sole source), defaulting to 'dev'
+# when the column is NULL.
 _REPO_REALPATH=$(git -C "$REPO" rev-parse --show-toplevel)
 sqlite3 "$DB" "
-  CREATE TABLE IF NOT EXISTS plugin_config (key TEXT PRIMARY KEY, value_json TEXT, updated_at TEXT);
-  INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('pr_target', '\"dev\"', datetime('now'));
   CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT NOT NULL,
@@ -215,7 +215,7 @@ AFTER_HEAD=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
 [ "$AFTER_HEAD" = "main" ] || { echo "FAIL: HEAD is '$AFTER_HEAD', expected 'main'"; exit 1; }
 echo "  HEAD reset to main (per-repo target_branch honored)"
 
-test_case "#559: registered repo with NULL target_branch → falls back to global pr_target='dev'"
+test_case "#559: registered repo with NULL target_branch → falls back to the default 'dev'"
 sqlite3 "$DB" "INSERT OR REPLACE INTO repos (name, path, target_branch) VALUES ('fixture', '${_REPO_REALPATH}', NULL);"
 git -C "$REPO" branch fix/per-repo-null HEAD
 git -C "$REPO" worktree add -q .claude/worktrees/per-repo-null fix/per-repo-null
@@ -228,7 +228,7 @@ out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro
 assert_contains "$out" 'cleaned up worktree' "worktree removed"
 AFTER_HEAD=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
 [ "$AFTER_HEAD" = "dev" ] || { echo "FAIL: HEAD is '$AFTER_HEAD', expected 'dev'"; exit 1; }
-echo "  HEAD reset to dev (global pr_target fallback honored)"
+echo "  HEAD reset to dev (NULL target_branch default fallback honored)"
 
 test_case "#559: TMB_KEEP_HEAD_ON_CLOSE=1 still skips the reset"
 sqlite3 "$DB" "INSERT OR REPLACE INTO repos (name, path, target_branch) VALUES ('fixture', '${_REPO_REALPATH}', 'main');"

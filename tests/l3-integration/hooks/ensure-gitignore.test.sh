@@ -58,3 +58,5 @@ before_md5=$(md5 -q "$REPO/.gitignore" 2>/dev/null || md5sum "$REPO/.gitignore" 
 run_in_repo "$REPO" >/dev/null
 after_md5=$(md5 -q "$REPO/.gitignore" 2>/dev/null || md5sum "$REPO/.gitignore" | awk '{print $1}')
 assert_eq "$before_md5" "$after_md5" "matches both .claude/ and .claude variants"
+
+summarize

@@ -155,3 +155,5 @@ test_case "bro trigger but DB doesn't exist: silent no-op (graceful first-activa
 rm -f "$DB"
 out=$(run_hook "$(input '@bro hi')")
 assert_eq "" "$out" "no output when DB missing"
+
+summarize
