@@ -812,4 +812,69 @@ out=$(run_hook_in_repo "git  push  -f origin main")
 assert_contains "$out" '"permissionDecision":"deny"' "double-space -f force push to main must block"
 cleanup_repo
 
+# ---- #1070: Rule 2 protects every workflow base, not just protected_branches ----
+# Rule 2's protected set is protected_branches ∪ target_branch ∪ pr_target ∪
+# DISTINCT tasks.parent_branch_id. A shared integration base (some task's
+# parent_branch_id, or the repo's target_branch) must reject a direct
+# merge/rebase even when protected_branches doesn't list it.
+
+setup_taskparent_repo() {
+  # $1 = protected_branches JSON (e.g. '[\"main\"]' or '[]')
+  # $2 = target_branch (e.g. main)
+  local protected="$1" target="$2"
+  local dir
+  dir=$(mktemp -d -t tmb-guards-taskparent-XXXX)
+  (
+    cd "$dir" || exit 1
+    git init -q -b main
+    git config user.email t@t.t
+    git config user.name T
+    echo init > README.md
+    git add . && git commit -qm init
+    # 'staging' is a shared integration base referenced by a task's
+    # parent_branch_id but NOT listed in protected_branches. 'feat/plain' is an
+    # ordinary feature branch (no task parents it, not protected/target).
+    git branch staging HEAD
+    git branch feat/plain HEAD
+    mkdir -p .claude/tmb
+    sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+    local root
+    root=$(git rev-parse --show-toplevel)
+    sqlite3 .claude/tmb/trajectory.db \
+      "INSERT INTO repos (name, path, target_branch, branching_model, protected_branches) VALUES ('fixture', '$root', '$target', 'github-flow', '$protected');" >/dev/null
+    sqlite3 .claude/tmb/trajectory.db "
+      INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+        VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
+      INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, title, description, status, spec_body, created_at, updated_at)
+        VALUES (1, 1, 'feat/child', 'staging', 'test task', 'd', 'pending', '', datetime('now'), datetime('now'));
+    " >/dev/null
+  )
+  REPO_PATH="$dir"
+}
+
+test_case "#1070: git merge into a task's parent_branch_id (absent from protected_branches) IS blocked"
+setup_taskparent_repo '["main"]' 'main'
+git -C "$REPO_PATH" checkout -q staging
+out=$(run_hook_in_repo "git merge feat/child")
+assert_contains "$out" '"permissionDecision":"deny"' "merge into task-parent base 'staging' must block"
+assert_contains "$out" "staging" "deny message must name the shared base"
+assert_contains "$out" "surface it to the Human" "no-remote deny message must teach the surface-to-Human recovery"
+cleanup_repo
+
+test_case "#1070: git merge into a plain feature branch (not protected/target/task-parent) is ALLOWED"
+setup_taskparent_repo '["main"]' 'main'
+git -C "$REPO_PATH" checkout -q feat/plain
+out=$(run_hook_in_repo "git merge feat/child")
+assert_not_contains "$out" '"permissionDecision":"deny"' "merge into an ordinary feature branch must be allowed"
+cleanup_repo
+
+test_case "#1070: git merge into target_branch is blocked even when protected_branches is empty"
+setup_taskparent_repo '[]' 'main'
+# Repo stays on 'main' (init branch); protected_branches=[] so only the
+# target_branch entry in the union protects it.
+out=$(run_hook_in_repo "git merge feat/child")
+assert_contains "$out" '"permissionDecision":"deny"' "merge into target_branch 'main' must block despite empty protected_branches"
+assert_contains "$out" "main" "deny message must name the target base"
+cleanup_repo
+
 summarize
