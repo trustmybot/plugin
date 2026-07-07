@@ -181,6 +181,115 @@ describe('world_model_get/search — repo-unspecified (#15)', () => {
         db.close();
     });
 });
+// unmerged_work — closed-task branches not yet merged into the target (#1059).
+// A stub graph (no kuzu) returns a single root dir so the handler reaches the
+// success path; the git work happens against a real temp repo.
+describe('world_model_get — unmerged_work (#1059)', () => {
+    function stubGraph() {
+        return { allDirectoriesForRepo: () => [row('', '')] };
+    }
+    function gitRepo() {
+        const ws = mkdtempSync(join(tmpdir(), 'wm-unmerged-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        const git = (...a) => execFileSync('git', ['-C', repoRoot, ...a], { encoding: 'utf8' });
+        execFileSync('git', ['init', '-q', '-b', 'dev', repoRoot]);
+        git('config', 'user.email', 't@t.io');
+        git('config', 'user.name', 't');
+        writeFileSync(join(repoRoot, 'a.txt'), 'a\n');
+        git('add', '.');
+        git('commit', '-qm', 'init');
+        const devTip = git('rev-parse', 'HEAD').trim();
+        git('checkout', '-q', '-b', 'fix/unmerged');
+        writeFileSync(join(repoRoot, 'b.txt'), 'b\n');
+        git('add', '.');
+        git('commit', '-qm', 'feature work');
+        const unmergedTip = git('rev-parse', 'HEAD').trim();
+        git('checkout', '-q', 'dev');
+        return { repoRoot, devTip, unmergedTip, cleanup: () => rmSync(ws, { recursive: true, force: true }) };
+    }
+    function seed(db, repoPath) {
+        db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'dev')`, [repoPath]);
+        db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at)
+       VALUES ('o', 'd', 'open', datetime('now'), datetime('now'))`);
+    }
+    function addTask(db, branchId, parent, commitSha, status) {
+        db.run(`INSERT INTO tasks (issue_id, branch_id, parent_branch_id, description, status, commit_sha, repo, created_at, updated_at)
+       VALUES (1, ?, ?, 'd', ?, ?, 'app', datetime('now'), datetime('now'))`, [branchId, parent, status, commitSha]);
+    }
+    it('surfaces a closed-task branch whose tip is not merged into the target', async () => {
+        const repo = gitRepo();
+        const db = tempDB();
+        try {
+            seed(db, repo.repoRoot);
+            addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
+            const tools = worldModelTools(db, stubGraph());
+            const out = wmParse((await tools.handlers['world_model_get']({ agent: 'bro' })));
+            const work = out['unmerged_work'];
+            assert.equal(work.length, 1, 'un-merged branch surfaces');
+            assert.equal(work[0]['branch_id'], 'fix/unmerged');
+            assert.equal(work[0]['parent_branch_id'], 'dev');
+            assert.equal(work[0]['tip'], repo.unmergedTip, 'newest commit_sha is the tip');
+            assert.equal(work[0]['closed_tasks'], 1);
+            assert.equal(work[0]['merged_into_target'], false);
+            assert.equal(out['warning'], undefined, 'no warning on the success path');
+        }
+        finally {
+            db.close();
+            repo.cleanup();
+        }
+    });
+    it('omits merged branches and returns [] when nothing qualifies', async () => {
+        const repo = gitRepo();
+        const db = tempDB();
+        try {
+            seed(db, repo.repoRoot);
+            addTask(db, 'fix/merged', 'dev', repo.devTip, 'closed'); // tip is an ancestor of dev
+            const tools = worldModelTools(db, stubGraph());
+            const out = wmParse((await tools.handlers['world_model_get']({ agent: 'bro' })));
+            assert.deepEqual(out['unmerged_work'], [], 'merged branch omitted → empty list');
+        }
+        finally {
+            db.close();
+            repo.cleanup();
+        }
+    });
+    it('returns [] when the repo has no commit-bearing tasks', async () => {
+        const repo = gitRepo();
+        const db = tempDB();
+        try {
+            seed(db, repo.repoRoot);
+            addTask(db, 'fix/pending', 'dev', null, 'pending'); // no commit_sha → not counted
+            const tools = worldModelTools(db, stubGraph());
+            const out = wmParse((await tools.handlers['world_model_get']({ agent: 'bro' })));
+            assert.deepEqual(out['unmerged_work'], [], 'no qualifying tasks → empty list');
+        }
+        finally {
+            db.close();
+            repo.cleanup();
+        }
+    });
+    it('fail-soft on a non-git repos.path: empty list + unmerged-work-unavailable, no error', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'wm-nongit-'));
+        const db = tempDB();
+        try {
+            db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'dev')`, [ws]);
+            db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at)
+         VALUES ('o', 'd', 'open', datetime('now'), datetime('now'))`);
+            addTask(db, 'fix/orphan', 'dev', 'a'.repeat(40), 'closed');
+            const tools = worldModelTools(db, stubGraph());
+            const r = (await tools.handlers['world_model_get']({ agent: 'bro' }));
+            const out = wmParse(r);
+            assert.notEqual(r.isError, true, 'never an is_error');
+            assert.deepEqual(out['unmerged_work'], []);
+            assert.equal(out['warning'], 'unmerged-work-unavailable');
+        }
+        finally {
+            db.close();
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
 // Rename-prune regression test (#342). kuzu is instantiated in a child
 // process so that kuzu's native destructor crash on exit (kuzu v0.11 /
 // Node 24 / macOS known issue) does not propagate to this test file's

@@ -2979,7 +2979,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve4.call(this, root, ref);
+      let _sch = resolve5.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3006,7 +3006,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve4(root, ref) {
+    function resolve5(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3581,7 +3581,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve4(baseURI, relativeURI, options) {
+    function resolve5(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3808,7 +3808,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve4,
+      resolve: resolve5,
       resolveComponent,
       equal,
       serialize,
@@ -19595,7 +19595,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
+        await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -19612,7 +19612,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -19690,7 +19690,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve4(parseResult.data);
+            resolve5(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19951,12 +19951,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve4, interval);
+      const timeoutId = setTimeout(resolve5, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20826,12 +20826,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve4) => {
+    return new Promise((resolve5) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve4();
+        resolve5();
       } else {
-        this._stdout.once("drain", resolve4);
+        this._stdout.once("drain", resolve5);
       }
     });
   }
@@ -30151,7 +30151,7 @@ function resolveScanScript() {
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
 function runScanWithScript(script, sessionDir, timeoutMs) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn("bash", [script, sessionDir], {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"]
@@ -30201,7 +30201,7 @@ function runScanWithScript(script, sessionDir, timeoutMs) {
         reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
@@ -30627,7 +30627,7 @@ var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
 var VET_TIMEOUT_MS = 60 * 1e3;
 function runSearchWithScript(script, query, kind, timeoutMs) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -30672,7 +30672,7 @@ function runSearchWithScript(script, query, kind, timeoutMs) {
         reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
@@ -30683,7 +30683,7 @@ var VALID_TIERS = /* @__PURE__ */ new Set([
   "unknown"
 ]);
 function runVetWithScript(script, candidate, timeoutMs) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -30732,12 +30732,12 @@ function runVetWithScript(script, candidate, timeoutMs) {
         reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing capabilities[])"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
 function runInstallWithScript(script, candidate, scope, timeoutMs) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn2(
       "bash",
       [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
@@ -30784,14 +30784,14 @@ function runInstallWithScript(script, candidate, scope, timeoutMs) {
         reject(new Error("cheatcode-install.sh emitted unexpected shape (missing attachments[])"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
 var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
 var INSTALL_TIMEOUT_MS = 60 * 1e3;
 function runUninstallWithScript(script, candidate, timeoutMs) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -30836,7 +30836,7 @@ function runUninstallWithScript(script, candidate, timeoutMs) {
         reject(new Error("cheatcode-uninstall.sh emitted unexpected shape (missing method)"));
         return;
       }
-      resolve4(parsed);
+      resolve5(parsed);
     });
   });
 }
@@ -31603,7 +31603,64 @@ function cheatcodeTools(db2) {
 }
 
 // src/tools/world_model.ts
+import { spawnSync as spawnSync7 } from "node:child_process";
+import { resolve as resolve4, dirname as dirname10 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
+var UNMERGED_WORK_MAX_BRANCHES = 10;
+function computeUnmergedWork(db2, repo) {
+  if (!repo) return { unmerged_work: [] };
+  const repoRow = db2.get(
+    `SELECT path, target_branch FROM repos WHERE name = ?`,
+    [repo]
+  );
+  if (!repoRow) return { unmerged_work: [] };
+  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname10(db2.dbPath);
+  const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve4(dbDir, repoRow.path);
+  const target = repoRow.target_branch || "dev";
+  const gitCheck = spawnSync7("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (gitCheck.error || gitCheck.status !== 0) {
+    return { unmerged_work: [], warning: "unmerged-work-unavailable" };
+  }
+  const rows = db2.all(
+    `SELECT branch_id, parent_branch_id, commit_sha, status
+       FROM tasks
+      WHERE repo = ? AND commit_sha IS NOT NULL
+      ORDER BY updated_at DESC, id DESC`,
+    [repo]
+  );
+  const byBranch = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    let entry = byBranch.get(r.branch_id);
+    if (!entry) {
+      entry = { parent_branch_id: r.parent_branch_id, tip: r.commit_sha, closed_tasks: 0 };
+      byBranch.set(r.branch_id, entry);
+    }
+    if (r.status === "closed") entry.closed_tasks++;
+  }
+  const unmerged_work = [];
+  for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
+    const mergeBase = spawnSync7(
+      "git",
+      ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
+      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
+    );
+    if (mergeBase.error) {
+      return { unmerged_work: [], warning: "unmerged-work-unavailable" };
+    }
+    if (mergeBase.status === 0) continue;
+    unmerged_work.push({
+      branch_id,
+      parent_branch_id: entry.parent_branch_id,
+      tip: entry.tip,
+      closed_tasks: entry.closed_tasks,
+      merged_into_target: false
+    });
+  }
+  return { unmerged_work };
+}
 function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -31665,7 +31722,7 @@ function worldModelTools(db2, graph2) {
   const definitions = [
     {
       name: "world_model_get",
-      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Primary navigation surface for code-touching cold starts.",
+      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
       inputSchema: {
         type: "object",
         properties: {
@@ -31731,21 +31788,28 @@ function worldModelTools(db2, graph2) {
         const path2 = args["path"] ?? "";
         const depthArg = args["depth"];
         const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
+        const unmerged = computeUnmergedWork(db2, repo);
         if (!graph2) {
-          return ok18({ repo, root: null, warning: "world-model-unavailable" });
+          return ok18({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
         }
         const nodes = graph2.allDirectoriesForRepo(repo);
         if (nodes.length === 0) {
-          return ok18({ repo, root: null, warning: "world-model-empty" });
+          return ok18({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
         }
         const rows = nodes;
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path2, depth, { nodeCounter });
         if (!tree) {
-          return ok18({ repo, root: null, warning: "path-not-found", path: path2 });
+          return ok18({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
         }
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        return ok18({ repo, root: tree, ...truncated ? { truncated: true } : {} });
+        return ok18({
+          repo,
+          root: tree,
+          ...truncated ? { truncated: true } : {},
+          ...unmerged.warning ? { warning: unmerged.warning } : {},
+          unmerged_work: unmerged.unmerged_work
+        });
       })
     ),
     world_model_search: requireRoles(
