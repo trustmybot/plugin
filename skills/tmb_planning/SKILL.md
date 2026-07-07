@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Task, mcp__plugin_tmb_tr
 
 ## 1. Verify the world model
 
-`world_model_get(depth=2)` returns the project's directory tree with README-derived summaries. If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` to build it, then re-read.
+`world_model_get(depth=2)` returns the project's directory tree with README-derived summaries. The main checkout shows only merged work — when `unmerged_work` is non-empty, those branch tips are part of the codebase too: read context from and base follow-up work on the newest relevant tip (`task_provision base=<branch_id>`). If the response carries `warning: 'world-model-empty'`, run `scan_run(source='bro_auto_initial')` to build it, then re-read.
 
 Zoom-in: `world_model_get(path='src/api', depth=1)`. "Where does X live": `world_model_search(query='X', mode='hybrid')`.
 

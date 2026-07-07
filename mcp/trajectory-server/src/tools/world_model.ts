@@ -3,12 +3,108 @@ import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import type { WorldModelGraph, DirectoryNode } from '../graph-db.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { spawnSync } from 'node:child_process';
+import { resolve, dirname } from 'node:path';
+import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
 type DirRow = DirectoryNode;
 
 const WORLD_MODEL_GET_MAX_NODES = 500;
+const UNMERGED_WORK_MAX_BRANCHES = 10;
+
+interface UnmergedBranch {
+  branch_id: string;
+  parent_branch_id: string | null;
+  tip: string;
+  closed_tasks: number;
+  merged_into_target: false;
+}
+
+// Surface closed-task work living on un-merged feature branches (#1059). The
+// main checkout answers world_model_get from the directory tree alone, so a
+// checkout sitting on the target branch hides work committed on branches that
+// have not merged yet — bro then reads an "empty" repo and holds. This walks
+// the tasks table (rows with a commit_sha, grouped by branch_id, newest first)
+// and drops any branch whose tip is already an ancestor of the repo's target
+// branch. Fail-soft: a non-git repo path or any git spawn failure yields an
+// empty list plus a warning, never an is_error.
+function computeUnmergedWork(
+  db: TrajectoryDB,
+  repo: string,
+): { unmerged_work: UnmergedBranch[]; warning?: 'unmerged-work-unavailable' } {
+  if (!repo) return { unmerged_work: [] };
+
+  const repoRow = db.get<{ path: string; target_branch: string | null }>(
+    `SELECT path, target_branch FROM repos WHERE name = ?`,
+    [repo],
+  );
+  if (!repoRow) return { unmerged_work: [] };
+
+  const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
+  const repoPath = repoRow.path.startsWith('/') ? repoRow.path : resolve(dbDir, repoRow.path);
+  const target = repoRow.target_branch || 'dev';
+
+  const gitCheck = spawnSync('git', ['-C', repoPath, 'rev-parse', '--is-inside-work-tree'], {
+    encoding: 'utf8',
+    timeout: SUBPROCESS_TIMEOUT_MS,
+  });
+  if (gitCheck.error || gitCheck.status !== 0) {
+    return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
+  }
+
+  const rows = db.all<{
+    branch_id: string;
+    parent_branch_id: string | null;
+    commit_sha: string;
+    status: string;
+  }>(
+    `SELECT branch_id, parent_branch_id, commit_sha, status
+       FROM tasks
+      WHERE repo = ? AND commit_sha IS NOT NULL
+      ORDER BY updated_at DESC, id DESC`,
+    [repo],
+  );
+
+  // Group by branch_id; insertion order (newest updated_at first) is preserved,
+  // so the first row per branch carries the tip. closed_tasks counts the closed
+  // commit-bearing tasks on the branch.
+  const byBranch = new Map<
+    string,
+    { parent_branch_id: string | null; tip: string; closed_tasks: number }
+  >();
+  for (const r of rows) {
+    let entry = byBranch.get(r.branch_id);
+    if (!entry) {
+      entry = { parent_branch_id: r.parent_branch_id, tip: r.commit_sha, closed_tasks: 0 };
+      byBranch.set(r.branch_id, entry);
+    }
+    if (r.status === 'closed') entry.closed_tasks++;
+  }
+
+  const unmerged_work: UnmergedBranch[] = [];
+  for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
+    const mergeBase = spawnSync(
+      'git',
+      ['-C', repoPath, 'merge-base', '--is-ancestor', entry.tip, target],
+      { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS },
+    );
+    if (mergeBase.error) {
+      return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
+    }
+    if (mergeBase.status === 0) continue; // tip is an ancestor of target → merged, omit
+    unmerged_work.push({
+      branch_id,
+      parent_branch_id: entry.parent_branch_id,
+      tip: entry.tip,
+      closed_tasks: entry.closed_tasks,
+      merged_into_target: false,
+    });
+  }
+
+  return { unmerged_work };
+}
 
 interface TreeNode {
   path: string;
@@ -109,7 +205,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
     {
       name: 'world_model_get',
       description:
-        "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Primary navigation surface for code-touching cold starts.",
+        "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -189,24 +285,35 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
         const depth: number | null =
           depthArg === null ? null : typeof depthArg === 'number' ? depthArg : 2;
 
+        // Always present per resolved repo (#1059). In the degraded paths below
+        // the world-model warning takes precedence; the unmerged_work array
+        // still rides along so bro sees in-flight branch work either way.
+        const unmerged = computeUnmergedWork(db, repo);
+
         if (!graph) {
-          return ok({ repo, root: null, warning: 'world-model-unavailable' });
+          return ok({ repo, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work });
         }
 
         const nodes = graph.allDirectoriesForRepo(repo);
         if (nodes.length === 0) {
-          return ok({ repo, root: null, warning: 'world-model-empty' });
+          return ok({ repo, root: null, warning: 'world-model-empty', unmerged_work: unmerged.unmerged_work });
         }
 
         const rows: DirRow[] = nodes;
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path, depth, { nodeCounter });
         if (!tree) {
-          return ok({ repo, root: null, warning: 'path-not-found', path });
+          return ok({ repo, root: null, warning: 'path-not-found', path, unmerged_work: unmerged.unmerged_work });
         }
 
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        return ok({ repo, root: tree, ...(truncated ? { truncated: true } : {}) });
+        return ok({
+          repo,
+          root: tree,
+          ...(truncated ? { truncated: true } : {}),
+          ...(unmerged.warning ? { warning: unmerged.warning } : {}),
+          unmerged_work: unmerged.unmerged_work,
+        });
       }),
     ),
 
