@@ -2,6 +2,13 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-rc.8 — 2026-07-07
+
+Eighth release candidate for v0.10.0 — a single intent-hints correctness fix.
+
+### Fixed
+- **Intent hints skip synthetic turns** (#1062): `prompt-intent-hints.sh` no longer scans harness-generated task-notification/system-notification turns (embedded subagent reports tripped the cheatcode-install hint), and the direct-install matcher requires word-bounded install intent with a package-manager exclusion instead of bare substring co-occurrence.
+
 ## v0.10.0-rc.7 — 2026-07-02
 
 Seventh release candidate for v0.10.0 — a pre-release deep-scan hardening pass: closes hook guard bypasses and a branch-name SQL injection, fixes MCP-server correctness (validation gating, scan lock/retire, pagination, task state machine, issue-sync backend), reconciles stale docs to the v27 schema, and enforces test integrity.
