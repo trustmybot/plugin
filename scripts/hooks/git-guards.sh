@@ -223,16 +223,21 @@ if [ -n "$_RULE1_FORGE" ]; then
   fi
 fi
 
-# --- Rule 2: No direct commits/merges/rebases to any shared workflow base (worktree-aware) ---
-# The protected set is the union of every branch that serves as a shared base:
-# repos.protected_branches, the repo's target_branch (PR_TARGET), repos.pr_target
-# (when that column exists), and every task's parent_branch_id. A local
-# merge/rebase into any of these bypasses the PR gate, so Rule 2 denies it
-# regardless of the repo's onboarding config. Fail-soft: the DB-driven rows
-# (pr_target, parent_branch_id) are added only when the DB is reachable; the
-# protected_branches + target_branch fallbacks (both with safe defaults) keep the
-# guard closed when it is not.
-# Uses cmd_effective_branch so detached-HEAD worktrees resolve via DB lookup.
+# --- Rule 2: local integration is PR-only; commits stay off shared bases (worktree-aware) ---
+# Enforcement splits by command class:
+#   - git merge / rebase / cherry-pick in the MAIN checkout are DENIED regardless
+#     of the current or target branch — integration is PR-only. A data-derived
+#     protected set can always miss a base the agent believes in (L6 step-10, twice),
+#     so this class is target-independent. Inside a .claude/worktrees/ checkout these
+#     are legitimate SWE mechanics and stay allowed.
+#   - git commit keeps the protected-set union gating: repos.protected_branches ∪
+#     the repo's target_branch (PR_TARGET) ∪ repos.pr_target (when that column
+#     exists) ∪ every task's parent_branch_id. Feature-branch commits pass; commits
+#     on a shared base are denied. Fail-soft: the DB-driven rows (pr_target,
+#     parent_branch_id) are added only when the DB is reachable; the
+#     protected_branches + target_branch fallbacks (both with safe defaults) keep the
+#     guard closed when it is not. Uses cmd_effective_branch so detached-HEAD
+#     worktrees resolve via DB lookup.
 # Match the git subcommand by word boundary to avoid false-positives on plumbing
 # (commit-tree, commit-graph) or "git commit" appearing inside argument text.
 # Only fire when 'git' is at the start of a shell statement (after ^, &&, ||, ;, or \n).
@@ -242,6 +247,24 @@ _rule2_match() {
   # after ^, or after a shell statement separator (&&, ||, ;, |).
   # Spaces around the separator are consumed to handle `cd /x && git commit`.
   printf '%s' "$cmd" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(commit|merge|rebase|cherry-pick)([[:space:]]|$)'
+}
+
+# Return 0 when the matched Rule-2 subcommand is an integration command
+# (merge/rebase/cherry-pick) at a shell statement start. Integration bypasses the
+# PR gate, so in the main checkout it is denied outright regardless of target.
+_rule2_is_integration() {
+  printf '%s' "$1" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(merge|rebase|cherry-pick)([[:space:]]|$)'
+}
+
+# Exit 0 when the command runs inside a LINKED worktree — its git toplevel differs
+# from the main checkout root (_GIT_ROOT). merge/rebase/cherry-pick are legitimate
+# SWE mechanics in a task worktree, so they stay allowed there; in the main checkout
+# the same commands are PR-only and denied.
+cmd_in_worktree() {
+  local wd top
+  wd=$(cmd_cwd "$1")
+  top=$(git -C "$wd" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$top" ] && [ "$top" != "$_GIT_ROOT" ]
 }
 
 # rule2_protected_bases
@@ -271,19 +294,34 @@ rule2_protected_bases() {
   } | grep -v '^[[:space:]]*$' | sort -u
 }
 
+rule2_recovery() {
+  # Shared recovery text for a Rule-2 deny: PR-into-pr_target when a remote
+  # exists, else leave-unmerged-and-surface-to-Human.
+  if [ -n "$(git -C "$_CMD_CWD" remote get-url origin 2>/dev/null || true)" ]; then
+    printf 'Push your feature branch and open a PR into %s: git push origin <branch> && gh pr create --base %s --head <branch>.' "$PR_TARGET" "$PR_TARGET"
+  else
+    printf 'This repo has no remote — leave the branch unmerged and surface it to the Human for integration.'
+  fi
+}
+
 if _rule2_match "$CMD"; then
-    BRANCH=$(cmd_effective_branch "$CMD")
-    RULE2_PROTECTED=$(rule2_protected_bases || true)
-    if [ -n "$BRANCH" ] && printf '%s\n' "$RULE2_PROTECTED" | grep -qxF "$BRANCH"; then
-      _HAS_REMOTE=$(git -C "$_CMD_CWD" remote get-url origin 2>/dev/null || true)
-      if [ -n "$_HAS_REMOTE" ]; then
-        _RULE2_RECOVERY="Push your feature branch and open a PR into ${PR_TARGET}: git push origin <branch> && gh pr create --base ${PR_TARGET} --head <branch>."
-      else
-        _RULE2_RECOVERY="This repo has no remote — leave the branch unmerged and surface it to the Human for integration."
+    if _rule2_is_integration "$CMD"; then
+      # merge/rebase/cherry-pick: allowed inside a task worktree, denied in the
+      # main checkout regardless of the target branch (integration is PR-only).
+      if ! cmd_in_worktree "$CMD"; then
+        jq -nc --arg r "BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. $(rule2_recovery)" \
+          '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+        exit 0
       fi
-      jq -nc --arg r "BLOCKED: ${BRANCH} is a shared workflow base — no direct commits/merges/rebases. ${_RULE2_RECOVERY}" \
-        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-      exit 0
+    else
+      # git commit: keep the protected-set union gating.
+      BRANCH=$(cmd_effective_branch "$CMD")
+      RULE2_PROTECTED=$(rule2_protected_bases || true)
+      if [ -n "$BRANCH" ] && printf '%s\n' "$RULE2_PROTECTED" | grep -qxF "$BRANCH"; then
+        jq -nc --arg r "BLOCKED: ${BRANCH} is a shared workflow base — no direct commits/merges/rebases. $(rule2_recovery)" \
+          '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+        exit 0
+      fi
     fi
 fi
 

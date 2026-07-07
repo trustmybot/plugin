@@ -812,11 +812,13 @@ out=$(run_hook_in_repo "git  push  -f origin main")
 assert_contains "$out" '"permissionDecision":"deny"' "double-space -f force push to main must block"
 cleanup_repo
 
-# ---- #1070: Rule 2 protects every workflow base, not just protected_branches ----
-# Rule 2's protected set is protected_branches ∪ target_branch ∪ pr_target ∪
-# DISTINCT tasks.parent_branch_id. A shared integration base (some task's
-# parent_branch_id, or the repo's target_branch) must reject a direct
-# merge/rebase even when protected_branches doesn't list it.
+# ---- #1070/#1073: Rule 2 splits by command class ----
+# merge/rebase/cherry-pick in the MAIN checkout are denied regardless of target
+# (integration is PR-only); inside a worktree they are allowed. git commit keeps
+# the protected-set union gating: protected_branches ∪ target_branch ∪ pr_target ∪
+# DISTINCT tasks.parent_branch_id — a commit on a shared integration base (some
+# task's parent_branch_id, or the repo's target_branch) is denied even when
+# protected_branches doesn't list it.
 
 setup_taskparent_repo() {
   # $1 = protected_branches JSON (e.g. '[\"main\"]' or '[]')
@@ -852,29 +854,42 @@ setup_taskparent_repo() {
   REPO_PATH="$dir"
 }
 
-test_case "#1070: git merge into a task's parent_branch_id (absent from protected_branches) IS blocked"
+test_case "#1070: git commit on a task's parent_branch_id (absent from protected_branches) IS blocked"
 setup_taskparent_repo '["main"]' 'main'
 git -C "$REPO_PATH" checkout -q staging
-out=$(run_hook_in_repo "git merge feat/child")
-assert_contains "$out" '"permissionDecision":"deny"' "merge into task-parent base 'staging' must block"
+out=$(run_hook_in_repo "git commit -m x")
+assert_contains "$out" '"permissionDecision":"deny"' "commit on task-parent base 'staging' must block"
 assert_contains "$out" "staging" "deny message must name the shared base"
 assert_contains "$out" "surface it to the Human" "no-remote deny message must teach the surface-to-Human recovery"
 cleanup_repo
 
-test_case "#1070: git merge into a plain feature branch (not protected/target/task-parent) is ALLOWED"
+test_case "#1073: git merge into a plain feature branch in the main checkout IS blocked (integration is PR-only)"
 setup_taskparent_repo '["main"]' 'main'
 git -C "$REPO_PATH" checkout -q feat/plain
 out=$(run_hook_in_repo "git merge feat/child")
-assert_not_contains "$out" '"permissionDecision":"deny"' "merge into an ordinary feature branch must be allowed"
+assert_contains "$out" '"permissionDecision":"deny"' "merge in the main checkout must block regardless of target branch"
+assert_contains "$out" "integration is PR-only" "deny message must teach the PR-only integration path"
 cleanup_repo
 
-test_case "#1070: git merge into target_branch is blocked even when protected_branches is empty"
+test_case "#1070: git commit on target_branch is blocked even when protected_branches is empty"
 setup_taskparent_repo '[]' 'main'
 # Repo stays on 'main' (init branch); protected_branches=[] so only the
 # target_branch entry in the union protects it.
-out=$(run_hook_in_repo "git merge feat/child")
-assert_contains "$out" '"permissionDecision":"deny"' "merge into target_branch 'main' must block despite empty protected_branches"
+out=$(run_hook_in_repo "git commit -m x")
+assert_contains "$out" '"permissionDecision":"deny"' "commit on target_branch 'main' must block despite empty protected_branches"
 assert_contains "$out" "main" "deny message must name the target base"
+cleanup_repo
+
+test_case "#1073: git merge inside a worktree is ALLOWED (SWE integration mechanics)"
+setup_worktree_repo
+out=$(run_hook_in_repo "cd .claude/worktrees/task-1 && git merge feat/other")
+assert_not_contains "$out" '"permissionDecision":"deny"' "merge inside a task worktree must be allowed"
+cleanup_repo
+
+test_case "#1073: git rebase inside a worktree is ALLOWED (SWE integration mechanics)"
+setup_worktree_repo
+out=$(run_hook_in_repo "cd .claude/worktrees/task-1 && git rebase main")
+assert_not_contains "$out" '"permissionDecision":"deny"' "rebase inside a task worktree must be allowed"
 cleanup_repo
 
 summarize
