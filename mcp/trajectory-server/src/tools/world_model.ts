@@ -27,9 +27,11 @@ interface UnmergedBranch {
 // checkout sitting on the target branch hides work committed on branches that
 // have not merged yet — bro then reads an "empty" repo and holds. This walks
 // the tasks table (rows with a commit_sha, grouped by branch_id, newest first)
-// and drops any branch whose tip is already an ancestor of the repo's target
-// branch. Fail-soft: a non-git repo path or any git spawn failure yields an
-// empty list plus a warning, never an is_error.
+// and keeps only branches that still have a live local ref whose tip is not yet
+// an ancestor of the repo's target branch. A deleted ref means the work was
+// integrated (squash-merge cleanup) or abandoned, so it is skipped. Fail-soft:
+// a non-git repo path or any git spawn failure yields an empty list plus a
+// warning, never an is_error.
 function computeUnmergedWork(
   db: TrajectoryDB,
   repo: string,
@@ -85,6 +87,17 @@ function computeUnmergedWork(
 
   const unmerged_work: UnmergedBranch[] = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
+    // Require a live local ref: a deleted branch means the work was integrated
+    // (squash-merge cleanup) or abandoned. Without this gate every squash-merged
+    // branch stays here forever, since a squashed tip is never an ancestor of
+    // the target.
+    const refCheck = spawnSync(
+      'git',
+      ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch_id}`],
+      { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS },
+    );
+    if (refCheck.status !== 0) continue; // absent ref → integrated or abandoned, skip
+
     const mergeBase = spawnSync(
       'git',
       ['-C', repoPath, 'merge-base', '--is-ancestor', entry.tip, target],
@@ -94,6 +107,7 @@ function computeUnmergedWork(
       return { unmerged_work: [], warning: 'unmerged-work-unavailable' };
     }
     if (mergeBase.status === 0) continue; // tip is an ancestor of target → merged, omit
+    if (mergeBase.status !== 1) continue; // dangling SHA / other error → skip defensively
     unmerged_work.push({
       branch_id,
       parent_branch_id: entry.parent_branch_id,

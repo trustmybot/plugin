@@ -23,7 +23,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Config | `config.ts` | `config_get`, `config_set`, `config_list` |
 | Onboard | `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (+ `origin` helper). Both `onboard_get_questions` and `onboard_apply` take an optional `repo=<name>` param (round='main', shape='remote') to scope the branching + pr_target questions/writes to a single `repos` row; omitting it preserves the workspace-wide behaviour. |
 | Scan | `scan.ts` | `scan_run` (forks `scripts/scan.sh`), `repos_list` |
-| World model | `world_model.ts` | `world_model_get`, `world_model_search` (kuzu graph) |
+| World model | `world_model.ts` | `world_model_get` (kuzu graph + an `unmerged_work` field: closed-task branches with a live local ref whose tip is not yet merged into the target), `world_model_search` |
 
 `onboard-hooks-shim.ts` is a non-tool helper: it writes the plugin's PreToolUse hooks into the user's `settings.json` so they fire in non-interactive `claude -p` runs, where marketplace plugin hooks are absent.
 

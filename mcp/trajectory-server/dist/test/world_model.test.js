@@ -239,6 +239,43 @@ describe('world_model_get — unmerged_work (#1059)', () => {
             repo.cleanup();
         }
     });
+    it('skips a branch whose local ref was deleted post-merge, even with an un-ancestor tip', async () => {
+        const repo = gitRepo();
+        const db = tempDB();
+        try {
+            seed(db, repo.repoRoot);
+            addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
+            // Simulate squash-merge cleanup: the tip stays reachable but the ref is gone.
+            execFileSync('git', ['-C', repo.repoRoot, 'branch', '-D', 'fix/unmerged']);
+            const tools = worldModelTools(db, stubGraph());
+            const out = wmParse((await tools.handlers['world_model_get']({ agent: 'bro' })));
+            assert.deepEqual(out['unmerged_work'], [], 'deleted ref → skipped despite un-ancestor tip');
+            assert.equal(out['warning'], undefined, 'no warning: a deleted ref is expected');
+        }
+        finally {
+            db.close();
+            repo.cleanup();
+        }
+    });
+    it('skips a live-ref branch whose recorded tip is unresolvable, with no warning', async () => {
+        const repo = gitRepo();
+        const db = tempDB();
+        try {
+            seed(db, repo.repoRoot);
+            // Live ref (fix/unmerged) but a dangling tip → is-ancestor exits 128.
+            addTask(db, 'fix/unmerged', 'dev', 'a'.repeat(40), 'closed');
+            const tools = worldModelTools(db, stubGraph());
+            const r = (await tools.handlers['world_model_get']({ agent: 'bro' }));
+            const out = wmParse(r);
+            assert.notEqual(r.isError, true, 'never an is_error');
+            assert.deepEqual(out['unmerged_work'], [], 'dangling tip → skipped');
+            assert.equal(out['warning'], undefined, 'exit-128 is not the spawn .error fail-soft path');
+        }
+        finally {
+            db.close();
+            repo.cleanup();
+        }
+    });
     it('omits merged branches and returns [] when nothing qualifies', async () => {
         const repo = gitRepo();
         const db = tempDB();
