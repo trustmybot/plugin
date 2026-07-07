@@ -27888,6 +27888,25 @@ function resolveRepoPath(db2, repoValue) {
   const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname5(db2.dbPath);
   return reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
 }
+function resolveBaseRef(repoPath, base) {
+  try {
+    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `origin/${base}`], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: SUBPROCESS_TIMEOUT_MS
+    });
+    return `origin/${base}`;
+  } catch {
+  }
+  try {
+    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${base}`], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: SUBPROCESS_TIMEOUT_MS
+    });
+    return base;
+  } catch {
+    return null;
+  }
+}
 function readRepoTargetBranch(db2, repoValue) {
   const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
   if (!name) return null;
@@ -28346,24 +28365,20 @@ function compositeTools(db2, dbPath2, graph2 = null) {
           branchReused = false;
         }
         if (!branchReused) {
-          try {
-            execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `origin/${base}`], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: SUBPROCESS_TIMEOUT_MS
-            });
-          } catch (e) {
+          const resolvedBaseRef = resolveBaseRef(repoPath, base);
+          if (!resolvedBaseRef) {
             return err14(
-              `task_provision: base 'origin/${base}' does not resolve in repo '${repoValue}' (${e.message.split("\n")[0] || "git rev-parse failed"}). No task row was created \u2014 retry with a valid base and the same branch_id.`
+              `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
             );
           }
           try {
-            execFileSync("git", ["-C", repoPath, "branch", branchId, `origin/${base}`], {
+            execFileSync("git", ["-C", repoPath, "branch", branchId, resolvedBaseRef], {
               stdio: ["ignore", "pipe", "pipe"],
               timeout: SUBPROCESS_TIMEOUT_MS
             });
           } catch (e) {
             return err14(
-              `task_provision: failed to create branch '${branchId}' from 'origin/${base}' in repo '${repoValue}' (${e.message.split("\n")[0] || "git branch failed"}). No task row was created \u2014 retry with the same branch_id.`
+              `task_provision: failed to create branch '${branchId}' from '${resolvedBaseRef}' in repo '${repoValue}' (${e.message.split("\n")[0] || "git branch failed"}). No task row was created \u2014 retry with the same branch_id.`
             );
           }
         }
@@ -28951,8 +28966,13 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const now = nowISO();
         if (!waiveScopeGate) {
           const repoPath = resolveRepoPath(db2, task.repo);
-          const baseRef = `origin/${task.parent_branch_id || "dev"}`;
-          const scope = repoPath ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files)) : { outOfScope: [], checked: false, reason: `cannot resolve a path for repo '${task.repo ?? ""}'` };
+          const base = task.parent_branch_id || "dev";
+          const baseRef = repoPath ? resolveBaseRef(repoPath, base) : null;
+          const scope = repoPath && baseRef ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files)) : {
+            outOfScope: [],
+            checked: false,
+            reason: repoPath ? `base does not resolve as 'origin/${base}' or local '${base}'` : `cannot resolve a path for repo '${task.repo ?? ""}'`
+          };
           if (!scope.checked) {
             return err14(
               `bro_atomic_close scope gate: cannot resolve ${task.repo ?? "<repo>"}@${commitSha} to verify files[] scope (${scope.reason ?? "unknown"}). Pass waive_scope_gate=true if this close is intentional outside a git checkout.`

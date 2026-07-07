@@ -89,6 +89,33 @@ function resolveRepoPath(db, repoValue) {
     const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
     return reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
 }
+// Resolve a base branch name to a concrete git ref, preferring the freshest
+// remote-tracking ref. Returns `origin/<base>` when it resolves (remote-present
+// repos — freshest-origin doctrine unchanged), else the local `<base>` when
+// refs/heads/<base> resolves (remoteless repos: L6 sandboxes, fresh local
+// projects, local-only stacked bases), else null when neither exists.
+function resolveBaseRef(repoPath, base) {
+    try {
+        execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `origin/${base}`], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: SUBPROCESS_TIMEOUT_MS,
+        });
+        return `origin/${base}`;
+    }
+    catch {
+        // origin/<base> absent — fall back to the local branch.
+    }
+    try {
+        execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${base}`], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: SUBPROCESS_TIMEOUT_MS,
+        });
+        return base;
+    }
+    catch {
+        return null;
+    }
+}
 // Read a repo's target_branch (pr_target) from the repos table — the sole
 // source of truth (#980). Falls back to the sole registered repo when repoValue
 // is empty. Returns null when no row or a NULL/empty column.
@@ -579,27 +606,22 @@ export function compositeTools(db, dbPath, graph = null) {
                 branchReused = false;
             }
             if (!branchReused) {
-                // Pre-validate the base resolves before creating anything. task_provision
-                // prepends origin/ to base, so verify the remote-tracking ref.
+                // Pre-validate the base resolves before creating anything. Prefer
+                // origin/<base>, fall back to a local branch when no remote-tracking
+                // ref exists (remoteless repos), error when neither resolves.
+                const resolvedBaseRef = resolveBaseRef(repoPath, base);
+                if (!resolvedBaseRef) {
+                    return err(`task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. ` +
+                        `No task row was created — retry with a valid base and the same branch_id.`);
+                }
                 try {
-                    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `origin/${base}`], {
+                    execFileSync('git', ['-C', repoPath, 'branch', branchId, resolvedBaseRef], {
                         stdio: ['ignore', 'pipe', 'pipe'],
                         timeout: SUBPROCESS_TIMEOUT_MS,
                     });
                 }
                 catch (e) {
-                    return err(`task_provision: base 'origin/${base}' does not resolve in repo '${repoValue}' ` +
-                        `(${e.message.split('\n')[0] || 'git rev-parse failed'}). No task row was created — ` +
-                        `retry with a valid base and the same branch_id.`);
-                }
-                try {
-                    execFileSync('git', ['-C', repoPath, 'branch', branchId, `origin/${base}`], {
-                        stdio: ['ignore', 'pipe', 'pipe'],
-                        timeout: SUBPROCESS_TIMEOUT_MS,
-                    });
-                }
-                catch (e) {
-                    return err(`task_provision: failed to create branch '${branchId}' from 'origin/${base}' in repo '${repoValue}' ` +
+                    return err(`task_provision: failed to create branch '${branchId}' from '${resolvedBaseRef}' in repo '${repoValue}' ` +
                         `(${e.message.split('\n')[0] || 'git branch failed'}). No task row was created — ` +
                         `retry with the same branch_id.`);
                 }
@@ -1179,10 +1201,17 @@ export function compositeTools(db, dbPath, graph = null) {
             const now = nowISO();
             if (!waiveScopeGate) {
                 const repoPath = resolveRepoPath(db, task.repo);
-                const baseRef = `origin/${task.parent_branch_id || 'dev'}`;
-                const scope = repoPath
+                const base = task.parent_branch_id || 'dev';
+                const baseRef = repoPath ? resolveBaseRef(repoPath, base) : null;
+                const scope = repoPath && baseRef
                     ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files))
-                    : { outOfScope: [], checked: false, reason: `cannot resolve a path for repo '${task.repo ?? ''}'` };
+                    : {
+                        outOfScope: [],
+                        checked: false,
+                        reason: repoPath
+                            ? `base does not resolve as 'origin/${base}' or local '${base}'`
+                            : `cannot resolve a path for repo '${task.repo ?? ''}'`,
+                    };
                 if (!scope.checked) {
                     return err(`bro_atomic_close scope gate: cannot resolve ${task.repo ?? '<repo>'}@${commitSha} to verify ` +
                         `files[] scope (${scope.reason ?? 'unknown'}). Pass waive_scope_gate=true if this close ` +
