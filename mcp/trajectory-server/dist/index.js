@@ -31642,6 +31642,12 @@ function computeUnmergedWork(db2, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
+    const refCheck = spawnSync7(
+      "git",
+      ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
+      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
+    );
+    if (refCheck.status !== 0) continue;
     const mergeBase = spawnSync7(
       "git",
       ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
@@ -31651,6 +31657,7 @@ function computeUnmergedWork(db2, repo) {
       return { unmerged_work: [], warning: "unmerged-work-unavailable" };
     }
     if (mergeBase.status === 0) continue;
+    if (mergeBase.status !== 1) continue;
     unmerged_work.push({
       branch_id,
       parent_branch_id: entry.parent_branch_id,
