@@ -114,6 +114,35 @@ out=$(run_hook "install dependencies before running the build")
 assert_not_contains "$out" "cheatcode-routing" "install dependencies must not fire"
 
 # ---------------------------------------------------------------------------
+# synthetic-turn early-exit: harness-generated turns emit NOTHING
+# ---------------------------------------------------------------------------
+
+test_case "synthetic-turn: <task-notification> body emits nothing"
+out=$(run_hook "<task-notification>swe reports: ran bun install in plugin/mcp/ to rebuild the dist</task-notification>")
+assert_not_contains "$out" "additionalContext" "task-notification turn must be fully silent"
+
+test_case "synthetic-turn: [SYSTEM NOTIFICATION] body emits nothing"
+out=$(run_hook "[SYSTEM NOTIFICATION - NOT USER INPUT] pr-reviewer finished reviewing plugin/mcp/dist")
+assert_not_contains "$out" "additionalContext" "system-notification turn must be fully silent"
+
+# ---------------------------------------------------------------------------
+# cheatcode-install: package-manager installs never route to cheatcodes
+# ---------------------------------------------------------------------------
+
+test_case "cheatcode-install: 'bun install to fix the plugin build' does NOT fire"
+out=$(run_hook "i ran bun install to fix the plugin build")
+assert_not_contains "$out" "cheatcode-install routing" "bun install + plugin noun must not fire"
+
+test_case "cheatcode-install: 'npm install left the mcp dist stale' does NOT fire"
+out=$(run_hook "npm install left the mcp dist stale")
+assert_not_contains "$out" "cheatcode-install routing" "npm install + mcp noun must not fire"
+
+test_case "cheatcode-routing: 'add the code-review skill for swe' fires capability-on-agent"
+out=$(run_hook "add the code-review skill for swe")
+assert_contains "$out" "cheatcode-routing" "add-skill-for-agent must fire capability-on-agent"
+assert_not_contains "$out" "cheatcode-install routing" "capability-on-agent must not also fire install hint"
+
+# ---------------------------------------------------------------------------
 # consultant-spawn: domain keyword + advisory shape required
 # ---------------------------------------------------------------------------
 

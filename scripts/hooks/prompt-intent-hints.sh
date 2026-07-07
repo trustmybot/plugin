@@ -34,6 +34,15 @@ command -v jq >/dev/null 2>&1 || exit 0
 PROMPT_RAW=$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 [ -n "$PROMPT_RAW" ] || exit 0
 
+# Synthetic-turn early-exit — harness-generated turns (subagent reports,
+# system notifications) carry embedded content ("bun install", plugin/mcp
+# paths) that trips the matchers, but no hint class applies to them: every
+# hint class describes HUMAN intent. Markers are case-sensitive as produced
+# by the harness. Exit before any matcher.
+case "$PROMPT_RAW" in
+  *"<task-notification>"*|*"[SYSTEM NOTIFICATION"*) exit 0 ;;
+esac
+
 LOWER=$(printf '%s' "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
 
 emit_context() {
@@ -142,11 +151,14 @@ EOF
       cheatcode_install_match="in scope"
       ;;
     *install*)
-      case "$LOWER" in
-        *plugin*|*skill*|*mcp*|*cheatcode*)
-          cheatcode_install_match="install capability"
-          ;;
-      esac
+      # Word-bounded install intent: an `install`/`installing` token AND a
+      # capability object noun, EXCLUDING package-manager installs
+      # (npm/bun/pip/... install → dependencies, never a cheatcode).
+      if printf '%s' "$LOWER" | grep -qE '\b(install|installing)\b' \
+        && printf '%s' "$LOWER" | grep -qE '\b(plugin|plugins|skill|skills|mcp|cheatcode|cheatcodes)\b' \
+        && ! printf '%s' "$LOWER" | grep -qE '\b(npm|npx|bun|yarn|pnpm|pip|pipx|brew|apt|apt-get|cargo|gem)[[:space:]]+install(ing)?\b'; then
+        cheatcode_install_match="install capability"
+      fi
       ;;
   esac
 

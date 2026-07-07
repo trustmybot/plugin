@@ -30,8 +30,8 @@ scripts/hooks/cheatcode-healthcheck.sh:139
 # prompt-intent-hints.sh has_word(): `case "$text" in ... "${word}" ...` is shell
 # glob word-matching, not SQL. A consultant-spawn sqlite3 heredoc closes ~15 lines
 # above; the proximity heuristic still flags this case block. No SQL here.
-scripts/hooks/prompt-intent-hints.sh:78
-scripts/hooks/prompt-intent-hints.sh:79
-scripts/hooks/prompt-intent-hints.sh:80
-scripts/hooks/prompt-intent-hints.sh:81
-scripts/hooks/prompt-intent-hints.sh:82
+scripts/hooks/prompt-intent-hints.sh:87
+scripts/hooks/prompt-intent-hints.sh:88
+scripts/hooks/prompt-intent-hints.sh:89
+scripts/hooks/prompt-intent-hints.sh:90
+scripts/hooks/prompt-intent-hints.sh:91
