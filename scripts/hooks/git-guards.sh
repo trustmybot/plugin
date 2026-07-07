@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Hook: Enforce git workflow rules driven by the repo's branching model.
 # 1. PR must target pr_target
-# 2. No direct commits to protected_branches
+# 2. No direct commits/merges/rebases to any shared workflow base
 # 3. No force push to protected_branches
 # 4. New branches must be based on latest pr_target
 set -euo pipefail
@@ -223,7 +223,15 @@ if [ -n "$_RULE1_FORGE" ]; then
   fi
 fi
 
-# --- Rule 2: No direct commits/merges/rebases to protected_branches (worktree-aware) ---
+# --- Rule 2: No direct commits/merges/rebases to any shared workflow base (worktree-aware) ---
+# The protected set is the union of every branch that serves as a shared base:
+# repos.protected_branches, the repo's target_branch (PR_TARGET), repos.pr_target
+# (when that column exists), and every task's parent_branch_id. A local
+# merge/rebase into any of these bypasses the PR gate, so Rule 2 denies it
+# regardless of the repo's onboarding config. Fail-soft: the DB-driven rows
+# (pr_target, parent_branch_id) are added only when the DB is reachable; the
+# protected_branches + target_branch fallbacks (both with safe defaults) keep the
+# guard closed when it is not.
 # Uses cmd_effective_branch so detached-HEAD worktrees resolve via DB lookup.
 # Match the git subcommand by word boundary to avoid false-positives on plumbing
 # (commit-tree, commit-graph) or "git commit" appearing inside argument text.
@@ -235,10 +243,45 @@ _rule2_match() {
   # Spaces around the separator are consumed to handle `cd /x && git commit`.
   printf '%s' "$cmd" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(commit|merge|rebase|cherry-pick)([[:space:]]|$)'
 }
+
+# rule2_protected_bases
+# Print (one per line, deduped) every workflow base that must not accept a direct
+# commit/merge/rebase: protected_branches ∪ target_branch (PR_TARGET) ∪ pr_target
+# (when the column exists) ∪ DISTINCT tasks.parent_branch_id (this repo, plus
+# NULL-repo tasks for single-repo installs). DB rows are added only when the DB is
+# reachable; the protected_branches/target_branch fallbacks keep the set non-empty.
+rule2_protected_bases() {
+  {
+    printf '%s\n' "$PROTECTED_BRANCHES"
+    [ -n "$PR_TARGET" ] && printf '%s\n' "$PR_TARGET"
+    if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite; then
+      local root_sql repo_name repo_filter
+      root_sql=$(tmb_sql_quote "$_GIT_ROOT")
+      if [ -n "$(tmb_sqlite_ro "$_DB" "SELECT 1 FROM pragma_table_info('repos') WHERE name='pr_target' LIMIT 1;")" ]; then
+        tmb_sqlite_ro "$_DB" "SELECT pr_target FROM repos WHERE path = '${root_sql}' AND pr_target IS NOT NULL AND pr_target != '';"
+      fi
+      repo_name=$(tmb_sqlite_ro "$_DB" "SELECT name FROM repos WHERE path = '${root_sql}' LIMIT 1;")
+      if [ -n "$repo_name" ]; then
+        repo_filter="(repo = '$(tmb_sql_quote "$repo_name")' OR repo IS NULL)"
+      else
+        repo_filter="repo IS NULL"
+      fi
+      tmb_sqlite_ro "$_DB" "SELECT DISTINCT parent_branch_id FROM tasks WHERE parent_branch_id IS NOT NULL AND parent_branch_id != '' AND ${repo_filter};"
+    fi
+  } | grep -v '^[[:space:]]*$' | sort -u
+}
+
 if _rule2_match "$CMD"; then
     BRANCH=$(cmd_effective_branch "$CMD")
-    if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
-      jq -nc --arg r "BLOCKED: No direct commits to ${BRANCH}. Create a feature branch first." \
+    RULE2_PROTECTED=$(rule2_protected_bases || true)
+    if [ -n "$BRANCH" ] && printf '%s\n' "$RULE2_PROTECTED" | grep -qxF "$BRANCH"; then
+      _HAS_REMOTE=$(git -C "$_CMD_CWD" remote get-url origin 2>/dev/null || true)
+      if [ -n "$_HAS_REMOTE" ]; then
+        _RULE2_RECOVERY="Push your feature branch and open a PR into ${PR_TARGET}: git push origin <branch> && gh pr create --base ${PR_TARGET} --head <branch>."
+      else
+        _RULE2_RECOVERY="This repo has no remote — leave the branch unmerged and surface it to the Human for integration."
+      fi
+      jq -nc --arg r "BLOCKED: ${BRANCH} is a shared workflow base — no direct commits/merges/rebases. ${_RULE2_RECOVERY}" \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
