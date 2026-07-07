@@ -616,7 +616,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
   // Build a real repo with an origin/dev ref, a base commit, and a work commit
   // that changes `changedFiles`. Returns the work commit SHA + a DB seeded with
   // a completed task whose typed files[] is `taskFiles`.
-  async function setup(taskFiles: string[], changedFiles: string[]): Promise<{
+  async function setup(taskFiles: string[], changedFiles: string[], opts: { withRemote?: boolean } = {}): Promise<{
     db: TrajectoryDB;
     composites: ReturnType<typeof compositeTools>;
     taskId: string;
@@ -624,6 +624,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     sha: string;
     cleanup: () => void;
   }> {
+    const withRemote = opts.withRemote !== false;
     const ws = mkdtempSync(join(tmpdir(), 'bac-scope-'));
     const repoRoot = join(ws, 'app');
     mkdirSync(repoRoot, { recursive: true });
@@ -638,8 +639,13 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     writeFileSync(join(repoRoot, 'seed.txt'), 'seed\n');
     git(repoRoot, 'add', '.');
     git(repoRoot, 'commit', '-q', '-m', 'base');
-    git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', git(repoRoot, 'rev-parse', 'HEAD'));
+    // A remoteless repo (withRemote:false) exercises the local-<base> fallback:
+    // the scope gate must diff against the local parent ref, not origin/dev.
+    if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', git(repoRoot, 'rev-parse', 'HEAD'));
 
+    // Put the work commit on a feature branch so the local `dev` ref stays at
+    // the base — the remoteless fallback then diffs a real parent...work range.
+    git(repoRoot, 'checkout', '-q', '-b', 'feat/work');
     for (const rel of changedFiles) {
       const abs = join(repoRoot, rel);
       mkdirSync(join(abs, '..'), { recursive: true });
@@ -799,6 +805,23 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     } finally {
       db.close();
       rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('remoteless repo: scope gate diffs against the local parent ref and still closes (#1063)', async () => {
+    // No origin/dev exists — resolveBaseRef falls back to local dev, so the gate
+    // computes its three-dot diff against the local parent ref rather than
+    // fail-closing.
+    const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], { withRemote: false });
+    try {
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.ok(!r.isError, `remoteless close must pass via the local base fallback, got: ${JSON.stringify(parse(r))}`);
+      const row = db.get<{ status: string }>(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+      assert.equal(row!.status, 'closed');
+    } finally {
+      cleanup();
     }
   });
 });
@@ -1811,6 +1834,117 @@ describe('task_provision (#157)', () => {
         db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`)!.c,
         1,
         'retry creates exactly one task row',
+      );
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('remoteless repo: base falls back to the local branch, branch created from local ref (#1063)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'plan-task-local-'));
+    try {
+      const repoRoot = join(ws, 'app');
+      mkdirSync(repoRoot, { recursive: true });
+      const git = (cwd: string, ...a: string[]) =>
+        execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+      // A repo with NO remotes at all: only a local `dev` branch exists.
+      git(repoRoot, 'init', '-q', '-b', 'dev');
+      git(repoRoot, 'config', 'user.email', 't@t.t');
+      git(repoRoot, 'config', 'user.name', 't');
+      writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+      git(repoRoot, 'add', '.');
+      git(repoRoot, 'commit', '-q', '-m', 'base');
+      const localDevSha = git(repoRoot, 'rev-parse', 'refs/heads/dev');
+
+      const db = tempDB();
+      db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'dev')`, [repoRoot]);
+      db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro',
+        issue_id: 1,
+        branch_id: 'feat/local-base',
+        base: 'dev',
+        decision_body: 'approach: branch from local dev; trade-off none.',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+      assert.ok(!r.isError, `remoteless provision must succeed via the local fallback: ${JSON.stringify(parse(r))}`);
+
+      // Task row created + the new branch points at the LOCAL dev ref.
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`)!.c, 1);
+      assert.equal(
+        git(repoRoot, 'rev-parse', 'refs/heads/feat/local-base'),
+        localDevSha,
+        'branch created from the local dev ref when no origin exists',
+      );
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('origin/<base> wins over a diverging local branch (origin preference unchanged, #1063)', async () => {
+    const { ws, repoRoot, git } = makeRepo();
+    try {
+      // origin/main was fabricated at the base commit in makeRepo. Advance the
+      // LOCAL main past it so the two diverge; the branch must follow origin.
+      const originMainSha = git(repoRoot, 'rev-parse', 'refs/remotes/origin/main');
+      writeFileSync(join(repoRoot, 'a.txt'), 'two\n');
+      git(repoRoot, 'add', '.');
+      git(repoRoot, 'commit', '-q', '-m', 'local advance');
+      const localMainSha = git(repoRoot, 'rev-parse', 'refs/heads/main');
+      assert.notEqual(originMainSha, localMainSha, 'precondition: origin/main and local main diverge');
+
+      const db = tempDB();
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro',
+        issue_id: 1,
+        branch_id: 'feat/prefers-origin',
+        base: 'main',
+        decision_body: 'approach: branch from origin/main; trade-off none.',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      assert.equal(
+        git(repoRoot, 'rev-parse', 'refs/heads/feat/prefers-origin'),
+        originMainSha,
+        'branch follows origin/main, not the diverged local main',
+      );
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('neither origin/<base> nor local <base> resolves: error names both forms, no task row (#1063)', async () => {
+    const { ws, repoRoot } = makeRepo();
+    try {
+      const db = tempDB();
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro',
+        issue_id: 1,
+        branch_id: 'feat/no-base',
+        base: 'ghost-base',
+        decision_body: 'approach: x; trade-off y.',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+      assert.ok(r.isError, 'an unresolvable base must be a tool error');
+      const msg = parse(r)['error'] as string;
+      assert.match(msg, /origin\/ghost-base/, 'error names the tried origin form');
+      assert.match(msg, /local 'ghost-base'/, 'error names the tried local form');
+      assert.equal(
+        db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`)!.c,
+        0,
+        'no orphan task row when neither base ref resolves',
       );
       db.close();
     } finally {
