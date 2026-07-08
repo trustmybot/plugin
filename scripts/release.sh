@@ -11,8 +11,9 @@
 # What it does (each step asks for explicit y/N + skips if already done):
 #   1. Tag main HEAD as v<plugin.json version>
 #   2. Push the tag to origin
-#   3. Create the GitHub release with notes extracted from CHANGELOG.md
-#   4. Run the L5 release canary (re-clone the tag in Docker, run install-smoke)
+#   3. Await the tag's release-gate run; refuse unless it concluded success
+#   4. Create the GitHub release with notes extracted from CHANGELOG.md
+#   5. Run the L5 release canary (re-clone the tag in Docker, run install-smoke)
 #
 # Idempotent + safety-checked:
 #   - Refuses to run unless current branch is `main`.
@@ -20,11 +21,16 @@
 #   - Refuses to run unless plugin.json version matches a v<version>
 #     section in CHANGELOG.md (catches release-prep merges that didn't land).
 #   - Refuses to run if mcp pkg.json version disagrees with plugin.json.
+#   - Refuses to create the release unless the tag's release-gate run concluded
+#     success (no bypass flag).
 
 set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PLUGIN_ROOT"
+
+# shellcheck source=scripts/lib/await-release-gate.sh
+. "$PLUGIN_ROOT/scripts/lib/await-release-gate.sh"
 
 # ---------- read version from plugin.json (single source of truth) ----------
 
@@ -161,12 +167,22 @@ else
   printf "  Step 2: %s already pushed to origin — skipping.\n\n" "$NEW_TAG"
 fi
 
-# ---------- step 3: create the GitHub release ----------
+# ---------- step 3: await the tag-triggered release-gate verdict ----------
+#
+# Pushing the tag auto-fired .github/workflows/release-gate.yml. Refuse to make
+# the release public unless that run concluded success — a red stable-tag gate
+# must stop here, not 13 minutes after the release is already live.
+
+printf "  Step 3: Awaiting the release-gate run for %s ...\n" "$NEW_TAG"
+await_release_gate "$NEW_TAG" || exit $?
+printf "\n"
+
+# ---------- step 4: create the GitHub release ----------
 
 if gh release view "$NEW_TAG" >/dev/null 2>&1; then
-  printf "  Step 3: GitHub release %s already exists — skipping.\n\n" "$NEW_TAG"
+  printf "  Step 4: GitHub release %s already exists — skipping.\n\n" "$NEW_TAG"
 else
-  if confirm "Step 3: Create GitHub release $NEW_TAG with the CHANGELOG body?"; then
+  if confirm "Step 4: Create GitHub release $NEW_TAG with the CHANGELOG body?"; then
     NOTES_FILE="$(mktemp -t tmb-release-notes.XXXXXX)"
     trap 'rm -f "$NOTES_FILE"' EXIT
     awk -v target="^## ${NEW_TAG} " '
@@ -190,7 +206,7 @@ else
   fi
 fi
 
-# ---------- step 4: L5 release canary (post-tag verify) ----------
+# ---------- step 5: L5 release canary (post-tag verify) ----------
 #
 # Re-clones the freshly-tagged release into a temp dir and runs the
 # install-smoke Dockerfile against it. Catches "the published artifact
@@ -200,7 +216,7 @@ fi
 # Skipped if Docker is unavailable; warning instead of failure since the
 # release is already public at this point.
 
-if confirm "Step 4: Run L5 release canary (re-clone tag in Docker, run install-smoke)?"; then
+if confirm "Step 5: Run L5 release canary (re-clone tag in Docker, run install-smoke)?"; then
   if ! command -v docker >/dev/null 2>&1; then
     printf "  ⊘ docker not available — skipping canary. Run manually before announcing the release:\n"
     printf "      bash tests/l0-install/run-install-smoke.sh\n"
