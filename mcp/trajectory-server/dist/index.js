@@ -28226,6 +28226,14 @@ function compositeTools(db2, dbPath2, graph2 = null) {
             type: "string",
             description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'."
           },
+          waive_registry_gate: {
+            type: "boolean",
+            description: "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run."
+          },
+          waive_registry_gate_reason: {
+            type: "string",
+            description: "Required when waive_registry_gate is true (min 10 chars): why the gate is unnecessary."
+          },
           task: {
             type: "object",
             description: "The single task spec.",
@@ -28334,6 +28342,31 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         }
         const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
         const slug = branchId.replace(/^[^/]+\//, "");
+        const registryGateWaived = args["waive_registry_gate"] === true;
+        const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
+        if (registryGateWaived) {
+          if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
+            return err14("waive_registry_gate_reason must be a string \u226510 chars.");
+          }
+        } else {
+          const scanRow = db2.get(
+            `SELECT COUNT(*) as c FROM audit WHERE event_type = 'deep_scan_completed'`
+          );
+          if ((scanRow?.c ?? 0) === 0) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    error: "registry_cold_violation",
+                    message: `task_provision: world-model-cold gate \u2014 no deep_scan_completed audit row exists. Run /scan (or call scan_run directly) to discover repos and populate the world model. For exceptional cases, pass waive_registry_gate=true with waive_registry_gate_reason="<why>".`
+                  })
+                }
+              ]
+            };
+          }
+        }
         let repoPath = null;
         if (repoValue) {
           const reposRow = db2.get(
@@ -28427,6 +28460,21 @@ function compositeTools(db2, dbPath2, graph2 = null) {
               now
             ]
           );
+          if (registryGateWaived) {
+            db2.run(
+              `INSERT INTO audit
+                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+               VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`,
+              [
+                issueId,
+                branchId,
+                agent,
+                registryGateWaiverReason.slice(0, 200),
+                JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
+                now
+              ]
+            );
+          }
           return { task_id: row.id };
         });
         let gitSetup = "created";
