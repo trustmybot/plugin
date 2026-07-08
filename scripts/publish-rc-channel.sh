@@ -17,14 +17,17 @@
 #   1. Resolve VERSION (arg or .claude-plugin/plugin.json .version) → TAG=v$VERSION.
 #   2. Refuse unless VERSION is rc-only (X.Y.Z-rc.N).
 #   3. Verify the tag exists on origin (must be pushed first).
-#   4. Clone trustmybot/marketplace-rc into a temp dir (trap cleanup).
-#   5. Set .claude-plugin/marketplace.json plugins[0].source.ref → TAG; validate JSON.
-#   6. Ensure a marketplace-rc README.md exists.
-#   7. Show the diff, confirm y/N (skipped by --yes), then commit + push origin main.
+#   4. Await the tag's release-gate run; refuse unless it concluded success
+#      (read-only — runs in --dry-run too).
+#   5. Clone trustmybot/marketplace-rc into a temp dir (trap cleanup).
+#   6. Set .claude-plugin/marketplace.json plugins[0].source.ref → TAG; validate JSON.
+#   7. Ensure a marketplace-rc README.md exists.
+#   8. Show the diff, confirm y/N (skipped by --yes), then commit + push origin main.
 #
 # Idempotent + safety-checked:
 #   - Refuses any non-rc version.
 #   - Refuses if the rc tag is not on origin.
+#   - Refuses unless the tag's release-gate run concluded success (no bypass flag).
 #   - Never operates on a hardcoded local catalog path — always a fresh temp clone.
 #   - If the ref already points at TAG AND the README is present → prints
 #     'already published' and exits 0.
@@ -36,6 +39,9 @@ PLUGIN_REPO="https://github.com/trustmybot/plugin.git"
 CATALOG_REPO="https://github.com/trustmybot/marketplace-rc.git"
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# shellcheck source=scripts/lib/await-release-gate.sh
+. "$PLUGIN_ROOT/scripts/lib/await-release-gate.sh"
 
 # ---------- parse args ----------
 
@@ -92,6 +98,16 @@ if [ -z "$(git ls-remote --tags "$PLUGIN_REPO" "refs/tags/$TAG" 2>/dev/null)" ];
   printf "   then re-run this script.\n" >&2
   exit 1
 fi
+
+# ---------- await the tag-triggered release-gate verdict ----------
+#
+# Pushing the rc tag auto-fired .github/workflows/release-gate.yml. Refuse to
+# point the rc channel at a tag whose gate has not concluded success. Read-only,
+# so it runs in --dry-run too. No bypass flag: a red tag gate means roll back
+# the channel/tag and ship a new rc.
+
+printf "Checking the release-gate run for %s ...\n" "$TAG"
+await_release_gate "$TAG" || exit $?
 
 # ---------- clone the catalog into a temp dir ----------
 
