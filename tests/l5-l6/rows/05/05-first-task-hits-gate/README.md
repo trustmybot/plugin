@@ -1,6 +1,6 @@
 # 05-first-task-hits-gate
 
-**Scenario under test:** the user onboarded but `/scan` never ran (no `deep_scan_completed` audit row). User asks for a code change ("make a todo CLI"). Bro must run `/scan` (or `scan_run` directly) BEFORE `task_create_batch` — the world-model-cold gate enforces this server-side, and the test verifies bro responds correctly instead of waiving silently.
+**Scenario under test:** the user onboarded but `/scan` never ran (no `deep_scan_completed` audit row). User asks for a code change ("make a todo CLI"). Bro must run `/scan` (or `scan_run` directly) BEFORE it provisions any task — the world-model-cold gate enforces this server-side, and the test verifies bro responds correctly instead of waiving silently. Both task-creation paths are registry-gated: `task_create_batch` and the `task_provision` composite (bro's doctrine path). The gate fires whichever path bro reaches for.
 
 The row also asserts **bro's skill usage** (bro invoked `tmb_planning` this turn + at least one `agent_runs` row for `agent_type='bro'`) — folded in from the (now-retired) step 14 since these signals naturally land on any chain step that invokes tmb skills, and step 04 is the first such step. Skill usage is read from the stream-json run log via the `usage` scorer (`outcome-usage.json`), not the retiring `skill_invocations` table (#118/#119).
 
@@ -17,7 +17,7 @@ The prompt is a natural full-feature ask, so bro typically also dispatches SWE +
 | # | Speaker | Message |
 |---|---|---|
 | 1 | user | `@bro make a todo CLI by Python in src/cli.py with tests in tests/test_cli.py.\n\nDon't ask questions.` |
-| → | bro | tries `task_create_batch` → server returns `registry_cold_violation` → bro reads error → calls `scan_run` → re-tries `task_create_batch`. May continue to dispatch SWE + atomic-close in the same turn (allowed; step 05 owns its own assertion). |
+| → | bro | tries to provision a task (`task_provision`, its doctrine path — or `task_create_batch`) → server returns `registry_cold_violation` → bro reads error → calls `scan_run` → re-tries the provision. May continue to dispatch SWE + atomic-close in the same turn (allowed; step 05 owns its own assertion). |
 
 ## Pass criteria
 
@@ -31,4 +31,4 @@ The prompt is a natural full-feature ask, so bro typically also dispatches SWE +
 | `tools-forbidden.json` | (none) |
 | `cost-budget.json` | Soft 200K / 900s |
 
-**Failure modes captured:** (a) bro waives the gate via `waive_registry_gate=true` instead of running `scan_run` → the `deep_scan_completed` audit check fails; (b) bro skips the planning chain and never loads `tmb_planning` → the `usage` scorer fails on the run log.
+**Failure modes captured:** (a) bro waives the gate via `waive_registry_gate=true` instead of running `scan_run` → the `deep_scan_completed` audit check fails; (b) bro skips the planning chain and never loads `tmb_planning` → the `usage` scorer fails on the run log; (c) bro reaches for `task_provision` expecting it to bypass the gate — it no longer does, so the same `registry_cold_violation` fires and bro must still run `scan_run` first.

@@ -1965,6 +1965,126 @@ describe('task_provision (#157)', () => {
     assert.equal(r.isError, true);
     db.close();
   });
+
+  it('world-model-cold + no waiver: registry_cold_violation with zero side effects (#44)', async () => {
+    const { ws, repoRoot, git } = makeRepo();
+    try {
+      const db = tempDB({ seedScan: false });
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro',
+        issue_id: 1,
+        branch_id: 'feat/cold-thing',
+        decision_body: 'approach: x; trade-off y.',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+
+      assert.ok(r.isError, 'a cold world model with no waiver must be a tool error');
+      const out = parse(r) as Record<string, unknown>;
+      assert.equal(out['error'], 'registry_cold_violation');
+      assert.match(out['message'] as string, /task_provision/, 'message names the tool');
+      assert.match(out['message'] as string, /\/scan|scan_run/, 'message points at /scan or scan_run');
+
+      // No side effects: no task row, no discussion row, no branch ref.
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`)!.c, 0, 'no task row');
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM discussions WHERE issue_id = 1`)!.c, 0, 'no discussion row');
+      let branchExists = true;
+      try {
+        git(repoRoot, 'rev-parse', '--verify', '--quiet', 'refs/heads/feat/cold-thing');
+      } catch {
+        branchExists = false;
+      }
+      assert.equal(branchExists, false, 'no branch ref created');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('world-model-cold + waiver ≥10 chars: proceeds and records registry_gate_waived (#44)', async () => {
+    const { ws, repoRoot } = makeRepo();
+    try {
+      const db = tempDB({ seedScan: false });
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro',
+        issue_id: 1,
+        branch_id: 'feat/waived-thing',
+        decision_body: 'approach: x; trade-off y.',
+        waive_registry_gate: true,
+        waive_registry_gate_reason: 'scan cannot run in this sandbox',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      assert.equal(typeof (parse(r) as Record<string, unknown>)['task_id'], 'number');
+      const waived = db.get<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM audit WHERE issue_id = 1 AND event_type = 'registry_gate_waived'`,
+      );
+      assert.equal(waived!.c, 1, 'registry_gate_waived audit row recorded');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('world-model-cold + waiver <10 chars: rejected the same as task_create_batch (#44)', async () => {
+    const { ws, repoRoot } = makeRepo();
+    try {
+      const db = tempDB({ seedScan: false });
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro',
+        issue_id: 1,
+        branch_id: 'feat/short-reason',
+        decision_body: 'approach: x; trade-off y.',
+        waive_registry_gate: true,
+        waive_registry_gate_reason: 'too short',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+
+      assert.ok(r.isError, 'a short waiver reason must be a tool error');
+      assert.match(parse(r)['error'] as string, /waive_registry_gate_reason must be a string ≥10 chars/);
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`)!.c, 0, 'no task row');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('warm world model (deep_scan_completed present): behavior unchanged, proceeds (#44)', async () => {
+    const { ws, repoRoot } = makeRepo();
+    try {
+      const db = tempDB(); // default seeds a deep_scan_completed audit row
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro',
+        issue_id: 1,
+        branch_id: 'feat/warm-thing',
+        decision_body: 'approach: x; trade-off y.',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      assert.equal(typeof (parse(r) as Record<string, unknown>)['task_id'], 'number');
+      assert.equal(
+        db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'registry_gate_waived'`)!.c,
+        0,
+        'no waiver audit row on the warm path',
+      );
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('composite discussions route through insertDiscussion + embedAndStore (#986)', () => {

@@ -534,6 +534,16 @@ export function compositeTools(
             type: 'string',
             description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'.",
           },
+          waive_registry_gate: {
+            type: 'boolean',
+            description:
+              "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run.",
+          },
+          waive_registry_gate_reason: {
+            type: 'string',
+            description:
+              'Required when waive_registry_gate is true (min 10 chars): why the gate is unnecessary.',
+          },
           task: {
             type: 'object',
             description: 'The single task spec.',
@@ -651,6 +661,45 @@ export function compositeTools(
 
         const slug = branchId.replace(/^[^/]+\//, '');
 
+        // --- World-model-cold registry gate (MCP-level enforcement) ---
+        // /scan must have run at least once before bro can provision a task, so
+        // planning reasons from a populated world model rather than an empty
+        // `directories` table. Mirrors the task_create_batch contract (any
+        // deep_scan_completed audit row clears it; waivable). Placed before any
+        // git side effect so a gated call persists nothing.
+        const registryGateWaived = args['waive_registry_gate'] === true;
+        const registryGateWaiverReason = (args['waive_registry_gate_reason'] ?? '') as string;
+
+        if (registryGateWaived) {
+          if (
+            typeof registryGateWaiverReason !== 'string' ||
+            registryGateWaiverReason.trim().length < 10
+          ) {
+            return err('waive_registry_gate_reason must be a string ≥10 chars.');
+          }
+        } else {
+          const scanRow = db.get<{ c: number }>(
+            `SELECT COUNT(*) as c FROM audit WHERE event_type = 'deep_scan_completed'`,
+          );
+          if ((scanRow?.c ?? 0) === 0) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: 'registry_cold_violation',
+                    message:
+                      `task_provision: world-model-cold gate — no deep_scan_completed audit row exists. ` +
+                      `Run /scan (or call scan_run directly) to discover repos and populate the world model. ` +
+                      `For exceptional cases, pass waive_registry_gate=true with waive_registry_gate_reason="<why>".`,
+                  }),
+                },
+              ],
+            };
+          }
+        }
+
         // --- GIT SETUP BEFORE THE COMMIT (atomic guarantee) ---
         // Resolve the repo path + base ref and create the branch ref BEFORE
         // writing the task row. A git failure here returns an error and
@@ -730,10 +779,10 @@ export function compositeTools(
         // The branch ref now exists. Write the decision (satisfies the decision
         // gate) + create the single task via the same INSERT path
         // task_create_batch uses, with the bro agent_run row +
-        // planning_complete audit. The intent/scope/registry/branch/spec gates
-        // are waived internally: this composite IS bro's atomic planning, so
-        // those preconditions are subsumed here. Any DB error rolls back the
-        // whole transaction.
+        // planning_complete audit. The registry gate is enforced above; the
+        // intent/scope/branch/spec gates are waived internally: this composite
+        // IS bro's atomic planning, so those preconditions are subsumed here.
+        // Any DB error rolls back the whole transaction.
         const now = nowISO();
         const result = db.transaction(() => {
           insertDiscussion(db, { issue_id: issueId, author: agent, kind: 'decision', body: decisionBody, created_at: now });
@@ -782,6 +831,22 @@ export function compositeTools(
               now,
             ],
           );
+
+          if (registryGateWaived) {
+            db.run(
+              `INSERT INTO audit
+                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+               VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`,
+              [
+                issueId,
+                branchId,
+                agent,
+                registryGateWaiverReason.slice(0, 200),
+                JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
+                now,
+              ],
+            );
+          }
 
           return { task_id: row.id };
         });
