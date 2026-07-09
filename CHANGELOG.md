@@ -2,6 +2,14 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v0.10.0-rc.9 — 2026-07-09
+
+Ninth release candidate for v0.10.0 — closes the two release-gate holes that turned rc.8's tag run red.
+
+### Fixed
+- **task_provision enforces the world-model-cold registry gate** (#1080): closes the fail-open path where bro could provision a task on a cold world model without a `scan_run`.
+- **publish/release await the tag-gate verdict** (#1079): `publish-rc-channel.sh` and `release.sh` wait for the tag-triggered release-gate verdict and refuse on red — no more publishing before the gate reports.
+
 ## v0.10.0-rc.8 — 2026-07-07
 
 Eighth release candidate for v0.10.0 — a single intent-hints correctness fix.
